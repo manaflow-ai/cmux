@@ -24,22 +24,36 @@ import { useHoverCard } from "./useHoverCard";
 
 /// A path chip. `label` is the link's text, else the file name; `written` is the reply's own
 /// text, which a path that gets no chip draws as.
-export function PathChip({ path, label, written }: { path: string; label?: ReactNode; written?: string }) {
+export function PathChip({ path, label, written: text }: { path: string; label?: ReactNode; written?: string }) {
   const scope = useMessageScope();
+  // In another agent's message, a name the card wrote out in full draws as the agent wrote it; a
+  // link keeps its own label.
+  const written = (text === undefined ? undefined : scope?.written?.get(text)) ?? text;
   if (isDeniedPath(path)) return <span className="cv-chip-plain">{written ?? label ?? path}</span>;
   // Another machine's file: never asked about or opened here (chips/messageScope.ts).
   if (scope?.host !== undefined) return <ElsewhereChip path={path} host={scope.host} label={label} />;
-  return <HostPathChip path={path} label={label} written={written} />;
+  return <HostPathChip path={path} label={label} written={written} message={scope !== null} />;
 }
 
-function HostPathChip({ path, label, written }: { path: string; label?: ReactNode; written?: string }) {
+function HostPathChip({
+  path,
+  label,
+  written,
+  message,
+}: {
+  path: string;
+  label?: ReactNode;
+  written?: string;
+  message: boolean;
+}) {
   const { info, policy } = usePathInfo(path);
   const plain =
     info?.place === "denied" ||
     info?.place === "missing" ||
     (info?.place === "outside" && policy.outsideRoots === "text");
   if (plain) return <span className="cv-chip-plain">{written ?? label ?? path}</span>;
-  const outside = info?.place === "outside";
+  // In another agent's message an outside path that opens on its click is a chip like any other.
+  const outside = info?.place === "outside" && !(message && policy.outsideRoots === "open");
   const folder = info?.folder ?? path.endsWith("/");
   return (
     <button

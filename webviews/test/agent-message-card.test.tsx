@@ -1,8 +1,12 @@
 // l10n-allow-file: test fixtures.
-// Another agent's message, opened (conversation/IncomingMessageCard.tsx; Leo 2026-10-21: "just...
-// idk make it all look nicer"): its sender's signature is out, a pull request written twice in a
-// row is one chip, a commit SHA is quiet monospace, and a message from another machine names that
-// machine's files, which draw with its name and a lock and are never asked about here.
+// Another agent's message, opened (conversation/IncomingMessageCard.tsx; Leo 2026-10-21: "we can
+// render this with pics maybe and just... idk make it all look nicer" and "can you just enable all
+// these"): its sender's signature is out; every file it names is a chip that
+// opens it, through the reply chips' host calls, with no lock when outside paths open; an image is
+// also a thumbnail; a bare name is the file in the folder of the full path before it; a pull
+// request written twice in a row is one chip; a commit SHA is quiet monospace; and a message from
+// another machine names that machine's files, which draw with its name and a lock and are never
+// asked about here.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
@@ -108,18 +112,36 @@ async function render(
   return asked;
 }
 
-test("a message's signature is out, its PR one chip, its SHA quiet", async () => {
-  await render({}, [{ sessionId: "lane-1", name: "agent-message-style", cwd: "/w/cmux", hostKind: "local" }]);
+test("a message's files are chips that open, its images thumbnails, its PR one chip, its SHA quiet, no signature", async () => {
+  const asked = await render({}, [
+    { sessionId: "lane-1", name: "agent-message-style", cwd: "/w/cmux", hostKind: "local" },
+  ]);
   const body = host.querySelector(".cv-received__body")!;
-  expect(body.textContent!.startsWith("MERGED")).toBe(true);
-  expect(body.textContent).not.toContain("[agent-message-style]");
+  const chips = [...body.querySelectorAll<HTMLElement>("button.cv-chip.is-path")].map((chip) => chip.dataset.path);
+  expect(chips).toEqual(["/tmp/lane/before.png", "/tmp/lane/after.png", "/w/cmux/webviews/src/model.ts"]);
+  // Outside the chat's folders, but they open on a click: no lock.
+  expect(body.querySelector(".cv-chip__lock")).toBeNull();
+  // Both screenshots draw as thumbnails in the strip under the text, loaded through the host.
+  expect(body.querySelectorAll(".cv-received__pics .cv-thumb img")).toHaveLength(2);
+  expect(body.querySelectorAll(".cv-received__text .cv-thumb")).toHaveLength(0);
+  expect(asked.filter((call) => call.method === "image.load").map((call) => call.params.src)).toEqual([
+    "/tmp/lane/before.png",
+    "/tmp/lane/after.png",
+  ]);
+  // A click opens the file through the host's file route.
+  await act(async () =>
+    body.querySelector<HTMLButtonElement>('button.cv-chip[data-path="/tmp/lane/after.png"]')!.click(),
+  );
+  expect(asked.at(-1)).toEqual({ method: "link.openPath", params: { path: "/tmp/lane/after.png" } });
   // #23825 written twice in a row is one chip; the SHA is quiet text linking its commit.
   const refs = [...body.querySelectorAll(".cv-chip.is-ref")].map((chip) => chip.textContent);
   expect(refs).toEqual(["#23825"]);
   const sha = body.querySelector<HTMLAnchorElement>("a.cv-sha")!;
   expect(sha.textContent).toBe("4c656ea8");
   expect(sha.getAttribute("href")).toBe("https://github.com/manaflow-ai/cmux/commit/4c656ea8");
-  expect(body.querySelector(".cv-chip.is-elsewhere")).toBeNull();
+  // The sender's signature is out.
+  expect(body.textContent!.startsWith("MERGED")).toBe(true);
+  expect(body.textContent).not.toContain("[agent-message-style]");
 });
 
 test("a message from another machine names its files there: chips with a lock, never asked about here", async () => {
@@ -127,7 +149,7 @@ test("a message from another machine names its files there: chips with a lock, n
   const body = host.querySelector(".cv-received__body")!;
   expect(body.querySelector("button.cv-chip.is-path")).toBeNull();
   const elsewhere = [...body.querySelectorAll<HTMLElement>(".cv-chip.is-elsewhere")];
-  expect(elsewhere.map((chip) => chip.dataset.path)).toEqual(["/tmp/lane/before.png"]);
+  expect(elsewhere.map((chip) => chip.dataset.path)).toEqual(["/tmp/lane/before.png", "/tmp/lane/after.png"]);
   expect(elsewhere.every((chip) => chip.querySelector(".cv-chip__lock"))).toBe(true);
   expect(elsewhere[0]!.getAttribute("title")).toBe("On another machine: /tmp/lane/before.png");
   expect(body.querySelector(".cv-thumb")).toBeNull();
@@ -141,4 +163,22 @@ test("a message from another machine names its files there: chips with a lock, n
   ]);
   const named = host.querySelector<HTMLElement>(".cv-received__body .cv-chip.is-elsewhere")!;
   expect(named.getAttribute("title")).toBe("On air-blue: /tmp/lane/before.png");
+});
+
+test("a name the card wrote out in full that is not there draws as the agent wrote it", async () => {
+  // Paths no other test loads: an image's load is remembered across renders.
+  const text = "Screenshots: /tmp/gone/shown.png, lost.png and webviews/src/lost.ts.";
+  await render(
+    { text, raw: text },
+    [{ sessionId: "lane-1", name: "agent-message-style", cwd: "/w/cmux", hostKind: "local" }],
+    (path) => (path.includes("lost") ? "missing" : "outside"),
+  );
+  const body = host.querySelector(".cv-received__body")!;
+  const chips = [...body.querySelectorAll<HTMLElement>("button.cv-chip.is-path")].map((chip) => chip.dataset.path);
+  expect(chips).toEqual(["/tmp/gone/shown.png"]);
+  const plain = [...body.querySelectorAll(".cv-chip-plain")].map((span) => span.textContent);
+  expect(plain).toEqual(["lost.png", "webviews/src/lost.ts"]);
+  expect(body.textContent).not.toContain("/w/cmux/");
+  // The missing screenshot draws no thumbnail: its name in the text says enough.
+  expect(body.querySelectorAll(".cv-received__pics .cv-thumb")).toHaveLength(1);
 });

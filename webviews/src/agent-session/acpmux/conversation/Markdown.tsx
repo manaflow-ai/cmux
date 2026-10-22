@@ -23,7 +23,7 @@ import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
 import { codePath, linkPath, pathName, textLinks } from "../chips/paths";
-import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
+import { localImageSource, OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import "../../../markdown-task-checkbox.css";
 import { TaskCheckbox } from "../../../ui/TaskCheckbox";
 import {
@@ -281,8 +281,9 @@ export type InlineOptions = {
    *  commit when its repository is known (another agent's message, IncomingMessageCard.tsx). */
   commits?: "chip" | "quiet";
   /** An image path draws as a thumbnail too (default): under its sentence, or in its place in a
-   *  paragraph of images. Off, only its chip: another machine's files in another agent's message
-   *  (IncomingMessageCard.tsx). Markdown image syntax (`![shot](/a.png)`) still draws in place. */
+   *  paragraph of images. Off, only its chip: another agent's message draws its images in a strip
+   *  of its own (IncomingMessageCard.tsx), or not at all for another machine's files. Markdown
+   *  image syntax (`![shot](/a.png)`) still draws its image in place either way. */
   thumbnails?: boolean;
 };
 
@@ -664,6 +665,23 @@ function Thumbs({ items, opts }: { items: ThumbItem[]; opts: InlineOptions }) {
     </span>
   );
 }
+
+/// Thumbnails of `items` in one strip (`className`'s layout), each opened by a click: another
+/// agent's message draws the images it names under its text (IncomingMessageCard.tsx).
+export function ThumbStrip({ items, className }: { items: readonly ThumbItem[]; className: string }) {
+  return (
+    <div className={className}>
+      {items.map((item) =>
+        localImageSource(item.src) ? (
+          <ReplyImage key={item.src} src={item.src} alt={item.alt} fallback={null} thumb strip />
+        ) : (
+          <InlineImage key={item.src} source={`![${item.alt}](${item.src})`} opts={NO_OPTIONS} />
+        ),
+      )}
+    </div>
+  );
+}
+const NO_OPTIONS: InlineOptions = {};
 
 /// A data URL image over MAX_DATA_URL_LENGTH: its alt text (or "Image too large to show") with the
 /// image mark, never the URL itself.

@@ -248,7 +248,7 @@ export default agentPaneEntry({
       ]),
     },
     files: {
-      note: 'A lane\'s report, opened: its "[name]" signature is out, #23825 written twice is one chip, and the SHAs are quiet monospace.',
+      note: "A lane's report, opened: its \"[name]\" signature is out, #23825 written twice is one chip, the SHAs are quiet monospace, and every screenshot it names (a full path, then bare names in its folder) is a chip that opens it and a thumbnail; outside the chat's folders, with no lock.",
       chipHost: FILES_HOST,
       snapshot: chat([
         user("Ask the lanes for their reports", 9),
@@ -260,7 +260,7 @@ export default agentPaneEntry({
       play: openAll,
     },
     "files-elsewhere": {
-      note: "The same report relayed from another machine: its files are that machine's, so each is a chip with a lock that names it, never this Mac's file of the same path.",
+      note: "The same report relayed from another machine: its files are that machine's, so each is a chip with a lock and no thumbnail, never this Mac's file of the same path.",
       chipHost: FILES_HOST,
       snapshot: chat([
         user("Ask the lanes for their reports", 9),

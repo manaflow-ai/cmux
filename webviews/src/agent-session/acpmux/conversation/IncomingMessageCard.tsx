@@ -11,20 +11,23 @@
 // answers in place: the answer goes to the sending chat in the message's thread
 // (AcpmuxDirectClient.reply), from an editor under the card. An open reply and its draft last
 // while the page does too; closing the message closes the reply and keeps the draft.
-// The card is cleaner (Leo 2026-10-21: "just... idk make it all look nicer"): the sender's signature
-// ("[lane] …") is dropped, a pull request written twice in a row shows once (messageRefs.ts), a
-// commit SHA reads as quiet monospace, and a message from another machine names that machine's
-// files, which draw with its name and a lock (chips/messageScope.ts).
+// Every file the message names is a chip that opens it, and an image a thumbnail (Leo 2026-10-21:
+// "can you just enable all these"): a bare name or a relative path is written out from the folder
+// of the full path before it or from the sender's folder (messageFiles.ts), an outside path opens
+// without a lock, and a message from another machine names that machine's files, which draw with
+// its name and a lock (chips/messageScope.ts). A pull request written twice in a row shows once
+// (messageRefs.ts), and a commit SHA reads as quiet monospace.
 import { useContext, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { useT, type StringKey } from "../i18n";
 import { RECEIVED_LINES, type PromptImage } from "../model";
 import { unsigned, type IncomingMessage, type IncomingRelation } from "./incomingMessage";
+import { messageFiles, messageImages } from "./messageFiles";
 import { dedupeReferences } from "./messageRefs";
 import { PromptEditor, SentImages } from "./UserBubble";
 import { FindReveal } from "./chatFind";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { Bot, ChevronRight, TerminalSquare } from "./icons";
-import { Markdown } from "./Markdown";
+import { Markdown, ThumbStrip } from "./Markdown";
 import { AgentMark, agentBrand } from "../../shared/AgentMark";
 import { useSenderChat, useSenderPlace } from "../subagents/subsessions";
 import { MessageScopeContext, type MessageScope } from "../chips/messageScope";
@@ -102,8 +105,15 @@ export function IncomingMessageLine({
   // The machine the sender's files are on, when it is another (a peer's relayed message names none).
   const host = message.remote ? (place?.host ?? "") : place?.host;
   const repository = githubRepository ?? mentionedRepository(text);
-  const body = useMemo(() => dedupeReferences(text, repository), [text, repository]);
-  const scope = useMemo<MessageScope>(() => (host === undefined ? {} : { host }), [host]);
+  const files = useMemo(() => messageFiles(text, place?.cwd), [text, place?.cwd]);
+  const body = useMemo(() => dedupeReferences(files.text, repository), [files.text, repository]);
+  const scope = useMemo<MessageScope>(
+    () => (host === undefined ? { written: files.written } : { host, written: files.written }),
+    [host, files.written],
+  );
+  // Its screenshots, under the text where the six-line cut never hides them; none for another
+  // machine's files, which this Mac cannot read.
+  const pictures = useMemo(() => (host === undefined ? messageImages(body) : []), [body, host]);
   // Whether the text runs past `RECEIVED_LINES`, measured as drawn (its width and font decide).
   const textBox = useRef<HTMLDivElement>(null);
   const [long, setLong] = useState(false);
@@ -213,17 +223,18 @@ export function IncomingMessageLine({
         data-cut={cut || undefined}
         onClick={cut ? openCut : undefined}
       >
-        {/* The chips read whose files these are (chips/messageScope.ts). */}
+        {/* The chips and thumbnails read whose files these are (chips/messageScope.ts). */}
         <MessageScopeContext.Provider value={scope}>
           <div ref={textBox} className="cv-received__text">
             {text ? (
-              <Markdown githubRepository={repository} commits="quiet" thumbnails={host === undefined}>
+              <Markdown githubRepository={repository} commits="quiet" thumbnails={false}>
                 {body}
               </Markdown>
             ) : (
               t("message.noText")
             )}
           </div>
+          {pictures.length > 0 && <ThumbStrip items={pictures} className="cv-received__pics" />}
         </MessageScopeContext.Provider>
       </div>
       {open && raw !== undefined && (

@@ -1,6 +1,7 @@
 // Images in replies that are not data URLs (decision D5). The page loads no image itself (CSP
 // `img-src data:`, `connect-src 'none'`); the host reads or fetches it (`image.load`) and answers
-// a data URL. A file inside the session's folders loads at once; a web image follows
+// a data URL. A file inside the session's folders loads at once, and so does an image file outside
+// them (read-only) unless `agentPane.links.outsideRoots` is `text`; a web image follows
 // `agentPane.images.remote`: a placeholder with its site and "Load image" (click, the default),
 // its link only (never), or at once (always). Every web load uses the host's network rules.
 // A local image the host will not show (outside the folders, missing, or a failed load) draws as
@@ -124,16 +125,20 @@ function ThumbFrame({ state, children }: { state: "waiting" | "placeholder"; chi
 
 /// `fallback` is how the image draws when the pane will not show it (its name as a link or text).
 /// `thumb`: draw in the reply's fixed-shape thumbnail (Markdown.tsx), in every state.
+/// `strip`: one of the thumbnails under another agent's message (Markdown.tsx `ThumbStrip`): a file
+/// that is not there, or one the pane never shows, draws nothing, as its chip in the text says so.
 export function ReplyImage({
   src,
   alt,
   fallback,
   thumb = false,
+  strip = false,
 }: {
   src: string;
   alt: string;
   fallback: ReactNode;
   thumb?: boolean;
+  strip?: boolean;
 }) {
   const scope = useMessageScope();
   const local = localImageSource(src);
@@ -149,7 +154,7 @@ export function ReplyImage({
   const host = local ? undefined : remoteImageHost(src);
   if (!local && !host) return <>{fallback}</>;
   return local ? (
-    <LocalImage src={src} path={local} alt={alt} fallback={fallback} thumb={thumb} />
+    <LocalImage src={src} path={local} alt={alt} fallback={fallback} thumb={thumb} strip={strip} />
   ) : (
     <RemoteImage src={src} alt={alt} host={host!} fallback={fallback} thumb={thumb} />
   );
@@ -161,24 +166,32 @@ function LocalImage({
   alt,
   fallback,
   thumb,
+  strip,
 }: {
   src: string;
   path: string;
   alt: string;
   fallback: ReactNode;
   thumb: boolean;
+  strip: boolean;
 }) {
   const t = useT();
   const { info, answered, policy } = usePathInfo(path);
   const place = info?.place;
   const denied = place === "denied" || isDeniedPath(path);
-  // The host refuses a file outside the folders, so the page asks only for one it may show.
-  const loadable = answered && !denied && place !== "outside" && place !== "missing";
+  // An image outside the folders loads too (the host reads only a raster image there), except
+  // under `outsideRoots: "text"`; a refused or failed one draws as the outside card below.
+  const loadable =
+    answered && !denied && place !== "missing" && (place !== "outside" || policy.outsideRoots !== "text");
   const { state } = useImageLoad(src, loadable);
   if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} path={path} thumb={thumb} />;
+  // In a message's strip, an image the pane will not show draws nothing: its chip in the text says so.
+  if (strip && (denied || place === "missing" || state.kind === "failed" || (place === "outside" && !loadable)))
+    return null;
   if (denied) return <span className="cv-chip-plain">{alt || pathName(path)}</span>;
   const outside = place === "outside";
-  if (!outside && place !== "missing" && state.kind !== "failed")
+  // An outside image the host may still show waits in its frame: the lock is for one it refused.
+  if ((!outside || loadable) && place !== "missing" && state.kind !== "failed")
     return thumb ? (
       <ThumbFrame state="waiting">
         <ImageIcon size={18} className="cv-chip__icon" />

@@ -2147,6 +2147,20 @@ button.cv-received__name:focus-visible {
 .cv-received__text > .cv-md > :last-child {
   margin-bottom: 0;
 }
+/* The screenshots a message names (Leo 2026-10-21: "we can render this with pics"): a strip of
+   glass thumbnails under its text, outside the six-line cut, each opened by a click. Their size is
+   messageFiles.ts MESSAGE_THUMB, which model.ts estimates: change them together. */
+.cv-received__pics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.cv-received__pics .cv-thumb {
+  width: 160px;
+  height: 100px;
+  margin: 0;
+}
 /* A commit SHA in a message: quiet monospace, a link to its commit when its repository is known. */
 .cv-sha {
   font-family: var(--cv-code-font, var(--cv-mono));

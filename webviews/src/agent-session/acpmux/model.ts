@@ -7,7 +7,8 @@ import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
-import type { IncomingMessage, IncomingPrompt } from "./conversation/incomingMessage";
+import { unsigned, type IncomingMessage, type IncomingPrompt } from "./conversation/incomingMessage";
+import { messageFileText, messageImages, messageImagesHeight } from "./conversation/messageFiles";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
@@ -1014,12 +1015,19 @@ function measuredRowHeight(
   // tool row's line under `.cv-tools`' 2px margin (conversation/IncomingMessageCard.tsx). Each with
   // the row's message gap.
   // Its images' 120px row with 2px above and 6px below (UserBubble.tsx SENT_IMAGE_HEIGHT); no steer line.
+  // The screenshots its text names, in the card's strip under the text (messageFiles.ts): an
+  // estimate, as the row does not know the sender's folder or machine here; the drawn row measures
+  // itself.
   if (row.incoming?.kind === "message") {
     const { lineHeight } = metrics();
     const text = row.incoming.message.text;
     if (receivedPrepared.size > 256) receivedPrepared.clear();
     const lines = text ? textHeight(text, Math.max(80, width - 46), receivedPrepared) : lineHeight;
-    const card = 4 + 16 + Math.min(lines, RECEIVED_LINES * lineHeight) + 6;
+    const pictures = row.incoming.message.remote
+      ? 0
+      : messageImages(messageFileText(unsigned(text, row.incoming.message.name), undefined)).length;
+    const strip = messageImagesHeight(pictures, Math.max(80, width - 46));
+    const card = 4 + 16 + Math.min(lines, RECEIVED_LINES * lineHeight) + strip + 6;
     return 26 + 4 + card + MESSAGE_GAP + (row.images?.length ? 128 : 0);
   }
   if (row.incoming?.kind === "notice") return 2 + 26 + MESSAGE_GAP;
