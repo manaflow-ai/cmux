@@ -16,6 +16,13 @@ impl ChildAgent {
     /// translator answers what waits on the app-server, every pending
     /// request fails with `reason`, then the session hears of the exit.
     pub(super) async fn end_of_output(&self, inbound: &mpsc::Sender<Inbound>, reason: &str) {
+        self.close_translators(inbound).await;
+        self.finish(inbound, reason).await;
+    }
+
+    /// Claude's background shells end, and the Codex translator answers
+    /// what waits on the app-server.
+    async fn close_translators(&self, inbound: &mpsc::Sender<Inbound>) {
         // Claude's background shells ended with it (cx-ncc.84).
         if let Some(tr) = &self.translator {
             for m in tr.end_background_shells().await {
@@ -31,6 +38,10 @@ impl ChildAgent {
             let closed = crate::codex_app_server::split(cx.tr.server_closed("it exited"));
             self.codex_to_hub(cx, closed.hub).await;
         }
+    }
+
+    /// Every pending request fails with `reason`, then the session hears of the exit.
+    async fn finish(&self, inbound: &mpsc::Sender<Inbound>, reason: &str) {
         self.fail_pending(reason).await;
         let code = self.wait_exit().await;
         let _ = inbound.send(Inbound::Exited { pid: self.pid, code, host_seq: None }).await;
@@ -53,7 +64,11 @@ impl ChildAgent {
         let label = "acpmux agent reader";
         if cmux_panic_log::supervise::catch_future(label, reader).await.is_err() {
             self.kill().await;
-            self.end_of_output(&inbound, "agent reader failed").await;
+            // The translators may be what panicked: a second panic there
+            // must not skip the end that frees the waiters.
+            let close = self.close_translators(&inbound);
+            let _ = cmux_panic_log::supervise::catch_future("acpmux agent reader end", close).await;
+            self.finish(&inbound, "agent reader failed").await;
         }
     }
 
@@ -64,10 +79,12 @@ impl ChildAgent {
     pub(super) async fn supervise_host_reader(self: Arc<Self>, read: impl Future<Output = ()>) {
         let label = "acpmux agent host reader";
         if cmux_panic_log::supervise::catch_future(label, read).await.is_err() {
+            // Failed before the link is broken: a reattach that starts at
+            // once keeps the requests it registers.
+            self.fail_pending("agent host reader failed").await;
             if let Some(hosted) = self.hosted.as_ref() {
                 hosted.broken.store(true, Ordering::SeqCst);
             }
-            self.fail_pending("agent host reader failed").await;
         }
     }
 }

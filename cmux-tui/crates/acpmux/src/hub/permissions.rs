@@ -51,13 +51,13 @@ impl Hub {
                     let ask = (m == method::SESSION_REQUEST_PERMISSION)
                         .then(|| super::permission_groups::AskInFlight::new(&session));
                     tokio::spawn(async move {
-                        // A panic still answers the agent: it never waits forever.
-                        let answer = id.clone();
+                        // A panic still answers the agent that asked: it never waits forever.
+                        let (answer, asked) = (id.clone(), s.child.lock().await.clone());
                         let request =
                             hub.on_agent_request(s.clone(), id, m, params, epoch, turn_id, ask);
                         let label = "acpmux agent request";
                         if cmux_panic_log::supervise::catch_future(label, request).await.is_err()
-                            && let Some(child) = s.child.lock().await.clone()
+                            && let Some(child) = asked
                         {
                             let failed = RpcError::internal("internal error: the request panicked");
                             let _ = child.respond(answer, Err(failed)).await;

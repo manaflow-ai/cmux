@@ -381,7 +381,10 @@ impl ProxiedCall {
     /// is a tool error too (cmux-panic-log `supervise`): the client always
     /// gets an answer.
     pub(super) fn run(self, cap: Option<Duration>) -> Value {
+        let inner = self.inner.clone();
         cmux_panic_log::supervise::catch("mcp tools/call", || self.call(cap)).unwrap_or_else(|_| {
+            // Its connection may hold a half-read reply: start it again next call.
+            inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner).conn = None;
             let error = json!({"code": "internal", "message": "internal error: the tool call panicked",
                 "details": {}, "retryable": false});
             // The call may have reached the server: its outcome is not known.
