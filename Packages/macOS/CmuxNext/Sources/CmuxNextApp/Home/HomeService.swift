@@ -78,6 +78,11 @@ final class HomeService {
     var cloudChief: CloudChief? { prefersLocalChief ? nil : tabChiefs.shown(choice: hostedChief.choice) }
     /// This Mac's optchat-chief runs, as the brain keeper's last report or the last Chief tab check saw it (HomeService+ChiefDefault).
     var localChiefRunning = false
+    /// The first Chief tab check this launch read the cloud Chiefs; a Home open's ask that came before it waits
+    /// (``startsLocalBrain(for:)``, ``waitingHomeAsk``). `signedInToCloud` overrides the sign-in read (tests).
+    @ObservationIgnored var cloudChiefsChecked = false
+    @ObservationIgnored var waitingHomeAsk: Bool?
+    @ObservationIgnored var signedInToCloud: (@MainActor () -> Bool)?
     /// The cloud Chiefs the Chief tab may show: without the Hosted Chief while
     /// this Mac's history is still being copied into it (the local Chief stays).
     var tabChiefs: HomeCloudChiefs { hostedChief.pending ? HomeCloudChiefs(hosted: nil, placed: cloudChiefs.placed) : cloudChiefs }
@@ -226,7 +231,7 @@ final class HomeService {
             publishAppLinks()
             observeActivation()
         }
-        if startsLocalBrain(for: conversation) { brain.ensure(asked: asked) }
+        ensureLocalBrain(asked: asked, for: conversation)
     }
 
     /// The open session for `conversation`, loaded on first use.

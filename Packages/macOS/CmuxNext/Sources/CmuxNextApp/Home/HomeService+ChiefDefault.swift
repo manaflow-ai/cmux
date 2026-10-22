@@ -20,9 +20,39 @@ extension HomeService {
     /// never for a cloud Chief's conversation, and for Home itself only while the default Chief
     /// resolves to this Mac's. A host started under the Hosted Chief would turn Auto into this
     /// Mac's Chief at the next Chief tab check (review of #23813).
+    ///
+    /// Signed in, before the first Chief tab check read the cloud Chiefs, Home shows this Mac's Chief only
+    /// because the Hosted Chief is not known yet: no host starts then (unless this Mac's Chief is the default
+    /// already), and the check asks again once it knows (``noteCloudChiefsChecked()``).
     func startsLocalBrain(for conversation: String?) -> Bool {
-        guard let conversation else { return cloudChief == nil }
-        return cloudChiefs.chief(for: conversation) == nil
+        if let conversation, cloudChiefs.chief(for: conversation) != nil { return false }
+        if cloudChiefsUnknown, !prefersLocalChief { return false }
+        return conversation != nil || cloudChief == nil
+    }
+
+    /// Signed in and the cloud Chiefs not read yet this launch: the Hosted Chief may still take Home.
+    var cloudChiefsUnknown: Bool {
+        !cloudChiefsChecked && (signedInToCloud?() ?? services.cloud.auth.isSignedIn)
+    }
+
+    /// Home opened showing `conversation`: starts this Mac's host when ``startsLocalBrain(for:)`` says so,
+    /// else, while the cloud Chiefs are unknown, keeps the ask for ``noteCloudChiefsChecked()``.
+    func ensureLocalBrain(asked: Bool, for conversation: String?) {
+        if startsLocalBrain(for: conversation) {
+            brain.ensure(asked: asked)
+        } else if cloudChiefsUnknown {
+            waitingHomeAsk = (waitingHomeAsk ?? false) || asked
+        }
+    }
+
+    /// The first Chief tab check knows the cloud Chiefs: an ask that waited for it starts this Mac's host
+    /// only if Home itself now shows this Mac's Chief.
+    func noteCloudChiefsChecked() {
+        guard !cloudChiefsChecked else { return }
+        cloudChiefsChecked = true
+        guard let asked = waitingHomeAsk else { return }
+        waitingHomeAsk = nil
+        if startsLocalBrain(for: nil) { brain.ensure(asked: asked) }
     }
 
     /// The brain keeper reports this Mac's host as it starts, exits for good or is shut down

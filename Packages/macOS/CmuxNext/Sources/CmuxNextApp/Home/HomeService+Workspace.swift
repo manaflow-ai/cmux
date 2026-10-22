@@ -120,6 +120,7 @@ extension HomeService {
         let local = services.machines.local
         guard local.supports(DaemonCapabilities.shared.conversationTabs) else {
             homeWorkspaceStep = "no chief tab: the daemon lacks conversation tabs"
+            noteCloudChiefsChecked()
             return
         }
         // A cloud Chief answers in its cloud main conversation: the Hosted
@@ -136,6 +137,7 @@ extension HomeService {
         // The default Chief is this Mac's while its optchat-chief runs (HomeService+ChiefDefault). The
         // copy above runs once: after it the two Chiefs' histories grow apart and a switch never merges them.
         await refreshLocalChiefRunning()
+        noteCloudChiefsChecked()
         let cloud = tabChiefs
         let shown = cloudChief
         // Local conversations live in the Chief home's owner, not this build's

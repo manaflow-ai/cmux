@@ -16,6 +16,7 @@ struct HomeChiefDefaultHostTests {
 
     @Test func showingTheHostedChiefNeverStartsThisMacsHost() {
         let home = HomeChiefDefaultTests.services().home
+        home.noteCloudChiefsChecked()
         home.setCloudChiefs(HomeCloudChiefs(hosted: HomeChiefDefaultTests.hosted))
         home.localChiefRunning = false
         #expect(!home.startsLocalBrain(for: "conv_hosted"), "the Hosted Chief's conversation")
@@ -31,6 +32,28 @@ struct HomeChiefDefaultHostTests {
         #expect(home.startsLocalBrain(for: nil))
     }
 
+    /// At launch Home can show this Mac's Chief before the first Chief tab check reads the cloud Chiefs; a
+    /// host started then would keep Auto on this Mac's Chief once the Hosted Chief is known.
+    @Test func beforeTheCloudChiefsAreReadHomeStartsNoHost() {
+        let home = HomeChiefDefaultTests.services().home
+        home.signedInToCloud = { true }
+        home.localChiefRunning = false
+        #expect(!home.startsLocalBrain(for: nil))
+        #expect(!home.startsLocalBrain(for: HomeChiefDefaultTests.local), "Home's first conversation, the Hosted Chief not known yet")
+        home.ensureLocalBrain(asked: true, for: HomeChiefDefaultTests.local)
+        #expect(home.waitingHomeAsk == true, "the ask waits for the check")
+        // The check finds the Hosted Chief: the waited ask starts nothing, and Home keeps showing the Hosted Chief.
+        home.setCloudChiefs(HomeCloudChiefs(hosted: HomeChiefDefaultTests.hosted))
+        home.noteCloudChiefsChecked()
+        #expect(home.waitingHomeAsk == nil)
+        #expect(!home.localChiefRunning && home.cloudChief == HomeChiefDefaultTests.hosted)
+        #expect(!home.startsLocalBrain(for: nil))
+        #expect(home.startsLocalBrain(for: HomeChiefDefaultTests.local), "the person opens this Mac's Chief")
+        // Signed in without a cloud Chief: Home's Chief is this Mac's and starts as before.
+        home.setCloudChiefs(HomeCloudChiefs())
+        #expect(home.startsLocalBrain(for: nil))
+    }
+
     // MARK: The running state follows the brain keeper
 
     @Test func aChangeOfTheRunningStateReRunsTheChiefTabCheck() {
@@ -42,7 +65,8 @@ struct HomeChiefDefaultHostTests {
         let fired = ChiefDefaultFlag()
         withObservationTracking { _ = home.prefersLocalChief } onChange: { fired.set() }
         // The keeper saw the host exit for good (a crash past its retries, `cmux chief shutdown`).
-        home.noteLocalChiefHost(running: false)
+        home.wireChiefDefault()
+        home.brain.onHostChange?(false)
         #expect(fired.value, "the Chief tab check runs again")
         #expect(home.cloudChief == HomeChiefDefaultTests.hosted, "Auto falls back to the Hosted Chief")
         // No change, no new check.
