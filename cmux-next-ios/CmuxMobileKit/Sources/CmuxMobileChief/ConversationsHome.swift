@@ -71,7 +71,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// The Mac's list as its sidebar lays it out, under the search and the Unread toggle.
     private var list: MacHomeList { MacHomeList(feed.rows ?? [], query: query, unreadOnly: unreadOnly) }
 
-    /// The Cloud Chief, first in the grid (the Mac's Main Chief), while it answers and passes the filters.
+    /// The Cloud Chief (the Mac lists it as its Main Chief, "Main · Cloud", among the rows by its
+    /// newest message), while it answers and passes the filters.
     private var showsCloudChief: Bool {
         guard sources.isCloudReady else { return false }
         if unreadOnly, sources.cloud.unreadCount == 0 { return false }
@@ -101,8 +102,44 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         return Self.initials(row.title)
     }
 
-    /// The tag after a row's name, as the Mac's list draws it: where a Chief runs.
-    private func tag(_ row: MacHomeRow) -> String? { row.kind == .chief ? macTag : nil }
+    /// The tag after a row's name, as the Mac's list draws it (`HomeChiefRoster.tag`): "Main" for
+    /// the main Chief (the Cloud Chief when there is one, else this Mac's), then where a Chief runs.
+    private func tag(_ row: MacHomeRow) -> String? {
+        guard row.kind == .chief else { return nil }
+        return chiefTag(main: !sources.isCloudReady && row.id == sources.mac.conversationID, place: macTag)
+    }
+
+    private func chiefTag(main: Bool, place: String?) -> String? {
+        let parts = [main ? String(localized: "Main") : nil, place].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
+    }
+
+    /// One row of Home: a row of the Mac's list, the Cloud Chief, or the Mac Chief before the list arrives.
+    enum Entry: Identifiable {
+        case row(MacHomeRow)
+        case cloud
+        case macChief
+        var id: String {
+            switch self {
+            case let .row(row): row.id
+            case .cloud: "cloud-chief"
+            case .macChief: "mac-chief"
+            }
+        }
+    }
+
+    /// The rows in the Mac's order, with the Cloud Chief (and, before the list arrives, the Mac
+    /// Chief) placed among the unpinned rows by its newest message, as the Mac merges its owners.
+    private func entries(_ list: MacHomeList) -> [Entry] {
+        var entries = list.rows.map(Entry.row)
+        func place(_ entry: Entry, at date: Date) {
+            let index = entries.firstIndex { if case let .row(row) = $0 { return !row.isPinned && row.activityAt < date }; return false }
+            entries.insert(entry, at: index ?? entries.endIndex)
+        }
+        if let mac = fallbackMacChief { place(.macChief, at: mac.lastMessage?.sentAt ?? .distantPast) }
+        if showsCloudChief { place(.cloud, at: sources.cloud.lastMessage?.sentAt ?? .distantPast) }
+        return entries
+    }
 
     static func initials(_ name: String) -> String {
         let words = name.split(whereSeparator: \.isWhitespace)
@@ -153,40 +190,37 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     .listRowBackground(theme.colors.bg.color)
                     .accessibilityIdentifier("home.chief.changeError")
             }
-            if searching, showsCloudChief {
-                Button { open(.chief(.cloud)) } label: {
-                    MessagesRow(title: primaryName, subtitle: String(localized: "Cloud"), preview: plainPreview(sources.cloud.preview),
-                                stamp: sources.cloud.lastMessage.map { stamp.string(for: $0.sentAt) } ?? "",
-                                isUnread: sources.cloud.unreadCount > 0, isMuted: sources.cloud.isMuted, needsYou: false) { size in
-                        ChiefAvatar(text: sources.cloud.avatar, size: size)
+            let entries = entries(list)
+            ForEach(entries) { entry in
+                switch entry {
+                case let .row(row):
+                    Button { open(route(row)) } label: {
+                        MessagesRow(title: row.title, subtitle: tag(row), preview: row.preview,
+                                    stamp: row.activityAt > .distantPast ? stamp.string(for: row.activityAt) : "",
+                                    isUnread: row.unreadCount > 0, isMuted: row.isMuted, needsYou: false,
+                                    isTyping: row.isWorking) { size in
+                            ChiefAvatar(text: avatarText(row), size: size)
+                        }
                     }
+                    .buttonStyle(.plain)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
+                    .listRowBackground(theme.colors.bg.color)
+                    .contextMenu { rowMenu(row) }
+                    .accessibilityIdentifier(row.id == sources.mac.conversationID ? "home.chief.mac" : "home.row.\(row.id)")
+                case .cloud:
+                    sessionRow(sources.cloud, name: primaryName, tag: chiefTag(main: true, place: String(localized: "Cloud")),
+                               stamp: stamp, identifier: "home.chief", place: .cloud) { cloudTileMenu }
+                case .macChief:
+                    sessionRow(sources.mac, name: String(localized: "Chief"), tag: chiefTag(main: !sources.isCloudReady, place: macTag),
+                               stamp: stamp, identifier: "home.chief.mac", place: .mac) { EmptyView() }
                 }
-                .buttonStyle(.plain)
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
-                .listRowBackground(theme.colors.bg.color)
-                .accessibilityIdentifier("home.row.cloudChief")
-            }
-            ForEach(list.rows) { row in
-                Button { open(route(row)) } label: {
-                    MessagesRow(title: row.title, subtitle: tag(row), preview: row.preview,
-                                stamp: row.activityAt > .distantPast ? stamp.string(for: row.activityAt) : "",
-                                isUnread: row.unreadCount > 0, isMuted: row.isMuted, needsYou: false,
-                                isTyping: row.isWorking) { size in
-                        ChiefAvatar(text: avatarText(row), size: size)
-                    }
-                }
-                .buttonStyle(.plain)
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
-                .listRowBackground(theme.colors.bg.color)
-                .contextMenu { rowMenu(row) }
-                .accessibilityIdentifier("home.row.\(row.id)")
             }
             if let problem = feed.problem, !searching {
                 note(String(localized: "Couldn't read this Mac's Home: \(problem)"), identifier: "home.note.problem")
             } else if feed.rows == nil, homeMacID != nil, !searching {
                 note(String(localized: "Connecting to \(macTag ?? String(localized: "your Mac"))…"), identifier: "home.note.connecting")
             }
-            if tiles.isEmpty, list.rows.isEmpty, !(searching && showsCloudChief), feed.rows != nil || searching || unreadOnly {
+            if tiles.isEmpty, entries.isEmpty, feed.rows != nil || searching || unreadOnly {
                 Text(unreadOnly ? "No Unread Conversations" : searching ? "No Results" : "No Conversations")
                     .font(.callout)
                     .foregroundStyle(theme.colors.label2.color)
@@ -261,25 +295,10 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .animation(theme.motion.smooth.animation, value: list)
     }
 
-    /// The grid's tiles: the Cloud Chief, then the Mac's pinned conversations
-    /// (or its Chief while the list is not read yet). Each tile is its own
-    /// button, so a tap opens that tile only.
+    /// The grid's tiles: the Mac's pinned conversations in the owner's order.
+    /// Each tile is its own button, so a tap opens that tile only.
     private func pinnedTiles(_ list: MacHomeList) -> [HomeTile] {
         var tiles: [HomeTile] = []
-        if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, showsCloudChief {
-            let cloud = sources.cloud
-            tiles.append(HomeTile(id: "cloud", avatar: cloud.avatar, name: primaryName, detail: String(localized: "Cloud"),
-                                  unread: cloud.unreadCount > 0, working: cloud.isWorking,
-                                  bubble: cloud.unreadCount > 0 || cloud.isWaitingOnYou ? plainPreview(cloud.preview) : nil,
-                                  muted: cloud.isMuted, identifier: "home.chief", open: { open(.chief(.cloud)) },
-                                  menu: AnyView(cloudTileMenu)))
-        }
-        if let mac = fallbackMacChief {
-            tiles.append(HomeTile(id: "mac", avatar: mac.avatar, name: String(localized: "Chief"), detail: macTag,
-                                  unread: mac.unreadCount > 0, working: mac.isWorking,
-                                  bubble: mac.unreadCount > 0 || mac.isWaitingOnYou ? plainPreview(mac.preview) : nil,
-                                  muted: mac.isMuted, identifier: "home.chief.mac", open: { open(.chief(.mac)) }, menu: nil))
-        }
         for row in list.pinned {
             let isMacChief = row.id == sources.mac.conversationID
             tiles.append(HomeTile(id: row.id, avatar: avatarText(row), name: row.title, detail: tag(row),
@@ -289,6 +308,24 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                                   open: { open(route(row)) }, menu: AnyView(rowMenu(row))))
         }
         return tiles
+    }
+
+    /// A Chief the phone holds itself (the Cloud Chief, or the Mac Chief before the list arrives) as a row.
+    private func sessionRow<Menu: View>(_ chief: ChiefSession, name: String, tag: String?, stamp: MessagesStamp, identifier: String,
+                                        place: ChiefRoute.Place, @ViewBuilder menu: () -> Menu) -> some View {
+        Button { open(.chief(place)) } label: {
+            MessagesRow(title: name, subtitle: tag, preview: plainPreview(chief.preview),
+                        stamp: chief.lastMessage.map { stamp.string(for: $0.sentAt) } ?? "",
+                        isUnread: chief.unreadCount > 0, isMuted: chief.isMuted, needsYou: chief.needsYou,
+                        isTyping: chief.isWorking) { size in
+                ChiefAvatar(text: chief.avatar, size: size)
+            }
+        }
+        .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
+        .listRowBackground(theme.colors.bg.color)
+        .contextMenu { menu() }
+        .accessibilityIdentifier(identifier)
     }
 
     /// The Mac's row menu, the actions that are the person's list state:
