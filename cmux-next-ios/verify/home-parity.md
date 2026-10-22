@@ -42,9 +42,11 @@ order, unread or Chief state of its own, so the two lists cannot drift.
 
 ## iPhone Home now
 
-- The pinned grid: the Cloud Chief first (the Mac lists the Hosted Chief as its Main Chief, tagged
-  "Cloud"), then the Mac's pinned conversations in the owner's order, 3 per row, up to 9.
-- Then every other conversation of the Mac's list in the owner's order, as Messages rows.
+- The pinned grid: the Mac's pinned conversations in the owner's order, 3 per row, up to 9.
+- Then every other conversation of the Mac's list in the owner's order, as Messages rows. The
+  Cloud Chief is one of them, tagged "Main · Cloud" and placed by its newest message, as the Mac
+  merges its Cloud rows; a Chief of this Mac is tagged with the Mac's name where the Mac says
+  "This Mac".
 - Search (pull-down drawer), the Unread toggle and compose in the bar. Compose opens the Chief
   with the keyboard up, as before (the phone starts no conversations).
 - Long-press menu on a tile or row: Pin / Unpin, Mark as Read / Mark as Unread. Both write the
@@ -62,12 +64,13 @@ order, unread or Chief state of its own, so the two lists cannot drift.
 | macOS element | iPhone element | Notes |
 | --- | --- | --- |
 | Pinned grid, owner's pin order, ≤ 9 tiles | Pinned grid (`LazyVGrid`, 3 columns), same order, ≤ 9 | `MacHomeList` |
-| Main Chief first (Hosted Chief, "Cloud") | Cloud Chief tile first, detail "Cloud" | From the account's Cloud, as before |
+| Hosted Chief row "Chief · Main · Cloud", by time | Cloud Chief row "Main · Cloud", by time | From the account's Cloud, as before |
 | Tile: avatar, name, typing bubble, preview bubble, unread dot, muted | Same | Typing from `chief_state == working` |
 | Rows newest first | Same order (the owner's) | |
 | Row title (`name`, else "Untitled") | Same | |
 | Chief tag "This Mac" | The Mac's name (as Workspaces names it) | "This Mac" would be wrong on a phone |
-| Chief tag "Main" | Not shown | The Mac's main-Chief choice is not on the wire |
+| Chief tag "Main" | "Main" on the Cloud Chief (else on the Mac's Chief) | The Mac's own main-Chief choice is not on the wire; the phone uses the same rule as `HomeChiefRoster.make` (Hosted Chief, else this Mac's) |
+| Chief's avatar (picture or pet) | Avatar text ("C") | Pictures are not read over the link (known gap) |
 | Time label | Same rules (`MessagesStamp`) | |
 | Preview (Markdown without markers) | Same | Reactions' "X loved …" text is not in `home-inbox` |
 | Unread dot / count, Mark as Unread | Same (`max(unread, marked ? 1 : 0)`) | |
@@ -87,6 +90,29 @@ What the phone leaves out is what the `chief` channel policy refuses on purpose
 (`cmux-next-ios/rust/crates/cmux-mobile-host/src/chief_policy.rs`): conversations with another
 human, the person's Cloud inbox, and Mac-only actions.
 
-## Screenshots
+## Live check (simulator and a hidden rig Mac over the real link)
 
-See "Live check" below.
+- Phone: one headless iOS 26.5 simulator on mini-cmux15, Demo build of this branch (built on mini-cmux8s).
+- Mac: the hidden rig app `cmux-mobile-e2e-0ca9584e` on mini-cmux15 (isolated config, `open -g -j`),
+  started with this branch's `cmux-mobile-host` (`CMUX_NEXT_MOBILE_HOST_BIN`). Same dev account.
+- Path: phone → WireGuard (TURN) → `cmux-mobile-host` → the Chief home daemon. No local socket.
+- Driver: `verify/multimac/home_parity_live.py --rig local`. It reads the Mac's own `home-inbox` on the
+  Mac and takes the Mac window's snapshot through its debug socket, never through the phone.
+
+| Step | Phone | Mac (read on the Mac) |
+| --- | --- | --- |
+| Home | Chief (cmux's Mac mini (4), 3:27 PM), then Chief · Main · Cloud. No agent-chat rows. | Chief · This Mac (3:27 PM), then Chief · Main · Cloud |
+| Pin on the phone | Chief moves into the pinned grid | `pinned: true`; the Mac's grid shows Chief |
+| Mark as Unread on the phone | Unread dot on the tile | `marked_unread: true`; the Mac's tile shows the dot |
+| Mark as Read on the phone | Dot gone | `marked_unread: false` |
+| Unpin on the phone | Back among the rows | `pinned: false` |
+
+Result: PASS. Stills, phone left and Mac right (the Mac crop is its Home list only):
+
+![Home](home-parity/01-home.jpg)
+![Pinned from the phone](home-parity/02-pinned.jpg)
+![Marked unread from the phone](home-parity/03-marked-unread.jpg)
+![Unpinned from the phone](home-parity/04-unpinned.jpg)
+
+Seen differences: the Mac draws its Chiefs' pet avatar, the phone the avatar text; the Mac shows the
+Cloud Chief's time ("Yesterday"), the phone none until the Cloud Chief's conversation loads.
