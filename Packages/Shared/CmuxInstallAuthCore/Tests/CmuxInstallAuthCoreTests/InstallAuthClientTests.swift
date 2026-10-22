@@ -56,6 +56,8 @@ actor FakeOwner: InstallAuthTransport {
     var replyTeamOverride: String?
     var claimOverrides: [String: String] = [:]
 
+    /// The count crosses the actor boundary, not the dictionary: swift-crypto's keys are not Sendable on Linux.
+    var installCount: Int { installs.count }
     func revoke(_ install: String) { revoked.insert(install) }
     func setFailNextChallenge() { failNextChallenge = true }
     func setPrefixOverride(_ value: String) { prefixOverride = value }
@@ -222,7 +224,7 @@ func makeClient(_ owner: FakeOwner, _ signer: SoftwareSigner, record: InstallRec
         let again = makeClient(owner, signer)
         _ = try await again.installToken()
         #expect(await again.currentRecord?.install == "inst_1")
-        #expect(await owner.installs.count == 1)
+        #expect(await owner.installCount == 1)
     }
 
     @Test func aRevokedInstallRegistersAgainWithANewKey() async throws {
@@ -338,7 +340,7 @@ func makeClient(_ owner: FakeOwner, _ signer: SoftwareSigner, record: InstallRec
         await #expect(throws: InstallAuthError.clientTooOld(minimumVersion: "2.4.0")) { try await old.installToken() }
         // Not a revoked install: the key is kept and nothing registers again.
         #expect(await signer.rotations == 0)
-        #expect(await owner.installs.count == 1)
+        #expect(await owner.installCount == 1)
         // Without a version the owner refuses too; the same install mints once updated.
         let record = await old.currentRecord
         await #expect(throws: InstallAuthError.clientTooOld(minimumVersion: "2.4.0")) {
