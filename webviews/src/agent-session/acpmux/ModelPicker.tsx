@@ -198,6 +198,28 @@ const emptyNote = "px-2.5 py-2 text-body text-muted";
 const updateButton =
   "flex h-[var(--ui-row-height,28px)] flex-none cursor-pointer items-center rounded-[var(--ui-row-radius,5px)] border-0 px-2 font-[inherit] text-control text-fg";
 
+/// The model button's fast-tier mark: a 12 px outline bolt in the label's ink (modelPicker.css
+/// `.acpmux-model-bolt`), no fill and no disc.
+function FastBolt() {
+  return (
+    <svg
+      className="acpmux-model-bolt"
+      width={12}
+      height={12}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M9.2 1.5 3.6 9h4.1l-1 5.5L12.4 7H8.3Z" />
+    </svg>
+  );
+}
+
 function StarGlyph({ filled, size }: { filled: boolean; size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true" className="block">
@@ -235,6 +257,7 @@ export function ModelPicker(props: ModelPickerProps) {
     quick,
     detail,
     detailShort,
+    fastBolt,
   } = props;
   /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
   const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
@@ -252,6 +275,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const starredText = t("picker.starred");
   const addHarnessText = t("modelPicker.addHarness");
   const fastText = t("picker.fastOn");
+  const fastModeText = t("picker.fastModeSection");
   const unavailableText = t("picker.unavailable");
   const modelRowId = (id: string) => `${menuId}-model-${encodeURIComponent(id)}`;
   const [open, setOpen] = useState(false);
@@ -738,6 +762,8 @@ export function ModelPicker(props: ModelPickerProps) {
   const chipFace = (
     <>
       <AgentMark agent={chipHarness} size={15} />
+      {/* Codex's fast tier, before the name (Leo 2026-10-21): a glyph, never a control. */}
+      {fastBolt && <FastBolt />}
       <span
         className="acpmux-model-name"
         {...(chipShort
@@ -793,7 +819,7 @@ export function ModelPicker(props: ModelPickerProps) {
             "data-menu": modelText,
             label: modelText,
             /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
-            title: [chipLabel, usage, updateText].filter(Boolean).join(" · "),
+            title: [chipLabel, fastBolt ? fastModeText : undefined, usage, updateText].filter(Boolean).join(" · "),
           }}
           menu={{
             ...quick,
@@ -848,7 +874,7 @@ export function ModelPicker(props: ModelPickerProps) {
           data-menu={modelText}
           aria-label={modelText}
           /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
-          title={[chipLabel, usage, updateText].filter(Boolean).join(" · ")}
+          title={[chipLabel, fastBolt ? fastModeText : undefined, usage, updateText].filter(Boolean).join(" · ")}
           aria-haspopup="dialog"
           aria-expanded={open}
           aria-controls={open ? menuId : undefined}

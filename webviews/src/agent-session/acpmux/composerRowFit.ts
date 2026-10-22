@@ -4,8 +4,8 @@ import { type RefObject, useLayoutEffect } from "react";
 // narrower pane swaps whole units, never letters: the model, effort (its own chip, Leo 2026-10-15:
 // "move it back out"; since Leo 2026-10-20 the model button's detail) and the permission mode each
 // take a shorter form, and +, the access glyph, the mic, Send or Stop and every chevron always stay.
-// Claude Code's Fast mode is a row of the model button's menu; Codex's bolt beside the mic never
-// leaves (it is Codex's only speed control), as the mic never does.
+// Fast mode is a row of the model button's menu; no speed control sits in the row (a running Codex
+// fast tier is a glyph inside the model button, which never leaves).
 //
 // The steps are composer widths, in COMPOSER_FIT_STEPS. composerLocation.css applies them with
 // container queries on the composer (`composer`, #20548), whose widths are literals that
@@ -13,6 +13,13 @@ import { type RefObject, useLayoutEffect } from "react";
 // long for their step (a long model name, a long mode in another language): it measures the row
 // and, while its controls would not fit, applies the next steps too, writing each unit's form on
 // the row (`data-fit-model="family"`).
+//
+// The quiet row under the box (ComposerFoot, #22285) takes no width step: the steps date from
+// #20802's one row, where +, the prompt, the chips, the mic and Send shared the width, and #22285
+// moved the mode, the model button and the ring into a row of their own. There the forms follow
+// what this hook measures alone: the units' natural widths against the row's room, so a 410 px
+// composer keeps "Opus 5.5  Medium" while it fits (live-qa 2026-10-21 read "Opus Med" with about
+// 250 px of the row free) and shortens only when the row really runs out.
 //
 // A part of a unit carries the unit's name (`data-fit-part="model"`) and the forms it shows in
 // (`data-fit-forms="full family"`). A part of another form is laid out of the row, absolute and
@@ -149,6 +156,8 @@ export function fitStep(
 /** The width the row's steps follow: the composer's content box (the CSS's `composer` container,
  *  #20548), so a split pane, the New Tab card and the quick surface step down alike. */
 function paneWidth(bar: HTMLElement): number {
+  // The quiet row fits on its measured room alone (above): no composer width takes a step there.
+  if (bar.classList.contains("acpmux-composer-foot")) return Number.POSITIVE_INFINITY;
   const composer = bar.closest<HTMLElement>(".acpmux-composer, .nt-composer");
   if (!composer) return bar.ownerDocument.documentElement.clientWidth;
   const style = getComputedStyle(composer);

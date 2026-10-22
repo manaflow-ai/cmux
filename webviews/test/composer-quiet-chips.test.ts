@@ -1,7 +1,7 @@
 // cmux-web-test-timeout: 300
 // The composer is quiet, like Claude's and ChatGPT's (Leo 2026-10-18): the box itself never answers
 // the pointer, while the model button does, with one subtle step. The model button names the model
-// and its effort and is the one control for both (Leo 2026-10-20: no effort chip, no speed bolt). A click on a pill
+// and its effort and is the one control for both (Leo 2026-10-20: no effort chip, no speed button). A click on a pill
 // holds that same step while its menu is open: no brighter press tone that flashes and no edge
 // ring around the open pill.
 //

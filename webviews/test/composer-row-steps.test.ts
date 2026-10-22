@@ -1,6 +1,6 @@
 // The composer's controls row never cuts a label (Leo 2026-10-14: "Claude Opus …", "Medi…" in the
 // footer). The model and its effort are one button, "Opus 5.5  Medium" (Leo 2026-10-20), with no
-// effort chip and no speed bolt beside it: Fast mode is a row of that button's menu. A narrower
+// effort chip and no speed button beside it: Fast mode is a row of that button's menu. A narrower
 // composer swaps whole units, never letters, and shortens labels before it drops a control
 // (cg-ui-coord 2026-10-15: "collapse faster and keep more visible"):
 //   - always: +, the model button with its effort, the access glyph, Send (with a draft typed) and
@@ -188,7 +188,7 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
         problems.push(`the model's mark has no tooltip naming it: "${controls.model?.title}"`);
       const access = controls.access?.labels.join(" ") ?? "";
       if (access !== expected.access) problems.push(`the access chip reads "${access}", not "${expected.access}"`);
-      if (controls.bolt) problems.push("a speed bolt is in the row (Fast mode is a row of the model's menu)");
+      if (controls.bolt) problems.push("a speed button is in the row (Fast mode is a row of the model's menu)");
       if (Boolean(controls.mic) !== expected.mic)
         problems.push(expected.mic ? "no mic" : "the mic is still in the row");
       // The access chip keeps its chevron; the model button, as Claude Code's, draws none.

@@ -4,7 +4,7 @@
 // ("Opus 5.5  Medium", Leo 2026-10-20) and the context ring; the box keeps +, the mic and Send or
 // Stop. Labels stay whole while the row has room, and a narrow pane shortens the effort first, then
 // the model's name, and drops the permission label. Fast mode is a checkbox row of the model
-// button's menu, never a bolt in the row. These chats have started, so no location strip heads the
+// button's menu, never a speed button in the row. These chats have started, so no location strip heads the
 // card (locationRow.ts). test/composer-row-layout.test.ts measures it.
 import { agentPaneEntry } from "../../gallery/format";
 import { assistant, CATALOG, chat, summary, user } from "../../gallery/fixtures/acpmux";
@@ -72,7 +72,7 @@ function speed(current: string) {
   };
 }
 
-/** Fast mode lives in the model button's menu (Leo 2026-10-20): the row draws no bolt, and the
+/** Fast mode lives in the model button's menu (Leo 2026-10-20): the row draws no speed button, and the
  *  menu's Fast mode checkbox sends the pick through the real pane's native command boundary, then
  *  follows the confirmed option. The play leaves the menu open on the confirmed state. */
 function toggleFast(current: "on" | "off"): Play {
@@ -94,7 +94,7 @@ function toggleFast(current: "on" | "off"): Play {
     const fast = { selector: ".acpmux-quick-menu .acpmux-quick-fast" } as const;
     try {
       await ctx.waitFor(() => ctx.document.querySelector(button.selector));
-      if (ctx.document.querySelector(".acpmux-fast")) throw new Error("the composer must draw no speed bolt");
+      if (ctx.document.querySelector(".acpmux-fast")) throw new Error("the composer must draw no speed button");
       await ctx.click(button);
       await ctx.waitFor(() => ctx.document.querySelector(fast.selector));
       const checked = () => ctx.find(fast).getAttribute("aria-checked");
@@ -185,7 +185,7 @@ export default agentPaneEntry({
       },
     },
     "fast-off": {
-      note: "A model with fast mode, off: no bolt in the row; the model button's menu ends on an unchecked Fast mode row, and a click turns it on.",
+      note: "A model with fast mode, off: no speed button in the row; the model button's menu ends on an unchecked Fast mode row, and a click turns it on.",
       snapshot: row({}, { configOptions: [effort, speed("off")] }),
       play: toggleFast("off"),
     },

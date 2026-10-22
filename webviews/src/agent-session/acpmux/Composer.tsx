@@ -35,7 +35,6 @@ import {
   type ComposerPermissionAccess,
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
-import { FastToggle, SpeedToggleHost, type SpeedTiers } from "./FastToggle";
 import { ComposerFoot } from "./ComposerFoot";
 import { Icon } from "./icons/Icon";
 import { MentionMenu, mentionQuery, mentionResults, useMentionSearch } from "./MentionMenu";
@@ -426,9 +425,6 @@ export function Composer({
   const sendButton = useRef<HTMLButtonElement>(null);
   // The controls row swaps whole units as it narrows (composerRowFit.ts).
   const bar = useRef<HTMLDivElement>(null);
-  // Codex's speed option, which the chips hand up: the bolt left of the mic (FastToggle.tsx). Claude
-  // Code's Fast mode stays a row of the model button's menu, so its chips hand up none.
-  const [speed, setSpeed] = useState<SpeedTiers | undefined>(undefined);
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css), and
   // whether Esc stops a turn on a double press (escapeStop.ts).
   const { plainFooter, showContextUsage, escapeDoublePress } = useComposerSettings();
@@ -1653,12 +1649,9 @@ export function Composer({
             )}
             {/* The granted-permission status gets no slot of its own in this row (hq#1957 item 15
                 compact row): grants live in the permission mode's Access menu, one lock. */}
-            {/* The chips hand up Codex's speed option, the bolt before the mic (FastToggle.tsx). */}
-            {!plainFooter && (
-              <SpeedToggleHost.Provider value={setSpeed}>
-                <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
-              </SpeedToggleHost.Provider>
-            )}
+            {/* Fast mode is a row of the model button's menu, and Codex's fast tier a bolt inside that
+                button (Leo 2026-10-21: "THE BOLT DOESN'T GO THERE"): the box draws no speed control. */}
+            {!plainFooter && <Chips snapshot={snapshot} permissionAccess={permissionAccess} />}
             <span className="acpmux-composer-actions">
               {/* While a turn runs, a typed prompt gets one icon control, not a word (Leo
                   2026-10-20): ↵ puts it into the turn now, as Return does; ⌘Return queues it. It
@@ -1683,8 +1676,6 @@ export function Composer({
                 </button>
               )}
               {plainFooter && stopButton}
-              {/* Codex's bolt, just left of the mic (Leo 2026-10-21), in either footer look. */}
-              {speed && <FastToggle speed={speed} />}
               {/* The mic stays at every width; the prompt shrinks instead (composerRowFit.ts). */}
               {accessory && (
                 <span className="acpmux-fit-mic" data-fit-part="mic" data-fit-forms="full">
@@ -1730,9 +1721,7 @@ export function Composer({
       {plainFooter && (
         <ChromeArea className="acpmux-chrome-area" items={chrome.all}>
           <ComposerFoot ref={bar}>
-            <SpeedToggleHost.Provider value={setSpeed}>
-              <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
-            </SpeedToggleHost.Provider>
+            <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
             {/* Claude Code ends the row on the context ring. It keeps its place before the chat
                 reports usage (inert, ContextRing), so the first report moves nothing in the row
                 (hq#1957: the composer holds still while a turn runs); the context-usage setting
