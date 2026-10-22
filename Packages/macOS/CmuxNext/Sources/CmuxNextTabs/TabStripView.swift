@@ -351,6 +351,7 @@ public final class TabStripView: NSView {
         hoverCards.unregister(hoverCard)
         windowMain.observe(shown ? window : nil) { [weak self] isMain in self?.cells.values.forEach { $0.isWindowMain = isMain } }
         windowVisibility.observe(shown ? window : nil) { [weak self] visible in self?.cells.values.forEach { $0.isWindowVisible = visible } }
+        for cell in cells.values { cell.isStripShown = shown }
         guard shown else {
             if window != nil { endPointerState() }
             return
