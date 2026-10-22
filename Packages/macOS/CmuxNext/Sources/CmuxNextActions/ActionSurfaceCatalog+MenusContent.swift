@@ -204,6 +204,7 @@ nonisolated extension ActionSurfaceCatalog {
         "machine.clearIcon": [p(.machineSection, .identity, 1, folder: .appearance, label: IconMenuLabels.removeIcon)],
         "hibernateTab": [p(.tab, .connection, 0, folder: .options)],
         "wakeTab": [p(.tab, .connection, 1, folder: .options)],
+        "neverHibernateSite": [p(.tab, .connection, 2, folder: .options)],
         "tab.moveToNewSplit": [p(.tab, .move, 404, folder: .move)],
         "tab.moveToNewColumn": [p(.tab, .move, 405, folder: .move)],
         "tab.moveToNewDockColumn": [p(.tab, .move, 408, folder: .move)],
