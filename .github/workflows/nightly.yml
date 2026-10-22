@@ -4788,6 +4788,8 @@ jobs:
     if: github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.no_publish != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && vars.NIGHTLY_NEXT_VISUAL_GATE != 'off'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    # GLAEDA_ROUTE_APP_KEY lives in the routing environment, like every other route job's.
+    environment: ci-routing-agent
     permissions:
       contents: read
       issues: read # the report week of the auto flip
