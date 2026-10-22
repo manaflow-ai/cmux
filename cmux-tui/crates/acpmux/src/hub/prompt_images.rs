@@ -54,12 +54,16 @@ fn sniffed_type(bytes: &[u8]) -> Option<&'static str> {
 /// is `mif1` is AVIF. `None` for a box cut short, one whose brands are not whole, or one that
 /// names no HEIF brand.
 fn iso_media_type(bytes: &[u8]) -> Option<&'static str> {
-    let u32_at =
-        |at: usize| bytes.get(at..at + 4).map(|b| u32::from_be_bytes(b.try_into().unwrap()));
+    let u32_at = |at: usize| {
+        bytes.get(at..at + 4).and_then(|b| <[u8; 4]>::try_from(b).ok()).map(u32::from_be_bytes)
+    };
     let (header, size) = match u32_at(0)? {
         // A 64-bit size follows the type.
         1 => {
-            let large = bytes.get(8..16).map(|b| u64::from_be_bytes(b.try_into().unwrap()))?;
+            let large = bytes
+                .get(8..16)
+                .and_then(|b| <[u8; 8]>::try_from(b).ok())
+                .map(u64::from_be_bytes)?;
             (16, usize::try_from(large).ok()?)
         }
         // The box runs to the end of the file.
@@ -284,5 +288,13 @@ mod tests {
         large.extend_from_slice(&28u64.to_be_bytes());
         large.extend_from_slice(b"mif1\0\0\0\0heic");
         assert_eq!(sniffed_type(&large), Some("image/heic"));
+        // A 64-bit size cut off, one below its own header and brands, and one past any file.
+        assert_eq!(sniffed_type(&large[..12]), None);
+        let mut small = large.clone();
+        small[8..16].copy_from_slice(&20u64.to_be_bytes());
+        assert_eq!(sniffed_type(&small), None);
+        let mut huge = large.clone();
+        huge[8..16].copy_from_slice(&u64::MAX.to_be_bytes());
+        assert_eq!(sniffed_type(&huge), None);
     }
 }

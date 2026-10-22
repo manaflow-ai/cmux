@@ -741,3 +741,51 @@ async fn a_sent_image_whose_record_spans_a_block_edge_mid_character_reads_back()
     }
     assert!(found, "no padding put the block edge inside a character");
 }
+
+/// Older records that name the image sit behind the newest one that does: the read stops at
+/// the newest and parses none of them.
+#[tokio::test]
+async fn reading_a_sent_image_back_stops_at_the_newest_record_that_names_it() {
+    let dir = store("image-read-newest");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "approve-all"
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Local;
+    let parsed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counting =
+        Counting { inner: acpmux::store::open(&cfg.store, &dir).unwrap(), parsed: parsed.clone() };
+    let session = "01a1-image-read-newest";
+    let id = kept(b"image-read-newest: sent three times");
+    let names = json!({"text": "again", "images": [{"id": id, "mimeType": "image/png"}]});
+    use acpmux::store::Store as _;
+    // Sent in a prompt, queued, sent again, then the agent's own records, then sent once more.
+    counting.append(session, &mux_record(1, "user_message", names.clone())).unwrap();
+    counting.append(session, &mux_record(2, "queued", json!({"images": names["images"]}))).unwrap();
+    counting.append(session, &mux_record(3, "user_message", names.clone())).unwrap();
+    for seq in 4..=1000 {
+        let update = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": session,
+            "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "words "}}}});
+        counting
+            .append(
+                session,
+                &acpmux::store::EventRecord {
+                    seq,
+                    at: seq,
+                    dir: "in".into(),
+                    kind: "agent_message_chunk".into(),
+                    msg: update,
+                    host_seq: None,
+                },
+            )
+            .unwrap();
+    }
+    counting.append(session, &mux_record(1001, "user_message", names.clone())).unwrap();
+    counting.flush().unwrap();
+    let hub = Hub::new(cfg, Box::new(counting));
+    parsed.store(0, std::sync::atomic::Ordering::SeqCst);
+    assert!(hub.prompt_image(session, &id).is_ok());
+    assert_eq!(parsed.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
