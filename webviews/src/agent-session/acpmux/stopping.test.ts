@@ -128,6 +128,12 @@ test("a Stop sent before its turn opens here keeps saying it is stopping through
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(view.shown.isWorking).toBe(true);
     expect(view.shown.stopping).toBe(true);
+    // A rebuild (reconnect, older history, lag resync) replays that same opener: still the stopped turn.
+    (client as unknown as { rebuild(): void }).rebuild();
+    daemon.touch(id, { status: "running" });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(view.shown.isWorking).toBe(true);
+    expect(view.shown.stopping).toBe(true);
     daemon.emit(id, { mux: "turn_end", msg: { stopReason: "cancelled" } });
     await until(() => view.shown.stopping === undefined);
   } finally {
