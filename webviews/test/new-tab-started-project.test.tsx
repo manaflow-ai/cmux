@@ -123,7 +123,7 @@ async function startChat(
 /// A fresh New Tab page (no folder of its own) over `sessions`: its chip and the folder Enter asks in.
 async function newTab(
   sessions: ReturnType<typeof session>[],
-  fields: { knownProjects?: string[]; startedProject?: string } = {},
+  fields: { knownProjects?: string[]; startedProject?: string; home?: string | undefined } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
@@ -223,4 +223,55 @@ test("a refused or failed chat start leaves the remembered project unchanged", a
     );
     expect((await newTab([theirs, ...agents])).folder).toBe(PICKED);
   }
+});
+
+/// The classic New Tab page (Debug Settings `newTab.layout` "a") with no folder of its own: the
+/// project its chip names and the folder Enter asks in.
+async function classicTab(fields: { home?: string; knownProjects?: string[]; startedProject?: string; cwd?: string }) {
+  const { createRoot } = await import("react-dom/client");
+  const { NewTabPage } = await import("../src/agent-session/acpmux/NewTabPage");
+  act(() => root?.unmount());
+  root = createRoot(host);
+  const asked: unknown[][] = [];
+  await act(async () =>
+    root!.render(
+      <NewTabPage
+        snapshot={noChat([theirs, ...agents])}
+        initialKind="agent"
+        {...fields}
+        onSubmit={(...args) => void asked.push(args)}
+        onOpenSession={noop}
+        onShowAll={noop}
+      />,
+    ),
+  );
+  const chip = host.querySelector(".acpmux-newtab-context .acpmux-project-button")?.textContent ?? "";
+  const form = host.querySelector("form")!;
+  await act(async () => form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+  return { chip, folder: asked[0]?.[2] };
+}
+
+// Codex review of #24274: the classic page reads the same default, on this Mac only, and only while
+// the host still lists it.
+test("the classic New Tab page starts on the started project, else the newest listed chat folder", async () => {
+  await startChat(PICKED);
+  const page = await classicTab({ home: HOME, cwd: HOME });
+  expect(page.chip).toContain("atlas");
+  expect(page.folder).toBe(PICKED);
+  // A started project the host no longer lists gives way to the newest chat folder it lists.
+  expect((await classicTab({ home: HOME, cwd: HOME, knownProjects: [AGENT_FOLDER] })).folder).toBe(AGENT_FOLDER);
+  // The app's copy after a relaunch, when this run started nothing.
+  stored.clear();
+  expect((await classicTab({ home: HOME, startedProject: PICKED })).folder).toBe(PICKED);
+});
+
+test("a New Tab on another machine never starts in this Mac's started project", async () => {
+  await startChat(PICKED);
+  // Another machine's page has no `home` (NewTabPageMachine) and no `startedProject` in its context.
+  const classic = await classicTab({ cwd: "/home/dev" });
+  expect(classic.chip).not.toContain("atlas");
+  expect(classic.folder).toBe("/home/dev");
+  const screen = await newTab([], { home: undefined });
+  expect(screen.chip).not.toContain("atlas");
+  expect(screen.folder).toBeUndefined();
 });
