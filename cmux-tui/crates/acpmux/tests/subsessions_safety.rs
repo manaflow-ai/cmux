@@ -77,6 +77,7 @@ impl Scratch {
             codex_config: root.join("codex.toml"),
             record: root.join("acpmux").join("trust.json"),
             agent_home: Some(root.join("agent-home")),
+            cmux_worktrees: None,
         };
         Scratch { root, trust }
     }
@@ -647,6 +648,68 @@ async fn a_prompt_preview_is_masked_before_it_is_cut() {
     let got = p.ok("_acpmux/subsession/get", json!({"sessionId": child})).await;
     tokio::task::spawn_blocking(move || std::fs::write(gate, "go")).await.unwrap().unwrap();
     assert!(got["turn"]["prompt"].is_string(), "{got}");
+    assert!(!got.to_string().contains(&key[..10]), "{got}");
+}
+
+/// `subsession/get` of `id` once `ready` holds of it: an agent's updates land after its
+/// prompt is accepted.
+async fn row_when(c: &mut Client, id: &str, ready: impl Fn(&Value) -> bool) -> Value {
+    for _ in 0..200 {
+        let row = c.ok("_acpmux/subsession/get", json!({"sessionId": id})).await;
+        if ready(&row) {
+            return row;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("{id}'s row never got there");
+}
+
+#[tokio::test]
+async fn a_childs_activity_is_masked_before_its_cut() {
+    let s = Scratch::new("activity");
+    let own = s.own();
+    let hub = hub(&s);
+    let mut app = Client::new(&hub);
+    let parent = app.new_session(&own, "fake").await;
+    let mut p = Client::as_session(&hub, &parent).await;
+    let child =
+        p.ok(START, json!({"prompt": "echo c"})).await["sessionId"].as_str().unwrap().to_owned();
+    app.wait_ready(&child).await;
+    // A tool call whose title holds a key across the 160-character activity
+    // cut: its first 14 characters fall before the cut.
+    let key = format!("AKIA{}", "Q7ZJ4XK2MD5P3WRT");
+    let title = format!("echo {} {key}", "w".repeat(140));
+    assert_eq!(title.find(&key), Some(146));
+    let gate = s.root.join("gate");
+    assert!(std::process::Command::new("mkfifo").arg(&gate).status().unwrap().success());
+    let text = format!("work-gate: {} | {title}", gate.display());
+    p.ok(SEND, json!({"sessionId": child, "text": text})).await;
+    let got = row_when(&mut p, &child, |r| r["turn"]["activity"].is_string()).await;
+    tokio::task::spawn_blocking(move || std::fs::write(gate, "go")).await.unwrap().unwrap();
+    assert!(got["turn"]["activity"].as_str().unwrap().starts_with("echo w"), "{got}");
+    assert!(!got.to_string().contains(&key[..10]), "{got}");
+}
+
+#[tokio::test]
+async fn a_childs_question_is_masked_before_its_cut() {
+    let s = Scratch::new("question");
+    let own = s.own();
+    let hub = hub(&s);
+    let mut app = Client::new(&hub);
+    let parent = app.new_session(&own, "fake").await;
+    let mut p = Client::as_session(&hub, &parent).await;
+    let child =
+        p.ok(START, json!({"prompt": "echo c"})).await["sessionId"].as_str().unwrap().to_owned();
+    app.wait_ready(&child).await;
+    // The question it waits on holds a key across the 120-character cut of
+    // the prompt `doing` quotes: its first 14 characters fall before the cut.
+    let key = format!("AKIA{}", "Q7ZJ4XK2MD5P3WRT");
+    let question = format!("{} {key}", "w".repeat(105));
+    assert_eq!(question.find(&key), Some(106));
+    p.ok(SEND, json!({"sessionId": child, "text": format!("question: {question}")})).await;
+    let got = row_when(&mut p, &child, |r| r["waitingOn"] == "question").await;
+    let doing = got["doing"].as_str().unwrap_or_default();
+    assert!(doing.starts_with("Waiting for the user to answer, in the app: w"), "{got}");
     assert!(!got.to_string().contains(&key[..10]), "{got}");
 }
 

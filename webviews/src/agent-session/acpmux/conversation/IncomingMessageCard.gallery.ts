@@ -1,6 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample messages and replies), not shipped UI.
-// Another agent's message to this chat as one quiet "Received message from <sender> ›" line, as
-// Claude desktop draws it, and a Claude Code task notification as one quiet line
+// Another agent's message to this chat as one line at the left among the tool rows (the sender's
+// mark, its name as a chip, a preview of the message; opened, a glass card), and a Claude Code task
+// notification as one quiet line
 // (IncomingMessageCard.tsx, incomingMessage.ts). A message from a chat here also has Reply at the line's end, which
 // answers in place in the sender's chat and thread.
 import { agentPaneEntry } from "../../../gallery/format";

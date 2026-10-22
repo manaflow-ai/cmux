@@ -51,6 +51,7 @@ mod policy_mode;
 mod pool;
 mod prompt_images;
 mod prompt_ledger;
+mod prompt_line;
 mod queue;
 mod queue_edit;
 pub use digest::declared_sender;
@@ -212,11 +213,9 @@ pub struct TurnInfo {
     /// Who prompted (or steered) this turn. A Web turn never uses the chat
     /// allowance: each eligible permission in it still asks.
     pub control: Control,
-    /// What the turn does right now, one line: its latest tool call's title,
-    /// else its plan's step in progress (`activity.rs`). None until either.
-    pub activity: Option<String>,
-    /// Its plan's entry in progress, one line (`activity.rs`).
-    pub plan_step: Option<String>,
+    /// What the turn does right now: its latest tool call's title and its
+    /// plan's step in progress, raw and masked (`activity.rs`).
+    pub doing: activity::TurnActivity,
 }
 
 /// Options for `Hub::prompt_with`.
@@ -397,6 +396,8 @@ pub struct Hub {
     pub(super) trust_waits: trust_wait::Waits,
     /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
     pub(super) agent_pairs: agent_pairs::AgentPairs,
+    /// Pairing tickets and paired machines (`crate::pairing`).
+    pub pairing: Arc<crate::pairing::Pairing>,
 }
 
 impl Hub {
@@ -481,6 +482,7 @@ impl Hub {
             secrets: Default::default(),
             trust_waits: Default::default(),
             agent_pairs: Default::default(),
+            pairing: Default::default(),
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
@@ -721,6 +723,8 @@ impl Hub {
             fork_from: StdMutex::new(None),
             applied: StdMutex::new(session::Applied::default()),
             purged: AtomicBool::new(false),
+            replaced: AtomicBool::new(false),
+            closing: AtomicBool::new(false),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),
             hidden: std::sync::atomic::AtomicUsize::new(0),
@@ -729,6 +733,7 @@ impl Hub {
             append_errors: AtomicU64::new(0),
             last_progress: AtomicU64::new(0),
             heard: AtomicU64::new(0),
+            silent_turn: StdMutex::new(None),
             last_active: AtomicU64::new(self.clock_now()),
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
