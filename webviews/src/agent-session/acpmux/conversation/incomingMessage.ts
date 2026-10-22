@@ -281,7 +281,10 @@ const ADDRESSED = /^([\w.@/-]+?)\s*(?:->|→)\s*([\w.@/-]+):\s+(\S[\s\S]*)$/;
 /// The sender and message of a prompt addressed sender first, when nothing but its text says an
 /// agent sent it: only when it names this chat as its receiver or a listed chat as its sender, so
 /// the person's "foo -> bar: …" stays theirs.
-function addressedFirst(text: string, context: IncomingContext | undefined): { name: string; text: string } | undefined {
+function addressedFirst(
+  text: string,
+  context: IncomingContext | undefined,
+): { name: string; text: string } | undefined {
   const addressed = ADDRESSED.exec(text);
   if (!addressed || !context) return undefined;
   const [, from, to, body] = addressed as unknown as [string, string, string, string];

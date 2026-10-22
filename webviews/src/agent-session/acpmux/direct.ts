@@ -2313,7 +2313,11 @@ export class AcpmuxDirectClient {
       isChat: (name) =>
         this.sessions.some((session) => {
           const listed = session.name?.trim();
-          return listed === name || session.shortName?.trim() === name || (!!session.peer && listed === `${session.peer}/${name}`);
+          return (
+            listed === name ||
+            session.shortName?.trim() === name ||
+            (!!session.peer && listed === `${session.peer}/${name}`)
+          );
         }),
     };
   }
@@ -2731,7 +2735,11 @@ export class AcpmuxDirectClient {
         // `fit`, keeps only `_meta`), or a steer that carried none. It stays a turn's start, as
         // bookkeeping does. A prompt of images alone keeps its row: the images are what it says.
         const blank = !received && !raw.trim() && promptImages(msg.images).length === 0;
-        const incoming = received ? undefined : blank ? ({ kind: "hidden" } as const) : incomingPrompt(raw, msg, this.incomingContext());
+        const incoming = received
+          ? undefined
+          : blank
+            ? ({ kind: "hidden" } as const)
+            : incomingPrompt(raw, msg, this.incomingContext());
         const shown =
           incoming?.kind === "message"
             ? { text: incoming.message.text, incoming, resend: raw }

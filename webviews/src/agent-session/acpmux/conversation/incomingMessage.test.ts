@@ -500,7 +500,8 @@ test("a message's closed line previews its first line of text, its spaces collap
 test("a message addressed sender first is that agent's when it names this chat or a listed sender", () => {
   const peer = { client: "acpmux-peer#01a161" };
   const here = { names: ["claude-sr2", undefined] };
-  const sent = "summary-panel -> claude-sr2: Confirmed. On feat-cmux-next today, the overlay card is **as tall** as its content.";
+  const sent =
+    "summary-panel -> claude-sr2: Confirmed. On feat-cmux-next today, the overlay card is **as tall** as its content.";
   expect(incomingPrompt(sent, peer, here)).toEqual({
     kind: "message",
     message: {
@@ -554,7 +555,9 @@ test("the person's arrow is their own words", () => {
   // No context (a caller that knows no chat): never a message.
   expect(incomingPrompt("summary-panel -> claude-sr2: Done.", { client: "acpmux-cli#a1b2c3" })).toBeUndefined();
   // An adopted chat's typed prompt behind a reminder stays the person's.
-  expect(incomingPrompt("<system-reminder>r</system-reminder>\nfoo -> bar: rename it", { client: "adopt" }, here)).toEqual({
+  expect(
+    incomingPrompt("<system-reminder>r</system-reminder>\nfoo -> bar: rename it", { client: "adopt" }, here),
+  ).toEqual({
     kind: "prompt",
     text: "foo -> bar: rename it",
   });
