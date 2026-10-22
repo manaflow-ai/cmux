@@ -7,6 +7,7 @@ fails the release build."""
 from __future__ import annotations
 
 import copy
+import dataclasses
 import hashlib
 import json
 from pathlib import Path
@@ -47,15 +48,59 @@ class RemoteDaemonNoticesTest(unittest.TestCase):
         self.assertIn("Keith Rarick", text)
 
     def test_every_module_go_mod_requires_is_reviewed(self) -> None:
-        # A dependency bump in daemon/remote/go.mod must bump review.json in
-        # the same change; 1c7138a0583 moved x/sys to v0.44.0 without it and
-        # every nightly-next build failed in remote_daemon_notices.
+        # A module new to daemon/remote/go.mod needs a review entry. A version
+        # bump does not (see the next tests): the texts are what is reviewed.
         go_mod = (ROOT / "daemon/remote/go.mod").read_text()
         block = go_mod.split("require (", 1)[1].split(")", 1)[0]
-        required = [" ".join(line.split()[:2]) for line in block.splitlines() if line.strip() and not line.strip().startswith("//")]
+        required = [line.split()[0] for line in block.splitlines() if line.strip() and not line.strip().startswith("//")]
         self.assertTrue(required)
-        for module in required:
-            self.assertIn(module.replace(" ", "@"), self.review["modules"])
+        reviewed = {key.rsplit("@", 1)[0] for key in self.review["modules"]}
+        for path in required:
+            self.assertIn(path, reviewed)
+
+    def bumped(self, path: str, version: str) -> list:
+        return [dataclasses.replace(m, version=version) if m.path == path else m for m in self.modules]
+
+    def test_a_version_bump_with_the_reviewed_texts_is_approved(self) -> None:
+        # 1c7138a0583 moved x/sys from v0.30.0 to v0.44.0 with byte-identical
+        # LICENSE and PATENTS, and every nightly-next build failed until
+        # review.json named the new version by hand.
+        modules = self.bumped("golang.org/x/sys", "v0.99.0")
+        text = rdn.compose(modules, "go1.26.8", self.review)
+        self.assertIn("golang.org/x/sys v0.99.0", text)
+
+    def test_a_version_bump_with_a_new_license_text_fails(self) -> None:
+        modules = self.bumped("golang.org/x/sys", "v0.99.0")
+        sys_module = next(m for m in modules if m.path == "golang.org/x/sys")
+        (sys_module.directory / "LICENSE").write_text("relicensed\n")
+        with self.assertRaises(rdn.NoticeError) as raised:
+            rdn.compose(modules, "go1.26.8", self.review)
+        self.assertIn("golang.org/x/sys@v0.99.0", str(raised.exception))
+
+    def test_the_review_can_be_rewritten_for_the_linked_versions(self) -> None:
+        modules = self.bumped("golang.org/x/sys", "v0.99.0")
+        updated = rdn.updated_review(modules, self.review)
+        self.assertIn("golang.org/x/sys@v0.99.0", updated["modules"])
+        self.assertFalse([key for key in updated["modules"] if key.startswith("golang.org/x/sys@") and key != "golang.org/x/sys@v0.99.0"])
+        self.assertEqual(updated["modules"]["golang.org/x/sys@v0.99.0"],
+                         next(e for k, e in self.review["modules"].items() if k.startswith("golang.org/x/sys@")))
+        rdn.compose(modules, "go1.26.8", updated)
+
+    def go_root(self, **texts: bytes) -> Path:
+        root = self.tmp / "goroot"
+        root.mkdir(exist_ok=True)
+        for name in self.review["go"]["files"]:
+            (root / name).write_bytes(texts.get(name, (rdn.TEXTS / "go" / name).read_bytes()))
+        return root
+
+    def test_a_go_minor_bump_with_the_reviewed_texts_is_approved(self) -> None:
+        text = rdn.compose(self.modules, "go1.27.3", self.review, go_root=self.go_root())
+        self.assertIn("Go standard library and runtime (go1.27.3)", text)
+
+    def test_a_go_minor_bump_with_a_new_license_text_fails(self) -> None:
+        with self.assertRaises(rdn.NoticeError) as raised:
+            rdn.compose(self.modules, "go1.27.3", self.review, go_root=self.go_root(LICENSE=b"other\n"))
+        self.assertIn("go1.27.3", str(raised.exception))
 
     def test_an_unreviewed_module_fails(self) -> None:
         extra = self.tmp / "extra"
