@@ -167,9 +167,8 @@ async fn a_parent_reaches_a_working_child_and_reads_what_it_does() {
     assert_eq!(sent["queued"], false, "{sent}");
     assert_eq!(sent["steering"], true, "{sent}");
     // after_turn queues it behind the running turn instead, and says where it waits.
-    let sent = p
-        .ok(SEND, json!({"sessionId": s, "text": "echo after", "deliver": "after_turn"}))
-        .await;
+    let sent =
+        p.ok(SEND, json!({"sessionId": s, "text": "echo after", "deliver": "after_turn"})).await;
     assert_eq!(sent["delivery"], "queued", "{sent}");
     assert_eq!(sent["position"], 1, "{sent}");
     assert_eq!(sent["queueLength"], 1, "{sent}");
@@ -178,11 +177,11 @@ async fn a_parent_reaches_a_working_child_and_reads_what_it_does() {
     // A sub-session's message to its working parent steers too: a steer never cancels
     // the parent's tool call, and the parent reads it at its next tool step.
     let mut ps = Client::as_session(&hub, &s).await;
-    let g = ps.ok(START, json!({"prompt": "echo grandchild", "name": "grandchild"})).await
-        ["sessionId"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let g =
+        ps.ok(START, json!({"prompt": "echo grandchild", "name": "grandchild"})).await["sessionId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
     let mut pg = Client::as_session(&hub, &g).await;
     let sent = pg.ok(SEND, json!({"sessionId": s, "text": "echo report"})).await;
     assert_eq!(sent["delivery"], "next_step", "{sent}");
