@@ -416,7 +416,11 @@ fn a_released_phone_size_returns_the_grid_at_once_and_its_drop_holds_nothing() {
     );
     assert_eq!(release["outcome"], "applied", "release-surface-size: {release}");
     wait_for_vt_size(&harness.socket, surface, 120, 39);
-    assert!(released.elapsed() < Duration::from_secs(2), "the release took {:?}", released.elapsed());
+    assert!(
+        released.elapsed() < Duration::from_secs(2),
+        "the release took {:?}",
+        released.elapsed()
+    );
 
     // Claimed again, released again, then the channel closes: no hold.
     let reclaim = stream_request(
