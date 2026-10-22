@@ -23,13 +23,18 @@ struct ChiefWorkspaceRowsTests {
     }
 
     @Test func theTaskTitleDropsOnlyASubagentID() {
-        #expect(ChiefWorkspaceName.taskTitle("a14 · Native workflows runtime") == "Native workflows runtime")
-        #expect(ChiefWorkspaceName.taskTitle("Native workflows runtime") == "Native workflows runtime")
+        #expect("a14 · Native workflows runtime".chiefTaskTitle == "Native workflows runtime")
+        #expect("Native workflows runtime".chiefTaskTitle == "Native workflows runtime")
         // Only `a<digits> · ` at the start is an id.
-        #expect(ChiefWorkspaceName.taskTitle("a · x") == "a · x")
-        #expect(ChiefWorkspaceName.taskTitle("ab1 · x") == "ab1 · x")
-        #expect(ChiefWorkspaceName.taskTitle("Fix a1 · x") == "Fix a1 · x")
-        #expect(ChiefWorkspaceName.taskTitle("a3 · ") == nil)
+        #expect("a · x".chiefTaskTitle == "a · x")
+        #expect("ab1 · x".chiefTaskTitle == "ab1 · x")
+        #expect("Fix a1 · x".chiefTaskTitle == "Fix a1 · x")
+        #expect("a3 · ".chiefTaskTitle == nil)
+    }
+
+    @Test func onlyTheLocalChiefSaysItStartedAWorkspace() {
+        #expect(CmuxNextSidebar.MachineID("server-host_chief0001").startedBy == "Started by Chief")
+        #expect(CmuxNextSidebar.MachineID("server-host_7f3a0001").startedBy == nil)
     }
 
     static func workspace(_ name: String) throws -> WorkspaceModel {

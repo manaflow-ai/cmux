@@ -13,7 +13,7 @@ enum AppStoreHandlers {
         services.pages.register(services.apps)
         registry.bind("appStore.show", run: { invocation in
             let app = invocation["app"]?.stringValue?.trimmingCharacters(in: .whitespaces)
-            services.apps.showStore(appID: app?.isEmpty == false ? app : nil, tab: invocation["tab"]?.stringValue.flatMap(AppStoreModel.Tab.init(argument:)), focus: invocation.allowsViewChange)
+            services.apps.showStore(appID: app?.isEmpty == false ? app : nil, tab: invocation["tab"]?.stringValue.flatMap(AppStoreModel.Tab.init(argument:)), category: invocation["category"]?.stringValue.flatMap(AppFeature.Category.init(argument:)), focus: invocation.allowsViewChange)
         })
         registry.bind("appStore.showInstalled", run: { invocation in
             services.apps.showStore(tab: .installed, focus: invocation.allowsViewChange)

@@ -19,7 +19,11 @@ MCP = ROOT / "cmux-tui/bindings/typescript/code-mode/mcp.mjs"
 
 
 class CodeModeCancellationTests(unittest.TestCase):
-    @unittest.skipUnless(shutil.which("bun") and shutil.which("bwrap"), "bun and bwrap are required")
+    # CI installs bun and bwrap for this test (cmux-tui-sdks.yml, code-mode): a skip there would pass unrun.
+    @unittest.skipUnless(
+        (shutil.which("bun") and shutil.which("bwrap")) or os.environ.get("GITHUB_ACTIONS") == "true",
+        "bun and bwrap are required",
+    )
     def test_cancel_returns_and_leaves_no_descendants(self):
         with tempfile.TemporaryDirectory(prefix="cmux-code-mode-test-") as temp:
             socket_path = Path(temp) / "target.sock"

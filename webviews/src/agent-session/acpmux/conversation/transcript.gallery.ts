@@ -1061,8 +1061,34 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "steer-ended": {
+      note: "A turn Leo steered, once it ended: each part folds its own work, as Codex draws it. The call before the steer folds under Worked for over the prompt's part, the call after it under its own Worked for below the steer, timed from the steer, then the answer. Nothing moves above the steer it came after. Play: the steer's fold opens on its own call.",
+      snapshot: chat([
+        user("Fix the flaky login test", 3),
+        activity(
+          [
+            thought("The login test fails one run in five; check how the retry waits for the session."),
+            tool("bun test src/auth/login", "execute", "completed", { command: "bun test src/auth/login" }),
+          ],
+          2.8,
+        ),
+        assistant("The retry races the session refresh: it reads the old token before the refresh lands.", 2.4),
+        user("Also check the logout path, it uses the same retry", 2.2, { id: "steer-ended-steer", continues: true }),
+        activity(
+          [tool("bun test src/auth/logout", "execute", "completed", { command: "bun test src/auth/logout" })],
+          1.8,
+        ),
+        assistant("Both paths now wait for the refresh before they retry, and both tests pass.", 1.2),
+        summary(1.2, { status: "completed", toolCount: 2, durationMs: 108_000 }),
+      ]),
+      play: async (ctx: PlayContext) => {
+        const fold = '[data-row-id="worked-steer-ended-steer"] .cv-worked';
+        await ctx.click({ selector: fold });
+        await ctx.waitFor(() => ctx.find({ selector: fold }).getAttribute("aria-expanded") === "true");
+      },
+    },
     "working-tokens": {
-      note: "A live Claude turn says its tokens so far after its time, as Claude desktop does: Working for 5m 54s · 2.1M tokens, with no blinking dots before it. A harness that does not report each call shows the time alone. Play: the line holds still.",
+      note: "A live Claude turn says its tokens so far after its time, as Claude desktop does, on its one live line at the bottom: Thinking 5m 54s · 2.1M tokens, with no blinking dots before it and no Working for over the turn. A harness that does not report each call shows the time alone. Play: the line holds still.",
       snapshot: chat(
         [
           user(prompt, 5.9),
@@ -1080,7 +1106,7 @@ export default agentPaneEntry({
         ],
         { isWorking: true, turnTokens: 2_140_000 },
       ),
-      play: runningLineStill(/^Working for/),
+      play: runningLineStill(/^Thinking/, true),
     },
     "working-counts": {
       note: "A live turn with background work: the line counts the two agents still running and the dev server still up, not the agent that finished. A count opens what it counts.",
@@ -1200,7 +1226,7 @@ export default agentPaneEntry({
       play: openWorked,
     },
     "codex-turn-live": {
-      note: "A running turn as the Codex app draws it: Working for over the turn, each finished run one summary line between the paragraphs (Read files, ran commands; Ran 3 commands), commands named by what they do, and the call in flight named on the live line instead of a growing stack.",
+      note: "A running turn as the Codex app draws it: one live block at the bottom and nothing over the turn, each finished run one summary line between the paragraphs (Read files, ran commands; Ran 3 commands), commands named by what they do, and the call in flight named on the live line instead of a growing stack.",
       snapshot: chat(
         [
           user("Check the retry regression and the macOS verification run.", 11.5),
@@ -1609,6 +1635,63 @@ export default agentPaneEntry({
           },
         }),
       ]),
+    },
+    "failed-sends-grouped": {
+      note: "Three prompts acpmux held behind the folder's trust question (Leo 2026-10-21): one card under the last of them, one plain sentence with Trust folder, and Retry, Edit, Remove and Details once for the three; the raw code only under Details.",
+      snapshot: chat([
+        user(prompt, 6),
+        assistant("Added retries with backoff.", 5.5),
+        summary(5.5, { status: "completed" }),
+        user("Add a test for the backoff", 3, {
+          failed: true,
+          error: "Not sent until you trust this folder.",
+          delivery: {
+            state: "failed",
+            promptId: "p1",
+            sessionId: "s",
+            sentAt: 0,
+            failedAt: 40,
+            hop: "acpmux",
+            reason: "trust.pending",
+            error: "trust.pending: answer the trust question for the folder first",
+          },
+        }),
+        user("Then open a PR", 2, {
+          failed: true,
+          error: "Not sent until you trust this folder.",
+          delivery: {
+            state: "failed",
+            promptId: "p2",
+            sessionId: "s",
+            sentAt: 0,
+            failedAt: 40,
+            hop: "acpmux",
+            reason: "trust.pending",
+            error: "trust.pending: answer the trust question for the folder first",
+          },
+        }),
+        user("And ping me when CI is green", 1, {
+          failed: true,
+          error: "Not sent until you trust this folder.",
+          delivery: {
+            state: "failed",
+            promptId: "p3",
+            sessionId: "s",
+            sentAt: 0,
+            failedAt: 40,
+            hop: "acpmux",
+            reason: "trust.pending",
+            error: "trust.pending: answer the trust question for the folder first",
+          },
+        }),
+      ]),
+      play: async (ctx) => {
+        await ctx.waitFor(() =>
+          ctx.document.querySelectorAll(".cv-user__status--failed").length === 1
+            ? ctx.document.querySelector('[data-failure-cause="trust-pending"][data-failed-count="3"]')
+            : null,
+        );
+      },
     },
     "edited-files": {
       note: "A turn that edited three files: the edited-files card with Undo.",

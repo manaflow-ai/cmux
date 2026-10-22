@@ -27,7 +27,7 @@ final class AppsService {
     /// An App Store request made while no main window could hold it (S22:
     /// the App Store is never a window of its own); the first window that
     /// mounts a pane shows it (`windowDidShowContent`).
-    private var waitingStore: (appID: String?, tab: AppStoreModel.Tab?, focus: Bool)?
+    private var waitingStore: (appID: String?, tab: AppStoreModel.Tab?, category: AppFeature.Category?, focus: Bool)?
     var isStoreWaiting: Bool { waitingStore != nil }
     /// App pages (`app:<id>`), one provider per app, registered on first open.
     private var appPages: [String: AppPanePage] = [:]
@@ -95,22 +95,22 @@ final class AppsService {
     /// (TOP-SECTION-ITEMS-ARE-PAGES); automation, which never changes the
     /// view, opens it as a background tab (internal page `app-store`, one
     /// per window). `appID` opens that listing, `tab` a store tab (Features,
-    /// Installed); the React store has no Features tab and shows Discover. With no main window that can hold it, the request waits for
+    /// Installed), `category` Features in it; the React store has no Features tab and shows Discover. With no main window that can hold it, the request waits for
     /// one (a closed window comes back, or a new one opens), as Settings
     /// does: S22, the App Store never opens a window of its own.
-    func showStore(appID: String? = nil, tab: AppStoreModel.Tab? = nil, focus: Bool = true) {
+    func showStore(appID: String? = nil, tab: AppStoreModel.Tab? = nil, category: AppFeature.Category? = nil, focus: Bool = true) {
         let key = focus ? TopPages.show(.page(.appStore), services: services)
             : services.pages.show(.appStore, in: services.windows.active, focus: false)?.key
         if let key {
             if let page = webStorePages[key] {
                 page.open(route: Self.storeRoute(appID: appID, installed: tab == .installed))
             } else {
-                storePages.present(key, appID: appID, tab: tab)
+                storePages.present(key, appID: appID, tab: tab, category: category)
             }
             waitingStore = nil
             return
         }
-        waitingStore = (appID, tab, focus)
+        waitingStore = (appID, tab, category, focus)
         if case let windows = services.windows, windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
     }
 
@@ -119,7 +119,7 @@ final class AppsService {
     /// exists; an automation run still waits until a pane can hold its tab).
     func windowDidShowContent() {
         guard let request = waitingStore else { return }
-        showStore(appID: request.appID, tab: request.tab, focus: request.focus)
+        showStore(appID: request.appID, tab: request.tab, category: request.category, focus: request.focus)
     }
 
     /// Opens an app's page as a tab of the active window (one per window),
