@@ -91,10 +91,15 @@ def tooling_checkout(body: str) -> "str | None":
     text, rest = match.group(0), body[match.end():]
     if value == "|":
         paths = []
-        for line in rest.splitlines(keepends=True):
-            if not line.startswith(indent + "  "):
-                break
-            paths.append(line.strip())
+        # A block scalar runs to the first non-blank line indented no deeper than its key;
+        # blank lines inside it are part of it, so a later `/*` is still read.
+        lines = rest.splitlines(keepends=True)
+        end = next((i for i, line in enumerate(lines) if line.strip() and not line.startswith(indent + " ")), len(lines))
+        while end and not lines[end - 1].strip():
+            end -= 1
+        for line in lines[:end]:
+            if line.strip():
+                paths.append(line.strip())
             text += line
     else:
         paths = [value]
@@ -107,6 +112,9 @@ for bad in ("scripts/ci/x.py\n            /*", "/*", "scripts/../Sources"):
     sample = ("          ref: ${{ github.sha }}\n          path: .publish-tooling\n          sparse-checkout: |\n"
               + "".join(f"            {p}\n" for p in bad.split("\n            ")))
     check(tooling_checkout(sample) is None, f"a tooling checkout of {bad!r} must not be exempt")
+check(tooling_checkout("          ref: ${{ github.sha }}\n          path: .publish-tooling\n          sparse-checkout: |\n"
+                       "            scripts/ci/x.py\n\n            /*\n") is None,
+      "a `/*` after a blank line in the sparse list must not be exempt")
 check(tooling_checkout("          ref: ${{ github.sha }}\n          path: .publish-tooling\n          sparse-checkout: scripts\n") is not None,
       "publish-nightly's `sparse-checkout: scripts` is the tooling checkout")
 
