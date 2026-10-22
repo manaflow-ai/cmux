@@ -1081,6 +1081,14 @@ impl Brain {
 
     /// How long a finished subagent's own VM is kept (paused) before it is
     /// deleted (`cloud.deleteAfterPausedDays`, default 7 days).
+    pub fn set_fleet_jobs(
+        &mut self,
+        fleet: Option<std::sync::Arc<dyn crate::fleet_wait::FleetJobs>>,
+        every: std::time::Duration,
+    ) {
+        let _ = (fleet, every);
+    }
+
     pub fn set_cloud_reap(&mut self, after: std::time::Duration) {
         self.cloud_reap = after;
     }

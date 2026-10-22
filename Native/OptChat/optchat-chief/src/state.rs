@@ -330,6 +330,10 @@ pub struct SubRecord {
     /// it. Saved, so a host restart does not start the wait again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vm_idle_since: Option<u64>,
+    /// The fleet jobs its last report waits on (`fleet-wait: JOB` lines,
+    /// fleet_wait.rs): its VM stays paused until one ends.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fleet_wait: Vec<String>,
     pub status: SubStatus,
     /// The report waiting for the log.
     #[serde(default)]

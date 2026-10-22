@@ -1241,3 +1241,128 @@ fn a_finished_subagents_vm_is_kept_paused_for_n_days_then_deleted() {
     }
     assert!(calls_of(&vms).contains(&"destroy chief-sub-a1".to_owned()));
 }
+
+/// A fleet whose jobs are in the given states.
+#[derive(Default)]
+struct FakeFleet {
+    states: std::sync::Mutex<std::collections::BTreeMap<String, String>>,
+}
+
+impl optchat_chief::fleet_wait::FleetJobs for FakeFleet {
+    fn state(&self, job: &str) -> Result<String, String> {
+        Ok(self
+            .states
+            .lock()
+            .unwrap()
+            .get(job)
+            .cloned()
+            .unwrap_or_else(|| "queued".into()))
+    }
+}
+
+#[test]
+fn a_report_names_the_fleet_jobs_it_waits_on() {
+    use optchat_chief::fleet_wait::waits;
+    assert_eq!(
+        waits(
+            "Queued the build.\nfleet-wait: 366c8bc17202d2eedef8e092\n fleet-wait: 2bbb2f57c25c3543838ddac9 "
+        ),
+        vec![
+            "366c8bc17202d2eedef8e092".to_owned(),
+            "2bbb2f57c25c3543838ddac9".to_owned()
+        ]
+    );
+    assert!(waits("fleet-wait: nope; rm -rf /").is_empty());
+    assert!(waits("I will fleet-wait: 366c8bc17202d2eedef8e092 later").is_empty());
+}
+
+/// A cloud subagent that ends its turn on `fleet-wait: JOB` pauses (its VM)
+/// while the job runs, with no turn for the Chief; when the job ends the
+/// host resumes the VM and tells it the result.
+#[test]
+fn a_subagent_waiting_on_a_fleet_job_pauses_and_wakes_on_its_result() {
+    use optchat_chief::brain::Input;
+    use optchat_chief::state::SubStatus;
+    const JOB: &str = "366c8bc17202d2eedef8e092";
+    let mut h = Harness::new(Box::new(|turn, blocks| {
+        let text = serde_json::to_string(blocks).unwrap();
+        let say = if text.contains("fleet job") {
+            "The build passed; landed.".to_owned()
+        } else if text.contains("Build the app") {
+            format!("Submitted the build.\nfleet-wait: {JOB}")
+        } else {
+            format!("answer {turn}")
+        };
+        vec![
+            serde_json::json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+            update(
+                "agent_message_chunk",
+                serde_json::json!({"content": {"type": "text", "text": say}}),
+            ),
+            serde_json::json!({"dir": "mux", "kind": "turn_end", "msg": {}}),
+        ]
+    }));
+    let vms = Arc::new(PerAgentVms::default());
+    let sp = per_agent(&mut h, &vms);
+    let fleet = Arc::new(FakeFleet::default());
+    h.brain.set_fleet_jobs(Some(fleet.clone()), Duration::ZERO);
+    let a = sp.clone();
+    run(&mut h, move || {
+        a.spawn(vec!["Build the app on the fleet".into()], None)
+    })
+    .unwrap();
+    let first = subs(&h)[0].1.clone();
+    assert!(first.contains("fleet-wait: JOB_ID"), "the note: {first}");
+    let waiting = |h: &Harness| {
+        h.brain
+            .state()
+            .sub("a1")
+            .is_some_and(|(_, s)| !s.fleet_wait.is_empty())
+    };
+    wait_for(&mut h, waiting);
+    let sub = h.brain.state().sub("a1").unwrap().1.clone();
+    assert_eq!(sub.fleet_wait, vec![JOB.to_owned()]);
+    assert!(sub.stopped, "no Chief turn while it waits: {sub:?}");
+    let until = Instant::now() + Duration::from_secs(5);
+    while !calls_of(&vms).contains(&"pause chief-sub-a1".to_owned()) && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(calls_of(&vms).contains(&"pause chief-sub-a1".to_owned()));
+
+    // Still queued: nothing happens.
+    for _ in 0..3 {
+        h.brain.step(Input::CloudTick);
+        while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+    }
+    assert!(!calls_of(&vms).iter().any(|c| c == "resume chief-sub-a1"));
+
+    fleet
+        .states
+        .lock()
+        .unwrap()
+        .insert(JOB.into(), "done".into());
+    let woke = |h: &Harness| {
+        subs(h)
+            .iter()
+            .any(|(_, p)| p.contains(&format!("fleet job {JOB} finished: done")))
+            || h.agents.inner.lock().unwrap().prompts.iter().any(|b| {
+                serde_json::to_string(b)
+                    .unwrap()
+                    .contains(&format!("fleet job {JOB} finished: done"))
+            })
+    };
+    let until = Instant::now() + Duration::from_secs(5);
+    while !woke(&h) && Instant::now() < until {
+        h.brain.step(Input::CloudTick);
+        while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+    }
+    assert!(woke(&h), "told the result");
+    assert!(calls_of(&vms).contains(&"resume chief-sub-a1".to_owned()));
+    let sub = h.brain.state().sub("a1").unwrap().1.clone();
+    assert!(sub.fleet_wait.is_empty());
+    let _ = SubStatus::Done;
+}
