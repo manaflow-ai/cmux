@@ -114,6 +114,8 @@ extension HomeService {
     /// The Home sidebar's data source (the vendored MessagesLab sidebar reads it):
     /// choosing a row shows its conversation on the Home page, a person starts a DM.
     func makeSidebarSource() -> HomeSidebarSource {
+        // The list's first frame is the last launch's list (HomeService+LaunchList).
+        primeHomeList()
         let store = homeStore
         let source = HomeSidebarSource(
             store: HomePinStore(), inboxes: [homeInbox, homeCloudInbox], account: { [weak self] in self?.pinAccount ?? "local" },
