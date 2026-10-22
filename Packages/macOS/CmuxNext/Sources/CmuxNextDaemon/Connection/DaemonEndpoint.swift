@@ -401,6 +401,9 @@ public struct DaemonCapabilities: Sendable {
     public let browserFitWidth = "browser-fit-width-v1"
     /// keybindings.json owned by the daemon (`keybindings.*`, cx-9ce.17).
     public let keybindings = "keybindings-v1"
+    /// Config scripts (`script-config-*`, `script-action-run`, event
+    /// `script-config-changed`): user actions, keys and key modes in JavaScript.
+    public let scriptConfig = "script-config-v1"
     /// `put-blob`/`get-blob`: the owner's icon asset store, and `image:`/`svg:`
     /// icon values naming a stored asset on workspace, screen, room and profile icons.
     public let iconAssets = "icon-assets-v1"
@@ -476,7 +479,7 @@ public struct DaemonCapabilities: Sendable {
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, sidebarDoc, placementShift, paletteUsage, browserDevices, browserFit, browserFitWidth, projectList, splitClientKeys, splitClientSplitID, conversationTabSplit, terminalInputWhileCreating,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart, tabRestartKeptLayout, tabPark,
-                                            originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview, sharedSizing,
+                                            originClaim, pageRouter, sessionJournal, terminalResources, keybindings, scriptConfig, iconAssets, linkPreview, sharedSizing,
                                             machineIdentity, agentCLIAppProvider, agentCLIAppInvalidation, agentInventoryWatchAdmission, sendExpectForeground, stash] }
 
     /// App code waiting for a daemon half that no branch has yet. Each

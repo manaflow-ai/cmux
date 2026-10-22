@@ -55,4 +55,6 @@ nonisolated struct KeyFacts: Equatable, Sendable {
     var fileExplorerFocused = false
     /// Workspaces as tabs is on (`SidebarTunables.workspacesAsTabs`): context key `sidebar.workspacesAsTabs`.
     var workspacesAsTabs = false
+    /// The config scripts' key mode that is on (`ScriptKeyModes`): context key `keyMode`.
+    var keyMode: String?
 }

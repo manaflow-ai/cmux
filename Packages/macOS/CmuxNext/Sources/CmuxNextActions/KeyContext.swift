@@ -100,6 +100,8 @@ public nonisolated struct KeyContext: Hashable, Sendable {
     public static let codeEditorFocusedKey = "codeEditorFocused"
     /// The kind of window the key goes to (``WindowKindValue``).
     public static let windowKind = "windowKind"
+    /// The config scripts' key mode that is on (`cmux.keys.mode`); absent outside a mode.
+    public static let keyMode = "keyMode"
 
     /// Values of ``windowKind``.
     public struct WindowKindValue {

@@ -24,6 +24,12 @@ final class KeybindingsFileService {
     /// text): an edit names the entry so, since the daemon matches the text
     /// and the table holds canonical ids and `when` clauses.
     private var written: [KeyBinding: KeybindingsFileClient.Binding] = [:]
+    /// The file's entries as the last read returned them.
+    private var fileEntries: [KeybindingsFileClient.Entry] = []
+    /// The config scripts' bindings (the table's app layer) and removals
+    /// (`ScriptConfigController`), checked by it before they come here.
+    private var scriptBindings: [KeyBinding] = []
+    private var scriptRemovals: [KeyBindingRemoval] = []
 
     init(services: AppServices) {
         self.services = services
@@ -113,8 +119,24 @@ final class KeybindingsFileService {
         return task
     }
 
-    /// Loads `entries` as the table's user layer; the app layer stays.
+    /// Loads `entries` as the table's user layer.
     private func load(_ entries: [KeybindingsFileClient.Entry]) {
+        fileEntries = entries
+        apply()
+    }
+
+    /// Replaces the config scripts' bindings and removals and loads the
+    /// table again. Script removals come after the file's, so the file's
+    /// removal indexes (`issues`) stay the file's.
+    func setScriptLayer(bindings: [KeyBinding], removals: [KeyBindingRemoval]) {
+        scriptBindings = bindings
+        scriptRemovals = removals
+        apply()
+    }
+
+    /// Loads the file's entries as the user layer and the scripts' as the app layer.
+    private func apply() {
+        let entries = fileEntries
         var user: [KeyBinding] = [], removals: [KeyBindingRemoval] = []
         var texts: [KeybindingsFileClient.Binding] = []
         for entry in entries {
@@ -131,8 +153,7 @@ final class KeybindingsFileService {
             }
         }
         guard let registry = services?.registry else { return }
-        let layers = registry.keyBindingLayers
-        issues = KeyBindingLoader(registry).load(KeyBindingLayers(app: layers.app, user: user, removals: removals))
+        issues = KeyBindingLoader(registry).load(KeyBindingLayers(app: scriptBindings, user: user, removals: removals + scriptRemovals))
         // The loader keeps the entries that pass, in order, canonicalized.
         let refused = Set(issues.filter { $0.source == .user && !$0.isRemoval }.map(\.index))
         let kept = texts.enumerated().filter { !refused.contains($0.offset) }.map(\.element)
@@ -164,7 +185,7 @@ final class KeybindingsFileService {
     }
 
     /// A parsed `when` (`.some(nil)`: none), or nil when it does not parse.
-    private static func when(_ text: String?) -> WhenClause?? {
+    static func when(_ text: String?) -> WhenClause?? {
         guard let text else { return .some(nil) }
         do {
             return .some(try WhenClause.parse(text))
@@ -175,7 +196,7 @@ final class KeybindingsFileService {
 
     /// File arguments as action values (the loader converts them to the
     /// schema's kinds), or nil when one is a list, an object or null.
-    private static func arguments(_ args: [String: JSONValue]) -> [String: ActionValue]? {
+    static func arguments(_ args: [String: JSONValue]) -> [String: ActionValue]? {
         var values: [String: ActionValue] = [:]
         for (name, value) in args {
             switch value {

@@ -65,6 +65,8 @@ public enum DaemonEvent: Sendable, Hashable {
     case historyChanged(revision: UInt64, kinds: [String])
     /// keybindings.json changed (`keybindings-v1`): a hand edit or a write.
     case keybindingsChanged(revision: UInt64)
+    /// A config script reload applied (`script-config-v1`): refetch `script-config-status`.
+    case scriptConfigChanged(generation: UInt64)
     /// One committed op on a local conversation (`local-conversations-v1`).
     case conversationChanged(ConversationEvent)
     /// A participant started or stopped typing (ephemeral).

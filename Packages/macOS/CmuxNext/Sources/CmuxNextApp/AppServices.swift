@@ -152,6 +152,8 @@ final class AppServices {
     private(set) lazy var bookmarks = BookmarkService(services: self)
     /// The user's keybindings.json, owned by the home daemon, as the binding table's user layer.
     private(set) lazy var keybindingsFile = KeybindingsFileService(services: self)
+    /// The config scripts' actions, keys and key modes (`script-config-v1`).
+    private(set) lazy var scriptConfig = ScriptConfigController(services: self)
     /// App platform (DEV prototype): registry, JavaScriptCore app host, App Store.
     private(set) lazy var apps = AppsService(services: self)
     private(set) lazy var sidebarCustomization = SidebarCustomizationService(client: apps.client) { [weak self] in self?.apps.presence.isPresented($0) == true }
