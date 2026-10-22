@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextSidebar
 
@@ -70,9 +71,9 @@ enum WorkspaceSelectionClose {
             // Every row of the batch that closed, the offline ones too, under one toast and one Undo: shown once
             // the live rows settled, and shown again in place (same id) as each offline row closes later.
             let outcome = Outcome { closed in
-                guard closed.count > 1, let undoWindow else { return }
-                WorkspaceGroupClose.offerUndo("workspaces-closed", WorkspaceBulkClose.closedToast(closed.count), groups: [(nil, closed)],
-                                              after: seen, in: undoWindow, services)
+                guard closed.count > 1, let undoWindow else { return nil }
+                return WorkspaceGroupClose.offerUndo("workspaces-closed", WorkspaceBulkClose.closedToast(closed.count), groups: [(nil, closed)],
+                                                     after: seen, in: undoWindow, services)
             }
             // A machine that is not connected (a paused Cloud VM): its closes wait for it outside the
             // window's lane, so later creates and closes never wait for it (WorkspaceCloseFlow).
@@ -101,22 +102,34 @@ enum WorkspaceSelectionClose {
     @MainActor private final class Outcome {
         private var closed: [String] = []
         private var shown = false
-        private let offer: @MainActor ([String]) -> Void
+        /// The toast's Undo ran: it reopened what had closed then, so a later offline close
+        /// no longer joins it (Reopen Closed Workspace and History still have that one).
+        private var undone = false
+        private let offer: @MainActor ([String]) -> CmuxToastHandle?
 
-        init(offer: @escaping @MainActor ([String]) -> Void) { self.offer = offer }
+        init(offer: @escaping @MainActor ([String]) -> CmuxToastHandle?) { self.offer = offer }
 
         /// The live rows settled: the toast shows for everything closed so far.
         func liveSettled(_ names: [String]) {
             closed += names
             shown = true
-            offer(closed)
+            show()
         }
 
-        /// An offline row settled; once the toast has shown, it shows again with it.
+        /// An offline row settled; once the toast has shown, and until its Undo ran, it shows again with it.
         func add(_ names: [String]) {
-            guard !names.isEmpty else { return }
+            guard !names.isEmpty, !undone else { return }
             closed += names
-            if shown { offer(closed) }
+            if shown { show() }
+        }
+
+        private func show() {
+            guard let handle = offer(closed) else { return }
+            let undo = handle.onAction
+            handle.onAction = { [weak self] in
+                self?.undone = true
+                undo?()
+            }
         }
     }
 
