@@ -63,9 +63,9 @@ enum AgentSessionWorkspace {
         // session (a launcher run again): nothing is opened twice.
         if services.machines.workspace(id: key.rawValue) != nil { return Task { nil } }
         let windows = services.windows
-        if let group, let name, let window = windows.registry.value.mostRecentOpen(),
-           let sidebar = windows.controller(for: window)?.sidebar,
-           let row = predecessor(named: name, inGroup: group, in: sidebar.model.sections) {
+        // Every window's sidebar: each lists only its own workspaces, and the predecessor may be in any.
+        if let group, let name,
+           let row = windows.controllers.lazy.compactMap({ predecessor(named: name, inGroup: group, in: $0.sidebar.model.sections) }).first {
             return reuse(row, session: session, key: key, host: host, services: services)
         }
         // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
