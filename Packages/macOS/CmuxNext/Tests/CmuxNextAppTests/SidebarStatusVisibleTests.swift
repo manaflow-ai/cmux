@@ -45,6 +45,7 @@ import Testing
         if words { design.sidebarSections.workspaceRow.base.shown.insert(.agentStatus) }
         let sidebar = SidebarView(model: model, design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
+        sidebar.renderNow() // the design's row elements reach the model
         sidebar.layoutSubtreeIfNeeded()
         sidebar.list.reload(animated: false)
         sidebar.list.rowViews.values.forEach { $0.layoutSubtreeIfNeeded() }
