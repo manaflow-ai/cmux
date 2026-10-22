@@ -105,9 +105,9 @@ import UniformTypeIdentifiers
         #expect(second.view.draftAttachments.isEmpty)
     }
 
-    /// Return pressed while the last launch's chips are still coming back: what
-    /// was not in the field yet stays out of it and out of the cache.
-    @Test func aSendDuringTheRestoreKeepsTheRestOut() async throws {
+    /// Return pressed while the last launch's chips are still coming back: the
+    /// send waits for the last one and takes them all, so none is lost.
+    @Test func aSendDuringTheRestoreTakesEveryScreenshot() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("home-draft-pictures-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         let first = try await launch(root)
@@ -125,8 +125,13 @@ import UniformTypeIdentifiers
 
         let second = try await launch(root)
         defer { second.quit() }
-        #expect(second.view.sendDraft() == nil, "sent before any chip is back")
-        await until { !second.view.draftAttachments.isEmpty }
+        #expect(second.view.draftAttachments.isEmpty, "Return comes before any chip is back")
+        #expect(second.view.sendDraft() != nil, "held for the chips")
+        let pictures: @MainActor () -> Int = {
+            second.store.transcript(for: Self.conversation).map { $0.parts.filter { if case .attachment = $0 { true } else { false } }.count }.max() ?? 0
+        }
+        await until { pictures() == 2 }
+        #expect(pictures() == 2, "one message with both screenshots")
         #expect(second.view.draftAttachments.isEmpty)
         #expect(second.store.draftAttachments(for: Self.conversation).isEmpty)
     }

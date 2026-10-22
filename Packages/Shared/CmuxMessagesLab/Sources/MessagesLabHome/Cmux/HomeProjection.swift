@@ -84,8 +84,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// The last launch's attachments are going back in the field: each one
     /// is not written back on its own, the whole field is once they are in.
     private var restoringDraftAttachments = false
-    /// Bumped by a send: a restore still adding chips stops, so a sent picture does not come back.
-    private var draftAttachmentsRestore = 0
+    /// Return was pressed while they were still going back: the send goes once the last one is
+    /// in, in the thread it was held for (nil: the open view), so none is left out of it.
+    private var sendWhenRestored = false
+    private var restoredSendThread: (root: MessageID?, parent: MessageID?)?
 
     /// What the projection shows, as HomeStore said it (shared with the harness).
     private(set) var core: ProjectionCore
@@ -358,6 +360,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// `deferred`: the thread (root, parent) a held send was made in (`refresh`); nil reads the open view.
     private func send(thread deferred: (root: MessageID?, parent: MessageID?)?) -> String? {
         guard let store = controller.store else { return noteSend("refused: transcript_not_ready") }
+        if restoringDraftAttachments {
+            sendWhenRestored = true
+            restoredSendThread = deferred
+            return noteSend("waiting_for_attachments: sends once the last launch's attachments are back in the field")
+        }
         // A stream update held for the next frame (HomeStreamPacer) shows first: the send lands after the reply's newest text.
         if !stopped { streamPacer.flush { refresh() } }
         let draft = store.state.ui.draft
@@ -427,8 +434,6 @@ final class HomeProjection: @preconcurrency ChatIntents {
             controller.dispatch(.setDraft(""))
         }
         homeStore.setDraft("", for: conversation)
-        draftAttachmentsRestore += 1
-        restoringDraftAttachments = false
         homeStore.setDraftAttachments([], for: conversation)
         for a in attachments {
             media.useLocal(a.files, for: a.ref.hash)
@@ -535,19 +540,21 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let kept = homeStore.draftAttachments(for: conversation)
         guard !kept.isEmpty else { return }
         restoringDraftAttachments = true
-        draftAttachmentsRestore += 1
-        let restore = draftAttachmentsRestore
-        // task-owner: one restore; ends when the last chip is in the field, or at a send (restoreDraft does nothing once stopped)
+        // task-owner: one restore; ends when the last chip is in the field, or when the view stops
+        // (the cache still holds the draft, and a held send stays unsent with it)
         Task { [weak self] in
             for attachment in kept {
-                guard let self, self.draftAttachmentsRestore == restore else { return }
+                guard let self, !self.stopped else { return }
                 await self.media.prepare(attachment)
-                guard self.draftAttachmentsRestore == restore else { return }
                 self.restoreDraft(attachment)
             }
-            guard let self, self.draftAttachmentsRestore == restore else { return }
+            guard let self, !self.stopped else { return }
             self.restoringDraftAttachments = false
             self.saveDraftAttachments()
+            guard self.sendWhenRestored else { return }
+            self.sendWhenRestored = false
+            _ = self.send(thread: self.restoredSendThread)
+            self.restoredSendThread = nil
         }
     }
 

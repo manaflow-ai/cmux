@@ -283,13 +283,14 @@ final class TopHomePageView: NSView {
             store.setDraftAttachments(own + pictures.filter { p in !own.contains { $0.ref.hash == p.ref.hash } }, for: chief)
             store.setDraftAttachments([], for: gone)
         }
-        if let text = store.draft(for: gone), !text.isEmpty {
+        let text = store.draft(for: gone) ?? ""
+        if !text.isEmpty {
             let own = store.draft(for: chief) ?? ""
             store.setDraft(own.isEmpty ? text : own + "\n" + text, for: chief)
             store.setDraft("", for: gone)
-            // Its view says the Chief restarted and that Return sends the text.
-            store.noteCarriedDraft(to: chief)
         }
+        // Its view says the Chief restarted and that Return sends what was carried.
+        if !text.isEmpty || !pictures.isEmpty { store.noteCarriedDraft(to: chief) }
         show(chief)
     }
 
