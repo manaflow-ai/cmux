@@ -1,77 +1,109 @@
 // Which repositories have pull request #N, for a bare `#N` the transcript names no repository for
 // (conversation/bareReferences.ts, rule c), from the App's pull request cache, never one GitHub
-// call per chip: the candidates' addresses go to the host in one `link.inspect`, which reads them
-// in one batched GraphQL call (AgentReplyPullRequests.register), then `pr.inspect` answers each
-// from that cache. An answer is kept for the page's life. While the host says a read is running,
-// `pr.inspect` is asked again every WAIT_MS (a call to the App), at most MAX_TRIES times;
-// resetReferenceExistence clears those timers.
+// call per chip. Addresses go in batches of at most MAX_BATCH, at most MAX_RUNNING batches at a
+// time (well under the host's 200 kept links). Each round of a batch first registers the
+// addresses still unanswered with one `link.inspect`, which reads the stale ones in one batched
+// GraphQL call (AgentReplyPullRequests.register) and marks them as being read, then asks
+// `pr.inspect` for each, which answers from that cache and starts no read of its own. While the
+// host is still reading, the next round waits WAIT_MS, doubling to MAX_WAIT_MS, up to ROUNDS
+// rounds (about two minutes); an address still being read then counts as not found. An answer is
+// kept for the page's life (the oldest past MAX_KEPT go, and a shown chip asks again);
+// resetReferenceExistence clears the timers.
 import { useEffect, useSyncExternalStore } from "react";
 import { callChipHost } from "./host";
 
 type State = "yes" | "no" | "asking";
 
 const MAX_BATCH = 64;
+const MAX_RUNNING = 2;
 const WAIT_MS = 1_500;
-const MAX_TRIES = 20;
+const MAX_WAIT_MS = 30_000;
+const ROUNDS = 8;
 const MAX_KEPT = 2_000;
 
 const known = new Map<string, State>();
 const timers = new Set<ReturnType<typeof setTimeout>>();
 const listeners = new Set<() => void>();
 let queued: string[] = [];
-let scheduled = false;
+let running = 0;
+/** Bumped by a reset: a batch from before it records nothing. */
+let generation = 0;
 
 function changed() {
   for (const listener of listeners) listener();
 }
 
-function record(url: string, state: State) {
-  if (!known.has(url)) return; // reset meanwhile
-  known.set(url, state);
-  changed();
-}
-
-function settle(url: string, tries: number) {
-  void callChipHost("pr.inspect", { url }).then((reply) => {
-    const value = reply as { pullRequest?: { number?: unknown } | null; reading?: unknown } | undefined;
-    if (value?.pullRequest && typeof value.pullRequest.number === "number") return record(url, "yes");
-    if (value?.reading === true && tries < MAX_TRIES && known.has(url)) {
-      const timer = setTimeout(() => {
-        timers.delete(timer);
-        settle(url, tries + 1);
-      }, WAIT_MS);
-      timers.add(timer);
-      return;
-    }
-    // No pull request (an issue, another repository's number), no gh, or a read that failed:
-    // the number is not this repository's, as far as the App knows.
-    record(url, "no");
+const wait = (ms: number) =>
+  new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      timers.delete(timer);
+      resolve();
+    }, ms);
+    timers.add(timer);
   });
+
+async function run(batch: string[], started: number) {
+  let pending = batch;
+  for (let round = 0; pending.length && round < ROUNDS; round++) {
+    if (round) await wait(Math.min(WAIT_MS * 2 ** (round - 1), MAX_WAIT_MS));
+    if (started !== generation) return;
+    await callChipHost("link.inspect", { paths: [], urls: pending });
+    const replies = await Promise.all(pending.map((url) => callChipHost("pr.inspect", { url })));
+    if (started !== generation) return;
+    const reading: string[] = [];
+    replies.forEach((reply, index) => {
+      const value = reply as { pullRequest?: { number?: unknown } | null; reading?: unknown } | undefined;
+      const url = pending[index]!;
+      // No pull request (an issue, another repository's number), no gh, or a failed read: not
+      // this repository's, as far as the App knows.
+      if (value?.pullRequest && typeof value.pullRequest.number === "number") known.set(url, "yes");
+      else if (value?.reading === true) reading.push(url);
+      else known.set(url, "no");
+    });
+    pending = reading;
+    changed();
+  }
+  for (const url of pending) known.set(url, "no");
+  if (pending.length) changed();
 }
 
-function flush() {
-  scheduled = false;
-  while (queued.length) {
-    const batch = queued.splice(0, MAX_BATCH);
-    // The host registers the batch before it answers, so each `pr.inspect` after it shares the
-    // batch's one read instead of starting its own.
-    void callChipHost("link.inspect", { paths: [], urls: batch }).then(() => {
-      for (const url of batch) settle(url, 0);
+let pumping = false;
+
+function pump() {
+  pumping = false;
+  while (running < MAX_RUNNING && queued.length) {
+    const started = generation;
+    running += 1;
+    void run(queued.splice(0, MAX_BATCH), started).finally(() => {
+      if (started !== generation) return;
+      running -= 1;
+      pump();
     });
   }
 }
 
+/** Drops the oldest answers past MAX_KEPT; an address still being asked about stays. */
+function trim() {
+  for (const [url, state] of known) {
+    if (known.size <= MAX_KEPT) break;
+    if (state !== "asking") known.delete(url);
+  }
+}
+
 function ask(urls: readonly string[]) {
-  if (known.size > MAX_KEPT) resetReferenceExistence();
+  let added = false;
   for (const url of urls) {
     if (known.has(url)) continue;
     known.set(url, "asking");
     queued.push(url);
+    added = true;
   }
-  if (queued.length && !scheduled) {
-    scheduled = true;
-    queueMicrotask(flush);
-  }
+  if (!added) return;
+  trim();
+  // One microtask later, so every chip a render mounted asks in the same batch.
+  if (pumping) return;
+  pumping = true;
+  queueMicrotask(pump);
 }
 
 function subscribe(listener: () => void) {
@@ -83,21 +115,23 @@ function subscribe(listener: () => void) {
  *  An empty list asks nothing. */
 export function usePullRequestsExist(urls: readonly string[]): readonly boolean[] | undefined {
   const key = urls.join(" ");
-  useEffect(() => {
-    if (key) ask(key.split(" "));
-  }, [key]);
   // The snapshot is a string, so an unchanged answer is the same value and re-renders nothing.
   const read = () =>
     key
       ? key
           .split(" ")
-          .map((url) => known.get(url) ?? "asking")
+          .map((url) => known.get(url) ?? "missing")
           .join(" ")
       : "";
   const states = useSyncExternalStore(subscribe, read, read);
+  // Asks for every address it has no answer for: on mount, and again after one was dropped.
+  const missing = states.includes("missing");
+  useEffect(() => {
+    if (key) ask(key.split(" "));
+  }, [key, missing]);
   if (!states) return undefined;
   const each = states.split(" ");
-  return each.includes("asking") ? undefined : each.map((state) => state === "yes");
+  return each.some((state) => state !== "yes" && state !== "no") ? undefined : each.map((state) => state === "yes");
 }
 
 /** Tests and the gallery start from nothing. */
@@ -106,5 +140,8 @@ export function resetReferenceExistence(): void {
   timers.clear();
   known.clear();
   queued = [];
+  running = 0;
+  pumping = false;
+  generation += 1;
   changed();
 }

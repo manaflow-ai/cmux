@@ -1851,7 +1851,11 @@ export function VirtualTranscript({
   // (conversation/bareReferences.ts): one scope object per turn, kept while nothing new is named;
   // a streaming reply reads only its own row again.
   const referenceCache = useRef(newReferenceScopeCache());
-  const scopeOf = useMemo(() => referenceScopes(sourceRows ?? rows, referenceCache.current), [rows, sourceRows]);
+  const scopeAt = useMemo(() => {
+    const cache = referenceCache.current;
+    const scopeOf = referenceScopes(sourceRows ?? rows, cache);
+    return (index: number) => scopeOf(turnOpener(cache, rows, index));
+  }, [rows, sourceRows]);
   // `scroll` events also fire for layout-driven writes to scrollTop. Keep the user's intent in a
   // ref so those events cannot turn a pinned transcript into a one-frame jump when the composer
   // stack changes height.
@@ -3380,7 +3384,7 @@ export function VirtualTranscript({
                       onToggleActivity={onToggleActivity}
                       onOpenDiff={onOpenDiff}
                       githubRepository={githubRepository ?? rowRepositories?.[absoluteIndex]}
-                      referenceScope={scopeOf(turnOpener(rows, absoluteIndex))}
+                      referenceScope={scopeAt(absoluteIndex)}
                     >
                       <Component
                         row={row}

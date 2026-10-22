@@ -4,61 +4,26 @@
 // linked to leo-workspace, the folder's repository. A bare #N now takes the repository the
 // transcript's evidence names (conversation/bareReferences.ts), and the App's pull request cache
 // says which of the chat's repositories has it.
-import { afterAll, afterEach, expect, test } from "bun:test";
-import { JSDOM, VirtualConsole } from "jsdom";
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { act } from "react";
+import { UiProvider } from "../src/ui/UiProvider";
+import { VirtualTranscript } from "../src/agent-session/acpmux/App";
+import { setChipHost } from "../src/agent-session/acpmux/chips/host";
+import { resetLinkStore } from "../src/agent-session/acpmux/chips/linkStore";
+import { resetPullRequestStore } from "../src/agent-session/acpmux/chips/pullRequestStore";
+import { resetReferenceExistence } from "../src/agent-session/acpmux/chips/referenceExistence";
+import { newReferenceScopeCache, referenceScopes } from "../src/agent-session/acpmux/conversation/bareReferences";
+import { useDom } from "./support/unknownWrite";
 
-const dom = new JSDOM("<!doctype html><div id=root></div>", {
-  url: "http://localhost/",
-  pretendToBeVisual: true,
-  virtualConsole: new VirtualConsole(),
+const dom = useDom();
+beforeAll(() => {
+  // jsdom has no layout. A tall viewport mounts every row of these small conversations.
+  Object.assign(globalThis, { getComputedStyle: window.getComputedStyle.bind(window) });
+  Object.defineProperty(window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 10_000 });
+  Object.defineProperty(window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
 });
-const scope = globalThis as Record<string, unknown>;
-class Observer {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
-const replacements: Record<string, unknown> = {
-  window: dom.window,
-  document: dom.window.document,
-  navigator: dom.window.navigator,
-  HTMLElement: dom.window.HTMLElement,
-  Element: dom.window.Element,
-  customElements: dom.window.customElements,
-  Node: dom.window.Node,
-  MutationObserver: dom.window.MutationObserver,
-  getComputedStyle: dom.window.getComputedStyle,
-  IntersectionObserver: Observer,
-  ResizeObserver: Observer,
-  requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
-  cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
-  IS_REACT_ACT_ENVIRONMENT: true,
-};
-for (const key of Object.getOwnPropertyNames(dom.window))
-  if (/^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in scope))
-    replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
-const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
-Object.assign(scope, replacements);
-// jsdom has no layout. A tall viewport mounts every row of these small conversations.
-Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 10_000 });
-Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
-
-const { act } = await import("react");
-const { createRoot } = await import("react-dom/client");
-const { UiProvider } = await import("../src/ui/UiProvider");
-const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
-const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
-const { resetLinkStore } = await import("../src/agent-session/acpmux/chips/linkStore");
-const { resetPullRequestStore } = await import("../src/agent-session/acpmux/chips/pullRequestStore");
-const { resetReferenceExistence } = await import("../src/agent-session/acpmux/chips/referenceExistence");
-
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
-});
+afterEach(() => setChipHost(undefined));
+afterAll(() => void delete (globalThis as { getComputedStyle?: unknown }).getComputedStyle);
 
 const FOLDER = "teamleaderleo/leo-workspace";
 const CMUX = "manaflow-ai/cmux";
@@ -81,15 +46,13 @@ const shell = (command: string, output: string, exitCode = 0) =>
     ],
   });
 
-let unmount: (() => Promise<void>) | undefined;
-afterEach(async () => {
-  await unmount?.();
-  unmount = undefined;
-});
-
 /// Renders `rows` in a chat whose folder's repository is leo-workspace. The host's pull request
 /// cache has `existing` (by address); every other address has no pull request.
-async function render(rows: Row[], existing: readonly string[]) {
+async function render(
+  rows: Row[],
+  existing: readonly string[],
+  { source, reading = 0 }: { source?: Row[]; reading?: number } = {},
+) {
   resetLinkStore();
   resetPullRequestStore();
   resetReferenceExistence();
@@ -97,28 +60,30 @@ async function render(rows: Row[], existing: readonly string[]) {
   setChipHost(async (method, params) => {
     calls.push({ method, params });
     if (method !== "pr.inspect") return {};
+    // The host's read is still running for the first `reading` asks.
+    if (calls.filter((call) => call.method === "pr.inspect").length <= reading)
+      return { pullRequest: null, reading: true };
     const url = String(params.url);
     const match = /\/pull\/(\d+)$/.exec(url);
     return existing.includes(url)
       ? { pullRequest: { url, number: Number(match![1]), title: `PR ${match![1]}`, state: "merged" }, reading: false }
       : { pullRequest: null, reading: false };
   });
-  const element = dom.window.document.getElementById("root")!;
-  const root = createRoot(element);
-  await act(async () =>
-    root.render(
-      <UiProvider container={element}>
-        <VirtualTranscript rows={rows} onToggleActivity={() => {}} expanded={new Set()} githubRepository={FOLDER} />
-      </UiProvider>,
-    ),
+  const element = dom.host();
+  await dom.render(
+    <UiProvider container={element}>
+      <VirtualTranscript
+        rows={rows}
+        sourceRows={source}
+        onToggleActivity={() => {}}
+        expanded={new Set()}
+        githubRepository={FOLDER}
+      />
+    </UiProvider>,
   );
   // The host's answers are promises (no timers): a few turns of the event loop settle every
   // link.inspect and pr.inspect and the renders after them.
   for (let pass = 0; pass < 10; pass++) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  unmount = async () => {
-    await act(async () => root.unmount());
-    setChipHost(undefined);
-  };
   const chips = () =>
     [...element.querySelectorAll<HTMLAnchorElement>("a.cv-chip.is-ref")].map((chip) => [
       chip.textContent,
@@ -132,7 +97,7 @@ test("Leo's case: a leo-workspace chat's bare cmux numbers link to manaflow-ai/c
     [
       user("Land the agent pane fixes"),
       // The chat has linked cmux before (a lane's report), so cmux is a candidate.
-      shell("gh pr list -R manaflow-ai/cmux --author @me", `${pr(CMUX, 24100)}\tagent pane: chips`),
+      shell("gh pr list -R manaflow-ai/cmux --author @me", ""),
       assistant(`Merged ${NUMBERS.map((number) => `#${number}`).join(", ")}.`),
     ],
     NUMBERS.map((number) => pr(CMUX, number)),
@@ -160,15 +125,24 @@ test("rule 1: an explicit owner/repo#N or address keeps its own repository", asy
   ]);
 });
 
-test("rule a: the turn's own mention beats the chat's later one", async () => {
+test("rules a and b: a turn keeps its own mention; a later turn takes the last one before it", async () => {
   const view = await render(
-    [user("Status of o/a#5?"), assistant("#5 merged."), user("And o/b#5?"), assistant("o/b#5 is open.")],
+    [
+      user("Status of o/a#5?"),
+      assistant("#5 merged."),
+      user("And o/b#5?"),
+      assistant("o/b#5 is open."),
+      user("Any news?"),
+      assistant("#5 is green."),
+    ],
     [],
   );
-  // Prompts draw their text as written; the replies' chips:
+  // Prompts draw their text as written. The first reply keeps o/a (a later turn never rewrites
+  // it); the last takes o/b, the one named last before its turn (rule b).
   expect(view.chips()).toEqual([
     ["#5", pr("o/a", 5)],
     ["o/b#5", pr("o/b", 5)],
+    ["#5", pr("o/b", 5)],
   ]);
   expect(inspected(view.calls)).toEqual([]);
 });
@@ -192,51 +166,61 @@ test("rule a: a command in the turn names the number's repository (its output to
   ]);
 });
 
-test("rule b: a number the chat named in an earlier turn keeps that repository", async () => {
-  const view = await render(
-    [user(`Watch ${pr(CMUX, 24197)}`), assistant("Watching."), user("Is it green?"), assistant("#24197 is green.")],
-    [],
-  );
-  expect(view.chips()).toEqual([["#24197", pr(CMUX, 24197)]]);
-  expect(inspected(view.calls)).toEqual([]);
+test("rule a reads a message in order, and a hidden prompt still opens its turn", async () => {
+  const hidden = user("o/c#6 bookkeeping");
+  const rows = [
+    user("Status?"),
+    assistant(`Previously o/a#5; corrected: ${pr("o/b", 5)}; merged #5.`),
+    assistant("#6 done."),
+  ];
+  // The client's rows hold a prompt the transcript does not draw; the reply after it is its turn's.
+  const view = await render(rows, [], { source: [...rows.slice(0, 2), hidden, rows[2]!] });
+  expect(view.chips().filter(([label]) => label?.startsWith("#"))).toEqual([
+    ["#5", pr("o/b", 5)],
+    ["#6", pr("o/c", 6)],
+  ]);
 });
 
-test("rule c: the App's cache decides among the folder's and the linked repositories, asked together", async () => {
+test("rule c: a repository's own address makes a candidate (Leo's case: -R); a slow host read is waited for", async () => {
   const view = await render(
-    [user(`Compare with ${CMUX}#1`), assistant("Now #900 and #901.")],
-    [pr(FOLDER, 900), pr(CMUX, 901)],
+    [user("Tracking https://github.com/manaflow-ai/cmux now"), assistant("#24175 landed.")],
+    [pr(CMUX, 24175)],
+    { reading: 2 },
+  );
+  // The host says it is still reading at first; the next round, after it registers again, answers.
+  // Waits on the answer itself (the store's first back-off is 1.5 s), giving up after 10 s.
+  for (const end = Date.now() + 10_000; Date.now() < end && view.chips()[0]?.[1] !== pr(CMUX, 24175);)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(view.chips()).toEqual([["#24175", pr(CMUX, 24175)]]);
+  expect(view.calls.filter((call) => call.method === "link.inspect").length).toBeGreaterThanOrEqual(2);
+});
+
+test("rules c, d and 3: the App's cache decides among the candidates, asked in one batch", async () => {
+  const view = await render(
+    [user(`Compare with ${CMUX}#1`), assistant("Now #900, #901, #77 and #843.")],
+    [pr(FOLDER, 900), pr(CMUX, 901), pr(FOLDER, 843), pr(CMUX, 843)],
   );
   expect(view.chips()).toEqual([
     ["#900", pr(FOLDER, 900)],
     ["#901", pr(CMUX, 901)],
+    // Rule d: no candidate has it. Rule 3: both have it, so the chip names the first.
+    ["#77", pr(FOLDER, 77)],
+    ["leo-workspace#843", pr(FOLDER, 843)],
   ]);
-  // Every candidate address went to the host in one link.inspect, which reads them in one batch.
-  const batch = view.calls.find(
+  // Every candidate address went to the host in one link.inspect, which reads them in one batch
+  // (the drawn chips register their own addresses for their cards, as every chip does).
+  const urls = [900, 901, 77, 843].flatMap((number) => [pr(FOLDER, number), pr(CMUX, number)]);
+  const batches = view.calls.filter(
     (call) => call.method === "link.inspect" && (call.params.urls as string[]).includes(pr(CMUX, 900)),
   );
-  expect(batch?.params.urls).toEqual([pr(FOLDER, 900), pr(CMUX, 900), pr(FOLDER, 901), pr(CMUX, 901)]);
-  expect(new Set(inspected(view.calls))).toEqual(
-    new Set([pr(FOLDER, 900), pr(CMUX, 900), pr(FOLDER, 901), pr(CMUX, 901)]),
-  );
+  expect(batches.map((call) => call.params.urls)).toEqual([urls]);
+  expect(new Set(inspected(view.calls))).toEqual(new Set(urls));
 });
 
 test("rule d: with no evidence and one candidate, the folder's repository, asking nothing", async () => {
   const view = await render([user("What landed?"), assistant("#634 landed.")], []);
   expect(view.chips()).toEqual([["#634", pr(FOLDER, 634)]]);
   expect(inspected(view.calls)).toEqual([]);
-});
-
-test("rule d: a number no candidate has stays the folder's", async () => {
-  const view = await render([user(`See ${CMUX}#1`), assistant("#77 is unknown.")], []);
-  expect(view.chips().at(-1)).toEqual(["#77", pr(FOLDER, 77)]);
-});
-
-test("rule 3: a number in two candidates names its repository on the chip", async () => {
-  const view = await render(
-    [user(`Compare with ${CMUX}#1`), assistant("#843 is the one.")],
-    [pr(FOLDER, 843), pr(CMUX, 843)],
-  );
-  expect(view.chips().at(-1)).toEqual(["leo-workspace#843", pr(FOLDER, 843)]);
 });
 
 test("an agent's message: its own address names the repository of its bare #N", async () => {
@@ -250,8 +234,6 @@ test("an agent's message: its own address names the repository of its bare #N", 
 });
 
 test("a streaming reply reads only its own row again; an older row that changed is read again", async () => {
-  const { referenceScopes, newReferenceScopeCache } =
-    await import("../src/agent-session/acpmux/conversation/bareReferences");
   const cache = newReferenceScopeCache();
   const prompt = user(`Watch ${CMUX}#7`);
   const tool = shell("gh pr list", "");
@@ -260,7 +242,7 @@ test("a streaming reply reads only its own row again; an older row that changed 
   // The reply grew: the rows before it are the same objects, so their reading is kept.
   const scopeOf = referenceScopes([prompt, tool, assistant(`#7 and o/r#8`)], cache);
   expect(cache.prefix).not.toBe(prefix);
-  expect(cache.prefix!.named).toEqual(prefix!.named);
+  expect(cache.prefix!.mentions).toEqual(prefix!.mentions);
   expect(scopeOf(prompt.id).turn).toEqual(
     new Map([
       [7, CMUX],
@@ -270,5 +252,5 @@ test("a streaming reply reads only its own row again; an older row that changed 
   // An older row changed (a command finished): everything is read again.
   const done = shell("gh pr list", `${pr("x/y", 9)}`);
   const again = referenceScopes([prompt, done, assistant("#9")], cache);
-  expect(again(prompt.id).evidence.named.get(9)).toBe("x/y");
+  expect(again(prompt.id).evidence.mentions.get(9)).toEqual([{ at: 1, repo: "x/y" }]);
 });

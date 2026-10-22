@@ -116,6 +116,8 @@ const NOT_OWNERS = new Set([
   "users",
 ]);
 const GITHUB_URL = /(?<![\w.-])(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9][\w.-]*\/[A-Za-z0-9][\w.-]*)/g;
+/** Whether `owner` (an address's first segment) can be an owner, not one of github.com's own pages. */
+export const isGithubOwner = (owner: string) => !NOT_OWNERS.has(owner.toLowerCase());
 
 /** The repository `text` mentions last in prose (`owner/repo#N` or a github.com address). */
 export function mentionedRepository(text: string): string | undefined {

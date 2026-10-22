@@ -7,29 +7,28 @@
 // 2. A bare `#N` takes
 //    a. the repository its own turn names for N: `manaflow-ai/cmux#24175` or its address, in the
 //       prompt or agent message that opened the turn, a reply, or a command and its output;
-//    b. else the repository the chat last named N with, anywhere in the transcript;
+//    b. else the repository the chat named N with last before the turn (else first after it);
 //    c. else the candidate that has pull request N, as the App's pull request cache says
 //       (chips/referenceExistence.ts): the folder's repository, then the ones the chat linked;
 //    d. else the folder's repository (or the transcript's, transcriptRepositories.ts).
 // 3. A number that is a pull request in two or more candidates names its repository on the chip
 //    (`leo-workspace#843`).
 import { createContext } from "react";
-import { githubReferences } from "../../../githubReferences";
+import { githubReferences, isGithubOwner } from "../../../githubReferences";
 import type { AcpmuxRow } from "../model";
+
+type Mention = { at: number; repo: string };
 
 /** What the whole transcript says, shared by every row. */
 export type ReferenceEvidence = {
-  /** Rule b: each number's repository, as the chat last named it. */
-  named: ReadonlyMap<number, string>;
-  /** Rule c's candidates after the folder's: the repositories the chat named, latest first. */
+  /** Rule b: where the chat named each number, in transcript order. */
+  mentions: ReadonlyMap<number, readonly Mention[]>;
+  /** Rule c's candidates after the folder's: the repositories the chat linked, latest first. */
   linked: readonly string[];
 };
 
-/** A row's evidence: the transcript's, and its own turn's (rule a). */
-export type ReferenceScope = {
-  evidence: ReferenceEvidence;
-  turn: ReadonlyMap<number, string>;
-};
+/** A turn's evidence: the transcript's, its own (rule a), and where it starts. */
+export type ReferenceScope = { evidence: ReferenceEvidence; turn: ReadonlyMap<number, string>; at: number };
 
 /** The row a chip draws in (App.tsx VirtualTranscript); null outside a transcript. */
 export const ReferenceScopeContext = createContext<ReferenceScope | null>(null);
@@ -37,25 +36,31 @@ export const ReferenceScopeContext = createContext<ReferenceScope | null>(null);
 /** The most candidates rule c asks about for one number, the folder's included. */
 export const MAX_CANDIDATES = 3;
 
-type Named = { number: number; repo: string };
+type Named = { number?: number; repo: string };
 
-// A pull request's or issue's address; the repository's own `.git` suffix is not its name.
+// A repository's address, with the pull request or issue it names; `.git` is not part of a name.
 const ADDRESS =
-  /(?<![\w.-])(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9][\w.-]*\/[A-Za-z0-9][\w.-]*?)(?:\.git)?\/(?:pull|issues)\/([1-9][0-9]{0,9})(?![0-9])/g;
+  /(?<![\w.-])(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9][\w.-]*\/[A-Za-z0-9][\w-]*(?:\.(?!git\b)[\w-]+)*)(?:\.git)?(?:\/(?:pull|issues)\/([1-9][0-9]{0,9})(?![0-9]))?/g;
+// `-R owner/repo` or `--repo owner/repo` in a command.
+const REPO_FLAG = /(?:^|\s)(?:-R|--repo)[= ]([A-Za-z0-9][\w.-]*\/[A-Za-z0-9][\w.-]*)(?=\s|$)/g;
 
-/** Every number `text` names with its repository: addresses, `owner/repo#N` and `hq#N`. */
+/** Every repository `text` names, in order, with the number it names: addresses, `owner/repo#N`,
+ *  `hq#N`, a repository's own address and a command's `-R owner/repo`. */
 export function namedReferences(text: string): Named[] {
-  if (!text.includes("#") && !text.includes("github.com")) return [];
-  const out: Named[] = [];
-  for (const match of text.matchAll(ADDRESS)) out.push({ number: Number(match[2]), repo: match[1]! });
+  if (!/#|github\.com|-R|--repo/.test(text)) return [];
+  const out: (Named & { start: number })[] = [];
+  for (const match of text.matchAll(ADDRESS))
+    if (isGithubOwner(match[1]!.split("/")[0]!))
+      out.push({ start: match.index!, repo: match[1]!, ...(match[2] ? { number: Number(match[2]) } : {}) });
+  for (const match of text.matchAll(REPO_FLAG)) out.push({ start: match.index!, repo: match[1]! });
   for (const ref of githubReferences(text, undefined, "pull", true)) {
     const address = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)$/.exec(ref.href);
-    if (address) out.push({ number: Number(address[2]), repo: address[1]! });
+    if (address) out.push({ start: ref.start, repo: address[1]!, number: Number(address[2]) });
   }
-  return out;
+  return out.sort((a, b) => a.start - b.start).map(({ repo, number }) => (number ? { repo, number } : { repo }));
 }
 
-/** Each row's named numbers, for the row object they were read from. */
+/** Each row's named repositories, for the row object they were read from. */
 const rowCache = new WeakMap<object, readonly Named[]>();
 
 function rowNamed(row: Pick<AcpmuxRow, "kind" | "text" | "items">): readonly Named[] {
@@ -74,53 +79,68 @@ function rowNamed(row: Pick<AcpmuxRow, "kind" | "text" | "items">): readonly Nam
   return named;
 }
 
-/** What the transcript named up to a row: each number's repository, each repository by its
- *  lowercase name (its first spelling and the row that last named it), each turn's own numbers by
- *  the id of the prompt that opened it ("" before the first), and the turn open at that row. */
+/** What the transcript named up to a row: where it named each number, each repository by its
+ *  lowercase name (its first spelling and the row that last named it), each turn's own numbers
+ *  and where it starts, by the id of the prompt that opened it ("" before the first), and the turn
+ *  open at that row. A copy shares arrays and maps with its source, so they are replaced, never
+ *  changed, except the open turn's, which `copy` copies. */
 type Reading = {
-  named: Map<number, string>;
-  repos: Map<string, { repo: string; at: number }>;
-  turns: Map<string, Map<number, string>>;
+  mentions: Map<number, readonly Mention[]>;
+  repos: Map<string, Mention>;
+  turns: Map<string, { at: number; named: Map<number, string> }>;
   turn: string;
 };
 
 /** Kept between renders. A streaming reply changes only the transcript's last row, so the reading
- *  of every row before it is kept (`prefix`) and only the rows after it are read again: no work
- *  per token for each row of the transcript. The scopes drawn last are kept too, so a transcript
- *  that names nothing new keeps every row's scope object (a new one re-renders the row). */
+ *  of every row before it is kept (`prefix`) and only the last row is parsed again; each row
+ *  before it costs one pointer comparison. `rowTurn` is each row's turn by its id. The scopes
+ *  drawn last are kept too, so a transcript that names nothing new keeps every row's scope object
+ *  (a new one re-renders the row). */
 export type ReferenceScopeCache = {
   source?: readonly object[];
   prefix?: Reading;
   prefixLength: number;
+  generation: number;
+  rowTurn: Map<string, string>;
   evidence?: { key: string; value: ReferenceEvidence };
   scopes: Map<string, { key: string; scope: ReferenceScope }>;
 };
 
-export const newReferenceScopeCache = (): ReferenceScopeCache => ({ prefixLength: 0, scopes: new Map() });
+export const newReferenceScopeCache = (): ReferenceScopeCache => ({
+  prefixLength: 0,
+  generation: 0,
+  rowTurn: new Map(),
+  scopes: new Map(),
+});
 
-/** `reading` with the turn it is in copied, so reading on never writes to the one it came from. */
+const empty = (): Reading => ({ mentions: new Map(), repos: new Map(), turns: new Map(), turn: "" });
+
 const copy = (reading: Reading): Reading => {
   const turns = new Map(reading.turns);
   const open = turns.get(reading.turn);
-  if (open) turns.set(reading.turn, new Map(open));
-  return { named: new Map(reading.named), repos: new Map(reading.repos), turns, turn: reading.turn };
+  if (open) turns.set(reading.turn, { at: open.at, named: new Map(open.named) });
+  return { mentions: new Map(reading.mentions), repos: new Map(reading.repos), turns, turn: reading.turn };
 };
 
-function read(reading: Reading, row: Pick<AcpmuxRow, "id" | "kind" | "text" | "items">, index: number) {
-  if (row.kind === "user") reading.turn = row.id;
+function read(reading: Reading, row: Pick<AcpmuxRow, "id" | "kind" | "text" | "items">, at: number) {
+  if (row.kind === "user") {
+    reading.turn = row.id;
+    reading.turns.set(row.id, { at, named: new Map() });
+  }
   for (const { number, repo } of rowNamed(row)) {
     const key = repo.toLowerCase();
     const spelled = reading.repos.get(key)?.repo ?? repo;
-    reading.repos.set(key, { repo: spelled, at: index });
-    reading.named.set(number, spelled);
-    if (!reading.turns.has(reading.turn)) reading.turns.set(reading.turn, new Map());
-    reading.turns.get(reading.turn)!.set(number, spelled);
+    reading.repos.set(key, { repo: spelled, at });
+    if (number === undefined) continue;
+    reading.mentions.set(number, [...(reading.mentions.get(number) ?? []), { at, repo: spelled }]);
+    if (!reading.turns.has(reading.turn)) reading.turns.set(reading.turn, { at: 0, named: new Map() });
+    reading.turns.get(reading.turn)!.named.set(number, spelled);
   }
 }
 
 /** The scope of each turn, by the id of the prompt that opened it. `source` is the client's rows,
- *  which still hold the work a closed "Worked for" folds away (conversation/turns.ts). A turn
- *  starts at each prompt (an agent's message is one). */
+ *  which still hold the work a closed "Worked for" folds away and the prompts it hides
+ *  (conversation/turns.ts). A turn starts at each prompt (an agent's message is one). */
 export function referenceScopes(
   source: readonly Pick<AcpmuxRow, "id" | "kind" | "text" | "items">[],
   cache: ReferenceScopeCache = newReferenceScopeCache(),
@@ -128,37 +148,54 @@ export function referenceScopes(
   // The kept reading stands when every row it read is still the same object at the same place.
   let kept = Boolean(cache.prefix && cache.source && source.length > cache.prefixLength);
   for (let index = 0; kept && index < cache.prefixLength; index++) kept = source[index] === cache.source![index];
-  const reading = kept ? copy(cache.prefix!) : { named: new Map(), repos: new Map(), turns: new Map(), turn: "" };
-  for (let index = kept ? cache.prefixLength : 0; index < source.length - 1; index++)
+  if (!kept) {
+    cache.generation += 1;
+    cache.rowTurn.clear();
+  }
+  const reading = kept ? copy(cache.prefix!) : empty();
+  const last = source.length - 1;
+  for (let index = kept ? cache.prefixLength : 0; index < last; index++) {
     read(reading, source[index]!, index);
+    cache.rowTurn.set(source[index]!.id, reading.turn);
+  }
   cache.source = source;
   cache.prefix = reading;
-  cache.prefixLength = Math.max(0, source.length - 1);
-  const whole = source.length ? copy(reading) : reading;
-  if (source.length) read(whole, source[source.length - 1]!, source.length - 1);
-  const { named, repos, turns } = whole;
-  const linked = [...repos.values()].sort((a, b) => b.at - a.at).map(({ repo }) => repo);
-  const evidenceKey = JSON.stringify([[...named], linked]);
+  cache.prefixLength = Math.max(0, last);
+  const whole = last >= 0 ? copy(reading) : reading;
+  if (last >= 0) {
+    read(whole, source[last]!, last);
+    cache.rowTurn.set(source[last]!.id, whole.turn);
+  }
+  // The prefix's reading changes only with a new generation or a longer prefix; the last row is
+  // the rest of what the evidence depends on.
+  const tail = last >= 0 ? `${source[last]!.kind}:${JSON.stringify(rowNamed(source[last]!))}` : "";
+  const evidenceKey = `${cache.generation}:${cache.prefixLength}:${tail}`;
   if (cache.evidence?.key !== evidenceKey) {
-    cache.evidence = { key: evidenceKey, value: { named, linked } };
+    const linked = [...whole.repos.values()].sort((a, b) => b.at - a.at).map(({ repo }) => repo);
+    cache.evidence = { key: evidenceKey, value: { mentions: whole.mentions, linked } };
     cache.scopes.clear();
   }
   const evidence = cache.evidence.value;
   if (cache.scopes.size > MAX_KEPT_TURNS) cache.scopes.clear();
   return (opener) => {
-    const turnNamed = turns.get(opener) ?? NONE;
-    const key = JSON.stringify([...turnNamed]);
+    const turn = whole.turns.get(opener) ?? { at: 0, named: NONE };
+    const key = `${turn.at}:${JSON.stringify([...turn.named])}`;
     const scope = cache.scopes.get(opener);
     if (scope?.key === key) return scope.scope;
-    const next = { evidence, turn: turnNamed };
+    const next = { evidence, turn: turn.named, at: turn.at };
     cache.scopes.set(opener, { key, scope: next });
     return next;
   };
 }
 
-/** The id of the prompt that opened the turn `rows[index]` is in ("" before the first). */
-export function turnOpener(rows: readonly Pick<AcpmuxRow, "id" | "kind">[], index: number): string {
-  for (let at = index; at >= 0; at--) if (rows[at]!.kind === "user") return rows[at]!.id;
+/** The id of the prompt that opened the turn drawn row `rows[index]` is in: its own row's (an
+ *  edit card drawn again under "Worked for" is `<id>:fold`), else that of the nearest row above
+ *  it that came from the client (a "Worked for" line, a date or a footer is the pane's own). */
+export function turnOpener(cache: ReferenceScopeCache, rows: readonly Pick<AcpmuxRow, "id">[], index: number): string {
+  for (let at = index; at >= 0; at--) {
+    const turn = cache.rowTurn.get(rows[at]!.id.replace(/:fold$/, ""));
+    if (turn !== undefined) return turn;
+  }
   return "";
 }
 
@@ -168,7 +205,13 @@ const MAX_KEPT_TURNS = 4_000;
 
 /** Rules a and b: the repository the transcript names for `number`, else undefined. */
 export function namedRepository(number: number, scope: ReferenceScope | null): string | undefined {
-  return scope?.turn.get(number) ?? scope?.evidence.named.get(number);
+  if (!scope) return undefined;
+  const own = scope.turn.get(number);
+  if (own) return own;
+  const mentions = scope.evidence.mentions.get(number) ?? [];
+  let before: string | undefined;
+  for (const mention of mentions) if (mention.at < scope.at) before = mention.repo;
+  return before ?? mentions[0]?.repo;
 }
 
 /** Rule c's candidates: `fallback` (rule d's) first, then the chat's repositories, latest first. */
