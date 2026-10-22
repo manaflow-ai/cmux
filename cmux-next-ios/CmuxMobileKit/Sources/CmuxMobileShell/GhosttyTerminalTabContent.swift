@@ -29,6 +29,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// placeholder, or the mock in DEBUG mock mode).
     private var liveTabs: Set<String> = []
     private var workspaceOwner: [String: String] = [:]
+    /// Each host's Mac. Tab ids (`s<surface>`) repeat across Macs: a tab of
+    /// another Mac with the same id gets its own host, never this one.
+    private var hostMacs: [String: String] = [:]
     /// Per tab: "Reattaching…" in the title pill after a slow reattach (P5),
     /// fed from the host model's `connectionState` while the tab has a host.
     private var indicators: [String: ReattachIndicator<ContinuousClock>] = [:]
@@ -93,23 +96,23 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     var workspaceLookup: (@MainActor (String) -> Workspace?)?
 
     /// Whether the tab would get a live session now (the tree lists its surface).
-    var hasLiveSession: (@MainActor (String) -> Bool)?
+    var hasLiveSession: (@MainActor (_ tabID: String, _ macID: String?) -> Bool)?
 
     private func canGoLive(_ id: String) -> Bool {
-        hasLiveSession?(id) ?? false
+        hasLiveSession?(id, placeholderTabs[id]?.workspace.macID) ?? false
     }
     private var feeds: [String: Task<Void, Never>] = [:]
     /// Live mode: a session on the Mac for a terminal tab (a daemon surface),
     /// or nil while there is none yet (the tab then shows "Connecting…").
-    var sessionProvider: (@MainActor (WorkspaceTab) -> (any TerminalSession)?)?
+    var sessionProvider: (@MainActor (WorkspaceTab, _ macID: String) -> (any TerminalSession)?)?
     /// Live mode: the Mac's screen as text for a tab's grid card (D5).
-    var screenTextProvider: (@MainActor (WorkspaceTab) async -> String?)?
+    var screenTextProvider: (@MainActor (WorkspaceTab, _ macID: String?) async -> String?)?
     /// When each card's screen text is asked for.
     private var screenTextRefresh = TerminalCardScreenRefresh()
     /// Live mode: Files and Links previews from the Mac.
-    var artifactSourceProvider: (@MainActor (WorkspaceTab) -> (any ArtifactSource)?)?
+    var artifactSourceProvider: (@MainActor (WorkspaceTab, _ macID: String) -> (any ArtifactSource)?)?
     /// Live mode: uploads a terminal attachment to the Mac, returning its path there.
-    var uploaderProvider: (@MainActor (WorkspaceTab) -> (@MainActor (Data, String) async throws -> String)?)?
+    var uploaderProvider: (@MainActor (WorkspaceTab, _ macID: String) -> (@MainActor (Data, String) async throws -> String)?)?
     /// DEBUG mock mode (Settings → Developer → Mock): tabs with no live
     /// session run the scripted mock. Ignored outside DEBUG builds.
     var mockDataEnabled = false
@@ -117,6 +120,12 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     var macName: (@MainActor (Workspace) -> String?)?
 
     private func host(for tab: WorkspaceTab, in workspace: Workspace) -> TerminalTabHost {
+        // Another Mac's tab with the same id: its host (and its attach) goes, and
+        // this tab builds its own on its own Mac.
+        if hosts[tab.id] != nil, let owner = hostMacs[tab.id], owner != workspace.macID {
+            warmLog.info("terminal tab \(tab.id, privacy: .public) now shows another Mac's tab: new host")
+            release(tab.id)
+        }
         // A placeholder (or mock) host built before live data arrived (no
         // coordinator or no tree yet) is replaced once the tab has a live session.
         if let host = hosts[tab.id], liveTabs.contains(tab.id) || sessionProvider == nil { return host }
@@ -125,19 +134,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         for (id, owner) in workspaceOwner where owner == workspace.id && !open.contains(id) {
             // Its Mac attach goes too: a closed tab's session kept waiting to
             // reattach after the next drop (V5-5).
-            hosts.removeValue(forKey: id)?.model.session.stop()
-            stopWatching(id)
-            indicators[id] = nil
-            workspaceOwner[id] = nil
-            liveTabs.remove(id)
-            warm.remove(id)
-            lastFrames[id] = nil
+            release(id)
             slots[id] = nil
-            upgrade.removed(tabID: id)
-            placeholderTabs[id] = nil
-            frameStore?.remove(id)
         }
-        let live = sessionProvider?(tab)
+        let live = sessionProvider?(tab, workspace.macID)
         if let host = hosts[tab.id], live == nil { return host }
         if live != nil { liveTabs.insert(tab.id) }
         // A placeholder replaced by the live session: its frame carries over,
@@ -148,13 +148,13 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // honest connecting placeholder (TerminalSessionChoice).
         let mock = mockDataEnabled && live == nil && sessionProvider == nil
         let session = TerminalSessionChoice.session(live: live, mockDataEnabled: mock, macName: macName?(workspace), programName: tab.title)
-        let artifacts = live == nil ? nil : artifactSourceProvider?(tab)
+        let artifacts = live == nil ? nil : artifactSourceProvider?(tab, workspace.macID)
         let model = TerminalModel(
             session: session,
             artifactSource: artifacts ?? TerminalSessionChoice.fallbackArtifactSource(mockDataEnabled: mock),
             title: tab.title
         )
-        model.uploader = live == nil ? nil : uploaderProvider?(tab)
+        model.uploader = live == nil ? nil : uploaderProvider?(tab, workspace.macID)
         var frame = lastFrames.removeValue(forKey: tab.id) ?? previous.flatMap { $0.model.snapshot ?? $0.model.coldFrame }
         if frame == nil, let data = frameStore?.load(tab.id) { frame = UIImage(data: data) }
         model.restoreLastFrame(frame)
@@ -176,7 +176,23 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         if let slot = slots[tab.id] { slot.host = host }
         watchReattach(tab.id, model: model)
         workspaceOwner[tab.id] = workspace.id
+        hostMacs[tab.id] = workspace.macID
         return host
+    }
+
+    /// Drops a tab's host: its Mac attach stops, its frames go.
+    private func release(_ id: String) {
+        hosts.removeValue(forKey: id)?.model.session.stop()
+        stopWatching(id)
+        indicators[id] = nil
+        workspaceOwner[id] = nil
+        hostMacs[id] = nil
+        liveTabs.remove(id)
+        warm.remove(id)
+        lastFrames[id] = nil
+        upgrade.removed(tabID: id)
+        placeholderTabs[id] = nil
+        frameStore?.remove(id)
     }
 
     /// Tabs last shown with an ended shell (``page(for:in:context:)``).
@@ -192,6 +208,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         upgrade.reset()
         placeholderTabs = [:]
         workspaceOwner = [:]
+        hostMacs = [:]
         liveTabs = []
         warm = TerminalWarmSet(limit: Self.warmLimit)
         lastFrames = [:]
@@ -293,8 +310,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
               let request = screenTextRefresh.begin(tab.id, now: Date(), gridOpening: gridOpening,
                                                     interval: live ? TerminalCardLiveRefresh.screenTextInterval : TerminalCardScreenRefresh.interval)
         else { return }
+        let macID = hostMacs[tab.id]
         Task { @MainActor [weak self, weak model] in
-            let text = await provider(tab)
+            let text = await provider(tab, macID)
             guard let self else { return }
             guard let text else {
                 self.screenTextRefresh.failed(tab.id, request: request)

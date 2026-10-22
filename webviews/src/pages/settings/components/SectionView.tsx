@@ -4,7 +4,9 @@ import { sections } from "../schema";
 import { text } from "../strings";
 import { AccountsSection } from "./AccountsSection";
 import { AgentHarnesses } from "./AgentHarnesses";
+import { AgentIntegrations } from "./AgentIntegrations";
 import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
+import { ChannelsCard } from "./ChannelsCard";
 import { ChiefsCard } from "./ChiefsCard";
 import { ComputerUseCard } from "./ComputerUseCard";
 import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
@@ -19,6 +21,7 @@ import { DENSITY_ROWS } from "../density";
 import { DensityCard } from "./DensityCard";
 import { BrowserProfiles, MachinesSection, SpacesSection } from "./HostSections";
 import { PlaceholderSection } from "./PlaceholderSection";
+import { VoiceInputCard } from "./VoiceInputCard";
 import { SectionActions } from "./SectionActions";
 import { ACCENT_KEY, APP_THEME_KEY, THEME_EDITS_KEY, THEME_KEY, ThemeStudio } from "./ThemeStudio";
 
@@ -37,6 +40,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   machines: () => <MachinesSection title={machinesTitle()} />,
   accounts: () => <AccountsSection />,
   agentHarnesses: (focus) => <AgentHarnesses focus={focus} />,
+  agentIntegrations: (focus) => <AgentIntegrations focus={focus} />,
   chiefs: () => <ChiefsCard />,
   advancedInfo: () => <AdvancedInfo />,
   advancedActions: () => <PlaceholderSection section="advanced" />,
@@ -45,6 +49,8 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   chiefPet: (focus) => <ChiefPetCard focus={focus} />,
   density: () => <DensityCard />,
   importSuggestions: () => <ImportSuggestionsCard />,
+  channels: () => <ChannelsCard />,
+  voiceInput: () => <VoiceInputCard />,
 };
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */

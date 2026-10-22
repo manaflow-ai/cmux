@@ -57,6 +57,8 @@ import PackageDescription
 //   CmuxNextCodeRouter -> CmuxNextCloud (provider sign-in detection, the CodeRouter control-plane
 //     client, pasted-key Keychain store, account row state; no UI, no daemon; plans/cmux-next/coderouter.md)
 //   CmuxNextAccounts -> CodeRouter, Design, Icons (Settings > Accounts and the onboarding step; the App supplies AccountsServices)
+//   CmuxNextAgentIntegrations -> Daemon, Pages, Settings (Settings > Agents > Agent integrations: relays the bundled
+//     CLI's `agent hook status|install|uninstall`; the App supplies the CLI's location)
 //   CmuxNextBookmarks -> Design, Icons (bookmark tree per browser profile, Netscape HTML, ranking, file store,
 //     cmux://bookmarks page, bookmarks bar, edit bubble; no daemon; the App supplies the store)
 //   CmuxNextResources -> Wakeups, Design (hover-card CPU/memory: aggregation, on-demand sampler, lines;
@@ -260,6 +262,7 @@ let package = Package(
                 "CmuxNextMobile",
                 "CmuxNextMobileHost",
                 "CmuxNextUpdater",
+                "CmuxNextWebUpdates",
                 "CmuxNextResources",
                 "CmuxNextBrowserImport",
                 "CmuxNextOnboarding",
@@ -273,6 +276,7 @@ let package = Package(
                 "CmuxNextRemoteBrowser",
                 "CmuxNextCodeRouter",
                 "CmuxNextAccounts",
+                "CmuxNextAgentIntegrations",
                 "CmuxNextBookmarks",
                 "CmuxNextAgentActivity",
                 "CmuxNextScreenshots",
@@ -565,8 +569,9 @@ let package = Package(
         .target(
             name: "CmuxNextDaemonService",
             dependencies: [
-                "CmuxNextActions", "CmuxNextAgentPane", "CmuxNextApps", "CmuxNextCompat", "CmuxNextControl",
+                "CmuxNextActions", "CmuxNextAgentPane", "CmuxNextApps", "CmuxNextBridge", "CmuxNextCompat", "CmuxNextControl",
                 "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextWakeups",
+                .product(name: "CmuxUpdater", package: "CmuxUpdater"),
             ],
             resources: [
                 .process("Resources"),
@@ -635,6 +640,18 @@ let package = Package(
         .testTarget(
             name: "CmuxNextPagesTests",
             dependencies: ["CmuxNextPages", "CmuxNextSettings", "CmuxNextDesign"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Settings > Agents > Agent integrations: the coding-agent hooks the bundled CLI
+        // installs (`cmux agent hook`). The App supplies the CLI's location.
+        .target(
+            name: "CmuxNextAgentIntegrations",
+            dependencies: ["CmuxNextDaemon", "CmuxNextPages", "CmuxNextSettings"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAgentIntegrationsTests",
+            dependencies: ["CmuxNextAgentIntegrations", "CmuxNextPages", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         // Bookmarks (plans/cmux-next/bookmarks.md): the tree per browser
@@ -1028,6 +1045,8 @@ let package = Package(
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextIcons",
+                "CmuxNextPages",
+                "CmuxNextSettings",
                 "CmuxNextWakeups",
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
                 .product(name: "Sparkle", package: "Sparkle"),
@@ -1037,7 +1056,16 @@ let package = Package(
             resources: [
                 .process("Resources/Localizable.xcstrings"),
                 .copy("Resources/WhatsNew"),
+                // The keys a web update pointer may be signed with (plans/cmux-next/web-ota.md).
+                .copy("Resources/web-update-keys.json"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Web updates in the app (plans/cmux-next/web-ota.md): serves a signed web update from
+        // a safe point and answers `updates.web.*`.
+        .target(
+            name: "CmuxNextWebUpdates",
+            dependencies: ["CmuxNextAgentPane", "CmuxNextControl", "CmuxNextPages", "CmuxNextSettings", "CmuxNextUpdater", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Cloud machines: auth, REST client, tunnel and link processes. The
@@ -1425,6 +1453,8 @@ let package = Package(
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+                // MacInstallTeamAuthTests signs team challenges with the install key.
+                .product(name: "CmuxInstallAuthCore", package: "CmuxInstallAuthCore"),
                 // UpdateLoadingIndicatorTests feeds Sparkle's update states.
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
                 // ReduceMotionLoopTests builds the vendored Home typing indicators.
