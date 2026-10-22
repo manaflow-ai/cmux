@@ -188,14 +188,89 @@ class RemoteDaemonNoticesTest(unittest.TestCase):
         self.assertTrue(any(f"{dropped.path}@{dropped.version}" in note for note in notes), notes)
         self.assertNotIn(f"{dropped.path}@{dropped.version}", rdn.updated_review(self.modules[1:], self.review)["modules"])
 
+    # Codex review of #24198 at 3699099a0f5: a license signature only shows an allowed license is
+    # there, not that nothing else is. Approval now needs every license file to be wholly an allowed
+    # license (its SPDX template), and anything unrecognised goes to a person.
+
+    def test_a_license_file_named_after_its_license_is_read(self) -> None:
+        with self.assertRaises(rdn.NoticeError) as raised:
+            rdn.compose([*self.modules, self.module("example.com/split", **{"LICENSE-GPL": GPL, "LICENSE.docs": MIT})], "go1.26.8", self.review)
+        self.assertIn("LICENSE-GPL", str(raised.exception))
+        self.assertIn("GPL-3.0", str(raised.exception))
+        text = rdn.compose([*self.modules, self.module("example.com/named", **{"LICENSE-MIT": MIT})], "go1.26.8", self.review)
+        self.assertIn("== example.com/named v1.0.0 ==\nLicense: MIT.", text)
+
+    def test_an_unrecognised_notice_beside_an_allowed_license_fails(self) -> None:
+        notice = "This product includes software licensed under the GNU GPL version 2.\n"
+        with self.assertRaises(rdn.NoticeError) as raised:
+            rdn.compose([*self.modules, self.module("example.com/notice", LICENSE=MIT, NOTICE=notice)], "go1.26.8", self.review)
+        self.assertIn("example.com/notice@v1.0.0", str(raised.exception))
+        self.assertIn("NOTICE", str(raised.exception))
+
+    def test_a_recorded_notice_beside_an_allowed_license_is_approved(self) -> None:
+        text = rdn.compose([*self.modules, self.module("golang.org/x/other", LICENSE=BSD3, PATENTS=GO_PATENTS)], "go1.26.8", self.review)
+        self.assertIn("== golang.org/x/other v1.0.0 ==\nLicense: BSD-3-Clause.", text)
+
+    def test_an_allowed_license_with_an_added_restriction_fails(self) -> None:
+        for name, text in {
+            "appended": MIT + "\nThe Software may not be used for commercial purposes.\n",
+            "in the preamble": "Non-commercial use only.\n" + MIT,
+        }.items():
+            with self.subTest(name), self.assertRaises(rdn.NoticeError) as raised:
+                rdn.compose([*self.modules, self.module(f"example.com/{name.replace(' ', '-')}", LICENSE=text)], "go1.26.8", self.review)
+            self.assertIn("LICENSE", str(raised.exception))
+
+    def test_a_recorded_license_off_the_allowlist_fails_unless_a_person_approved_it(self) -> None:
+        saved = rdn.ALLOWED
+        rdn.ALLOWED = frozenset(saved) - {"MIT"}
+        try:
+            with self.assertRaises(rdn.NoticeError) as raised:
+                rdn.compose(self.modules, "go1.26.8", self.review)
+            self.assertIn("github.com/creack/pty@v1.1.24", str(raised.exception))
+            approved = copy.deepcopy(self.review)
+            approved["modules"]["github.com/creack/pty@v1.1.24"]["approved"] = "a person, for the test"
+            rdn.compose(self.modules, "go1.26.8", approved)
+        finally:
+            rdn.ALLOWED = saved
+
+    def test_a_go_patch_release_under_another_license_fails(self) -> None:
+        with self.assertRaises(rdn.NoticeError) as raised:
+            rdn.compose(self.modules, "go1.26.9", self.review, go_root=self.go_root(LICENSE=GPL.encode()))
+        self.assertIn("GPL-3.0", str(raised.exception))
+
+    def test_a_failed_review_write_keeps_the_go_texts_and_the_review_together(self) -> None:
+        texts = self.tmp / "third-party"
+        (texts / "go").mkdir(parents=True)
+        (texts / "go" / "LICENSE").write_text("old license\n")
+        review = texts / "review.json"
+        review.write_text("old review\n")
+        new_root = self.tmp / "goroot-new"
+        new_root.mkdir()
+        (new_root / "LICENSE").write_text("new license\n")
+        saved = rdn.TEXTS, rdn.REVIEW, rdn.os.replace
+        rdn.TEXTS, rdn.REVIEW = texts, review
+
+        def fail(*_args):
+            raise OSError("disk full")
+        rdn.os.replace = fail
+        try:
+            with self.assertRaises(OSError):
+                rdn.write_review_bundle("new review\n", {"LICENSE": "x"}, new_root)
+        finally:
+            rdn.TEXTS, rdn.REVIEW, rdn.os.replace = saved
+        self.assertEqual(review.read_text(), "old review\n")
+        self.assertEqual((texts / "go" / "LICENSE").read_text(), "old license\n")
+        self.assertEqual(sorted(p.name for p in texts.iterdir()), ["go", "review.json"])
+
     def test_compose_is_deterministic(self) -> None:
         self.assertEqual(rdn.compose(self.modules, "go1.26.8", self.review),
                          rdn.compose(list(reversed(self.modules)), "go1.26.8", self.review))
 
 
-MIT = ("MIT License\n\nCopyright (c) 2026 Example\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\n"
-       "of this software, to deal in the Software without restriction.\n\n"
-       "The above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n")
+FIXTURES = ROOT / "tests/fixtures/remote-daemon-notices"
+MIT = (FIXTURES / "creack-pty-LICENSE").read_text()
+BSD3 = (FIXTURES / "x-sys-LICENSE").read_text()
+GO_PATENTS = (FIXTURES / "x-sys-PATENTS").read_text()
 GPL = "GNU GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007\n"
 
 # The reviewed texts, keyed by sha256, from the module cache (go mod download).
