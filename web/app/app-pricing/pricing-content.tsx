@@ -134,6 +134,7 @@ export function AppPricingContent({
     monthly: pricing.monthly,
     perMonth: pricing.perMonth,
     billedYearlyTemplate: pricing.billedYearly,
+    billedMonthly: pricing.billedMonthly,
     earlySupporterPrice: pricing.earlySupporterPrice,
     foundersEdition: pricing.foundersEditionPrice,
   };

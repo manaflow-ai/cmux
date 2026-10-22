@@ -5306,6 +5306,7 @@
     "signedOutSignIn": "تسجيل الدخول",
     "manageInAppStore": "الإدارة في App Store",
     "billedYearly": "تُدفع ${amount} سنويًا",
+    "billedMonthly": "يُدفع شهريًا",
     "earlySupporterPrice": "سعر الداعمين الأوائل",
     "foundersEditionPrice": "Founder's Edition"
   },
