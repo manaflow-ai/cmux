@@ -37,7 +37,11 @@ impl HostAttachment {
         }
         let (sender, receiver) = sync_channel(1);
         {
-            let mut waiters = self.control_responses.waiters.lock().unwrap();
+            let mut waiters = self
+                .control_responses
+                .waiters
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if waiters.contains_key(&request_id) {
                 return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
                     "terminal host control request id collision"
@@ -52,7 +56,7 @@ impl HostAttachment {
         frame.version = self.protocol_version;
         frame.request_id = request_id;
         let write_result = {
-            let mut writer = self.writer.lock().unwrap();
+            let mut writer = self.writer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let result = write_frame(&mut *writer, &frame).map_err(protocol_io_error);
             if result.is_err() {
                 let _ = writer.shutdown(std::net::Shutdown::Both);
@@ -60,7 +64,11 @@ impl HostAttachment {
             result
         };
         if let Err(error) = write_result {
-            self.control_responses.waiters.lock().unwrap().remove(&request_id);
+            self.control_responses
+                .waiters
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .remove(&request_id);
             return Err(ClearHistoryFailure::ambiguous(error.into()));
         }
         Ok(PendingControlResponse {
@@ -92,7 +100,11 @@ impl PendingControlResponse {
         match response {
             Ok(frame) => Ok(frame.payload),
             Err(error) => {
-                self.control_responses.waiters.lock().unwrap().remove(&self.request_id);
+                self.control_responses
+                    .waiters
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .remove(&self.request_id);
                 if disconnect_on_timeout {
                     self.disconnect();
                 }
@@ -106,7 +118,11 @@ impl PendingControlResponse {
 
     /// Shut the request's connection down.
     pub(crate) fn disconnect(&self) {
-        let _ = self.writer.lock().unwrap().shutdown(std::net::Shutdown::Both);
+        let _ = self
+            .writer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .shutdown(std::net::Shutdown::Both);
     }
 }
 

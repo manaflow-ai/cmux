@@ -193,8 +193,9 @@ pub(crate) fn start_host_runtime(
                 }
                 Err(_) => break,
             };
-            let bytes = buffer[..count].to_vec();
-            let _source_order = reader_host.source_order_lock.lock().unwrap();
+            let bytes = buffer.get(..count).unwrap_or(&buffer).to_vec();
+            let _source_order =
+                reader_host.source_order_lock.lock().unwrap_or_else(PoisonError::into_inner);
             reader_host.parser_budget.reserve(count);
             // Publication deliberately precedes parser enqueue. The
             // bounded queue limits memory while letting a fast renderer
@@ -214,7 +215,8 @@ pub(crate) fn start_host_runtime(
         }
         // Drain is ordered after the final source byte. The parser worker,
         // rather than the reader, publishes the drained rendezvous.
-        let _source_order = reader_host.source_order_lock.lock().unwrap();
+        let _source_order =
+            reader_host.source_order_lock.lock().unwrap_or_else(PoisonError::into_inner);
         let _ = reader_host.parser_commands.send(ParserCommand::Drain);
     })?;
     let child_host = shared.clone();
@@ -224,7 +226,8 @@ pub(crate) fn start_host_runtime(
             child_host.mark_child_waitable();
             let mut drain = exited_drain::ExitedDrain::start();
             loop {
-                let signal = child_host.child_signal_lock.lock().unwrap();
+                let signal =
+                    child_host.child_signal_lock.lock().unwrap_or_else(PoisonError::into_inner);
                 let escalation_complete =
                     child_host.group_escalation_complete.load(Ordering::Acquire);
                 #[cfg(unix)]
@@ -243,11 +246,12 @@ pub(crate) fn start_host_runtime(
                     }
                     child_host.child_reaped.store(true, Ordering::Release);
                     drop(signal);
-                    *child_host.child_exit.0.lock().unwrap() = Some(exit);
+                    *child_host.child_exit.0.lock().unwrap_or_else(PoisonError::into_inner) =
+                        Some(exit);
                     break;
                 }
                 drop(signal);
-                let state = child_host.child_exit.0.lock().unwrap();
+                let state = child_host.child_exit.0.lock().unwrap_or_else(PoisonError::into_inner);
                 drain.wait(&child_host, state);
             }
             child_host.child_exit.1.notify_all();
@@ -258,7 +262,7 @@ pub(crate) fn start_host_runtime(
             let exit = child.wait_and_disarm();
             child_host.child_reaped.store(true, Ordering::Release);
             child_host.mark_child_waitable();
-            let mut exited = child_host.child_exit.0.lock().unwrap();
+            let mut exited = child_host.child_exit.0.lock().unwrap_or_else(PoisonError::into_inner);
             *exited = Some(exit);
             child_host.child_exit.1.notify_all();
             child_host.publish_exit_if_drained();

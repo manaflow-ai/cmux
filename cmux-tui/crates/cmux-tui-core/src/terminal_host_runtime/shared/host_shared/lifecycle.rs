@@ -5,16 +5,19 @@ use super::*;
 
 impl HostShared {
     pub(crate) fn child_exited(&self) -> bool {
-        self.child_exit.0.lock().unwrap().is_some()
+        self.child_exit.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some()
     }
 
     pub(crate) fn wait_for_child_exit(&self, timeout: Duration) -> bool {
-        let exited = self.child_exit.0.lock().unwrap();
+        let exited = self.child_exit.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if exited.is_some() {
             return true;
         }
-        let (exited, _) =
-            self.child_exit.1.wait_timeout_while(exited, timeout, |value| value.is_none()).unwrap();
+        let (exited, _) = self
+            .child_exit
+            .1
+            .wait_timeout_while(exited, timeout, |value| value.is_none())
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         exited.is_some()
     }
 
@@ -22,12 +25,12 @@ impl HostShared {
         if self.child_waitable.load(Ordering::Acquire) {
             return true;
         }
-        let state = self.child_exit.0.lock().unwrap();
+        let state = self.child_exit.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let (_state, _) = self
             .child_exit
             .1
             .wait_timeout_while(state, timeout, |_| !self.child_waitable.load(Ordering::Acquire))
-            .unwrap();
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         self.child_waitable.load(Ordering::Acquire)
     }
 
@@ -38,12 +41,12 @@ impl HostShared {
         // The child-exit mutex is only a rendezvous guard here; the PTY
         // reader notifies the same condition variable after publishing
         // its final bytes and setting pty_drained.
-        let state = self.child_exit.0.lock().unwrap();
+        let state = self.child_exit.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let (_state, _) = self
             .child_exit
             .1
             .wait_timeout_while(state, timeout, |_| !self.pty_drained.load(Ordering::Acquire))
-            .unwrap();
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         self.pty_drained.load(Ordering::Acquire)
     }
 
@@ -52,7 +55,7 @@ impl HostShared {
         // holding this mutex. Otherwise a notifier can run after a waiter
         // checks the atomic but before Condvar::wait arms, losing the only
         // wake that allows the terminal exit to be published.
-        let _state = self.child_exit.0.lock().unwrap();
+        let _state = self.child_exit.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         predicate.store(true, Ordering::Release);
         self.child_exit.1.notify_all();
     }
@@ -69,7 +72,11 @@ impl HostShared {
         self.force_pty_drain.store(true, Ordering::Release);
         // Wake the otherwise blocking poll in the sole PTY reader. The
         // byte has no protocol meaning; it only makes the wake fd ready.
-        let _ = self.pty_drain_waker.lock().unwrap().write_all(&[1]);
+        let _ = self
+            .pty_drain_waker
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .write_all(&[1]);
     }
 
     pub(crate) fn request_termination(self: &Arc<Self>) {
@@ -77,7 +84,8 @@ impl HostShared {
             // Serialize the ownership transition with WNOWAIT's final
             // reap decision so an explicit Terminate cannot lose the
             // original reserved PID/PGID in between.
-            let _signal = self.child_signal_lock.lock().unwrap();
+            let _signal =
+                self.child_signal_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             self.termination_started.swap(true, Ordering::AcqRel)
         };
         if already_started {
@@ -188,7 +196,8 @@ impl HostShared {
             },
         )?;
         if let Some(exit) = exit.map(owner_gone_exit) {
-            let _source_order = self.source_order_lock.lock().unwrap();
+            let _source_order =
+                self.source_order_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             // Snapshot capture keeps `term` held from the dead check
             // through smart subscription. Publish Exit under that same
             // lock so an attach either joins before Exit or observes dead.
@@ -210,7 +219,8 @@ impl HostShared {
 
     pub(crate) fn terminate_and_wait(&self) {
         {
-            let _signal = self.child_signal_lock.lock().unwrap();
+            let _signal =
+                self.child_signal_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             self.termination_started.store(true, Ordering::Release);
         }
         // ProcessSignaller only targets the direct child. Start with a
@@ -218,7 +228,7 @@ impl HostShared {
         // can clean up too, then escalate after a strict bound.
         self.signal_terminal_process_groups(GroupSignal::Hangup);
         if !self.child_waitable.load(Ordering::Acquire) {
-            let _ = self.killer.lock().unwrap().kill();
+            let _ = self.killer.lock().unwrap_or_else(std::sync::PoisonError::into_inner).kill();
         }
         let _ = self.wait_for_child_waitable(HOST_TERMINATE_GRACE);
         let _ = self.wait_for_pty_drain(HOST_PTY_DRAIN_GRACE);

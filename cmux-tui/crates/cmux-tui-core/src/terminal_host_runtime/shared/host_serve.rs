@@ -140,14 +140,16 @@ pub(crate) fn mint_renderer_capability(
     if payload.len() != 8 {
         anyhow::bail!("bad renderer capability request");
     }
-    let rights = CapabilityRights::from_bits(u32::from_le_bytes(
-        payload[0..4].try_into().expect("fixed rights slice"),
-    ))
-    .ok_or_else(|| anyhow::anyhow!("unknown renderer capability rights"))?;
+    let field = |offset| {
+        crate::terminal_host_protocol::wire_u32(payload, offset)
+            .ok_or_else(|| anyhow::anyhow!("bad renderer capability request"))
+    };
+    let rights = CapabilityRights::from_bits(field(0)?)
+        .ok_or_else(|| anyhow::anyhow!("unknown renderer capability rights"))?;
     if !rights.contains(CapabilityRights::READ) || !CapabilityRights::RENDERER.contains(rights) {
         anyhow::bail!("renderer capability rights are out of range");
     }
-    let ttl_ms = u32::from_le_bytes(payload[4..8].try_into().expect("fixed TTL slice"));
+    let ttl_ms = field(4)?;
     let ttl = Duration::from_millis(u64::from(ttl_ms));
     if ttl.is_zero() || ttl > MAX_RENDERER_CAPABILITY_TTL {
         anyhow::bail!("renderer capability TTL is out of range");
@@ -336,7 +338,8 @@ pub(crate) fn serve_client_with_snapshot_timeout(
             .vt_replay_bounded_theme_portable_with_aliases(crate::surface::VT_REPLAY_MAX_BYTES)?;
         let colors = term.color_overrides();
         let (osc_progress, shell_activity, program_status) = {
-            let metadata = host.terminal_metadata.lock().unwrap();
+            let metadata =
+                host.terminal_metadata.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             // The parser feeds the records under the terminal lock held
             // here, so they match the replay.
             let records = program_status_negotiated.then(|| {
@@ -372,8 +375,12 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                 Err(gap) => (host.smart.applied_cursor.load(Ordering::Acquire), Some(gap)),
             }
         } else {
-            let _broadcast = host.broadcast_lock.lock().unwrap();
-            host.taps.lock().unwrap().insert(client, tap.clone());
+            let _broadcast =
+                host.broadcast_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            host.taps
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .insert(client, tap.clone());
             (host.sequence.load(Ordering::Acquire), None)
         };
         (
@@ -469,8 +476,15 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                     if !granted_rights.contains(CapabilityRights::INPUT) {
                         break;
                     }
-                    let bracketed = command_host.term.lock().unwrap().mode(2004, false);
-                    let mut writer = command_host.writer.lock().unwrap();
+                    let bracketed = command_host
+                        .term
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .mode(2004, false);
+                    let mut writer = command_host
+                        .writer
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
                     if bracketed {
                         let _ = writer.write_all(b"\x1b[200~");
                     }
@@ -484,8 +498,10 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                     if !granted_rights.contains(CapabilityRights::RESIZE) {
                         break;
                     }
-                    let cols = u16::from_le_bytes([frame.payload[0], frame.payload[1]]);
-                    let rows = u16::from_le_bytes([frame.payload[2], frame.payload[3]]);
+                    let field = |offset| {
+                        crate::terminal_host_protocol::wire_u16(&frame.payload, offset).unwrap_or(0)
+                    };
+                    let (cols, rows) = (field(0), field(2));
                     let targeted_ack = viewer_size_acks
                         .then_some((frame.request_id, &command_sender))
                         .filter(|(request_id, _)| *request_id != 0);
@@ -536,7 +552,10 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                     } else {
                         let mut response = Frame::new(MessageKind::TerminateAck, Vec::new());
                         response.request_id = frame.request_id;
-                        let _broadcast = command_host.broadcast_lock.lock().unwrap();
+                        let _broadcast = command_host
+                            .broadcast_lock
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
                         command_sender.try_send(response)
                     };
                     command_host.request_termination();
@@ -573,8 +592,10 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                     if !granted_rights.contains(CapabilityRights::RESIZE) {
                         break;
                     }
-                    let width_px = u16::from_le_bytes([frame.payload[0], frame.payload[1]]);
-                    let height_px = u16::from_le_bytes([frame.payload[2], frame.payload[3]]);
+                    let field = |offset| {
+                        crate::terminal_host_protocol::wire_u16(&frame.payload, offset).unwrap_or(0)
+                    };
+                    let (width_px, height_px) = (field(0), field(2));
                     if !matches!(
                         command_host.set_cell_pixel_size(
                             width_px,
@@ -631,7 +652,10 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                     };
                     let mut response = Frame::new(MessageKind::ClearHistoryAck, vec![status]);
                     response.request_id = frame.request_id;
-                    let _broadcast = command_host.broadcast_lock.lock().unwrap();
+                    let _broadcast = command_host
+                        .broadcast_lock
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
                     if !command_sender.try_send(response) {
                         break;
                     }
@@ -652,7 +676,10 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                     // with live frames. Serialize enqueueing with coupled
                     // Output/Resized + Colors publication so even an admin
                     // response cannot physically split an atomic pair.
-                    let _broadcast = command_host.broadcast_lock.lock().unwrap();
+                    let _broadcast = command_host
+                        .broadcast_lock
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
                     if !command_sender.try_send(response) {
                         break;
                     }

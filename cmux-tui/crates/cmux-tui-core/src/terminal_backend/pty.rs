@@ -52,7 +52,7 @@ impl BackendMaster {
 
 impl MasterPty for BackendMaster {
     fn resize(&self, size: PtySize) -> anyhow::Result<()> {
-        *self.size.lock().unwrap() = size;
+        *self.size.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = size;
         let cell = |px: u16, cells: u16| (px > 0 && cells > 0).then(|| px / cells);
         self.side.event(
             wire::BACKEND_RESIZE,
@@ -66,7 +66,7 @@ impl MasterPty for BackendMaster {
     }
 
     fn get_size(&self) -> anyhow::Result<PtySize> {
-        Ok(*self.size.lock().unwrap())
+        Ok(*self.size.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
     }
 
     fn try_clone_reader(&self) -> anyhow::Result<Box<dyn Read + Send>> {
@@ -103,11 +103,15 @@ impl Read for BackendReader {
         let Ok(bytes) = side.channels.wait_received(&side.terminal, buf.len()) else {
             return Ok(0);
         };
-        buf[..bytes.len()].copy_from_slice(&bytes);
+        // wait_received returns at most buf.len() bytes.
+        let copied = bytes.len().min(buf.len());
+        for (slot, byte) in buf.iter_mut().zip(&bytes) {
+            *slot = *byte;
+        }
         if let Ok(Some(credit)) = side.channels.consumed(&side.terminal, bytes.len() as u64) {
             (side.send)(wire::frame_to_json(&credit));
         }
-        Ok(bytes.len())
+        Ok(copied)
     }
 }
 

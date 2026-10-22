@@ -221,7 +221,8 @@ impl HostShared {
         // before reaping. While we hold it, `!child_reaped` means the
         // original PID/PGID is still kernel-reserved and cannot have been
         // reused between validation and killpg.
-        let _signal = self.child_signal_lock.lock().unwrap();
+        let _signal =
+            self.child_signal_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let child_reserved = !self.child_reaped.load(Ordering::Acquire) && self.child_signalable();
         // SAFETY: getpgrp has no preconditions.
         let host_group = unsafe { libc::getpgrp() };
@@ -241,7 +242,11 @@ impl HostShared {
         // a foreground job or retained descendant may own a different
         // group by the time explicit Terminate escalates.
         if child_reserved
-            && let Some(foreground) = self.master.lock().unwrap().process_group_leader()
+            && let Some(foreground) = self
+                .master
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .process_group_leader()
         {
             groups.push(foreground);
         }

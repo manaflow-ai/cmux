@@ -20,7 +20,10 @@ impl HostAttachment {
             // The connection is no longer used for commands. A write-half
             // shutdown orders EOF after the complete frame, preventing an
             // immediate Surface drop from discarding a legacy request.
-            self.writer.lock().unwrap().shutdown(std::net::Shutdown::Write)?;
+            self.writer
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .shutdown(std::net::Shutdown::Write)?;
             return Ok(());
         }
 
@@ -45,7 +48,7 @@ impl HostAttachment {
         request.version = self.protocol_version;
         request.request_id = request_id;
         {
-            let mut writer = self.writer.lock().unwrap();
+            let mut writer = self.writer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             write_frame(&mut *writer, &request).map_err(protocol_io_error)?;
         }
 

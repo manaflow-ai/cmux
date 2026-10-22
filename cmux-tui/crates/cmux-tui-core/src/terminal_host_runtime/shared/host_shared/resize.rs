@@ -47,9 +47,11 @@ impl HostShared {
         // size and cell_pixels, matching the other geometry mutation
         // paths, so concurrent viewer and cell-metric updates cannot
         // acquire the locks in opposite orders.
-        let _source_order = self.source_order_lock.lock().unwrap();
-        let mut size = self.size.lock().unwrap();
-        let cell_pixels = self.cell_pixels.lock().unwrap();
+        let _source_order =
+            self.source_order_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut size = self.size.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let cell_pixels =
+            self.cell_pixels.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let changed = *size != (cols, rows);
         if !changed && !acknowledge_with_replay {
             let targeted = targeted_ack.map(|(request_id, tap)| {
@@ -181,7 +183,7 @@ impl HostShared {
         cell_pixels: (u16, u16),
         pty_previous: Option<PtySize>,
     ) -> ParserResizeResult {
-        let mut term = self.term.lock().unwrap();
+        let mut term = self.term.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let previous = (term.cols(), term.rows());
         let acknowledgement_queued = (|| -> anyhow::Result<bool> {
             let requested_change = previous != (cols, rows);
@@ -202,7 +204,8 @@ impl HostShared {
                 frame.request_id = *request_id;
                 (tap, frame)
             });
-            let has_legacy_clients = !self.taps.lock().unwrap().is_empty();
+            let has_legacy_clients =
+                !self.taps.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_empty();
             let publish_legacy_resize =
                 acknowledge_with_replay || (requested_change && has_legacy_clients);
             let replay_is_safe = term.vt_stream_is_ground();
@@ -243,7 +246,8 @@ impl HostShared {
                         // the canonical resize and make compatibility clients
                         // reconnect instead of attempting a destructive
                         // inverse resize after Ghostty has reflowed state.
-                        let mut taps = self.taps.lock().unwrap();
+                        let mut taps =
+                            self.taps.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                         for tap in taps.values() {
                             tap.close();
                         }

@@ -167,7 +167,8 @@ pub(crate) fn persist_and_claim_host_exit_after_drain(
     if !pty_drained.load(Ordering::Acquire) {
         return Ok(None);
     }
-    let Some(exit) = child_exited.lock().unwrap().clone() else {
+    let Some(exit) = child_exited.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    else {
         return Ok(None);
     };
     if exit_published.load(Ordering::Acquire) {
@@ -221,7 +222,7 @@ pub(crate) fn mutate_viewer_sizes(
     mutation: impl FnOnce(&mut ViewerSizes),
     apply: impl FnOnce(Option<(u16, u16)>) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
-    let mut viewer_sizes = viewer_sizes.lock().unwrap();
+    let mut viewer_sizes = viewer_sizes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let previous = viewer_sizes.clone();
     mutation(&mut viewer_sizes);
     if let Err(error) = apply(viewer_sizes.desired()) {
@@ -375,11 +376,15 @@ impl SmartStreamState {
     /// applied only after the authoritative parser has consumed the same
     /// transition.
     pub(crate) fn publish(&self, mut frame: Frame) -> u64 {
-        let _broadcast = self.broadcast_lock.lock().unwrap();
+        let _broadcast =
+            self.broadcast_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let cursor = self.source_cursor.fetch_add(1, Ordering::AcqRel) + 1;
         frame.sequence = cursor;
-        self.retained.lock().unwrap().push(frame.clone());
-        self.taps.lock().unwrap().retain(|_, tap| tap.try_send(frame.clone()));
+        self.retained.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(frame.clone());
+        self.taps
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .retain(|_, tap| tap.try_send(frame.clone()));
         cursor
     }
 
@@ -389,12 +394,16 @@ impl SmartStreamState {
         targeted_frame: Frame,
         mut frame: Frame,
     ) -> (u64, bool) {
-        let _broadcast = self.broadcast_lock.lock().unwrap();
+        let _broadcast =
+            self.broadcast_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let targeted_queued = targeted.try_send(targeted_frame);
         let cursor = self.source_cursor.fetch_add(1, Ordering::AcqRel) + 1;
         frame.sequence = cursor;
-        self.retained.lock().unwrap().push(frame.clone());
-        self.taps.lock().unwrap().retain(|_, tap| tap.try_send(frame.clone()));
+        self.retained.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(frame.clone());
+        self.taps
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .retain(|_, tap| tap.try_send(frame.clone()));
         (cursor, targeted_queued)
     }
 
@@ -405,7 +414,10 @@ impl SmartStreamState {
         // snapshots the rest), so applied frames are never read again: drop
         // them. Before, every host kept up to 8 MiB / 4096 frames of raw
         // output it had already parsed for its whole life.
-        self.retained.lock().unwrap().drop_through(cursor.max(prior));
+        self.retained
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .drop_through(cursor.max(prior));
     }
 
     pub(crate) fn close_failed_transition(&self, source_cursor: Option<u64>) {
@@ -424,25 +436,30 @@ impl SmartStreamState {
     /// lock, so the caller may release its parser lock and perform socket
     /// writes without opening an attach race.
     pub(crate) fn subscribe(&self, client: u64, tap: HostTap) -> Result<u64, SmartReplayGap> {
-        let _broadcast = self.broadcast_lock.lock().unwrap();
+        let _broadcast =
+            self.broadcast_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let boundary = self.applied_cursor.load(Ordering::Acquire);
-        let backlog = self.retained.lock().unwrap().after(boundary)?;
+        let backlog = self
+            .retained
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .after(boundary)?;
         for frame in backlog {
             if !tap.try_send(frame) {
                 return Err(SmartReplayGap::SubscriberQueueOverflow { boundary });
             }
         }
-        self.taps.lock().unwrap().insert(client, tap);
+        self.taps.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(client, tap);
         Ok(boundary)
     }
 
     pub(crate) fn remove(&self, client: u64) {
-        self.taps.lock().unwrap().remove(&client);
+        self.taps.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&client);
     }
 
     #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
-        self.taps.lock().unwrap().is_empty()
+        self.taps.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_empty()
     }
 }
 
@@ -589,18 +606,21 @@ impl ParserBudget {
 
     pub(crate) fn reserve(&self, bytes: usize) {
         debug_assert!(bytes <= self.max_bytes);
-        let queued = self.queued_bytes.lock().unwrap();
+        let queued = self.queued_bytes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut queued = self
             .available
             .wait_while(queued, |queued| queued.saturating_add(bytes) > self.max_bytes)
-            .unwrap();
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         *queued += bytes;
     }
 
     pub(crate) fn release(&self, bytes: usize) {
-        let mut queued = self.queued_bytes.lock().unwrap();
-        *queued =
-            queued.checked_sub(bytes).expect("parser budget released more bytes than reserved");
+        let mut queued =
+            self.queued_bytes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        *queued = queued.checked_sub(bytes).unwrap_or_else(|| {
+            eprintln!("cmux: terminal-host parser budget released more bytes than reserved");
+            0
+        });
         self.available.notify_all();
     }
 }
@@ -643,8 +663,8 @@ pub(crate) fn publish_host_frames_and_targeted(
     // otherwise concurrent output/resize/exit producers could mint N
     // then publish N+1 first, split a coupled Output/Colors pair, or place
     // a targeted acknowledgement before its canonical transition.
-    let _broadcast = broadcast_lock.lock().unwrap();
-    let mut taps = taps.lock().unwrap();
+    let _broadcast = broadcast_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut taps = taps.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     for mut frame in frames {
         let sequence = sequence.fetch_add(1, Ordering::AcqRel) + 1;
         frame.sequence = sequence;

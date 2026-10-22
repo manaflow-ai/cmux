@@ -178,7 +178,10 @@ pub fn terminal_host_record_liveness(
         Err(_) => return Ok(TerminalHostLiveness::Indeterminate),
     };
     let metadata = file.metadata()?;
-    let expected_uid = sys::file_owner(record_path.parent().unwrap())?;
+    let Some(record_dir) = record_path.parent() else {
+        return Ok(TerminalHostLiveness::Indeterminate);
+    };
+    let expected_uid = sys::file_owner(record_dir)?;
     if !sys::is_private_file(&metadata, expected_uid) || !sys::has_single_link(&metadata) {
         return Ok(TerminalHostLiveness::Indeterminate);
     }

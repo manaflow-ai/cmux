@@ -37,11 +37,13 @@ impl HostShared {
         request_id: u64,
         target: &HostTap,
     ) -> anyhow::Result<bool> {
-        let _source_order = self.source_order_lock.lock().unwrap();
+        let _source_order =
+            self.source_order_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.wait_for_parser_fifo();
         let next = (width_px.max(1), height_px.max(1));
-        let size = self.size.lock().unwrap();
-        let mut cell_pixels = self.cell_pixels.lock().unwrap();
+        let size = self.size.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut cell_pixels =
+            self.cell_pixels.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let previous = *cell_pixels;
         let changed = previous != next;
         let resize_sizes = if changed {
@@ -49,7 +51,7 @@ impl HostShared {
         } else {
             None
         };
-        let mut term = self.term.lock().unwrap();
+        let mut term = self.term.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut source_cursor = None;
         if let Some((previous_size, next_size)) = resize_sizes {
             term.preflight_vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES).context(
@@ -61,7 +63,7 @@ impl HostShared {
             payload.extend_from_slice(&next.0.to_le_bytes());
             payload.extend_from_slice(&next.1.to_le_bytes());
             source_cursor = Some(self.smart.publish(Frame::new(MessageKind::Resized, payload)));
-            let master = self.master.lock().unwrap();
+            let master = self.master.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Err(error) = master.resize(next_size) {
                 self.smart.close_failed_transition(source_cursor);
                 return Err(error);
@@ -89,7 +91,8 @@ impl HostShared {
                     // the canonical commit and force every client to take
                     // a fresh snapshot instead of broadcasting partial
                     // geometry state or destructively resizing backward.
-                    let mut taps = self.taps.lock().unwrap();
+                    let mut taps =
+                        self.taps.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                     for tap in taps.values() {
                         tap.close();
                     }
@@ -153,11 +156,13 @@ impl HostShared {
         let limits = limits
             .validate()
             .map_err(|_| anyhow::anyhow!("Kitty graphics limits are out of range"))?;
-        let _source_order = self.source_order_lock.lock().unwrap();
+        let _source_order =
+            self.source_order_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.wait_for_parser_fifo();
-        let size = *self.size.lock().unwrap();
-        let cell_pixels = *self.cell_pixels.lock().unwrap();
-        let mut term = self.term.lock().unwrap();
+        let size = *self.size.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let cell_pixels =
+            *self.cell_pixels.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut term = self.term.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         term.preflight_vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
             .context("could not preflight terminal-host Kitty limit replay")?;
         // Kitty quota changes can evict scene state and have no raw PTY
@@ -182,7 +187,7 @@ impl HostShared {
             self.smart.publish(Frame::new(MessageKind::ResyncRequired, resync_payload));
         if let Err(error) = applied {
             self.smart.mark_applied(source_cursor);
-            let mut taps = self.taps.lock().unwrap();
+            let mut taps = self.taps.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             for tap in taps.values() {
                 tap.close();
             }
@@ -199,7 +204,7 @@ impl HostShared {
                 // state. Disconnect every mirror so none can continue from
                 // the pre-eviction scene.
                 self.smart.mark_applied(source_cursor);
-                let mut taps = self.taps.lock().unwrap();
+                let mut taps = self.taps.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 for tap in taps.values() {
                     tap.close();
                 }
@@ -219,7 +224,7 @@ impl HostShared {
             Ok(payload) => payload,
             Err(error) => {
                 self.smart.mark_applied(source_cursor);
-                let mut taps = self.taps.lock().unwrap();
+                let mut taps = self.taps.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 for tap in taps.values() {
                     tap.close();
                 }
