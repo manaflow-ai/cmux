@@ -272,13 +272,8 @@ public actor WorkstreamPersistence {
             // result when even that finds nothing (an unterminated tail).
             let fromEnd = try loadPage(endingBefore: nil, limit: limit)
             if !fromEnd.items.isEmpty {
-                let latest = latestItems(in: fromEnd.items)
-                items = latest
-                page = Page(
-                    items: latest,
-                    hasMoreBefore: fromEnd.hasMoreBefore,
-                    startOffset: fromEnd.startOffset
-                )
+                items = fromEnd.items
+                page = fromEnd
             }
         }
         let revision = try loadRevision()
@@ -613,12 +608,6 @@ public actor WorkstreamPersistence {
         }
         // Keep the revision sidecar. Clearing visible history must not let a
         // subscribed phone observe a lower generation after the next launch.
-    }
-
-    /// Collapses journal mutations to the newest row for each event UUID.
-    private func latestItems(in pageItems: [WorkstreamItem]) -> [WorkstreamItem] {
-        var seen = Set<UUID>()
-        return Array(pageItems.reversed().filter { seen.insert($0.id).inserted }.reversed())
     }
 
     private func fileSize() throws -> UInt64 {

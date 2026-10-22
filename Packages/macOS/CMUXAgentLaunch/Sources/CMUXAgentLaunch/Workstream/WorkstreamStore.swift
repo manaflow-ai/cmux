@@ -221,9 +221,9 @@ public final class WorkstreamStore {
             }
 
             let existingIds = Set(items.map(\.id))
-            let olderItems = latestItems(in: page.items)
-                .map(normalizedWorkstreamItem)
-                .filter { !existingIds.contains($0.id) }
+            let olderItems = page.items.map(normalizedWorkstreamItem).filter {
+                !existingIds.contains($0.id)
+            }
             if !olderItems.isEmpty {
                 items.insert(contentsOf: olderItems, at: 0)
                 self.oldestLoadedPersistenceOffset = page.startOffset ?? cursor
@@ -340,12 +340,6 @@ public final class WorkstreamStore {
 
     // MARK: - Private helpers
 
-    /// Keeps the newest journal row for each event UUID while preserving page order.
-    private func latestItems(in pageItems: [WorkstreamItem]) -> [WorkstreamItem] {
-        var seen = Set<UUID>()
-        return Array(pageItems.reversed().filter { seen.insert($0.id).inserted }.reversed())
-    }
-
     private func bumpRevision() {
         revision = revision == Int.max ? Int.max : revision + 1
         onRevisionChange?(revision)
@@ -357,13 +351,6 @@ public final class WorkstreamStore {
     /// applied them (latest version of an item wins on restart).
     private var persistenceTail: Task<Void, Never>?
     private var revisionPersistenceTail: Task<Void, Never>?
-    /// Journal and sidecar writes queued but not yet finished.
-    private var queuedPersistenceWrites = 0
-
-    /// Whether a journal or revision write is still in flight. App quit
-    /// checks this synchronously and, when it is true, waits for
-    /// ``flushPersistence()`` before letting AppKit terminate.
-    public var hasPendingPersistenceWrites: Bool { queuedPersistenceWrites > 0 }
     private var pendingPersistedRevision: Int?
 
     private func persistRevision() {
@@ -372,10 +359,8 @@ public final class WorkstreamStore {
         pendingPersistedRevision = revision
         guard !alreadyScheduled else { return }
         let previous = revisionPersistenceTail
-        queuedPersistenceWrites += 1
         revisionPersistenceTail = Task { [weak self, persistence] in
             await previous?.value
-            defer { self?.queuedPersistenceWrites -= 1 }
             guard let value = self?.pendingPersistedRevision else { return }
             self?.pendingPersistedRevision = nil
             do {
@@ -391,17 +376,9 @@ public final class WorkstreamStore {
     private func persist(_ item: WorkstreamItem) {
         guard let persistence else { return }
         let previous = persistenceTail
-        queuedPersistenceWrites += 1
-        persistenceTail = Task { [weak self, persistence, item] in
+        persistenceTail = Task { [persistence, item] in
             await previous?.value
-            do {
-                try await persistence.append(item)
-            } catch {
-                workstreamPersistenceLogger.error(
-                    "workstream journal append failed error=\(String(describing: error), privacy: .private(mask: .hash))"
-                )
-            }
-            self?.queuedPersistenceWrites -= 1
+            try? await persistence.append(item)
         }
     }
 
