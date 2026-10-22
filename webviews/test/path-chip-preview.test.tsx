@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", { url: "http://localhost/", pretendToBeVisual: true });
@@ -345,28 +345,35 @@ test("a host that never answers falls back to the plain file card", async () => 
   }
 });
 
-test("hovering out or unmounting while the host is asked sends nothing more", async () => {
+test("hovering out or unmounting while the host is asked clears its wait and sends nothing more", async () => {
   const path = "/Users/you/shots/after.png";
   for (const leave of ["hover-out", "unmount"] as const) {
     const answer = pending();
     const view = await renderChip(path, { paths: { [path]: { place: "root", folder: false } } }, ({ method }) =>
       method === "link.preview" ? answer.promise : method === "image.load" ? { src: PNG } : undefined,
     );
-    await view.act(async () => view.chip.focus());
-    await view.until(() => view.calls.some((call) => call.method === "link.preview"));
-    if (leave === "hover-out") {
-      await view.act(async () => view.chip.blur());
-      await view.until(() => !view.card());
-    } else {
-      await view.act(async () => view.unmount());
-    }
-    // The late answer arrives, and its follow-ups (an image's thumbnail) would go out now.
-    await view.act(async () => {
+    const flush = () =>
+      view.act(async () => {
+        for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
+      });
+    jest.useFakeTimers();
+    try {
+      await view.act(async () => view.chip.focus());
+      await flush();
+      expect(view.calls.map((call) => call.method)).toEqual(["link.preview"]);
+      // Hover-out closes the card after its grace; either way the 4 s wait must go with it.
+      if (leave === "hover-out") await view.act(async () => (view.chip.blur(), jest.advanceTimersByTime(1000)));
+      else await view.act(async () => view.unmount());
+      await view.act(async () => jest.advanceTimersByTime(100));
+      expect(view.card()).toBeNull();
+      expect(jest.getTimerCount()).toBe(0);
+      // The late answer arrives; its follow-up (an image's thumbnail) must not go out.
       answer.settle({});
-      await answer.promise;
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-    expect(view.calls.map((call) => call.method)).toEqual(["link.preview"]);
-    await view.done();
+      await flush();
+      expect(view.calls.map((call) => call.method)).toEqual(["link.preview"]);
+    } finally {
+      jest.useRealTimers();
+      await view.done();
+    }
   }
 });
