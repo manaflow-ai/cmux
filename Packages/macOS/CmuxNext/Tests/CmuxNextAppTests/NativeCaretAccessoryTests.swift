@@ -73,13 +73,14 @@ import Testing
     @Test func noCmuxTextViewAnswersOtherwise() throws {
         let image = try #require(class_getImageName(MenuNameField.self))
         let base = class_getMethodImplementation(NSTextView.self, NativeCaretAccessory.selector)
+        // Names only, from cmux's own image: touching every class in the process (objc_copyClassList)
+        // messages root classes such as JavaScriptCore's JSExport, which aborts.
         var count: UInt32 = 0
-        let list = try #require(objc_copyClassList(&count))
-        defer { free(UnsafeMutableRawPointer(list)) }
+        let names = try #require(objc_copyClassNamesForImage(image, &count))
+        defer { free(UnsafeMutableRawPointer(mutating: names)) }
         var textViews: [String] = []
         for index in 0 ..< Int(count) {
-            let cls: AnyClass = list[index]
-            guard let name = class_getImageName(cls), strcmp(name, image) == 0, Self.isTextView(cls) else { continue }
+            guard let cls = objc_lookUpClass(names[index]), Self.isTextView(cls) else { continue }
             textViews.append(NSStringFromClass(cls))
             #expect(class_getMethodImplementation(cls, NativeCaretAccessory.selector) == base, "\(NSStringFromClass(cls))")
         }
