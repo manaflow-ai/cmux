@@ -6,6 +6,7 @@
 // end. The whole band now shows, clear of the fades, and at the bottom of the chat the list reaches
 // its own end with the last ticks lit.
 import { afterAll, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
@@ -49,8 +50,8 @@ Object.assign(scope, replacements);
 
 // jsdom has no layout: a 600 px viewport (the transcript's first height) over a long conversation,
 // and a scroll offset the test moves as the reader would.
-const VIEWPORT = 600;
-Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => VIEWPORT });
+let viewport = 600;
+Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => viewport });
 // Wide enough for the minimap's gutter (ThreadMinimap MIN_GUTTER).
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1040 });
 const offsets = new WeakMap<object, number>();
@@ -73,6 +74,7 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+const { TRANSCRIPT_FADE_BOTTOM, TRANSCRIPT_FADE_TOP } = await import("../src/agent-session/acpmux/threadMinimap/model");
 
 afterAll(() => {
   dom.window.close();
@@ -158,5 +160,78 @@ test("the band shows whole while the reader scrolls down, and reaches the rail's
     expect(list().hasAttribute("data-fade-bottom")).toBe(false);
   } finally {
     await act(async () => root.unmount());
+  }
+});
+
+/// The transcript mask's fades (conversation.css), in px: each edge's band, and the bottom's while
+/// Jump to latest shows.
+function maskFades() {
+  const css = readFileSync(
+    new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  const values = (name: string) =>
+    [...css.matchAll(new RegExp(`${name}:\\s*(\\d+(?:\\.\\d+)?)px`, "g"))].map((match) => Number(match[1]));
+  const top = values("--acpmux-fade-top");
+  const bottom = values("--acpmux-fade-bottom");
+  return { top: Math.max(...top), bottom: Math.min(...bottom), jump: Math.max(...bottom) };
+}
+
+test("the rail keeps clear of the transcript's widest fades (the model reads the CSS's bands)", () => {
+  const fades = maskFades();
+  expect(fades.top).toBeGreaterThan(0);
+  expect(fades.bottom).toBeGreaterThan(0);
+  expect(TRANSCRIPT_FADE_TOP).toBeGreaterThanOrEqual(fades.top);
+  expect(TRANSCRIPT_FADE_BOTTOM).toBeGreaterThanOrEqual(fades.jump);
+});
+
+// The rail is inside the transcript, so the transcript's mask fades it too: 18 px under the top once
+// scrolled from the start, and 18 px (56 px with Jump to latest) above the foot while more lies below.
+// In a short pane the rail filled the view less 8 px each end, so the first and last lit ticks drew
+// in those fades at every offset short of the chat's two ends.
+test("in a short pane every lit tick stays clear of the transcript's faded edges, at any offset", async () => {
+  const document = dom.window.document;
+  viewport = 320;
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={turnView(turns, new Set())}
+          sessionId="minimap-short"
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+    const scroller = host.querySelector<HTMLElement>(".acpmux-scroll")!;
+    const end = scroller.scrollTop;
+    expect(end).toBeGreaterThan(0);
+    const fades = maskFades();
+    const clipped: string[] = [];
+    const offsets = [...Array.from({ length: Math.floor(end / 37) + 1 }, (_, step) => step * 37), end - 1, end];
+    for (const at of offsets) {
+      scroller.scrollTop = at;
+      await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+      const rail = host.querySelector<HTMLElement>(".acpmux-minimap__rail")!;
+      const list = host.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+      // The mask's opaque band at this offset, from the scroller's own fade state.
+      const from = scroller.hasAttribute("data-fade-top") ? fades.top : 0;
+      const band = scroller.hasAttribute("data-jump-shown") ? fades.jump : fades.bottom;
+      const to = viewport - (scroller.hasAttribute("data-fade-bottom") ? band : 0);
+      const railTop = Number.parseFloat(rail.style.top);
+      for (const tick of list.querySelectorAll<HTMLElement>('[data-tick][aria-current="true"]')) {
+        const y = railTop + Number(tick.dataset.tick) * 10 - list.scrollTop;
+        if (y < from || y + 10 > to)
+          clipped.push(`at ${at} px tick ${tick.dataset.tick} draws at ${y} px, outside ${from} to ${to} px`);
+      }
+    }
+    expect(clipped).toEqual([]);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    viewport = 600;
   }
 });
