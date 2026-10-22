@@ -106,10 +106,10 @@ export function ThreadMinimap({
 }) {
   const t = useT();
   /// The full-height map (ScrollMap.tsx), the compact Codex rail below, or none (`off`: the turn
-  /// steps below still run), read once per pane. The App Store's Chat Minimap card (the
-  /// `agentPane.display.minimap` setting) puts the full-height map in its place, live.
+  /// steps below still run), read once per pane. The Chat Minimap setting
+  /// (`agentPane.display.minimap`, and the App Store card that picks its full map) wins when set, live.
   const [experiment] = useState(() => experimentArm(threadMinimapLayout));
-  const arm = useChatDisplay().minimap ? "full" : experiment;
+  const arm = useChatDisplay().minimap ?? experiment;
   const full = arm === "full";
   const marks = usePromptMarks(sessionId);
   const lastTurns = useRef<MinimapTurns | undefined>(undefined);

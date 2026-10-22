@@ -29,7 +29,8 @@ struct AgentPaneDisplaySettingTests {
             refused: [.number(0.2), .number(3)]),
         Row(key: "agentPane.display.inspector.placement", fallback: .string("overlay"), accepted: [.string("push")],
             refused: [.string("left"), .bool(true)]),
-        Row(key: "agentPane.display.minimap", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("yes")]),
+        Row(key: "agentPane.display.minimap", fallback: .string("off"), accepted: [.string("compact"), .string("full")],
+            refused: [.bool(true), .string("left")]),
         Row(key: "markdown.code.family", fallback: nil, accepted: [.string("Menlo")], refused: [.bool(true)]),
     ]
 

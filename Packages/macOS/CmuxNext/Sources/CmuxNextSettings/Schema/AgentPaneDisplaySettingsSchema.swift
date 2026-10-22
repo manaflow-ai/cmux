@@ -70,13 +70,24 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                     SettingChoice("overlay", SettingsText.keyed("settings.choice.agentChatInspectorOverlay", "Overlay")),
                 ]),
                 .string("overlay"), ["inspector", "panel", "side", "right", "overlay", "push", "details"]),
-            // The VS Code-like minimap down the chat's edge (webviews threadMinimap/ScrollMap.tsx)
-            // instead of the prompt rail; the App Store's Chat Minimap card turns it on (Leo,
-            // 2026-10-22: "addng in the app store the vscode-like minimap situation").
+            // What the chat's edge shows (webviews threadMinimap/ThreadMinimap.tsx): the prompt rail
+            // of ticks, the VS Code-like full map (ScrollMap.tsx; the App Store's Chat Minimap card
+            // picks it, Leo 2026-10-22: "addng in the app store the vscode-like minimap situation"),
+            // or nothing. The values are the `thread-minimap-layout` experiment's arms and the
+            // default is its default arm (webviews/test/thread-minimap-setting.test.ts checks both),
+            // so the row never says one thing while the chat shows another. The keywords are the
+            // words people search for it with (Leo, 2026-10-22, searching "TICK RAIL": "doesn't
+            // show as an option").
             row(["minimap"], SettingsText.keyed("settings.agentPane.display.minimap", "Chat Minimap"),
                 help: SettingsText.keyed("settings.agentPane.display.minimap.help",
-                                         "A map of the whole chat down its edge, every message at its place, with a box for what is on screen. Off shows the prompt rail."),
-                .toggle, .bool(false), ["minimap", "map", "overview", "scroll", "vscode", "rail"]),
+                                         "What runs down the chat's edge: the rail, one tick per prompt; the full map, every message at its place with a box for what is on screen; or nothing."),
+                .choice([
+                    SettingChoice("compact", SettingsText.keyed("settings.choice.agentChatMinimapRail", "Rail")),
+                    SettingChoice("full", SettingsText.keyed("settings.choice.agentChatMinimapFull", "Full Map")),
+                    SettingChoice("off", SettingsText.keyed("settings.choice.off", "Off")),
+                ]),
+                .string("off"), ["minimap", "thread minimap", "map", "overview", "scroll", "vscode", "rail", "tick", "ticks",
+                                 "wave", "prompt rail", "scroll rail", "prompts"]),
         ]
     }
 }

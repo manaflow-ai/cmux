@@ -1,8 +1,9 @@
 // The App Store's Chat Minimap card (Leo, 2026-10-22: "addng in the app store the vscode-like minimap
-// situation"): the card turns on agentPane.display.minimap, off by default, and the chat then draws
-// the VS Code-like full-height map (ScrollMap.tsx: every message at its place under a box for the
-// view) in place of whatever the thread-minimap-layout experiment shows; turning it off puts that back.
-// The host's `display` event carries the key, so the change shows in an open chat at once.
+// situation"): the card sets agentPane.display.minimap to `full`, and the chat then draws the VS
+// Code-like full-height map (ScrollMap.tsx: every message at its place under a box for the view) in
+// place of whatever the thread-minimap-layout experiment shows; Remove clears the key and puts that
+// back. The row's other values pick the rail (`compact`) or nothing (`off`) the same way. The host's
+// `display` event carries the key, so the change shows in an open chat at once.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -89,11 +90,12 @@ const chat = (count: number) =>
     { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
   ]).flat();
 
-test("the Chat Minimap key is off by default and only true turns it on", () => {
-  expect(DEFAULT_CHAT_DISPLAY.minimap).toBe(false);
-  expect(resolveChatDisplay({}).minimap).toBe(false);
-  expect(resolveChatDisplay({ [MINIMAP_KEY]: true }).minimap).toBe(true);
-  expect(resolveChatDisplay({ [MINIMAP_KEY]: "yes" }).minimap).toBe(false);
+test("the Chat Minimap key is unset by default and only an arm sets it", () => {
+  expect(DEFAULT_CHAT_DISPLAY.minimap).toBeNull();
+  expect(resolveChatDisplay({}).minimap).toBeNull();
+  expect(resolveChatDisplay({ [MINIMAP_KEY]: "full" }).minimap).toBe("full");
+  expect(resolveChatDisplay({ [MINIMAP_KEY]: true }).minimap).toBeNull();
+  expect(resolveChatDisplay({ [MINIMAP_KEY]: "yes" }).minimap).toBeNull();
 });
 
 for (const arm of ["off", "compact"] as const)
@@ -120,11 +122,15 @@ for (const arm of ["off", "compact"] as const)
       expect(map()).toBeNull();
       expect(rail() !== null).toBe(arm === "compact");
       // The card's Get: the host sends the key, and the map is there with marks and the view box.
-      await act(async () => setChatDisplay({ [MINIMAP_KEY]: true }));
+      await act(async () => setChatDisplay({ [MINIMAP_KEY]: "full" }));
       expect(map()).not.toBeNull();
       expect(host.querySelectorAll(".acpmux-scrollmap__mark").length).toBeGreaterThan(0);
       expect(host.querySelector(".acpmux-scrollmap__view")).not.toBeNull();
       expect(rail()).toBeNull();
+      // The row's other value: the rail where the experiment shows none, nothing where it shows the rail.
+      await act(async () => setChatDisplay({ [MINIMAP_KEY]: arm === "compact" ? "off" : "compact" }));
+      expect(map()).toBeNull();
+      expect(rail() !== null).toBe(arm !== "compact");
       // Remove: back to what the experiment shows.
       await act(async () => setChatDisplay({}));
       expect(map()).toBeNull();
