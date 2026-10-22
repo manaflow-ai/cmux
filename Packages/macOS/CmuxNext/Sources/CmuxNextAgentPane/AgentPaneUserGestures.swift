@@ -72,7 +72,7 @@ import CmuxNextCompat
     public nonisolated static let ticketLifetime: TimeInterval = 60
     /// How long a prompt held for the folder trust answer keeps its send's gesture.
     public nonisolated static let heldPromptLifetime: TimeInterval = 600
-    /// The most prompt tickets one connection holds at once (prompts typed before the relay got to them).
+    /// The most prompt tickets older than ``lifetime`` one connection keeps (``reserve(connection:intent:paid:)``).
     nonisolated static let promptTicketsKept = 8
 
     struct Ticket {
@@ -101,12 +101,17 @@ import CmuxNextCompat
         let at = now()
         tickets = tickets.filter { at - $0.value.at <= $0.value.intent.lifetime
             && !($0.value.connection == connection && $0.value.intent.slot == intent.slot) }
-        // Each prompt has its own slot, so a connection keeps at most the newest few: a page cannot
-        // bank one per key press and send them all once the person has gone.
+        // Each prompt has its own slot. A typed prompt's frame reaches the relay within moments, so
+        // a ticket older than a live gesture is one waiting on a trust answer, or one a page banked:
+        // past ``promptTicketsKept``, the oldest of those go, so a page cannot keep one per key press
+        // and send them all once the person has gone. Fresh ones always stay (fast typing).
         if intent.method == "session/prompt" {
             let prompts = tickets.filter { $0.value.connection == connection && $0.value.intent.method == intent.method }
-            for old in prompts.sorted(by: { $0.value.order < $1.value.order }).dropLast(Self.promptTicketsKept - 1) {
+            var excess = prompts.count - (Self.promptTicketsKept - 1)
+            for old in prompts.filter({ at - $0.value.at > Self.lifetime }).sorted(by: { $0.value.order < $1.value.order }) {
+                guard excess > 0 else { break }
                 tickets[old.key] = nil
+                excess -= 1
             }
         }
         let ticket = UUID().uuidString

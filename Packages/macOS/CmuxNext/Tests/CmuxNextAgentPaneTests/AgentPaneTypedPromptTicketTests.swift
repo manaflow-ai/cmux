@@ -98,15 +98,32 @@ struct AgentPaneTypedPromptTicketTests {
         #expect(pane.transport.reserveGesture(try Self.intent("p-script")) == nil)
     }
 
-    /// Tickets do not pile up: a connection keeps the newest few prompt tickets, so a page that
-    /// reserves one on every key press cannot send them all once the person has gone.
-    @Test func aConnectionKeepsOnlyTheNewestPromptTickets() async throws {
+    /// However many prompts the person types before the relay gets to them, each keeps its Enter.
+    @Test func manyPromptsTypedFastAllGo() async throws {
+        let pane = try await Self.chat()
+        defer { pane.server.stop(); try? FileManager.default.removeItem(atPath: pane.folder) }
+
+        let count = AgentPaneUserGestures.promptTicketsKept * 2
+        var tickets: [String] = []
+        for index in 0..<count { tickets.append(try Self.enter(pane, promptId: "p-\(index)")) }
+        pane.clock.now += 45
+        for index in 0..<count {
+            #expect(await Self.send(pane, Self.prompt(id: index + 2, promptId: "p-\(index)", ticket: tickets[index])) == nil,
+                    "typed prompt \(index) lost its Enter")
+        }
+    }
+
+    /// Tickets do not pile up: past a few, a ticket left waiting longer than a live gesture goes, so a
+    /// page that reserves one on every key press cannot send them all once the person has gone.
+    @Test func aConnectionKeepsOnlyAFewWaitingPromptTickets() async throws {
         let pane = try await Self.chat()
         defer { pane.server.stop(); try? FileManager.default.removeItem(atPath: pane.folder) }
 
         let kept = AgentPaneUserGestures.promptTicketsKept
         var tickets: [String] = []
-        for index in 0...kept { tickets.append(try Self.enter(pane, promptId: "p-\(index)")) }
+        for index in 0..<kept { tickets.append(try Self.enter(pane, promptId: "p-\(index)")) }
+        pane.clock.now += AgentPaneUserGestures.lifetime + 1
+        tickets.append(try Self.enter(pane, promptId: "p-\(kept)"))
         #expect(pane.transport.gestures.ticketCount == kept)
         // The oldest went; the newest still goes.
         #expect(await Self.send(pane, Self.prompt(id: 2, promptId: "p-0", ticket: tickets[0])) == .gestureRequired)
