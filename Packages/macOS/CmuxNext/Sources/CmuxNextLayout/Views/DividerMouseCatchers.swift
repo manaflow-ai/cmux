@@ -25,6 +25,11 @@ public final class DividerMouseCatchers {
         self.window = window
     }
 
+    /// Panels kept as child windows but inert (no area): a later area takes one instead of a new child window.
+    private var spare: [DividerMousePanel] = []
+    /// The most inert panels kept; more leave the window.
+    private static let spareLimit = 16
+
     /// Window numbers of the panels shown: they pass divider hover through.
     public var windowNumbers: Set<Int> { Set(panels.values.filter { $0.isVisible }.map(\.windowNumber)) }
 
@@ -35,33 +40,59 @@ public final class DividerMouseCatchers {
 
     /// Shows one panel per area (window coordinates), or none when `active`
     /// is false (no page window is visible).
+    ///
+    /// A workspace switch replaces every area (new divider ids) and often turns the panels off and on (a workspace
+    /// with no page): adding or removing a child window makes AppKit send the window server the parent's whole
+    /// child list (`setChildWindowInfos`, an entangled transaction), 83 ms in one switch at 150 workspaces
+    /// (Lawrence 2026-10-21, workspace switch speed of light). A panel no area wants goes inert and stays a child;
+    /// the next area takes it, so a switch moves and shows panels and adds or removes no child window.
     public func update(_ areas: [LayoutMouseArea], active: Bool) {
         let wanted = active && window.isVisible ? areas : []
         let ids = Set(wanted.map(\.id))
         for (id, panel) in panels where !ids.contains(id) {
-            if panel.parent === window { window.removeChildWindow(panel) }
-            panel.orderOut(nil)
             panels[id] = nil
+            retire(panel)
         }
         for area in wanted {
-            let panel = panels[area.id] ?? makePanel(id: area.id)
+            let panel = panels[area.id] ?? take(id: area.id)
             panels[area.id] = panel
             panel.catcher.resizesColumns = area.resizesColumns
             let frame = window.convertToScreen(area.rect)
             if panel.frame != frame { panel.setFrame(frame, display: false) }
             if panel.parent !== window { window.addChildWindow(panel, ordered: .above) }
+            panel.setInert(false)
         }
+    }
+
+    /// A spare panel re-keyed to `id`, else a new one.
+    private func take(id: String) -> DividerMousePanel {
+        let panel = spare.popLast() ?? makePanel()
+        panel.catcher.onHover = { [weak self] hovered in self?.onHover?(id, hovered) }
+        return panel
+    }
+
+    /// `panel` takes no mouse and draws nothing; it stays a child window for a later area (up to `spareLimit`).
+    private func retire(_ panel: DividerMousePanel) {
+        panel.catcher.onHover = nil
+        guard panel.parent === window, spare.count < Self.spareLimit else {
+            if panel.parent === window { window.removeChildWindow(panel) }
+            panel.orderOut(nil)
+            return
+        }
+        panel.setInert(true)
+        spare.append(panel)
     }
 
     public func teardown() {
         update([], active: false)
+        for panel in spare {
+            if panel.parent === window { window.removeChildWindow(panel) }
+            panel.orderOut(nil)
+        }
+        spare.removeAll()
     }
 
-    private func makePanel(id: String) -> DividerMousePanel {
-        let panel = DividerMousePanel()
-        panel.catcher.onHover = { [weak self] hovered in self?.onHover?(id, hovered) }
-        return panel
-    }
+    private func makePanel() -> DividerMousePanel { DividerMousePanel() }
 }
 
 /// A transparent panel that takes the mouse over a divider's hit area.
@@ -88,6 +119,16 @@ final class DividerMousePanel: NSPanel {
 
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+
+    /// Whether the panel is parked as a spare: no mouse, no pixels, no hover pass-through; still a child window.
+    private(set) var isInert = false
+
+    func setInert(_ inert: Bool) {
+        guard inert != isInert else { return }
+        isInert = inert
+        ignoresMouseEvents = inert
+        alphaValue = inert ? 0 : 1
+    }
 }
 
 /// Forwards every mouse event to the parent window at the same screen
