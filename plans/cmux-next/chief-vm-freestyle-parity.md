@@ -45,24 +45,24 @@ Status: `done` (landed, failing test first, tried on a throwaway VM), `planned` 
 | --- | --- | --- | --- | --- |
 | Resize (grow only, live CPU/memory, disk then guest filesystem) | POST /vms/ID/resize | `resize ID --cpu --memory-gb --disk-gb` | 1 | done (0cf77fda6fa) |
 | Create sizes | create + resize | `create --cpu --memory-gb --disk-gb` | 1 | done (0cf77fda6fa) |
-| List VMs | GET /vms (filtered to own) | `list` (state, size, $/h) | 1, 2 | list done; $/h in PR (batch 2) |
-| Get one VM | GET /vms/ID | `get ID` | 2 | in PR (batch 2) |
-| Create options: display name, metadata, idle timeout, ttl, base snapshot | POST /vms | `create --name --meta k=v --idle S --ttl S --snapshot ID` | 2 | in PR (batch 2) |
+| List VMs | GET /vms (filtered to own) | `list` (state, size, $/h) | 1, 2 | list done; $/h in PR #24222 (batch 2) |
+| Get one VM | GET /vms/ID | `get ID` | 2 | in PR #24222 (batch 2) |
+| Create options: display name, metadata, idle timeout, ttl, base snapshot | POST /vms | `create --name --meta k=v --idle S --ttl S --snapshot ID` | 2 | in PR #24222 (batch 2) |
 | Create options: VPC networks, firewall, inbound TLS | POST /vms | `create --vpc NAME[:IP]`, `firewall`, `domain` verbs | 4 | planned |
-| Update (display name, idle timeout, metadata, ttl) | PATCH /vms/ID | `update ID ...` | 2 | in PR (batch 2) |
-| Pause | POST /vms/ID/pause | `pause ID` | 2 | in PR (batch 2) |
-| Start / resume | POST /vms/ID/start | `start ID` | 2 | in PR (batch 2) |
-| Stop (poweroff in guest, wait for `stopped`) | exec poweroff + GET | `stop ID` | 2 | in PR (batch 2) |
-| Delete | DELETE /vms/ID | `delete ID` (also revokes the grant) | 1, 2 | delete done; revoke in PR (batch 2) |
-| Exec: timeout, env, stdin, Linux user | POST /vms/ID/exec-await (identity token) | `exec ID [--timeout S] [--env K=V] [--stdin FILE] [--user U] -- CMD` | 2 | in PR (batch 2) |
-| Client sessions (identity, grant, token, revoke) | /identities/* | internal (security model) | 2 | in PR (batch 2) |
-| Per-Chief sandbox cap | (cmux) | `cap [N]` | 2 | in PR (batch 2) |
-| Cost per hour | (cmux, list prices) | in `create`, `resize`, `list`, `get` | 2 | in PR (batch 2) |
-| Files: read, write (text and binary), ls, mkdir, stat, rm, exists; also while paused | /vms/ID/fs/* | `fs read|write|ls|mkdir|stat|rm|exists ID PATH` | 3 | planned |
-| Files: resumable upload (to 16 GiB), streaming download | /vms/ID/fs/uploads/*, fs/read | `fs put ID LOCAL REMOTE`, `fs get ID REMOTE LOCAL` (chunked) | 3 | planned |
-| Snapshots: create, list, get, update, delete | /vms/ID/snapshot, /snapshots/* | `snapshot create|list|get|rename|delete` | 3 | planned |
-| Live fork (snapshot, then a VM from it) | snapshot + create | `fork ID [--name]` | 3 | planned |
-| Base snapshots (public images) | create snapshotId `freestyle/*` | `create --snapshot freestyle/ubuntu` | 3 | planned |
+| Update (display name, idle timeout, metadata, ttl) | PATCH /vms/ID | `update ID ...` | 2 | in PR #24222 (batch 2) |
+| Pause | POST /vms/ID/pause | `pause ID` | 2 | in PR #24222 (batch 2) |
+| Start / resume | POST /vms/ID/start | `start ID` | 2 | in PR #24222 (batch 2) |
+| Stop (poweroff in guest, wait for `stopped`) | exec poweroff + GET | `stop ID` | 2 | in PR #24222 (batch 2) |
+| Delete | DELETE /vms/ID | `delete ID` (also revokes the grant) | 1, 2 | delete done; revoke in PR #24222 (batch 2) |
+| Exec: timeout, env, stdin, Linux user | POST /vms/ID/exec-await (identity token) | `exec ID [--timeout S] [--env K=V] [--stdin FILE] [--user U] -- CMD` | 2 | in PR #24222 (batch 2) |
+| Client sessions (identity, grant, token, revoke) | /identities/* | internal (security model) | 2 | in PR #24222 (batch 2) |
+| Per-Chief sandbox cap | (cmux) | `cap [N]` | 2 | in PR #24222 (batch 2) |
+| Cost per hour | (cmux, list prices) | in `create`, `resize`, `list`, `get` | 2 | in PR #24222 (batch 2) |
+| Files: read, write (text and binary), ls, mkdir, stat, rm, exists; also while paused | /vms/ID/fs/* | `fs read|write|ls|mkdir|stat|rm|exists ID PATH` | 3 | in PR (batch 3, stacked on #24222) |
+| Files: resumable upload (to 16 GiB), streaming download | /vms/ID/fs/uploads/*, fs/read | `fs put ID LOCAL REMOTE`, `fs get ID REMOTE LOCAL` (chunked) | 3 | in PR (batch 3, stacked on #24222) |
+| Snapshots: create, list, get, update, delete | /vms/ID/snapshot, /snapshots/* | `snapshot create|list|get|rename|delete` | 3 | in PR (batch 3, stacked on #24222) |
+| Live fork (snapshot, then a VM from it) | snapshot + create | `fork ID [--name]` | 3 | in PR (batch 3, stacked on #24222) |
+| Base snapshots (public images) | create snapshotId `freestyle/*` | `create --snapshot freestyle/ubuntu` | 3 | in PR (batch 3, stacked on #24222) |
 | PTY sessions, reattachable, past the 5 min exec limit | GET /vms/ID/pty (WebSocket), pty/sessions | `pty run|read|write|signal|list|close` | 5 | planned |
 | VPCs: create, list, get, rename, delete, IPs; attach a VM | /vpcs/*, PUT /vms/ID/networks | `vpc create|list|get|rename|delete|ips`, `vpc attach|detach ID VPC [--ip]` | 4 | planned |
 | Firewall rules: list, create, delete, evaluate | /firewall/* | `firewall list|allow|deny|delete|check` | 4 | planned |
