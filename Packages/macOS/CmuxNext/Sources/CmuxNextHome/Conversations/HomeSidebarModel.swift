@@ -71,7 +71,7 @@ public struct HomeSidebarModel: Hashable, Sendable {
     /// The conversations the list draws an unread dot on (unread messages or Mark as Unread),
     /// pinned tiles first, without muted ones: what Home's unread indicator outside the list
     /// (the sidebar's Home item, a Home tab, the Dock) counts. Read it from an unfiltered model.
-    public var unreadConversations: [ConversationID] { [] }
+    public var unreadConversations: [ConversationID] { (pinned + rows).filter { $0.unread && !$0.isMuted }.map(\.id) }
 
     /// `unreadMarks`: conversations the user marked unread (Mark as Unread), shown unread until read.
     /// `chiefHarnesses`: each Chief's engine by participant id, for the rows' badges.
