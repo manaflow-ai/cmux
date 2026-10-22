@@ -1071,6 +1071,10 @@ export class AcpmuxDirectClient {
   private promptOrder: Promise<void> = Promise.resolve();
   /// Prompts sent whose request is not written yet (`send`).
   private unwrittenPrompts = 0;
+  /// Those prompts by id, and the ones of them withdrawn from the queue (`removeQueued`) before
+  /// their request was written: acpmux never had those, so they are never written.
+  private unwrittenIds = new Set<string>();
+  private withdrawnUnwritten = new Set<string>();
   /// acpmux calls this connection local (`_meta.acpmux.origin: "local"`). Without that, a
   /// WebSocket connection is remote-origin to acpmux, which never pools for it.
   private localOrigin = false;
@@ -3509,12 +3513,15 @@ export class AcpmuxDirectClient {
       if (written) return;
       written = true;
       this.unwrittenPrompts -= 1;
+      this.unwrittenIds.delete(promptId);
+      this.withdrawnUnwritten.delete(promptId);
       resolveOrder();
     };
     // Prompts go to acpmux in the order they were sent, however long one's puts take.
     const earlier = this.unwrittenPrompts > 0 ? this.promptOrder : undefined;
     this.promptOrder = order;
     this.unwrittenPrompts += 1;
+    this.unwrittenIds.add(promptId);
     try {
       // A recording goes only to a harness that takes voice input; one moved to another
       // harness (a switch, a held prompt put back) goes as its transcript.
@@ -3523,6 +3530,23 @@ export class AcpmuxDirectClient {
         : attachments.filter((attachment) => attachment.kind !== "audio");
       const kept = this.putsAny(carried) ? await this.putAttachments(sessionId, carried) : new Map<string, string>();
       if (earlier) await earlier;
+      // Withdrawn while its images were put: what it held for its bubble and queue row goes.
+      if (this.withdrawnUnwritten.has(promptId)) {
+        wrote();
+        this.promptAccepts.delete(promptId);
+        if (context) this.contextInFlight = false;
+        this.queuedSends.delete(promptId);
+        this.optimisticPromptRows.delete(promptId);
+        this.optimisticPromptTexts.delete(promptId);
+        this.optimisticPromptAttachments.delete(promptId);
+        this.deliveries.get(promptId)?.timers.forEach(clearTimeout);
+        this.deliveries.delete(promptId);
+        this.rows.delete(rowId);
+        this.failedPrompts.delete(rowId);
+        release();
+        this.emit();
+        return sessionId;
+      }
       const request = this.request("session/prompt", {
         sessionId,
         prompt: promptBlocks(input, carried, kept),
@@ -3881,6 +3905,21 @@ export class AcpmuxDirectClient {
   }
   /// Withdraws a queued prompt before its turn starts; `removed` is false once it started.
   async removeQueued(promptId: string): Promise<{ removed: boolean }> {
+    // A prompt still putting its images is not in acpmux's queue yet: the pane withdraws it, as
+    // acpmux's `queue_removed` would, and never writes it (`send`).
+    if (this.unwrittenIds.has(promptId)) {
+      this.withdrawnUnwritten.add(promptId);
+      // Nor does it fail while the puts finish.
+      this.deliveries.get(promptId)?.timers.forEach(clearTimeout);
+      this.queue = this.queue.filter((entry) => entry.id !== promptId);
+      this.queueWithdrawn = [...this.queueWithdrawn.filter((each) => each !== promptId), promptId].slice(
+        -QUEUE_WITHDRAWN_KEPT,
+      );
+      if (promptId === this.interrupting) this.interrupting = undefined;
+      if (promptId === this.awaiting) this.dropContinuation(promptId);
+      this.emit();
+      return { removed: true };
+    }
     const sessionId = this.actingSessionId;
     if (!sessionId) return { removed: false };
     return this.request("_acpmux/queue_remove", { sessionId, promptId });
