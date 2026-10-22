@@ -4,8 +4,11 @@ import Observation
 
 /// Connects the action registry to the control socket: publishes a catalog
 /// snapshot to the router whenever descriptors, bindings, or shortcut
-/// overrides change (and just the context bits on focus changes), and runs
-/// `action.run` requests through `ActionRegistry.perform` on the main actor.
+/// overrides change, the actions' unavailable reasons alone when the app
+/// state they read changes (both on a later frame, coalesced: never in the
+/// turn of the split or new tab that changed it), and just the context bits
+/// on focus changes; runs `action.run` requests through
+/// `ActionRegistry.perform` on the main actor (which re-reads a reason live).
 @MainActor
 public final class RegistryControlBridge: ControlActionExecutor {
     public let registry: ActionRegistry
@@ -17,10 +20,19 @@ public final class RegistryControlBridge: ControlActionExecutor {
     private var epoch = 0
     private var isObserving = false
 
-    /// Frames the catalog republishes on (unused before the fix; the red test injects a manual one).
+    /// The frames a catalog change republishes on: never in the turn that changed the state (a split, a
+    /// new tab), at most once per frame however many changes it saw.
     private let frames: any ControlFrameSource
-    /// Action entries built (``info(for:in:categoryTitles:)`` calls), for the republish-cost tests.
+    /// Action entries built (``info(for:in:categoryTitles:)`` calls): a reason-only change builds none.
     private(set) var entryBuilds = 0
+    /// What the next frame's publish must read again: every entry (the registry changed) or only the
+    /// unavailable reasons (app state an action's reason reads changed).
+    private var entriesStale = false
+    private var reasonsStale = false
+    private var isScheduled = false
+    /// Whether each observation chain is armed; a chain re-arms when its publish reads it again.
+    private var entriesArmed = false
+    private var reasonsArmed = false
 
     public init(registry: ActionRegistry, frames: any ControlFrameSource = MainQueueFrameSource()) {
         self.registry = registry
@@ -35,7 +47,9 @@ public final class RegistryControlBridge: ControlActionExecutor {
         guard !isObserving else { return }
         isObserving = true
         epoch += 1
-        observeCatalog(epoch: epoch)
+        (entriesArmed, reasonsArmed, entriesStale, reasonsStale, isScheduled) = (false, false, false, false, false)
+        observeEntries(epoch: epoch)
+        observeReasons(epoch: epoch)
         observeContext(epoch: epoch)
     }
 
@@ -45,27 +59,64 @@ public final class RegistryControlBridge: ControlActionExecutor {
         epoch += 1
     }
 
-    private func observeCatalog(epoch: Int) {
-        guard isObserving, epoch == self.epoch else { return }
+    /// The registry's own state: a change rebuilds every entry.
+    private func observeEntries(epoch: Int) {
+        guard isObserving, epoch == self.epoch, !entriesArmed else { return }
+        entriesArmed = true
         withObservationTracking {
             _ = registry.descriptors
             _ = registry.actions
             _ = registry.shortcutOverrides
             _ = registry.chordOverrides
             _ = registry.disabledFeatures
-            // Reasons read observable app state (daemon capabilities), so a
-            // change there republishes `unavailable_reason` too.
+        } onChange: { [weak self] in
+            // onChange runs inside the mutation, before the value is stored.
+            // task-owner: marks the catalog stale; ends when its epoch is not current (state-audit R1)
+            Task { @MainActor in self?.stale(entries: true, epoch: epoch) }
+        }
+    }
+
+    /// The app state the unavailable reasons read (the daemon store, focus, capabilities): it moves on every
+    /// split and new tab, so a change re-reads the reasons only, on a later frame.
+    private func observeReasons(epoch: Int) {
+        guard isObserving, epoch == self.epoch, !reasonsArmed else { return }
+        reasonsArmed = true
+        withObservationTracking {
             for action in registry.actions { _ = action.unavailableReason?() }
         } onChange: { [weak self] in
-            // onChange runs before the new value is stored; publish after.
-            // task-owner: observation re-arm; ends when its epoch is not current (state-audit R1)
-            Task { @MainActor in
-                guard let self, self.isObserving, epoch == self.epoch else { return }
-                self.router?.updateCatalog(Self.catalog(from: self.registry))
-                self.entryBuilds += self.registry.entries.count
-                self.observeCatalog(epoch: epoch)
-            }
+            // task-owner: marks the reasons stale; ends when its epoch is not current (state-audit R1)
+            Task { @MainActor in self?.stale(entries: false, epoch: epoch) }
         }
+    }
+
+    private func stale(entries: Bool, epoch: Int) {
+        guard isObserving, epoch == self.epoch else { return }
+        if entries { (entriesStale, entriesArmed) = (true, false) } else { (reasonsStale, reasonsArmed) = (true, false) }
+        guard !isScheduled else { return }
+        isScheduled = true
+        frames.scheduleFrame { [weak self] in self?.publish(epoch: epoch) }
+    }
+
+    /// One frame's publish: every entry when the registry changed, else the reasons patched into the
+    /// published catalog (its context mask and flags stay as published).
+    private func publish(epoch: Int) {
+        isScheduled = false
+        guard isObserving, epoch == self.epoch, let router else { return }
+        if entriesStale {
+            router.updateCatalog(Self.catalog(from: registry))
+            entryBuilds += registry.entries.count
+        } else if reasonsStale {
+            var catalog = router.catalog
+            catalog.actions = catalog.actions.map { action in
+                var action = action
+                action.unavailableReason = registry.unavailableReason(for: ActionID(rawValue: action.id))
+                return action
+            }
+            router.updateCatalog(catalog)
+        }
+        (entriesStale, reasonsStale) = (false, false)
+        observeEntries(epoch: epoch)
+        observeReasons(epoch: epoch)
     }
 
     private func observeContext(epoch: Int) {

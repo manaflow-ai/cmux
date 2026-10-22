@@ -81,7 +81,7 @@ public final class ControlService {
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
         watchdog: MainThreadWatchdog? = nil
     ) throws -> ControlService {
-        let bridge = RegistryControlBridge(registry: registry)
+        let bridge = RegistryControlBridge(registry: registry, frames: frameSource)
         let router = ControlRouter(identity: identity, executor: bridge, settings: settingsStore, settingsWriter: settingsWriter,
                                    frameSource: frameSource)
         router.attach(watchdog: watchdog)
