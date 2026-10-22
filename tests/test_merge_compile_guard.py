@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import unittest
 from pathlib import Path
 
@@ -145,6 +146,32 @@ class FleetCompileCheck(unittest.TestCase):
         why = guard.verdict(pr(), SWIFT, [check(COMPILE, "queued")])
         self.assertIn(f"cmux-ci compile-check --ref {HEAD} --app", why)
         self.assertNotIn("gh workflow run", why)
+
+    def test_a_missing_compile_result_names_the_fleet_compile_check_first(self):
+        """COMMON.md: the default path is a fleet compile-check on the dev-build workers, not waiting on the Mac
+        Release compile."""
+        for checks in ([], [check(COMPILE, "queued")], [check("cmux-next path routing", "in_progress")]):
+            why = guard.verdict(pr(), SWIFT, checks)
+            run = f"cmux-ci compile-check --ref {HEAD} --app"
+            self.assertIn(run, why)
+            self.assertIn("fleet dev-build workers", why)
+            self.assertLess(why.index(run), why.index(COMPILE), why)
+
+    def test_the_fleet_compile_check_refusal_reads_whole_with_several_or_oddly_named_swift_files(self):
+        """The refusal is built from its parts: a second file (" and more") or a path holding " and " can't split it."""
+        base = "Packages/macOS/CmuxNext/Sources/"
+        for swift, what in (([base + "A.swift", base + "B.swift"], f"({base}A.swift and more)"),
+                            ([base + "Find and Replace.swift"], f"({base}Find and Replace.swift)")):
+            why = guard.verdict(pr(), swift, [])
+            self.assertTrue(why.startswith(f"#7 changes Swift {what} and {HEAD[:12]} has no compile result yet."), why)
+            self.assertTrue(why.endswith(f"({HEAD[:12]} has no checks yet; merge once its {COMPILE} passes.)"), why)
+            self.assertEqual(why.count("cmux-ci compile-check"), 1, why)
+
+    def test_a_refusal_names_the_cause_of_its_own_read_not_an_earlier_one(self):
+        guard.run(["false"])
+        self.assertTrue(guard.FAILED)
+        self.assertEqual(guard.run(["true"]), "")
+        self.assertEqual(guard.FAILED, [])
 
     def test_the_workflow_posts_the_status_the_guard_reads_on_the_sha_it_was_given(self):
         text = (ROOT / ".github/workflows" / guard.FLEET_WORKFLOW).read_text()
@@ -444,12 +471,17 @@ class Targets(unittest.TestCase):
         self.assertIn("can't name", why)
 
 
-def fake_gh(bin_dir: Path, answers: dict[str, str], log: Path) -> None:
-    """A `gh` that prints answers[<the first argument that names an endpoint>] and logs its argv."""
+def fake_gh(bin_dir: Path, answers: dict[str, str], log: Path, throttle: float = 0, sleep: float = 0) -> None:
+    """A `gh` that prints answers[<the first argument that names an endpoint>] and logs its argv. throttle: seconds
+    it sleeps first unless CMUX_GH_GUARD_DISABLE=1, as the PATH guard ~/.local/lib/cmux-local-build-guards/gh does
+    for a read its caller repeats within 30 s; sleep: seconds it sleeps whatever the environment (a slow GitHub)."""
     script = bin_dir / "gh"
     script.write_text(textwrap.dedent(f"""\
         #!{sys.executable}
-        import json, sys
+        import json, os, sys, time
+        if os.environ.get("CMUX_GH_GUARD_DISABLE") != "1":
+            time.sleep({throttle})
+        time.sleep({sleep})
         args = sys.argv[1:]
         with open({str(log)!r}, "a") as f:
             f.write(json.dumps(args) + "\\n")
@@ -466,7 +498,8 @@ def fake_gh(bin_dir: Path, answers: dict[str, str], log: Path) -> None:
 
 class Hook(unittest.TestCase):
     def run_hook(self, command: str, compile_state: tuple[str, str | None] | None, statuses=None, fleet_runs=None,
-                 other_statuses=None, on_base="ahead", head=HEAD, cmux_ci_jobs=(), cmux_ci_receipts=None):
+                 other_statuses=None, on_base="ahead", head=HEAD, cmux_ci_jobs=(), cmux_ci_receipts=None,
+                 gh_throttle=0, gh_sleep=0, env_extra=None):
         """statuses: the head's fleet/compile-check statuses; fleet_runs: {run id: fleet_run()}; other_statuses:
         statuses on another sha; cmux_ci_jobs, cmux_ci_receipts: what the controller holds (fake_cmux_ci)."""
         with tempfile.TemporaryDirectory() as tmp:
@@ -496,11 +529,13 @@ class Hook(unittest.TestCase):
             answers["repos/manaflow-ai/cmux/branches/feat-cmux-next"] = json.dumps(TIP)
             if on_base:
                 answers[f"repos/manaflow-ai/cmux/compare/{RUN_SHA}...{TIP}"] = json.dumps(on_base)
-            fake_gh(bin_dir, answers, log)
+            fake_gh(bin_dir, answers, log, throttle=gh_throttle, sleep=gh_sleep)
             client = fake_cmux_ci(bin_dir, list(cmux_ci_jobs) if cmux_ci_jobs is not None else None,
                                   cmux_ci_receipts or {JOB_23606["id"]: RECEIPTS_23606}, log)
             payload = json.dumps({"tool_name": "Bash", "cwd": str(tmp), "tool_input": {"command": command}})
-            env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "CMUX_CI_CLIENT": str(client)}
+            env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "CMUX_CI_CLIENT": str(client),
+                   **(env_extra or {})}
+            env.pop("CMUX_GH_GUARD_DISABLE", None)
             done = subprocess.run(["bash", str(HOOK)], input=payload, capture_output=True, text=True, env=env,
                                   timeout=60)
             self.assertEqual(done.returncode, 0, done.stderr)
@@ -526,6 +561,23 @@ class Hook(unittest.TestCase):
         self.assertEqual(view, [["pr", "view", "--json", "number"]])
         out, _ = self.run_hook("gh pr merge --squash", ("completed", "success"))
         self.assertIsNone(out)
+
+    def test_the_gh_guards_repeat_throttle_does_not_slow_the_guard(self):
+        """2026-10-21: the hook shares the session's CLAUDE_SESSION_ID, so after a lane's `gh pr view N` the PATH guard
+        held the hook's identical read up to 30 s and #23611's merges were refused as unreadable. The guard reads once
+        per merge and never polls: its reads skip the throttle."""
+        started = time.monotonic()
+        out, _ = self.run_hook("gh pr merge 22835 -R manaflow-ai/cmux --squash", ("completed", "success"), gh_throttle=30)
+        self.assertIsNone(out)
+        self.assertLess(time.monotonic() - started, 10)
+
+    def test_a_slow_github_refuses_and_says_it_timed_out(self):
+        out, _ = self.run_hook("gh pr merge 22835 -R manaflow-ai/cmux --squash", ("completed", "success"), gh_sleep=5,
+                               env_extra={"CMUX_MERGE_GUARD_GH_TIMEOUT": "1"})
+        why = out["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertIn("could not read #22835 from GitHub", why)
+        self.assertIn("did not answer within 1 s", why)
+        self.assertNotIn("rate limit", why)
 
     def test_an_unreadable_github_refuses(self):
         out, _ = self.run_hook("gh pr merge 1 -R manaflow-ai/cmux --squash", None)

@@ -26,11 +26,14 @@ final class CEFHostView: NSView {
     /// Called when the window starts a live resize (`CEFPaneHost` re-reads
     /// the shown page's background).
     var liveResizeWillStart: (() -> Void)?
+    /// Hands files dragged in from another app to the shown page (`CEFFileDragRelay`).
+    let fileDrag = CEFFileDragRelay()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
         updateBackground()
+        fileDrag.view = self
         #if DEBUG
         Self.registerMotionSampler()
         #endif
