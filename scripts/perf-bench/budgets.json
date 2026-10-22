@@ -1,12 +1,14 @@
 {
   "schema": "xbench.budgets.v1",
-  "about": "cmux NEXT resource budgets (budget.py). limit is in the row's unit; enforce false = advisory (reported, never fails). Targets from Leo 2026-10-21: whole-tree idle CPU under 1 %, a memory ceiling per hidden tab and for the app at idle. A budget the base breaks stays advisory; enforce it once the base holds it. Overhead rows (disk writes, IPC, syscalls, processes, threads) come from plans/cmux-next/speed-of-sound-DESIGN.md, whose floor for each idle row is 0; the limits here are first steps toward it.",
+  "about": "cmux NEXT resource budgets (budget.py). limit is in the row's unit; enforce false = advisory (reported, never fails). Targets from Leo 2026-10-21: whole-tree idle CPU under 1 %, a memory ceiling per hidden tab and for the app at idle. A budget the base breaks stays advisory; enforce it once the base holds it. Overhead rows (disk writes, IPC, syscalls, processes, threads) come from plans/cmux-next/speed-of-sound-DESIGN.md, whose floor for each idle row is 0; the limits here are first steps toward it. Spinner rows (Lawrence 2026-10-21, are spinners on the main thread?): loading spinners animate in the render server, so 20 visible ones stay under 1 % main-thread CPU.",
   "scenario": {
     "terminals": 5,
     "chromium_tabs": 5,
     "webkit_tabs": 5,
     "home_settle_s": 30,
-    "phase_settle_s": 40
+    "phase_settle_s": 40,
+    "spinners": [1, 20],
+    "spinner_settle_s": 10
   },
   "budgets": [
     {"row": "budget-idle-cpu", "limit": 1.0, "enforce": false},
@@ -28,7 +30,10 @@
     {"row": "budget-idle-syscalls", "limit": 200, "enforce": false},
     {"row": "budget-idle-csw-app-hidden", "limit": 50, "enforce": false},
     {"row": "budget-processes", "limit": 15, "enforce": false},
-    {"row": "budget-threads", "limit": 150, "enforce": false}
+    {"row": "budget-threads", "limit": 150, "enforce": false},
+    {"row": "budget-spinners-1-main-cpu", "limit": 0.5, "enforce": false},
+    {"row": "budget-spinners-20-main-cpu", "limit": 1.0, "enforce": false},
+    {"row": "budget-spinners-20-wakeups", "limit": 60, "enforce": false}
   ],
   "animations_about": "App animation budgets (scripts/cmux-next/anim-perf-terminal.py, fleet: scripts/measure/split-spring.sh --arg=--suite=anim-perf). Lawrence 2026-10-21: every animation holds 120 fps on ProMotion: no dropped frame, no frame and no main-thread slice over 8.33 ms. metric is a key of the bench's summary row (median over rounds; max_ms and main_ms_max are the worst round). budget.py reads only `budgets`; this list is the anim bench's. enforce false = advisory; enforce each once the base holds it. Pane motion at 2-30 panes stays in pane-perf-terminal.py.",
   "animations": [
