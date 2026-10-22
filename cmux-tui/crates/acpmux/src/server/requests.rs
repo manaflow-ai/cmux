@@ -1553,14 +1553,24 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("permissionId is required"))?;
             let option = str_param(&params, "optionId").map(str::to_owned);
             let answers = params.get("answers").cloned();
+            let annotations = params.get("annotations").filter(|v| !v.is_null()).cloned();
             let answered_by = crate::hub::person::answered_by(&params)?;
             let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
             // Who answers, for the person rule under the prompt's lock
             // (`hub/person.rs`): an allow that is not the person's counts
             // only on its decision proof, which the answer spends.
             let answerer = crate::hub::person::Answerer::of(conn.is_person(), &params);
-            hub.respond_permission(&s, pid, option, answers, answered_by, answerer, control)
-                .await?;
+            hub.respond_permission_annotated(
+                &s,
+                pid,
+                option,
+                answers,
+                annotations,
+                answered_by,
+                answerer,
+                control,
+            )
+            .await?;
             Ok(json!({}))
         }
         method::MUX_SET_POLICY => {

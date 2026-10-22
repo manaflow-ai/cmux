@@ -4026,6 +4026,7 @@ const replyToQuestion = (permission: AcpmuxPermission) => (sent: QuestionReply) 
     permissionId: permission.permissionId,
     ...(sent.optionId === undefined ? {} : { optionId: sent.optionId }),
     ...(sent.answers === undefined ? {} : { answers: sent.answers }),
+    ...(sent.annotations === undefined ? {} : { annotations: sent.annotations }),
   });
 
 /// Answers a secret card in the page (`chat.secret`): the value goes to acpmux only.
@@ -7091,13 +7092,14 @@ function AcpmuxPane() {
           "chat.queue.edit": ({ promptId, ...edit }) => client.editQueued(String(promptId), edit as QueueEdit),
           "chat.secret": ({ secretId, value }) =>
             client.secret(String(secretId), typeof value === "string" ? value : undefined),
-          "chat.permission": ({ permissionId, optionId, answers, sessionId }) =>
+          "chat.permission": ({ permissionId, optionId, answers, annotations, sessionId }) =>
             client.permission(
               String(permissionId),
               optionId === undefined || optionId === null ? undefined : String(optionId),
               answers && typeof answers === "object" ? (answers as Record<string, unknown>) : undefined,
               // The Needs you list answers asks of other chats too.
               typeof sessionId === "string" && sessionId ? sessionId : undefined,
+              annotations && typeof annotations === "object" ? (annotations as Record<string, unknown>) : undefined,
             ),
           "chat.permission_group.respond": ({ groupId, revision, decision }) =>
             client.permissionGroup(String(groupId), Number(revision), decision as PermissionDecision),
