@@ -297,12 +297,14 @@ struct WorkspaceHoverCardContent: Equatable {
         return HoverCardRowContent(text: line, ink: tone == .secondary ? .secondary : tone, accessory: bars)
     }
 
-    /// A machine's link as a color: green connected, yellow on its way, red when it cannot connect.
+    /// A machine's link as a color: green connected, yellow on its way, red when it cannot connect,
+    /// grey when paused (it resumes on attach).
     static func connectionTone(_ status: SidebarMachine.Status) -> HoverCardTone {
         switch status {
         case .connected, .updateAvailable: .success
         case .connecting, .reconnecting, .installing, .updateRequired, .installRequired: .attention
         case .offline, .authFailed, .unreachable, .failed: .danger
+        case .paused, .pausedIdle: .secondary
         }
     }
 
