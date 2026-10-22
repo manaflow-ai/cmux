@@ -70,6 +70,25 @@ subagent's commit through the Mac (`deploy.sh land`: `git bundle` on the VM,
 read over the Freestyle API, `git push` from the Mac), which uses no new
 credential.
 
+## Sandbox keys (2026-10-21)
+
+Each cloud subagent can start and clean up its own throwaway VMs without a team
+credential. When `~/.config/cmux/agent-issuer.json` (mode 0600: `key`, a cmux VM API
+key with `vm:write`; `apiUrl`; optional `teamId`, `ttlSeconds`, `maxVms`,
+`maxUsdPerHour`) exists, the Chief host (`agent_keys.rs`) issues every cloud subagent
+an agent key (`POST /v1/agent-keys`, workers/cmux-vm README "Agent keys and client
+sessions"): it reaches only VMs labelled `cmux.agent=<key id>`, has a VM count, a USD/h
+budget and a TTL. The pool tool (`deploy.sh agent-key NAME ID`, key on stdin) writes it
+to `/home/agent/.config/cmux/agents/<id>.json` (0600) and installs `cmux-sandbox`; the
+subagent's task names the file (`CMUX_AGENT_CONFIG`), never the key. The Chief revokes
+the key once the subagent has been done for 30 minutes (`REVOKE_AFTER_DONE`), and
+the service deletes the agent's VMs; an expired key is reaped by the service's
+5-minute cron. A key the pool tool cannot place is revoked at once and the subagent
+starts without one. acpmux passes no env to peer sessions, so `CMUX_AGENT_KEY` is not
+set there; the file is the delivery. Subagents that share one pool VM share one Unix
+user, so they can read each other's key files: the label confinement holds against
+other agents' API calls, not against a co-tenant on the same VM.
+
 ## Not in this change
 
 - More than one peer and least-loaded choice; auto-create a VM when all are
