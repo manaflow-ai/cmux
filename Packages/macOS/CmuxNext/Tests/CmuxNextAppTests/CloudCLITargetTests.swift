@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCloud
+import CmuxNextControl
 @testable import CmuxNextDaemon
 import Foundation
 import Testing
@@ -239,7 +240,7 @@ struct CloudCLITargetTests {
     @Test func theCopiedDetailsCarryEveryFieldOfTheDaemonsHandshake() async throws {
         let f = Self.fixture()
         f.session.daemon.store.connectionState = .connected(Self.fullIdentity())
-        let report = await CloudDiagnostics.report(f.context)
+        let report = await CloudHandlers.diagnostics(f.context)
         let details = try Self.json(report.details)
         let machines = try #require(details["machines"] as? [[String: Any]])
         let row = try #require(machines.first { $0["id"] as? String == f.session.machineID })
@@ -260,26 +261,26 @@ struct CloudCLITargetTests {
     @Test func everyStoredFieldOfTheHandshakeIsInTheDetails() {
         let stored = Mirror(reflecting: Self.fullIdentity()).children.compactMap(\.label).filter { $0 != "capabilitySet" }
         #expect(stored.count == Self.fullIdentityWire.count, "DaemonIdentity has \(stored), the details \(Self.fullIdentityWire.keys.sorted())")
-        #expect(CloudDiagnostics.identityFields(Self.fullIdentity()).count == Self.fullIdentityWire.count)
+        #expect(CloudDiagnosticsReport.identityFields(Self.fullIdentity()).count == Self.fullIdentityWire.count)
     }
 
     /// A machine whose link dropped keeps the last handshake in its details, and says why it dropped.
-    @Test func aDroppedLinkKeepsTheLastHandshakeAndItsReason() throws {
-        let details = CloudDiagnostics.daemonDetails(.disconnected("socket closed"), last: Self.fullIdentity())
+    @Test func aDroppedLinkKeepsTheLastHandshakeAndItsReason() {
+        let details = CloudDiagnosticsReport.daemonDetails(.disconnected("socket closed"), last: Self.fullIdentity())
         #expect(details["daemon_reason"] == .string("socket closed"))
         #expect(details["daemon_identity"]?["ghostty_commit"] == .string("9c1d2e3f4a5b"))
         #expect(details["daemon_identity"]?["pid"] == .number(4242))
-        let never = CloudDiagnostics.daemonDetails(.connecting, last: nil)
+        let never = CloudDiagnosticsReport.daemonDetails(.connecting, last: nil)
         #expect(never["daemon_identity"] == .null)
         #expect(never["daemon_reason"] == .null)
     }
 
     /// The account half: the team's id and, from the team list the app already holds, its name.
     @Test func theCopiedDetailsCarryEveryAccountField() throws {
-        let account = CloudDiagnostics.Account(
+        let account = CloudDiagnosticsReport.Account(
             backend: "https://cloud.example.test", backendKind: "production", signedIn: true, email: "leo@example.test",
             teamID: "0f8fad5b-d9cb-469f-a165-70867728950e", teamName: "Manaflow", unavailable: "maintenance", lastError: "quota")
-        let details = try Self.json(CloudDiagnostics.details(account, machines: []))
+        let details = try Self.json(CloudDiagnosticsReport.details(account, machines: []))
         let expected: [String: Any] = [
             "backend": "https://cloud.example.test", "backend_kind": "production", "signed_in": true, "email": "leo@example.test",
             "team_id": "0f8fad5b-d9cb-469f-a165-70867728950e", "team_name": "Manaflow", "unavailable": "maintenance",
@@ -290,7 +291,7 @@ struct CloudCLITargetTests {
 
     @Test func theLiveDetailsHaveTheTeamNameKey() async throws {
         let f = Self.fixture()
-        let details = try Self.json(await CloudDiagnostics.report(f.context).details)
+        let details = try Self.json(await CloudHandlers.diagnostics(f.context).details)
         for key in ["backend", "backend_kind", "signed_in", "email", "team_id", "team_name", "unavailable", "last_error", "machines"] {
             #expect(details[key] != nil, "the details dropped \(key)")
         }
@@ -299,12 +300,12 @@ struct CloudCLITargetTests {
     /// The visible line names the team by its name, never its UUID, when it has no email to show.
     @Test func theVisibleLineNamesTheTeamNotItsUUID() {
         let uuid = "0f8fad5b-d9cb-469f-a165-70867728950e"
-        var account = CloudDiagnostics.Account(backend: "", backendKind: "", signedIn: true, email: nil, teamID: uuid, teamName: "Manaflow")
-        #expect(CloudDiagnostics.accountLabel(account) == "Manaflow")
+        var account = CloudDiagnosticsReport.Account(backend: "", backendKind: "", signedIn: true, email: nil, teamID: uuid, teamName: "Manaflow")
+        #expect(CloudDiagnosticsReport.accountLabel(account) == "Manaflow")
         account.email = "leo@example.test"
-        #expect(CloudDiagnostics.accountLabel(account) == "leo@example.test")
+        #expect(CloudDiagnosticsReport.accountLabel(account) == "leo@example.test")
         account.email = nil
         account.teamName = nil
-        #expect(CloudDiagnostics.accountLabel(account) == uuid, "the UUID stands in only when the team list has no name")
+        #expect(CloudDiagnosticsReport.accountLabel(account) == uuid, "the UUID stands in only when the team list has no name")
     }
 }

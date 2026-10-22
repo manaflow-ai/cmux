@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
+import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextSettings
 
 // Creation (new machine, new cloud workspace), sign in/out, team picker,
 // and diagnostics.
@@ -97,11 +99,50 @@ extension CloudHandlers {
             let byPerson = invocation.origin == .user
             // task-owner: the action run; a capturing caller awaits it through the registry.
             let task: ActionResultWork = Task { @MainActor in
-                let report = await CloudDiagnostics.report(context)
+                let report = await diagnostics(context)
                 if byPerson { CloudPresenter.show(CloudStrings.diagnosticsTitle, summary: report.summary, details: report.details, in: window(context)) }
                 return .success(["summary": .string(report.summary), "details": .string(report.details)])
             }
             context.services.registry.track(result: task)
         }
+    }
+
+    /// The Cloud diagnostics: a one-line summary for a person, and the
+    /// account, backend and per-machine link state as JSON. No secrets.
+    struct Diagnostics {
+        var summary: String
+        var details: String
+    }
+
+    static func diagnostics(_ context: AppActionContext) async -> Diagnostics {
+        let cloud = context.services.cloud, machines = context.services.machines
+        var rows: [CmuxNextSettings.JSONValue] = []
+        for session in machines.cloud {
+            var row = AppControl.cloudMachineRow(session, machines)
+            row["link_pid"] = .string(await session.link?.pid.map(String.init) ?? (session.appLink == nil ? "none" : "app server"))
+            // The daemon's whole handshake (ghostty commit, capabilities, pid, registry id, generation).
+            row.merge(CloudDiagnosticsReport.daemonDetails(session.daemon.store.connectionState, last: session.daemon.store.identity)) { kept, _ in kept }
+            rows.append(.object(row))
+        }
+        let account = CloudDiagnosticsReport.Account(
+            backend: cloud.configuration.apiBaseURL.absoluteString, backendKind: String(describing: cloud.configuration.backend),
+            signedIn: cloud.isSignedIn, email: cloud.auth.user?.primaryEmail, teamID: cloud.auth.teamID,
+            teamName: cloud.auth.teams.first { $0.id == cloud.auth.teamID }?.displayName,
+            unavailable: cloud.unavailableReason, lastError: cloud.lastError)
+        return Diagnostics(summary: diagnosticsSummary(context, account), details: CloudDiagnosticsReport.details(account, machines: rows))
+    }
+
+    /// The first thing that needs the person, else that all is well.
+    private static func diagnosticsSummary(_ context: AppActionContext, _ account: CloudDiagnosticsReport.Account) -> String {
+        let cloud = context.services.cloud, machines = context.services.machines
+        if let reason = cloud.unavailableReason { return reason }
+        guard cloud.isSignedIn else { return CloudStrings.signInFirst }
+        for session in machines.cloud {
+            if let failure = session.stage.failure { return "\(session.machine.title): \(failure)" }
+            if let compat = machines.compatibility(of: session.daemon), compat.level != .current {
+                return "\(session.machine.title): \(CloudStrings.compatibility(compat))"
+            }
+        }
+        return CloudStrings.diagnosticsAllWell(CloudDiagnosticsReport.accountLabel(account))
     }
 }
