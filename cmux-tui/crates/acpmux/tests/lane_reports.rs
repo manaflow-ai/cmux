@@ -23,12 +23,26 @@ const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 const PR: &str = "https://github.com/manaflow-ai/cmux/pull/23880";
 const SHA: &str = "0a558b6332eb640fc859718cfcd55d28d63d3360";
 
+fn flaky_mark() -> String {
+    std::env::temp_dir()
+        .join(format!("lane-report-flaky-{}", std::process::id()))
+        .display()
+        .to_string()
+}
+
 fn hub() -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "fake": {"argv": ["python3", FAKE]},
             // Steers as Claude Code does: a prompt during a turn is read into it.
             "steer": {"argv": ["python3", FAKE], "env": {"FAKE_CLAUDE_STEER": "1"}},
+            // A turn on a lane report runs until it is cancelled.
+            "slow": {"argv": ["python3", FAKE], "env": {"FAKE_UNTIL_CANCEL_IN": "lane report:"}},
+            "steer-slow": {"argv": ["python3", FAKE],
+                           "env": {"FAKE_CLAUDE_STEER": "1", "FAKE_UNTIL_CANCEL_IN": "lane report:"}},
+            // Starts no more once the file `FLAKY_MARK` names exists.
+            "flaky": {"argv": ["sh", "-c", "[ -e \"$FLAKY_MARK\" ] && exit 1; exec python3 \"$0\"", FAKE],
+                      "env": {"FLAKY_MARK": flaky_mark()}},
         },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
@@ -135,6 +149,19 @@ impl Client {
                 }
             })
             .collect()
+    }
+
+    /// Waits until session `id` has at least `n` reports.
+    async fn until(&mut self, id: &str, n: usize) -> Vec<Value> {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            let got = self.reports(id).await;
+            if got.len() >= n {
+                return got;
+            }
+            assert!(Instant::now() < deadline, "{} of {n} reports in 20 s: {got:#?}", got.len());
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     }
 
     /// Waits until session `id` has `n` reports, then a moment more to see no other comes.
@@ -311,4 +338,134 @@ async fn lane_report_a_report_the_pair_guard_holds_goes_in_once_on_resume_as_the
     hub.agent_pair_resume(&coord, None);
     let got = person.exactly(&coord, 1).await;
     assert_eq!(got[0]["_meta"]["provenance"]["from"], json!(lane), "{got:#?}");
+}
+
+#[tokio::test]
+async fn lane_report_a_lane_whose_tag_is_changed_still_reports_to_the_session_that_started_it() {
+    let hub = hub();
+    let mut person = Client::new(&hub);
+    let coord = person.new_session("coord", json!({})).await;
+    let other = person.new_session("other", json!({})).await;
+    let lane = Client::as_session(&hub, &coord).await.new_session("lane-t", json!({})).await;
+    // Any local client can set or remove a tag: the tag shows the link, it does not make it.
+    person.ok("_acpmux/tag", json!({"sessionId": lane, "remove": ["lane.reportsTo"]})).await;
+    Client::as_session(&hub, &coord).await.prompt(&lane, "first").await;
+    person.exactly(&coord, 1).await;
+    person.ok("_acpmux/tag", json!({"sessionId": lane, "set": {"lane.reportsTo": other}})).await;
+    Client::as_session(&hub, &coord).await.prompt(&lane, "second").await;
+    person.exactly(&coord, 2).await;
+    assert!(person.reports(&other).await.is_empty());
+}
+
+#[tokio::test]
+async fn lane_report_a_turn_whose_agent_cannot_start_reports_the_lane_blocked() {
+    let hub = hub();
+    let mark = flaky_mark();
+    let _ = std::fs::remove_file(&mark);
+    let mut person = Client::new(&hub);
+    let coord = person.new_session("coord", json!({})).await;
+    let lane = Client::as_session(&hub, &coord)
+        .await
+        .new_session("lane-x", json!({"harness": "flaky"}))
+        .await;
+    // The agent answers, then exits; it cannot start again.
+    Client::as_session(&hub, &coord).await.prompt(&lane, "answer-then-exit").await;
+    person.exactly(&coord, 1).await;
+    std::fs::write(&mark, "").unwrap();
+    Client::as_session(&hub, &coord)
+        .await
+        .send(
+            "session/prompt",
+            json!({"sessionId": lane, "prompt": [{"type": "text", "text": "next task"}]}),
+        )
+        .await;
+    let got = person.exactly(&coord, 2).await;
+    let _ = std::fs::remove_file(&mark);
+    assert!(text(&got[1]).starts_with("[lane-x] lane report: turn 2 ended, blocked"), "{}", got[1]);
+}
+
+#[tokio::test]
+async fn lane_report_a_coordinators_report_turn_with_a_task_queued_behind_it_reports_nothing_upward()
+ {
+    let hub = hub();
+    let mut person = Client::new(&hub);
+    let top = person.new_session("top", json!({})).await;
+    let coord =
+        Client::as_session(&hub, &top).await.new_session("coord", json!({"harness": "slow"})).await;
+    let lane = Client::as_session(&hub, &coord).await.new_session("lane-q", json!({})).await;
+
+    // The coordinator's turn on the report runs; the person's task waits behind it and starts the
+    // moment that turn ends.
+    Client::as_session(&hub, &coord).await.prompt(&lane, "lane task").await;
+    person.until(&coord, 1).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    person
+        .send(
+            "session/prompt",
+            json!({"sessionId": coord, "prompt": [{"type": "text", "text": "person task"}]}),
+        )
+        .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    person.ok("session/cancel", json!({"sessionId": coord})).await;
+
+    // Top hears the person's task (turn 2), never the turn on the report.
+    let got = person.exactly(&top, 1).await;
+    assert_eq!(got[0]["_meta"]["provenance"]["turn"], 2, "{got:#?}");
+}
+
+#[tokio::test]
+async fn lane_report_a_task_steered_into_a_report_turn_is_reported_upward() {
+    let hub = hub();
+    let mut person = Client::new(&hub);
+    let top = person.new_session("top", json!({})).await;
+    let coord = Client::as_session(&hub, &top)
+        .await
+        .new_session("coord", json!({"harness": "steer-slow"}))
+        .await;
+    let lane = Client::as_session(&hub, &coord).await.new_session("lane-v", json!({})).await;
+
+    Client::as_session(&hub, &coord).await.prompt(&lane, "lane task").await;
+    person.until(&coord, 1).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    // The person's task joins the turn on the report: that turn did real work now.
+    person
+        .ok(
+            "session/prompt",
+            json!({"sessionId": coord, "prompt": [{"type": "text", "text": "person task"}],
+                   "_meta": {"acpmux": {"steer": true}}}),
+        )
+        .await;
+    person.ok("session/cancel", json!({"sessionId": coord})).await;
+    let got = person.exactly(&top, 1).await;
+    assert_eq!(got[0]["_meta"]["provenance"]["turn"], 1, "{got:#?}");
+}
+
+#[tokio::test]
+async fn lane_report_turns_back_to_back_report_each_turn_at_most_once_and_twenty_in_ten_minutes() {
+    let hub = hub();
+    // The runaway pair guard would pause this pair first: the cap alone is tested here.
+    hub.set_agent_pair_guard(acpmux::hub::PairGuard { enabled: false, ..Default::default() });
+    let mut person = Client::new(&hub);
+    let coord = person.new_session("coord", json!({})).await;
+    let lane = Client::as_session(&hub, &coord).await.new_session("lane-c", json!({})).await;
+    let mut from_coord = Client::as_session(&hub, &coord).await;
+    for i in 1..=22 {
+        from_coord.prompt(&lane, &format!("task {i}")).await;
+    }
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let got = person.reports(&coord).await;
+    let mut turns: Vec<u64> =
+        got.iter().map(|r| r["_meta"]["provenance"]["turn"].as_u64().unwrap()).collect();
+    let n = turns.len();
+    turns.dedup();
+    assert_eq!(turns.len(), n, "a turn reported twice: {got:#?}");
+    assert!(n <= 20, "{n} reports in a few seconds: {got:#?}");
+    // Waiting on each report in turn reaches the cap: no 21st.
+    let more = 21 - n.min(21);
+    for i in 0..more {
+        from_coord.prompt(&lane, &format!("more {i}")).await;
+        person.until(&coord, (n + i + 1).min(20)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    assert_eq!(person.reports(&coord).await.len(), 20);
 }
