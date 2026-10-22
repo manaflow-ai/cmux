@@ -55,8 +55,21 @@ struct AcpmuxFeedBridgeQuestionTests {
         #expect(!title.hasPrefix("Allow"))
         #expect(title.contains("Claude Code"))
         #expect(title.contains("Which database should I use?"))
-        // It still opens the chat that asks.
+        // It still opens the chat that asks, and reaches the phone as fast as a permission did.
         #expect((params["context"] as? [String: Any])?["acp_session"] as? String == "sess-1")
+        #expect(params["priority"] as? String == "high")
+        #expect(params["expires_in_ms"] as? Int == 86_400_000)
+    }
+
+    @Test func aQuestionWithNoTextStillReadsAsAQuestion() throws {
+        var request = Self.question
+        var call = try #require(request["toolCall"] as? [String: Any])
+        call["title"] = ""
+        call["rawInput"] = [:] as [String: Any]
+        call["_meta"] = ["acpmux": ["question": ["agent": "Codex", "items": [[String: Any]]()]]] as [String: Any]
+        request["toolCall"] = call
+        let title = try #require(try Self.params(request)["title"] as? String)
+        #expect(title == "Codex asks a question")
     }
 
     @Test func anAskUserQuestionWithoutTheNormalizedQuestionIsStillAQuestion() throws {
