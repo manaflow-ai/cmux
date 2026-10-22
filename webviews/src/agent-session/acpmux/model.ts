@@ -1,3 +1,4 @@
+import type { ChatUnavailable } from "./chatUnavailable";
 import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
@@ -450,6 +451,10 @@ export type QueueEdit =
   /** Runs a queue a failed turn paused; any of its prompts names it. */
   | { op: "resume" };
 
+/** Why a tab's chat is missing: the daemon's list lacked it when the pane opened
+ * (`notListedAtOpen`), or it left the list while the pane showed it (`leftListWhileShown`). */
+export type MissingSessionReason = "notListedAtOpen" | "leftListWhileShown";
+
 export type AcpmuxSnapshot = {
   type: "snapshot";
   protocolVersion: number;
@@ -607,6 +612,11 @@ export type AcpmuxSnapshot = {
   /** A `cmux://session/<id>` link named this session and the daemon has none: the pane says so
    * instead of showing another chat. Unset once a session is selected. */
   missingSession?: string;
+  /** Why `missingSession` is not here: deleted, or on a machine that is not connected (or still
+   * connecting, which the pane shows as loading). chatUnavailable.ts. */
+  unavailable?: ChatUnavailable;
+  /** Why `missingSession` is set (the pane reports each one to the app's log, `chat.missing`). */
+  missingReason?: MissingSessionReason;
   /** The outside chat this pane adopts is still open in another process (acpmux refused with
    * `adopt.live`): the pane offers Open Anyway, and Fork It when the harness can fork. `command`
    * is the process that holds it, when acpmux found one. Unset once a choice is sent. */

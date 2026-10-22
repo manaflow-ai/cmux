@@ -17,7 +17,7 @@
    "cmux-mux2": 42,
    "cmux-remote": 57,
    "cmux-tui": 76,
-   "cmux-tui-core": 283,
+   "cmux-tui-core": 191,
    "cmux-tui-hooks": 3,
    "cmux-tui-platform": 1,
    "cmux-wg": 15
@@ -27,14 +27,14 @@
    "chatmux-relay": 1,
    "cmux-remote": 11,
    "cmux-tui": 33,
-   "cmux-tui-core": 36
+   "cmux-tui-core": 26
   },
   "unwrap": {
    "acpmux": 179,
    "chatmux-relay": 7,
    "cmux-remote": 25,
    "cmux-tui": 435,
-   "cmux-tui-core": 1584
+   "cmux-tui-core": 1162
   }
  },
  "swift": {
