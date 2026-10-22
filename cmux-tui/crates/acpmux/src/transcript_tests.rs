@@ -388,3 +388,29 @@ fn a_subagents_words_never_join_the_chats_reply() {
         .collect();
     assert_eq!(said, ["The hook is fixed."]);
 }
+
+/// The same from recorded events (`acpmux last`, a resent prompt's reply, TUI history).
+#[test]
+fn a_subagents_recorded_words_never_join_the_chats_reply() {
+    let mut t = Transcript::default();
+    let record = |seq: u64, text: &str, subagent: Option<&str>| {
+        let mut params = json!({"sessionId": SID, "update": {
+            "sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}});
+        if let Some(s) = subagent {
+            params["_meta"] = json!({"acpmux": {"subagent": s}});
+        }
+        json!({"seq": seq, "at": 1_000 + seq, "dir": "in", "kind": "agent_message_chunk",
+               "msg": {"method": "session/update", "params": params}})
+    };
+    t.apply_event(&record(1, "Checking the merge hook.", Some("s1/toolu_1")));
+    t.apply_event(&record(2, "The hook is fixed.", None));
+    let said: Vec<&str> = t
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            Item::Assistant { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(said, ["The hook is fixed."]);
+}

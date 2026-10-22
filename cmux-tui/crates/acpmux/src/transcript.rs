@@ -510,6 +510,8 @@ impl Transcript {
             }
             if msg.get("method").and_then(Value::as_str) == Some("session/update")
                 && let Some(update) = msg.pointer("/params/update")
+                && !(msg.get("params").is_some_and(crate::subagents::is_subagents)
+                    && is_words(update))
             {
                 self.apply_session_update(update);
             }
