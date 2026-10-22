@@ -48,6 +48,9 @@ struct SidebarSlideHoldsContentTests {
         root.show(content)
         root.needsLayout = true
         root.layoutSubtreeIfNeeded()
+        // At rest the content fills the card; autoresizing from the card's first (zero) size can
+        // leave it a fraction off, which is not what these tests measure.
+        content.frame = root.contentHost.bounds
         return (window, root, content)
     }
 
@@ -146,6 +149,7 @@ struct SidebarSlideHoldsContentTests {
             let content = DeferredLayoutContent()
             root.show(content)
             root.layoutSubtreeIfNeeded()
+            content.frame = root.contentHost.bounds
             let sidebar = root.sidebar.frame.width
             root.sidebar.isWidthAnimating = true
             root.sidebar.onWidthMotionStart?(sidebar, 0)
