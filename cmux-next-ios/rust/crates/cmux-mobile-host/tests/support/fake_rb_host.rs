@@ -121,6 +121,7 @@ async fn session(mut stream: TcpStream, secret: &str, mut url: String) -> String
     let mut pending = engine.start(now());
     let mut interval = tokio::time::interval(Duration::from_millis(33));
     let mut painted = 0u32;
+    let mut history: Vec<String> = Vec::new();
     loop {
         let mut out = Vec::new();
         if let Some(req) = pending.take() {
@@ -159,8 +160,20 @@ async fn session(mut stream: TcpStream, secret: &str, mut url: String) -> String
                         } else if let Ok(Control::Service { body, .. }) = serde_json::from_slice::<Control>(&payload) {
                             match body["t"].as_str() {
                                 Some("rb.navigate") => {
-                                    url = body["url"].as_str().unwrap_or_default().to_owned();
+                                    history.push(std::mem::replace(&mut url, body["url"].as_str().unwrap_or_default().to_owned()));
                                     out.extend(page(&url));
+                                }
+                                // A link the page follows by itself (a click inside it).
+                                Some("rb.find") if body["query"].as_str().is_some_and(|q| q.starts_with("goto:")) => {
+                                    let to = body["query"].as_str().unwrap_or_default()["goto:".len()..].to_owned();
+                                    history.push(std::mem::replace(&mut url, to));
+                                    out.extend(page(&url));
+                                }
+                                Some("rb.history") if body["op"] == "back" => {
+                                    if let Some(previous) = history.pop() {
+                                        url = previous;
+                                        out.extend(page(&url));
+                                    }
                                 }
                                 Some("rb.screen") | Some("rb.open") => {
                                     let screen = &body["screen"];

@@ -38,6 +38,7 @@ import { usePopupHost } from "../../ui/UiProvider";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { isMousePress } from "../../ui/pressRelease";
 import { focusAfterEscape } from "../../ui/escapeFocus";
+import { type ModeIconName, RECOMMENDED_BADGE, type ShownMode, harnessModeMenu, shownModes } from "./harnessModes";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
@@ -105,6 +106,9 @@ export type Choice = {
   /// The level the model recommends (its catalog default): the effort slider marks it.
   recommended?: boolean;
 };
+
+/// A permission mode row: a choice with the harness's own badge and icon (harnessModes.ts).
+type ModeChoice = Omit<Choice, "icon"> & Pick<ShownMode, "recommended" | "icon">;
 
 /// Runs `run` after `ms` unless the returned cancel runs first.
 export type SettleTimer = (run: () => void, ms: number) => () => void;
@@ -235,12 +239,24 @@ export function ComposerPickers({
   // An agent's own default remains an internal sentinel. The picker omits it
   // instead of exposing a separate "Default" row.
   const models: Choice[] = sessionModels(snapshot.catalog, summary);
-  const allModes: Choice[] = (summary?.modes?.availableModes ?? []).map((mode) => ({
-    id: mode.id,
-    name: mode.name || mode.id,
-    description: mode.description,
-  }));
-  const plan = allModes.find((choice) => isPlan(choice.id));
+  // The harness's own mode menu (harnessModes.ts): Claude Code's and Codex's labels, descriptions
+  // and order for the ids they report; any other harness's modes as it reports them.
+  const modeMenu = harnessModeMenu(
+    summary?.family,
+    summary?.harness,
+    (summary?.modes?.availableModes ?? []).map((mode) => mode.id),
+  );
+  const allModes: ModeChoice[] = shownModes(
+    modeMenu,
+    (summary?.modes?.availableModes ?? []).map((mode) => ({
+      id: mode.id,
+      name: mode.name || mode.id,
+      ...(mode.description ? { description: mode.description } : {}),
+    })),
+    summary?.modes?.currentModeId,
+  );
+  // Plan is its own toggle, unless the harness's own menu lists it as a mode (Claude Code's does).
+  const plan = modeMenu?.rows.some((row) => isPlan(row.id)) ? undefined : allModes.find((choice) => isPlan(choice.id));
   const modes = allModes.filter((choice) => choice !== plan);
   const hasGrants = (permissionAccess?.grants.length ?? 0) > 0;
   const currentId = summary?.modes?.currentModeId;
@@ -587,10 +603,18 @@ export function ComposerPickers({
   const startMode = useStartMode(chipHarness, folder ?? summary?.cwd, awaiting && local && modes.length === 0);
   // Another folder's answer (acpmux has not answered for this one yet) only holds the chip's
   // place: this folder's profile or preset may start the chat in another mode, so it names none.
+  // The harness's own menu names the start mode as it names the mode once the chat reports it.
+  const pendingMenu =
+    modeMenu ??
+    harnessModeMenu(undefined, chipHarness, [
+      ...(harnessProfiles.get(chipHarness)?.modes?.availableModes ?? []).map((choice) => choice.id),
+      ...(startMode && !startMode.borrowed ? [startMode.modeId] : []),
+    ]);
   const startModeName = startMode?.borrowed
     ? t(PICKER_LABELS.mode)
     : startMode
-      ? (startMode.name ??
+      ? (pendingMenu?.rows.find((row) => row.id === startMode.modeId)?.name ??
+        startMode.name ??
         harnessProfiles.get(chipHarness)?.modes?.availableModes.find((choice) => choice.id === startMode.modeId)
           ?.name ??
         startMode.modeId)
@@ -599,15 +623,19 @@ export function ComposerPickers({
   // chip) where a pick is held (`holdsModePick`): the harness's last mode catalog for the rows,
   // checked at the start mode, never at the mode its last chat showed, and named as acpmux named
   // it. A start in Plan keeps the inert chip: Plan is never an access row.
-  const pendingAccessModes: Choice[] = (() => {
+  const pendingAccessModes: ModeChoice[] = (() => {
     if (!holdsModePick || !startMode || startMode.borrowed || isPlan(startMode.modeId)) return [];
-    const known = (harnessProfiles.get(chipHarness)?.modes?.availableModes ?? [])
-      .filter((choice) => !isPlan(choice.id))
-      .map((choice) => ({
-        id: choice.id,
-        name: (choice.id === startMode.modeId ? startMode.name : undefined) || choice.name || choice.id,
-        description: choice.description,
-      }));
+    const known = shownModes(
+      pendingMenu,
+      (harnessProfiles.get(chipHarness)?.modes?.availableModes ?? [])
+        .filter((choice) => !isPlan(choice.id))
+        .map((choice) => ({
+          id: choice.id,
+          name: (choice.id === startMode.modeId ? startMode.name : undefined) || choice.name || choice.id,
+          ...(choice.description ? { description: choice.description } : {}),
+        })),
+      startMode.modeId,
+    );
     if (known.some((choice) => choice.id === startMode.modeId)) return known;
     const description = unrestricted(startMode.modeId) ? t(PICKER_LABELS.fullAccessWarning) : undefined;
     return [{ id: startMode.modeId, name: startModeName ?? startMode.modeId, description }, ...known];
@@ -744,7 +772,11 @@ export function ComposerPickers({
         )
       )}
       {modes.length === 0 && !hasGrants && startMode && startModeName && pendingAccessModes.length === 0 && (
-        <PendingMode label={startModeName} modeId={startMode.borrowed ? undefined : startMode.modeId} />
+        <PendingMode
+          label={startModeName}
+          modeId={startMode.borrowed ? undefined : startMode.modeId}
+          icon={startMode.borrowed ? undefined : pendingMenu?.rows.find((row) => row.id === startMode.modeId)?.icon}
+        />
       )}
       {/* Granted folder trust and chat allowance stay revocable when the harness offers no modes. */}
       {(modes.length > 0 || hasGrants || pendingAccessModes.length > 0) && (
@@ -758,6 +790,9 @@ export function ComposerPickers({
           refusedReason={t(PICKER_LABELS.modeRefused)}
           permissionAccess={permissionAccess}
           onMode={onMode}
+          {...(pendingMenu
+            ? { heading: t(pendingMenu.heading ?? PICKER_LABELS.mode), numbered: pendingMenu.numbered }
+            : {})}
         />
       )}
       {showPlan && plan && (
@@ -801,12 +836,12 @@ export function ComposerPickers({
 /// The mode a chat will start in, before it reports its modes: the access chip's face (AccessMenu),
 /// inert until the session's own replaces it in place. `modeId` is read from storage: only a
 /// string names a mode that may skip approvals.
-function PendingMode({ label, modeId }: { label: string; modeId?: unknown }) {
+function PendingMode({ label, modeId, icon }: { label: string; modeId?: unknown; icon?: ModeIconName }) {
   const warning = typeof modeId === "string" && unrestricted(modeId) ? " acpmux-unrestricted" : "";
   return (
     <span className={`acpmux-mode acpmux-access acpmux-chip-pending${warning}`} aria-hidden="true">
       <span className="acpmux-picker-button acpmux-access-trigger">
-        <ModeShield modeId={modeId} />
+        <ModeIcon modeId={modeId} icon={icon} />
         <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">
           {label}
         </span>
@@ -841,9 +876,11 @@ function AccessMenu({
   refusedReason,
   permissionAccess,
   onMode,
+  heading,
+  numbered = true,
 }: {
   label: string;
-  modes: Choice[];
+  modes: ModeChoice[];
   current?: string;
   sessionId?: string;
   warning: string;
@@ -851,6 +888,10 @@ function AccessMenu({
   refusedReason: string;
   permissionAccess?: ComposerPermissionAccess;
   onMode(modeId: string): void | Promise<unknown>;
+  /// The menu's heading, as the harness's own menu titles it ("Mode", "How should actions be approved?").
+  heading?: string;
+  /// Rows show their number keys, as Claude Code's mode menu does (the keys pick either way).
+  numbered?: boolean;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -887,6 +928,9 @@ function AccessMenu({
     });
   };
   const tooltip = `${label}: ${currentMode?.name ?? label}\n${help}`;
+  // A numbered menu (Claude Code's) draws no icon column, as Claude Code's mode menu does; the
+  // button keeps the mode's symbol.
+  const iconless = numbered && heading !== undefined;
   // Nothing left to pick (every other mode refused, no grants): a plain label, never a dead menu.
   if (
     refusedIds.length > 0 &&
@@ -901,7 +945,7 @@ function AccessMenu({
         /* tooltip-allow: the chip is its shield alone; the tooltip says what it is and why it is fixed */
         title={`${tooltip}\n${refusedReason}`}
       >
-        <ModeShield modeId={value} />
+        <ModeIcon modeId={value} icon={currentMode?.icon} />
         <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">
           {currentMode?.name ?? label}
         </span>
@@ -923,7 +967,7 @@ function AccessMenu({
           title={tooltip}
           aria-haspopup="menu"
         >
-          {modes.length > 0 ? <ModeShield modeId={value} /> : <LockIcon />}
+          {modes.length > 0 ? <ModeIcon modeId={value} icon={currentMode?.icon} /> : <LockIcon />}
           <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">
             {currentMode?.name ?? (modes.length === 0 ? grants[0]?.label : undefined) ?? label}
           </span>
@@ -943,6 +987,11 @@ function AccessMenu({
             else pick(choice.id);
           }}
         >
+          {heading && modes.length > 0 && (
+            <div className="acpmux-access-heading" aria-hidden="true">
+              {heading}
+            </div>
+          )}
           {modes.length > 0 && (
             <MenuRadioGroup value={value} onValueChange={pick}>
               {modes.map((choice, index) => (
@@ -950,14 +999,24 @@ function AccessMenu({
                   key={choice.id}
                   value={choice.id}
                   disabled={refusedIds.includes(choice.id)}
-                  shortcut={index < 9 ? String(index + 1) : undefined}
-                  className={`acpmux-access-item${unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
+                  shortcut={numbered && index < 9 ? String(index + 1) : undefined}
+                  className={`acpmux-access-item${unrestricted(choice.id) ? " acpmux-unrestricted" : ""}${iconless ? " acpmux-access-item-iconless" : ""}`}
                 >
-                  <span className="acpmux-access-item-icon" aria-hidden="true">
-                    {choice.icon ?? <ModeShield modeId={choice.id} />}
-                  </span>
+                  {!iconless && (
+                    <span className="acpmux-access-item-icon" aria-hidden="true">
+                      <ModeIcon modeId={choice.id} icon={choice.icon} />
+                    </span>
+                  )}
                   <span className="acpmux-menu-text">
-                    <span className="acpmux-menu-label">{choice.name}</span>
+                    {choice.recommended ? (
+                      // The name and Claude Code's Recommended badge on one line.
+                      <span className="acpmux-access-title">
+                        <span className="acpmux-menu-label">{choice.name}</span>
+                        <span className="acpmux-menu-badge">{t(RECOMMENDED_BADGE)}</span>
+                      </span>
+                    ) : (
+                      <span className="acpmux-menu-label">{choice.name}</span>
+                    )}
                     {refusedIds.includes(choice.id) ? (
                       <span className="acpmux-menu-description">{refusedReason}</span>
                     ) : choice.description || unrestricted(choice.id) ? (
@@ -1408,11 +1467,22 @@ export function Picker({
 }
 
 // Composer icons (a 16px grid drawn at 18px, stroke in currentColor).
-function Icon({ children, size = 18, shield }: { children: React.ReactNode; size?: number; shield?: string }) {
+function Icon({
+  children,
+  size = 18,
+  shield,
+  modeIcon,
+}: {
+  children: React.ReactNode;
+  size?: number;
+  shield?: string;
+  modeIcon?: ModeIconName;
+}) {
   return (
     <svg
       className="acpmux-icon"
       data-shield={shield}
+      data-mode-icon={modeIcon}
       width={size}
       height={size}
       viewBox="0 0 16 16"
@@ -1430,8 +1500,8 @@ function Icon({ children, size = 18, shield }: { children: React.ReactNode; size
 }
 const SHIELD = "M8 1.9 13 3.7v4.1c0 3.1-2.3 5.3-5 6.3-2.7-1-5-3.2-5-6.3V3.7Z";
 /** Full access: the shield with an exclamation mark, drawn in the warning color by its row. */
-export const ShieldIcon = ({ shield }: { shield?: string }) => (
-  <Icon shield={shield}>
+export const ShieldIcon = ({ shield, modeIcon }: { shield?: string; modeIcon?: ModeIconName }) => (
+  <Icon shield={shield} modeIcon={modeIcon}>
     <path d={SHIELD} />
     <path d="M8 5.2v3.3" />
     <circle cx="8" cy="10.9" r=".35" fill="currentColor" />
@@ -1478,6 +1548,27 @@ function ModeShield({ modeId }: { modeId?: unknown }) {
     <ShieldPlainIcon shield={kind} />
   );
 }
+/** Codex's approval icons (its own menu's): a raised hand for Ask for approval, a terminal prompt in
+ * a shield for Approve for me, the shield with "!" for Full access. */
+const HandIcon = () => (
+  <Icon modeIcon="hand">
+    <path d="M5.5 8.6V4.4a.9.9 0 0 1 1.8 0V8M7.3 7.6V3.3a.9.9 0 0 1 1.8 0v4.3M9.1 7.7V4a.9.9 0 0 1 1.8 0v4.6" />
+    <path d="M10.9 7.4a.9.9 0 0 1 1.8 0v1.9a4.6 4.6 0 0 1-4.6 4.6h-.3a4 4 0 0 1-3-1.4L3.3 10.8a.9.9 0 0 1 1.3-1.2l.9.9" />
+  </Icon>
+);
+const TerminalShieldIcon = () => (
+  <Icon modeIcon="terminal-shield">
+    <path d={SHIELD} />
+    <path d="m5.8 6.4 1.6 1.4-1.6 1.4M8.4 9.6h2" />
+  </Icon>
+);
+/** A mode's symbol: the harness's own icon for it when its menu draws one, else the shield family. */
+function ModeIcon({ modeId, icon }: { modeId?: unknown; icon?: ModeIconName }) {
+  if (icon === "hand") return <HandIcon />;
+  if (icon === "terminal-shield") return <TerminalShieldIcon />;
+  if (icon === "shield-alert") return <ShieldIcon shield="alert" modeIcon="shield-alert" />;
+  return <ModeShield modeId={modeId} />;
+}
 export const ChevronIcon = () => (
   <Icon size={14}>
     <path d="M4.6 6.3 8 9.6l3.4-3.3" />
@@ -1505,22 +1596,23 @@ export const PlusIcon = () => (
     <path d="M8 2.75v10.5M2.75 8h10.5" />
   </Icon>
 );
-/** Send's arrow: iMessage's bold arrow.up, a heavier stroke than the bar's other glyphs. */
+/** Send's arrow: a plain outline glyph with the mic's stroke (Leo 2026-10-21: no disc). */
 export const ArrowUpIcon = () => (
   <Icon>
-    <path d="M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1" strokeWidth={2.1} />
+    <path d="M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1" />
   </Icon>
 );
 /** Steer's return glyph (↵): a prompt typed during a turn goes in now, as Codex and Claude draw it. */
 export const ReturnIcon = () => (
   <Icon>
-    <path d="M12.6 3.6v4.1a1.8 1.8 0 0 1-1.8 1.8H3.6M6.6 6.4 3.4 9.5l3.2 3.1" strokeWidth={1.9} />
+    <path d="M12.6 3.6v4.1a1.8 1.8 0 0 1-1.8 1.8H3.6M6.6 6.4 3.4 9.5l3.2 3.1" />
   </Icon>
 );
+/** Stop: a plain outline square with the mic's stroke, Claude Code desktop's, never a disc. */
 export const StopIcon = () => (
-  <svg className="acpmux-icon" width={18} height={18} viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-    <rect x="3" y="3" width="10" height="10" rx="2" fill="currentColor" />
-  </svg>
+  <Icon>
+    <rect x="3.5" y="3.5" width="9" height="9" rx="1.5" />
+  </Icon>
 );
 export const PlanIcon = () => (
   <Icon>

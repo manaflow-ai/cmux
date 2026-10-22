@@ -1,10 +1,10 @@
 // l10n-allow-file: test fixture prompts, replies and mode names, not shipped UI.
 // A new chat's mode chip names the mode acpmux will start it in (cx-wx93i), as acpmux answers it
 // (`_acpmux/start_mode`), never the pane's own guess. A mode picked in a chat holds for that chat
-// only (hub/start_mode.rs; Leo 2026-10-21), so after Normal is picked in one pane, a new chat in
-// another pane that has not started yet still shows the default, Full access; a change to the
-// default (Settings) reaches it. When acpmux would set no mode (a profile that pins it, a preset's
-// chat) the chip names none. Two pages of one browser are two panes sharing the viewer's storage, each talking
+// only (hub/start_mode.rs; Leo 2026-10-21), so after Manual is picked in one pane, a new chat in
+// another pane that has not started yet still shows the default, Bypass permissions; a change to
+// the default (Settings) reaches it. When acpmux would set no mode (a profile that pins it, a
+// preset's chat) the chip names none. Two pages of one browser are two panes sharing the viewer's storage, each talking
 // JSON-RPC to a stand-in acpmux daemon.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -31,10 +31,10 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
   const modes = (current: string) => ({
     currentModeId: current,
     availableModes: [
-      { id: "default", name: "Normal", description: "Ask before edits and commands" },
+      { id: "default", name: "Manual", description: "Always ask before making changes" },
       { id: "acceptEdits", name: "Accept edits", description: "Edit files without asking" },
-      { id: "plan", name: "Plan mode", description: "Read and plan, no edits" },
-      { id: "bypassPermissions", name: "Full access", description: "Never ask" },
+      { id: "plan", name: "Plan", description: "Create a plan before making changes" },
+      { id: "bypassPermissions", name: "Bypass permissions", description: "Accepts all permissions" },
     ],
   });
   // Two chats acpmux started in full access, one in each pane.
@@ -245,7 +245,7 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
     return before;
   }
 
-  /// Picks Normal in a pane on PICKED, then starts a new chat in a pane on OTHER that acpmux has not
+  /// Picks Manual in a pane on PICKED, then starts a new chat in a pane on OTHER that acpmux has not
   /// started yet (session/new is held), and returns that pane on the new chat.
   async function newChatAfterPick() {
     const context = await browser!.newContext({ viewport: { width: 900, height: 760 } });
@@ -253,17 +253,20 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
     const other = await pane(context);
     await other.goto(url(OTHER));
     await other.getByText("Docs updated.").waitFor();
-    await other.waitForFunction((selector) => document.querySelector(selector)?.textContent === "Full access", CHIP);
-    // In another pane the person picks Normal.
+    await other.waitForFunction(
+      (selector) => document.querySelector(selector)?.textContent === "Bypass permissions",
+      CHIP,
+    );
+    // In another pane the person picks Manual.
     const picked = await pane(context);
     await picked.goto(url(PICKED));
     await picked.getByText("Retry added.").waitFor();
     await picked.locator(".acpmux-access-trigger").click();
-    await picked.locator(".acpmux-access-menu .acpmux-access-item", { hasText: "Normal" }).click();
+    await picked.locator(".acpmux-access-menu .acpmux-access-item", { hasText: "Manual" }).click();
     expect(calls.filter((call) => call.method === "session/set_mode").map((call) => call.params.modeId)).toEqual([
       "default",
     ]);
-    await picked.waitForFunction((selector) => document.querySelector(selector)?.textContent === "Normal", CHIP);
+    await picked.waitForFunction((selector) => document.querySelector(selector)?.textContent === "Manual", CHIP);
     // A new chat in the first pane.
     const asks = await startNewChat(other);
     await called("session/new");
@@ -296,8 +299,8 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
   test("a new chat shows the default, not a mode picked in another chat", async () => {
     reset(false);
     const { context, other, asks } = await newChatAfterPick();
-    // acpmux answers the start mode: the default, Full access.
-    expect(await settledChip(other, asks)).toBe("Full access");
+    // acpmux answers the start mode: the default, Bypass permissions.
+    expect(await settledChip(other, asks)).toBe("Bypass permissions");
     expect(calls.some((call) => call.method === "_acpmux/start_mode" && call.params.harness === "claude")).toBe(true);
     await context.close();
   });
@@ -318,28 +321,28 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
     await other.getByText("Docs updated.").waitFor();
     const asks = await startNewChat(other);
     await other.getByText("Docs updated.").waitFor({ state: "detached" });
-    expect(await settledChip(other, asks)).toBe("Full access");
+    expect(await settledChip(other, asks)).toBe("Bypass permissions");
     // A sessionless pending chat still exposes the harness-specific full-access mode as a real
     // menu, rather than a disabled placeholder. The same path works for Claude and Codex mode ids.
     const pendingAccess = other.locator(".acpmux-access-trigger");
     expect(await pendingAccess.isEnabled()).toBe(true);
     await pendingAccess.click();
-    await other.locator(".acpmux-access-menu .acpmux-access-item", { hasText: "Full access" }).waitFor();
+    await other.locator(".acpmux-access-menu .acpmux-access-item", { hasText: "Bypass permissions" }).waitFor();
     expect(
       await other
-        .locator(".acpmux-access-menu .acpmux-access-item", { hasText: "Full access" })
+        .locator(".acpmux-access-menu .acpmux-access-item", { hasText: "Bypass permissions" })
         .getAttribute("aria-checked"),
     ).toBe("true");
     await other.keyboard.press("Escape");
-    // Then the person picks Normal in another pane: that chat says Normal, the pending chat still
+    // Then the person picks Manual in another pane: that chat says Manual, the pending chat still
     // names the default.
     const picked = await pane(context);
     await picked.goto(url(PICKED));
     await picked.getByText("Retry added.").waitFor();
     await picked.locator(".acpmux-access-trigger").click();
-    await picked.locator(".acpmux-access-menu .acpmux-access-item", { hasText: "Normal" }).click();
-    await picked.waitForFunction((selector) => document.querySelector(selector)?.textContent === "Normal", CHIP);
-    expect(await settledChip(other, asks)).toBe("Full access");
+    await picked.locator(".acpmux-access-menu .acpmux-access-item", { hasText: "Manual" }).click();
+    await picked.waitForFunction((selector) => document.querySelector(selector)?.textContent === "Manual", CHIP);
+    expect(await settledChip(other, asks)).toBe("Bypass permissions");
     expect(calls.some((call) => call.method === "session/prompt")).toBe(false);
     await context.close();
   });
@@ -352,7 +355,7 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
     await other.getByText("Docs updated.").waitFor();
     const opened = await startNewChat(other);
     await other.getByText("Docs updated.").waitFor({ state: "detached" });
-    expect(await settledChip(other, opened)).toBe("Full access");
+    expect(await settledChip(other, opened)).toBe("Bypass permissions");
     const asks = () => calls.filter((call) => call.method === "_acpmux/start_mode").length;
     const before = asks();
     const sent = await asked(other);
@@ -372,12 +375,12 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
     daemonState.startMode = "default";
     const notice = JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/start_mode_changed", params: {} });
     for (const socket of sockets) socket.send(notice);
-    await other.waitForFunction((selector) => document.querySelector(selector)?.textContent === "Normal", CHIP, {
+    await other.waitForFunction((selector) => document.querySelector(selector)?.textContent === "Manual", CHIP, {
       timeout: 10_000,
     });
     // Once every answer is in, the push is the only ask since the rounds: a re-ask the rounds set
     // off later would have landed by now.
-    expect(await settledChip(other, sent)).toBe("Normal");
+    expect(await settledChip(other, sent)).toBe("Manual");
     expect(await asked(other)).toBe(sent + 1);
     expect(asks()).toBe(before + 1);
     await context.close();
