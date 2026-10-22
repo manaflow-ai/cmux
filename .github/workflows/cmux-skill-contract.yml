@@ -15,6 +15,10 @@ on:
       - "tests/test_cmux_settings_jsonc.py"
       - "tests/test_cmux_settings_transactions.py"
       - ".github/workflows/cmux-skill-contract.yml"
+      - "skills/cmux-bug-triage/**"
+      - "tests/fixtures/bug-triage/**"
+      - "tests/test_cmux_bug_triage.py"
+      - "tests/test_socket_control_schema.py"
   push:
     branches: [main]
     paths:
@@ -30,6 +34,10 @@ on:
       - "tests/test_cmux_settings_jsonc.py"
       - "tests/test_cmux_settings_transactions.py"
       - ".github/workflows/cmux-skill-contract.yml"
+      - "skills/cmux-bug-triage/**"
+      - "tests/fixtures/bug-triage/**"
+      - "tests/test_cmux_bug_triage.py"
+      - "tests/test_socket_control_schema.py"
 
 permissions:
   contents: read
@@ -62,3 +70,12 @@ jobs:
 
       - name: Exercise settings skill path validation
         run: python3 tests/test_cmux_settings_supported_paths.py
+
+      # These two had no registry entry, so no job ran them (tests/test_pr_lane_coverage.py).
+      - name: The published socket control settings in the schema
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_socket_control_schema.py
+
+      - name: The cmux-bug-triage skill script on the tester report fixture
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_cmux_bug_triage.py

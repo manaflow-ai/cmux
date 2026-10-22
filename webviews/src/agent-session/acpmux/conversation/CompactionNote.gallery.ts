@@ -1,13 +1,13 @@
 // l10n-allow-file: gallery fixtures (sample prompts and harness names), not shipped UI.
 // Compaction and failover notes in the transcript (CompactionNote.tsx): a compaction running, one
-// that failed and why, one subrouter ran to move the chat to another account, and acpmux moving the chat to its fallback
-// harness after a usage limit.
+// that failed and why, one subrouter ran to move the chat to another account, acpmux moving the chat to its fallback
+// harness after a usage limit, and a permission policy the chat's harness cannot keep (OpenCode, Pi).
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, row, summary, user } from "../../../gallery/fixtures/acpmux";
 
 export default agentPaneEntry({
   id: "agent-pane.compaction-note",
-  title: "Compaction and failover notes",
+  title: "Compaction, failover and policy notes",
   area: "Agent pane",
   height: 360,
   covers: ["agent-session/acpmux/conversation/CompactionNote.tsx"],
@@ -53,6 +53,30 @@ export default agentPaneEntry({
           error: "You've reached your usage limit (can't switch to codex in a folder you haven't trusted)",
         }),
       ]),
+    },
+    "policy-unenforced": {
+      note: "An OpenCode chat with approve-reads: OpenCode's own settings decide what it asks, so acpmux can't keep the policy.",
+      snapshot: chat(
+        [
+          row("policyUnenforced", 5, { policyUnenforced: { policy: "approve-reads", why: "ownSettings" } }),
+          user("Tidy the README", 4),
+          assistant("Done: the install section now comes first.", 3),
+          summary(3, { status: "completed", durationMs: 9_000, toolCount: 1 }),
+        ],
+        { harness: "opencode" },
+      ),
+    },
+    "policy-no-asking-mode": {
+      note: "A Pi chat locked down to deny-all: Pi has no mode that asks, so acpmux can't keep the policy.",
+      snapshot: chat(
+        [
+          row("policyUnenforced", 5, { policyUnenforced: { policy: "deny-all", why: "noAskingMode" } }),
+          user("Summarize the open issues", 4),
+          assistant("There are three: the flaky upload test, the slow cold start and the missing Thai strings.", 3),
+          summary(3, { status: "completed", durationMs: 6_000, toolCount: 0 }),
+        ],
+        { harness: "pi" },
+      ),
     },
   },
 });

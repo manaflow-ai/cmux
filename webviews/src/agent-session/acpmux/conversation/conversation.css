@@ -55,6 +55,13 @@
   --cv-message-gap: 8px; /* a message (or its meta row) to the next row in its turn */
   --cv-live-gap: 10px; /* over the running turn's live line, inside its row: 16px under a reply */
   --cv-turn-gap: 24px; /* a turn's footer to the next prompt */
+  /* A message's hover row fades as Claude Code desktop's (--cds-message-actions-reveal-*): in after
+     100ms over 120ms, out at once (Claude's 60ms is off the motion scale: its quick 80ms), both on
+     Claude's snap curve. */
+  --cv-actions-in: var(--cmux-motion-micro, 120ms);
+  --cv-actions-in-delay: 100ms;
+  --cv-actions-out: var(--cmux-motion-quick, 80ms);
+  --cv-actions-ease: cubic-bezier(0.32, 0.72, 0, 1);
 }
 /* A wider column on a wide pane (Debug Settings agent.chatWidth, chatWidth.ts, cx-ncc.107): `wide` caps
    everything at 960px; `wideBlocks` gives code, diffs, tables, tool output and cards 1120px while
@@ -547,19 +554,34 @@
 }
 /* A prompt's action row under its bubble's right edge (UserBubble.tsx), as Claude Code desktop's:
    shown while the pointer is over the prompt or a key reached it. Hidden, it keeps its one compact
-   line, so pointing at a prompt moves nothing. */
+   line, so pointing at a prompt moves nothing. Its buttons touch, each a 24px square (Claude's). */
 .cv-user__actions {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 0;
   height: var(--cv-meta-row);
   margin-top: var(--cv-meta-gap);
   padding-right: 2px;
   opacity: 0;
 }
+/* Claude's fade: in after a beat when the pointer arrives, at once from the keyboard, out quickly. */
 @media (prefers-reduced-motion: no-preference) {
-  .cv-user__actions {
-    transition: opacity 120ms ease-out;
+  .cv-user__actions,
+  .cv-received-actions,
+  .acpmux-turnSummary .cv-turn-actions {
+    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+  }
+  .cv-user:hover .cv-user__actions,
+  .cv-received:hover .cv-received-actions,
+  .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
+  .acpmux-turnSummary:hover .cv-turn-actions {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  }
+  .cv-user__actions:focus-within,
+  .cv-received-actions:focus-within,
+  .acpmux-turnSummary:focus-visible .cv-turn-actions,
+  .acpmux-turnSummary .cv-turn-actions:focus-within {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
   }
 }
 .cv-user:hover .cv-user__actions,
@@ -567,44 +589,62 @@
 .cv-user__actions--versions {
   opacity: 1;
 }
+/* The rows' icon buttons are Claude's 24px squares (the meta row's line), not the 20px compact ones. */
+:is(.cv-user__actions, .cv-received-actions) .cv-iconbtn--compact:not(.cv-turn-retry-menu) {
+  width: var(--cv-meta-row);
+  height: var(--cv-meta-row);
+}
 /* At the end of another agent's message line (MessageActions.tsx ReceivedActions): the same row,
    on hover or focus only, no box. */
 .cv-received-actions {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 0;
   margin-inline-start: 8px;
   white-space: nowrap;
   opacity: 0;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .cv-received-actions {
-    transition: opacity 120ms ease-out;
-  }
 }
 .cv-received:hover .cv-received-actions,
 .cv-received-actions:focus-within {
   opacity: 1;
 }
-/* Retry sends the last ended turn's prompt again (VirtualTranscript marks its row; MessageActions.tsx). */
+/* Retry sends a prompt again: under every prompt (Leo's spec, as Claude's), at the end of another
+   agent's message only on the last ended turn's (VirtualTranscript marks its row; MessageActions.tsx). */
 .cv-message-retry {
   display: none;
 }
+.cv-user__actions .cv-message-retry,
 .acpmux-row[data-retryable] .cv-message-retry {
   display: inline-flex;
   align-items: center;
 }
-/* The prompt's age and its read receipt lead the row, quiet, as Claude Code desktop's. */
+/* The prompt's read receipt and its age lead the row, quiet (Leo's spec): a 16px double check in a
+   24px square, the age in the caption size, a dot, then the buttons. (An answer's age is in the
+   body size, 8px after its buttons: .cv-turn-time.) */
 .cv-user__time {
-  margin-inline-end: 4px;
+  padding-inline-start: 2px;
   color: var(--cv-text-dim);
   font-size: var(--text-caption);
+  line-height: var(--cv-meta-row);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+/* At the end of another agent's message line its age comes straight before Copy. */
+.cv-received-actions .cv-user__time {
+  padding-inline-end: 6px;
+}
+.cv-user__dot {
+  padding-inline: 4px;
+  color: var(--cv-text-dim);
+  font-size: var(--text-caption);
+  line-height: var(--cv-meta-row);
+}
 .cv-user__read {
   display: inline-flex;
-  margin-inline-end: 4px;
+  align-items: center;
+  justify-content: center;
+  width: var(--cv-meta-row);
+  height: var(--cv-meta-row);
   color: var(--cv-text-dim);
 }
 .cv-user__read.is-unread {
@@ -2175,7 +2215,7 @@ button.cv-received__name:focus-visible {
   padding-inline-start: 2px;
   color: var(--cv-text-muted);
   font-family: var(--cv-font);
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 /* Debug Settings `agentPane.debug.turnActionsPlacement` "right": the earlier row at the column's
    right edge, the actions after the time. */
@@ -2191,10 +2231,11 @@ button.cv-received__name:focus-visible {
 .cv-turn-actions .cv-iconbtn:not(.cv-turn-retry-menu) {
   width: var(--cv-meta-row);
 }
+/* Claude's buttons touch: 24px squares side by side, then its age 8px on (.cv-turn-actions' gap). */
 .cv-turn-action-group {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 0;
 }
 .cv-turn-action-group:empty {
   display: none;
@@ -2263,11 +2304,6 @@ button.cv-received__name:focus-visible {
 .acpmux-turnSummary .cv-turn-actions:focus-within,
 .acpmux-turnSummary .cv-turn-actions--failed {
   opacity: 1;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .acpmux-turnSummary .cv-turn-actions {
-    transition: opacity 120ms ease-out;
-  }
 }
 .cv-turn-summary,
 .cv-turn-time {
@@ -2710,6 +2746,17 @@ button.cv-received__name:focus-visible {
 .acpmux-turn-preview-load:focus-visible {
   outline: 1.5px solid var(--agent-muted);
   outline-offset: 1px;
+}
+/* The head's "Open in tab" and "Open in" (OpenInMenu.tsx) read like Load preview and the link hover
+   card's actions: no outline, muted text, a background only under the pointer. */
+.acpmux-turn-preview-head .acpmux-review-changes {
+  padding: 0 6px;
+  box-shadow: none;
+  color: var(--agent-muted);
+}
+.acpmux-turn-preview-head .acpmux-review-changes:hover {
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  color: var(--agent-text);
 }
 
 /* A render card (RenderCard.tsx): a quiet head over the live frame, which takes its page's height. */
@@ -3242,6 +3289,19 @@ button.cv-received__name:focus-visible {
   overflow-wrap: anywhere;
 }
 
+/* ---------- A policy the chat's harness cannot keep (CompactionNote.tsx) ---------- */
+/* Its sentence wraps: the reason is the point of the note. */
+.cv-policy-unenforced {
+  align-items: flex-start;
+  padding-top: 3px;
+}
+.cv-policy-unenforced .cv-tool__icon {
+  margin-top: 2px;
+}
+.cv-policy-unenforced__text {
+  white-space: normal;
+}
+
 /* ---------- A paused agent pair (AgentPairNote.tsx) ---------- */
 /* Its sentence wraps; the held count and Resume sit under it, indented to the text. */
 .cv-agent-pair[data-state="paused"] {
@@ -3428,7 +3488,7 @@ button.cv-received__name:focus-visible {
 }
 .cv-received__replied {
   display: block;
-  margin: 0 0 6px 13px;
+  margin: 0 0 6px 22px;
 }
 /* Its Reply sits after the chevron, inside the line's padding, and shows while the line is hovered or holds the focus, so the
    line reads as before. */
