@@ -97,6 +97,8 @@ export function promptFailureCause(
   if (delivery.retryable === true) return "transient";
   if (code && CONNECTION_LOST.has(code)) return "connection";
   if (code && TRANSIENT.has(code)) return "transient";
+  // acpmux took the prompt and the agent's turn failed: no refusal, whatever its reason.
+  if (delivery.hop === "agent") return "transient";
   // A refusal the pane has no cause for: the same request is likely refused again. direct.ts
   // labels any transport refusal as the connection's hop, so the hop says nothing here.
   if (reason || code?.startsWith("transport.")) return "unsupported";
