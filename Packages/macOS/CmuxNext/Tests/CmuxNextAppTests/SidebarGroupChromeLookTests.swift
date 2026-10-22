@@ -83,11 +83,9 @@ import Testing
         header.layoutSubtreeIfNeeded()
         row.layoutSubtreeIfNeeded()
         let name = sidebar.convert(header.titleFrame, from: header).minX + Metrics.space1
-        // An ungrouped row's leading column: its icon when it shows one, else where its title's text
-        // starts, measured as the header's is (the label frame plus its text inset).
-        let column = row.icon.isHidden
-            ? sidebar.convert(row.titleFrame, from: row).minX + Metrics.space1
-            : sidebar.convert(row.icon.frame, from: row).minX
+        // An ungrouped row's leading column: its icon slot, drawn or empty (every row keeps one,
+        // Lawrence 2026-10-21), so the header's name and every row's icon share one x.
+        let column = sidebar.convert(row.icon.frame, from: row).minX
         #expect(abs(name - column) < 0.5, "the header's name starts at \(name), the ungrouped rows at \(column)")
     }
 

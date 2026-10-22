@@ -65,12 +65,13 @@ impl StreamDeframer {
         if self.failed {
             return Err(DecodeError::Invalid("stream"));
         }
-        let rest = &self.buf[self.read..];
-        if rest.len() < STREAM_PREFIX_LEN {
+        let rest = self.buf.get(self.read..).unwrap_or_default();
+        let Some(([kind, l0, l1, l2, l3], body)) = rest.split_first_chunk::<STREAM_PREFIX_LEN>()
+        else {
             return Ok(None);
-        }
-        let kind = rest[0];
-        let len = u32::from_le_bytes([rest[1], rest[2], rest[3], rest[4]]) as usize;
+        };
+        let kind = *kind;
+        let len = usize::try_from(u32::from_le_bytes([*l0, *l1, *l2, *l3])).unwrap_or(usize::MAX);
         if !matches!(kind, STREAM_CONTROL | STREAM_DATAGRAM | STREAM_BULK) || len > MAX_STREAM_FRAME
         {
             self.failed = true;
@@ -78,11 +79,12 @@ impl StreamDeframer {
             self.read = 0;
             return Err(DecodeError::Invalid("stream"));
         }
-        if rest.len() < STREAM_PREFIX_LEN + len {
+        let Some(payload) = body.get(..len) else {
             return Ok(None);
-        }
-        let payload = rest[STREAM_PREFIX_LEN..STREAM_PREFIX_LEN + len].to_vec();
-        self.read += STREAM_PREFIX_LEN + len;
+        };
+        let payload = payload.to_vec();
+        // `len` is at most MAX_STREAM_FRAME and `read` at most `buf.len()`.
+        self.read = self.read.saturating_add(STREAM_PREFIX_LEN).saturating_add(len);
         if self.read == self.buf.len() {
             self.buf.clear();
             self.read = 0;

@@ -132,7 +132,15 @@ final class CloudService {
     }
 
     static var deviceName: String { MacName().linkDeviceName() }
-    func localDeviceID() throws -> String { try paths.loadOrCreateDeviceID() }
+    /// This Mac's install id, read from disk once (it never changes once written); every window
+    /// record save reads it, so a pane focus move does no file I/O (speed-of-sound-DESIGN.md 3.2).
+    func localDeviceID() throws -> String {
+        if let cachedDeviceID { return cachedDeviceID }
+        let id = try paths.loadOrCreateDeviceID()
+        cachedDeviceID = id
+        return id
+    }
+    @ObservationIgnored private var cachedDeviceID: String?
 
     var isSignedIn: Bool { auth.isSignedIn }
 

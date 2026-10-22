@@ -25,9 +25,10 @@ extension HomeService {
                                   agents: HomeContact.agents(in: rows, me: me))
     }
 
-    /// New Message's list: its Chiefs (main first) and how each row draws (HomeChiefRoster+NewMessage).
+    /// New Message's list before anything is typed: its Chiefs (main first), then the team
+    /// (`HomeNewMessageDraft.idleSuggestions`); how each row draws is HomeChiefRoster+NewMessage.
     func newMessageChiefs(_ draft: HomeNewMessageDraft) -> [HomeContact] {
-        draft.chiefShortcuts(contacts: chiefRoster.mainFirst(contacts(), rows: homeStore.rows))
+        draft.idleSuggestions(contacts: chiefRoster.mainFirst(contacts(), rows: homeStore.rows))
     }
     func recipientLook(_ recipient: HomeRecipient) -> HomeRecipientLook {
         chiefRoster.look(recipient, rows: homeStore.rows, avatars: chiefFaces,
@@ -113,6 +114,8 @@ extension HomeService {
     /// The Home sidebar's data source (the vendored MessagesLab sidebar reads it):
     /// choosing a row shows its conversation on the Home page, a person starts a DM.
     func makeSidebarSource() -> HomeSidebarSource {
+        // The list's first frame is the last launch's list (HomeService+LaunchList).
+        primeHomeList()
         let store = homeStore
         let source = HomeSidebarSource(
             store: HomePinStore(), inboxes: [homeInbox, homeCloudInbox], account: { [weak self] in self?.pinAccount ?? "local" },

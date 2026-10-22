@@ -20,6 +20,7 @@
     {"row": "budget-memory-per-terminal", "limit": 10, "enforce": false},
     {"row": "budget-memory-first-chromium-tab", "limit": 250, "enforce": false},
     {"row": "budget-memory-per-chromium-tab", "limit": 30, "enforce": false},
+    {"row": "budget-idle-disk-writes-home", "limit": 1.0, "enforce": false},
     {"row": "budget-idle-disk-writes", "limit": 1.0, "enforce": false},
     {"row": "budget-idle-disk-writes-app-hidden", "limit": 1.0, "enforce": false},
     {"row": "budget-idle-mach-msgs", "limit": 50, "enforce": false},

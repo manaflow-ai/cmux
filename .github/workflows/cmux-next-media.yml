@@ -565,6 +565,32 @@ jobs:
           mkdir -p "$RUNNER_TEMP/media"
           cp "$RUNNER_TEMP/tour-scope.json" "$RUNNER_TEMP/media/capture-receipt.json"
 
+      # Whatever happened above. A cancel can land while the app starts, after
+      # tour.py's own cleanup ran: run 39199091515's chief host and acpmux
+      # daemon outlived the job by days and held 10 GiB of DerivedData open on
+      # cmux10s, which the prune keeps while it is open. This ends both apps'
+      # daemons and every process run from either bundle. A head branched
+      # before --stop takes tour.py from the run's commit.
+      - name: Stop this tour's apps and daemons
+        if: ${{ always() && env.TOUR_TAG != '' }}
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          tour=scripts/cmux-next/media/tour.py
+          if ! grep -q -- '--stop' "$tour" 2>/dev/null; then
+            git cat-file -e "$GITHUB_SHA^{commit}" 2>/dev/null || git fetch --no-tags origin "$GITHUB_SHA"
+            tour="$RUNNER_TEMP/media-stop/tour.py"
+            mkdir -p "${tour%/*}"
+            git show "$GITHUB_SHA:scripts/cmux-next/media/tour.py" > "$tour"
+          fi
+          shopt -s nullglob
+          args=()
+          for app in "$HOME/Library/Developer/Xcode/DerivedData/cmux-${TOUR_TAG}"-{base,head}/Build/Products/*/*.app; do
+            args+=(--stop "$app")
+          done
+          [ "${#args[@]}" -gt 0 ] || { echo "no app built under ${TOUR_TAG}; nothing to stop"; exit 0; }
+          python3 "$tour" "${args[@]}"
+
       - name: Keep the media for the publish job
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

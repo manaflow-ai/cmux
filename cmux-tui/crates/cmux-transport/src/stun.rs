@@ -44,46 +44,51 @@ pub fn parse_binding_success(
     if crate::classify::classify(datagram) != crate::classify::DatagramClass::Stun {
         return Err(StunError::NotStun);
     }
-    if u16::from_be_bytes([datagram[0], datagram[1]]) != BINDING_SUCCESS {
+    let Some((header, mut attributes)) = datagram.split_first_chunk::<STUN_HEADER_LEN>() else {
+        return Err(StunError::NotStun);
+    };
+    let [type0, type1, _, _, _, _, _, _, header_transaction @ ..] = header;
+    if u16::from_be_bytes([*type0, *type1]) != BINDING_SUCCESS {
         return Err(StunError::NotBindingSuccess);
     }
-    if datagram[8..20] != transaction[..] {
+    if header_transaction != transaction {
         return Err(StunError::WrongTransaction);
     }
     let mut mapped = None;
-    let mut offset = STUN_HEADER_LEN;
-    while offset + 4 <= datagram.len() {
-        let kind = u16::from_be_bytes([datagram[offset], datagram[offset + 1]]);
-        let len = usize::from(u16::from_be_bytes([datagram[offset + 2], datagram[offset + 3]]));
-        let value_start = offset + 4;
-        let value_end = value_start + len;
-        if value_end > datagram.len() {
+    while let Some((attribute_header, rest)) = attributes.split_first_chunk::<4>() {
+        let [kind0, kind1, len0, len1] = *attribute_header;
+        let kind = u16::from_be_bytes([kind0, kind1]);
+        let len = usize::from(u16::from_be_bytes([len0, len1]));
+        let Some((value, after_value)) = rest.split_at_checked(len) else {
             return Err(StunError::Truncated);
-        }
-        let value = &datagram[value_start..value_end];
+        };
         match kind {
             ATTR_XOR_MAPPED_ADDRESS => return decode_address(value, Some(transaction)),
             ATTR_MAPPED_ADDRESS => mapped = Some(decode_address(value, None)?),
             _ => {}
         }
-        // Attributes are padded to a multiple of four bytes.
-        offset = value_start + len.div_ceil(4) * 4;
+        // Attribute values are padded to a 4-byte boundary; a short final pad ends the walk.
+        let padding = len.next_multiple_of(4).saturating_sub(len);
+        attributes = after_value.get(padding..).unwrap_or_default();
     }
     mapped.ok_or(StunError::NoAddress)
 }
 
 fn decode_address(value: &[u8], xor: Option<&TransactionId>) -> Result<SocketAddr, StunError> {
-    if value.len() < 4 {
+    let Some(([_, family, port0, port1], address)) = value.split_first_chunk::<4>() else {
         return Err(StunError::Truncated);
-    }
+    };
     let cookie = STUN_MAGIC_COOKIE.to_be_bytes();
-    let mut port = u16::from_be_bytes([value[2], value[3]]);
+    let mut port = u16::from_be_bytes([*port0, *port1]);
     if xor.is_some() {
         port ^= u16::from_be_bytes([cookie[0], cookie[1]]);
     }
-    let ip = match value[1] {
-        FAMILY_V4 if value.len() >= 8 => {
-            let mut octets = [value[4], value[5], value[6], value[7]];
+    let ip = match *family {
+        FAMILY_V4 => {
+            let Some((v4, _)) = address.split_first_chunk::<4>() else {
+                return Err(StunError::Truncated);
+            };
+            let mut octets = *v4;
             if xor.is_some() {
                 for (octet, mask) in octets.iter_mut().zip(cookie) {
                     *octet ^= mask;
@@ -91,11 +96,13 @@ fn decode_address(value: &[u8], xor: Option<&TransactionId>) -> Result<SocketAdd
             }
             IpAddr::V4(Ipv4Addr::from(octets))
         }
-        FAMILY_V6 if value.len() >= 20 => {
-            let mut octets = [0u8; 16];
-            octets.copy_from_slice(&value[4..20]);
+        FAMILY_V6 => {
+            let Some((v6, _)) = address.split_first_chunk::<16>() else {
+                return Err(StunError::Truncated);
+            };
+            let mut octets = *v6;
             if let Some(transaction) = xor {
-                let mask: Vec<u8> = cookie.iter().chain(transaction.iter()).copied().collect();
+                let mask = cookie.iter().chain(transaction.iter());
                 for (octet, mask) in octets.iter_mut().zip(mask) {
                     *octet ^= mask;
                 }

@@ -25,6 +25,19 @@ import Foundation
 /// column right of the chat it answers `not_found` with `dock_pane`, so the
 /// caller makes the column (`cmux pane <dock_pane> split --right`).
 extension BrowserPageService {
+    /// `openBrowser`'s profile value for the clean agent profile: no extensions, no cookies shared
+    /// with the person's profiles (plans/cmux-next/passwords.md, section 3.4).
+    static let agentBrowserProfileName = "agent"
+
+    /// The agent profile's fixed id, which `openBrowser` creates on first use.
+    public static let agentBrowserProfileID = "a9e70000-0000-4000-8000-00000000c0de"
+
+    /// True for a tab of the agent profile, or a tab whose profile the topology does not report.
+    static func isAgentProfile(_ id: String?) -> Bool {
+        guard let id else { return true }
+        return id.lowercased() == agentBrowserProfileID
+    }
+
     /// How long an open waits for the new tab (as `browser.open_split`).
     static let rightOpenLimit: Duration = .seconds(20)
 
@@ -67,7 +80,10 @@ extension BrowserPageService {
                                                             "%@ is driving this tab; wait, or open your own tab with a URL", holder),
                              data: ["holder": .string(holder), "tab": .string(tab)])
             }
-            if let own = await leases.openedTab(of: agent, among: Set(column.browserTabs.map(\.id))) {
+            // Its own tabs in the agent profile only: one from before in the person's profile
+            // (their extensions) would refuse every page call, so a new one opens instead.
+            let usable = Set(column.browserTabs.filter { Self.isAgentProfile($0.browserProfileID) }.map(\.id))
+            if let own = await leases.openedTab(of: agent, among: usable) {
                 if let holder = await leases.acquire(own, for: agent) { throw held(holder, own) }
                 return answer(own, created: false, navigated: false)
             }
@@ -104,7 +120,11 @@ extension BrowserPageService {
         }
         var params: [String: JSONValue] = ["action": "openBrowser", "target": .string("tab:" + anchor), "wait": true, "focus": false,
                                            "background": .bool(background)]
-        if let url { params["args"] = ["url": .string(url)] }
+        // The agent's own tab: the extension-free agent profile (cmux makes it on first use), so
+        // the extension rule never refuses it and the person's profiles and extensions stay theirs.
+        var args: [String: JSONValue] = ["profile": .string(agentBrowserProfileName)]
+        if let url { args["url"] = .string(url) }
+        params["args"] = .object(args)
         if let origin = call.request.params["origin"] { params["origin"] = origin }
         if let key = call.request.params["idempotency_key"] { params["idempotency_key"] = key }
         let before = Set(pane.tabs.map(\.id))
