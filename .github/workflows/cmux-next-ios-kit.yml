@@ -140,5 +140,8 @@ jobs:
             exit 1
           fi
           echo "simulator $udid"
-          xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$udid" \
-            -derivedDataPath "$RUNNER_TEMP/dd-ios-sim" CODE_SIGNING_ALLOWED=NO -quiet
+          # Coverage off: its profiler crashes Swift 6.3.3 on an isolated deinit
+          # (TerminalDevProbe, SILProfiler in emitIsolatingDestructor); the app builds
+          # without coverage. arm64 only: the xcframework has no x86_64 simulator slice.
+          xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" \
+            -enableCodeCoverage NO -derivedDataPath "$RUNNER_TEMP/dd-ios-sim" CODE_SIGNING_ALLOWED=NO -quiet
