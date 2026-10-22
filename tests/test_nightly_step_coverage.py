@@ -403,8 +403,9 @@ def needing_preflight(job: dict, step_if=None) -> dict:
     return workflow
 
 
-def guards_route(job_if=None, step_if=None) -> dict:
-    workflow = counterpart(job={} if job_if is None else {"if": job_if}, step_if=step_if)
+def guards_route(job_if=None, step_if=None, matrix=None) -> dict:
+    job = dict({} if job_if is None else {"if": job_if}, **(matrix_job(matrix) if matrix else {}))
+    workflow = counterpart(job=job, step_if=step_if)
     workflow["jobs"]["check"]["steps"][0]["run"] = "scripts/ci/guards-local.sh --feat-routes changed.txt"
     return {"on": workflow["on"], "jobs": {"ci-guard-group": workflow["jobs"]["check"]}}
 
@@ -439,6 +440,7 @@ COUNTERPART_CASES = [
     ("paths negated", filtered(paths=["**", "!**"]), "trigger"),
     ("paths-ignore all", filtered(paths_ignore=["docs/**", "!docs/**", "**"]), "trigger"),
     ("filters admit", filtered(branches=["feat-*", "!feat-x"], paths=["scripts/**", "!scripts/docs/**"]), None),
+    ("paths narrower negation", filtered(paths=["src/**", "!src/x/**"]), None),
     ("caller schedule", {"pr.yml": counterpart(pr="workflow_call"), "c.yml": caller({"if": SCHEDULE})}, "does not run"),
     ("caller base", {"pr.yml": counterpart(pr="workflow_call"), "c.yml": caller(
         {"if": f"github.event.pull_request.base.ref != '{BASE}'"})}, "does not run"),
@@ -454,6 +456,7 @@ COUNTERPART_CASES = [
     ("and before or", stepped(f"{PR_EVENT} || {PUSH} && {SCHEDULE}"), None),
     ("parenthesized or", stepped(f"({PUSH} || {SCHEDULE}) && {PR_EVENT}"), "step 'Dry run'"),
     ("negation", stepped(f"!({PR_EVENT})"), "step 'Dry run'"),
+    ("case-insensitive", stepped("github.event_name != 'PULL_REQUEST'"), "step 'Dry run'"),
     ("matrix absent", stepped(RELEASE, {"group": ["ci"]}), "matrix"),
     ("matrix exclude", stepped(RELEASE, {"group": ["ci", "release"], "exclude": [{"group": "release"}]}), "matrix"),
     ("matrix multi-key exclude", stepped(RELEASE, {"group": ["ci", "release"], "os": ["ubuntu"],
@@ -465,6 +468,8 @@ COUNTERPART_CASES = [
      "does not run"),
     ("guards route step off", {"ci-guards.yml": GUARDS, "cmux-next-guards.yml": guards_route(step_if=PUSH)},
      "does not run"),
+    ("guards route matrix", {"ci-guards.yml": GUARDS, "cmux-next-guards.yml": guards_route(
+        step_if="matrix.shard == 'b'", matrix={"shard": ["a"]})}, "does not run"),
 ]
 
 
