@@ -55,9 +55,10 @@ WebKit the next time it opens.
 The server listens on loopback only, and the app accepts only a loopback URL in `web-dev.json`. The
 scheme handler fetches each file from the server and answers it under the page's own
 `cmux-page://` or `cmux-agent://` origin, so the host bridge and page trust stay the shipped ones.
-While a dev server serves, the page's Content Security Policy also allows inline scripts (React
-Refresh) and that loopback server's `ws://` and `http://` origin. An overlay keeps the shipped
-policy.
+While a dev server serves, the Content Security Policy is looser. Pages also allow inline scripts
+(React Refresh) and that server's `ws://` and `http://` origin. The agent pane uses the dev
+server's own policy, which allows inline scripts and loopback WebSockets and frames on any port.
+An overlay keeps the shipped policy.
 
 ### No dev server: built bundles
 
@@ -104,7 +105,7 @@ Only NIGHTLY bundles take web updates; Debug builds keep the developer's own pag
 | Settings doesn't change, the agent pane does | The app predates #23986, so Settings is still in Chromium. Set `browser.defaultEngine` to `webkit` in `~/.config/cmux/cmux-next.json`, or update the app. |
 | A page loads, then stops updating | The dev server stopped. The page falls back to the overlay, then the bundle. Run `server --local` again. |
 | `the dev server did not start` | Another process holds the port (the server won't move to another one). Use `--port N`; the app follows `web-dev.json`. |
-| You see another tree's edits | A dev server from another checkout already answers on the port, and `server --local` reuses it. Run `server off`, then `server --local` from your checkout, or use `--worktree <path>`. |
+| You see another tree's edits | A dev server that `web-overlay.sh` didn't start already answers on the port, and `server --local` reuses it. Stop it where it was started, or use `--port N` for a free port. |
 | You want the shipped pages without deleting anything | Debug Settings > Pages > **Live web reload (web-dev.json)** off ignores the file. |
 | Unstyled pages with no override running | Not the live loop. With no `web-dev.json`, the app serves its bundled files unchanged. Report it with the app's commit. |
 
