@@ -2,7 +2,6 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextDaemon
-import CmuxNextSettings
 
 // Creation (new machine, new cloud workspace), sign in/out, team picker,
 // and diagnostics.
@@ -98,54 +97,11 @@ extension CloudHandlers {
             let byPerson = invocation.origin == .user
             // task-owner: the action run; a capturing caller awaits it through the registry.
             let task: ActionResultWork = Task { @MainActor in
-                let report = await diagnostics(context)
+                let report = await CloudDiagnostics.report(context)
                 if byPerson { CloudPresenter.show(CloudStrings.diagnosticsTitle, summary: report.summary, details: report.details, in: window(context)) }
                 return .success(["summary": .string(report.summary), "details": .string(report.details)])
             }
             context.services.registry.track(result: task)
         }
-    }
-
-    /// The Cloud diagnostics: a one-line summary for a person, and the
-    /// account, backend and per-machine link state as JSON. No secrets.
-    struct Diagnostics {
-        var summary: String
-        var details: String
-    }
-
-    static func diagnostics(_ context: AppActionContext) async -> Diagnostics {
-        let cloud = context.services.cloud, machines = context.services.machines
-        var rows: [CmuxNextSettings.JSONValue] = []
-        for session in machines.cloud {
-            var row = AppControl.cloudMachineRow(session, machines)
-            row["link_pid"] = .string(await session.link?.pid.map(String.init) ?? (session.appLink == nil ? "none" : "app server"))
-            rows.append(.object(row))
-        }
-        let report: CmuxNextSettings.JSONValue = .object([
-            "backend": .string(cloud.configuration.apiBaseURL.absoluteString),
-            "backend_kind": .string(String(describing: cloud.configuration.backend)),
-            "signed_in": .bool(cloud.isSignedIn),
-            "email": cloud.auth.user?.primaryEmail.map(CmuxNextSettings.JSONValue.string) ?? .null,
-            "team_id": cloud.auth.teamID.map(CmuxNextSettings.JSONValue.string) ?? .null,
-            "unavailable": cloud.unavailableReason.map(CmuxNextSettings.JSONValue.string) ?? .null,
-            "last_error": cloud.lastError.map(CmuxNextSettings.JSONValue.string) ?? .null,
-            "machines": .array(rows),
-        ])
-        let details = (try? DeterministicJSON().string(report.foundationObject, pretty: true)) ?? ""
-        return Diagnostics(summary: diagnosticsSummary(context), details: details)
-    }
-
-    /// The first thing that needs the person, else that all is well.
-    private static func diagnosticsSummary(_ context: AppActionContext) -> String {
-        let cloud = context.services.cloud, machines = context.services.machines
-        if let reason = cloud.unavailableReason { return reason }
-        guard cloud.isSignedIn else { return CloudStrings.signInFirst }
-        for session in machines.cloud {
-            if let failure = session.stage.failure { return "\(session.machine.title): \(failure)" }
-            if let compat = machines.compatibility(of: session.daemon), compat.level != .current {
-                return "\(session.machine.title): \(CloudStrings.compatibility(compat))"
-            }
-        }
-        return CloudStrings.diagnosticsAllWell(cloud.auth.user?.primaryEmail ?? cloud.auth.teamID ?? "")
     }
 }
