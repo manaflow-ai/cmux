@@ -76,6 +76,9 @@ const shot = (hue: number, width = 1440, height = 900) =>
         .join("") +
       "</svg>",
   )}`;
+// Another agent's message waiting behind the turn (Leo, 2026-10-21: it drew as the person's prompt).
+const QUEUED_MESSAGE =
+  "**Rebase onto #23738** before you push: it moves the queue rows.\n\n- `ComposerQueue.tsx` changes\n- the gallery cases too";
 // A prompt queued with two screenshots (Leo, 2026-10-21: "do queued messages have pics?").
 const pictured = {
   id: "q1",
@@ -438,7 +441,7 @@ export default agentPaneEntry({
       },
     },
     "footer-essentials": {
-      note: 'Leo 2026-10-13, the footer "tells too much": the model without its vendor, the default access mode as its lock alone, no context ring before any use, the folder without this Mac\'s name. Titles and labels keep the full text.',
+      note: "Leo 2026-10-13, the footer \"tells too much\": the model without its vendor, the mode as its symbol and Claude Code's own name (Manual), no context ring before any use, the folder without this Mac's name. Titles and labels keep the full text.",
       snapshot: footerChat("default"),
     },
     // The location row is a new chat's only (locationRow.ts).
@@ -592,7 +595,7 @@ export default agentPaneEntry({
           type: "image/png",
         });
         pasteFiles(ctx, [file]);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment:not([aria-busy])"));
         await new Promise((resolve) => setTimeout(resolve, 300));
       },
     },
@@ -865,33 +868,97 @@ export default agentPaneEntry({
         ],
       }),
     },
+    "queued-from-agent": {
+      note: "Another agent's message waiting behind the turn: its received line (the sender's mark, its name as a chip that opens its chat, a one-line preview, the card when opened), its actions (Steer, the trash can, ⋯) at the line's end; the person's prompt below is unchanged.",
+      snapshot: chat(working, {
+        isWorking: true,
+        queue: [
+          {
+            id: "q1",
+            prompt: QUEUED_MESSAGE,
+            message: { name: "coord-deputy", sessionId: "s-deputy", text: QUEUED_MESSAGE, raw: QUEUED_MESSAGE },
+          },
+          { id: "q2", prompt: "And update the README" },
+        ],
+      }),
+    },
+    "queued-from-agent-open": {
+      note: "Play: the queued agent's message opened: the message as a glass card under its line, as Markdown, the queue as tall as it.",
+      snapshot: chat(working, {
+        isWorking: true,
+        queue: [
+          {
+            id: "q1",
+            prompt: QUEUED_MESSAGE,
+            message: { name: "coord-deputy", sessionId: "s-deputy", text: QUEUED_MESSAGE, raw: QUEUED_MESSAGE },
+          },
+          { id: "q2", prompt: "And update the README" },
+        ],
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] .cv-received__toggle' });
+        // Whole: the list fits its height to the opened card, not just a sliver of it.
+        await ctx.waitFor(() => {
+          const body = ctx.document.querySelector(".acpmux-queued .cv-received__body");
+          const list = ctx.document.querySelector(".acpmux-composer-queue");
+          return Boolean(
+            body && list && body.getBoundingClientRect().bottom <= list.getBoundingClientRect().bottom + 1,
+          );
+        });
+      },
+    },
+    // Leo, 2026-10-21 ("this is what ChatGPT has"): each queued row shows Steer, the trash can and ⋯.
+    "queued-actions": {
+      note: "Queued prompts as ChatGPT and Codex show them: each row ends in Steer (its ↪ glyph and its word), a trash can that deletes it, and ⋯; plain glyphs, a soft pill on hover only.",
+      snapshot: { ...steering(true), queue: waiting.slice(0, 2) },
+    },
+    "queued-actions-menu": {
+      note: "Play: ⋯ on a queued prompt opens the composer menus' glass menu: Edit message, Open in side chat (where the chat opens side chats) and Turn off queueing.",
+      snapshot: { ...steering(true), queue: waiting.slice(0, 2) },
+      play: async (ctx) => {
+        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] [data-menu="queued-more"]' });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-queued-more [role="menuitem"]'));
+      },
+    },
     "queued-images": {
       note: "A prompt queued with two screenshots: small thumbnails under its text, each opening the image viewer.",
       snapshot: chat(working, { isWorking: true, queue: [pictured, { id: "q2", prompt: "And update the README" }] }),
     },
     "queued-images-edit": {
-      note: "Play: Edit on a queued prompt with images: each thumbnail shows its remove control; removing one and saving keeps the other.",
+      note: "Play: Edit message (the ⋯ menu) on a queued prompt with images: each thumbnail shows its remove control; removing one and saving keeps the other.",
       snapshot: chat(working, { isWorking: true, queue: [pictured, { id: "q2", prompt: "And update the README" }] }),
       native: { "chat.queue.edit": { ok: true } },
       play: async (ctx) => {
-        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] .acpmux-queued-action[data-action="edit"]' });
+        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] [data-menu="queued-more"]' });
+        await ctx.click({ role: "menuitem", name: /^Edit message/ });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued-image-remove").length === 2);
       },
     },
     "queued-paused": {
-      note: "A turn failed with prompts queued: they wait, in order, until Resume. A prompt sent meanwhile runs now.",
+      note: 'A turn failed with prompts queued: the note names the turn\'s error, and they wait, in order, until Resume (never "Sends after this turn"). A prompt sent meanwhile runs now.',
       snapshot: (() => {
         const failed = steering(true);
         return {
           ...failed,
           isWorking: false,
+          rows: [
+            ...failed.rows,
+            {
+              id: "summary-failed",
+              version: 1,
+              at: 1,
+              kind: "turnSummary",
+              status: "failed",
+              error: "429 Too Many Requests: the account is rate limited",
+            },
+          ],
           summary: { ...failed.summary!, status: "ready", queuePaused: true },
           queue: waiting,
         };
       })(),
     },
     "queued-keyboard": {
-      note: "Play: ↑ from the empty prompt reaches the last queued prompt, ↑ again the one before; Return edits it in its row (Return saves, Esc cancels). On a row, ⌥↑/⌥↓ move it and Delete removes it; ⌘Return does nothing there (Send now is the row's button).",
+      note: "Play: ↑ from the empty prompt reaches the last queued prompt, ↑ again the one before; Return edits it in its row (Return saves, Esc cancels). On a row, ⌥↑/⌥↓ move it and Delete removes it; ⌘Return does nothing there (Steer is the row's button).",
       snapshot: { ...steering(true), queue: waiting },
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-composer-prompt" });
@@ -928,7 +995,7 @@ export default agentPaneEntry({
       },
     },
     "queued-steering": {
-      note: "A prompt sent now (its Send now button) to an agent that cannot steer waits first under Steering and runs next; the turn runs on. The queued prompts stay under Queued and count from 1.",
+      note: "A prompt sent now (its Steer button) to an agent that cannot steer waits first under Steering and runs next; the turn runs on. The queued prompts stay under Queued and count from 1.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [{ id: "q0", prompt: "Stop and fix the space thing first", next: true }, ...waiting],
@@ -939,7 +1006,7 @@ export default agentPaneEntry({
       snapshot: steerMarks(),
     },
     "steer-read-hover": {
-      note: "Play: hover the steer the agent read: the same row as any prompt (age, two checks, Copy, Retry, Pin), and the check's tooltip says who read it. No Steered or Steering text anywhere in the transcript.",
+      note: "Play: hover the steer the agent read: the same row as any prompt (two checks, age, Copy, Retry, Fork), and the check's tooltip says who read it. No Steered or Steering text anywhere in the transcript.",
       snapshot: steerMarks(),
       play: async (ctx) => {
         const steer = ctx.find({ text: "Use the cache dir, not tmp" }).closest(".cv-user");
@@ -1033,7 +1100,7 @@ export default agentPaneEntry({
       },
       play: async (ctx) => {
         await ctx.hover({ text: "Then add a test for the 429 path" });
-        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] button[aria-label="Remove queued prompt"]' });
+        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] [data-action="delete"]' });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued").length === 2);
         await ctx.click({ role: "button", name: "Stop" });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued").length === 1);
@@ -1561,7 +1628,7 @@ export default agentPaneEntry({
       },
     },
     "reasoning-codex": {
-      note: "Play: open Codex's model button menu and check Fast mode (Codex's Fast service tier), its one place; Effort lists Low to Ultra (Xhigh reads Extra High).",
+      note: "Play: Codex keeps its bolt just left of the mic (Leo 2026-10-21), an outline glyph; the model button's menu has no Fast mode row; a click on the bolt sends Fast.",
       snapshot: withSummary(chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex reasoning" }), {
         configOptions: [
           {
@@ -1582,11 +1649,17 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
+        const bolt = { selector: ".acpmux-composer-actions .acpmux-fast" };
+        await ctx.waitFor(() => ctx.document.querySelector(bolt.selector));
+        if (ctx.find(bolt).getAttribute("aria-pressed") !== "false") throw new Error("the bolt must start off");
+        if (!ctx.find(bolt).nextElementSibling?.querySelector(".acpmux-mic"))
+          throw new Error("the bolt must sit just left of the mic");
         await openModelMenu(ctx);
-        const fast = { selector: ".acpmux-quick-menu .acpmux-quick-fast" };
-        await ctx.waitFor(() => ctx.document.querySelector(fast.selector));
-        if (ctx.find(fast).getAttribute("aria-checked") !== "false") throw new Error("Fast mode must start unchecked");
-        await ctx.click(fast);
+        if (ctx.document.querySelector(".acpmux-quick-menu .acpmux-quick-fast"))
+          throw new Error("Codex's Fast mode is the bolt, not a menu row as well");
+        await ctx.press("Escape");
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-quick-menu"));
+        await ctx.click(bolt);
       },
     },
     "model-menu-keyboard": {
@@ -1735,11 +1808,12 @@ export default agentPaneEntry({
       }),
     },
     "access-menu": {
-      note: "The footer keeps permission mode behind a quiet lock; the menu explains each choice and checks the active one.",
+      note: "A Claude chat's mode menu is Claude Code's own: Mode, then Auto (Recommended), Manual, Accept edits, Plan and Bypass permissions with their descriptions and keys 1 to 5, tight rows, the accent check on the chosen one. The button is the mode's symbol and its name, no pill at rest.",
       snapshot: chat(finished, {
         summary: {
           sessionId: "gallery-access",
           harness: "claude",
+          family: "claude",
           model: "claude-opus-5-5",
           effort: "high",
           cwd: CWD,
@@ -1750,12 +1824,59 @@ export default agentPaneEntry({
           usage: { used: 48_000, size: 200_000 },
           promptCapabilities: { image: true },
           modes: {
-            currentModeId: "ask",
+            currentModeId: "bypassPermissions",
+            // As acpmux reports a Claude chat (claude_stdio MODES).
             availableModes: [
-              { id: "ask", name: "Supervised", description: "Ask before changing files or running commands" },
-              { id: "edit", name: "Auto-accept edits", description: "Apply file edits without asking" },
-              { id: "auto", name: "Auto", description: "Choose the safest approval level for each action" },
-              { id: "bypassPermissions", name: "Full access", description: "Run actions without approval" },
+              { id: "auto", name: "Auto", description: "Claude handles permission decisions" },
+              { id: "default", name: "Manual", description: "Always ask before making changes" },
+              { id: "acceptEdits", name: "Accept edits", description: "Automatically accept all file edits" },
+              { id: "plan", name: "Plan", description: "Create a plan before making changes" },
+              { id: "bypassPermissions", name: "Bypass permissions", description: "Accepts all permissions" },
+            ],
+          },
+        },
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: '[aria-label="Mode"]' });
+        await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
+      },
+    },
+    "access-menu-codex": {
+      note: "A Codex chat's mode menu is Codex's own: How should actions be approved?, then Ask for approval (hand), Approve for me (terminal shield) and Full access (shield with !) with their descriptions. The button is the shield and Full access.",
+      snapshot: chat(finished, {
+        summary: {
+          sessionId: "gallery-access-codex",
+          harness: "codex",
+          family: "codex",
+          model: "gpt-6-astra",
+          cwd: CWD,
+          host: "This Mac",
+          hostKind: "local",
+          branch: "main",
+          turnCount: 1,
+          usage: { used: 48_000, size: 200_000 },
+          promptCapabilities: { image: true },
+          modes: {
+            currentModeId: "agent-full-access",
+            // As the Codex bridge reports it (cmux-codex-acp config.rs MODES), plus Codex's auto review.
+            availableModes: [
+              { id: "ask", name: "Ask", description: "Asks before every command and every edit" },
+              {
+                id: "read-only",
+                name: "Read Only",
+                description: "Reads files; asks before any edit or command that needs more",
+              },
+              {
+                id: "agent",
+                name: "Agent",
+                description: "Edits and runs commands in the workspace; asks to go outside it",
+              },
+              { id: "auto-review", name: "Auto review" },
+              {
+                id: "agent-full-access",
+                name: "Agent (full access)",
+                description: "Edits and runs anything without asking",
+              },
             ],
           },
         },

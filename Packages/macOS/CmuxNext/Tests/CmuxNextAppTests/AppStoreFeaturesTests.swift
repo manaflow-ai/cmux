@@ -16,7 +16,7 @@ import Testing
     /// Keys whose PR has not landed: the tab hides their cards until the schema lists them
     /// (tabs.newTabWidgets.*, #22674 and #22775).
     static let pendingKeys: Set<String> = [
-        "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats", "tabs.newTabWidgets.modeSwitch",
+        "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats",
         "tabs.newTabWidgets.weather", "tabs.newTabWidgets.machines",
     ]
 
@@ -63,6 +63,26 @@ import Testing
                         "\(feature.id) is on by default, so Remove could not turn it off")
             }
         }
+    }
+
+    /// The Appearance, Editor and Mac & Phone cards (and the off-by-default toggles beside them)
+    /// are landed keys, so the tab lists them, each under its own category chip.
+    @Test func theOffByDefaultSettingsHaveCardsInTheirCategories() throws {
+        let expected: [String: AppFeature.Category] = [
+            "appearance.ultraCompact": .appearance, "appearance.calm": .appearance,
+            "appearance.brailleStatus": .appearance, "appearance.runningCommands": .appearance,
+            "chief.suggestedTasks": .chief, "chief.githubFeed": .chief,
+            "editor.splitDiff": .editor, "editor.minimap": .editor,
+            "devices.phoneAccess": .devices, "devices.globalHotKey": .devices,
+        ]
+        let bridge = SettingsAppFeatures(settings: { nil })
+        for (id, category) in expected {
+            let feature = try Self.feature(id)
+            #expect(feature.category == category, "\(id) is under \(feature.category)")
+            #expect(bridge.isAvailable(feature), "\(feature.setting) is not in the schema")
+            #expect(!Self.pendingKeys.contains(feature.setting))
+        }
+        #expect(AppFeature.Category.allCases.allSatisfy { !AppsStrings.featureCategory($0).isEmpty })
     }
 
     /// The Chief Pet card's Settings… link opens Settings > Chief Pet (Settings on its key's rows);
@@ -162,11 +182,12 @@ import Testing
         let (settings, home) = try await Self.make()
         defer { try? FileManager.default.removeItem(at: home) }
         let bridge = SettingsAppFeatures(settings: { settings })
-        let newTabPlayer = try Self.feature("newTab.nowPlaying")
-        #expect(bridge.isOn(newTabPlayer), "on by default")
-        try await bridge.set(newTabPlayer, on: false)
-        #expect(settings.fileRoot.value(at: newTabPlayer.path) == .bool(false))
-        #expect(!bridge.isOn(newTabPlayer))
+        // The New Tab player was this test's feature until it went off by default (u8394).
+        let hoverCards = try Self.feature("sidebar.hoverCards")
+        #expect(bridge.isOn(hoverCards), "on by default")
+        try await bridge.set(hoverCards, on: false)
+        #expect(settings.fileRoot.value(at: hoverCards.path) == .bool(false))
+        #expect(!bridge.isOn(hoverCards))
     }
 
     /// Every card on its own key (the live toggle pass, 2026-10-21): pressing the card writes its

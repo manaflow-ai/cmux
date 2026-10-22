@@ -100,7 +100,7 @@ function refined(selector: string, property: string, width: number): string | un
   return value;
 }
 
-test("the refined look stacks a narrow pane too: no side border, no side-cut content card, strip-sized tabs", () => {
+test("the refined look stacks a narrow pane too: no side border, strip-sized tabs", () => {
   // macOS 15 tester (2026-10-19): the categories over a narrow Settings pane drew as a column
   // card: the sidebar kept its right border and 18 px padding, the tabs their 30 px rows, and the
   // content its left-cut corners and gap, all from the refined rules that outrank the narrow block.
@@ -110,11 +110,26 @@ test("the refined look stacks a narrow pane too: no side border, no side-cut con
   expect(refined(".settings .section-link", "padding", 480)).toBe("4px 8px");
   expect(refined(".settings .section-link", "min-height", 480)).toBe("0");
   expect(refined(".settings > .content", "margin", 480)).toBe("0 6px 6px");
-  expect(refined(".settings > .content", "border-left", 480)).toBe("1px solid var(--polish-edge)");
-  expect(refined(".settings > .content", "border-radius", 480)).toBe("0 0 12px 12px");
-  // A wide pane keeps the column card.
+  // A wide pane keeps the sidebar's column edge.
   expect(refined(".settings > .sidebar", "border-right", 1000)).toBe("1px solid var(--polish-edge)");
-  expect(refined(".settings > .content", "border-radius", 1000)).toBe("0 12px 12px 0");
+});
+
+test("the masked content pane draws no outline at any width", () => {
+  // Live QA 7b: styles.css's scroll fade masks .content except the scrollbar's 14 px strip, so the
+  // refined look's 1 px outline and 12 px corners showed only as a rounded fragment at the right edge.
+  expect(computed(".content", "mask-image", 1000)).toBeDefined();
+  for (const width of [480, 1000])
+    for (const property of ["border", "border-left", "border-right", "border-top", "border-bottom", "border-radius"])
+      expect(refined(".settings > .content", property, width)).toBeUndefined();
+});
+
+test("a setting row's Reset slot stays on its control's line", () => {
+  // Live QA 7a: a three-choice segmented control (330 px) plus the slot passed the 60 % cap, so the
+  // slot wrapped and the control sat in the slot's column, 30 px right and a line high.
+  expect(computed(".row-control", "flex-wrap", 1000)).toBe("wrap");
+  expect(computed(".row-control:has(> .reset-slot)", "flex-wrap", 1000)).toBe("nowrap");
+  expect(computed(".row-control:has(> .reset-slot)", "max-width", 1000)).toBe("calc(60% + 30px)");
+  expect(computed(".row-control:has(> .reset-slot)", "max-width", 480)).toBe("100%");
 });
 
 // The gallery split separately imported sheets into shared chunks and loaded layout.css before

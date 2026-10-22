@@ -616,3 +616,167 @@ fn host_shutdown_pauses_idle_cloud_vms_at_once_but_not_busy_ones() {
     );
     assert_eq!(pauses(&vms.calls, "cloud2"), 0, "never mid-turn");
 }
+
+/// Records VM calls and the agent key files placed (cloud subagents' own sandbox keys).
+#[derive(Default)]
+struct KeyedVms {
+    calls: std::sync::Mutex<Vec<String>>,
+    files: std::sync::Mutex<Vec<(String, String, String)>>,
+    refuse_keys: bool,
+}
+
+impl optchat_chief::cloud_vms::CloudVms for KeyedVms {
+    fn resume(&self, peer: &str) -> Result<(), String> {
+        self.calls.lock().unwrap().push(format!("resume {peer}"));
+        Ok(())
+    }
+    fn pause(&self, peer: &str) -> Result<(), String> {
+        self.calls.lock().unwrap().push(format!("pause {peer}"));
+        Ok(())
+    }
+    fn put_agent_key(&self, peer: &str, agent: &str, file: &str) -> Result<(), String> {
+        if self.refuse_keys {
+            return Err("the pool tool cannot reach the VM".into());
+        }
+        self.files
+            .lock()
+            .unwrap()
+            .push((peer.into(), agent.into(), file.into()));
+        Ok(())
+    }
+    fn drop_agent_key(&self, peer: &str, agent: &str) -> Result<(), String> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("drop {peer} {agent}"));
+        Ok(())
+    }
+}
+
+/// Issues `vmk_<agent>` and records revokes.
+#[derive(Default)]
+struct FakeKeys {
+    revoked: std::sync::Mutex<Vec<String>>,
+}
+
+impl optchat_chief::agent_keys::AgentKeys for FakeKeys {
+    fn issue(&self, agent: &str) -> Result<optchat_chief::agent_keys::AgentKey, String> {
+        Ok(optchat_chief::agent_keys::AgentKey {
+            id: format!("vmk_{agent}"),
+            file: format!("{{\"key\":\"cmuxvm_sk_secret_{agent}\"}}\n"),
+        })
+    }
+    fn revoke(&self, key_id: &str) -> Result<(), String> {
+        self.revoked.lock().unwrap().push(key_id.into());
+        Ok(())
+    }
+}
+
+fn keyed_spawner(h: &Harness, vms: &Arc<KeyedVms>, keys: &Arc<FakeKeys>) -> Arc<Spawner> {
+    let vms: Arc<dyn optchat_chief::cloud_vms::CloudVms> = vms.clone();
+    let keys: Arc<dyn optchat_chief::agent_keys::AgentKeys> = keys.clone();
+    Arc::new(
+        Arc::try_unwrap(spawner(h, None))
+            .ok()
+            .unwrap()
+            .with_cloud_text("SUBAGENT SYSTEM TEXT".into())
+            .with_cloud_vms(Some(vms))
+            .with_agent_keys(Some(keys)),
+    )
+}
+
+/// A cloud subagent gets its own sandbox key: placed on its VM (never in its
+/// task), named in its task, and revoked (the service then deletes its VMs)
+/// once it is done; the file goes from the VM.
+#[test]
+fn a_cloud_subagent_gets_its_own_sandbox_key_and_loses_it_when_done() {
+    use optchat_chief::brain::Input;
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let vms = Arc::new(KeyedVms::default());
+    let keys = Arc::new(FakeKeys::default());
+    let sp = keyed_spawner(&h, &vms, &keys);
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    h.brain
+        .set_cloud_vms(Some(vms.clone()), Duration::from_secs(600));
+    h.brain.set_agent_keys(Some(keys.clone()), Duration::ZERO);
+    set_cloud(&mut h, &sp, "cloud1");
+
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["one".into()], None)).unwrap();
+    assert_eq!(
+        vms.files.lock().unwrap().clone(),
+        vec![(
+            "cloud1".to_owned(),
+            "a1".to_owned(),
+            "{\"key\":\"cmuxvm_sk_secret_a1\"}\n".to_owned()
+        )]
+    );
+    let task = subs(&h)[0].1.clone();
+    assert!(
+        task.contains("CMUX_AGENT_CONFIG=~/.config/cmux/agents/a1.json"),
+        "{task}"
+    );
+    assert!(
+        !task.contains("cmuxvm_sk_"),
+        "the key never enters a prompt: {task}"
+    );
+
+    // Live: kept.
+    h.brain.step(Input::CloudTick);
+    assert!(keys.revoked.lock().unwrap().is_empty());
+
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: "ended".into(),
+    });
+    h.brain.step(Input::CloudTick);
+    h.brain.step(Input::CloudTick);
+    let until = Instant::now() + Duration::from_secs(5);
+    while !vms
+        .calls
+        .lock()
+        .unwrap()
+        .contains(&"drop cloud1 a1".to_owned())
+        && Instant::now() < until
+    {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(
+        keys.revoked.lock().unwrap().clone(),
+        vec!["vmk_a1".to_owned()]
+    );
+    assert!(
+        vms.calls
+            .lock()
+            .unwrap()
+            .contains(&"drop cloud1 a1".to_owned())
+    );
+}
+
+/// A key the pool tool could not place is revoked at once, and the subagent
+/// starts without one (its task names no key file).
+#[test]
+fn an_unplaced_sandbox_key_is_revoked_and_the_subagent_starts_without_one() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let vms = Arc::new(KeyedVms {
+        refuse_keys: true,
+        ..KeyedVms::default()
+    });
+    let keys = Arc::new(FakeKeys::default());
+    let sp = keyed_spawner(&h, &vms, &keys);
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    h.brain
+        .set_cloud_vms(Some(vms.clone()), Duration::from_secs(600));
+    set_cloud(&mut h, &sp, "cloud1");
+
+    let a = sp.clone();
+    let spawned = run(&mut h, move || a.spawn(vec!["one".into()], None)).unwrap();
+    assert!(spawned.contains("Started a1"), "{spawned}");
+    assert_eq!(
+        keys.revoked.lock().unwrap().clone(),
+        vec!["vmk_a1".to_owned()]
+    );
+    assert!(!subs(&h)[0].1.contains("CMUX_AGENT_CONFIG"));
+}

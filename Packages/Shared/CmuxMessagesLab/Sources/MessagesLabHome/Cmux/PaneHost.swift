@@ -65,6 +65,8 @@ final class HostView: NSView {
     let paneHeader = PaneHeaderView(frame: .zero)
     /// cmux: Home's glass band under the header controls (HeaderGlass.swift); nil until Home asks for it.
     var headerGlass: HeaderGlassView?
+    /// cmux: no header at all (HeaderGlass.swift `useBareTop`): the rows start near the pane's top and fade out there.
+    var bareTop = false
     /// cmux: Reply to Selection's quote over the message box (HostView+QuoteCard.swift); nil when none shows.
     var quoteCard: ReplyQuoteCardView?
     private(set) var demo: MessagesWindowView?
@@ -169,11 +171,17 @@ final class HostView: NSView {
         // inset); the shared list starts 80 pt above the window.
         // Below the titlebar (toolbar and name pill accessory): not adjacent
         // to it, so no scroll pocket.
+        // cmux: no header (HeaderGlass.swift `useBareTop`): the rows start near the top and fade out there.
+        if bareTop, demo.rowsTopInset != bareRowsTop {
+            demo.rowsTopInset = bareRowsTop
+            demo.topFade = bareRowsTop
+            demo.setNeedsLayout()
+        }
         let top = titlebarHeight
         let sf = CGRect(x: 0, y: top, width: bounds.width, height: bounds.height - top)
         if scrollView.frame != sf { scrollView.frame = sf }
         // MessagesLab de36498: the scroller's track from under the header to just above the field (host coordinates).
-        scrollView.placeScroller(top: Fixture.headerHeight, bottom: demo.fieldTop - 0.5)
+        scrollView.placeScroller(top: titlebarHeight, bottom: demo.fieldTop - 0.5)
         scrollView.syncFromModel()
         if fieldChrome.frame != bounds { fieldChrome.frame = bounds }
         let hb = CGRect(x: 0, y: 0, width: bounds.width, height: headerBackdrop.totalHeight)
@@ -188,8 +196,8 @@ final class HostView: NSView {
     }
 
     /// Height of the header area over the content. cmux: the in-pane
-    /// header (the window's titlebar belongs to cmux-next).
-    var titlebarHeight: CGFloat { Fixture.headerHeight }
+    /// header (the window's titlebar belongs to cmux-next); none with `bareTop`.
+    var titlebarHeight: CGFloat { bareTop ? 0 : Fixture.headerHeight }
 
     // MARK: Display scale
 
@@ -206,7 +214,8 @@ final class HostView: NSView {
     /// While the window is resized live: the transcript clip has no mask, and the chrome's border is its nine-part
     /// image (ChromeView.liveResizing; Home hides the chrome), so no width makes the render server draw the
     /// transcript offscreen to fit the mask. The clip's mask (WindowView placeMask) clips nothing that the window
-    /// view's own bounds do not. Both come back when the resize ends (the still pixels are the resting ones).
+    /// view's own bounds do not, except a bare top's fade (HeaderGlass.swift `useBareTop`), which pauses during the
+    /// drag. Both come back when the resize ends (the still pixels are the resting ones).
     private var restingClipMask: CALayer?
     override func viewWillStartLiveResize() {
         super.viewWillStartLiveResize()
@@ -728,7 +737,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if let id = demo.compose.chip(at: p) { dispatch(.removeDraftAttachment(id)); return }
         if thread.clicked(p) { return }
         // cmux: a click on the header strip or the field's edge gives the field the keyboard too.
-        guard p.y > Fixture.headerHeight, !demo.compose.fieldRect.insetBy(dx: 0, dy: -2).contains(p) else { focusCompose(); return }
+        guard p.y > host.titlebarHeight, !demo.compose.fieldRect.insetBy(dx: 0, dy: -2).contains(p) else { focusCompose(); return }
         // cmux: the Chief's status line opens its turn's details.
         if let line = demo.statusLineFrame(), line.contains(p) { intents?.statusLineClicked(line, in: host); return }
         if let hit = demo.hit(p) {
@@ -771,7 +780,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
         let size = p.fittingSize
         let x = min(max(8, hit.row.outgoing ? hit.body.maxX - size.width : hit.body.minX), host.bounds.width - size.width - 8)
-        p.frame = CGRect(x: x, y: max(Fixture.headerHeight + 4, hit.body.minY - size.height - 6), width: size.width, height: size.height)
+        p.frame = CGRect(x: x, y: max(host.titlebarHeight + 4, hit.body.minY - size.height - 6), width: size.width, height: size.height)
         // The pane dims under the picker; a click on the dim closes it.
         // MessagesLab 69f4256: the pressed bubble stays bright above the dim. cmux: the dim has a hole
         // in the bubble's shape, so the real bubble shows through (a bitmap copy over the dim drew

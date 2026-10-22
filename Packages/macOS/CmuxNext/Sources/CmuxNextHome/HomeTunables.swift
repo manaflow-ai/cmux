@@ -66,6 +66,15 @@ public nonisolated struct HomeTunables {
         help: "The mic in the empty message box dictates into it (on-device speech). Off shows the drawn waveform instead.",
         default: true, code: "HomeTunables.voiceInput")
 
+    /// The chat's header over the transcript (MessagesLabHome `HeaderGlassView`): the Chief's avatar and
+    /// its "Chief >" pill on a glass band, as Messages. Off by default (Leo 2026-10-21: "why is there a
+    /// top banner? ... we don't even need this"): no header, the rows start at the top and fade out
+    /// there. Conversations opened after a change follow it.
+    public static let chatHeader = Tunable<Bool>.toggle(
+        "home.chatHeader", section, "Avatar and name over the chat",
+        help: "The chat shows the Chief's avatar and name pill on a glass band at its top, as Messages does. Off: no header, and the messages fade out at the top as they scroll away.",
+        default: false, code: "HomeTunables.chatHeader")
+
     /// New Chief… opens its card as a page tab beside your work (`NewChiefPage`; Leo 2026-10-21, "Chief:
     /// sheet as workspace"). On restores the sheet over Home for one release; remove it after.
     public static let newChiefSheet = Tunable<Bool>.toggle(
@@ -75,7 +84,8 @@ public nonisolated struct HomeTunables {
 
     public static var all: [TunableDescriptor] {
         [flightRecorder.descriptor, flightRecorderCaptures.descriptor, firstRunHero.descriptor, launchIntoHome.descriptor,
-         turnProgress.descriptor, richTables.descriptor, voiceInput.descriptor, newChiefSheet.descriptor]
+         turnProgress.descriptor, richTables.descriptor, voiceInput.descriptor, chatHeader.descriptor,
+         newChiefSheet.descriptor]
     }
 }
 
