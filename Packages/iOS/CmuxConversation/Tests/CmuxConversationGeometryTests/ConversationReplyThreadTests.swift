@@ -78,7 +78,7 @@ import Testing
         let box = thread.path.boundingBoxOfPath
         #expect(box.minX == 36)
         #expect(box.minY >= quote.maxY)
-        #expect(thread.path.currentPoint == CGPoint(x: 48, y: reply.midY))
+        #expect(thread.path.currentPoint == CGPoint(x: 56, y: reply.midY))
     }
 
     @Test func aReplyRightUnderTheQuoteStillDrawsDownward() {

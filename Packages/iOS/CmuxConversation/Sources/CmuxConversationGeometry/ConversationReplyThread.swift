@@ -26,8 +26,10 @@ public struct ConversationReplyThread: Equatable, Sendable {
     public static let tailInset: CGFloat = 6
     /// Space between the line and what it leaves or meets.
     public static let gap: CGFloat = 3
-    /// The turn toward a reply on the other side.
+    /// The turn toward a reply on the other side, and the level run after
+    /// it (Messages: the line ends pointing at the reply, short of it).
     public static let turnRadius: CGFloat = 12
+    public static let run: CGFloat = 8
 
     public init(
         quoteBody: CGRect,
@@ -104,6 +106,7 @@ public struct ConversationReplyThread: Equatable, Sendable {
         let radius = min(Self.turnRadius, end - start)
         path.addLine(to: CGPoint(x: x, y: end - radius))
         path.addQuadCurve(to: CGPoint(x: x + direction * radius, y: end), control: CGPoint(x: x, y: end))
+        path.addLine(to: CGPoint(x: x + direction * (radius + Self.run), y: end))
         return path
     }
 }
