@@ -27,17 +27,24 @@ struct SidebarPriorityDragTests {
         /// positive) and releases at the last one.
         func press(_ id: String, moves: [CGFloat]) throws {
             let row = try #require(panel.rows[id])
-            let start = row.convert(NSPoint(x: 10, y: row.bounds.midY), to: nil)
-            func event(_ type: NSEvent.EventType, _ dy: CGFloat) throws -> NSEvent {
-                // Window points grow up; the panel's rows lay out top down.
-                try #require(NSEvent.mouseEvent(with: type, location: NSPoint(x: start.x, y: start.y - dy), modifierFlags: [],
-                                                timestamp: 0, windowNumber: window.windowNumber, context: nil,
-                                                eventNumber: 0, clickCount: 1, pressure: 1))
-            }
-            row.mouseDown(with: try event(.leftMouseDown, 0))
-            for dy in moves { row.mouseDragged(with: try event(.leftMouseDragged, dy)) }
-            row.mouseUp(with: try event(.leftMouseUp, moves.last ?? 0))
+            row.mouseDown(with: try event(.leftMouseDown, on: id))
+            for dy in moves { row.mouseDragged(with: try event(.leftMouseDragged, on: id, dy: dy)) }
+            row.mouseUp(with: try event(.leftMouseUp, on: id, dy: moves.last ?? 0))
         }
+
+        /// A pointer event `dx`, `dy` points from the middle of `id`'s row where the press went down
+        /// (its slot's, so a row the drag moved still measures from where it was pressed).
+        func event(_ type: NSEvent.EventType, on id: String, dx: CGFloat = 0, dy: CGFloat = 0) throws -> NSEvent {
+            let row = try #require(panel.rows[id])
+            let start = pressPoints[id] ?? row.convert(NSPoint(x: 10, y: row.bounds.midY), to: nil)
+            pressPoints[id] = start
+            // Window points grow up; the panel's rows lay out top down.
+            return try #require(NSEvent.mouseEvent(with: type, location: NSPoint(x: start.x + dx, y: start.y - dy),
+                                                   modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                                                   context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        }
+
+        private var pressPoints: [String: NSPoint] = [:]
     }
 
     @Test func draggingARowUpPlacesItWhereItDrops() throws {
@@ -69,5 +76,49 @@ struct SidebarPriorityDragTests {
         let height = try #require(harness.panel.rows["b"]).frame.height
         try harness.press("b", moves: [-height * 0.3, 0])
         #expect(harness.actions.isEmpty)
+    }
+
+    /// Codex review of #24177: a re-rank under a live drag moved the row under the pointer and
+    /// dropped it against the old rows. Now the drag ends with no place, and its release opens nothing.
+    @Test func aReRankUnderADragEndsItWithNoPlaceAndNoClick() throws {
+        let harness = Harness()
+        let row = try #require(harness.panel.rows["c"])
+        let height = row.frame.height
+        row.mouseDown(with: try harness.event(.leftMouseDown, on: "c"))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "c", dy: -2 * height))
+        #expect(harness.panel.draggingID == "c")
+        let reranked = ["b", "a", "c"].compactMap { id in Self.entries.first { $0.id == id } }
+        harness.panel.show(SidebarPriorityPanel(entries: reranked))
+        #expect(harness.panel.draggingID == nil)
+        row.mouseUp(with: try harness.event(.leftMouseUp, on: "c", dy: -2 * height))
+        #expect(harness.actions.isEmpty)
+        #expect(harness.panel.panel.entries.map(\.id) == ["b", "a", "c"])
+    }
+
+    /// A refresh that keeps the rows (a new preview, a chip) leaves the drag going.
+    @Test func aContentRefreshKeepsTheDrag() throws {
+        let harness = Harness()
+        let row = try #require(harness.panel.rows["c"])
+        let height = row.frame.height
+        row.mouseDown(with: try harness.event(.leftMouseDown, on: "c"))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "c", dy: -2.2 * height))
+        let dragged = row.frame.minY
+        harness.panel.show(SidebarPriorityPanel(entries: Self.entries.map { var entry = $0; entry.title += "!"; return entry }))
+        #expect(harness.panel.draggingID == "c" && row.frame.minY == dragged)
+        row.mouseUp(with: try harness.event(.leftMouseUp, on: "c", dy: -2.2 * height))
+        #expect(harness.actions == [.place("c", order: ["c", "a", "b"])])
+    }
+
+    /// Released beside the list, the row goes back and nothing is placed.
+    @Test func aReleaseBesideTheListPlacesNothing() throws {
+        let harness = Harness()
+        let row = try #require(harness.panel.rows["c"])
+        let height = row.frame.height
+        row.mouseDown(with: try harness.event(.leftMouseDown, on: "c"))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "c", dy: -2 * height))
+        row.mouseUp(with: try harness.event(.leftMouseUp, on: "c", dx: 400, dy: -2 * height))
+        #expect(harness.actions.isEmpty)
+        #expect(harness.panel.draggingID == nil)
+        #expect(harness.panel.panel.entries.map(\.id) == ["a", "b", "c"])
     }
 }
