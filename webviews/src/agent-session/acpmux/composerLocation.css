@@ -913,6 +913,19 @@
   box-shadow: none;
   color: var(--agent-muted);
 }
+/* Reduce Transparency turns bare text over art solid: the plain strip's queue takes the queue's
+   solid fill (--acpmux-queue-fill, composerStates.css), the same as its fold, never clear text over
+   the wallpaper with a solid fold under it (queued-glass.test.ts). */
+:root[data-top-strip="plain"][data-reduce-transparency] .acpmux-composer > .acpmux-composer-queue,
+:root[data-top-strip="plain"][data-reduce-transparency] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
+  background: var(--acpmux-queue-fill);
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-queue,
+  :root[data-top-strip="plain"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
+    background: var(--acpmux-queue-fill);
+  }
+}
 :root[data-top-strip="plain"] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-queue { margin-bottom: 0; }
 :root[data-top-strip="plain"] .acpmux-composer-queue .acpmux-queued { padding-inline: 0; color: var(--agent-muted); }
 :root[data-top-strip="plain"] .acpmux-composer-queue .acpmux-queued-mark { min-width: 0; text-align: left; }
@@ -1093,13 +1106,17 @@
    footer look the box keeps +, the prompt, the mic and Send or Stop, and the mode, model and effort
    sit in a quiet row under it. As Claude Code draws it (measured from its composer at 1x): the
    mode's text on the prompt's text edge, 16 px in from the box's side; the model and effort on the
-   right, their labels 8 px apart (each chip's 4 px hover inset, no gap), the last one 12 px in from
-   the box's right side; the row 28 px tall, 4 px under the box. No fill, no edge: the chips' rest,
+   right, the last one 12 px in from the box's right side; the row 28 px tall, 4 px under the box.
+   Each chip's hover pill sits 8 px out from its text on both sides, the inset of the native
+   selection pill (an NSMenu row's highlight, Codex's and ChatGPT's mode chip), not a 4 px sliver
+   hugging the label (Leo 2026-10-22: "the highlight pill is too small"). The row's padding is
+   counted from that inset, and neighbouring chips tuck the extra padding under each other, so every
+   label stays where it was; only the pill grows (test/composer-foot-pill-inset.test.ts). No fill, no edge: the chips' rest,
    hover, open, press and focus states are the bar's (above). Full access shows its shield, in the
    model chip's color as the quiet chip has it (Leo 2026-10-18, #21744): its "!" mark names the risk
    without the menu, and the menu keeps the warning color where the mode is chosen. */
 .acpmux-composer-foot {
-  --acpmux-row-inset: 4px;
+  --acpmux-row-inset: 8px;
   --acpmux-row-gap: 0px;
   --acpmux-row-group-gap: 0px;
   --acpmux-row-edge: 14px;
@@ -1134,6 +1151,16 @@
 .acpmux-composer-foot .acpmux-access .acpmux-picker-button { color: var(--agent-soft); }
 .acpmux-composer-foot :is(.acpmux-model, .acpmux-effort) .acpmux-picker-button { color: var(--agent-muted); }
 .acpmux-composer-foot .acpmux-effort { margin-inline-start: 1px; }
+/* Neighbouring chips on the right (the model, Plan, a harness's Options, the effort) keep their
+   labels 8 px apart, as with the old 4 px inset: each one after the first tucks its leading pill
+   padding under the one before it, so the wider pill moves no label. The later chip takes the
+   pointer over the shared 8 px. */
+.acpmux-composer-foot .acpmux-chips > :not(.acpmux-access) ~ :not(.acpmux-access) {
+  margin-inline-start: calc(8px - 2 * var(--acpmux-row-inset));
+}
+.acpmux-composer-foot .acpmux-chips > :not(.acpmux-access) ~ .acpmux-effort {
+  margin-inline-start: calc(9px - 2 * var(--acpmux-row-inset));
+}
 /* The box with the chips gone, as the Claude desktop composer lays it (Leo 2026-10-20): no row of
    its own under the prompt. + sits left of the prompt and the mic and Send or Stop right of it, all
    on the prompt's last line, so the box is only as tall as the text. The bar and its chrome area
@@ -1209,7 +1236,13 @@
 }
 /* The context ring ends the quiet row, as Claude Code's does: the row's soft pill on hover and
    while its details are open, the row's outline under keyboard focus. */
-.acpmux-composer-foot .acpmux-context-ring { width: 24px; height: 24px; margin-inline-start: 8px; }
+/* The ring stays 12 px past the model's text and 10 px in from the row's end, whatever the chips'
+   pill inset: its margins give back what the inset took. */
+.acpmux-composer-foot .acpmux-context-ring {
+  width: 24px;
+  height: 24px;
+  margin-inline: calc(12px - var(--acpmux-row-inset)) calc(var(--acpmux-row-inset) - 4px);
+}
 .acpmux-composer-foot .acpmux-context-ring:not(:disabled):hover,
 .acpmux-composer-foot .acpmux-context-ring[aria-expanded="true"] { background: var(--acpmux-pill-hover); }
 .acpmux-composer-foot .acpmux-context-ring:focus-visible { outline-offset: 0; }

@@ -180,7 +180,11 @@ fn byte_count(value: &serde_json::Value) -> Option<u64> {
     value.as_u64().or_else(|| {
         let value = value.as_f64()?;
         // Truncation is the intent: the setting is a whole number of bytes.
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a finite non-negative f64 floors to a whole byte count; `as` saturates"
+        )]
         (value.is_finite() && value >= 0.0).then(|| value.floor() as u64)
     })
 }
