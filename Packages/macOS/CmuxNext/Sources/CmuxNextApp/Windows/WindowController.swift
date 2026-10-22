@@ -159,7 +159,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private func observeWorkspace() {
         sidebar.container.sidebarView.onSpaceShown = { [weak self] in
             guard let self else { return }
-            DebugSpaceSwitch.sidebarShown(state, in: window)
+            DebugSpaceSwitch.sidebarShown(self.state, in: self.window)
         }
         let machines = services.machines
         let cloud = services.cloud
