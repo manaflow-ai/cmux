@@ -94,7 +94,8 @@ impl Hub {
         let fallback = (!opts.steer_only).then(|| blocks.clone());
         let wire_blocks = super::turns::acp_prompt_blocks(session, &blocks)?;
         let mut params = json!({"sessionId": agent_sid, "prompt": wire_blocks});
-        params["_meta"] = json!({"steer": true});
+        // Its promptId names it to a withdraw (`queue_edit.rs` `withdraw`).
+        params["_meta"] = json!({"steer": true, "promptId": prompt_id});
         // Until the agent answers it, Send now can stop the agent's step for it
         // (`queue_edit.rs`); a queued prompt sent now stops it right away.
         let step_now = {
@@ -129,6 +130,12 @@ impl Hub {
                     ..PromptOptions::default()
                 };
                 return Box::pin(self.run_prompt(session, blocks, client, false, opts)).await;
+            }
+            // Taken back before the agent read it: the log says so, and the steer ends there.
+            Err(e) if e.message.starts_with(crate::claude_stdio::STEER_WITHDRAWN) => {
+                let msg = json!({"promptId": prompt_id, "turnId": turn_id});
+                self.append(session, "mux", "steer_withdrawn", msg);
+                json!({"stopReason": "withdrawn"})
             }
             r => r?,
         };
