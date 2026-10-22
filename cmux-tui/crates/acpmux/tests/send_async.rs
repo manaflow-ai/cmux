@@ -358,3 +358,49 @@ async fn a_session_whose_folder_is_gone_keeps_the_message_and_names_the_folder()
     assert_eq!(status["status"], "delivered", "{status}");
     let _ = std::fs::remove_dir_all(&folder);
 }
+
+/// Coordinators name every lane `HOST/NAME`, the form other machines list it under. On the
+/// lane's own machine that name was `no_session` (on cosmic-gray, `acpmux info
+/// cosmic-gray/deputy-2` while `deputy-2` ran there), so a send from a coordinator on the same
+/// machine failed. This machine's own name in front of a local session's name finds it.
+#[tokio::test]
+async fn this_machines_own_name_in_front_of_a_session_name_finds_the_session() {
+    let h = hub();
+    let mut c = C::new(h.clone()).await;
+    let s = c
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "own-lane"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let qualified = format!("{}/own-lane", acpmux::pairing::machine_name());
+    let info = c.call(method::MUX_INFO, json!({"sessionId": qualified})).await.unwrap();
+    assert_eq!(info["sessionId"], id, "{info}");
+    let queued =
+        c.call(SEND_QUEUE, json!({"request": prompt(&qualified, "hi", "p-own")})).await.unwrap();
+    let delivery = queued["deliveryId"].as_str().unwrap().to_owned();
+    let status =
+        c.call(SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 5000})).await.unwrap();
+    assert_eq!(status["status"], "delivered", "{status}");
+    assert_eq!(status["accepted"]["sessionId"], id, "{status}");
+    // Only the whole name: `own-lan` is a prefix of `own-lane`, but HOST/own-lan finds nothing.
+    let partial = format!("{}/own-lan", acpmux::pairing::machine_name());
+    let e = c.call(method::MUX_INFO, json!({"sessionId": partial})).await.unwrap_err();
+    assert!(e.contains("no session"), "{e}");
+    // The name in any case: a coordinator writes `Air-Blue` for `air-blue`.
+    let upper = format!("{}/own-lane", acpmux::pairing::machine_name().to_uppercase());
+    let info = c.call(method::MUX_INFO, json!({"sessionId": upper})).await.unwrap();
+    assert_eq!(info["sessionId"], id, "{info}");
+    // A peer named like this machine owns that name: its session is meant, never this one.
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let host = acpmux::pairing::machine_name();
+    h.add_peer(&host, &format!("ws://127.0.0.1:{port}"), None, None, true).await.unwrap();
+    let shadowed = c.call(method::MUX_INFO, json!({"sessionId": qualified})).await;
+    assert!(shadowed.as_ref().map_or(true, |i| i["sessionId"] != id), "{shadowed:?}");
+    // Another machine's name is not this one's: still no session here.
+    let other = format!("not-{}/own-lane", acpmux::pairing::machine_name());
+    let e = c.call(method::MUX_INFO, json!({"sessionId": other})).await.unwrap_err();
+    assert!(e.contains("no session"), "{e}");
+}

@@ -11,6 +11,7 @@
 import { useContext, useEffect, useState } from "react";
 import { usePaneLanguage, useT } from "../i18n";
 import { BackgroundHint } from "./BackgroundHint";
+import { ShimmerText } from "./ShimmerText";
 import { formatDuration } from "./turns";
 import { WaitingLabel } from "./WaitingLabel";
 import { WaitingOnContext } from "./waitingOn";
@@ -101,7 +102,9 @@ export function Thinking({
       {waiting ? (
         <WaitingLabel waiting={waiting} className="cv-thinking cv-waiting" />
       ) : (
-        <output className={status ? "cv-thinking" : "cv-thinking is-shimmer"}>{label}</output>
+        <output className={status ? "cv-thinking" : "cv-thinking is-shimmer"}>
+          {status ? label : <ShimmerText text={label} />}
+        </output>
       )}
       {timed && <span className="cv-worked__time">{formatDuration(Math.max(0, time - from))}</span>}
       {showTokens && (
