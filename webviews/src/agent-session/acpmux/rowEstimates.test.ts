@@ -155,8 +155,25 @@ test("a task notice is a tool row's line, 2px under the row's top, and the 8px m
   expect(height).toBe(2 + 26 + 8);
 });
 
-test("a steer the agent has not read adds its Send now line under the steer's status", () => {
+// Before: a waiting steer's Send now took a line of its own under the bubble, 20px per steer
+// (Leo, 2026-10-21: "WHY DIDN'T YOU GUYS PUT IT ON THE FUCKING LEFT LIKE FUCKING CLAUDE DOES").
+test("a steer the agent has not read is as tall as a read one: its Send now sits beside the bubble", () => {
   const steer = (state: string) => ({ id: "s", version: 1, at: 0, kind: "user", text: "Also this", steer: state });
+  const [landed] = heightsOf([steer("landed")]);
+  const [waiting] = heightsOf([steer("waiting")]);
+  expect(waiting).toBe(landed!);
+});
+
+test("a Chief's waiting steer keeps its Send now line under the bubble", () => {
+  const steer = (state: string) => ({
+    id: "s",
+    version: 1,
+    at: 0,
+    kind: "user",
+    text: "Also this",
+    from: "chief",
+    steer: state,
+  });
   const [landed] = heightsOf([steer("landed")]);
   const [waiting] = heightsOf([steer("waiting")]);
   // `.cv-user__pending`: 4px above a 16px line.
