@@ -35,8 +35,18 @@ public class ArrowCursorView: NSView, ClickableCursorHost {
     /// The cursor the row last set on a pointer move (`debug.omnibar`).
     private(set) var trackedCursor: OmnibarPointer.Cursor?
     /// Where the pointer was, in window coordinates, when the row last set its cursor; nil once
-    /// it left the row.
+    /// it left the row, the row hid (a parked tab) or the row left its window. Only a hint that
+    /// the pointer may be over the row: `clickableStateDidChange` reads the pointer again.
     private(set) var pointerPoint: NSPoint?
+    /// Where the pointer is now, in the row's window coordinates, when the row's window is the
+    /// top window under it; nil otherwise. Tests replace it (no real pointer on a test host).
+    var currentPointer: (ArrowCursorView) -> NSPoint? = { row in
+        guard let window = row.window, window.isVisible else { return nil }
+        let point = window.mouseLocationOutsideOfEventStream
+        let screen = window.convertPoint(toScreen: point)
+        guard NSWindow.windowNumber(at: screen, belowWindowWithWindowNumber: 0) == window.windowNumber else { return nil }
+        return point
+    }
 
     public override func resetCursorRects() {
         addCursorRect(bounds, cursor: OmnibarPointer.cursor(.toolbar).cursor)
@@ -54,6 +64,17 @@ public class ArrowCursorView: NSView, ClickableCursorHost {
                                   owner: cursorTracker)
         addTrackingArea(area)
         cursorArea = area
+    }
+
+    public override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        pointerPoint = nil
+    }
+
+    /// Parking a tab hides its row under a still pointer, with no exit event.
+    public override func viewDidHide() {
+        super.viewDidHide()
+        pointerPoint = nil
     }
 
     public override func viewDidMoveToWindow() {
@@ -78,8 +99,16 @@ public class ArrowCursorView: NSView, ClickableCursorHost {
     /// A button under a still pointer was enabled or disabled (Back running out of history while a
     /// Chromium page has the key): the row's rule gives the new cursor at once, where
     /// `keepCursor` would keep the one it set last and the button's rects wait for the key.
+    /// `pointerPoint` only says the pointer was over the row; an exit can be skipped (a hide, a
+    /// menu's tracking loop), so the row reads the pointer again and sets a cursor only while it
+    /// is inside the row's visible rect, in the top window under it, and the row shows.
     public func clickableStateDidChange(_ view: NSView) {
-        guard let point = pointerPoint, window != nil, !isHiddenOrHasHiddenAncestor else { return }
+        guard pointerPoint != nil else { return }
+        guard window != nil, !isHiddenOrHasHiddenAncestor, let point = currentPointer(self),
+              visibleRect.contains(convert(point, from: nil)) else {
+            pointerPoint = nil
+            return
+        }
         setCursor(at: point)
     }
 
