@@ -54,6 +54,14 @@ struct DeepLinkNavigator {
                   services.revealTab(shown, intent: intent) else { throw Self.gone }
         case .agent(let harness, let session):
             try openAgent(harness: harness, session: session, message: link.message, intent)
+        case .group(let id, let workspace):
+            // The named workspace when this Mac shows it; else the group's record from cmux Cloud
+            // (CloudGroupLink), whose first workspace open here is shown.
+            if let workspace, let open = services.machines.allWorkspaces.map(\.0).first(where: { $0.resourceID?.rawValue == workspace }) {
+                try reveal(workspace: open.id, intent)
+                return
+            }
+            CloudGroupLink.open(id, workspace: workspace, intent: intent, services: services)
         case .legacyWorkspace(let key, let fallback):
             guard let workspace = legacyWorkspace(key, fallback: fallback) else { throw Self.gone }
             try reveal(workspace: workspace.id, intent)
