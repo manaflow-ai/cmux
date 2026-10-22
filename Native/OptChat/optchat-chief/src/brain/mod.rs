@@ -253,6 +253,11 @@ pub enum Input {
         call: crate::tools::SleepCall,
         reply: Sender<Result<String, String>>,
     },
+    /// A message from a Chief on another machine (peer_chiefs.rs), already
+    /// framed as `[chief:<name>] ...`: queued as a note that wakes the Chief.
+    PeerChiefNote {
+        text: String,
+    },
     /// `escalate_auth` from subagent `agent` (control.rs): an urgent note.
     EscalateAuth {
         agent: String,
@@ -1278,6 +1283,7 @@ impl Brain {
             Input::Sleep { call, reply } => {
                 let _ = reply.send(self.sleep(call));
             }
+            Input::PeerChiefNote { text } => self.queue(text, Source::Note),
             Input::EscalateAuth {
                 agent,
                 request,
