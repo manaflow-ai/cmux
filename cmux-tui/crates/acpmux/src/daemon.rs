@@ -802,7 +802,50 @@ pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
         return Err(anyhow!("no acpmux daemon at {} (run `acpmux daemon`)", path.display()));
     }
     let ready = start_daemon().await?;
-    Client::connect(&path).await.map_err(|e| not_ready(&path, &ready, &e))
+    match Client::connect(&path).await {
+        Ok(c) => Ok(c),
+        // The daemon it started exited first: when another holds the lock, that one is stopping
+        // (the app's handover to its bundled build, `host update`, `daemon shutdown`) or still
+        // starting. A command waits for it instead of failing.
+        Err(e) if ready.trim().is_empty() && !lock_free().await => {
+            connect_after_lock_holder(&path).await.ok_or_else(|| not_ready(&path, &ready, &e))
+        }
+        Err(e) => Err(not_ready(&path, &ready, &e)),
+    }
+}
+
+/// How long a command waits for the daemon that holds the lock: a stopping one settles its
+/// agents first (`SHUTDOWN_BUDGET`, the router's stop and kill waits; 12.3 s on cosmic-gray on
+/// 2026-10-22), a starting one binds within `START_BUDGET`.
+const HANDOVER_BUDGET: Duration = Duration::from_secs(20);
+
+/// Whether no daemon holds this home's lock now.
+async fn lock_free() -> bool {
+    wait_for_lock_release(home().join("daemon.lock"), Duration::ZERO).await
+}
+
+/// Connects once the lock's holder serves (it was starting), or starts a daemon once the holder
+/// has exited (it was stopping). None at the budget, or when a daemon started after the holder
+/// exited has exited too (bad config: its log says why).
+async fn connect_after_lock_holder(path: &std::path::Path) -> Option<Arc<Client>> {
+    let deadline = tokio::time::Instant::now() + HANDOVER_BUDGET;
+    while tokio::time::Instant::now() < deadline {
+        if let Ok(c) = Client::connect(path).await {
+            return Some(c);
+        }
+        if lock_free().await {
+            start_daemon().await.ok()?;
+            if let Ok(c) = Client::connect(path).await {
+                return Some(c);
+            }
+            // Another command's daemon won the lock; it serves shortly.
+            if lock_free().await {
+                return None;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    None
 }
 
 /// A connected socket to the daemon, starting one if needed, for a client
