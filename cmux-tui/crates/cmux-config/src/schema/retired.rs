@@ -23,6 +23,10 @@ struct RetiredEntry {
 }
 
 /// Every retired dotted key and why, in the file's order.
+#[allow(
+    clippy::expect_used,
+    reason = "EMBEDDED is include_str! data fixed at build time; CI and the settings behavior tests parse it"
+)]
 pub fn retired_keys() -> &'static [(String, String)] {
     static TABLE: OnceLock<Vec<(String, String)>> = OnceLock::new();
     TABLE.get_or_init(|| {

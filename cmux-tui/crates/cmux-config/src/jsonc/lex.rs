@@ -13,7 +13,8 @@ pub(super) fn is_delimiter(byte: u8) -> bool {
 }
 
 fn starts_comment(bytes: &[u8], index: usize) -> bool {
-    bytes[index] == b'/' && index + 1 < bytes.len() && matches!(bytes[index + 1], b'/' | b'*')
+    bytes.get(index) == Some(&b'/')
+        && matches!(bytes.get(index.saturating_add(1)), Some(b'/' | b'*'))
 }
 
 pub(super) fn is_comment_start(bytes: &[u8], index: usize) -> bool {
@@ -22,12 +23,12 @@ pub(super) fn is_comment_start(bytes: &[u8], index: usize) -> bool {
 
 /// Offset just past the string literal that starts at `start`.
 pub(super) fn string_end(bytes: &[u8], start: usize) -> Result<usize, JsoncError> {
-    let mut index = start + 1;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'\\' => index += 2,
-            b'"' => return Ok(index + 1),
-            _ => index += 1,
+    let mut index = start.saturating_add(1);
+    while let Some(&byte) = bytes.get(index) {
+        match byte {
+            b'\\' => index = index.saturating_add(2),
+            b'"' => return Ok(index.saturating_add(1)),
+            _ => index = index.saturating_add(1),
         }
     }
     Err(JsoncError::UnterminatedString)
@@ -36,19 +37,18 @@ pub(super) fn string_end(bytes: &[u8], start: usize) -> Result<usize, JsoncError
 /// Offset just past the comment that starts at `start` (a line comment ends
 /// before its newline).
 pub(super) fn comment_end(bytes: &[u8], start: usize) -> Result<usize, JsoncError> {
-    if bytes[start + 1] == b'/' {
-        let mut index = start + 2;
-        while index < bytes.len() && bytes[index] != b'\n' {
-            index += 1;
+    let mut index = start.saturating_add(2);
+    if bytes.get(start.saturating_add(1)) == Some(&b'/') {
+        while bytes.get(index).is_some_and(|&byte| byte != b'\n') {
+            index = index.saturating_add(1);
         }
-        return Ok(index);
+        return Ok(index.min(bytes.len()));
     }
-    let mut index = start + 2;
-    while index + 1 < bytes.len() {
-        if bytes[index] == b'*' && bytes[index + 1] == b'/' {
-            return Ok(index + 2);
+    while let Some(pair) = bytes.get(index..index.saturating_add(2)) {
+        if pair == b"*/" {
+            return Ok(index.saturating_add(2));
         }
-        index += 1;
+        index = index.saturating_add(1);
     }
     Err(JsoncError::UnterminatedComment)
 }
@@ -56,10 +56,9 @@ pub(super) fn comment_end(bytes: &[u8], start: usize) -> Result<usize, JsoncErro
 /// Offset of the first byte after whitespace and comments.
 pub(super) fn skip_trivia(bytes: &[u8], start: usize) -> Result<usize, JsoncError> {
     let mut index = start;
-    while index < bytes.len() {
-        let byte = bytes[index];
+    while let Some(&byte) = bytes.get(index) {
         if matches!(byte, b' ' | b'\t' | b'\n' | b'\r') {
-            index += 1;
+            index = index.saturating_add(1);
         } else if starts_comment(bytes, index) {
             index = comment_end(bytes, index)?;
         } else {
@@ -73,13 +72,12 @@ pub(super) fn skip_trivia(bytes: &[u8], start: usize) -> Result<usize, JsoncErro
 /// `start` itself when no comment follows.
 pub(super) fn same_line_trivia_end(bytes: &[u8], start: usize) -> usize {
     let mut index = start;
-    while index < bytes.len() {
-        let byte = bytes[index];
+    while let Some(&byte) = bytes.get(index) {
         if byte == b' ' || byte == b'\t' {
-            index += 1;
-        } else if byte == b'/' && index + 1 < bytes.len() && bytes[index + 1] == b'/' {
-            while index < bytes.len() && bytes[index] != b'\n' {
-                index += 1;
+            index = index.saturating_add(1);
+        } else if byte == b'/' && bytes.get(index.saturating_add(1)) == Some(&b'/') {
+            while bytes.get(index).is_some_and(|&byte| byte != b'\n') {
+                index = index.saturating_add(1);
             }
             return index;
         } else {
@@ -91,35 +89,41 @@ pub(super) fn same_line_trivia_end(bytes: &[u8], start: usize) -> usize {
 
 /// The spaces and tabs that start the line containing `offset`.
 pub(super) fn line_indent(bytes: &[u8], offset: usize) -> String {
-    let mut line_start = offset;
-    while line_start > 0 && bytes[line_start - 1] != b'\n' {
-        line_start -= 1;
+    let mut line_start = offset.min(bytes.len());
+    while let Some(previous) = line_start.checked_sub(1)
+        && bytes.get(previous).is_some_and(|&byte| byte != b'\n')
+    {
+        line_start = previous;
     }
-    let mut end = line_start;
-    while end < bytes.len() && (bytes[end] == b' ' || bytes[end] == b'\t') {
-        end += 1;
-    }
-    String::from_utf8_lossy(&bytes[line_start..end]).into_owned()
+    let rest = bytes.get(line_start..).unwrap_or_default();
+    let width = rest.iter().take_while(|&&byte| byte == b' ' || byte == b'\t').count();
+    String::from_utf8_lossy(rest.get(..width).unwrap_or_default()).into_owned()
 }
 
 /// The start of `offset`'s line when only blanks precede it there, else `offset`.
 pub(super) fn line_start_if_blank(bytes: &[u8], offset: usize) -> usize {
     let mut index = offset;
-    while index > 0 && (bytes[index - 1] == b' ' || bytes[index - 1] == b'\t') {
-        index -= 1;
+    while let Some(previous) = index.checked_sub(1)
+        && matches!(bytes.get(previous), Some(b' ' | b'\t'))
+    {
+        index = previous;
     }
-    if index == 0 || bytes[index - 1] == b'\n' { index } else { offset }
+    match index.checked_sub(1) {
+        None => index,
+        Some(previous) if bytes.get(previous) == Some(&b'\n') => index,
+        Some(_) => offset,
+    }
 }
 
 /// Just past the newline when only blanks follow `offset` on its line, the
 /// end of the text when nothing follows, else `offset`.
 pub(super) fn line_end_if_blank(bytes: &[u8], offset: usize) -> usize {
     let mut index = offset;
-    while index < bytes.len() && matches!(bytes[index], b' ' | b'\t' | b'\r') {
-        index += 1;
+    while matches!(bytes.get(index), Some(b' ' | b'\t' | b'\r')) {
+        index = index.saturating_add(1);
     }
-    if index < bytes.len() && bytes[index] == b'\n' {
-        return index + 1;
+    if bytes.get(index) == Some(&b'\n') {
+        return index.saturating_add(1);
     }
     if index == bytes.len() { index } else { offset }
 }

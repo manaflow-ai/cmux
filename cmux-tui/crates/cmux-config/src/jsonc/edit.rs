@@ -37,7 +37,7 @@ pub(super) fn set(source: &str, path: &[String], value: &Value) -> Result<String
     };
     let mut edits = Vec::new();
     set_in(value, path, &object, bytes, &mut edits);
-    Ok(apply(edits, bytes))
+    apply(edits, bytes)
 }
 
 pub(super) fn remove(source: &str, path: &[String]) -> Result<String, JsoncError> {
@@ -64,7 +64,7 @@ pub(super) fn remove(source: &str, path: &[String]) -> Result<String, JsoncError
     let Some(index) = object.members.iter().rposition(|member| &member.key == last) else {
         return Ok(source.to_string());
     };
-    Ok(apply(removal_edits(index, &object, bytes), bytes))
+    apply(removal_edits(index, &object, bytes), bytes)
 }
 
 fn set_in(
@@ -102,7 +102,7 @@ fn set_in(
         .map_or_else(|| format!("{brace_indent}  "), |first| line_indent(bytes, first.key_start));
     let member_text = format!("{}: {}", quote(key), pretty(&nested, &member_indent));
     let Some(last) = object.members.last() else {
-        let at = object.open + 1;
+        let at = object.open.saturating_add(1);
         edits.push(Edit {
             range: at..at,
             text: format!("\n{member_indent}{member_text}\n{brace_indent}"),
@@ -112,7 +112,7 @@ fn set_in(
     if let Some(comma) = last.comma_after {
         // Keep the file's trailing-comma style and any comment that follows
         // the comma on its line.
-        let at = same_line_trivia_end(bytes, comma + 1);
+        let at = same_line_trivia_end(bytes, comma.saturating_add(1));
         edits.push(Edit { range: at..at, text: format!("\n{member_indent}{member_text},") });
         return;
     }
@@ -128,27 +128,34 @@ fn set_in(
 }
 
 fn removal_edits(index: usize, object: &ObjectNode, bytes: &[u8]) -> Vec<Edit> {
-    let member = &object.members[index];
+    let Some(member) = object.members.get(index) else { return Vec::new() };
     let start = line_start_if_blank(bytes, member.key_start);
     if let Some(comma) = member.comma_after {
-        let end = line_end_if_blank(bytes, comma + 1);
+        let end = line_end_if_blank(bytes, comma.saturating_add(1));
         return vec![Edit { range: start..end, text: String::new() }];
     }
     let end = line_end_if_blank(bytes, member.value_end);
     let mut edits = vec![Edit { range: start..end, text: String::new() }];
-    if index > 0
-        && let Some(previous) = object.members[index - 1].comma_after
+    if let Some(previous) = index
+        .checked_sub(1)
+        .and_then(|previous| object.members.get(previous))
+        .and_then(|previous| previous.comma_after)
     {
-        edits.push(Edit { range: previous..previous + 1, text: String::new() });
+        edits.push(Edit { range: previous..previous.saturating_add(1), text: String::new() });
     }
     edits
 }
 
-fn apply(mut edits: Vec<Edit>, bytes: &[u8]) -> String {
+/// `bytes` with `edits` applied from the end; an edit range outside the
+/// text is malformed input.
+fn apply(mut edits: Vec<Edit>, bytes: &[u8]) -> Result<String, JsoncError> {
     let mut result = bytes.to_vec();
     edits.sort_by_key(|edit| std::cmp::Reverse(edit.range.start));
     for edit in edits {
+        if edit.range.start > edit.range.end || edit.range.end > result.len() {
+            return Err(JsoncError::Malformed { offset: edit.range.start });
+        }
         result.splice(edit.range, edit.text.into_bytes());
     }
-    String::from_utf8_lossy(&result).into_owned()
+    Ok(String::from_utf8_lossy(&result).into_owned())
 }

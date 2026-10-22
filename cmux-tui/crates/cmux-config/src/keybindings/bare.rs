@@ -89,19 +89,19 @@ fn is_value_byte(byte: u8) -> bool {
 
 impl Parser<'_> {
     fn peek(&self, offset: usize) -> Option<u8> {
-        self.bytes.get(self.index + offset).copied()
+        self.bytes.get(self.index.saturating_add(offset)).copied()
     }
 
     fn skip_space(&mut self) {
         while matches!(self.peek(0), Some(b' ' | b'\t')) {
-            self.index += 1;
+            self.index = self.index.saturating_add(1);
         }
     }
 
     fn take(&mut self, token: &str) -> bool {
         self.skip_space();
-        if self.bytes[self.index..].starts_with(token.as_bytes()) {
-            self.index += token.len();
+        if self.bytes.get(self.index..).is_some_and(|rest| rest.starts_with(token.as_bytes())) {
+            self.index = self.index.saturating_add(token.len());
             true
         } else {
             false
@@ -142,7 +142,7 @@ impl Parser<'_> {
     fn unary(&mut self) -> Option<Clause> {
         self.skip_space();
         if self.peek(0) == Some(b'!') && self.peek(1).is_some_and(|byte| byte != b'=') {
-            self.index += 1;
+            self.index = self.index.saturating_add(1);
             self.unary()?;
             return Some(Clause::Other);
         }
@@ -186,25 +186,27 @@ impl Parser<'_> {
         self.skip_space();
         let start = self.index;
         while self.peek(0).is_some_and(is_word_byte) {
-            self.index += 1;
+            self.index = self.index.saturating_add(1);
         }
-        (self.index > start).then(|| String::from_utf8_lossy(&self.bytes[start..self.index]).into())
+        (self.index > start).then(|| {
+            String::from_utf8_lossy(self.bytes.get(start..self.index).unwrap_or_default()).into()
+        })
     }
 
     fn value(&mut self) -> Option<()> {
         self.skip_space();
         let quote = self.peek(0)?;
         if quote == b'\'' || quote == b'"' {
-            self.index += 1;
+            self.index = self.index.saturating_add(1);
             while self.peek(0)? != quote {
-                self.index += 1;
+                self.index = self.index.saturating_add(1);
             }
-            self.index += 1;
+            self.index = self.index.saturating_add(1);
             return Some(());
         }
         let start = self.index;
         while self.peek(0).is_some_and(is_value_byte) {
-            self.index += 1;
+            self.index = self.index.saturating_add(1);
         }
         (self.index > start).then_some(())
     }
@@ -214,16 +216,16 @@ impl Parser<'_> {
         if self.peek(0)? != b'/' {
             return None;
         }
-        self.index += 1;
+        self.index = self.index.saturating_add(1);
         while self.peek(0)? != b'/' {
             if self.peek(0) == Some(b'\\') && self.peek(1).is_some() {
-                self.index += 1;
+                self.index = self.index.saturating_add(1);
             }
-            self.index += 1;
+            self.index = self.index.saturating_add(1);
         }
-        self.index += 1;
+        self.index = self.index.saturating_add(1);
         while self.peek(0).is_some_and(is_word_byte) {
-            self.index += 1;
+            self.index = self.index.saturating_add(1);
         }
         Some(())
     }

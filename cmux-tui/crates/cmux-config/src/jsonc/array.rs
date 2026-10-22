@@ -30,11 +30,11 @@ pub(super) fn root_array(bytes: &[u8]) -> Result<Option<RootArray>, JsoncError> 
     if open >= bytes.len() {
         return Ok(None);
     }
-    if bytes[open] != b'[' {
+    if bytes.get(open) != Some(&b'[') {
         return Err(JsoncError::Malformed { offset: open });
     }
     let mut elements = Vec::new();
-    let mut index = skip_trivia(bytes, open + 1)?;
+    let mut index = skip_trivia(bytes, open.saturating_add(1))?;
     while bytes.get(index) != Some(&b']') {
         let end = value_end(bytes, index)?;
         if end == index {
@@ -44,13 +44,13 @@ pub(super) fn root_array(bytes: &[u8]) -> Result<Option<RootArray>, JsoncError> 
         let after = skip_trivia(bytes, end)?;
         let comma_after = (bytes.get(after) == Some(&b',')).then_some(after);
         elements.push(Element { start: index, end, comma_after });
-        index = skip_trivia(bytes, comma_after.map_or(after, |comma| comma + 1))?;
+        index = skip_trivia(bytes, comma_after.map_or(after, |comma| comma.saturating_add(1)))?;
         if comma_after.is_none() && bytes.get(index) != Some(&b']') {
             return Err(JsoncError::Malformed { offset: index });
         }
     }
-    if skip_trivia(bytes, index + 1)? != bytes.len() {
-        return Err(JsoncError::Malformed { offset: index + 1 });
+    if skip_trivia(bytes, index.saturating_add(1))? != bytes.len() {
+        return Err(JsoncError::Malformed { offset: index.saturating_add(1) });
     }
     Ok(Some(RootArray { open, close: index, elements }))
 }
@@ -60,17 +60,17 @@ pub(super) fn root_array(bytes: &[u8]) -> Result<Option<RootArray>, JsoncError> 
 fn value_end(bytes: &[u8], start: usize) -> Result<usize, JsoncError> {
     let mut depth = 0usize;
     let mut index = start;
-    while index < bytes.len() {
-        match bytes[index] {
+    while let Some(&byte) = bytes.get(index) {
+        match byte {
             b'"' => index = string_end(bytes, index)?,
             b'{' | b'[' => {
-                depth += 1;
-                index += 1;
+                depth = depth.saturating_add(1);
+                index = index.saturating_add(1);
             }
             b'}' | b']' if depth == 0 => return Ok(index),
             b'}' | b']' => {
-                depth -= 1;
-                index += 1;
+                depth = depth.saturating_sub(1);
+                index = index.saturating_add(1);
                 if depth == 0 {
                     return Ok(index);
                 }
@@ -83,7 +83,7 @@ fn value_end(bytes: &[u8], start: usize) -> Result<usize, JsoncError> {
                 index = super::lex::comment_end(bytes, index)?;
             }
             b' ' | b'\t' | b'\n' | b'\r' if depth == 0 => return Ok(index),
-            _ => index += 1,
+            _ => index = index.saturating_add(1),
         }
     }
     if depth == 0 { Ok(index) } else { Err(JsoncError::Malformed { offset: index }) }
@@ -106,27 +106,28 @@ pub(super) fn append(source: &str, value: &Value) -> Result<String, JsoncError> 
     let Some(last) = array.elements.last() else {
         let indent = line_indent(bytes, array.open) + "  ";
         let at = line_start_if_blank(bytes, array.close);
-        if at == 0 || bytes[at - 1] == b'\n' {
+        if at.checked_sub(1).is_none_or(|previous| bytes.get(previous) == Some(&b'\n')) {
             // `]` starts its line: the entry goes on the line before it.
             let insert = format!("{indent}{}\n", render(value, &indent));
-            return Ok(splice(source, at, at, &insert));
+            return splice(source, at, at, &insert);
         }
         let closing = line_indent(bytes, array.close);
         let insert = format!("\n{indent}{}\n{closing}", render(value, &indent));
-        return Ok(splice(source, array.close, array.close, &insert));
+        return splice(source, array.close, array.close, &insert);
     };
     let indent = line_indent(bytes, last.start);
     let rendered = render(value, &indent);
     match last.comma_after {
         Some(comma) => {
-            let tail = same_line_trivia_end(bytes, comma + 1);
-            Ok(splice(source, tail, tail, &format!("\n{indent}{rendered}")))
+            let tail = same_line_trivia_end(bytes, comma.saturating_add(1));
+            splice(source, tail, tail, &format!("\n{indent}{rendered}"))
         }
         None => {
             // The comma goes right after the value; a comment on its line stays there.
             let tail = same_line_trivia_end(bytes, last.end);
-            let with_comma = splice(source, last.end, last.end, ",");
-            Ok(splice(&with_comma, tail + 1, tail + 1, &format!("\n{indent}{rendered}")))
+            let with_comma = splice(source, last.end, last.end, ",")?;
+            let at = tail.saturating_add(1);
+            splice(&with_comma, at, at, &format!("\n{indent}{rendered}"))
         }
     }
 }
@@ -137,17 +138,17 @@ pub(super) fn remove(source: &str, index: usize) -> Result<String, JsoncError> {
     let array = root_array(bytes)?.ok_or(JsoncError::Malformed { offset: 0 })?;
     let element = *array.elements.get(index).ok_or(JsoncError::Malformed { offset: 0 })?;
     let end = match element.comma_after {
-        Some(comma) => comma + 1,
+        Some(comma) => comma.saturating_add(1),
         None => element.end,
     };
     let start = line_start_if_blank(bytes, element.start);
     let end = line_end_if_blank(bytes, same_line_trivia_end(bytes, end));
-    let removed = splice(source, start, end, "");
+    let removed = splice(source, start, end, "")?;
     // The last element without a comma: drop only the previous element's
     // comma byte, so a comment after it stays.
     match (element.comma_after, index.checked_sub(1)) {
-        (None, Some(previous)) => match array.elements[previous].comma_after {
-            Some(comma) if comma < start => Ok(splice(&removed, comma, comma + 1, "")),
+        (None, Some(previous)) => match array.elements.get(previous).and_then(|e| e.comma_after) {
+            Some(comma) if comma < start => splice(&removed, comma, comma.saturating_add(1), ""),
             _ => Ok(removed),
         },
         _ => Ok(removed),
@@ -160,13 +161,17 @@ pub(super) fn replace(source: &str, index: usize, value: &Value) -> Result<Strin
     let array = root_array(bytes)?.ok_or(JsoncError::Malformed { offset: 0 })?;
     let element = array.elements.get(index).ok_or(JsoncError::Malformed { offset: 0 })?;
     let indent = line_indent(bytes, element.start);
-    Ok(splice(source, element.start, element.end, &render(value, &indent)))
+    splice(source, element.start, element.end, &render(value, &indent))
 }
 
-fn splice(source: &str, start: usize, end: usize, insert: &str) -> String {
-    let mut out = String::with_capacity(source.len() + insert.len());
-    out.push_str(&source[..start]);
+/// `source` with `start..end` replaced by `insert`; a range that is not on
+/// character boundaries of `source` is malformed input.
+fn splice(source: &str, start: usize, end: usize, insert: &str) -> Result<String, JsoncError> {
+    let head = source.get(..start).ok_or(JsoncError::Malformed { offset: start })?;
+    let tail = source.get(end..).ok_or(JsoncError::Malformed { offset: end })?;
+    let mut out = String::with_capacity(source.len().saturating_add(insert.len()));
+    out.push_str(head);
     out.push_str(insert);
-    out.push_str(&source[end..]);
-    out
+    out.push_str(tail);
+    Ok(out)
 }

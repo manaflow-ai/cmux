@@ -47,8 +47,8 @@ fn parse_value(bytes: &[u8], start: usize) -> Result<(Node, usize), JsoncError> 
         b'"' => Ok((Node::Scalar, string_end(bytes, start)?)),
         _ => {
             let mut end = start;
-            while end < bytes.len() && !is_delimiter(bytes[end]) {
-                end += 1;
+            while bytes.get(end).is_some_and(|&byte| !is_delimiter(byte)) {
+                end = end.saturating_add(1);
             }
             if end == start {
                 return Err(JsoncError::Malformed { offset: start });
@@ -59,9 +59,9 @@ fn parse_value(bytes: &[u8], start: usize) -> Result<(Node, usize), JsoncError> 
 }
 
 fn parse_array(bytes: &[u8], start: usize) -> Result<(Node, usize), JsoncError> {
-    let mut index = skip_trivia(bytes, start + 1)?;
+    let mut index = skip_trivia(bytes, start.saturating_add(1))?;
     if bytes.get(index) == Some(&b']') {
-        return Ok((Node::Scalar, index + 1));
+        return Ok((Node::Scalar, index.saturating_add(1)));
     }
     // Every pass consumes input of a finite in-memory buffer.
     loop {
@@ -69,12 +69,12 @@ fn parse_array(bytes: &[u8], start: usize) -> Result<(Node, usize), JsoncError> 
         index = skip_trivia(bytes, end)?;
         match bytes.get(index) {
             Some(b',') => {
-                index = skip_trivia(bytes, index + 1)?;
+                index = skip_trivia(bytes, index.saturating_add(1))?;
                 if bytes.get(index) == Some(&b']') {
-                    return Ok((Node::Scalar, index + 1));
+                    return Ok((Node::Scalar, index.saturating_add(1)));
                 }
             }
-            Some(b']') => return Ok((Node::Scalar, index + 1)),
+            Some(b']') => return Ok((Node::Scalar, index.saturating_add(1))),
             _ => return Err(JsoncError::Malformed { offset: index }),
         }
     }
@@ -82,23 +82,25 @@ fn parse_array(bytes: &[u8], start: usize) -> Result<(Node, usize), JsoncError> 
 
 fn parse_object(bytes: &[u8], open: usize) -> Result<(Node, usize), JsoncError> {
     let mut members = Vec::new();
-    let mut index = skip_trivia(bytes, open + 1)?;
+    let mut index = skip_trivia(bytes, open.saturating_add(1))?;
     // Every pass consumes input of a finite in-memory buffer.
     loop {
         match bytes.get(index) {
             None => return Err(JsoncError::Malformed { offset: index }),
-            Some(b'}') => return Ok((Node::Object(ObjectNode { open, members }), index + 1)),
+            Some(b'}') => {
+                return Ok((Node::Object(ObjectNode { open, members }), index.saturating_add(1)));
+            }
             Some(b'"') => {}
             Some(_) => return Err(JsoncError::Malformed { offset: index }),
         }
         let key_end = string_end(bytes, index)?;
-        let key_text = String::from_utf8_lossy(&bytes[index..key_end]);
+        let key_text = String::from_utf8_lossy(bytes.get(index..key_end).unwrap_or_default());
         let key = serde_json::from_str::<String>(&key_text).unwrap_or_default();
         let mut cursor = skip_trivia(bytes, key_end)?;
         if bytes.get(cursor) != Some(&b':') {
             return Err(JsoncError::Malformed { offset: cursor });
         }
-        cursor = skip_trivia(bytes, cursor + 1)?;
+        cursor = skip_trivia(bytes, cursor.saturating_add(1))?;
         let (node, value_end) = parse_value(bytes, cursor)?;
         let mut member = Member {
             key,
@@ -113,7 +115,7 @@ fn parse_object(bytes: &[u8], open: usize) -> Result<(Node, usize), JsoncError> 
             None => return Err(JsoncError::Malformed { offset: index }),
             Some(b',') => {
                 member.comma_after = Some(index);
-                index = skip_trivia(bytes, index + 1)?;
+                index = skip_trivia(bytes, index.saturating_add(1))?;
             }
             Some(b'}') => {}
             Some(_) => return Err(JsoncError::Malformed { offset: index }),

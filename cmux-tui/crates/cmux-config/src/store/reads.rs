@@ -101,7 +101,9 @@ impl GetView<'_> {
             "row": self.row.as_ref().map(RowView::to_json),
             "managed": self.managed.as_ref().map(|(key, source)| {
                 let mut info = source.to_json(key);
-                info["key"] = Value::String(key.clone());
+                if let Some(object) = info.as_object_mut() {
+                    object.insert("key".to_string(), Value::String(key.clone()));
+                }
                 info
             }),
         })

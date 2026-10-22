@@ -143,8 +143,8 @@ fn set_text(
 /// row would turn its value into an object.
 fn check_row_overlap(state: &State, path: &[String]) -> Result<(), Refusal> {
     let overlapping = state.schema.rows.iter().find(|row| {
-        let shorter = row.path.len().min(path.len());
-        row.path[..shorter] == path[..shorter]
+        // Equal on the shorter of the two paths: one is a prefix of the other.
+        row.path.iter().zip(path).all(|(row_part, part)| row_part == part)
     });
     match overlapping {
         None => Ok(()),
@@ -214,7 +214,7 @@ fn reset_all_text(state: &State, meta: &WriteMeta) -> Result<String, Refusal> {
 /// Removes `path`, then each parent object that became empty.
 fn remove_pruning(text: String, path: &[String]) -> Result<String, Refusal> {
     let mut text = jsonc::remove(&text, path).map_err(unreadable)?;
-    let mut parent = path[..path.len() - 1].to_vec();
+    let mut parent = path.split_last().map(|(_, parent)| parent.to_vec()).unwrap_or_default();
     while !parent.is_empty() && prune_empty(&mut text, &parent)? {
         parent.pop();
     }

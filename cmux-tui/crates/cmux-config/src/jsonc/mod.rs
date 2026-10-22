@@ -52,25 +52,25 @@ pub fn strip(source: &str) -> Result<String, JsoncError> {
     let bytes = source.as_bytes();
     let mut output = Vec::with_capacity(bytes.len());
     let mut index = lex::body_start(bytes);
-    while index < bytes.len() {
-        let byte = bytes[index];
+    while let Some(&byte) = bytes.get(index) {
         if byte == b'"' {
             let end = lex::string_end(bytes, index)?;
-            output.extend_from_slice(&bytes[index..end]);
+            output.extend_from_slice(bytes.get(index..end).unwrap_or_default());
             index = end;
         } else if lex::is_comment_start(bytes, index) {
             let end = lex::comment_end(bytes, index)?;
-            output.extend(bytes[index..end].iter().filter(|b| **b == b'\n'));
+            output
+                .extend(bytes.get(index..end).unwrap_or_default().iter().filter(|b| **b == b'\n'));
             index = end;
         } else if byte == b',' {
-            let next = lex::skip_trivia(bytes, index + 1)?;
+            let next = lex::skip_trivia(bytes, index.saturating_add(1))?;
             if !matches!(bytes.get(next), Some(b'}' | b']')) {
                 output.push(byte);
             }
-            index += 1;
+            index = index.saturating_add(1);
         } else {
             output.push(byte);
-            index += 1;
+            index = index.saturating_add(1);
         }
     }
     Ok(String::from_utf8_lossy(&output).into_owned())
