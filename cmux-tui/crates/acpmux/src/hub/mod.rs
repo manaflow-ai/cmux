@@ -36,6 +36,7 @@ mod launchers;
 mod live_models;
 pub mod media_read;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
+pub use media_read::FEATURE as MEDIA_READ_FEATURE;
 mod hosts;
 mod lifecycle;
 pub(crate) mod model_availability;

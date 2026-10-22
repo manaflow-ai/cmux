@@ -1,7 +1,11 @@
 //! The media reader (R10 in leo-workspace#874): the images and videos a chat's agent names are
-//! read on the machine that runs the chat, never as a same-named file on the app's Mac. This is the
-//! reader itself; the `_acpmux/media_open` and `_acpmux/media_range` methods that serve it come in
-//! their own change.
+//! read on the machine that runs the chat, never as a same-named file on the app's Mac.
+//! `_acpmux/media_open {sessionId, path}` answers `{handle, size, mimeType, identity}`, and
+//! `_acpmux/media_range {sessionId, handle, offset, length}` answers `{offset, size, identity,
+//! data}` (base64), with the open's `size` and `identity` repeated so the reader checks them on
+//! every range. Both name a session, so `peer_forward.rs` takes a peer's chat to the peer, and
+//! only to a peer whose `initialize` lists [`FEATURE`]. A Web connection reads nothing
+//! (`mediaRead.remote`, `server/remote_guard.rs`).
 //!
 //! What a chat may read: a file under its folder (`cwd`, the root a relative path starts from) or
 //! its own uploads (`hub/file_uploads.rs`). The hub keeps no `additionalDirectories`, so they are
@@ -15,15 +19,17 @@
 //! - its type is sniffed from its bytes: png, jpeg, gif or webp up to [`MAX_IMAGE_BYTES`], an
 //!   mp4, mov, m4v or webm up to [`MAX_VIDEO_BYTES`]. SVG and PDF are never read.
 //!
-//! The descriptor stays in a connection's handle table ([`Handles`]: at most [`MAX_HANDLES`],
-//! each gone after [`IDLE`] unused). Every range is read from it after and before comparing
+//! The descriptor stays in the connection's handle table ([`Handles`]: at most [`MAX_HANDLES`],
+//! each gone after [`IDLE`] unused, all closed when the connection ends, and one closed by its
+//! final range). Every range is read from it after and before comparing
 //! `(dev, ino, size, mtime)` with the open's, so a file changed since the open is refused, and a
 //! file replaced at its path keeps serving the bytes that were opened. A range is at most
 //! [`MAX_RANGE`] bytes: 8 MiB of base64, under the RPC cap (`rpc.rs`) and an older peer's 16 MiB
 //! frame.
 
-use crate::rpc::RpcError;
-use serde_json::json;
+use super::Hub;
+use crate::rpc::{RpcError, method};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::File;
@@ -31,6 +37,8 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
+/// The `initialize` feature of a daemon that serves `_acpmux/media_open` and `_acpmux/media_range`.
+pub const FEATURE: &str = "mediaRead";
 /// The most bytes one range reads.
 pub const MAX_RANGE: usize = 6 << 20;
 /// The largest image read.
@@ -330,6 +338,77 @@ impl Handles {
     pub fn close_all(&self) {
         self.0.lock().unwrap_or_else(PoisonError::into_inner).clear();
     }
+}
+
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, RpcError> + Send + 'static,
+) -> Result<T, RpcError> {
+    tokio::task::spawn_blocking(work).await.map_err(|e| RpcError::internal(e.to_string()))?
+}
+
+/// `_acpmux/media_open` or `_acpmux/media_range` for one of this daemon's chats.
+pub async fn handle(
+    hub: &Hub,
+    handles: &Handles,
+    m: &str,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    let session = hub.resolve(crate::server::session_key(params)?)?;
+    if session.purged.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err(RpcError::invalid_params("no such chat"));
+    }
+    let id = session.id.clone();
+    if m == method::MUX_MEDIA_OPEN {
+        let path = params.get("path").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let mut roots = vec![session.meta().cwd.clone()];
+        roots.extend(super::file_uploads::session_dir(&id));
+        let home = dirs::home_dir();
+        let opened = blocking(move || open_in(&roots, &path, home.as_deref(), &mut |_| {})).await?;
+        let (size, mime, identity) = (opened.identity.size, opened.mime, opened.identity.token());
+        let handle = handles.insert(&id, opened, Instant::now())?;
+        return Ok(json!({"handle": handle, "size": size, "mimeType": mime, "identity": identity}));
+    }
+    let handle = params.get("handle").and_then(Value::as_str).unwrap_or_default();
+    let number = |key: &str| {
+        params.get(key).and_then(Value::as_u64).ok_or_else(|| {
+            refused("media.range", &format!("{key} must be a whole number of bytes"))
+        })
+    };
+    let (offset, length) = (number("offset")?, number("length")?);
+    let (file, identity) = handles.get(&id, handle, Instant::now())?;
+    let read = blocking(move || read_range(&file, &identity, offset, length)).await;
+    let bytes = match read {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            if e.data.as_ref().is_some_and(|d| d["reason"] == "media.changed") {
+                handles.close(handle);
+            }
+            return Err(e);
+        }
+    };
+    let end = offset.saturating_add(u64::try_from(bytes.len()).unwrap_or(u64::MAX));
+    if end >= identity.size {
+        handles.close(handle);
+    }
+    use base64::Engine;
+    Ok(json!({
+        "offset": offset,
+        "size": identity.size,
+        "identity": identity.token(),
+        "data": base64::engine::general_purpose::STANDARD.encode(bytes),
+    }))
+}
+
+/// The refusal for a peer that does not serve the reader: the app shows the media as a card.
+pub fn peer_unsupported(peer: &crate::peer::Peer) -> RpcError {
+    RpcError::method_not_found(&format!(
+        "{} (peer {} runs acpmux build {}; run `acpmux host update {}`)",
+        method::MUX_MEDIA_OPEN,
+        peer.name,
+        peer.remote_build().unwrap_or_else(|| "unknown".into()),
+        peer.name
+    ))
+    .with_data(json!({"reason": "mediaRead.unsupported"}))
 }
 
 #[cfg(unix)]
