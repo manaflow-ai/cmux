@@ -801,7 +801,14 @@ impl Spawner {
         let name = crate::workspaces::title(task);
         let group = crate::workspaces::topic_group(task);
         let key = key.unwrap_or_else(crate::workspaces::new_key);
-        match workspaces.open(&key, &session, &name, &group, &s.cwd) {
+        // The terminal beside the chat runs on this Mac: a peer session's
+        // folder is on the VM (/home/agent/work), and a PTY spawned in a
+        // folder missing here fails, so the subagent got no workspace (a511).
+        let term_cwd = match &peer {
+            Some(_) => &self.settings.cwd,
+            None => &s.cwd,
+        };
+        match workspaces.open(&key, &session, &name, &group, term_cwd) {
             Ok(key) => {
                 let place = workspaces.place();
                 // a313: the real ws_ id, so the CLI can list, move and pin it.
