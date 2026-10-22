@@ -13,13 +13,13 @@
 .acpmux-header-tool[aria-pressed=true]:not(:disabled):hover{background:color-mix(in srgb,var(--agent-text) 14%,transparent)}
 .ui-popup.acpmux-chat-menu-popover{width:256px;max-height:var(--available-height,min(540px,70vh));overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);transform-origin:var(--transform-origin);color:var(--agent-text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);line-height:var(--text-control--line-height);-webkit-user-select:none;user-select:none;cursor:default;outline:none}
 /* The chat menu's rows on the one menu grid (ui/popupSurface.css --ui-menu-*): icon at the icon column, text past it, the key at the trailing inset. */
-.ui-menu-item.acpmux-chat-menu-item{display:flex;align-items:center;gap:var(--ui-menu-icon-gap);width:100%;min-height:var(--ui-row-height);height:var(--ui-row-height);padding:0 var(--ui-menu-row-end) 0 var(--ui-menu-row-start);box-sizing:border-box;border-radius:var(--ui-row-radius);color:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
-.acpmux-chat-menu-item>svg{flex:none;color:var(--agent-muted)}
+.ui-menu-item.acpmux-chat-menu-item{display:flex;align-items:center;gap:var(--ui-menu-icon-gap);width:100%;min-height:var(--ui-row-height);height:var(--ui-row-height);padding:0 var(--ui-menu-row-end) 0 var(--ui-menu-item-start,var(--ui-menu-row-start));box-sizing:border-box;border-radius:var(--ui-row-radius);color:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-chat-menu-item>svg{flex:none;width:var(--ui-menu-icon-size);height:var(--ui-menu-icon-size);color:var(--agent-muted)}
 .ui-menu-item.acpmux-chat-menu-item[data-highlighted],.ui-menu-item.acpmux-chat-menu-item[data-popup-open]{background:var(--acpmux-menu-hover);outline:none}
 .ui-menu-item.acpmux-chat-menu-item[data-disabled]{color:var(--agent-muted);opacity:1}
 .acpmux-chat-menu-label{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .acpmux-chat-menu-key{flex:none;color:var(--agent-muted);font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:var(--text-detail);line-height:18px}
-.ui-popup.acpmux-chat-menu-popover:has(.acpmux-chat-menu-item>svg) .ui-menu-item.acpmux-chat-menu-item:not(:has(>svg)){padding-inline-start:var(--ui-menu-row-text-start)}
+.ui-popup.acpmux-chat-menu-popover:has(.acpmux-chat-menu-item>svg) .ui-menu-item.acpmux-chat-menu-item:not(:has(>svg)){--ui-menu-item-start:var(--ui-menu-row-text-start)}
 .ui-popup.acpmux-chat-menu-popover .ui-separator{height:.5px;margin:4px var(--ui-menu-separator-margin);background:var(--agent-border)}
 /* The agent pane does not load src/ui/ui.css, so the pane carries the primitive's stacking: every Base UI overlay
    (menus, popovers, comboboxes, tooltips) portals to the page root and must draw above the composer card and the

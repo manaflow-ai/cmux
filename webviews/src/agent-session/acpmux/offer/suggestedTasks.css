@@ -160,8 +160,8 @@
 }
 .acpmux-task-menu .ui-menu-check {
   display: inline-flex;
-  justify-content: center;
-  width: 14px;
+  justify-content: flex-start;
+  width: var(--ui-menu-state-width);
   flex: none;
 }
 

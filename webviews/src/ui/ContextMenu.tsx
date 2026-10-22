@@ -42,13 +42,13 @@ export interface ContextMenuProps {
 const RETURN_FOCUS =
   "button, a[href], input, select, textarea, [contenteditable]:not([contenteditable='false']), [role='textbox'], [tabindex]:not([tabindex='-1'])";
 
-/** Inline, as the placement is: the agent pane does not load ui.css. */
+/** Inline, as the placement is: the agent pane does not load ui.css. The menu grid's icon box. */
 const MENU_ICON = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  width: 16,
-  height: 16,
+  width: "var(--ui-menu-icon-size, 14px)",
+  height: "var(--ui-menu-icon-size, 14px)",
   flex: "none",
 } as const;
 

@@ -26,7 +26,8 @@
 .nt-popover .nt-rows{--popup-scroll-cap:360px;box-sizing:border-box;padding:var(--ui-popup-padding);max-height:min(48vh,360px);overflow:auto;overscroll-behavior:contain}
 .nt-row{display:flex;align-items:center;gap:var(--ui-menu-icon-gap);height:var(--ui-row-height);padding:0 var(--ui-menu-row-end) 0 var(--ui-menu-row-start);border-radius:var(--ui-row-radius);color:var(--agent-soft);font-size:var(--text-control);cursor:default;white-space:nowrap}
 .nt-row.is-selected{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent);color:var(--agent-text)}
-.nt-row-glyph{flex:none;display:grid;place-items:center;width:16px;height:16px}
+.nt-row-glyph{flex:none;display:grid;place-items:center;width:var(--ui-menu-icon-size);height:var(--ui-menu-icon-size)}
+.nt-row-glyph>*{max-width:100%;max-height:100%}
 .nt-row-icon{color:var(--acpmux-composer-dim)}
 .nt-row.is-selected .nt-row-icon,.nt-row:not(:disabled):hover .nt-row-icon{color:var(--agent-text)}
 .nt-row-favicon{border-radius:3px;box-shadow:none;object-fit:contain}

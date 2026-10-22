@@ -22,18 +22,20 @@
   --ui-row-height: calc(28px * var(--cmux-interface-scale, 1));
   --ui-row-radius: var(--cmux-menu-highlight-radius, 5px);
   --ui-row-padding-inline: calc(8px * var(--cmux-interface-scale, 1));
-  /* A menu row's insets on the one grid, measured from inside the popup's padding: its leading
-     column (an icon or check, else the text) at --cmux-menu-icon-x, the text past an icon column at
-     --cmux-menu-text-x, a shortcut or chevron --cmux-menu-trailing from the edge, and a separator
-     --cmux-menu-separator-inset from both edges. The literals are the same steps, for a host that
+  /* A menu row's insets on the one grid (schemas/menu-metrics), measured from inside the popup's
+     padding: its icon, or its title when it has none, at --cmux-menu-icon-x; the title past an icon
+     column at --cmux-menu-text-x; a shortcut or chevron --cmux-menu-trailing from the edge; a
+     separator --cmux-menu-separator-inset from both edges. A menu with a leading checkmark moves
+     both columns to the state-* ones (below). The literals are the same steps, for a host that
      loads this sheet without desktop.css (the gallery shell). */
-  --ui-menu-row-start: calc(var(--cmux-menu-icon-x, 22px) - var(--ui-popup-padding));
-  --ui-menu-row-text-start: calc(var(--cmux-menu-text-x, 44px) - var(--ui-popup-padding));
+  --ui-menu-row-start: calc(var(--cmux-menu-icon-x, 15px) - var(--ui-popup-padding));
+  --ui-menu-row-text-start: calc(var(--cmux-menu-text-x, 35px) - var(--ui-popup-padding));
   --ui-menu-row-end: calc(var(--cmux-menu-trailing, 12px) - var(--ui-popup-padding));
   --ui-menu-separator-margin: calc(var(--cmux-menu-separator-inset, 15px) - var(--ui-popup-padding));
   --ui-menu-icon-gap: var(--cmux-menu-icon-gap, 6px);
-  --ui-menu-icon-size: var(--cmux-menu-icon-size, 16px);
-  --ui-menu-state-start: calc(var(--cmux-menu-state-x, 10px) - var(--ui-popup-padding));
+  --ui-menu-icon-size: var(--cmux-menu-icon-size, 14px);
+  /* The state column: a checkmark from --cmux-menu-state-x to where the row's icon or title starts. */
+  --ui-menu-state-width: calc(var(--cmux-menu-state-icon-x, 22px) - var(--cmux-menu-state-x, 10px));
   --ui-menu-shortcut-gap: calc(var(--cmux-menu-shortcut-gap, 28px) - var(--ui-menu-icon-gap));
   /* The open fades and scales in; under Reduce Motion it only fades (ui-popup-fade). The motion
      scale's steps (pages/shared/desktop.css); the literal is the same step, for a page without it. */
@@ -164,7 +166,7 @@
    hairline between sections; a feature's own rules still win. */
 :where(.ui-menu-group-label) {
   display: block;
-  padding: 6px var(--ui-menu-row-end) 2px var(--ui-menu-row-start);
+  padding: 6px var(--ui-menu-row-end) 2px var(--ui-menu-item-start, var(--ui-menu-row-start));
   color: color-mix(in srgb, currentColor 55%, transparent);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
@@ -273,26 +275,29 @@
   outline: none;
 }
 :where(.ui-menu-item) {
-  position: relative;
   display: flex;
   align-items: center;
   gap: var(--ui-menu-icon-gap);
   min-height: var(--ui-row-height);
-  padding: 2px var(--ui-menu-row-end) 2px var(--ui-menu-row-start);
+  padding: 2px var(--ui-menu-row-end) 2px var(--ui-menu-item-start, var(--ui-menu-row-start));
   border-radius: var(--ui-row-radius);
   outline: none;
 }
-/* One text column per menu: once any row has an icon or a check, a row without one (and a section
-   title) starts its text past the icon column too. A check in a row that also has an icon sits in
-   the state column before it. */
-:where(:is(.ui-menu, .ui-context-menu):has(.ui-menu-check, .ui-menu-icon))
-  :where(.ui-menu-item:not(:has(> .ui-menu-check, > .ui-menu-icon)), .ui-menu-group-label) {
-  padding-inline-start: var(--ui-menu-row-text-start);
+/* A menu with a checkmark: the check at --cmux-menu-state-x, every row's icon (or title) at
+   --cmux-menu-state-icon-x and a title past an icon at --cmux-menu-state-text-x. The check stays in
+   the row's flow and takes no room: its margins pull it back into the state column. A menu that
+   draws its check at the trailing edge sets these back (agent pane styles.css). */
+:where(:is(.ui-menu, .ui-context-menu):has(.ui-menu-check)) {
+  --ui-menu-row-start: calc(var(--cmux-menu-state-icon-x, 22px) - var(--ui-popup-padding));
+  --ui-menu-row-text-start: calc(var(--cmux-menu-state-text-x, 42px) - var(--ui-popup-padding));
+  --ui-menu-state-margin-start: calc(-1 * var(--ui-menu-state-width));
+  --ui-menu-state-margin-end: calc(-1 * var(--ui-menu-icon-gap));
 }
-:where(.ui-menu-item:has(> .ui-menu-icon) > .ui-menu-check) {
-  position: absolute;
-  inset-inline-start: var(--ui-menu-state-start);
-  width: auto;
+/* One title column per menu: once any row has an icon, a row without one (and a section title)
+   starts its title past the icon column too. */
+:where(:is(.ui-menu, .ui-context-menu):has(.ui-menu-icon))
+  :where(.ui-menu-item:not(:has(> .ui-menu-icon)), .ui-menu-group-label) {
+  --ui-menu-item-start: var(--ui-menu-row-text-start);
 }
 :where(.ui-menu-item[data-highlighted]) {
   background: var(--ui-row, color-mix(in srgb, currentColor 10%, transparent));
@@ -300,8 +305,9 @@
 :where(.ui-menu-check) {
   display: inline-flex;
   flex: none;
-  width: var(--ui-menu-icon-size);
-  justify-content: center;
+  width: var(--ui-menu-state-width);
+  margin-inline: var(--ui-menu-state-margin-start, 0) var(--ui-menu-state-margin-end, 0);
+  justify-content: flex-start;
 }
 :where(.ui-submenu-chevron) {
   margin-inline-start: auto;
