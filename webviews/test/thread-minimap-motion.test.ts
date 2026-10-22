@@ -257,6 +257,49 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     await page.close();
   });
 
+  /// The flash's keyframe colors' alpha, read off the landing animation on the clicked prompt's bubble.
+  async function landingAlphas(page: Page, index: number): Promise<number[]> {
+    return page.evaluate(async (index) => {
+      document.querySelector<HTMLElement>(`[data-tick="${index}"]`)!.click();
+      await window.cmuxPaintFrame();
+      await window.cmuxPaintFrame();
+      const bubble = document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="t${index}-user"] .cv-user__bubble`)!;
+      const animation = bubble.getAnimations().find((entry) => entry.id === "acpmux-landing");
+      const frames = (animation?.effect as KeyframeEffect | null)?.getKeyframes() ?? [];
+      // Resolve each color through a probe, so color-mix() and named colors come back as rgb()/color().
+      const probe = document.createElement("div");
+      document.body.append(probe);
+      const alphas = frames.map((frame) => {
+        probe.style.backgroundColor = String(frame.backgroundColor ?? "");
+        const color = getComputedStyle(probe).backgroundColor;
+        const alpha = /\/\s*([\d.]+)\s*\)$/.exec(color)?.[1] ?? /^rgba\([^)]*,\s*([\d.]+)\)$/.exec(color)?.[1];
+        return alpha === undefined ? 1 : Number(alpha);
+      });
+      probe.remove();
+      return alphas;
+    }, index);
+  }
+
+  // Leo 2026-10-20: the prompt bubble is glass, never opaque, not even while it flashes.
+  test("the landing flash stays glass: every frame is translucent", async () => {
+    const page = await open(false);
+    const alphas = await landingAlphas(page, 9);
+    expect(alphas.length).toBe(3);
+    for (const alpha of alphas) expect(alpha).toBeLessThan(1);
+    await page.close();
+  });
+
+  // Reduce Transparency makes the bubble opaque (glass.css), and its flash with it: no frame lets the
+  // backdrop through.
+  test("under Reduce Transparency every frame of the landing flash is opaque", async () => {
+    const page = await open(false);
+    await page.evaluate(() => document.documentElement.setAttribute("data-reduce-transparency", ""));
+    const alphas = await landingAlphas(page, 9);
+    expect(alphas.length).toBe(3);
+    for (const alpha of alphas) expect(alpha).toBe(1);
+    await page.close();
+  });
+
   test("under Reduce Motion the tick, the scroll and the highlight do not animate", async () => {
     const page = await open(true);
     const point = await tickPoint(page, 9);
