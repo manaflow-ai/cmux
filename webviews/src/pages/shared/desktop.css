@@ -258,7 +258,8 @@ input:is(
   ) {
   cursor: pointer;
 }
-/* A disabled control never shows the hand, whatever a surface's rule for it says. */
+/* A disabled control never shows the hand, whatever a surface's rule for it says. A surface that
+   shows another cursor there (`not-allowed`) says so with !important on a :disabled rule. */
 :is(:disabled, [aria-disabled="true"]),
 :is(:disabled, [aria-disabled="true"]) * {
   cursor: default !important;
