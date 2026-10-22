@@ -82,6 +82,7 @@ pixels).
 | Scroll a chat transcript | page in ~40 laid-out messages, offset layers | < 1 % | 0 IPC; one disk read per page of messages not yet in memory |
 | Switch workspace / space | hide one layer subtree, show a built one; draw each visible pane once if it changed while hidden | < 2 ms, one frame, independent of 10 / 150 / 1000 workspaces | 0 IPC (the model is in the app); no daemon round trip |
 | Switch tab in a pane | same as above for one pane | < 1 ms | 0 |
+| Move focus to another pane (click, Focus Pane Left/Right, Next Pane) | the old pane drops its ring and dim, the new pane takes them and the keyboard; nothing else re-runs (perf gate `pane_focus`: 2 pane chrome updates per move) | < 0.5 ms main thread, one frame, O(1) in panes and workspaces | 0 IPC on the path; the window record save that follows is off the frame |
 | Cmd-Tab back to cmux | key-window state changes: title bar, focus ring, cursor; nothing else | < 1 ms, O(1) in workspace and tab count | 0 |
 | Hover card | one small layer built on hover, from data already in the model | < 1 ms | 0 |
 | Agent streaming a reply into a visible chat | append text, lay out the new line(s) only, one commit per frame at most | ~1 % while streaming | one message per chunk from acpmux to the app |
@@ -232,5 +233,6 @@ before/after rows here.
 | Chat switch | a470 |
 | Space and workspace switch | a489, a492 |
 | Cmd-Tab activation | a503 |
+| Pane focus moves | a515 |
 | Hover card | a505 |
 | SwiftUI removal (Home chat native) | a488 |
