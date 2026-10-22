@@ -15,6 +15,8 @@ import UniformTypeIdentifiers
         let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: CapturedChief(writes: continuation))
         view.appearance = NSAppearance(named: appearance)
         await view.refresh().value
+        // The picture shows the whole block: the Classifier disclosure open.
+        view.reactionRows.showsClassifier = true
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: HomeChiefSettingsView.width, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

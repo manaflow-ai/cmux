@@ -60,6 +60,27 @@ import Testing
         #expect(await received.next() == cleared, "an empty field clears this Chief's own value")
     }
 
+    /// The card opens with Name as its only field (diagnosticsStartClosedAndTheNameIsTheOnlyField): the
+    /// classifier's harness, model and instructions sit behind a closed Classifier disclosure, and join
+    /// the card only when it opens; the Can Wake row shows at once.
+    @Test func theClassifierFieldsStartClosedAndOpenOnTheDisclosure() async {
+        let (_, continuation) = AsyncStream.makeStream(of: [String: String?].self)
+        let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory,
+                                         source: ReactingChief(writes: continuation, own: nil))
+        await view.refresh().value
+        let rows = view.reactionRows
+        #expect(!rows.showsClassifier)
+        #expect(rows.canWake.window == view.window && rows.canWake.superview != nil, "Can Wake shows at once")
+        for field in [rows.harness, rows.model, rows.prompt] { #expect(field.superview == nil, "closed: not in the card") }
+        rows.classifierToggle.performClick(nil)
+        #expect(rows.showsClassifier)
+        for field in [rows.harness, rows.model, rows.prompt] { #expect(field.superview != nil, "open: in the card") }
+        #expect(rows.model.placeholderString?.contains("claude-haiku-5-5") == true, "filled before it opened")
+        rows.classifierToggle.performClick(nil)
+        #expect(!rows.showsClassifier)
+        for field in [rows.harness, rows.model, rows.prompt] { #expect(field.superview == nil, "closed again") }
+    }
+
     @Test func theSetForwardsTheClassifierFields() {
         #expect(Set(["classifier_harness", "classifier_model", "classifier_prompt", "reactions_can_wake"]).isSubset(of: HomeChiefEngineSet.fieldKeys))
     }
