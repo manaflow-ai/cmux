@@ -23,12 +23,25 @@ struct ImportCardDeckTests {
         ImportCardDeck(findings: findings, state: state, jobs: jobs)
     }
 
-    @Test func homeShowsOnlyWhatOneClickImports() {
-        let cards = Self.deck([Self.chrome, Self.safari, Self.ghostty, Self.claude]).cards(for: .home, now: Self.now)
-        #expect(cards.map(\.id) == ["browser.chrome", "agents.claudeCode"])
-        #expect(cards[0].primary?.action == .start)
-        #expect(cards[0].secondary.map(\.action) == [.more, .dismiss])
-        #expect(!cards[0].facts.isEmpty && !cards[0].benefit.isEmpty)
+    /// Nothing pops up on Home or New Tab by itself: what a scan found and the imports the person
+    /// started wait in Settings › Import.
+    @Test(arguments: [ImportCardDeck.Surface.home, .newTab])
+    func homeAndNewTabNeverSuggestWhatAScanFound(_ surface: ImportCardDeck.Surface) {
+        let iterm = ImportFinding(id: "terminal.iterm2", kind: .iterm2, name: "iTerm2", count: 1)
+        let codex = ImportFinding(id: "agents.codex", kind: .codex, name: "Codex", count: 17_021)
+        var ledger = ImportJobLedger()
+        var paused = ImportJob(finding: Self.chrome, now: Self.now)
+        paused.paused(.interrupted, now: Self.now)
+        ledger.put(paused)
+        #expect(Self.deck([Self.chrome], jobs: ledger).cards(for: surface, now: Self.now).isEmpty)
+        let deck = Self.deck([Self.chrome, Self.safari, Self.ghostty, Self.claude, iterm, codex])
+        #expect(deck.cards(for: surface, now: Self.now).isEmpty)
+        #expect(deck.list(for: surface, now: Self.now).cards.isEmpty)
+        let settings = deck.cards(for: .settings, now: Self.now)
+        #expect(settings.map(\.id) == ["browser.chrome", "browser.safari", "terminal.ghostty", "agents.claudeCode", "terminal.iterm2", "agents.codex"])
+        #expect(settings[0].primary?.action == .start)
+        #expect(settings[0].secondary.map(\.action) == [.more, .dismiss])
+        #expect(!settings[0].facts.isEmpty && !settings[0].benefit.isEmpty)
     }
 
     @Test func settingsListsEverythingFound() {
@@ -42,20 +55,20 @@ struct ImportCardDeckTests {
         var state = ImportSuggestionState()
         state.dismiss(Self.chrome)
         state.dismiss(Self.claude)
-        #expect(Self.deck([Self.chrome, Self.claude], state: state).cards(for: .newTab, now: Self.now).isEmpty)
+        #expect(Self.deck([Self.chrome, Self.claude], state: state).cards(for: .settings, now: Self.now).allSatisfy { $0.dismissed })
         // More sessions is ordinary use: still gone.
         var grown = Self.claude
         grown.count = 900
         // A new Chrome profile is something new: back.
         var newProfile = Self.chrome
         newProfile.profiles.append(.init(directoryName: "Profile 2", kinds: [.history]))
-        let cards = Self.deck([newProfile, grown], state: state).cards(for: .newTab, now: Self.now)
-        #expect(cards.map(\.id) == ["browser.chrome"])
+        let cards = Self.deck([newProfile, grown], state: state).cards(for: .settings, now: Self.now)
+        #expect(cards.filter { !$0.dismissed }.map(\.id) == ["browser.chrome"])
         // A profile imported elsewhere (Chrome holds less now) is not new: still gone.
         var fewer = Self.chrome
         fewer.profiles = Array(fewer.profiles.prefix(1))
         fewer.profiles[0].kinds = Array(fewer.profiles[0].kinds.prefix(1))
-        #expect(Self.deck([fewer], state: state).cards(for: .newTab, now: Self.now).isEmpty)
+        #expect(Self.deck([fewer], state: state).cards(for: .settings, now: Self.now).allSatisfy { $0.dismissed })
         // Settings keeps the dismissed one, with Show Again.
         let settings = Self.deck([Self.claude], state: state).cards(for: .settings, now: Self.now)
         #expect(settings.first?.dismissed == true)
@@ -67,7 +80,8 @@ struct ImportCardDeckTests {
         let site = try #require(ImportRequest.site("https://GitHub.com/login"))
         state.raise(ImportRequest(browser: .chrome, site: site, reason: "The page asks to sign in.", requestedAt: Self.now))
         let cards = Self.deck([Self.chrome], state: state).cards(for: .home, now: Self.now)
-        #expect(cards.map(\.id) == ["request.cookies.chrome.github.com", "browser.chrome"])
+        // Only the request: it answers a sign-in the person just ran into; Chrome's own card waits in Settings.
+        #expect(cards.map(\.id) == ["request.cookies.chrome.github.com"])
         #expect(cards[0].reason == "The page asks to sign in.")
         #expect(cards[0].title.contains("github.com"))
     }
@@ -109,10 +123,13 @@ struct ImportCardDeckTests {
     }
 
     @Test func surfacesCapTheirCards() {
-        let many = (0..<8).map { ImportFinding(id: "agents.\($0)", kind: .codex, name: "Codex", count: 1) }
-        #expect(Self.deck(many).cards(for: .newTab, now: Self.now).count == 3)
-        #expect(Self.deck(many).cards(for: .home, now: Self.now).count == 4)
-        #expect(Self.deck(many).cards(for: .settings, now: Self.now).count == 8)
+        var state = ImportSuggestionState()
+        for index in 0..<8 {
+            state.raise(ImportRequest(browser: .chrome, site: "site\(index).com", reason: "", requestedAt: Self.now))
+        }
+        #expect(Self.deck([], state: state).cards(for: .newTab, now: Self.now).count == 3)
+        #expect(Self.deck([], state: state).cards(for: .home, now: Self.now).count == 4)
+        #expect(Self.deck([], state: state).cards(for: .settings, now: Self.now).count == ImportSuggestionState.maximumRequests)
     }
 
     /// Everything classic saved is already here: Home and New Tab have nothing one click brings,
@@ -183,14 +200,11 @@ struct ImportCardDeckTests {
         #expect(job.phase == .done && job.counts.history == 12)
         var ledger = ImportJobLedger()
         ledger.put(job)
-        let card = Self.deck([], jobs: ledger).cards(for: .home, now: Self.now)
+        // A finished import leaves Home and New Tab at once; Settings › Import keeps it.
+        #expect(Self.deck([], jobs: ledger).cards(for: .home, now: Self.now).isEmpty)
+        #expect(Self.deck([Self.chrome], jobs: ledger).cards(for: .newTab, now: Self.now).isEmpty)
+        let card = Self.deck([], jobs: ledger).cards(for: .settings, now: Self.now)
         #expect(card.first?.state == .done && card.first?.secondary.map(\.action) == [.hide])
-        // A day later Home lets it go; Settings still lists it.
-        let later = Self.now.addingTimeInterval(ImportCardDeck.doneLingers + 1)
-        #expect(Self.deck([], jobs: ledger).cards(for: .home, now: later).isEmpty)
-        #expect(Self.deck([], jobs: ledger).cards(for: .settings, now: later).count == 1)
-        // The browser's own Import card does not come back on Home in its place.
-        #expect(Self.deck([Self.chrome], jobs: ledger).cards(for: .home, now: later).isEmpty)
     }
 
     @Test func onlyStartResumeAndTryAgainReadAnotherAppsData() {
@@ -216,7 +230,7 @@ struct ImportCardDeckTests {
         // Chrome's cookies need a Keychain prompt, so it waits for Resume; Firefox's need none.
         #expect(!chromeAfter.resumesQuietly)
         #expect(relaunched.job("browser.firefox")?.resumesQuietly == true)
-        let card = try #require(Self.deck([], jobs: relaunched).cards(for: .home, now: Self.now).first { $0.id == "browser.chrome" })
+        let card = try #require(Self.deck([], jobs: relaunched).cards(for: .settings, now: Self.now).first { $0.id == "browser.chrome" })
         #expect(card.state == .paused && card.primary?.action == .resume)
     }
 
