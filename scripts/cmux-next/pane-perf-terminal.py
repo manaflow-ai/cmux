@@ -297,6 +297,8 @@ def main_thread_buckets(text):
     import re
     node = re.compile(r"^([ +!:|]*)(\d+) (.*)$")
     start = next((i for i, l in enumerate(lines) if "Thread_" in l and "com.apple.main-thread" in l), None)
+    if start is None:  # the first thread of the call graph is the main thread
+        start = next((i for i, l in enumerate(lines) if "Thread_" in l), None)
     if start is None:
         return ["  (no main thread)"]
     head = node.match(lines[start])
@@ -471,6 +473,9 @@ except Exception:  # the step log is stdout only
     traceback.print_exc(file=sys.stdout)
 finally:
     cleanup()
+    # One artifact with everything (report, samples, pictures, recordings): artifacts/.../out.tgz.
+    subprocess.run(["tar", "-czf", os.path.join(opts.out, "out.tgz"), "-C", opts.out]
+                   + [p for p in os.listdir(opts.out) if p.endswith((".json", ".txt", ".png")) or p == "frames"], capture_output=True)
     if opts.record and os.path.isdir(os.path.join(opts.out, "frames")):
         # One artifact: the recordings and snapshots beside the report.
         subprocess.run(["tar", "-czf", os.path.join(opts.out, "frames.tgz"), "-C", opts.out, "frames"]
@@ -479,4 +484,5 @@ finally:
         # The step log keeps the numbers even when a row failed (no artifact comes back then).
         print("REPORT-JSON " + json.dumps(json.load(open(opts.json)).get("summary") or []), flush=True)
     print("\nRESULT", "PASS" if ROWS and all(r[3] for r in ROWS) else "FAIL", f"({sum(r[3] for r in ROWS)}/{len(ROWS)})")
-    sys.exit(0 if ROWS and all(r[3] for r in ROWS) else 1)
+    # Without --gate a row is information: the run passes when it measured (its artifact comes back).
+    sys.exit(0 if ROWS and (all(r[3] for r in ROWS) or not opts.gate) else 1)
