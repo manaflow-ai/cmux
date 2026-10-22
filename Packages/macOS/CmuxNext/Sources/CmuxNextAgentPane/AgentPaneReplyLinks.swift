@@ -84,16 +84,11 @@ extension AgentPaneModel {
     func respond(to request: AgentPaneReplyRequest) async -> [String: Any] {
         switch request {
         case .inspect(let paths, let urls):
-            // A chat on another machine never reads this Mac's disk (cx-k21v): its paths get no
-            // place here (so each stays a chip, never plain text), and `remote` tells the page.
-            let remote = remoteChat || transport.remoteWire
+            let resolver = replyPaths()
             var places: [String: Any] = [:]
-            if !remote {
-                let resolver = replyPaths()
-                for path in paths {
-                    guard let resolved = resolver.resolve(path) else { continue }
-                    places[path] = ["place": resolved.place.rawValue, "folder": resolved.isFolder]
-                }
+            for path in paths {
+                guard let resolved = resolver.resolve(path) else { continue }
+                places[path] = ["place": resolved.place.rawValue, "folder": resolved.isFolder]
             }
             let parsed = urls.compactMap { text in AgentPaneReplyRequest.webURL(text).map { (text, $0) } }
             let found = parsed.isEmpty ? [:] : replyLinks.sites(parsed.map(\.1))
@@ -109,12 +104,10 @@ extension AgentPaneModel {
             // before the pointer arrives and no hover ever waits on GitHub.
             replyLinks.registerPullRequests(urls.compactMap(AgentPaneReplyRequest.pullRequestURL))
             let setting = replyLinks.settings()
-            var value: [String: Any] = [
+            return AgentPaneReply.success([
                 "paths": places, "sites": sites,
                 "policy": ["outsideRoots": setting.outsideRoots.rawValue, "remoteImages": setting.remoteImages.rawValue],
-            ]
-            if remote { value["remote"] = true }
-            return AgentPaneReply.success(value)
+            ])
         case .openPath(let path):
             return Self.replyResult(await openReplyPath(path))
         case .loadImage(let src):
@@ -137,16 +130,12 @@ extension AgentPaneModel {
             return AgentPaneReply.success()
         case .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .dragImage, .dragFile:
             return await AgentPaneImageCopies.respond(to: request, in: self)
-        case .previewPath(let path): return await previewReplyPath(path)
         }
     }
 
     /// Opens a path chip (D4): the deny list first, then a gesture; inside a root it opens in
     /// cmux's file pages (a folder in Finder); outside, `agentPane.links.outsideRoots` decides.
     func openReplyPath(_ text: String) async -> Result<Void, AgentPaneReplyError> {
-        // A chat on another machine never opens this Mac's files (cx-k21v): its agent names paths
-        // there, and a path here with the same spelling is not its file.
-        guard !remoteChat, !transport.remoteWire else { return .failure(.pathOutsideRoots) }
         guard let resolved = replyPaths().resolve(text) else { return .failure(.pathInvalid) }
         switch resolved.place {
         case .denied: return .failure(.pathDenied)
@@ -202,9 +191,6 @@ extension AgentPaneModel {
             case .failure(let error): return Self.replyFailure(error)
             }
         }
-        // A chat on another machine never reads this Mac's disk (cx-k21v): its agent names paths
-        // there, and a path here with the same spelling is not its file.
-        guard !remoteChat, !transport.remoteWire else { return Self.replyFailure(.pathOutsideRoots) }
         guard let resolved = replyPaths().resolve(src) else { return Self.replyFailure(.pathInvalid) }
         switch resolved.place {
         case .root: return Self.replyImage(await AgentPaneReplyImages.local(resolved.path))
