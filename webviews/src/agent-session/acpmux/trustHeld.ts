@@ -18,7 +18,7 @@
 // (`pane.wakeState` `holdsPrompts`, AgentPageHibernation.swift), and quitting puts them back into
 // drafts (`release`).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { type ComposerAttachment, MAX_ATTACHMENTS } from "./attachments";
+import type { ComposerAttachment } from "./attachments";
 import { attachedImages } from "./direct";
 import type { QueueEdit, QueuedPrompt } from "./model";
 
@@ -108,6 +108,8 @@ export function useTrustHeldPrompts({
   const starting = useRef(false);
   /// The prompt being sent, until acpmux took or refused it (a page that quits keeps it, `release`).
   const going = useRef<TrustHeldPrompt | undefined>(undefined);
+  /// Prompts a quitting page took out (`release`): a send of one that settles later puts nothing back.
+  const released = useRef(new Set<string>());
 
   useEffect(() => {
     if (holds || flushing.current || !held.some((entry) => sentIn(entry, chat, cwd))) return;
@@ -128,6 +130,7 @@ export function useTrustHeldPrompts({
         try {
           const started = await latest.current.send(entry);
           going.current = undefined;
+          if (released.current.has(entry.id)) break;
           // A new chat's other prompts in that folder follow it into the session its start made,
           // whatever chat shows by then. Without that session they go back into the composer
           // rather than start a second chat.
@@ -145,6 +148,8 @@ export function useTrustHeldPrompts({
           }
         } catch (error) {
           going.current = undefined;
+          // Released by a quitting page: it is in a draft already.
+          if (released.current.has(entry.id)) break;
           // Refused: its ticket is spent, so it goes back into the composer, unless a harness
           // switch already handed it back there (harnessSwitch.ts). A trust refusal (acpmux holds
           // the folder again) leaves the rest waiting for the next answer.
@@ -159,22 +164,19 @@ export function useTrustHeldPrompts({
     })();
   }, [holds, chat, cwd, held, rounds]);
 
-  /// Holds a prompt sent now, with its send's gesture. False when the chat's held prompts would
-  /// carry more chips than a composer holds (MAX_ATTACHMENTS): they could not all come back into
-  /// it, so this one stays in the composer.
+  /// Holds a prompt sent now, with its send's gesture, in the chat shown, or in `sentFrom`: the chat
+  /// and folder it was sent in, for a refusal that came after the person moved on.
   const hold = useCallback(
-    (text: string, attachments: ComposerAttachment[]): boolean => {
-      const chips = (list: readonly ComposerAttachment[]) => list.filter((chip) => !chip.shellRun).length;
-      const carried = now.current.held
-        .filter((entry) => sentIn(entry, chat, cwd))
-        .reduce((total, entry) => total + chips(entry.attachments), 0);
-      if (carried + chips(attachments) > MAX_ATTACHMENTS) return false;
+    (
+      text: string,
+      attachments: ComposerAttachment[],
+      sentFrom?: { chat: string | undefined; cwd: string | undefined },
+    ) => {
       const id = crypto.randomUUID();
       const ticket = reserve(id).catch(() => undefined);
-      const entry = { id, chat, cwd, text, attachments, ticket };
+      const entry = { id, ...(sentFrom ?? { chat, cwd }), text, attachments, ticket };
       now.current = { ...now.current, held: [...now.current.held, entry] };
       setHeld((list) => [...list, entry]);
-      return true;
     },
     [chat, cwd, reserve],
   );
@@ -199,6 +201,7 @@ export function useTrustHeldPrompts({
     release: () => {
       const all = [...(going.current ? [going.current] : []), ...now.current.held];
       going.current = undefined;
+      for (const entry of all) released.current.add(entry.id);
       now.current = { ...now.current, held: [] };
       setHeld([]);
       return all;

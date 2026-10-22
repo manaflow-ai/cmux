@@ -184,22 +184,38 @@ test("a start that names no session puts the new chat's other prompts back, neve
   expect(shown!.holdsAny()).toBe(false);
 });
 
-test("the hold takes no more chips than a composer holds; that prompt stays in the composer", async () => {
+test("a refusal that comes after the person moved on holds the prompt in the chat it was sent in", async () => {
   const acpmux = standIn();
-  const images = (count: number, from: number) =>
-    Array.from({ length: count }, (_, index) => ({
-      id: `img-${from + index}`,
-      kind: "image" as const,
-      name: `shot-${from + index}.png`,
-      mimeType: "image/png",
-      size: 4,
-      data: "iVBO",
-    }));
-  await act(async () => root.render(<Probe key="i" acpmux={acpmux} holds chat="chat-9" />));
-  let took: boolean[] = [];
-  await act(async () => void (took = [shown!.hold("six", images(6, 0)), shown!.hold("six more", images(6, 6))]));
-  expect(took).toEqual([true, false]);
-  expect(shown!.rows.map((row) => row.prompt)).toEqual(["six"]);
+  // Sent in chat A; acpmux's trust refusal came once chat B (trusted) showed.
+  await act(async () => root.render(<Probe key="i" acpmux={acpmux} holds={false} chat="chat-b" />));
+  await act(async () => shown!.hold("for chat a", [], { chat: "chat-a", cwd: "/Users/you/a" }));
+  await settle();
+  expect(acpmux.sent).toEqual([]);
+  expect(shown!.rows).toEqual([]);
+  // It shows and goes in chat A, once A's folder is trusted.
+  await act(async () => root.render(<Probe key="i" acpmux={acpmux} holds chat="chat-a" cwd="/Users/you/a" />));
+  expect(shown!.rows.map((row) => row.prompt)).toEqual(["for chat a"]);
+  await act(async () => root.render(<Probe key="i" acpmux={acpmux} holds={false} chat="chat-a" cwd="/Users/you/a" />));
+  await settle();
+  expect(acpmux.sent.map((sent) => sent.entry.text)).toEqual(["for chat a"]);
+});
+
+test("a prompt going when the page quits comes back once, even if acpmux refuses it after", async () => {
+  const acpmux = standIn();
+  await act(async () => root.render(<Probe key="j" acpmux={acpmux} holds chat="chat-7" />));
+  await act(async () => shown!.hold("going", []));
+  await act(async () => shown!.hold("waiting", []));
+  await act(async () => root.render(<Probe key="j" acpmux={acpmux} holds={false} chat="chat-7" />));
+  await settle();
+  expect(acpmux.sent.map((sent) => sent.entry.text)).toEqual(["going"]);
+  let released: { text: string }[] = [];
+  await act(async () => void (released = shown!.release()));
+  expect(released.map((entry) => entry.text)).toEqual(["going", "waiting"]);
+  acpmux.sent[0]!.refuse(new Error("refused"));
+  await settle();
+  // It is in the draft already: nothing goes back into the composer a second time, and nothing else goes.
+  expect(acpmux.putBack).toEqual([]);
+  expect(acpmux.sent).toHaveLength(1);
 });
 
 test("a page that quits takes every held prompt out", async () => {

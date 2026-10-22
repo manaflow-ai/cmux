@@ -573,10 +573,13 @@ export function Composer({
       }),
       wake(state) {
         const back = state.attachments ?? [];
+        // Chips that come back are never cut, as `restore` never cuts them (prompts a folder's trust
+        // held come back together on quit, trustHeld.ts): past the cap no new chip attaches.
         if (back.length)
-          setAttachments((current) =>
-            [...back, ...current.filter((chip) => !back.some((kept) => kept.id === chip.id))].slice(0, MAX_ATTACHMENTS),
-          );
+          setAttachments((current) => [
+            ...back,
+            ...current.filter((chip) => !back.some((kept) => kept.id === chip.id)),
+          ]);
         if (state.shell) {
           setShell(true);
           setShellText(state.shellText ?? "");
