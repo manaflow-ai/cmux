@@ -37,7 +37,7 @@ struct AppSceneDecorations: ViewModifier {
         let radius = CGFloat(node.number("cornerRadius") ?? 0)
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         let hoverFill = colors.token(node.props["hoverBackground"])
-        content
+        return content
             .padding(AppSceneStyle.insets(node))
             .frame(minWidth: AppSceneStyle.dimension(frame, "minWidth"), idealWidth: AppSceneStyle.dimension(frame, "width"),
                    maxWidth: AppSceneStyle.dimension(frame, "maxWidth") ?? AppSceneStyle.dimension(frame, "width"),
