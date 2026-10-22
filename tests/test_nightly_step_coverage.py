@@ -470,6 +470,8 @@ COUNTERPART_CASES = [
      "does not run"),
     ("guards route matrix", {"ci-guards.yml": GUARDS, "cmux-next-guards.yml": guards_route(
         step_if="matrix.shard == 'b'", matrix={"shard": ["a"]})}, "does not run"),
+    ("guards route empty matrix", {"ci-guards.yml": GUARDS, "cmux-next-guards.yml": guards_route(
+        matrix={"shard": ["a"], "exclude": [{"shard": "a"}]})}, "does not run"),
 ]
 
 
