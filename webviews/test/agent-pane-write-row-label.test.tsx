@@ -1,7 +1,8 @@
 // l10n-allow-file: test fixture paths and file text, not shipped UI.
 // A Write's transcript row reads as an edit's does ("Edited batch38.sh +18 -0"): "Writing x.ts"
-// while it runs, "Wrote x.ts +N" once done, the file name opening the file, and "Writing x.ts
-// failed" when it failed. Leo (2026-10-21): "there's this 'write' tool call and i think it can be
+// while it runs, "Wrote x.ts" once done with the counts its edits line shows (a create "+N", a
+// known overwrite "+a -d", none when the old contents are unknown), the file name opening the
+// file, and "Writing x.ts failed" when it failed. Leo (2026-10-21): "there's this 'write' tool call and i think it can be
 // called better than just 'write' with that icon... writing? writing something?"
 //
 // Before: Claude Code names a Write as its block starts, before any input, and the row read the
@@ -13,6 +14,10 @@ import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
 const dom = useDom();
 const PATH = `${FOLDER}/x.ts`;
 const fragment = { type: "diff", path: PATH, oldText: null, newText: setupText, _meta: { acpmux: { fragment: true } } };
+/// The Write's end as `settle_write` sends it: a confirmed create, or an overwrite with its old text.
+const created = { status: "completed", content: [{ type: "diff", path: PATH, oldText: null, newText: setupText }] };
+const oldText = setupText.replace("step 4\n", "step four\n");
+const overwrote = { status: "completed", content: [{ type: "diff", path: PATH, oldText, newText: setupText }] };
 
 /// Claude Code's Write as the acpmux translator sends it: named as its block starts (no input),
 /// then the whole call with its text, then its end.
@@ -57,8 +62,14 @@ test("a running Write reads Writing x.ts", async () => {
   expect(dom.host().querySelector(".cv-tool__counts")).toBeNull();
 });
 
-test("a done Write reads Wrote x.ts +N, N the lines it wrote, in the diff's add color", async () => {
-  expect(await row(await toolCall("w3", [announced, whole, { status: "completed" }]))).toBe("Wrote x.ts+9");
+test("a Write waiting on a permission keeps its own title", async () => {
+  const item = await toolCall("w2p", [{ ...whole, status: "pending" }]);
+  // The label it had before this change (toolLabel), never "Writing": nothing is written yet.
+  expect(await row(item)).toBe(`Write ${PATH}`);
+});
+
+test("a Write that created its file reads Wrote x.ts +N, N the lines it wrote, in the diff's add color", async () => {
+  expect(await row(await toolCall("w3", [announced, whole, created]))).toBe("Wrote x.ts+9");
   expect(dom.text(".cv-tool__counts .cv-edit-diff__add")).toBe("+9");
   expect(dom.host().querySelector(".cv-tool__counts .cv-edit-diff__del")).toBeNull();
 });
@@ -67,7 +78,7 @@ test("the file name is a link that opens the file and leaves the row as it was",
   const calls: [string, Record<string, unknown>][] = [];
   const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
   setChipHost(async (method, params) => void calls.push([method, params]));
-  await row(await toolCall("w4", [announced, whole, { status: "completed" }]));
+  await row(await toolCall("w4", [announced, whole, created]));
   const link = dom.host().querySelector('.cv-tool__text [role="link"]');
   expect(link?.textContent).toBe("x.ts");
   expect(link?.getAttribute("data-path")).toBe(PATH);
@@ -78,6 +89,32 @@ test("the file name is a link that opens the file and leaves the row as it was",
   expect(calls).toEqual([["link.openPath", { path: PATH }]]);
   expect(toggle?.getAttribute("aria-expanded")).toBe("false");
 });
+
+test("a Write over a file whose old text is known shows its real +a -d", async () => {
+  expect(await row(await toolCall("w3k", [announced, whole, overwrote]))).toBe("Wrote x.ts+1-1");
+});
+
+test("a Write over a file of unknown old contents shows no counts", async () => {
+  expect(await row(await toolCall("w3u", [announced, whole, { status: "completed" }]))).toBe("Wrote x.ts");
+  expect(dom.host().querySelector(".cv-tool__counts")).toBeNull();
+});
+
+for (const key of ["Enter", " "])
+  test(`${key === " " ? "Space" : key} on the file name opens the file and leaves the row closed`, async () => {
+    const calls: [string, Record<string, unknown>][] = [];
+    const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+    setChipHost(async (method, params) => void calls.push([method, params]));
+    await row(await toolCall(`wk${key}`, [announced, whole, created]));
+    const link = dom.host().querySelector<HTMLElement>('.cv-tool__text [role="link"]')!;
+    const toggle = dom.host().querySelector("button.cv-tool");
+    const { act } = await import("react");
+    await act(async () => {
+      link.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+    });
+    await Promise.resolve();
+    expect(calls).toEqual([["link.openPath", { path: PATH }]]);
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+  });
 
 test("a failed Write reads Writing x.ts failed, with no counts", async () => {
   expect(await row(await toolCall("w5", [announced, whole, { status: "failed" }]))).toBe("Writing x.ts failed");
@@ -117,7 +154,8 @@ test("opencode's write reads the same, a relative path opening inside the sessio
       <ToolRow item={item} />
     </SessionCwdContext.Provider>,
   );
-  expect(dom.text(".cv-tool__text")).toBe("Wrote notes.md+1");
+  // Its input carries the text but no diff: it may have overwritten a file, so no counts.
+  expect(dom.text(".cv-tool__text")).toBe("Wrote notes.md");
   expect(dom.host().querySelector('[role="link"]')?.getAttribute("data-path")).toBe(`${FOLDER}/docs/notes.md`);
 });
 
@@ -144,7 +182,7 @@ test("a key file's name stays plain text", async () => {
       rawInput: { file_path: `${FOLDER}/.env`, content: "A=1\n" },
     },
   ]);
-  expect(await row(item)).toBe("Wrote .env+1");
+  expect(await row(item)).toBe("Wrote .env");
   expect(dom.host().querySelector('[role="link"]')).toBeNull();
 });
 
