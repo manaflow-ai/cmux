@@ -28,13 +28,17 @@ extension BrowserTabState {
     /// why it refuses the rest (`rb.navigate.refused`, PROTOCOL.md `browser`), so a typed
     /// `javascript:` or `chrome:` is never turned into a search.
     static var macSchemes: Set<String> {
-        ["file", "data", "blob", "view-source", "about", "javascript", "chrome", "chrome-extension", "devtools"]
+        ["file", "data", "blob", "view-source", "about", "javascript", "chrome", "chrome-extension", "devtools", "mailto", "tel"]
     }
 
     /// A URL, a Mac path (`/Users/...`, a `file:` URL), a bare host, or a search.
     public static func url(for text: String) -> URL? {
         if text.isEmpty { return nil }
-        if text.hasPrefix("/") { return URL(filePath: text, directoryHint: .inferFromPath) }
+        if text.hasPrefix("/"), !text.hasPrefix("//") { return URL(filePath: text, directoryHint: .inferFromPath) }
+        // `localhost:3000`, `mac.local:8080/x`: a host and port, on the web.
+        if !text.contains(" "), text.wholeMatch(of: /[A-Za-z0-9.-]+:[0-9]{1,5}(\/.*)?/) != nil {
+            return URL(string: "http://\(text)")
+        }
         if let url = URL(string: text), let scheme = url.scheme?.lowercased() {
             if ["http", "https"].contains(scheme) || macSchemes.contains(scheme) { return url }
             // Another app's address (`zoommtg://...`): the Mac says it does not open those.
@@ -484,11 +488,13 @@ public final class StreamedBrowserModel: BrowserTabState {
     /// goes back to it) and the person reads why, in this phone's words when the Mac
     /// named the reason.
     func refused(code: String?, reason: String?) {
+        // The refusal of the phone's own navigation: nothing loads. A link's inside the
+        // page: the Mac is taking the page back, and its reports say when it is done.
         if let (_, from) = navigating {
             navigating = nil
             url = from
+            isLoading = false
         }
-        isLoading = false
         notice = Self.refusalText(code: code) ?? reason ?? String(localized: "Your Mac can't open this address.")
     }
 

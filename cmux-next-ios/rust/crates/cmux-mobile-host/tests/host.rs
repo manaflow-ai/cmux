@@ -519,7 +519,8 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
     rd.datagram(&mut first).await;
     // The phone's address bar: what the policy allows reaches the host (which
     // answers rb.page); the rest is refused with a sentence, never sent on.
-    let shared = file_url(&fixture.root.join("shared page.html"));
+    // Canonical, as hostd forwards a shared file at its resolved path.
+    let shared = file_url(&std::fs::canonicalize(fixture.root.join("shared page.html")).unwrap());
     let not_shared = file_url(&fixture.outside.join("secret"));
     for (url, refused) in [
         (not_shared.as_str(), Some("This file isn't in a folder this Mac shares with your iPhone.")),

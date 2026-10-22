@@ -265,6 +265,10 @@ final class SinkBox: @unchecked Sendable {
         #expect(url("javascript:alert(1)") == "javascript:alert(1)")
         #expect(url("chrome://settings") == "chrome://settings")
         #expect(url("zoommtg://zoom.us/join") == "zoommtg://zoom.us/join")
+        #expect(url("mailto:a@b.c") == "mailto:a@b.c")
+        #expect(url("//server/share")?.hasPrefix("https://duckduckgo.com/") == true)
+        #expect(url("localhost:3000") == "http://localhost:3000")
+        #expect(url("mac.local:8080/x") == "http://mac.local:8080/x")
         // Unchanged: hosts, searches, web addresses.
         #expect(url("example.com") == "https://example.com")
         #expect(url("https://example.com/a") == "https://example.com/a")

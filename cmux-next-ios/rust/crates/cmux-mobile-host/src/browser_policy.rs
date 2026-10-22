@@ -88,13 +88,45 @@ impl Blocked {
     }
 }
 
-/// The Mac's state the checks read: what the `file` service shares, and the
-/// pages its own browser tabs show.
-pub trait MacPages: Send + Sync {
+/// The Mac's state the checks read, from one daemon answer.
+#[derive(Debug, Clone, Default)]
+pub struct MacView {
     /// The folders a phone may read below (`services::shared_file_roots`).
-    fn shared_roots(&self) -> BoxFuture<'_, Vec<PathBuf>>;
+    pub roots: Vec<PathBuf>,
     /// The address of every browser tab the daemon lists.
-    fn browser_urls(&self) -> BoxFuture<'_, Vec<String>>;
+    pub browser_urls: Vec<String>,
+}
+
+/// Where the checks read the Mac's state (one `list-workspaces` per call).
+pub trait MacPages: Send + Sync {
+    fn view(&self) -> BoxFuture<'_, MacView>;
+}
+
+/// Why an address may load.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Allowed {
+    /// A web, data, blob or blank address: no Mac state needed.
+    Web,
+    /// A file inside a shared folder, resolved (symlinks followed): load this
+    /// path, not the address as written, so a symlink swapped in after the
+    /// check cannot redirect the load.
+    SharedFile(PathBuf),
+    /// One of the Mac's own browser tabs shows it (or this tab opened at it).
+    MacShows,
+}
+
+/// `path` as a `file:` URL, percent-encoded.
+pub fn file_url(path: &Path) -> String {
+    use std::os::unix::ffi::OsStrExt;
+    let mut out = String::from("file://");
+    for &b in path.as_os_str().as_bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'/' | b'-' | b'_' | b'.' | b'~') {
+            out.push(char::from(b));
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
 }
 
 /// The scheme of `url`, lowercased, when it has one (RFC 3986 `scheme ":"`).
@@ -121,7 +153,13 @@ pub fn classify(url: &str) -> Target {
     match scheme.as_str() {
         "http" | "https" if is_web(&lower) => Target::Web,
         "http" | "https" => Target::Refused(Blocked::Malformed),
-        "about" if lower == "about:blank" => Target::Web,
+        "about"
+            if lower == "about:blank"
+                || lower.starts_with("about:blank#")
+                || lower.starts_with("about:blank?") =>
+        {
+            Target::Web
+        }
         "about" => Target::BrowserPage,
         "data" | "blob" => Target::Web,
         "view-source" if is_web(&lower["view-source:".len()..]) => Target::Web,
@@ -206,35 +244,32 @@ pub fn inside_roots(roots: &[PathBuf], path: &Path) -> Result<PathBuf, Blocked> 
     }
 }
 
-/// Whether `url` may load in a phone's tab now. `approved`: addresses this
-/// tab was allowed to open because the Mac showed them.
-pub async fn check(url: &str, mac: &dyn MacPages, approved: &[String]) -> Result<(), Blocked> {
-    let target = classify(url);
-    match &target {
-        Target::Web => return Ok(()),
-        Target::Refused(blocked) => return Err(*blocked),
-        Target::File(path) => {
-            let roots = mac.shared_roots().await;
-            match inside_roots(&roots, path) {
-                Ok(_) => return Ok(()),
-                Err(blocked) => {
-                    if mac_shows(url, mac, approved).await {
-                        return Ok(());
-                    }
-                    return Err(blocked);
-                }
-            }
-        }
-        Target::BrowserPage => {}
-    }
-    if mac_shows(url, mac, approved).await { Ok(()) } else { Err(Blocked::BrowserPage) }
+/// Whether the Mac's state is needed to decide `url` (a file or a browser page).
+pub fn needs_view(url: &str) -> bool {
+    matches!(classify(url), Target::File(_) | Target::BrowserPage)
 }
 
-async fn mac_shows(url: &str, mac: &dyn MacPages, approved: &[String]) -> bool {
-    if approved.iter().any(|a| same_page(a, url)) {
-        return true;
+/// Whether `url` may load, given the Mac's state. `approved`: addresses this
+/// tab was allowed to open because the Mac showed them.
+pub fn decide(url: &str, view: &MacView, approved: &[String]) -> Result<Allowed, Blocked> {
+    let mac_shows = || approved.iter().chain(&view.browser_urls).any(|shown| same_page(shown, url));
+    match classify(url) {
+        Target::Web => Ok(Allowed::Web),
+        Target::Refused(blocked) => Err(blocked),
+        Target::File(path) => match inside_roots(&view.roots, &path) {
+            Ok(resolved) => Ok(Allowed::SharedFile(resolved)),
+            Err(_) if mac_shows() => Ok(Allowed::MacShows),
+            Err(blocked) => Err(blocked),
+        },
+        Target::BrowserPage if mac_shows() => Ok(Allowed::MacShows),
+        Target::BrowserPage => Err(Blocked::BrowserPage),
     }
-    mac.browser_urls().await.iter().any(|shown| same_page(shown, url))
+}
+
+/// [`decide`], reading the Mac's state only when the address needs it.
+pub async fn check(url: &str, mac: &dyn MacPages, approved: &[String]) -> Result<Allowed, Blocked> {
+    let view = if needs_view(url) { mac.view().await } else { MacView::default() };
+    decide(url, &view, approved)
 }
 
 #[cfg(test)]
@@ -247,16 +282,13 @@ mod tests {
     }
 
     impl MacPages for Mac {
-        fn shared_roots(&self) -> BoxFuture<'_, Vec<PathBuf>> {
-            Box::pin(async move { self.roots.clone() })
-        }
-        fn browser_urls(&self) -> BoxFuture<'_, Vec<String>> {
-            Box::pin(async move { self.urls.clone() })
+        fn view(&self) -> BoxFuture<'_, MacView> {
+            Box::pin(async move { MacView { roots: self.roots.clone(), browser_urls: self.urls.clone() } })
         }
     }
 
-    fn file_url(path: &Path) -> String {
-        format!("file://{}", path.display()).replace(' ', "%20")
+    async fn ok(url: &str, mac: &Mac, approved: &[String]) -> Result<(), Blocked> {
+        check(url, mac, approved).await.map(|_| ())
     }
 
     #[test]
@@ -266,6 +298,7 @@ mod tests {
             "HTTP://example.com/a?b#c",
             "about:blank",
             " about:blank ",
+            "about:blank#top",
             "data:text/html,<h1>hi</h1>",
             "blob:https://example.com/0f6e",
             "view-source:https://example.com",
@@ -321,14 +354,14 @@ mod tests {
             .unwrap();
         let mac = Mac { roots: vec![shared.path().to_path_buf()], urls: vec![] };
         let inside = file_url(&shared.path().join("page one.html"));
-        assert_eq!(check(&inside, &mac, &[]).await, Ok(()));
+        assert_eq!(ok(&inside, &mac, &[]).await, Ok(()));
         // A folder of a shared folder lists.
-        assert_eq!(check(&file_url(shared.path()), &mac, &[]).await, Ok(()));
+        assert_eq!(ok(&file_url(shared.path()), &mac, &[]).await, Ok(()));
         let outside = file_url(&elsewhere.path().join("secret.html"));
-        assert_eq!(check(&outside, &mac, &[]).await, Err(Blocked::FileElsewhere));
+        assert_eq!(ok(&outside, &mac, &[]).await, Err(Blocked::FileElsewhere));
         // A symlink out of the folder, and `..`, do not escape it.
         assert_eq!(
-            check(&file_url(&shared.path().join("link.html")), &mac, &[]).await,
+            ok(&file_url(&shared.path().join("link.html")), &mac, &[]).await,
             Err(Blocked::FileElsewhere)
         );
         let dotdot = format!(
@@ -336,16 +369,30 @@ mod tests {
             file_url(shared.path()),
             elsewhere.path().file_name().unwrap().to_str().unwrap()
         );
-        assert_eq!(check(&dotdot, &mac, &[]).await, Err(Blocked::FileElsewhere));
+        assert_eq!(ok(&dotdot, &mac, &[]).await, Err(Blocked::FileElsewhere));
         // Missing inside: said so; missing elsewhere: the same answer as any outside file.
         assert_eq!(
-            check(&file_url(&shared.path().join("gone.html")), &mac, &[]).await,
+            ok(&file_url(&shared.path().join("gone.html")), &mac, &[]).await,
             Err(Blocked::FileMissing)
         );
-        assert_eq!(check("file:///no/such/file.html", &mac, &[]).await, Err(Blocked::FileElsewhere));
+        assert_eq!(ok("file:///no/such/file.html", &mac, &[]).await, Err(Blocked::FileElsewhere));
         // No shared folder: nothing loads.
         let none = Mac { roots: vec![], urls: vec![] };
-        assert_eq!(check(&inside, &none, &[]).await, Err(Blocked::FileElsewhere));
+        assert_eq!(ok(&inside, &none, &[]).await, Err(Blocked::FileElsewhere));
+    }
+
+    #[tokio::test]
+    async fn a_shared_file_loads_at_its_resolved_path() {
+        let shared = tempfile::tempdir().unwrap();
+        std::fs::create_dir(shared.path().join("sub")).unwrap();
+        std::fs::write(shared.path().join("sub/a b.html"), "x").unwrap();
+        let mac = Mac { roots: vec![shared.path().to_path_buf()], urls: vec![] };
+        let written = format!("{}/sub/../sub/a%20b.html", file_url(shared.path()));
+        let resolved = std::fs::canonicalize(shared.path().join("sub/a b.html")).unwrap();
+        assert_eq!(check(&written, &mac, &[]).await, Ok(Allowed::SharedFile(resolved.clone())));
+        assert_eq!(file_path(&file_url(&resolved)), Some(resolved));
+        // Web addresses never ask the Mac.
+        assert!(!needs_view("https://example.com") && !needs_view("data:,x") && needs_view("file:///x"));
     }
 
     #[tokio::test]
@@ -356,25 +403,25 @@ mod tests {
         // The daemon spells it percent-encoded; the phone may spell it either way.
         let shown = file_url(&page);
         let mac = Mac { roots: vec![], urls: vec![shown.clone(), "chrome://version/".into()] };
-        assert_eq!(check(&shown, &mac, &[]).await, Ok(()));
+        assert_eq!(ok(&shown, &mac, &[]).await, Ok(()));
         assert_eq!(
-            check(&format!("file://localhost{}", page.display()).replace(' ', "%20"), &mac, &[]).await,
+            ok(&format!("file://localhost{}", page.display()).replace(' ', "%20"), &mac, &[]).await,
             Ok(())
         );
-        assert_eq!(check("chrome://version/", &mac, &[]).await, Ok(()));
+        assert_eq!(ok("chrome://version/", &mac, &[]).await, Ok(()));
         // Another file in the same folder, or another browser page, does not.
         assert_eq!(
-            check(&file_url(&elsewhere.path().join("other.html")), &mac, &[]).await,
+            ok(&file_url(&elsewhere.path().join("other.html")), &mac, &[]).await,
             Err(Blocked::FileElsewhere)
         );
-        assert_eq!(check("chrome://settings", &mac, &[]).await, Err(Blocked::BrowserPage));
+        assert_eq!(ok("chrome://settings", &mac, &[]).await, Err(Blocked::BrowserPage));
         // Approved at open: still loads after the Mac's tab moved on.
         let moved = Mac { roots: vec![], urls: vec![] };
-        assert_eq!(check(&shown, &moved, std::slice::from_ref(&shown)).await, Ok(()));
+        assert_eq!(ok(&shown, &moved, std::slice::from_ref(&shown)).await, Ok(()));
         // A script or an app scheme never loads, even if the daemon listed it.
         let odd = Mac { roots: vec![], urls: vec!["javascript:alert(1)".into(), "zoommtg://x".into()] };
-        assert_eq!(check("javascript:alert(1)", &odd, &[]).await, Err(Blocked::Script));
-        assert_eq!(check("zoommtg://x", &odd, &[]).await, Err(Blocked::AppScheme));
+        assert_eq!(ok("javascript:alert(1)", &odd, &[]).await, Err(Blocked::Script));
+        assert_eq!(ok("zoommtg://x", &odd, &[]).await, Err(Blocked::AppScheme));
     }
 
     #[test]

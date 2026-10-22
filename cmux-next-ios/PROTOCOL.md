@@ -573,8 +573,13 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
     `~/.ssh`, `~/Library` and the other credential trees; symlinks resolved).
     `javascript:`, `chrome:`, `chrome-extension:`, `devtools:`, other `about:`
     pages, `file:` elsewhere and every other scheme are refused.
+  - A shared file is loaded at its resolved path (hostd forwards
+    `file://<canonical path>`), so a symlink swapped in after the check cannot
+    redirect the load. A page the Mac shows is remembered for the tab; a
+    shared file is checked again each time. Checks read the daemon once per
+    2 s at most, and only for `file:` and browser pages.
   - A refused `rb.navigate` never reaches the host: hostd answers the phone
-    with the rb message `{"t":"rb.navigate.refused","url","code","reason"}`
+    with the rb message `rb.navigate.refused {url, code, reason}`
     (`code`: `file_not_shared`, `file_missing`, `script`, `browser_page`,
     `app_scheme`, `malformed`; `reason` an English sentence such as "This file
     isn't in a folder this Mac shares with your iPhone."). The phone shows the
@@ -583,8 +588,10 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   - hostd checks the host's `rb.page` too: a page the host went to by itself
     (a link, a redirect, script) that the rules refuse is not forwarded; hostd
     sends the host `rb.history back` (or `rb.navigate` to the last shown page
-    when there is no history) and the phone gets `rb.navigate.refused`. The
-    frames painted before the host goes back can still reach the phone.
+    when there is no history) and the phone gets `rb.navigate.refused`. After
+    three take-backs with no phone navigation between, hostd sends the host to
+    `about:blank` instead (a page that bounces on load). The frames painted
+    before the host goes back can still reach the phone.
   - An older hostd refuses every address but http, https and `about:blank`
     ("only http, https and about:blank load") and drops other `rb.navigate`
     without an answer. The phone's address bar sends `file:` URLs, Mac paths

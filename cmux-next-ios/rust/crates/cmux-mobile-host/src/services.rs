@@ -785,12 +785,12 @@ pub fn safe_file_name(name: &str) -> String {
 
 /// The folders of the tabs the daemon lists (`list-workspaces`), canonical.
 async fn daemon_folders(config: &ServiceConfig) -> Result<Vec<PathBuf>, Refusal> {
-    let path = config
-        .default_socket
-        .clone()
-        .unwrap_or_else(|| config.tui_socket_dir.join(format!("{}.sock", config.default_session)));
-    let reply = list_workspaces(&path).await?;
-    let data = reply.get("data").unwrap_or(&reply);
+    Ok(folders_in(&list_workspaces(&config.daemon_socket()).await?))
+}
+
+/// The tab folders in a `list-workspaces` reply, canonical.
+fn folders_in(reply: &Value) -> Vec<PathBuf> {
+    let data = reply.get("data").unwrap_or(reply);
     let mut folders = Vec::new();
     let empty = Vec::new();
     let list = |value: &Value, key: &str| value.get(key).and_then(Value::as_array).unwrap_or(&empty).clone();
@@ -809,7 +809,7 @@ async fn daemon_folders(config: &ServiceConfig) -> Result<Vec<PathBuf>, Refusal>
             }
         }
     }
-    Ok(folders)
+    folders
 }
 
 /// The address of every browser tab in a `list-workspaces` reply.
@@ -837,28 +837,32 @@ pub fn browser_urls_in(reply: &Value) -> Vec<String> {
 }
 
 /// What the Mac shares with phones and what its browser tabs show, for the
-/// `browser` service's address checks (`browser_policy.rs`).
+/// `browser` service's address checks (`browser_policy.rs`), from one
+/// `list-workspaces` answer. No answer (or no home folder): only the Chat
+/// Folders, and no Mac pages.
 impl crate::browser_policy::MacPages for ServiceConfig {
-    /// The `file` service's roots: the Chat Folders and the shareable
-    /// workspace folders (none without a home folder or a daemon answer).
-    fn shared_roots(&self) -> futures_util::future::BoxFuture<'_, Vec<PathBuf>> {
+    fn view(&self) -> futures_util::future::BoxFuture<'_, crate::browser_policy::MacView> {
         Box::pin(async move {
-            let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from) else {
-                return self.file_roots.clone();
+            let reply = list_workspaces(&self.daemon_socket()).await.ok();
+            let browser_urls = reply.as_ref().map(browser_urls_in).unwrap_or_default();
+            let roots = match std::env::var_os("HOME").filter(|h| !h.is_empty()) {
+                Some(home) => {
+                    let folders = reply.as_ref().map(folders_in).unwrap_or_default();
+                    shared_file_roots(&self.file_roots, folders, Path::new(&home))
+                }
+                None => self.file_roots.clone(),
             };
-            let folders = daemon_folders(self).await.unwrap_or_default();
-            shared_file_roots(&self.file_roots, folders, &home)
+            crate::browser_policy::MacView { roots, browser_urls }
         })
     }
+}
 
-    fn browser_urls(&self) -> futures_util::future::BoxFuture<'_, Vec<String>> {
-        Box::pin(async move {
-            let path = self
-                .default_socket
-                .clone()
-                .unwrap_or_else(|| self.tui_socket_dir.join(format!("{}.sock", self.default_session)));
-            list_workspaces(&path).await.map(|reply| browser_urls_in(&reply)).unwrap_or_default()
-        })
+impl ServiceConfig {
+    /// The app's daemon socket (`default_socket`, else the default session's).
+    fn daemon_socket(&self) -> PathBuf {
+        self.default_socket
+            .clone()
+            .unwrap_or_else(|| self.tui_socket_dir.join(format!("{}.sock", self.default_session)))
     }
 }
 
