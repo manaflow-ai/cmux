@@ -57,8 +57,8 @@ public final class ImportSuggestionRowView: NSView {
     private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: Self.height)
     private lazy var iconWidth = icon.widthAnchor.constraint(equalToConstant: Self.iconSide)
     private lazy var iconHeight = icon.heightAnchor.constraint(equalToConstant: Self.iconSide)
-    private lazy var leading = line.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.space3)
-    private lazy var trailing = line.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.space3)
+    private lazy var leading = line.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset)
+    private lazy var trailing = line.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -inset)
     /// Not Now's width as words, measured while it shows them.
     private var dismissTextWidth: CGFloat = 0
     /// Called after the row shows, hides or changes: the panel holding it lays out again.
@@ -103,7 +103,9 @@ public final class ImportSuggestionRowView: NSView {
         if resized { applyFit() }
     }
 
-    /// The front page's interface scale: the row's height, type, icon, insets and corners.
+    /// The front page's interface scale (`Typography.userScale`): the row's height, type, icon,
+    /// insets and corners. `Typography`'s styles and `Metrics`' spaces already carry the user's
+    /// scale, so the row takes their unscaled sizes and scales them by `scale` once.
     public func applyScale(_ scale: CGFloat) {
         guard scale > 0, scale != self.scale else { return }
         self.scale = scale
@@ -157,15 +159,21 @@ public final class ImportSuggestionRowView: NSView {
         applyMetrics()
     }
 
-    /// Sizes, insets and type at the current scale (from `Typography`, scaled).
+    /// A `Metrics` space at this row's scale: its size without the interface scale, times `scale`.
+    private func space(_ value: CGFloat) -> CGFloat { value / Metrics.scale(1) * scale }
+    private var inset: CGFloat { space(Metrics.space3) }
+    private var gap: CGFloat { space(Metrics.space2) }
+    private var buttonGap: CGFloat { space(Metrics.space3) }
+
+    /// Sizes, insets and type at the current scale.
     private func applyMetrics() {
         heightConstraint.constant = (Self.height * scale).rounded()
         iconWidth.constant = Self.iconSide * scale
         iconHeight.constant = Self.iconSide * scale
-        leading.constant = Metrics.space3 * scale
-        trailing.constant = -Metrics.space3 * scale
-        line.spacing = Metrics.space2 * scale
-        buttons.spacing = Metrics.space3 * scale
+        leading.constant = inset
+        trailing.constant = -inset
+        line.spacing = gap
+        buttons.spacing = buttonGap
         surface.cornerRadius = Self.cornerRadius * scale
         titleLabel.font = scaled(Typography.bodyEmphasized)
         factsLabel.font = scaled(Typography.caption)
@@ -180,8 +188,10 @@ public final class ImportSuggestionRowView: NSView {
         }
     }
 
+    /// A `Typography` style at this row's scale: its size without the user's scale, times `scale`.
     private func scaled(_ font: NSFont) -> NSFont {
-        scale == 1 ? font : NSFont(descriptor: font.fontDescriptor, size: font.pointSize * scale) ?? font
+        let size = font.pointSize / max(0.01, Typography.userScale) * scale
+        return abs(size - font.pointSize) < 0.01 ? font : NSFont(descriptor: font.fontDescriptor, size: size) ?? font
     }
 
     /// The card's Not Now (or Done), the button that turns into an ✕ in a narrow row.
@@ -213,7 +223,6 @@ public final class ImportSuggestionRowView: NSView {
 
     /// The width left for the name at `fit`, after the insets, the icon and the buttons.
     private func room(at fit: Fit) -> CGFloat {
-        let gap = Metrics.space2 * scale, buttonGap = Metrics.space3 * scale
         var widths: [CGFloat] = actions.map { button in
             if button === dismiss { return fit >= .compactDismiss ? (Self.iconSide * scale).rounded() : dismissTextWidth }
             return ceil(button.intrinsicContentSize.width)
@@ -221,7 +230,7 @@ public final class ImportSuggestionRowView: NSView {
         if fit < .noShowAll, (drawn?.cards.count ?? 0) >= 2 { widths.append(ceil(showAll.intrinsicContentSize.width)) }
         let buttonsWidth = widths.reduce(0, +) + CGFloat(max(0, widths.count - 1)) * buttonGap
         let iconWidth = fit >= .noIcon ? 0 : Self.iconSide * scale + gap
-        return bounds.width - 2 * Metrics.space3 * scale - iconWidth - (widths.isEmpty ? 0 : gap + buttonsWidth)
+        return bounds.width - 2 * inset - iconWidth - (widths.isEmpty ? 0 : gap + buttonsWidth)
     }
 
     private func follow(_ center: ImportSuggestionsCenter) {
