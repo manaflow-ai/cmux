@@ -1014,6 +1014,8 @@ class FakeGitHub(janitor.GitHub):
         self.bodies = []
         # Branch -> pull requests the GraphQL lookup answers with.
         self.prs = {}
+        # Branch -> head sha (GET /branches/<branch>); a branch missing here answers 404.
+        self.branches = {}
 
     def request(self, method, path, body=None):
         self.calls += 1
@@ -1026,6 +1028,11 @@ class FakeGitHub(janitor.GitHub):
             return {"data": {"repository": {
                 key: {"nodes": self.prs.get(branch, [])} for key, branch in variables.items()
                 if re.fullmatch(r"b[0-9]+", key)}}}
+        if method == "GET" and path.startswith("/branches/"):
+            branch = urllib.parse.unquote(path.split("/", 2)[2])
+            if branch not in self.branches:
+                raise RuntimeError(f"GET /branches/{branch} failed (404)")
+            return {"name": branch, "commit": {"sha": self.branches[branch]}}
         if method == "GET" and path.startswith("/actions/runs?"):
             query = urllib.parse.parse_qs(path.split("?", 1)[1])
             status, page = query["status"][0], int(query["page"][0])
@@ -1977,6 +1984,308 @@ class LostAssignmentSweepTests(unittest.TestCase):
                 self.assertEqual(code, 0)
                 self.assertEqual(fake.posts(), [])
                 self.assertNotIn("lost_reruns", fake.snapshots[-1])
+
+
+
+# ---------------------------------------------------------------------------
+# Unclaimed legs: a leg on an owned label no runner claimed within a bounded
+# wait, at a live head, whatever the evidence.
+# ---------------------------------------------------------------------------
+
+DISPATCH_BRANCH = "acpmux-policy-everywhere"
+DISPATCH_SHA = "d9d0e2ca"
+TUI = ".github/workflows/cmux-tui.yml"
+
+
+def unclaimed_world(*, age=50, event="workflow_dispatch", branch=DISPATCH_BRANCH, sha=DISPATCH_SHA, path=TUI,
+                    attempt=1, actor="leo", label=SIDE, siblings=(), name="macOS lint and tests"):
+    """Run 39652497071: a dispatch of cmux-tui.yml whose macOS leg no runner ever claimed, and no other run."""
+    run = make_run(event=event, branch=branch, sha=sha, status="queued", age=age + 2, attempt=attempt,
+                   name="cmux-tui", path=path)
+    run["triggering_actor"] = {"login": actor}
+    return run, {run["id"]: [unassigned_job(age=age, label=label, name=name), *siblings]}
+
+
+def waited_job(*, waited, label=SIDE, age=None):
+    """A job a runner took after waiting `waited` minutes, `age` minutes ago (default: just now)."""
+    started = 1 if age is None else age
+    job = {"status": "in_progress", "name": "macos / side lane", "labels": [label],
+           "created_at": iso(started + waited), "started_at": iso(started), "runner_id": 7,
+           "runner_name": "mini-7-side"}
+    return job
+
+
+def unclaimed_plan(runs, jobs, prs=None, *, heads=None, rerun_state=True):
+    return janitor.build_plan(runs, jobs, prs or {}, threshold=6, max_cancels=10,
+                              pull_request_policy="compile-only", now=NOW, rerun_state=rerun_state,
+                              branch_heads=heads if heads is not None else {DISPATCH_BRANCH: DISPATCH_SHA})
+
+
+class UnclaimedLegDetectionTests(unittest.TestCase):
+    def test_pool_p90_wait_comes_from_the_jobs_runners_took(self):
+        jobs = [waited_job(waited=minutes) for minutes in (1, 2, 3, 4, 5, 6, 7, 8, 9, 70)]
+        jobs += [waited_job(waited=90, label=MAC), unassigned_job(age=200)]
+        p90 = janitor.pool_wait_p90({1: jobs})
+        # Nearest rank over ten samples: the ninth. Blacksmith labels are not owned pools.
+        self.assertEqual(p90, {SIDE: 9 * 60})
+
+    def test_a_pool_with_fewer_than_five_samples_has_no_p90(self):
+        jobs = [waited_job(waited=minutes) for minutes in (60, 70, 80, 90)]
+        self.assertEqual(janitor.pool_wait_p90({1: jobs}), {})
+        self.assertEqual(janitor.pool_wait_p90({1: jobs + [waited_job(waited=100)]}), {SIDE: 100 * 60})
+
+    def test_a_sample_waits_from_when_its_run_let_it_run(self):
+        # Created 60 minutes ago behind a gate that finished 30 minutes ago, taken 20 minutes ago: it waited
+        # 10 minutes for a runner, not 40. A sibling that finished after it started gated nothing.
+        jobs = {}
+        for index in range(5):
+            gate = started_job(age=60, status="completed", label=LINUX)
+            gate["completed_at"] = iso(30)
+            late = started_job(age=15, status="completed", label=LINUX)
+            late["completed_at"] = iso(5)
+            jobs[index] = [waited_job(waited=40, age=20), gate, late]
+        self.assertEqual(janitor.pool_wait_p90(jobs), {SIDE: 10 * 60})
+
+    def test_bound_is_45_minutes_or_the_pools_p90_when_higher(self):
+        self.assertEqual(janitor.unclaimed_bound(SIDE, {}), 45 * 60)
+        self.assertEqual(janitor.unclaimed_bound(SIDE, {SIDE: 20 * 60}), 45 * 60)
+        self.assertEqual(janitor.unclaimed_bound(SIDE, {SIDE: 70 * 60}), 70 * 60)
+
+    def test_run_39652497071_dispatch_leg_is_unclaimed_after_45_minutes(self):
+        run, jobs = unclaimed_world(age=46)
+        found = janitor.find_unclaimed([run], jobs, now=NOW)
+        self.assertEqual(sorted(found), [run["id"]])
+        self.assertEqual(found[run["id"]].pool, SIDE)
+        self.assertEqual(found[run["id"]].bound_seconds, 45 * 60)
+        run, jobs = unclaimed_world(age=44)
+        self.assertEqual(janitor.find_unclaimed([run], jobs, now=NOW), {})
+
+    def test_a_slow_pool_waits_for_its_own_p90(self):
+        run, jobs = unclaimed_world(age=60)
+        other = make_run(event="push", branch="other", status="in_progress", path=TUI)
+        jobs[other["id"]] = [waited_job(waited=75) for _ in range(5)]
+        self.assertEqual(janitor.find_unclaimed([run, other], jobs, now=NOW), {})
+        run, jobs2 = unclaimed_world(age=80)
+        jobs2[other["id"]] = jobs[other["id"]]
+        self.assertEqual(sorted(janitor.find_unclaimed([run, other], jobs2, now=NOW)), [run["id"]])
+
+    def test_only_owned_legs_in_scope_runs_count(self):
+        # A Blacksmith leg re-run would only rejoin the same label.
+        run, jobs = unclaimed_world(age=90, label=MAC)
+        self.assertEqual(janitor.find_unclaimed([run], jobs, now=NOW), {})
+        # Protected runs (a dispatch on main) and events with no head (schedule) are out of scope.
+        for event, branch in (("workflow_dispatch", "main"), ("schedule", DISPATCH_BRANCH)):
+            with self.subTest(event=event, branch=branch):
+                run, jobs = unclaimed_world(age=90, event=event, branch=branch)
+                self.assertEqual(janitor.find_unclaimed([run], jobs, now=NOW), {})
+
+    def test_an_unfinished_sibling_gates_the_leg(self):
+        running = started_job(age=100, label=LINUX)
+        run, jobs = unclaimed_world(age=90, siblings=[running])
+        self.assertEqual(janitor.find_unclaimed([run], jobs, now=NOW), {})
+
+    def test_a_run_category_e_already_holds_is_not_counted_twice(self):
+        stuck, other, jobs = lost_world(age=85)
+        lost = janitor.find_lost([stuck, other], jobs, now=NOW)
+        self.assertEqual(sorted(lost), [stuck["id"]])
+        self.assertEqual(janitor.find_unclaimed([stuck, other], jobs, now=NOW, lost=lost), {})
+
+
+class UnclaimedLegPlanTests(unittest.TestCase):
+    def test_run_39652497071_is_cancelled_for_a_blacksmith_re_run_at_the_live_branch_head(self):
+        run, jobs = unclaimed_world(age=50)
+        decision = decision_for(unclaimed_plan([run], jobs, {DISPATCH_BRANCH: []}), run)
+        self.assertEqual((decision.action, decision.candidate.category), ("cancel", "unclaimed"))
+        self.assertTrue(decision.candidate.rerun)
+        self.assertIn("live branch", decision.candidate.reason)
+        self.assertIn(SIDE, decision.candidate.reason)
+
+    def test_an_open_pr_at_the_head_makes_a_push_or_dispatch_live_too(self):
+        for event in ("push", "workflow_dispatch", "pull_request"):
+            with self.subTest(event=event):
+                run, jobs = unclaimed_world(age=50, event=event, branch="feature", sha="aaa")
+                decision = decision_for(unclaimed_plan([run], jobs, {"feature": [make_pr(5)]}, heads={}), run)
+                self.assertEqual((decision.action, decision.candidate.category), ("cancel", "unclaimed"))
+                self.assertTrue(decision.candidate.rerun)
+
+    def test_a_moved_deleted_or_unread_branch_is_left_alone(self):
+        for heads in ({DISPATCH_BRANCH: "eeeeeee"}, {DISPATCH_BRANCH: ""}, {}):
+            with self.subTest(heads=heads):
+                run, jobs = unclaimed_world(age=50)
+                # Not live: left to category b and the orphan pass, not even listed.
+                self.assertIsNone(decision_for(unclaimed_plan([run], jobs, {DISPATCH_BRANCH: []}, heads=heads), run))
+
+    def test_a_superseded_or_closed_pull_request_run_is_left_to_category_b(self):
+        run, jobs = unclaimed_world(age=50, event="pull_request", branch="feature", sha="aaa")
+        decision = decision_for(unclaimed_plan([run], jobs, {"feature": [make_pr(5, head="bbb")]}, heads={}), run)
+        self.assertEqual(decision.candidate.category, "stale-pr")
+
+    def test_a_re_run_that_would_stay_on_the_owned_label_is_left_to_the_rescue(self):
+        run, jobs = unclaimed_world(age=50, path=".github/workflows/cmux-next.yml")
+        decision = decision_for(unclaimed_plan([run], jobs, {DISPATCH_BRANCH: []}), run)
+        self.assertEqual(decision.action, "skip")
+        self.assertIn("owned", decision.note)
+
+    def test_bot_re_runs_failed_runs_and_newer_runs_are_never_re_run(self):
+        run, jobs = unclaimed_world(age=50, attempt=2, actor="github-actions[bot]")
+        self.assertEqual(decision_for(unclaimed_plan([run], jobs, {DISPATCH_BRANCH: []}), run).action, "skip")
+        failed = dict(started_job(age=100, label=LINUX, status="completed", conclusion="failure"))
+        run, jobs = unclaimed_world(age=50, siblings=[failed])
+        self.assertEqual(decision_for(unclaimed_plan([run], jobs, {DISPATCH_BRANCH: []}), run).action, "skip")
+        run, jobs = unclaimed_world(age=50, event="pull_request", branch="feature", sha="aaa")
+        newer = make_run(event="pull_request", branch="feature", sha="aaa", status="in_progress", path=TUI, age=10)
+        decision = decision_for(unclaimed_plan([run, newer], jobs, {"feature": [make_pr(5)]}, heads={}), run)
+        self.assertEqual(decision.action, "skip")
+        self.assertIn(str(newer["id"]), decision.note)
+
+    def test_two_dispatches_at_the_same_head_do_not_block_the_rescue(self):
+        # cmux-tui.yml runs each dispatch in its own group (cmux-tui-${{ inputs.request_id }}, never cancelled
+        # in progress): a second dispatch at the head is another request, not a takeover.
+        run, jobs = unclaimed_world(age=50)
+        second = make_run(event="workflow_dispatch", branch=DISPATCH_BRANCH, sha=DISPATCH_SHA,
+                          status="in_progress", path=TUI, age=10)
+        decision = decision_for(unclaimed_plan([run, second], jobs, {DISPATCH_BRANCH: []}), run)
+        self.assertEqual((decision.action, decision.candidate.category), ("cancel", "unclaimed"))
+        self.assertIsNone(janitor.newer_run_at_head(run, [run, second]))
+
+    def test_no_re_run_state_or_no_janitor_leaves_it_alone(self):
+        run, jobs = unclaimed_world(age=50)
+        decision = decision_for(unclaimed_plan([run], jobs, {DISPATCH_BRANCH: []}, rerun_state=False), run)
+        self.assertEqual(decision.action, "skip")
+        run, jobs = unclaimed_world(age=50, event="pull_request", branch="feature", sha="aaa")
+        decision = decision_for(unclaimed_plan([run], jobs, {"feature": [make_pr(5, labels=("no-janitor",))]},
+                                               heads={}), run)
+        self.assertEqual(decision.action, "skip")
+
+    def test_category_e_push_at_a_live_branch_head_is_now_re_run(self):
+        # Run 39631559018's pin push had no pull request; once the branch head is read and still the run's,
+        # the branch is live and the cancel carries a re-run (without the read: cancelled only, as before).
+        stuck, other, jobs = lost_world(age=85)
+        decision = decision_for(unclaimed_plan([stuck, other], jobs, {PIN_BRANCH: [], "other-pin": []},
+                                               heads={PIN_BRANCH: "aaa"}), stuck)
+        self.assertEqual((decision.action, decision.candidate.category), ("cancel", "lost"))
+        self.assertTrue(decision.candidate.rerun)
+
+    def test_unclaimed_cancels_need_no_backed_up_pool_and_share_the_cap(self):
+        worlds = [unclaimed_world(age=50, branch=f"b{index}", sha=f"s{index}") for index in range(3)]
+        runs = [run for run, _ in worlds]
+        jobs = {key: value for _, world in worlds for key, value in world.items()}
+        result = janitor.build_plan(runs, jobs, {f"b{index}": [] for index in range(3)}, threshold=6,
+                                    max_cancels=2, pull_request_policy="compile-only", now=NOW,
+                                    branch_heads={f"b{index}": f"s{index}" for index in range(3)})
+        self.assertEqual([d.action for d in result.decisions].count("cancel"), 2)
+        self.assertFalse(result.over_threshold)
+
+
+class UnclaimedLegRerunTests(unittest.TestCase):
+    def test_a_dispatch_entry_is_re_run_while_its_branch_is_live(self):
+        run = make_run(event="workflow_dispatch", branch=DISPATCH_BRANCH, sha=DISPATCH_SHA, status="completed",
+                       path=TUI)
+        run["conclusion"] = "cancelled"
+        cases = (({DISPATCH_BRANCH: DISPATCH_SHA}, "rerun"), ({DISPATCH_BRANCH: "eeee"}, "drop"),
+                 ({DISPATCH_BRANCH: ""}, "drop"), ({}, "keep"))
+        for heads, action in cases:
+            with self.subTest(heads=heads):
+                decisions = janitor.plan_lost_reruns([pending_entry(run)], {run["id"]: run}, {DISPATCH_BRANCH: []},
+                                                     now=NOW, head_runs={run["id"]: []}, branch_heads=heads)
+                self.assertEqual([d.action for d in decisions], [action])
+
+    def test_a_second_dispatch_at_the_head_never_drops_the_pending_re_run(self):
+        run = make_run(event="workflow_dispatch", branch=DISPATCH_BRANCH, sha=DISPATCH_SHA, status="completed",
+                       path=TUI)
+        run["conclusion"] = "cancelled"
+        second = make_run(event="workflow_dispatch", branch=DISPATCH_BRANCH, sha=DISPATCH_SHA, status="queued",
+                          path=TUI)
+        decisions = janitor.plan_lost_reruns([pending_entry(run)], {run["id"]: run}, {DISPATCH_BRANCH: []},
+                                             now=NOW, head_runs={run["id"]: [run, second]},
+                                             branch_heads={DISPATCH_BRANCH: DISPATCH_SHA})
+        self.assertEqual([d.action for d in decisions], ["rerun"])
+
+    def test_head_lookups_are_capped_and_only_for_branches_a_push_or_dispatch_needs(self):
+        runs = [make_run(event="workflow_dispatch", branch=f"b{index}") for index in range(20)]
+        runs.append(make_run(event="pull_request", branch="pr-branch"))
+        wanted = janitor.branch_head_lookups(runs, {run["id"] for run in runs})
+        self.assertEqual(len(wanted), janitor.CANDIDATE_HEAD_LOOKUPS)
+        self.assertNotIn("pr-branch", wanted)
+
+    def test_candidates_that_could_not_be_re_run_spend_no_head_read(self):
+        runs, jobs = [], {}
+        for index, (path, actor, attempt) in enumerate(((TUI, "leo", 1), (".github/workflows/cmux-next.yml", "leo", 1),
+                                                        (TUI, "github-actions[bot]", 2))):
+            run, world = unclaimed_world(age=50, branch=f"b{index}", path=path, actor=actor, attempt=attempt)
+            runs.append(run)
+            jobs.update(world)
+        failed, world = unclaimed_world(age=50, branch="failed",
+                                        siblings=[started_job(age=90, label=LINUX, status="completed",
+                                                              conclusion="failure")])
+        opted, world2 = unclaimed_world(age=50, branch="opted")
+        runs += [failed, opted]
+        jobs.update(world)
+        jobs.update(world2)
+        prs = {"opted": [make_pr(9, head="other", labels=("no-janitor",))]}
+        wanted = janitor.branch_head_lookups(runs, {run["id"] for run in runs}, prs_by_branch=prs,
+                                             jobs_by_run=jobs, unclaimed={run["id"] for run in runs})
+        self.assertEqual(wanted, ["b0"])
+
+
+class UnclaimedLegSweepTests(unittest.TestCase):
+    sweep = LostAssignmentSweepTests.sweep
+
+    def test_run_39652497071_is_cancelled_then_re_run_once_on_blacksmith(self):
+        run, jobs = unclaimed_world(age=50)
+        fake = FakeGitHub({run["id"]: dict(run)}, jobs)
+        fake.prs[DISPATCH_BRANCH] = []
+        fake.branches[DISPATCH_BRANCH] = DISPATCH_SHA
+        with tempfile.TemporaryDirectory() as temp:
+            code, text = self.sweep(fake, temp)
+            self.assertEqual(code, 0)
+            self.assertEqual(fake.posts(), [[str(run["id"]), "cancel"]])
+            self.assertIn("unclaimed", text)
+            self.assertEqual([entry["run_id"] for entry in fake.snapshots[-1]["lost_reruns"]], [run["id"]])
+            # One branch read for the liveness check.
+            self.assertEqual(len([path for _, path in fake.log if "/branches/" in path]), 1)
+            fake.runs[run["id"]]["conclusion"] = "cancelled"
+
+            fake.log.clear()
+            code, text = self.sweep(fake, temp)
+            self.assertEqual(fake.posts(), [[str(run["id"]), "rerun-failed-jobs"]])
+            self.assertEqual(fake.runs[run["id"]]["run_attempt"], 2)
+            self.assertEqual(fake.snapshots[-1]["lost_reruns"], [])
+
+            # Attempt 2 is the bot's: never re-run again here.
+            fake.runs[run["id"]].update(status="queued")
+            fake.log.clear()
+            self.sweep(fake, temp)
+            self.assertEqual(fake.posts(), [])
+
+    def test_settled_cancels_get_head_reads_however_many_candidates_spend_theirs(self):
+        runs, jobs = {}, {}
+        for index in range(janitor.CANDIDATE_HEAD_LOOKUPS + 4):
+            run, world = unclaimed_world(age=50, branch=f"c{index}", sha=f"s{index}")
+            runs[run["id"]] = dict(run)
+            jobs.update(world)
+        settled = make_run(event="workflow_dispatch", branch=DISPATCH_BRANCH, sha=DISPATCH_SHA, status="completed",
+                           path=TUI, age=120)
+        settled["conclusion"] = "cancelled"
+        runs[settled["id"]] = settled
+        fake = FakeGitHub(runs, jobs)
+        fake.branches[DISPATCH_BRANCH] = DISPATCH_SHA
+        fake.snapshots.append({"generated_at": iso(10), "pools": {}, "lost_reruns": [pending_entry(settled)]})
+        with tempfile.TemporaryDirectory() as temp:
+            self.sweep(fake, temp)
+        self.assertIn([str(settled["id"]), "rerun-failed-jobs"], fake.posts())
+        reads = [path for _, path in fake.log if "/branches/" in path]
+        self.assertEqual(len(reads), janitor.CANDIDATE_HEAD_LOOKUPS + 1)
+
+    def test_the_snapshot_carries_each_owned_pools_p90_wait(self):
+        run, jobs = unclaimed_world(age=10)
+        other = make_run(event="push", branch="other", status="in_progress", path=TUI)
+        jobs[other["id"]] = [waited_job(waited=12) for _ in range(5)]
+        fake = FakeGitHub({run["id"]: dict(run), other["id"]: dict(other)}, jobs)
+        with tempfile.TemporaryDirectory() as temp:
+            self.sweep(fake, temp)
+        self.assertEqual(fake.snapshots[-1]["wait_p90_seconds"], {SIDE: 12 * 60})
+        self.assertEqual(fake.posts(), [])
 
 
 if __name__ == "__main__":

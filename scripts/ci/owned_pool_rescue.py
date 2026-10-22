@@ -163,8 +163,12 @@ an `if: always()` aggregator such as cmux-tui.yml's hosted-verification fails
 whenever a leg it requires was refused, so it fails only because of the refusal
 (downstream_of_refusals(), which reads the `needs` graph from the workflow file
 at the run's head). GitHub's re-run of failed jobs re-runs it too. A
-side-lane job only queued long is moved only for a run a dispatch names
-(WATCH_RUN_ID). A side-lane run that is not
+side-lane job only queued long is moved here only for a run a dispatch names
+(WATCH_RUN_ID); queue_janitor.py's unclaimed-leg rule moves the rest, from the
+inventory its sweep already lists: an owned leg no runner claimed for
+max(45 minutes, the pool's p90 wait), at the head of an open pull request or a
+live branch, gets its run cancelled and its failed jobs re-run once, where that
+re-run leaves the owned label (bot_rerun_leaves_owned()). A side-lane run that is not
 a pull request has no head to move, like a dispatch. cmux-next.yml exists only
 on the feat-cmux-next branch; its pull request and dispatch runs upload the
 owned-pool-watch marker themselves, so the sweeper adopts them like a picker's
@@ -349,6 +353,12 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/remote-daemon.yml",
     ".github/workflows/terminal-hang-diagnostics.yml",
     ".github/workflows/test-feed-reply-providers.yml",  # feat-cmux-next only
+})
+# Side workflows whose Mac jobs take a session or gui label on every attempt (feat-cmux-next only), so no
+# re-run moves them off the minis (bot_rerun_leaves_owned()).
+OWNED_EVERY_ATTEMPT_PATHS = frozenset({
+    ".github/workflows/cmux-next-base-autofix.yml",
+    ".github/workflows/cmux-next-pr-autofix.yml",
 })
 # cmux-next is the side lane whose placement and retry route are minis-first;
 # other side workflows keep their existing fallback policy.
@@ -1352,6 +1362,35 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                             f"runner {runner} at the watch limit")
             return "stop", "watch limit reached"
         sleep(interval)
+
+
+def bot_rerun_leaves_owned(path: str, attempt: int) -> bool:
+    """Whether a bot's re-run of failed jobs of `attempt` sends a leg queued on an owned label elsewhere.
+
+    queue_janitor.py's unclaimed-leg rule cancels a run whose owned leg no runner claimed within its bound
+    and later re-runs its failed jobs (rerun-failed-jobs), so it acts only where that re-run is a rescue,
+    as next_attempt() describes the routes:
+    - a side lane other than cmux-next takes its Blacksmith default from attempt 2 on (cmux-tui.yml's
+      macOS legs read `github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-...-macos-...'`);
+    - cmux-next keeps the minis through REFUSAL_RESCUE_ATTEMPT and takes Blacksmith after it;
+    - ci.yml's re-run of failed jobs reuses attempt 1's placement through LAST_OWNED_ATTEMPT;
+    - test-ios.yml, ios-screenshots.yml and iroh-release-gate.yml take their retry route from attempt 2;
+      test-e2e.yml does not count, since a UI run's retry_label stays on its owned pool and the path alone
+      cannot tell one apart;
+    - the base and PR autofix's Mac exports (OWNED_EVERY_ATTEMPT_PATHS) keep their owned label on every
+      attempt, so a re-run only rejoins the queue;
+    - nightly, the UNRESCUED_WORKFLOW_PATHS and any workflow not watched here are a person's call.
+    """
+    following = attempt + 1
+    if path in OWNED_EVERY_ATTEMPT_PATHS:
+        return False
+    if path == CMUX_NEXT_WORKFLOW_PATH:
+        return following > REFUSAL_RESCUE_ATTEMPT
+    if path == CI_WORKFLOW_PATH:
+        return following > LAST_OWNED_ATTEMPT
+    if path in DISPATCH_WORKFLOW_PATHS:
+        return path != E2E_WORKFLOW_PATH and following > 1
+    return path in SIDE_WORKFLOW_PATHS and following > 1
 
 
 def next_attempt(target: Target) -> str:
