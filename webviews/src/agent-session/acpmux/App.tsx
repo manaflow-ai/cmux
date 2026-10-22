@@ -6001,15 +6001,15 @@ function AcpmuxPane() {
           }
           // A send in a chat takes the lost drafts put back there with it (the composer sends all it
           // holds): a late resend of one of them then has no draft left to take out. Only once the
-          // composer lets go of the prompt: a send that fails first puts the draft back as it was,
-          // and its next send must still leave out what ran.
+          // prompt is somewhere else: acpmux took it, or a switch row or a failed row holds it. A send
+          // that fails before that (the socket closing while the session persists) puts the draft
+          // back as it was, and its next send must still leave out what ran.
           const putBack = [...restoredLost].filter(([, back]) => back.sessionId === client.selectedSession);
           const letGo = () => {
             for (const [id] of putBack) restoredLost.delete(id);
           };
           // Whether the composer let go of the prompt (acpmux took it, or a switch row holds it).
           let released = !accepted;
-          if (released) letGo();
           const accept =
             accepted &&
             (() => {
@@ -6074,6 +6074,7 @@ function AcpmuxPane() {
             if (shown) {
               lostPrompts.forget(lost.promptId);
               accept?.();
+              letGo();
               return lost.sessionId;
             }
             lostPrompts.keep(lost.sessionId, lost.promptId, text, ids);
@@ -6110,6 +6111,7 @@ function AcpmuxPane() {
           const held = harnessSwitch.send(text, attachments, () => promptLanded.current(), promptId ?? again);
           if (held) {
             accept?.();
+            letGo();
             return held
               .catch(resent)
               .catch((error: unknown) => refused(error, (error as { handedBack?: unknown }).handedBack === true));
@@ -6127,6 +6129,16 @@ function AcpmuxPane() {
           await persistSession(sessionId);
           const turn = client
             .send(text, attachments, kept?.promptId ?? again, accept, kept?.ticket, steer)
+            .then(
+              (sent) => {
+                letGo();
+                return sent;
+              },
+              (error: unknown) => {
+                if (failedRowOf(error)) letGo();
+                throw error;
+              },
+            )
             .catch(resent)
             .catch((error: unknown) => refused(error, Boolean(accepted)));
           // The prompt is written; a Quick Composer hand-off can close this page now.
