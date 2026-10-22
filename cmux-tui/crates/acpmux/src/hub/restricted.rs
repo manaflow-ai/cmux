@@ -229,12 +229,14 @@ fn folder_args(args: &[String], cwd: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Refuses a value of the profile's `env` (the spawn's, `${cwd}` already expanded) that names a
-/// path inside the chat's folder `cwd`, as `folder_args` does: an entry of a `:` list, the value
-/// of an `=` option, a word, or the folder's own path anywhere in it (a path with a space). A
-/// launcher's shell or interpreter reads it before anything asks. Keys the restricted chat sets
-/// itself (`BLANKED_ENV`, PATH) or checks (`SETTINGS_ROOTS`) are left to that. Allowed when `cwd`
-/// holds the person's home.
+/// Refuses a value of `env` (all the spawn gets: the daemon's, the login shell's and the profile's,
+/// `${cwd}` already expanded) that names a path inside the chat's folder `cwd`, as `folder_args`
+/// does: an entry of a `:` list, the value of an `=` option, a word, or the folder's own path
+/// anywhere in it (a path with a space). Under a key that names a path (`path_key`), a bare name
+/// the folder holds counts too (`AWS_CONFIG_FILE=aws-config`). A launcher's shell, interpreter or
+/// credential chain reads it before anything asks. Keys the restricted chat sets itself
+/// (`BLANKED_ENV`, PATH) or checks (`SETTINGS_ROOTS`), and the shell's record of where it is
+/// (`PWD`), are left alone. Allowed when `cwd` holds the person's home.
 fn folder_env(env: &BTreeMap<String, String>, cwd: &Path) -> Result<(), String> {
     let given = cwd.to_string_lossy().into_owned();
     let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
@@ -243,7 +245,11 @@ fn folder_env(env: &BTreeMap<String, String>, cwd: &Path) -> Result<(), String> 
     }
     let folders = [given, cwd.to_string_lossy().into_owned()];
     let set_here = |key: &str| {
-        key == "PATH" || BLANKED_ENV.contains(&key) || SETTINGS_ROOTS.iter().any(|(k, _)| *k == key)
+        ["PATH", "PWD", "OLDPWD"].contains(&key)
+            // acpmux's own, which the spawn removes (`agent/command.rs`).
+            || key.starts_with("ACPMUX_")
+            || BLANKED_ENV.contains(&key)
+            || SETTINGS_ROOTS.iter().any(|(k, _)| *k == key)
     };
     for (key, value) in env.iter().filter(|(key, _)| !set_here(key.as_str())) {
         // A value that is a Keychain item is a secret, not a path.
@@ -251,7 +257,8 @@ fn folder_env(env: &BTreeMap<String, String>, cwd: &Path) -> Result<(), String> 
         let entries = value.split(':').flat_map(|e| [Some(e), e.split_once('=').map(|(_, v)| v)]);
         let words = value.split(|c: char| c == ':' || c == '=' || c.is_whitespace());
         let mut words = entries.flatten().chain(words);
-        if let Some(word) = words.find(|w| !w.is_empty() && in_folder(w, &cwd)) {
+        let held = |w: &str| path_key(key) && !w.contains('/') && cwd.join(w).exists();
+        if let Some(word) = words.find(|w| !w.is_empty() && (in_folder(w, &cwd) || held(w))) {
             return Err(format!("{key}={word} is inside the chat's folder"));
         }
         if folders.iter().any(|folder| holds_path(&value, folder)) {
@@ -259,6 +266,16 @@ fn folder_env(env: &BTreeMap<String, String>, cwd: &Path) -> Result<(), String> 
         }
     }
     Ok(())
+}
+
+/// Whether the env `key` names a file or folder (`AWS_CONFIG_FILE`, `GNUPGHOME`, `KUBECONFIG`):
+/// a tool reads a bare name there relative to the folder it starts in.
+fn path_key(key: &str) -> bool {
+    const LAST: &[&str] = &["FILE", "FILES", "CREDENTIALS", "CERT", "CERTS", "BUNDLE", "ROOT"];
+    const END: &[&str] = &["PATH", "PATHS", "DIR", "DIRS", "HOME", "CONFIG", "RC"];
+    let key = key.to_ascii_uppercase();
+    LAST.contains(&key.rsplit('_').next().unwrap_or_default())
+        || END.iter().any(|end| key.ends_with(end))
 }
 
 /// Whether `text` holds the absolute path `folder` whole: not as part of a longer name
@@ -686,7 +703,9 @@ impl Hub {
         let own = own_argv(&profile.argv, &meta.tools);
         launcher(own.first().map_or("", String::as_str)).map_err(refused)?;
         folder_args(own.get(1..).unwrap_or_default(), &meta.cwd).map_err(refused)?;
-        folder_env(&profile.env, &meta.cwd).map_err(refused)?;
+        // A restricted chat is Claude Code (`launcher`): the env the spawn layers for it.
+        let spawn_env = crate::login_env::effective_for(Some("claude"), &profile.env);
+        folder_env(&spawn_env, &meta.cwd).map_err(refused)?;
         let carrier = crate::login_env::AGENT_USER_ZDOTDIR_ENV;
         let mut zdotdir = vec![
             crate::login_env::var("ZDOTDIR"),
