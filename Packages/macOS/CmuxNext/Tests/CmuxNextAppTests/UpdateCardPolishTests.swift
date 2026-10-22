@@ -71,4 +71,12 @@ import Testing
         #expect(button.layer?.backgroundColor == button.performWithTheme { Palette.hoverFill.cgColor })
         #expect((button.layer?.borderWidth ?? 0) > 0, "the bordered button lost its hairline")
     }
+
+    /// Every other live counter follows the same rule: the fonts they draw with ("Working 5m" in
+    /// the priority list, a download's status, CPU and memory) have tabular digits.
+    @Test func theLiveCounterFontsUseTabularDigits() {
+        #expect(Self.hasTabularDigits(Typography.captionDigits))
+        #expect(Self.hasTabularDigits(SidebarStyle.subtitleDigitsFont))
+        #expect(!Self.hasTabularDigits(Typography.caption), "the measure cannot tell proportional digits apart")
+    }
 }
