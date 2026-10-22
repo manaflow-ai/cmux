@@ -1,4 +1,5 @@
 title: Hidden browser tabs free their memory after 10 minutes
 category: improved
+action: openSettings | Open Settings
 
-A hidden browser tab now hibernates after 10 minutes instead of an hour, and so does an idle agent chat you aren't viewing. When your Mac runs low on memory, hidden tabs hibernate right away. A tab frees its memory and comes back where you left it. Change it in Settings > Browser > Hibernate Hidden Tabs.
+Hidden browser tabs and idle agent chats now hibernate after 10 minutes instead of an hour, or right away when memory runs low. Change it in Settings > Browser > Hibernate Hidden Tabs.
