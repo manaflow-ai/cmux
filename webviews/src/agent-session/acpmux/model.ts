@@ -449,7 +449,9 @@ export type QueueEdit =
   | { op: "send_now" }
   | { op: "interrupt" }
   /** Runs a queue a failed turn paused; any of its prompts names it. */
-  | { op: "resume" };
+  | { op: "resume" }
+  /** Takes back a steer the agent has not read yet (the X beside it); false once it was read. */
+  | { op: "withdraw" };
 
 /** Why a tab's chat is missing: the daemon's list lacked it when the pane opened
  * (`notListedAtOpen`), or it left the list while the pane showed it (`leftListWhileShown`). */
