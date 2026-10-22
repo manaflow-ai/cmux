@@ -382,6 +382,23 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertIn("test/new.test.ts", added)
         self.assertNotIn("src/old.ts", added)
 
+    def test_new_only_charges_a_red_with_nothing_to_compare(self):
+        # A check that fails on the base and here but prints no finding (nothing, or only a run's totals) explains
+        # nothing; matching two empty lists must not pass it off as the base's red.
+        for name, prints in (("empty", ""), ("only noise", "echo 'Found 0 errors and 0 warnings in 1 files'")):
+            with self.subTest(output=name):
+                self.write("webviews/check-lanes.sh",
+                           f"#!/bin/sh\nif grep -rl 'SILENT_RED' src >/dev/null 2>&1; then {prints}\nexit 1; fi\n")
+                self.write("webviews/src/old.ts", "export const old = SILENT_RED;\n")
+                self.commit(f"a silent red base ({name})")
+                self.write("webviews/src/app.ts", f"export const app = '{name}';\n")
+                self.commit(f"a change on the silent red base ({name})")
+
+                result = self.lint_range("--new-only")
+
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("printed no finding to compare with the base", result.stderr)
+
     def test_new_only_keeps_a_red_the_base_has_as_a_warning(self):
         self.write("webviews/src/old.ts", "export const old = BAD_LANE;\n")
         self.commit("a red base")
