@@ -68,7 +68,8 @@ export function PullRequestCardBody({ url, known, open }: { url: string; known: 
   // (UserBubble): without it Intl falls back to the host's ICU default and a Japanese pane reads
   // "vor 3 Minuten".
   const language = usePaneLanguage();
-  const plain = pullRequestRef(url)?.url ?? url;
+  const link = pullRequestRef(url)?.url;
+  const plain = link ?? url;
   const answer = usePullRequestAnswer(plain, open);
   const read = answer?.pullRequest ?? undefined;
   const title = read?.title || known.title;
@@ -93,10 +94,17 @@ export function PullRequestCardBody({ url, known, open }: { url: string; known: 
           </span>
         )}
         {/* The pull request's link, styled as one (Leo 2026-10-20: "the hovers need to be
-            styled"); a click takes the host's link-click path, as the bar's and chip's anchors do. */}
-        <a className="acpmux-pr-card__ref" href={plain} rel="noreferrer">
-          {known.repo}#{known.number}
-        </a>
+            styled"); a click takes the host's link-click path, as the bar's and chip's anchors do.
+            Only a parsed pull request address becomes a link; anything else stays text. */}
+        {link ? (
+          <a className="acpmux-pr-card__ref" href={link} rel="noreferrer">
+            {known.repo}#{known.number}
+          </a>
+        ) : (
+          <span className="acpmux-pr-card__ref">
+            {known.repo}#{known.number}
+          </span>
+        )}
       </div>
       {title && <div className="acpmux-pr-card__title">{title}</div>}
       {read?.author && (

@@ -175,6 +175,26 @@ test("the card's owner/repo#N is a styled link to the pull request", async () =>
   expect(rule).toContain("tabular-nums");
 });
 
+test("a card whose address is not a pull request link keeps owner/repo#N as text", async () => {
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { UiProvider } = await import("../src/ui/UiProvider");
+  const { PullRequestCardBody } = await import("../src/agent-session/acpmux/chips/PullRequestCard");
+  const element = dom.window.document.getElementById("root")!;
+  const root = createRoot(element);
+  await act(async () =>
+    root.render(
+      <UiProvider container={element}>
+        <PullRequestCardBody url="https://example.test/not-a-pull" known={KNOWN} open={false} />
+      </UiProvider>,
+    ),
+  );
+  const ref = element.querySelector(".acpmux-pr-card__ref");
+  expect(ref?.tagName).toBe("SPAN");
+  expect(element.querySelector("a")).toBeNull();
+  await act(async () => root.unmount());
+});
+
 test("hovering the +/- breaks the lines down by kind", async () => {
   const { body, act } = await card({ pullRequest: pullRequest(), fetchedAt: Date.now() / 1000 - 5 });
   expect(body.querySelector(".acpmux-pr-card__kinds")).toBeNull();
