@@ -368,8 +368,10 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
   // PAST HISTORY OF THIS CHAT. WHERE IS OUR PAGINATION?" One older read failed, and while the reply
   // streamed the transcript asked again inside the client's 2 s back-off, got nothing, and never
   // asked again: at the very top a wheel up fires no scroll event. This chat compacted every 100
-  // turns, its reply streams while the reader scrolls, and its first older read fails.
-  test("a 700-turn chat that compacted pages back to its first message past a failed read, while it streams", async () => {
+  // turns, its reply streams while the reader scrolls, it opens on a tail the app kept from long
+  // ago that its attach does not continue (the older read already out is dropped when it lands),
+  // and its first older read after the attach fails.
+  test("a 700-turn chat that compacted pages back to its first message past a dropped and a failed read, while it streams", async () => {
     const LONG = "0190a000-0000-7000-8000-00000000a700";
     const LONG_TURNS = 700;
     const COMPACT_EVERY = 100;
@@ -435,6 +437,48 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
       updatedAt: START,
       lastSeq: longEvents.length,
     };
+    // Another tab read this chat long ago, and the app host kept its tail (tailCache.ts
+    // `chat.tail.get`): two whole turns from the middle of its history. The reader is on another
+    // chat and switches to this one: the pane draws the tail on the frame the switch lands and asks
+    // for the history before it; the attach page then starts far past the tail, so the chat drops
+    // it (direct.ts historyEpoch) and that older read, answered after the attach, brings nothing.
+    const STALE_TURN = 300;
+    const promptSeq = (n: number) =>
+      longEvents.find((event) => event.kind === "user_message" && event.msg.text === `Question ${n}`)!.seq;
+    const staleFrom = promptSeq(STALE_TURN);
+    const staleTo = promptSeq(STALE_TURN + 2) - 1;
+    const staleTail = {
+      events: longEvents.filter((event) => event.seq >= staleFrom && event.seq <= staleTo),
+      historyExhausted: false,
+    };
+    let staleReads = 0;
+    let attachAnsweredAt = 0;
+    let staleAnsweredAt = 0;
+    /// The chat the reader is on before the switch.
+    const OTHER = "0190a000-0000-7000-8000-00000000a701";
+    const otherEvents = (
+      [
+        ["mux", "user_message", { text: "Other question" }],
+        ["mux", "turn_started", {}],
+        ["in", "agent_message_chunk", chunk("Other answer.")],
+        ["mux", "turn_result", { status: "completed" }],
+      ] as Step[]
+    ).map(([dir, kind, msg], index) => ({
+      sessionId: OTHER,
+      seq: index + 1,
+      at: START + index * 1000,
+      dir,
+      kind,
+      msg,
+    }));
+    const otherSession = {
+      ...longSession,
+      sessionId: OTHER,
+      title: "Other chat",
+      status: "ready",
+      turnCount: 1,
+      lastSeq: otherEvents.length,
+    };
     // acpmux hub/paging.rs: `transcript` is every mux record here and every agent update but
     // bookkeeping; a page is the newest `limit` records before `beforeSeq`, ending before its JSON
     // passes `maxBytes`, and always holds at least one record.
@@ -473,7 +517,7 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
       }
       return { events: out.reverse(), hasMore, lastSeq };
     }
-    const longRequests: { method: string; params: Record<string, any>; failed?: boolean }[] = [];
+    const longRequests: { method: string; params: Record<string, any>; failed?: boolean; dropped?: boolean }[] = [];
     let failedOnce = false;
     let longInflight = 0;
     let longReplies = 0;
@@ -496,19 +540,38 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
           if (message.id === undefined) return;
           const params = message.params ?? {};
           let reply: Record<string, unknown>;
+          // A remote daemon answers a little later; the attach of a long chat later still, so the
+          // kept tail's older read goes out while it is in flight, and is answered after it.
+          let delay = 40;
+          let answered = () => {};
           if (message.method === "initialize")
             reply = {
               result: { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } },
             };
           else if (message.method === "_acpmux/watch")
-            reply = { result: { sessions: [{ ...longSession, lastSeq: longEvents.length }] } };
+            reply = { result: { sessions: [{ ...longSession, lastSeq: longEvents.length }, otherSession] } };
+          else if (params.sessionId === OTHER && message.method === "_acpmux/attach")
+            reply = {
+              result: { session: otherSession, events: otherEvents, hasMore: false, lastSeq: otherEvents.length },
+            };
+          else if (params.sessionId === OTHER && message.method === "_acpmux/events")
+            reply = { result: { events: [], hasMore: false, lastSeq: otherEvents.length } };
           else if (message.method === "_acpmux/attach") {
             longRequests.push({ method: message.method, params });
             reply = { result: { session: { ...longSession, lastSeq: longEvents.length }, ...longPage(params) } };
+            delay = 400;
+            answered = () => (attachAnsweredAt ||= performance.now());
           } else if (message.method === "_acpmux/events") {
-            // The first older transcript read fails, as one over a dropped connection does.
             const older = Array.isArray(params.kinds) && params.kinds.includes("transcript");
-            if (older && !failedOnce) {
+            if (older && attachAnsweredAt === 0 && Number(params.beforeSeq) === staleFrom) {
+              // The read off the kept tail: answered once the attach has replaced that tail.
+              staleReads++;
+              longRequests.push({ method: message.method, params, dropped: true });
+              reply = { result: longPage(params) };
+              delay = 1_200;
+              answered = () => (staleAnsweredAt = performance.now());
+            } else if (older && !failedOnce) {
+              // The first older transcript read after the attach fails, as one over a dropped connection does.
               failedOnce = true;
               longRequests.push({ method: message.method, params, failed: true });
               reply = { error: { code: -32000, message: "connection reset by peer" } };
@@ -520,16 +583,17 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
           longInflight++;
           setTimeout(() => {
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, ...reply }));
+            answered();
             longInflight--;
             longReplies++;
-          }, 40);
+          }, delay);
         },
       },
     });
     // The reply goes on streaming while the reader scrolls: the pane renders on every chunk.
     let pushed = 0;
     const live = setInterval(() => {
-      if (sockets.size === 0) return;
+      if (sockets.size === 0 || attachAnsweredAt === 0) return;
       const event = {
         sessionId: LONG,
         seq: longEvents.length + 1,
@@ -549,9 +613,34 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
       await installPaintedFrames(page);
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
+      // The app host's side of tailCache.ts: it answers with the old tail, and takes what the page
+      // hands it. The pane installs its own actions once it runs; these stay among them.
+      await page.addInitScript(
+        ([sessionId, tail]) => {
+          const host = {
+            "chat.tail.get": async (params: { sessionId?: unknown }) => (params.sessionId === sessionId ? tail : null),
+            "chat.tail": async () => null,
+          };
+          let actions: Record<string, unknown> = { ...host };
+          Object.defineProperty(window, "cmuxAcpmuxActions", {
+            configurable: true,
+            get: () => actions,
+            set: (next: Record<string, unknown>) => void (actions = { ...next, ...host }),
+          });
+        },
+        [LONG, staleTail] as const,
+      );
       const { port } = vite!.httpServer!.address() as { port: number };
       const endpoint = `ws://127.0.0.1:${longDaemon.port}/`;
-      await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${LONG}`);
+      await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${OTHER}`);
+      await page.getByText("Other question", { exact: true }).waitFor({ timeout: 60_000 });
+      // The reader switches to the long chat, as a pick in the chat list does.
+      await page.evaluate(
+        (sessionId) =>
+          (window as unknown as { cmuxAcpmuxActions: Record<string, (params: unknown) => Promise<unknown>> })
+            .cmuxAcpmuxActions["chat.select"]!({ sessionId }),
+        LONG,
+      );
       await page.getByText(`Question ${LONG_TURNS}`, { exact: true }).waitFor({ timeout: 60_000 });
       // A wheel step settles: no read in flight and the offset still for 60ms, timed in the page.
       const settle = async () => {
@@ -620,9 +709,15 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
       await settle();
       for (const id of [...(await look()).items].reverse()) if (!seen.includes(id)) seen.push(id);
 
-      console.log(`700-turn chat: ${steps} wheel steps`);
+      console.log(
+        `700-turn chat: ${steps} wheel steps; kept-tail reads ${staleReads}, answered ${Math.round(staleAnsweredAt - attachAnsweredAt)} ms after the attach`,
+      );
       expect(errors).toEqual([]);
       expect(failedOnce).toBe(true);
+      // The kept tail was drawn and read from, and that read landed after the attach dropped it.
+      expect(staleReads).toBeGreaterThan(0);
+      expect(attachAnsweredAt).toBeGreaterThan(0);
+      expect(staleAnsweredAt).toBeGreaterThan(attachAnsweredAt);
       expect(pushed).toBeGreaterThan(10);
       expect({ reachedFirst, oldestSeen: seen.at(-1) }).toEqual({ reachedFirst: true, oldestSeen: "Question 1" });
       // Every prompt once and in order, and each compaction where it happened: under its turn's prompt.
@@ -635,7 +730,10 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
       // The pane read its history in bounded pages, each before the oldest record it held.
       const older = longRequests.filter(
         (request) =>
-          request.method === "_acpmux/events" && !request.failed && request.params.kinds?.includes("transcript"),
+          request.method === "_acpmux/events" &&
+          !request.failed &&
+          !request.dropped &&
+          request.params.kinds?.includes("transcript"),
       );
       expect(older.length).toBeGreaterThan(3);
       expect(older.every((request) => Number(request.params.maxBytes) <= 256 * 1024)).toBe(true);
