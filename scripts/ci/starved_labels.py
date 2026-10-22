@@ -142,31 +142,39 @@ def plan_issues(found: Iterable[Mapping[str, Any]], open_issues: Iterable[Mappin
     Sweeps are serialized (the workflow's concurrency group never cancels one in progress), and this
     fences anyway: a title with several open issues keeps its oldest and closes the rest as
     duplicates, a label still queued and unserved keeps its issue open even below the alert
-    threshold, and an issue updated at or after this snapshot's time is never closed by it.
+    threshold, and an issue updated at or after this snapshot's time is never closed by it, nor is
+    any issue with its title closed as recovered.
     """
     by_title: dict[str, list[Mapping[str, Any]]] = {}
     for issue in open_issues:
         if str(issue.get("title") or "").startswith(ISSUE_PREFIX):
             by_title.setdefault(str(issue["title"]), []).append(issue)
     plan = IssuePlan([], [], [])
+    snapshot_at = parse_time(generated_at)
+
+    def newer(issue: Mapping[str, Any]) -> bool:
+        """Updated at or after this snapshot: a later sweep wrote it, so this one closes it for no reason."""
+        updated = parse_time(issue.get("updated_at"))
+        return bool(snapshot_at and updated and updated >= snapshot_at)
+
     keepers: dict[str, Mapping[str, Any]] = {}
+    fenced: set[str] = set()
     for title, issues in sorted(by_title.items()):
         issues.sort(key=lambda issue: issue["number"])
         keepers[title] = issues[0]
-        plan.duplicates.extend((issue, issues[0]) for issue in issues[1:])
+        if any(newer(issue) for issue in issues):
+            fenced.add(title)
+        plan.duplicates.extend((issue, issues[0]) for issue in issues[1:] if not newer(issue))
     for entry in found:
         issue = keepers.pop(issue_title(entry["label"]), None)
         if issue is None:
             plan.open.append(entry)
         else:
             plan.update.append((issue, entry))
-    held = {issue_title(label) for label in unserved}
-    snapshot_at = parse_time(generated_at)
+    held = {issue_title(label) for label in unserved} | fenced
     for title, issue in sorted(keepers.items(), key=lambda item: item[1]["number"]):
-        updated = parse_time(issue.get("updated_at"))
-        if title in held or (snapshot_at and updated and updated >= snapshot_at):
-            continue
-        plan.close.append(issue)
+        if title not in held:
+            plan.close.append(issue)
     return plan
 
 
