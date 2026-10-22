@@ -142,6 +142,7 @@ pub async fn run(config: HostConfig) -> Result<()> {
             config.device_id.clone(),
             Arc::clone(&tokens),
             config.services.acpmux.clone(),
+            Some(config.services.daemon_socket()),
             sealer,
         ));
     }
