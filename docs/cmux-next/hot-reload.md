@@ -10,6 +10,7 @@ Running apps can pick up edits to them without a Swift build or a relaunch, two 
 |---|---|
 | Your edits live in your app | `scripts/cmux-next/web-overlay.sh server --local` |
 | Another worktree's edits live | `scripts/cmux-next/web-overlay.sh server --local --worktree <path>` |
+| A pull request's web UI, live | `scripts/cmux-next/web-overlay.sh follow <PR>` (again after each push) |
 | The web UI of every merge, no checkout | Settings > Updates > Web UI Updates > **Every Merge** |
 | Stop your dev server | `scripts/cmux-next/web-overlay.sh server off` (an installed overlay, if any, still serves) |
 | The shipped pages back | `scripts/cmux-next/web-overlay.sh off` (ignores the file; run `server off` first to stop the server) |
@@ -59,6 +60,21 @@ While a dev server serves, the Content Security Policy is looser. Pages also all
 (React Refresh) and that server's `ws://` and `http://` origin. The agent pane uses the dev
 server's own policy, which allows inline scripts and loopback WebSockets and frames on any port.
 An overlay keeps the shipped policy.
+
+### A pull request
+
+```sh
+scripts/cmux-next/web-overlay.sh follow <PR>
+```
+
+fetches the PR's head with git (no GitHub API) into one checkout the script keeps under
+`~/Library/Caches/cmux-next/web-slot/follow`, and runs the dev server there. Run it again after a
+push: it checks out the new head in place and the open pages hot-reload, so you review exactly the
+head under review. `status` names the PR and commit it follows; `server off` stops it.
+
+The dev server runs the head's own code (its Vite config and dev-server plugins) on your Mac. A
+head that no branch of the repo points at, such as an outside contributor's fork, is refused until
+you have read its `webviews/` changes and add `--fork`.
 
 ### No dev server: built bundles
 
@@ -119,12 +135,10 @@ None of this has shipped yet. Each step will be its own small PR:
    the new frame in the app, and a check would fail when it goes over one second. A
    [recording](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/22664/live-reload-settings.mp4)
    on a cmux NEXT nightly measured 0.7–0.85 s for a Settings edit.
-2. **Follow a PR.** `web-overlay.sh follow <PR>` would install that PR's head web bundles from the
-   fleet and again on every push, so a reviewer runs exactly the head they're reviewing.
-3. **Show what's live.** A small chip in Debug and NIGHTLY builds would name what each page is
+2. **Show what's live.** A small chip in Debug and NIGHTLY builds would name what each page is
    loaded from: the dev server, an overlay at a commit, a web update, or the bundle.
-4. **Reload what Swift can.** A change that only touches what a page reads from its host (strings,
+3. **Reload what Swift can.** A change that only touches what a page reads from its host (strings,
    the settings schema, theme tokens) would reload the pages that use it. Native code still needs
    a build, which would come through the per-user update channel in the plan.
-5. **No bridge skew.** An overlay or web update built for a newer page bridge than the app has would
+4. **No bridge skew.** An overlay or web update built for a newer page bridge than the app has would
    be refused, with the reason in `status`, so a page never calls a host op the app lacks.
