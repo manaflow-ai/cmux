@@ -7356,6 +7356,7 @@ function AcpmuxPane() {
                 : undefined
             }
             queueImage={readQueuedImage}
+            queueSubsessions={subsessions}
             onProject={chooseProject}
             onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
             onConnect={connectMachine}
