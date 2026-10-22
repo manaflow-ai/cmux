@@ -609,8 +609,8 @@ async fn dispatch_request(
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
             let mode = str_param(&params, "modeId")
                 .ok_or_else(|| RpcError::invalid_params("modeId is required"))?;
-            // The app pane's mode pick is saved for the next new chat (start_mode.rs).
-            hub.client_set_mode(&s, mode, conn.origin == Origin::LocalApp).await
+            // A mode pick holds for this chat only; new chats start in the default (start_mode.rs).
+            hub.set_mode(&s, mode).await
         }
         method::SESSION_SET_CONFIG_OPTION => {
             let s = resolved_session(hub, resolved.as_ref(), &params)?;

@@ -194,13 +194,6 @@ impl Hub {
         if pick && effort.is_some() && before.as_deref() != effort {
             self.note_pick(session, None, effort).await;
         }
-        // The mode as a config option (Claude Code's `mode`): a mode pick.
-        if pick
-            && resolved == "mode"
-            && let Some(mode) = value.as_str()
-        {
-            self.note_mode_pick(session, mode).await;
-        }
         Ok(r)
     }
 
