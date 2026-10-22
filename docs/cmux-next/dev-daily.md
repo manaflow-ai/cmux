@@ -42,13 +42,18 @@ If agents still run on the old acpmux after an update, move it by hand from a
 terminal in the updated app:
 
 ```sh
-cmux acp --version; cmux acp --json daemon status | grep '"build"'   # the app's build, then the running daemon's
+cmux acp --version; cmux acp --json daemon status | grep '"build"'   # the app's build, then the running daemon's; stop if they match
+cmux acp host update --all   # ssh peers of this Mac's platform get the app's build, put back if it doesn't start
 cmux acp daemon shutdown     # ends the old daemon; hosted agents keep running for the next one
-cmux acp host update --all   # your ssh peers get the same build, put back if it doesn't start
 ```
 
-Then send a message in any agent chat: the app starts its bundled acpmux, which
-adopts the running agents.
+Run `host update` first: it reads the peer list from the running daemon, and
+run after the shutdown it would start a daemon from the terminal, which the app
+keeps. It restarts a peer's daemon mid-turn too. A Linux peer is skipped from a
+Mac unless you pass `--binary-dir DIR` with an `acpmux-<target>` binary for it.
+
+Then open a new agent chat: the app starts its bundled acpmux, which adopts the
+running agents. An open chat only says acpmux is not running.
 
 Sparkle is disabled for this channel (`UpdateBuildIdentity.track` is
 `.development`), so there is no in-app update; this script is the update path.
