@@ -27,7 +27,8 @@ extension WindowRootView {
     /// Follows the placement settings from `DesignSettings` (init reads the
     /// first values; the first emission repeats them and changes nothing).
     func observePlacement() -> Task<Void, Never> {
-        Task { [weak self] in
+        let sidebar = sidebar
+        return Task { [weak self] in
             for await (side, spaces, visibility, _) in ObservationStream({ [sidebar] in
                 (DesignSettings.shared.sidebarSide, DesignSettings.shared.spacesPosition, DesignSettings.shared.spacesVisibility,
                  // `sidebar.style` = rail: the content keeps the rail's inset (`WindowRootView+SidebarRail`).
