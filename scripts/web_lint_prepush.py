@@ -95,9 +95,14 @@ class EslintPackage:
 TUI_BINDINGS = LocalBuild(
     directory="cmux-tui/bindings/typescript",
     name="cmux",
-    inputs=("package.json", "package-lock.json", "tsconfig.json", "src/", "test/", "e2e/"),
+    # bun.lock / bun.lockb: the bun fallback installs from one when it is there.
+    inputs=("package.json", "package-lock.json", "bun.lock", "bun.lockb", "tsconfig.json", "src/", "test/", "e2e/"),
 )
 BUILD_STAMP = ".web-lint-build"
+# In a dependent package: node_modules/<INSTALLED_STAMPS>/<build name> holds the digest of the build its
+# node_modules copy came from, written only after that install succeeded. Not inside the copy: bun copies
+# the build's own stamp along with dist/, even on an install that then fails.
+INSTALLED_STAMPS = ".web-lint-builds"
 SCRIPT_PACKAGES = (
     ScriptPackage(
         directory="webviews",
@@ -299,14 +304,22 @@ def build_digest(repo: Path, build: LocalBuild) -> str:
     return digest.hexdigest()
 
 
-def ensure_build(repo: Path, build: LocalBuild, dependents: list[str]) -> tuple[bool, Result | None]:
-    """Install and build `build` unless its output was built from the same inputs; returns (rebuilt, failure).
-    A failure is one Result that names the build and the checks it holds back."""
+def read_stamp(path: Path) -> str | None:
+    return path.read_text(encoding="utf-8").strip() if path.is_file() else None
+
+
+def installed_stamp(repo: Path, directory: str, build: LocalBuild) -> Path:
+    return repo / directory / "node_modules" / INSTALLED_STAMPS / build.name
+
+
+def ensure_build(repo: Path, build: LocalBuild, dependents: list[str]) -> tuple[str | None, Result | None]:
+    """Install and build `build` unless its output was built from the same inputs; returns (the digest of
+    its inputs, failure). A failure is one Result that names the build and the checks it holds back."""
     root = repo / build.directory
     stamp = root / build.output / BUILD_STAMP
     digest = build_digest(repo, build)
-    if stamp.is_file() and stamp.read_text(encoding="utf-8").strip() == digest:
-        return False, None
+    if read_stamp(stamp) == digest:
+        return digest, None
     held = f"Not checked until this builds: {', '.join(dependents)} (it imports {build.name} from this build)."
     npm, bun = shutil.which("npm"), shutil.which("bun")
     if npm:  # what CI runs (cmux-tui.yml, "Build TypeScript SDK")
@@ -314,7 +327,7 @@ def ensure_build(repo: Path, build: LocalBuild, dependents: list[str]) -> tuple[
     elif bun:  # tsc's node shebang runs on bun
         steps = [[bun, "install", "--silent", "--no-save"], [bun, "run", "--bun", "build"]]
     else:
-        return False, Result(build.directory, "npm ci && npm run build", 127,
+        return None, Result(build.directory, "npm ci && npm run build", 127,
                              f"neither npm nor bun is on PATH, so {build.directory} can't be built.\n{held}", 0)
     stamp.unlink(missing_ok=True)
     started = time.monotonic()
@@ -323,31 +336,49 @@ def ensure_build(repo: Path, build: LocalBuild, dependents: list[str]) -> tuple[
         result = run_leaving_no_lockfile(step, root, env)
         if result.returncode != 0:
             shown = " ".join([Path(step[0]).name, *(c for c in step[1:] if c != "--silent")])
-            return False, Result(build.directory, f"{shown} (the {build.name} bindings)", result.returncode,
+            return None, Result(build.directory, f"{shown} (the {build.name} bindings)", result.returncode,
                                  f"{result.stdout}{result.stderr}\n{held}", time.monotonic() - started)
     stamp.parent.mkdir(parents=True, exist_ok=True)
     stamp.write_text(digest + "\n", encoding="utf-8")
-    return True, None
+    return digest, None
 
 
-def prepare_builds(repo: Path, packages: list[ScriptPackage]) -> tuple[set[str], list[Result]]:
-    """Build each local package the planned packages import; returns the packages to reinstall (their
-    node_modules copy of a build is older than it) and the failures."""
+def prepare_builds(repo: Path, packages: list[ScriptPackage]) -> tuple[dict[str, dict[LocalBuild, str]], list[Result]]:
+    """Build each local package the planned packages import; returns, per package to reinstall, the builds
+    whose node_modules copy did not come from the current build (with that build's digest), and the failures."""
     builds: dict[LocalBuild, list[str]] = {}
     for package in packages:
         for build in package.builds:
             builds.setdefault(build, []).append(package.directory)
-    rebuilt, failures = set(), []
+    digests, failures = {}, []
     for build, dependents in builds.items():
-        fresh, failure = ensure_build(repo, build, dependents)
+        digest, failure = ensure_build(repo, build, dependents)
         if failure:
             failures.append(failure)
-        elif fresh:
-            rebuilt.add(build)
-    # bun copies a file: dependency into node_modules at install time, so a new build needs a new install.
-    stale = {p.directory for p in packages for b in p.builds
-             if b in rebuilt or not (repo / p.directory / "node_modules" / b.name / b.output).exists()}
+        else:
+            digests[build] = digest
+    # bun copies a file: dependency into node_modules at install time, so a new build needs a new install;
+    # a copy is current only when an install from this exact build succeeded.
+    stale: dict[str, dict[LocalBuild, str]] = {}
+    for package in packages:
+        for build in package.builds:
+            if build in digests and read_stamp(installed_stamp(repo, package.directory, build)) != digests[build]:
+                stale.setdefault(package.directory, {})[build] = digests[build]
     return stale, failures
+
+
+def install(repo: Path, directory: str, stale: dict[LocalBuild, str] | None) -> Result | None:
+    """ensure_deps, forced when the package's copy of a local build is stale; that copy's stamp is
+    cleared first and written back only once the install succeeds."""
+    for build in stale or {}:
+        installed_stamp(repo, directory, build).unlink(missing_ok=True)
+    failure = ensure_deps(repo, directory, force=bool(stale))
+    if failure is None:
+        for build, digest in (stale or {}).items():
+            path = installed_stamp(repo, directory, build)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(digest + "\n", encoding="utf-8")
+    return failure
 
 
 def run(label: str, command: list[str] | str, cwd: Path, env: dict[str, str]) -> Result:
@@ -374,7 +405,7 @@ def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True) -> list[Resu
         return failures
     directories = [p.directory for p in plan.script_packages] + list(plan.eslint_files)
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(directories))) as pool:
-        installs = [r for r in pool.map(lambda d: ensure_deps(repo, d, d in stale), directories) if r]
+        installs = [r for r in pool.map(lambda d: install(repo, d, stale.get(d)), directories) if r]
     if installs:
         return installs
     if fix:
