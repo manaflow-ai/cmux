@@ -295,6 +295,7 @@ fn serve(home: &Path, chief: Arc<ChiefTools>) -> PathBuf {
             inspector: None,
             chief: Some(chief),
             turn: Some(binding()),
+            peers: None,
         },
     )
     .unwrap();

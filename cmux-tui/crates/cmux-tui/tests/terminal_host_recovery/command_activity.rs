@@ -506,12 +506,7 @@ fn a_finished_turn_banner_previews_the_last_message_in_memory_only() {
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis()
-        .try_into()
-        .unwrap()
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis().try_into().unwrap()
 }
 
 #[test]
