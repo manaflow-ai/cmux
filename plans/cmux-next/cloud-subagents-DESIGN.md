@@ -197,3 +197,81 @@ minutes after its last subagent (about 0.045 USD per idle period), and never
 paused when its host was gone. After: 60-65 s (about 0.0045 USD), 10 times
 less; a host that stops pauses its idle VMs at once. The paused price is
 storage only (64 GB); Freestyle's storage price was not checked.
+
+## One VM per subagent (a464, 2026-10-22)
+
+Ask (user, Oct 21-22): every Chief subagent in its own Freestyle VM, local
+only when it needs the Mac GUI; right-sized; disk efficient; idle VMs
+paused; a VM deleted after its work is pushed; ask before more than 20 USD/day.
+
+What a242 left unwired (why 33 subagents still ran on the Mac): the saved
+`control cloud` was empty, the only pool peer `chief-subagents-1` was gone
+from `acpmux host ls`, and `~/.config/cloud-subagents/vm-cmd` named a
+`deploy.sh` in a deleted clone, so every resume was a silent no-op.
+
+### Placement
+
+`control cloud freestyle` (`subagents::PER_AGENT`). Each new subagent `aN`
+gets the peer `chief-sub-aN`: the Spawner asks the pool tool to
+`provision` it (`deploy.sh resume chief-sub-aN --size S`), which makes the VM
+the first time. Everything after start is the a242 peer path (relay, tells,
+pause after `cloud.autoPauseIdleSeconds` = 60 s with no live subagent,
+resume before a tell, never mid-turn).
+
+- Mac tasks stay here: `needs_mac(task)` (screenshots, computer use,
+  reload.sh/--launch, tagged app, simulator, Xcode, sign-in, passkey,
+  dogfood). `place: "cloud"` overrides; `place: "local"` forces here.
+- A VM that cannot be made (over budget, provider down) does not lose the
+  subagent: it starts here, and the spawn answer says why.
+
+### Sizes
+
+| Size | vCPU / GiB / disk | USD per running h | For |
+|---|---|---|---|
+| small (default) | 2 / 4 / 16 GB | 0.13 | design, docs, review, edits |
+| medium | 4 / 8 / 32 GB | 0.26 | bun/node/go tests, type checks (`size_for`) |
+| large | 8 / 16 / 64 GB | 0.52 | only `place: "cloud:large"` |
+
+Swift, Rust and app builds go to the Mac-mini fleet (`cmux-ci`), never to a
+big VM. `small` is the base snapshot's own size (`freestyle/ubuntu-sm`);
+bigger sizes grow from it (Freestyle resize is grow-only).
+
+### Disk
+
+- One shared base snapshot (`deploy.sh base`): git, tailscale (not joined),
+  Claude Code on sr2, Linux acpmux and cmux-tui, bun, and a depth-1,
+  single-branch, blobless clone of cmux feat-cmux-next. No Rust, no
+  credential, no tailnet identity. Caches dropped and TRIMmed before the
+  snapshot.
+- Each VM is a copy-on-write fork of it: its own bytes are only what its
+  subagent writes. `vm/fork.sh` does no installs: tailnet join, acpmux
+  start, a depth-1 fetch of feat-cmux-next.
+- Delete: 30 min (`REAP_AFTER_DONE`) after its subagent is done, the Chief
+  host runs `deploy.sh destroy`; it refuses (and pauses the VM) while a
+  worktree there has commits not on origin or uncommitted edits, and is
+  tried again later. A tell after the delete says so. Freestyle's
+  `autoDeleteSeconds` (7 days not running) is the leak guard.
+- `deploy.sh disk NAME` reports used, own (above the base) and work GB.
+
+### Cost guard
+
+`deploy.sh` keeps a ledger of running intervals per VM
+(`~/.config/cloud-subagents/ledger.json`). A new VM is refused (exit 4, the
+subagent runs here) when today's spend plus one more hour of everything
+running would pass `CLOUD_SUBAGENTS_BUDGET_USD_DAY` (20). `deploy.sh cost`
+prints today's spend, the running rate and the size table.
+
+### Credentials
+
+Unchanged from a242: no GitHub credential on the VM. A subagent commits;
+`deploy.sh land NAME DIR BRANCH` pushes through the Mac (plain push). The
+delete waits for that push.
+
+### Tests
+
+- cmux `tests/cloud_subagents.rs`: own VM per subagent at the guessed or
+  asked size, Mac tasks local; a VM that cannot be made starts the subagent
+  here; a finished subagent's VM is deleted once, after a refusal; a tell
+  after it is refused.
+- cmuxterm-hq `tools/cloud-subagents/deploy.test.ts`: names, sizes and
+  grow-only resize, spend from the ledger, the budget guard, the unpushed check.
