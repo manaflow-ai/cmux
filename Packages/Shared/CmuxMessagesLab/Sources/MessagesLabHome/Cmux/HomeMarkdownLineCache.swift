@@ -15,7 +15,16 @@ final class HomeMarkdownLineCache {
 
     init(limit: Int = 4096, chips: Bool = HomeLinkChip.showsInTranscript) { self.limit = limit; self.chips = chips }
 
+    /// The subagent links' revision the cached lines were rendered at (HomeSubagentLinks): a
+    /// line that names `a12` links it only once the app knows that subagent.
+    private var subagentRevision = HomeSubagentLinks.shared.currentRevision
+
     func rendered(_ raw: Substring) -> HomeMarkdown.Output {
+        let revision = HomeSubagentLinks.shared.currentRevision
+        if revision != subagentRevision {
+            lines.removeAll(keepingCapacity: true)
+            subagentRevision = revision
+        }
         let key = String(raw)
         if let hit = lines[key] { return hit }
         var out = HomeMarkdown.Output()

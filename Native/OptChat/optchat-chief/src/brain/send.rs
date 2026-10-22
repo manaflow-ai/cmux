@@ -107,6 +107,8 @@ impl Brain {
             .as_deref()
             .map(|t| self.link_subagents(t.trim()))
             .unwrap_or_default();
+        // A workspace id the user's session does not have: the Chief hears it in this answer.
+        let missing = self.missing_workspaces(&text);
         for url in &urls {
             if !text.is_empty() {
                 text.push('\n');
@@ -159,9 +161,22 @@ impl Brain {
             (0, 0) => String::new(),
             (f, u) => format!(" with {} attachment(s)", f + u),
         };
-        Ok(match call.reply_to {
+        let sent = match call.reply_to {
             Some(id) => format!("outcome: done. sent{what} in the thread of message {id}"),
             None => format!("outcome: done. sent{what}"),
-        })
+        };
+        Ok(with_workspace_check(sent, &missing))
+    }
+}
+
+/// `outcome` with the warning about workspace ids no session holds (`missing`), when any.
+pub(super) fn with_workspace_check(outcome: String, missing: &[String]) -> String {
+    if missing.is_empty() {
+        outcome
+    } else {
+        format!(
+            "{outcome}. WARNING: {}",
+            crate::workspaces::missing_workspaces_warning(missing)
+        )
     }
 }

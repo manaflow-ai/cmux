@@ -103,3 +103,47 @@ extension AgentActivityLane {
         return task
     }
 }
+
+/// The chat links of the Chief's subagents, by id (`a459` to `cmux://chief/<home>/session/<id>`),
+/// for Home to link every bare mention of one in any Chief's reply (MessagesLabHome's
+/// `HomeSubagentLinks`; Lawrence 2026-10-22: "why did u forget to link a459"). Read from the Chief
+/// home's acpmux lanes: a subagent session is named `optchat-sub-<home>-a<n>` and tagged
+/// `mux.parent = optchat-chief:<home>`. This Mac's own lane wins over a peer's mirror of the same
+/// id; between two sessions of one id (acpmux deduped the name: a restarted subagent) the newer.
+public enum ChiefSubagentLinks {
+    public nonisolated static func links(lanes: some Collection<AgentActivityLane>) -> [String: String] {
+        var best: [String: AgentActivityLane] = [:]
+        for lane in lanes where ChiefSessionRole(name: lane.name) == .subagent {
+            guard let number = lane.subagentNumber, number > 0, home(of: lane) != nil, token(lane.id) else { continue }
+            let id = "a\(number)"
+            if let have = best[id], !newer(lane, than: have) { continue }
+            best[id] = lane
+        }
+        return best.reduce(into: [:]) { out, entry in
+            if let home = home(of: entry.value) { out[entry.key] = "cmux://chief/\(home)/session/\(entry.value.id)" }
+        }
+    }
+
+    /// The Chief home id (8 lowercase hex digits) of a subagent lane: its `mux.parent` tag, else
+    /// its name's `<home>` part.
+    nonisolated static func home(of lane: AgentActivityLane) -> String? {
+        let tagged = lane.parent.flatMap { $0.hasPrefix("optchat-chief:") ? String($0.dropFirst("optchat-chief:".count)) : nil }
+        let named = lane.name.split(separator: "-").dropFirst(2).first.map(String.init)
+        return [tagged, named].compactMap { $0 }.first { home in
+            home.utf8.count == 8 && home.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+        }
+    }
+
+    /// A session id the link may carry (optchat-chief `subagent_link`'s token rule).
+    nonisolated static func token(_ s: String) -> Bool {
+        (1...200).contains(s.utf8.count) && s.utf8.allSatisfy { b in
+            (48...57).contains(b) || (65...90).contains(b) || (97...122).contains(b) || b == 45 || b == 95 || b == 46
+        }
+    }
+
+    /// `lane` should name the id over `other`: this Mac's over a peer's, then the newer session.
+    nonisolated static func newer(_ lane: AgentActivityLane, than other: AgentActivityLane) -> Bool {
+        if (lane.peer == nil) != (other.peer == nil) { return lane.peer == nil }
+        return (lane.createdAt ?? .distantPast) > (other.createdAt ?? .distantPast)
+    }
+}

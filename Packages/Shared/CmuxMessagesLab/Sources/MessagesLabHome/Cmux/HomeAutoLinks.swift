@@ -16,10 +16,19 @@ extension HomeMarkdown {
     }
 
     /// The bare links in `text`, left to right, each one accepted by the link policy.
-    static func autoLinks(in text: String) -> [AutoLink] {
+    static func autoLinks(in text: String, subagents: HomeSubagentLinks = .shared) -> [AutoLink] {
         let ns = text as NSString
-        guard ns.length > 2, text.contains(where: { $0 == "/" || $0 == "_" }) else { return [] }
+        guard ns.length >= 2 else { return [] }
         var found: [AutoLink] = []
+        // A known Chief subagent's bare id (`a459`) links to its chat (HomeSubagentLinks).
+        if !subagents.isEmpty, text.contains("a") {
+            for match in subagentPattern.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+                let id = ns.substring(with: match.range)
+                guard let link = subagents.link(for: id).flatMap(MarkdownLinkPolicy.sanitize) else { continue }
+                found.append(AutoLink(range: match.range, link: link, label: id))
+            }
+        }
+        guard ns.length > 2, text.contains(where: { $0 == "/" || $0 == "_" }) else { return found }
         for match in autoLinkPattern.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
             var range = match.range
             // A sentence's punctuation after a path is not part of it.
@@ -29,10 +38,20 @@ extension HomeMarkdown {
             }
             let raw = ns.substring(with: range)
             guard let link = destination(raw) else { continue }
+            // A subagent id inside a path or link is part of it, not a mention.
+            found.removeAll { NSIntersectionRange($0.range, range).length > 0 }
             found.append(AutoLink(range: range, link: link, label: shortLabel(raw)))
         }
-        return found
+        return found.sorted { $0.range.location < $1.range.location }
     }
+
+    /// A subagent id (`a` and 1 to 6 digits, no leading zero) standing alone: not inside a word,
+    /// path, URL or file name (`ma1`, `a1b`, `/a1`, `a1.txt`, `#a1`, `@a1`), as optchat-chief's
+    /// `link_subagents` reads it. Markdown's `*`, `_`, brackets and parentheses around it are fine.
+    private static let subagentPattern: NSRegularExpression = {
+        // Crash program: a constant pattern, checked by the tests.
+        try! NSRegularExpression(pattern: #"(?<![\p{L}\p{N}_/:.~\-#@])a[1-9][0-9]{0,5}(?![\p{L}\p{N}_]|\.[\p{L}\p{N}_])"#)
+    }()
 
     /// The label a bare link shows (Lawrence 2026-10-19: a raw `cmux://workspace/ws_…` broke
     /// across two lines): a short path as written (the home folder as `~`), a long one as its

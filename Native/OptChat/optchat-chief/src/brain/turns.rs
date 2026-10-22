@@ -1299,10 +1299,18 @@ impl Brain {
             Some(conversation) if !text.is_empty() => {
                 // Every mention of a subagent is its link (Lawrence 2026-10-10).
                 let text = self.link_subagents(&text);
+                let missing = self.missing_workspaces(&text);
                 let mut entry = answer_entry(conversation, key, &text, answers, pending);
                 in_thread(&mut entry, thread);
                 let entry = self.reply_with_previews(entry);
                 self.state.outbox.push(entry);
+                if !missing.is_empty() {
+                    // The turn has ended: the Chief hears it as a note and corrects it.
+                    self.queue(
+                        crate::workspaces::missing_workspaces_warning(&missing),
+                        Source::Note,
+                    );
+                }
             }
             Some(conversation) if closes => {
                 (self.log)(&format!(
