@@ -169,7 +169,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // The last turn, stopped and not yet followed by a prompt, offers Continue (Codex's): it sends the
   // continue prompt as the composer would, and the button goes once that prompt shows (turns.ts).
   const resumable = row.resumable === true && resume !== undefined;
-  // One click sends one prompt: the button waits until its pending prompt row takes it away.
+  // One click sends one prompt: the button stays disabled while the send is in flight (its pending
+  // prompt row takes the button away first). A chat without the action (View Only, disconnected)
+  // draws no Continue, so its footer is empty or not as it would be without one.
   const [resuming, setResuming] = useState(false);
   // A failure reads as the turn's answer does: its own block above the footer row, never squeezed
   // into it (Codex, Claude desktop). The row is one quiet line under the answer's left edge; it
@@ -184,7 +186,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             ? "cv-turn-actions cv-turn-actions--failed"
             : resumable
               ? "cv-turn-actions cv-turn-actions--resumable"
-              : isEmptyFooter(row) && !row.resumable
+              : isEmptyFooter(row.resumable ? { ...row, resumable: undefined } : row)
                 ? "cv-turn-actions cv-turn-actions--empty"
                 : "cv-turn-actions"
         }

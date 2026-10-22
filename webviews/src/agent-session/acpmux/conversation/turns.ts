@@ -494,8 +494,10 @@ function shapeTurn(
   if (preview) shaped.push({ id: `${PREVIEW}-${user.id}`, version, at: summary.at, kind: PREVIEW, text: preview });
   // The footer copies the answer, so it carries the answer's text; the last turn's also retries
   // its prompt, and stops offering to once a later prompt goes (or waits to). A last turn the
-  // reader stopped also offers Continue, as Codex does, until a prompt follows it or it runs again.
-  const resumable = retryable && !live && isStopped(summary);
+  // reader stopped also offers Continue, as Codex does, until a prompt follows it or it runs again,
+  // and not once a turn the agent started on its own after it has ended (its later summary).
+  const resumable =
+    retryable && !live && isStopped(summary) && !turn.slice(end + 1).some((row) => row.kind === "turnSummary");
   shaped.push({
     ...summary,
     folded,

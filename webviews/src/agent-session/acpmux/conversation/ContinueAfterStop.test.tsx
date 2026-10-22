@@ -64,6 +64,11 @@ test("an older stopped turn offers no Continue; only the last one can", () => {
   expect(footers(completedLast).map((row) => row.resumable)).toEqual([undefined, undefined]);
 });
 
+test("a stopped turn the agent went on from on its own offers no Continue once that turn ends", () => {
+  const rows = [...stoppedTurn, answer("a2", 50_000), summary("s2", 51_000, { status: "completed" })];
+  expect(footers(rows).every((row) => !row.resumable)).toBe(true);
+});
+
 test("a turn a prompt sent now ended is not a stop, so it offers no Continue", () => {
   const rows = [prompt("p1", 1_000), summary("s1", 41_000, { status: "cancelled", continued: true })];
   expect(footers(rows).every((row) => !row.resumable)).toBe(true);
@@ -99,6 +104,9 @@ test("the footer draws Continue only with the action, and shows at rest", () => 
   expect(withResume).toContain(translate("turn.stopped", { time: "40s" }));
   // No action (a View Only chat, or not connected): no button.
   expect(renderToStaticMarkup(<TurnFooter row={row} />)).not.toContain("cv-turn-continue");
+  // There a folded stopped turn with nothing else to show keeps no line for it.
+  const folded = { ...row, folded: true, text: undefined };
+  expect(renderToStaticMarkup(<TurnFooter row={folded} />)).toContain("cv-turn-actions--empty");
   // A completed turn's footer never draws it, even with the action.
   const done = footers([prompt("p1", 1_000), answer("a1", 30_000), summary("s1", 41_000)])[0]!;
   expect(
