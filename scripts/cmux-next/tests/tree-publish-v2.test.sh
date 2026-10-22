@@ -158,8 +158,8 @@ grep -q "published without the Windows daemon" <<<"$out" || fail "no warning for
 # publishes the macOS and Linux tree with a notice, not a warning; the Windows
 # pass (publish-tree-windows, the same step) adds the Windows daemon and
 # completion-windows.json, rewriting every first-pass object byte for byte.
-rm -rf "$cdn/tree"
-mv "$cdn/windows/$run_sha" "$TMP/windows-later"
+# (The case above left no cmux-tui-windows/<sha>/ and no Windows build.)
+rm -rf "$cdn/tree" "$cdn/windows"
 publish_pass() { # <pass> <run id>
   (cd "$src" && rm -rf assets/tree tree && mkdir -p assets/tree && cp assets/run/* assets/tree/ && env PATH="$TMP/bin:$PATH" GITHUB_SHA="$run_sha" GITHUB_RUN_ID="$2" \
     GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=manaflow-ai/cmux GITHUB_REF=refs/heads/feat-cmux-next R2_ENDPOINT=https://r2.test \
@@ -173,8 +173,11 @@ for key in "$v2" "$v1"; do
 done
 grep -q "::notice title=Windows publishes later::" <<<"$out" || fail "the first pass did not say Windows publishes later:" "$out"
 ! grep -q "::warning title=tree without Windows::" <<<"$out" || fail "the first pass warned about a Windows build still running:" "$out"
-mv "$TMP/windows-later" "$cdn/windows/$run_sha"
+# publish-windows has written this commit's Windows prefix by now.
 for n in "${windows_names[@]}"; do echo "run build $n" > "$src/assets/run/$n"; done
+mkdir -p "$cdn/windows/$run_sha"
+for n in "${windows_names[@]}"; do cp "$src/assets/run/$n" "$cdn/windows/$run_sha/$n"; done
+manifest "$run_sha" "$src/assets/run" "${windows_names[@]}" > "$cdn/windows/$run_sha/manifest.json"
 out=$(publish_pass windows 5) || fail "the Windows pass failed:" "$out"
 for key in "$v2" "$v1"; do
   cmp -s "$TMP/completion-$key.json" "$cdn/tree/$key/completion.json" || fail "$key: the Windows pass changed completion.json"
