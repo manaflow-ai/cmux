@@ -21,7 +21,6 @@ struct SidebarBottomCardSlot {
     /// Adds the views to `sidebar` and routes their actions to its model.
     func install(in sidebar: SidebarView) {
         update.onInstall = { [weak sidebar] in sidebar?.model.send(.installUpdate) }
-        update.onAutomaticUpdates = { [weak sidebar] on in sidebar?.model.send(.setAutomaticUpdates(on)) }
         update.onOpenChanges = { [weak sidebar] in sidebar?.model.send(.openUpdateChanges) }
         update.onCloseAction = { [weak sidebar] card, action in sidebar?.model.send(.noticeAction(card: card, action: action)) }
         // The highlights show in the app's one hover card window (one card at a time).
