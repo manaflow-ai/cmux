@@ -118,11 +118,13 @@ def fetch_for_merge(repo: Path, remote: str, pr: str, base: str) -> None:
             return False
         # A cut commit shows no parents, so a merge base found here can be an older common ancestor than the
         # true one, hidden past the cut on one side (#24250: spurious conflicts in files the PR never touched).
-        # The found bases are the true ones once every cut either side reaches lies behind one of them.
+        # One found base is the true one once every cut either side reaches lies behind it. Several can be
+        # stale even then (a cut at one hides that it descends from another), and git merges them into a
+        # virtual base from their own history, so they count only once no cut is reachable at all.
         shallow = Path(git(repo, "rev-parse", "--path-format=absolute", "--git-path", "shallow").stdout.strip())
         cuts = set(shallow.read_text().split()) if shallow.exists() else set()
-        ahead = git(repo, "rev-list", HEAD_REF, base, "--not", *bases).stdout.split()
-        return not cuts.intersection(ahead)
+        behind = ["--not", *bases] if len(bases) == 1 else []
+        return not cuts.intersection(git(repo, "rev-list", HEAD_REF, base, *behind).stdout.split())
 
     # A depth flag only in a checkout that is already shallow (the CI checkout): in a full clone it would make
     # every worktree sharing it shallow (tests/test_ci_no_shallow_dev_fetch.py), so there it fetches whole.
