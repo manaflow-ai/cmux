@@ -358,10 +358,20 @@ def compile_wait(checks: list[dict]) -> bool:
     finished = [c.get("conclusion") for c in named if c.get("status") == "completed"]
     if any(c not in NO_VERDICT and c != "success" for c in finished) and "success" not in finished:
         return False  # an attempt finished red: a rerun queued after it is no wait (every attempt is read)
+    if fleet_red(checks):
+        return False  # the build-fleet compile finished red: the Release compile queued beside it is no wait
     return (not checks or any(c.get("status") in RUNNING for c in named)
             or (not named and any(c.get("name") in ROUTING and c.get("status") in RUNNING for c in checks))
             or (len(finished) == len(named) and set(finished) - NOT_RUN == {"cancelled"})
             or fleet_stopped(checks))
+
+
+def fleet_red(checks: list[dict]) -> str:
+    """The red conclusion of the PR's build-fleet compile when no attempt of it, and no Release compile, passed."""
+    fleet = [c.get("conclusion") for c in checks if c.get("name") == FLEET_COMPILE and c.get("status") == "completed"]
+    red = [c for c in fleet if c not in NO_VERDICT and c != "success"]
+    passed = "success" in fleet or any(c.get("name") == COMPILE and c.get("conclusion") == "success" for c in checks)
+    return red[0] if red and not passed else ""
 
 
 def fleet_stopped(checks: list[dict]) -> bool:
@@ -382,6 +392,10 @@ def compile_refusal(pr: dict, swift: list[str], checks: list[dict]) -> str:
     what = changes_what(pr, swift)
     if not checks:
         return f"{what} and {head} has no checks yet, so no {COMPILE} either."
+    red = fleet_red(checks)
+    if red:
+        return (f"{what} and its {FLEET_COMPILE} finished {red} on {head}. "
+                f"Fix it, or merge the base in when the base has the fix, and merge once it passes.")
     if any(c.get("status") in RUNNING for c in named):
         return f"{what} and its {COMPILE} is still running on {head}."
     if not named and any(c.get("name") in ROUTING and c.get("status") in RUNNING for c in checks):
@@ -389,11 +403,6 @@ def compile_refusal(pr: dict, swift: list[str], checks: list[dict]) -> str:
     ran = [c for c in named if c.get("conclusion") not in NOT_RUN]
     if ran and not any(c.get("conclusion") == "success" for c in ran):
         return (f"{what} and its {COMPILE} finished {ran[0].get('conclusion')} on {head}. "
-                f"Fix it, or merge the base in when the base has the fix, and merge once it passes.")
-    fleet = [c.get("conclusion") for c in checks if c.get("name") == FLEET_COMPILE and c.get("status") == "completed"]
-    red = [c for c in fleet if c not in NO_VERDICT and c != "success"]
-    if red and "success" not in fleet and not any(c.get("conclusion") == "success" for c in ran):
-        return (f"{what} and its {FLEET_COMPILE} finished {red[0]} on {head}. "
                 f"Fix it, or merge the base in when the base has the fix, and merge once it passes.")
     if fleet_stopped(checks):
         return f"{what} and its {FLEET_COMPILE} was cancelled on {head}, so nothing compiled it; rerun it."
