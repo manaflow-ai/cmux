@@ -57,10 +57,18 @@ function store(key: string, value: string) {
 
 type Tool = "collapse" | "wrap" | "split" | "tree";
 
-/// The path a file's kind (fileKinds.ts) is read from: a git scope's from the repository's top, a
-/// turn's whole path, since a turn's display path drops the folder its files share (one file
-/// under `tests/` shows as `helpers.py`).
-const kindPath = (scope: ChangeScope, file: TurnFile) => (scope === "lastTurn" ? file.path : file.displayPath);
+/// The path a file's kind (fileKinds.ts) is read from, so a folder above the project never names it
+/// (a repository under `~/tests/` is not all tests): a git scope's from the repository's top; a
+/// turn's from the chat's folder `root`, as its display path drops the folder its files share (one
+/// file under `tests/` shows as `helpers.py`). A turn's file outside that folder, or with no folder
+/// known, is read by its name alone.
+export function kindPath(scope: ChangeScope, file: TurnFile, root: string | undefined): string {
+  if (scope !== "lastTurn") return file.displayPath;
+  if (!file.path.startsWith("/")) return file.path;
+  const top = root?.replace(/\/+$/, "");
+  if (top && file.path.startsWith(`${top}/`)) return file.path.slice(top.length + 1);
+  return file.path.slice(file.path.lastIndexOf("/") + 1);
+}
 
 export function bindDiffPanelEscape(panel: HTMLElement, onClose: () => void): () => void {
   const ownerDocument = panel.ownerDocument;
@@ -84,6 +92,7 @@ export function bindDiffPanelEscape(panel: HTMLElement, onClose: () => void): ()
 export function DiffPanel({
   files: turnFiles,
   initialPath,
+  root,
   onClose,
   source,
   onOpenFile,
@@ -100,6 +109,8 @@ export function DiffPanel({
 }: {
   files: TurnFile[];
   initialPath?: string;
+  /// The chat's folder: a Last turn file's kind is read from its path in it (`kindPath`).
+  root?: string;
   onClose: () => void;
   source?: ChangesSource;
   /// Asks the host to open a changed file; rejects with the host's reason when it can't.
@@ -155,8 +166,8 @@ export function DiffPanel({
   // The delineated diff, as the diff viewer and the pull request card read a change
   // (fileKinds.ts): code first, then tests, mocks, docs, evals and generated files.
   const files = useMemo(
-    () => [...orderByKind(scope === "lastTurn" ? turnFiles : scopeFiles, (file) => kindPath(scope, file))],
-    [scope, turnFiles, scopeFiles],
+    () => [...orderByKind(scope === "lastTurn" ? turnFiles : scopeFiles, (file) => kindPath(scope, file, root))],
+    [scope, turnFiles, scopeFiles, root],
   );
   const threadsByPath = useMemo(() => {
     const byPath = new Map<string, ReviewThread[]>();
@@ -198,7 +209,7 @@ export function DiffPanel({
         ? "empty"
         : load.state;
   // Code changed and no test did: the pull request card's warning, in its words.
-  const noTests = !scopeState && missingTests(files.map((file) => ({ path: kindPath(scope, file) })));
+  const noTests = !scopeState && missingTests(files.map((file) => ({ path: kindPath(scope, file, root) })));
   const [layout, setLayout] = useState<DiffLayout>(() => (stored(LAYOUT_KEY) === "split" ? "split" : "unified"));
   const [wrap, setWrap] = useState(() => stored(WRAP_KEY) === "on");
   const [showTree, setShowTree] = useState(() => stored(TREE_KEY) !== "off");
@@ -207,8 +218,8 @@ export function DiffPanel({
   // one from its header or the tree. Each file folds once, so one the reader opened stays open,
   // and the file the view was opened on is never folded.
   const generated = useMemo(
-    () => files.filter((file) => fileKind(kindPath(scope, file)) === "generated").map((file) => file.path),
-    [files, scope],
+    () => files.filter((file) => fileKind(kindPath(scope, file, root)) === "generated").map((file) => file.path),
+    [files, scope, root],
   );
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
   const unfolded = generated.filter((path) => !folded.has(path));
@@ -281,7 +292,16 @@ export function DiffPanel({
     back.current?.focus();
     // Another file opened in the open view: later paints keep it in view, not the first one.
     revealing.current = initialPath;
-    if (initialPath) reveal(initialPath);
+    if (initialPath) {
+      // The file the view opens on shows, even one folded as generated.
+      setCollapsed((current) => {
+        if (!current.has(initialPath)) return current;
+        const next = new Set(current);
+        next.delete(initialPath);
+        return next;
+      });
+      reveal(initialPath);
+    }
   }, [initialPath]);
   // Escape closes the view while focus is in it (or nowhere), not while typing in the composer
   // or the file filter.
@@ -581,7 +601,7 @@ export function DiffPanel({
                   <EditBlock
                     key={`${file.path}\u0000${edit.toolId}\u0000${index}`}
                     file={file}
-                    kind={fileKind(kindPath(scope, file))}
+                    kind={fileKind(kindPath(scope, file, root))}
                     edit={edit}
                     index={index}
                     layout={layout}

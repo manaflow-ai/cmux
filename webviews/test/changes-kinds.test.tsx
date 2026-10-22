@@ -196,3 +196,18 @@ test("orderByKind sorts by kind and hands back a list of one kind untouched", ()
     "yarn.lock",
   ]);
 });
+
+// A folder above the project never names a Last turn file's kind (review of #24188): the path is
+// read from the chat's folder, and a file outside it by its name alone.
+test("a Last turn file's kind ignores the folders above the chat's folder", async () => {
+  const { kindPath } = await import("../src/agent-session/acpmux/DiffPanel");
+  const { fileKind } = await import("../src/fileKinds");
+  const file = (path: string) => ({ path, displayPath: path.split("/").pop()!, edits: [], additions: 1, deletions: 0, created: false });
+  const kind = (path: string, root?: string) => fileKind(kindPath("lastTurn", file(path), root));
+  expect(kind("/home/me/tests/repo/src/app.ts", "/home/me/tests/repo")).toBe("code");
+  expect(kind("/home/me/docs/repo/src/app.ts", "/home/me/docs/repo/")).toBe("code");
+  expect(kind("/home/me/repo/tests/helpers.py", "/home/me/repo")).toBe("tests");
+  expect(kind("/home/me/generated/repo/src/app.ts")).toBe("code");
+  expect(kind("/tmp/tests/scratch.ts", "/home/me/repo")).toBe("code");
+  expect(kind("/home/me/repo/package-lock.json", "/home/me/repo")).toBe("generated");
+});

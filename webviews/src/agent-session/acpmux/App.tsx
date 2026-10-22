@@ -8117,6 +8117,7 @@ function AcpmuxPane() {
                       files={diffDisplay?.files ?? diffFiles}
                       turn={diffDisplay}
                       initialPath={diffView.path}
+                      root={snapshot.summary?.cwd}
                       onClose={closeDiff}
                       source={changesSource}
                       onOpenFile={openChangedFile}
