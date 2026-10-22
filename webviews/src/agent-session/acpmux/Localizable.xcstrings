@@ -28014,6 +28014,534 @@
         }
       }
     },
+    "unavailable.session": {
+      "comment": "Agent pane: under a deleted or unreachable chat's detail, which chat it was; {session} is the first 13 characters of its session id",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الجلسة {session}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sesija {session}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Session {session}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sitzung {session}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session {session}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sesión {session}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Session {session}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sessione {session}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "セッション {session}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វគ្គ {session}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "세션 {session}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Økt {session}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sesja {session}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sessão {session}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сеанс {session}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เซสชัน {session}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oturum {session}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сеанс {session}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phiên {session}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "会话 {session}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作階段 {session}"
+          }
+        }
+      }
+    },
+    "unavailable.notFound.title": {
+      "comment": "Agent pane: title in place of a tab's chat that this machine's acpmux does not list and that it never saw (it may be deleted, or in another acpmux)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر العثور على هذه الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj razgovor nije pronađen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kan ikke finde denne chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Chat wurde nicht gefunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't find this chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se encuentra este chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de trouver ce chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile trovare questa chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このチャットが見つかりません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រកមិនឃើញការជជែកនេះទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅을 찾을 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Finner ikke denne chatten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można znaleźć tego czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível encontrar este chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удаётся найти этот чат"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่พบแชทนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sohbet bulunamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдається знайти цей чат"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không tìm thấy cuộc trò chuyện này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "找不到此聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "找不到此聊天"
+          }
+        }
+      }
+    },
+    "unavailable.notFound.detailOn": {
+      "comment": "Agent pane: under 'Can't find this chat'; {machine} is the machine the tab's chat is on",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يحتوي {machine} عليها. ربما حُذفت."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} ga nema. Možda je obrisan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} har den ikke. Den er måske blevet slettet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} hat ihn nicht. Er wurde vielleicht gelöscht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{machine} doesn't have it. It may have been deleted."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} no lo tiene. Puede que se haya eliminado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} ne l'a pas. Il a peut-être été supprimé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} non la ha. Potrebbe essere stata eliminata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} にはありません。削除された可能性があります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} មិនមានវាទេ។ វាប្រហែលជាត្រូវបានលុប។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine}에 없습니다. 삭제되었을 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} har den ikke. Den kan ha blitt slettet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} go nie ma. Mógł zostać usunięty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} não o tem. Ele pode ter sido excluído."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На {machine} его нет. Возможно, он был удалён."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} ไม่มีแชทนี้ แชทอาจถูกลบไปแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} üzerinde yok. Silinmiş olabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На {machine} його немає. Можливо, його видалено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} không có cuộc trò chuyện này. Có thể nó đã bị xóa."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} 上没有它。它可能已被删除。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{machine} 上沒有它。它可能已被刪除。"
+          }
+        }
+      }
+    },
+    "unavailable.notFound.detail": {
+      "comment": "Agent pane: under 'Can't find this chat' when the machine has no name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يحتوي هذا الجهاز عليها. ربما حُذفت."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj računar ga nema. Možda je obrisan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne maskine har den ikke. Den er måske blevet slettet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieses Gerät hat ihn nicht. Er wurde vielleicht gelöscht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This machine doesn't have it. It may have been deleted."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta máquina no lo tiene. Puede que se haya eliminado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette machine ne l'a pas. Il a peut-être été supprimé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo computer non la ha. Potrebbe essere stata eliminata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このマシンにはありません。削除された可能性があります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីននេះមិនមានវាទេ។ វាប្រហែលជាត្រូវបានលុប។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 컴퓨터에 없습니다. 삭제되었을 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne maskinen har den ikke. Den kan ha blitt slettet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten komputer go nie ma. Mógł zostać usunięty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta máquina não o tem. Ele pode ter sido excluído."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На этом компьютере его нет. Возможно, он был удалён."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องนี้ไม่มีแชทนี้ แชทอาจถูกลบไปแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu makinede yok. Silinmiş olabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На цьому комп’ютері його немає. Можливо, його видалено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy này không có cuộc trò chuyện này. Có thể nó đã bị xóa."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这台机器上没有它。它可能已被删除。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這台機器上沒有它。它可能已被刪除。"
+          }
+        }
+      }
+    },
     "unavailable.remove": {
       "comment": "Agent pane: button on a deleted chat; closes its tab",
       "extractionState": "manual",
@@ -53923,133 +54451,133 @@
       }
     },
     "toolRun.used.other": {
-      "comment": "Agent pane",
+      "comment": "Agent pane; {n} is how many (conversation/toolRunSummary.ts)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "استخدم أدوات"
+            "value": "استخدم {n} أدوات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "koristio alate"
+            "value": "korišteno alata: {n}"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "brugte værktøjer"
+            "value": "brugte {n} værktøjer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tools verwendet"
+            "value": "{n} Tools verwendet"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "used tools"
+            "value": "used {n} tools"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "usó herramientas"
+            "value": "usó {n} herramientas"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "a utilisé des outils"
+            "value": "a utilisé {n} outils"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ha usato strumenti"
+            "value": "ha usato {n} strumenti"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ツールを使用"
+            "value": "{n} 件のツールを使用"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បានប្រើឧបករណ៍"
+            "value": "បានប្រើឧបករណ៍ {n}"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "도구 사용"
+            "value": "도구 {n}개 사용"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "brukte verktøy"
+            "value": "brukte {n} verktøy"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "użyto narzędzi"
+            "value": "użyto narzędzi: {n}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "usou ferramentas"
+            "value": "usou {n} ferramentas"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "использованы инструменты"
+            "value": "использовано инструментов: {n}"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ใช้เครื่องมือ"
+            "value": "ใช้ {n} เครื่องมือ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "araçlar kullandı"
+            "value": "{n} araç kullandı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "використано інструменти"
+            "value": "використано інструментів: {n}"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "đã dùng công cụ"
+            "value": "đã dùng {n} công cụ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "使用了工具"
+            "value": "使用了 {n} 个工具"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "使用了工具"
+            "value": "使用了 {n} 個工具"
           }
         }
       }
@@ -54187,133 +54715,133 @@
       }
     },
     "toolRun.edited.other": {
-      "comment": "Agent pane",
+      "comment": "Agent pane; {n} is how many (conversation/toolRunSummary.ts)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "عدّل ملفات"
+            "value": "عدّل {n} ملفات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "uredio datoteke"
+            "value": "izmijenjeno datoteka: {n}"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "redigerede filer"
+            "value": "redigerede {n} filer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dateien bearbeitet"
+            "value": "{n} Dateien bearbeitet"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "edited files"
+            "value": "edited {n} files"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "editó archivos"
+            "value": "editó {n} archivos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "a modifié des fichiers"
+            "value": "a modifié {n} fichiers"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ha modificato file"
+            "value": "ha modificato {n} file"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ファイルを編集"
+            "value": "{n} 件のファイルを編集"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បានកែឯកសារ"
+            "value": "បានកែឯកសារ {n}"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "파일 편집"
+            "value": "파일 {n}개 편집"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "redigerte filer"
+            "value": "redigerte {n} filer"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "edytowano pliki"
+            "value": "edytowano plików: {n}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "editou arquivos"
+            "value": "editou {n} arquivos"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "изменены файлы"
+            "value": "изменено файлов: {n}"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แก้ไขไฟล์"
+            "value": "แก้ไข {n} ไฟล์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "dosyalar düzenledi"
+            "value": "{n} dosya düzenledi"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "змінено файли"
+            "value": "змінено файлів: {n}"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "đã sửa các tệp"
+            "value": "đã sửa {n} tệp"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "编辑了文件"
+            "value": "编辑了 {n} 个文件"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "編輯了檔案"
+            "value": "編輯了 {n} 個檔案"
           }
         }
       }
@@ -54451,265 +54979,397 @@
       }
     },
     "toolRun.read.other": {
-      "comment": "Agent pane",
+      "comment": "Agent pane; {n} is how many (conversation/toolRunSummary.ts)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "قرأ ملفات"
+            "value": "قرأ {n} ملفات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "pročitao datoteke"
+            "value": "pročitano datoteka: {n}"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "læste filer"
+            "value": "læste {n} filer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dateien gelesen"
+            "value": "{n} Dateien gelesen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "read files"
+            "value": "read {n} files"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "leyó archivos"
+            "value": "leyó {n} archivos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "a lu des fichiers"
+            "value": "a lu {n} fichiers"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ha letto file"
+            "value": "ha letto {n} file"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ファイルを読み取り"
+            "value": "{n} 件のファイルを読み取り"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បានអានឯកសារ"
+            "value": "បានអានឯកសារ {n}"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "파일 읽기"
+            "value": "파일 {n}개 읽기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "leste filer"
+            "value": "leste {n} filer"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "odczytano pliki"
+            "value": "odczytano plików: {n}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "leu arquivos"
+            "value": "leu {n} arquivos"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "прочитаны файлы"
+            "value": "прочитано файлов: {n}"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "อ่านไฟล์"
+            "value": "อ่าน {n} ไฟล์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "dosyalar okudu"
+            "value": "{n} dosya okudu"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "прочитано файли"
+            "value": "прочитано файлів: {n}"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "đã đọc các tệp"
+            "value": "đã đọc {n} tệp"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "读取了文件"
+            "value": "读取了 {n} 个文件"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "讀取了檔案"
+            "value": "讀取了 {n} 個檔案"
           }
         }
       }
     },
-    "toolRun.searched": {
-      "comment": "Agent pane",
+    "toolRun.searched.one": {
+      "comment": "Agent pane: one search in a folded tool run's summary, e.g. \"Read 6 files, ran a search\" (conversation/toolRunSummary.ts).",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "بحث في الكود"
+            "value": "أجرى بحثًا"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "pretražio kod"
+            "value": "pokrenuo pretragu"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "søgte i koden"
+            "value": "kørte en søgning"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "den Code durchsucht"
+            "value": "eine Suche ausgeführt"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "searched the code"
+            "value": "ran a search"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "buscó en el código"
+            "value": "hizo una búsqueda"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "a cherché dans le code"
+            "value": "a fait une recherche"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ha cercato nel codice"
+            "value": "ha eseguito una ricerca"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "コードを検索"
+            "value": "1 回検索"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បានស្វែងរកកូដ"
+            "value": "បានស្វែងរកម្តង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "코드 검색"
+            "value": "검색 1회"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "søkte i koden"
+            "value": "kjørte et søk"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "przeszukano kod"
+            "value": "wykonano wyszukiwanie"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "pesquisou o código"
+            "value": "fez uma pesquisa"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "выполнен поиск по коду"
+            "value": "выполнен поиск"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ค้นหาโค้ด"
+            "value": "ค้นหา 1 ครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "kodda arama yaptı"
+            "value": "bir arama yaptı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "виконано пошук у коді"
+            "value": "виконано пошук"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "đã tìm trong mã"
+            "value": "đã tìm kiếm 1 lần"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "搜索了代码"
+            "value": "搜索了 1 次"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "搜尋了程式碼"
+            "value": "搜尋了 1 次"
+          }
+        }
+      }
+    },
+    "toolRun.searched.other": {
+      "comment": "Agent pane: {n} searches in a folded tool run's summary, e.g. \"Read 6 files, ran 2 searches\" (conversation/toolRunSummary.ts).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أجرى {n} عمليات بحث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "pokrenuto pretraga: {n}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "kørte {n} søgninger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} Suchen ausgeführt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ran {n} searches"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "hizo {n} búsquedas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "a fait {n} recherches"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ha eseguito {n} ricerche"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} 回検索"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានស្វែងរក {n} ដង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "검색 {n}회"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "kjørte {n} søk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "wykonano wyszukiwań: {n}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "fez {n} pesquisas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "выполнено поисков: {n}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค้นหา {n} ครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} arama yaptı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "виконано пошуків: {n}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "đã tìm kiếm {n} lần"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜索了 {n} 次"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜尋了 {n} 次"
           }
         }
       }
@@ -54979,133 +55639,133 @@
       }
     },
     "toolRun.ran.other": {
-      "comment": "Agent pane",
+      "comment": "Agent pane; {n} is how many (conversation/toolRunSummary.ts)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "شغّل أوامر"
+            "value": "شغّل {n} أوامر"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "pokrenuo naredbe"
+            "value": "pokrenuto naredbi: {n}"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "kørte kommandoer"
+            "value": "kørte {n} kommandoer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Befehle ausgeführt"
+            "value": "{n} Befehle ausgeführt"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ran commands"
+            "value": "ran {n} commands"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ejecutó comandos"
+            "value": "ejecutó {n} comandos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "a exécuté des commandes"
+            "value": "a exécuté {n} commandes"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ha eseguito comandi"
+            "value": "ha eseguito {n} comandi"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "コマンドを実行"
+            "value": "{n} 件のコマンドを実行"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បានដំណើរការពាក្យបញ្ជា"
+            "value": "បានដំណើរការពាក្យបញ្ជា {n}"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "명령 실행"
+            "value": "명령 {n}개 실행"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "kjørte kommandoer"
+            "value": "kjørte {n} kommandoer"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "uruchomiono polecenia"
+            "value": "uruchomiono poleceń: {n}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "executou comandos"
+            "value": "executou {n} comandos"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "выполнены команды"
+            "value": "выполнено команд: {n}"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "รันคำสั่ง"
+            "value": "รัน {n} คำสั่ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "komutlar çalıştırdı"
+            "value": "{n} komut çalıştırdı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "виконано команди"
+            "value": "виконано команд: {n}"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "đã chạy các lệnh"
+            "value": "đã chạy {n} lệnh"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "运行了命令"
+            "value": "运行了 {n} 个命令"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "執行了命令"
+            "value": "執行了 {n} 個指令"
           }
         }
       }
@@ -168270,6 +168930,798 @@
         }
       }
     },
+    "subagents.stopReason.user" : {
+      "comment" : "Agent pane: why a subagent stopped, after its 'Subagent stopped: {name}' line and ' · ' (subagents/SubagentDoneLine.tsx): the person stopped it (Stop on the turn or on the subagent); lowercase, as a phrase in the line",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "أوقفته أنت"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "zaustavili ste vi"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "stoppet af dig"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "von dir gestoppt"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "stopped by you"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "detenido por ti"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "arrêté par vous"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "interrotto da te"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "あなたが停止"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បានបញ្ឈប់ដោយអ្នក"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "직접 중지함"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "stoppet av deg"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "zatrzymany przez ciebie"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "parado por você"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "остановлен вами"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "คุณหยุดไว้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "sizin tarafınızdan durduruldu"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "зупинено вами"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "do bạn dừng"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "由你停止"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "由你停止"
+          }
+        }
+      }
+    },
+    "subagents.stopReason.sendNow" : {
+      "comment" : "Agent pane: why a subagent stopped, after its 'Subagent stopped: {name}' line and ' · ' (subagents/SubagentDoneLine.tsx): a prompt sent with Send now (steer.sendNow, the same words) interrupted its turn; lowercase, as a phrase in the line",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "قاطعه «أرسل الآن»"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "prekinuto opcijom „Pošalji sada”"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "afbrudt af Send nu"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "durch „Jetzt senden“ unterbrochen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "interrupted by Send now"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "interrumpido por Enviar ahora"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "interrompu par Envoyer maintenant"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "interrotto da Invia ora"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「今すぐ送信」で中断"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ត្រូវបានរំខានដោយ ផ្ញើឥឡូវ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "지금 보내기로 중단됨"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "avbrutt av Send nå"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "przerwany przez Wyślij teraz"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "interrompido por Enviar agora"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "прерван кнопкой «Отправить сейчас»"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ถูกขัดจังหวะด้วย ส่งเลย"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Şimdi gönder ile kesildi"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "перервано кнопкою «Надіслати зараз»"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "bị ngắt bởi Gửi ngay"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "被“立即发送”中断"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "被「立即傳送」中斷"
+          }
+        }
+      }
+    },
+    "subagents.restart" : {
+      "comment" : "Agent pane: the hover button on a stopped or failed subagent's transcript line that runs it again (subagents/SubagentDoneLine.tsx); its name and tooltip",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "إعادة التشغيل"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokreni ponovo"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Genstart"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neu starten"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restart"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reiniciar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relancer"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Riavvia"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "再実行"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ចាប់ផ្ដើមឡើងវិញ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "다시 시작"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start på nytt"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uruchom ponownie"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reiniciar"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перезапустить"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เริ่มใหม่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeniden başlat"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перезапустити"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Khởi động lại"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新运行"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新執行"
+          }
+        }
+      }
+    },
+    "subagents.restartDetail" : {
+      "comment" : "Agent pane: the second line of the Restart button's tooltip on a subagent's transcript line (subagents/SubagentDoneLine.tsx): what it does",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "اطلب من الوكيل تشغيل هذا الوكيل الفرعي مرة أخرى بالمطالبة نفسها"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zatražite od agenta da ponovo pokrene ovog podagenta s istim upitom"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bed agenten køre denne underagent igen med samme prompt"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Den Agenten bitten, diesen Subagenten mit demselben Prompt erneut auszuführen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ask the agent to run this subagent again with the same prompt"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pedir al agente que ejecute este subagente de nuevo con la misma instrucción"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Demander à l’agent de relancer ce sous-agent avec la même consigne"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chiedi all’agente di eseguire di nuovo questo subagente con lo stesso prompt"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同じプロンプトでこのサブエージェントをもう一度実行するようエージェントに頼みます"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "សុំឱ្យភ្នាក់ងារដំណើរការភ្នាក់ងាររងនេះម្តងទៀតជាមួយប្រអប់បញ្ចូលដដែល"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "같은 프롬프트로 이 하위 에이전트를 다시 실행하도록 에이전트에게 요청합니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Be agenten kjøre denne underagenten på nytt med samme ledetekst"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Poproś agenta o ponowne uruchomienie tego podagenta z tym samym poleceniem"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pedir ao agente que execute este subagente de novo com o mesmo prompt"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Попросить агента снова запустить этого субагента с тем же запросом"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ขอให้เอเจนต์เรียกใช้เอเจนต์ย่อยนี้อีกครั้งด้วยพรอมต์เดิม"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajandan bu alt ajanı aynı istemle yeniden çalıştırmasını iste"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Попросити агента знову запустити цього субагента з тим самим запитом"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yêu cầu tác tử chạy lại tác tử con này với cùng lời nhắc"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "让代理用相同的提示再次运行这个子代理"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請代理以相同的提示再次執行這個子代理"
+          }
+        }
+      }
+    },
+    "subagents.restartPrompt" : {
+      "comment" : "Agent pane: the prompt Restart sends the chat's agent to run a stopped subagent again (subagents/restart.ts); {name} is the subagent's name, {prompt} the prompt it was given, kept as is on the lines after",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "شغّل الوكيل الفرعي \"{name}\" مرة أخرى بالمطالبة نفسها:\n\n{prompt}"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ponovo pokreni podagenta \"{name}\" s istim upitom:\n\n{prompt}"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kør underagenten \"{name}\" igen med samme prompt:\n\n{prompt}"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Führe den Subagenten \"{name}\" mit demselben Prompt erneut aus:\n\n{prompt}"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Run the subagent \"{name}\" again with the same prompt:\n\n{prompt}"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ejecuta de nuevo el subagente \"{name}\" con la misma instrucción:\n\n{prompt}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relance le sous-agent \"{name}\" avec la même consigne :\n\n{prompt}"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esegui di nuovo il subagente \"{name}\" con lo stesso prompt:\n\n{prompt}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サブエージェント「{name}」を同じプロンプトでもう一度実行してください:\n\n{prompt}"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ដំណើរការភ្នាក់ងាររង \"{name}\" ម្តងទៀតជាមួយប្រអប់បញ្ចូលដដែល៖\n\n{prompt}"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "하위 에이전트 \"{name}\"을(를) 같은 프롬프트로 다시 실행해 주세요:\n\n{prompt}"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kjør underagenten \"{name}\" på nytt med samme ledetekst:\n\n{prompt}"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uruchom ponownie podagenta \"{name}\" z tym samym poleceniem:\n\n{prompt}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Execute de novo o subagente \"{name}\" com o mesmo prompt:\n\n{prompt}"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Снова запусти субагента \"{name}\" с тем же запросом:\n\n{prompt}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เรียกใช้เอเจนต์ย่อย \"{name}\" อีกครั้งด้วยพรอมต์เดิม:\n\n{prompt}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "\"{name}\" alt ajanını aynı istemle yeniden çalıştır:\n\n{prompt}"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Знову запусти субагента \"{name}\" з тим самим запитом:\n\n{prompt}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chạy lại tác tử con \"{name}\" với cùng lời nhắc:\n\n{prompt}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请用相同的提示再次运行子代理“{name}”：\n\n{prompt}"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請以相同的提示再次執行子代理「{name}」：\n\n{prompt}"
+          }
+        }
+      }
+    },
+    "subagents.restartPromptKind" : {
+      "comment" : "Agent pane: the prompt Restart sends the chat's agent to run a stopped subagent again (subagents/restart.ts); {kind} is the subagent's type as the harness names it (Explore, general-purpose), kept as is; {name} is its name, {prompt} the prompt it was given, kept as is on the lines after",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "شغّل الوكيل الفرعي \"{name}\" من النوع {kind} مرة أخرى بالمطالبة نفسها:\n\n{prompt}"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ponovo pokreni podagenta \"{name}\" tipa {kind} s istim upitom:\n\n{prompt}"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kør underagenten \"{name}\" af typen {kind} igen med samme prompt:\n\n{prompt}"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Führe den Subagenten \"{name}\" vom Typ {kind} mit demselben Prompt erneut aus:\n\n{prompt}"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Run the {kind} subagent \"{name}\" again with the same prompt:\n\n{prompt}"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ejecuta de nuevo el subagente \"{name}\" de tipo {kind} con la misma instrucción:\n\n{prompt}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relance le sous-agent \"{name}\" de type {kind} avec la même consigne :\n\n{prompt}"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esegui di nuovo il subagente \"{name}\" di tipo {kind} con lo stesso prompt:\n\n{prompt}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{kind} サブエージェント「{name}」を同じプロンプトでもう一度実行してください:\n\n{prompt}"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ដំណើរការភ្នាក់ងាររង {kind} \"{name}\" ម្តងទៀតជាមួយប្រអប់បញ្ចូលដដែល៖\n\n{prompt}"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{kind} 하위 에이전트 \"{name}\"을(를) 같은 프롬프트로 다시 실행해 주세요:\n\n{prompt}"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kjør underagenten \"{name}\" av typen {kind} på nytt med samme ledetekst:\n\n{prompt}"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uruchom ponownie podagenta \"{name}\" typu {kind} z tym samym poleceniem:\n\n{prompt}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Execute de novo o subagente \"{name}\" do tipo {kind} com o mesmo prompt:\n\n{prompt}"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Снова запусти субагента \"{name}\" типа {kind} с тем же запросом:\n\n{prompt}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เรียกใช้เอเจนต์ย่อย {kind} \"{name}\" อีกครั้งด้วยพรอมต์เดิม:\n\n{prompt}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{kind} türündeki \"{name}\" alt ajanını aynı istemle yeniden çalıştır:\n\n{prompt}"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Знову запусти субагента \"{name}\" типу {kind} з тим самим запитом:\n\n{prompt}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chạy lại tác tử con {kind} \"{name}\" với cùng lời nhắc:\n\n{prompt}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请用相同的提示再次运行 {kind} 子代理“{name}”：\n\n{prompt}"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請以相同的提示再次執行 {kind} 子代理「{name}」：\n\n{prompt}"
+          }
+        }
+      }
+    },
     "subagents.tokens": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -201821,6 +203273,402 @@
         }
       }
     },
+    "chatInspector.context.mcpTools": {
+      "comment": "Inspector Context and the composer's context details: the fold that lists the MCP tools the context window holds, with their count.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدوات MCP"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP alati"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP-værktøjer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP-Tools"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP tools"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herramientas MCP"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outils MCP"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strumenti MCP"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP ツール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឧបករណ៍ MCP"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP 도구"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP-verktøy"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Narzędzia MCP"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ferramentas MCP"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Инструменты MCP"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องมือ MCP"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP araçları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Інструменти MCP"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Công cụ MCP"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP 工具"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP 工具"
+          }
+        }
+      }
+    },
+    "chatInspector.context.memoryFiles": {
+      "comment": "Inspector Context and the composer's context details: the fold that lists the memory files (CLAUDE.md and the like) the context window holds, with their count.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ملفات الذاكرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memorijske datoteke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hukommelsesfiler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memory-Dateien"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memory files"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archivos de memoria"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fichiers de mémoire"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File di memoria"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリファイル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឯកសារអង្គចងចាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메모리 파일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minnefiler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pliki pamięci"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arquivos de memória"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файлы памяти"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไฟล์หน่วยความจำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bellek dosyaları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файли пам’яті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tệp bộ nhớ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记忆文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記憶檔案"
+          }
+        }
+      }
+    },
+    "chatInspector.context.skills": {
+      "comment": "Inspector Context and the composer's context details: the fold that lists the agent skills the context window holds, with their count.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المهارات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vještine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Færdigheder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skills"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skills"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Habilidades"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compétences"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Competenze"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជំនាញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스킬"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ferdigheter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umiejętności"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Habilidades"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Навыки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทักษะ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beceriler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Навички"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kỹ năng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "技能"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "技能"
+          }
+        }
+      }
+    },
     "chatInspector.environment.remoteControl": {
       "comment": "Agent pane Inspector, Environment: the switch that lets this chat be continued from another device",
       "extractionState": "manual",
@@ -203005,6 +204853,270 @@
           "stringUnit": {
             "state": "translated",
             "value": "已遺失"
+          }
+        }
+      }
+    },
+    "chatInspector.tasks.noTerminal.remote": {
+      "comment": "Agent pane Inspector, Background tasks: tooltip on a command row that cannot open, in a chat on another machine (SSH or Cloud) whose transcript does not hold the call that started the command",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طرفيته على جهاز آخر، والاستدعاء الذي بدأه غير محمّل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Njegov terminal je na drugoj mašini, a poziv koji ga je pokrenuo nije učitan"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dens terminal er på en anden maskine, og kaldet, der startede den, er ikke indlæst"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sein Terminal ist auf einem anderen Rechner, und der Aufruf, der ihn gestartet hat, ist nicht geladen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its terminal is on another machine, and the call that started it is not loaded"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Su terminal está en otra máquina y la llamada que la inició no está cargada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Son terminal est sur une autre machine, et l'appel qui l'a lancée n'est pas chargé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il suo terminale è su un'altra macchina e la chiamata che l'ha avviato non è caricata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルは別のマシン上にあり、開始した呼び出しは読み込まれていません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់របស់វានៅលើម៉ាស៊ីនផ្សេង ហើយការហៅដែលចាប់ផ្ដើមវាមិនទាន់បានផ្ទុកទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널이 다른 컴퓨터에 있고, 이를 시작한 호출이 로드되지 않았습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen er på en annen maskin, og kallet som startet den er ikke lastet inn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jego terminal jest na innej maszynie, a wywołanie, które go uruchomiło, nie jest wczytane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O terminal está em outra máquina, e a chamada que o iniciou não está carregada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Его терминал на другой машине, а вызов, который его запустил, не загружен"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลอยู่บนเครื่องอื่น และการเรียกที่เริ่มคำสั่งนี้ยังไม่ได้โหลด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminali başka bir makinede ve onu başlatan çağrı yüklenmedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Його термінал на іншій машині, а виклик, який його запустив, не завантажено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal của lệnh này ở máy khác và lệnh gọi đã khởi chạy nó chưa được tải"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其终端在另一台机器上，且启动它的调用尚未加载"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其終端機在另一台機器上，且啟動它的呼叫尚未載入"
+          }
+        }
+      }
+    },
+    "chatInspector.tasks.noTerminal.noCall": {
+      "comment": "Agent pane Inspector, Background tasks: tooltip on a command row that cannot open because no tool call in the chat is linked to the command",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد طرفية لفتحها: لا يرتبط به أي استدعاء في هذه المحادثة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nema terminala za otvaranje: nijedan poziv u ovom razgovoru nije povezan s njim"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen terminal at åbne: intet kald i denne chat er knyttet til den"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Terminal zum Öffnen: Kein Aufruf in diesem Chat ist damit verknüpft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No terminal to open: no call in this chat is linked to it"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay terminal que abrir: ninguna llamada de este chat está vinculada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun terminal à ouvrir : aucun appel de ce chat n'y est lié"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun terminale da aprire: nessuna chiamata in questa chat è collegata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開くターミナルがありません: このチャットにはこれに紐づく呼び出しがありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានទែមីណាល់ត្រូវបើកទេ៖ គ្មានការហៅណាមួយក្នុងការជជែកនេះភ្ជាប់ជាមួយវាទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열 터미널이 없습니다: 이 채팅에 연결된 호출이 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen terminal å åpne: ingen kall i denne chatten er knyttet til den"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak terminala do otwarcia: żadne wywołanie w tym czacie nie jest z nim powiązane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum terminal para abrir: nenhuma chamada deste chat está vinculada a ele"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нечего открыть: ни один вызов в этом чате не связан с ним"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีเทอร์มินัลให้เปิด: ไม่มีการเรียกในแชตนี้ที่เชื่อมโยงกับคำสั่งนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açılacak terminal yok: bu sohbette ona bağlı bir çağrı yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Немає термінала для відкриття: жоден виклик у цьому чаті не пов'язаний із ним"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có terminal để mở: không lệnh gọi nào trong cuộc trò chuyện này liên kết với nó"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可打开的终端：此对话中没有与之关联的调用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有可開啟的終端機：此對話中沒有與之關聯的呼叫"
           }
         }
       }
@@ -220501,6 +222613,270 @@
           "stringUnit": {
             "state": "translated",
             "value": "相關工作階段 · {name}"
+          }
+        }
+      }
+    },
+    "message.fileElsewhere": {
+      "comment": "Agent pane: tooltip of a file chip in a message from an agent on another machine whose name is unknown; {path} is the file's path there",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "على جهاز آخر: {path}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na drugom računaru: {path}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "På en anden maskine: {path}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf einem anderen Rechner: {path}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On another machine: {path}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En otra máquina: {path}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur une autre machine : {path}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Su un'altra macchina: {path}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のマシン上: {path}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅលើម៉ាស៊ីនផ្សេង: {path}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 컴퓨터에 있음: {path}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "På en annen maskin: {path}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na innym komputerze: {path}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Em outra máquina: {path}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На другом компьютере: {path}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บนเครื่องอื่น: {path}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başka bir makinede: {path}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На іншому комп’ютері: {path}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trên máy khác: {path}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位于另一台机器：{path}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位於另一台機器：{path}"
+          }
+        }
+      }
+    },
+    "message.fileOnHost": {
+      "comment": "Agent pane: tooltip of a file chip in a message from an agent on another machine; {host} is that machine's name, {path} the file's path there",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "على {host}: {path}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na {host}: {path}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "På {host}: {path}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf {host}: {path}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On {host}: {path}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En {host}: {path}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur {host} : {path}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Su {host}: {path}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host} 上: {path}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅលើ {host}: {path}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host}에 있음: {path}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "På {host}: {path}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na {host}: {path}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Em {host}: {path}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На {host}: {path}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บน {host}: {path}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host} üzerinde: {path}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На {host}: {path}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trên {host}: {path}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位于 {host}：{path}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位於 {host}：{path}"
           }
         }
       }

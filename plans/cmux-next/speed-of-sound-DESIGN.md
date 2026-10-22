@@ -82,6 +82,7 @@ pixels).
 | Scroll a chat transcript | page in ~40 laid-out messages, offset layers | < 1 % | 0 IPC; one disk read per page of messages not yet in memory |
 | Switch workspace / space | hide one layer subtree, show a built one; draw each visible pane once if it changed while hidden | < 2 ms, one frame, independent of 10 / 150 / 1000 workspaces | 0 IPC (the model is in the app); no daemon round trip |
 | Switch tab in a pane | same as above for one pane | < 1 ms | 0 |
+| Move focus to another pane (click, Focus Pane Left/Right, Next Pane) | the old pane drops its ring and dim, the new pane takes them and the keyboard; nothing else re-runs (perf gate `pane_focus`: 2 pane chrome updates per move) | < 0.5 ms main thread, one frame, O(1) in panes and workspaces | 0 IPC on the path; the window record save that follows is off the frame |
 | Cmd-Tab back to cmux | key-window state changes: title bar, focus ring, cursor; nothing else | < 1 ms, O(1) in workspace and tab count | 0 |
 | Hover card | one small layer built on hover, from data already in the model | < 1 ms | 0 |
 | Agent streaming a reply into a visible chat | append text, lay out the new line(s) only, one commit per frame at most | ~1 % while streaming | one message per chunk from acpmux to the app |
@@ -214,10 +215,44 @@ Largest first. Each fix lands with a failing bench row or test first.
    two cmux-agent-screen-detection, open/save panel and QuickLook XPC services started at launch.
    Each should start on first use.
 
-## 7. Heavy scenario and after-fix numbers
+## 7. Measured with the overhead rows (2026-10-22)
 
-Filled in by the fleet runs of this work (steps listed in the report); each fix PR adds its
-before/after rows here.
+cmux20 (Apple M6, macOS 27.0), Release build, one round, isolated HOME. Standard: fleet step
+338ba2ea5665dc7e439ba255 at feat-cmux-next 7eeba1d596c (5 terminals, 6 hidden tabs of each
+engine). Heavy: step c347f45ee8d6f0328e7dda54 at the same commit (150 workspaces, 20 terminals,
+20 hidden Chromium tabs). "Floor" is section 3's.
+
+| Row | Floor | Standard | Heavy (150 ws) | Gap (heavy / floor) |
+|---|---|---|---|---|
+| Idle CPU, Home after launch | 0 % | 3.40 % (renderers 1.78 %, main 1.37 %) | 3.29 % | >> 100x |
+| Idle disk writes, Home | 0 KB/s | 358 KB/s (all in the app process) | – | >> 100x |
+| Idle syscalls, Home | 0 /s | 1,400 /s (app) | – | >> 100x |
+| Idle CPU, tabs hidden, window in view | 0 % | 1.82 % | 0.82 % | >> 100x |
+| Idle wakeups, tabs hidden | 0 /s | 188 /s (app 94, each hidden WebKit tab 11) | 69 /s (app 36) | >> 100x |
+| Idle Mach messages, tabs hidden | 0 /s | 541 /s (app 209, WebKit GPU 198) | 154 /s | >> 100x |
+| Idle syscalls, tabs hidden | 0 /s | 1,502 /s | 437 /s | >> 100x |
+| Idle disk writes, tabs hidden | 0 KB/s | 0.0 KB/s | 0.07 KB/s | ok |
+| Memory, Home | ~70 MB | 793 MB | 802 MB | 11x |
+| Memory, whole tree | 160 MB (150 ws) | 1,462 MB | 3,538 MB | 22x |
+| Memory per further workspace (1 terminal) | 0.002 MB app + 0.2 MB daemon | – | 8.2 MB | 40x |
+| Memory per hidden Chromium tab | 0.05 MB | 55 MB | 56 MB | 1,100x |
+| Memory per hidden WebKit tab | 0.05 MB | 29 MB | – | 600x |
+| Processes | 2 (+3 with Chromium) | 52 | 392 (172 terminal hosts, 171 shells, 25 renderers) | 78x |
+| Threads | ~10 | 677 | 3,300 (daemon 797, app 91) | 330x |
+| App process footprint | 40 MB + window | 361 MB | 844 MB | 10x |
+| cmux-tui daemon footprint | ~35 MB at 172 terminals | 56 MB | 284 MB | 8x |
+
+New ranked gaps from these rows (added to section 6):
+
+8. **The app writes 358 KB/s to disk and makes 1,400 syscalls/s while idle on Home.** Floor 0.
+   The bench now lists the files written during the window (`home idle wrote:` lines) to name it.
+9. **Hidden WebKit tabs wake 11 times a second each** with 21 Mach messages/s each, and the WebKit
+   GPU process exchanges 198 messages/s with them: a hidden WebKit page still runs a timer or
+   rAF loop. Hidden Chromium tabs freeze after 30 s (0.2 wakeups/s); WebKit tabs have no freeze.
+10. **The daemon holds ~4.6 threads per terminal** (797 threads at ~172 terminals). The bench now
+    logs its thread names to find which loop is per terminal.
+11. **Each workspace costs 8.2 MB**: a terminal host process (2.3 MB) and a shell (2.3 MB) per
+    terminal, ~1.5 MB in the daemon and ~3 MB in the app (a Ghostty surface per hidden terminal).
 
 ## 8. Who works on which row
 
@@ -232,5 +267,6 @@ before/after rows here.
 | Chat switch | a470 |
 | Space and workspace switch | a489, a492 |
 | Cmd-Tab activation | a503 |
+| Pane focus moves | a515 |
 | Hover card | a505 |
 | SwiftUI removal (Home chat native) | a488 |
