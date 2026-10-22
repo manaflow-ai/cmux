@@ -274,12 +274,12 @@ public struct SidebarMapping {
         agentTab(tabs)?.agentBrand
     }
 
-    /// The tab whose unread notification is the newest (daemon ids grow).
     /// The reason of the newest "needs you here" mark among `tabs` (tab-attention-v1).
     static func attentionReason(_ tabs: [TabModel]) -> String? {
         tabs.compactMap(\.attention).max { $0.atMs < $1.atMs }?.reason
     }
 
+    /// The tab whose unread notification is the newest (daemon ids grow).
     func newestUnread(_ tabs: [TabModel]) -> TabModel? {
         tabs.filter(\.hasUnread).max { ($0.notification?.notification.rawValue ?? 0) < ($1.notification?.notification.rawValue ?? 0) }
     }
