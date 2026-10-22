@@ -89,18 +89,19 @@ def tooling_checkout(body: str) -> "str | None":
         return None
     indent, value = match.group(1), match.group(2).strip()
     text, rest = match.group(0), body[match.end():]
+    # The value runs to the first non-blank line indented no deeper than its key; blank lines
+    # inside it are part of it, so a later `/*` is still read. That holds for a `|` block and
+    # for a plain scalar continued on deeper lines alike.
+    lines = rest.splitlines(keepends=True)
+    end = next((i for i, line in enumerate(lines) if line.strip() and not line.startswith(indent + " ")), len(lines))
+    while end and not lines[end - 1].strip():
+        end -= 1
+    continuation = [line.strip() for line in lines[:end] if line.strip()]
     if value == "|":
-        paths = []
-        # A block scalar runs to the first non-blank line indented no deeper than its key;
-        # blank lines inside it are part of it, so a later `/*` is still read.
-        lines = rest.splitlines(keepends=True)
-        end = next((i for i, line in enumerate(lines) if line.strip() and not line.startswith(indent + " ")), len(lines))
-        while end and not lines[end - 1].strip():
-            end -= 1
-        for line in lines[:end]:
-            if line.strip():
-                paths.append(line.strip())
-            text += line
+        paths = continuation
+        text += "".join(lines[:end])
+    elif continuation:
+        return None
     else:
         paths = [value]
     if not paths or not all(re.fullmatch(r"scripts(/(?!\.+(/|$))[\w.-]+)*", path) for path in paths):
@@ -115,6 +116,12 @@ for bad in ("scripts/ci/x.py\n            /*", "/*", "scripts/../Sources"):
 check(tooling_checkout("          ref: ${{ github.sha }}\n          path: .publish-tooling\n          sparse-checkout: |\n"
                        "            scripts/ci/x.py\n\n            /*\n") is None,
       "a `/*` after a blank line in the sparse list must not be exempt")
+check(tooling_checkout("          ref: ${{ github.sha }}\n          path: .publish-tooling\n          sparse-checkout: scripts\n\n"
+                       "            /*\n          sparse-checkout-cone-mode: false\n") is None,
+      "a `/*` continuing the inline sparse value must not be exempt")
+check(tooling_checkout("          ref: ${{ github.sha }}\n          path: .publish-tooling\n          sparse-checkout: scripts\n"
+                       "          sparse-checkout-cone-mode: false\n") is not None,
+      "a sibling key after the inline sparse value ends it")
 check(tooling_checkout("          ref: ${{ github.sha }}\n          path: .publish-tooling\n          sparse-checkout: scripts\n") is not None,
       "publish-nightly's `sparse-checkout: scripts` is the tooling checkout")
 
