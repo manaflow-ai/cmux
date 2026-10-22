@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "22526ef27362464ad1798ceadf7ab3b0225cd784acc1dcc13419362378a066bc";
+pub const ir_sha256 = "655baaa1d0f11bd63754ffcda70267c4b8f07a2d8d415bf0c302c2ccab838a96";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -2942,6 +2942,23 @@ pub const TerminalPlacement = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "terminal_resource_id",
     };
+};
+
+pub const TerminalPortsListener = struct {
+    /// The loopback address that accepted the daemon's connect: 127.0.0.1 or ::1.
+    bound: []const u8,
+    /// The host as the terminal printed it: localhost, 127.0.0.1, 0.0.0.0, [::1], ...
+    host: []const u8,
+    port: u16,
+    /// The printed URL, or http://HOST:PORT/ when the text had no scheme.
+    url: []const u8,
+};
+
+pub const TerminalPortsResult = struct {
+    /// Ports the text names that refused the connect.
+    closed: []const u16,
+    listeners: []const TerminalPortsListener,
+    surface: Id,
 };
 
 pub const TerminalReadRangeResult = struct {
@@ -9218,6 +9235,23 @@ pub fn terminalHistory(client: anytype, request: TerminalHistoryRequest) !wire.D
     );
 }
 
+pub const TerminalPortsRequest = struct {
+    surface: Id,
+};
+
+pub fn terminalPorts(client: anytype, request: TerminalPortsRequest) !wire.Decoded(TerminalPortsResult) {
+    return client.callTyped(
+        TerminalPortsResult,
+        .{
+            .name = "terminal-ports",
+            .authority = "control",
+            .since = 12,
+            .capability = "terminal-ports-v1",
+        },
+        request,
+    );
+}
+
 pub const TerminalReadRangeRequest = struct {
     format: wire.Field([]const u8) = .absent,
     from: RowMarkerPoint,
@@ -11397,7 +11431,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 282;
+pub const command_count: usize = 283;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -11654,6 +11688,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "terminal-clipboard-subscribe", .authority = "frontend", .since = 12, .capability = "terminal-clipboard-read-v1", .stream = "subscribe" },
     .{ .name = "terminal-events", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "terminal-history", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
+    .{ .name = "terminal-ports", .authority = "control", .since = 12, .capability = "terminal-ports-v1", .stream = null },
     .{ .name = "terminal-read-range", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
     .{ .name = "terminal-resources", .authority = "control", .since = 12, .capability = "terminal-resources-v1", .stream = null },
     .{ .name = "terminal-resume-command", .authority = "control", .since = 12, .capability = "resume-command", .stream = null },
