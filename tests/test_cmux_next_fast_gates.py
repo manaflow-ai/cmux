@@ -389,6 +389,66 @@ class ScriptBehavior(unittest.TestCase):
         self.assertIn("#7", result.stdout + result.stderr)
         self.assertIn(tip, result.stderr)
 
+    def test_dispatch_deepens_past_a_stale_merge_base_the_shallow_fetch_shows(self):
+        # #24250 (run 39743273392): the head had merged the tip partway along and touched none of the
+        # conflicting files, yet the shallow fetch's merge base was an older commit a side merge on the
+        # base reaches, because the true one sat behind the base's shallow boundary.
+        spec = importlib.util.spec_from_file_location("cmux_next_fast_gates", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        seed = self.seed
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        merged_in = commit(seed, {"shared.txt": "two\n"}, "the base change the pull request merges in")
+        git(seed, "checkout", "-q", "pr")
+        git(seed, "merge", "-q", "--no-edit", "feat-cmux-next")
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        for n in range(module.FETCH_DEPTH + 10):
+            git(seed, "commit", "-q", "--allow-empty", "-m", f"base moves on {n}")
+        git(seed, "checkout", "-q", "-b", "side", self.root)
+        commit(seed, {"side.txt": "side\n"}, "an old branch")
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        git(seed, "merge", "-q", "--no-ff", "--no-edit", "side")
+        commit(seed, {"shared.txt": "three\n"}, "the base edits a file the pull request never touched")
+        git(seed, "push", "-q", "-f", str(self.remote), "feat-cmux-next", "pr:refs/pull/7/head")
+        work = self.clone()
+        result = self.dispatch(work)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(git(work, "merge-base", "--all", "refs/fast-gates/head", "HEAD^1"), merged_in)
+        self.assertEqual((work / "shared.txt").read_text(), "three\n")
+
+    def test_dispatch_deepens_when_a_cut_hides_that_one_merge_base_descends_from_another(self):
+        # Both sides reach the true base A at the cut and its ancestor B through short side branches, so the
+        # shallow fetch reports {A, B}: no cut lies ahead of them, yet B is stale and the virtual base conflicts.
+        spec = importlib.util.spec_from_file_location("cmux_next_fast_gates", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        seed = self.seed
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        b = self.tip
+        a = commit(seed, {"shared.txt": "two\n"}, "A: the true merge base")
+
+        def side(name: str) -> str:
+            git(seed, "checkout", "-q", "-b", name, b)
+            return commit(seed, {f"{name}.txt": f"{name}\n"}, f"{name} off B")
+
+        def tip(branch: str, files: dict[str, str]) -> None:
+            git(seed, "checkout", "-q", "-B", branch, a)
+            commit(seed, files, f"{branch} after A")
+            for n in range(module.FETCH_DEPTH - 3):
+                git(seed, "commit", "-q", "--allow-empty", "-m", f"{branch} moves on {n}")
+            git(seed, "merge", "-q", "--no-ff", "--no-edit", f"side-{branch}")
+
+        side("side-pr")
+        side("side-feat-cmux-next")
+        tip("pr", {"pr.txt": "pr\n"})
+        tip("feat-cmux-next", {"shared.txt": "three\n"})
+        git(seed, "push", "-q", "-f", str(self.remote), "feat-cmux-next", "pr:refs/pull/7/head")
+        work = self.clone()
+        result = self.dispatch(work)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(git(work, "merge-base", "--all", "refs/fast-gates/head", "HEAD^1"), a)
+        self.assertEqual((work / "shared.txt").read_text(), "three\n")
+
     def test_dispatch_refuses_a_head_that_moved_after_resolve(self):
         work = self.clone()
         result = self.dispatch(work, head="e" * 40)
