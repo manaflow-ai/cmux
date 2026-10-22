@@ -84,11 +84,12 @@ extension AgentTabStore {
             return true
         }
         // A tab already being made shows this request's turn once it exists.
-        guard changes.begin(reveal) else { return true }
+        guard let opening = changes.begin(reveal) else { return true }
         let opened = openBeside(provisional, main: provisional, open: { [weak self] pane, daemon in guard let self else { throw CancellationError() }; return try open(in: pane, of: daemon, session: session) },
                                 // A tab moved to another chat before it was made is an ordinary chat (``AgentChangesPane/left(_:isTab:)``).
-                                created: { [weak self] key in if showsChat(key) { self?.revealTurn(changes.made(key) ?? reveal, in: key) } else { changes.ended() } }, finished: { _ in changes.ended() })
-        if !opened { changes.ended() }
+                                created: { [weak self] key in if showsChat(key) { self?.revealTurn(changes.made(key, opening: opening) ?? reveal, in: key) } else { changes.ended(opening) } },
+                                finished: { _ in changes.ended(opening) })
+        if !opened { changes.ended(opening) }
         return opened
     }
     /// Whether `tab` is the changes tab of the chat it shows (``AgentChangesPane``).

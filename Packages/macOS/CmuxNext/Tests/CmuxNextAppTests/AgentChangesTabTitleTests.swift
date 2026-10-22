@@ -28,7 +28,8 @@ struct AgentChangesTabTitleTests {
         let titles = TabTitleResolver(agentTabs: tabs)
         #expect(titles.title(changesTab) == "Home")
 
-        _ = AgentChangesPane.session(session).made(changesTab.id)
+        let changes = AgentChangesPane.session(session)
+        _ = changes.made(changesTab.id, opening: try #require(changes.begin("reveal")))
         #expect(titles.title(changesTab) == AgentPaneModel.changesTabTitle)
         #expect(titles.title(chatTab) == "Home")
 
@@ -38,5 +39,18 @@ struct AgentChangesTabTitleTests {
         #expect(titles.title(changesTab) == AgentPaneModel.changesTabTitle)
         AgentChangesPane.left(session) { tabs.resolve($0) == changesTab.id }
         #expect(titles.title(changesTab) == "Home")
+    }
+
+    /// A rejected opening ends early; its late callback must not end the opening that replaced it, or
+    /// a third click opens a second pane (Codex BLOCK at bee4e65f).
+    @Test func anOldOpeningsLateCallbackLeavesItsReplacementBeingMade() throws {
+        let changes = AgentChangesPane.session("s-openings-\(UUID().uuidString)")
+        let first = try #require(changes.begin("a"))
+        changes.ended(first) // its tab moved to another chat before it was made
+        let second = try #require(changes.begin("b"))
+        changes.ended(first) // the first opening's finished callback
+        #expect(changes.begin("c") == nil) // still being made: it shows c once it exists
+        #expect(changes.made("k2", opening: second) == "c")
+        #expect(changes.made("k1", opening: first) == nil)
     }
 }

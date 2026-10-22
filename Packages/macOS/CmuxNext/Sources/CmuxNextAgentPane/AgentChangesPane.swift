@@ -14,6 +14,8 @@ public final class AgentChangesPane {
     private var tab: String?
     /// The reveal the tab being made shows once it exists: the newest request's. Nil while none is made.
     @ObservationIgnored private var waiting: String?
+    /// The latest opening ``begin(_:)`` started; only its callbacks end it.
+    @ObservationIgnored private var opening = 0
 
     public init() {}
 
@@ -45,21 +47,28 @@ public final class AgentChangesPane {
         return tab
     }
 
-    /// Starts making the tab for `reveal`; false when one is being made, which then shows `reveal`.
-    public func begin(_ reveal: String) -> Bool {
+    /// Starts making the tab for `reveal` and returns that opening; nil when one is being made, which
+    /// then shows `reveal`.
+    public func begin(_ reveal: String) -> Int? {
         defer { waiting = reveal }
-        return waiting == nil
+        guard waiting == nil else { return nil }
+        opening += 1
+        return opening
     }
 
-    /// The tab being made exists as `key`: records it and returns the reveal it shows.
-    public func made(_ key: String) -> String? {
+    /// Opening `opening`'s tab exists as `key`: records it and returns the reveal it shows.
+    public func made(_ key: String, opening: Int) -> String? {
+        guard opening == self.opening else { return nil }
         tab = key
         defer { waiting = nil }
         return waiting
     }
 
-    /// The tab being made failed or is done: later requests make or use one again.
-    public func ended() { waiting = nil }
+    /// Opening `opening` failed or is done: later requests make or use one again. An older opening's
+    /// late callback leaves a newer one being made.
+    public func ended(_ opening: Int) {
+        if opening == self.opening { waiting = nil }
+    }
 
     /// The `revealTurn` value that opens a pane on the changes of session `session`'s turn holding
     /// `row` (found again by its tool call `tool`), at `path`: row ids repeat across sessions, so it
