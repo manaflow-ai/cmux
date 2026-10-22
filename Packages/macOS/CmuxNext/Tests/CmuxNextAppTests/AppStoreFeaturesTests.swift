@@ -72,7 +72,7 @@ import Testing
             "appearance.ultraCompact": .appearance, "appearance.calm": .appearance,
             "appearance.brailleStatus": .appearance, "appearance.runningCommands": .appearance,
             "chief.suggestedTasks": .chief, "chief.githubFeed": .chief, "chat.needsYou": .chief,
-            "editor.splitDiff": .editor, "editor.minimap": .editor,
+            "editor.splitDiff": .editor, "editor.minimap": .editor, "editor.chatMinimap": .editor,
             "devices.phoneAccess": .devices, "devices.globalHotKey": .devices,
         ]
         let bridge = SettingsAppFeatures(settings: { nil })

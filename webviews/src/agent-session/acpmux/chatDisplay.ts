@@ -33,10 +33,18 @@ export interface ChatDisplay {
   /// over the chat, so opening, closing or updating it never reflows the chat (Leo, 2026-10-20);
   /// `push` moves the chat aside. Not a look: the Text & Width popover's Reset leaves it.
   inspector: "push" | "overlay";
+  /// The VS Code-like minimap (threadMinimap/ScrollMap.tsx) instead of the prompt rail: every message
+  /// at its place down the chat's edge under a box for the view. Off by default; the App Store's
+  /// Chat Minimap card turns it on (Leo, 2026-10-22: "addng in the app store the vscode-like minimap
+  /// situation"). Not a look: Reset leaves it.
+  minimap: boolean;
 }
 
 /// Settings > Agent Chat > Inspector (Swift AgentPaneDisplaySettingsSchema has the same row).
 export const INSPECTOR_PLACEMENT_KEY = "agentPane.display.inspector.placement";
+/// Settings > Agent Chat > Chat Minimap, and the App Store's Chat Minimap card (Swift
+/// AgentPaneDisplaySettingsSchema has the same row, AppFeature+Catalog the card).
+export const MINIMAP_KEY = "agentPane.display.minimap";
 
 /// Each option: its cmux.json key, its range and default. The Swift schema has the same rows
 /// (AgentPaneDisplaySettingsSchema).
@@ -67,6 +75,7 @@ export const DEFAULT_CHAT_DISPLAY: ChatDisplay = {
   codeFamily: null,
   codeScale: null,
   inspector: "overlay",
+  minimap: false,
 };
 
 /// The body font stacks, as the Markdown viewer's presets (pages/markdown/settings.ts).
@@ -115,6 +124,7 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
       number(values[CHAT_DISPLAY.codeScale.key], CHAT_DISPLAY.codeScale) ??
       number(values[MARKDOWN_FOLLOWED.codeScale], CHAT_DISPLAY.codeScale),
     inspector: values[INSPECTOR_PLACEMENT_KEY] === "push" ? "push" : "overlay",
+    minimap: values[MINIMAP_KEY] === true,
   };
 }
 
