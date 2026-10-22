@@ -48121,127 +48121,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "أرسلت اللوحة طلبًا لا يقبله التطبيق."
+            "value": "حدث خطأ، فلم يتم ذلك. حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Panel je poslao zahtjev koji aplikacija ne prihvata."
+            "value": "Nešto je pošlo po zlu, pa to nije uspjelo. Pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Panelet sendte en anmodning, som appen ikke accepterer."
+            "value": "Noget gik galt, så det blev ikke gennemført. Prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Das Pane hat eine Anfrage gesendet, die die App nicht akzeptiert."
+            "value": "Etwas ist schiefgelaufen, daher hat das nicht geklappt. Versuche es erneut."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The pane sent a request the app does not accept."
+            "value": "Something went wrong, so that didn’t go through. Try again."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "El panel envió una solicitud que la app no acepta."
+            "value": "Algo salió mal y no se completó. Inténtalo de nuevo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le panneau a envoyé une requête que l'app n'accepte pas."
+            "value": "Un problème est survenu, l’action n’a pas abouti. Réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Il pannello ha inviato una richiesta che l'app non accetta."
+            "value": "Qualcosa è andato storto e l’azione non è riuscita. Riprova."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ペインが送ったリクエストをアプリが受け付けませんでした。"
+            "state": "needs_review",
+            "value": "問題が発生したため、完了できませんでした。もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ផ្ទាំងបានផ្ញើសំណើដែលកម្មវិធីមិនទទួលយក។"
+            "value": "មានបញ្ហាកើតឡើង ដូច្នេះវាមិនបានសម្រេចទេ។ សូមព្យាយាមម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "패널이 앱에서 허용하지 않는 요청을 보냈습니다."
+            "value": "문제가 발생해 완료되지 않았습니다. 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Panelet sendte en forespørsel appen ikke godtar."
+            "value": "Noe gikk galt, så det ble ikke gjennomført. Prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Panel wysłał żądanie, którego aplikacja nie akceptuje."
+            "value": "Coś poszło nie tak, więc to się nie udało. Spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O painel enviou uma solicitação que o app não aceita."
+            "value": "Algo deu errado e isso não foi concluído. Tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Панель отправила запрос, который приложение не принимает."
+            "value": "Что-то пошло не так, и действие не выполнено. Попробуйте ещё раз."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "บานหน้าต่างส่งคำขอที่แอปไม่รองรับ"
+            "value": "เกิดข้อผิดพลาด จึงดำเนินการไม่สำเร็จ ลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bölme, uygulamanın kabul etmediği bir istek gönderdi."
+            "value": "Bir sorun oluştu, bu yüzden işlem tamamlanmadı. Yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Панель надіслала запит, який застосунок не приймає."
+            "value": "Щось пішло не так, і дію не виконано. Спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ngăn đã gửi một yêu cầu mà ứng dụng không chấp nhận."
+            "value": "Đã xảy ra sự cố nên thao tác chưa hoàn tất. Hãy thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "窗格发送了应用不接受的请求。"
+            "value": "出现问题，操作未完成。请重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "面板傳送了 App 不接受的請求。"
+            "value": "發生問題，操作未完成。請再試一次。"
           }
         }
       }
@@ -76922,6 +76922,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "強度"
+          }
+        }
+      }
+    },
+    "picker.modeRecommended": {
+      "comment": "The badge on the mode a harness recommends (Claude Code's Auto) in the composer's mode menu",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "موصى به"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preporučeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anbefalet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Empfohlen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recommended"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recomendado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recommandé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consigliato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "おすすめ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានណែនាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "권장"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anbefalt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zalecane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recomendado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рекомендуется"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แนะนำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Önerilen"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рекомендовано"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khuyến nghị"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "推荐"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "推薦"
+          }
+        }
+      }
+    },
+    "picker.codexApprovalHeading": {
+      "comment": "The heading over a Codex chat's permission modes in the composer's mode menu, as Codex asks it",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كيف يجب الموافقة على الإجراءات؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kako odobravati radnje?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvordan skal handlinger godkendes?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wie sollen Aktionen genehmigt werden?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How should actions be approved?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Cómo se deben aprobar las acciones?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comment les actions doivent-elles être approuvées ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Come devono essere approvate le azioni?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アクションの承認方法は？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តើគួរអនុម័តសកម្មភាពដោយរបៀបណា?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "작업을 어떻게 승인할까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvordan skal handlinger godkjennes?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jak zatwierdzać działania?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Como as ações devem ser aprovadas?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Как подтверждать действия?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ควรอนุมัติการดำเนินการอย่างไร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eylemler nasıl onaylansın?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Як підтверджувати дії?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nên phê duyệt hành động như thế nào?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "应如何批准操作？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "應如何核准操作？"
           }
         }
       }
