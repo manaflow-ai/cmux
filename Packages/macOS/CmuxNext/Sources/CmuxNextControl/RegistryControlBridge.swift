@@ -48,7 +48,8 @@ public final class RegistryControlBridge: ControlActionExecutor {
             _ = registry.disabledFeatures
             // Reasons read observable app state (daemon capabilities), so a
             // change there republishes `unavailable_reason` too.
-            for action in registry.actions { _ = action.unavailableReason?() }
+            // A setting that turns actions off (`browser.import.enabled`) reads the settings snapshot.
+            for action in registry.actions { _ = registry.unavailableReason(for: action.id) }
         } onChange: { [weak self] in
             // onChange runs before the new value is stored; publish after.
             // task-owner: observation re-arm; ends when its epoch is not current (state-audit R1)
