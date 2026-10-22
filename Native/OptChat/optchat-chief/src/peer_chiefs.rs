@@ -904,6 +904,14 @@ mod tests {
         ));
         assert!(matches!(
             forwarded(Err("u: HTTP 403: no".into())),
+            Forwarded::Later(_)
+        ));
+        assert!(matches!(
+            forwarded(Err("u: HTTP 404: none".into())),
+            Forwarded::Later(_)
+        ));
+        assert!(matches!(
+            forwarded(Err("u: HTTP 413: big".into())),
             Forwarded::Dropped(_)
         ));
         assert!(matches!(
