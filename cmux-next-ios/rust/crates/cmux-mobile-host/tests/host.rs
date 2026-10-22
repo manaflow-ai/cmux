@@ -37,6 +37,8 @@ struct Fixture {
     outside: std::path::PathBuf,
     uploads: std::path::PathBuf,
     browser_launches: Arc<std::sync::atomic::AtomicUsize>,
+    /// Every request line the fake daemon read.
+    daemon_lines: Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
 }
 
 fn options() -> DialOptions {
@@ -45,15 +47,20 @@ fn options() -> DialOptions {
 
 /// A stand-in cmux-tui session socket: answers each request line with
 /// `{"id":..,"ok":true,"data":{"cmd":..}}`.
-fn fake_daemon(dir: &std::path::Path) {
+/// Every request line it read goes to the returned list, in order.
+fn fake_daemon(dir: &std::path::Path) -> Arc<std::sync::Mutex<Vec<serde_json::Value>>> {
     let listener = tokio::net::UnixListener::bind(dir.join("main.sock")).unwrap();
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorded = Arc::clone(&seen);
     tokio::spawn(async move {
         while let Ok((stream, _)) = listener.accept().await {
+            let recorded = Arc::clone(&recorded);
             tokio::spawn(async move {
                 let (read, mut write) = stream.into_split();
                 let mut lines = BufReader::new(read).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+                    recorded.lock().unwrap().push(request.clone());
                     let answer = serde_json::json!({"id": request["id"], "ok": true,
                         "data": {"cmd": request["cmd"], "host": request["agent_session"]["host"]}});
                     write.write_all(format!("{answer}\n").as_bytes()).await.unwrap();
@@ -61,6 +68,7 @@ fn fake_daemon(dir: &std::path::Path) {
             });
         }
     });
+    seen
 }
 
 /// A stand-in Chief owner: lists the Chief, an owner-and-agents chat and a
@@ -150,7 +158,7 @@ async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixtur
     let uploads = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("notes.md"), "# hello\n").unwrap();
     std::fs::write(outside.path().join("secret"), "nope").unwrap();
-    fake_daemon(sockets.path());
+    let daemon_lines = fake_daemon(sockets.path());
     fake_chief(sockets.path());
     let browser_launches = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let services = ServiceConfig {
@@ -215,6 +223,7 @@ async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixtur
         outside: outside.path().to_path_buf(),
         uploads: uploads.path().to_path_buf(),
         browser_launches,
+        daemon_lines,
         _dirs: vec![sockets, root, outside, uploads],
     }
 }
@@ -1063,4 +1072,45 @@ async fn the_mac_proves_its_key_and_a_chief_answer_needs_the_phones_signature() 
     chief.send(Bytes::from(format!("{signed}\n"))).await.unwrap();
     let replay = next_line(&mut chief, &mut buffer).await;
     assert_eq!(replay["error_code"], "forbidden", "{replay}");
+}
+
+/// A phone that closes its terminal channel on purpose (a tab it left, an
+/// older phone that does not release first) gets its terminal sizes released
+/// by the Mac before the daemon socket closes, so the daemon never takes the
+/// close for a dropped link and holds the grid (PROTOCOL.md "Terminal size
+/// claims").
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_terminal_channel_the_phone_closes_releases_its_sizes() {
+    let fixture = fixture(FakeOptions::default()).await;
+    let connected = connect(&fixture, TransportKind::WebRtc).await.expect("dial");
+    let mut daemon = connected.link.open("daemon", serde_json::json!({})).await.unwrap();
+    daemon
+        .send(Bytes::from_static(
+            b"{\"id\":1,\"cmd\":\"attach-surface\",\"surface\":7,\"cols\":53,\"rows\":42}\n{\"id\":2,\"cmd\":\"resize-surface\",\"surface\":9,\"cols\":53,\"rows\":42}\n",
+        ))
+        .await
+        .unwrap();
+    let mut buffer = Vec::new();
+    for _ in 0..2 {
+        next_line(&mut daemon, &mut buffer).await;
+    }
+    daemon.close("eof", "").await;
+    let released = |lines: &[serde_json::Value]| {
+        let mut surfaces = lines
+            .iter()
+            .filter(|line| line["cmd"] == "release-surface-size")
+            .filter_map(|line| line["surface"].as_u64())
+            .collect::<Vec<_>>();
+        surfaces.sort_unstable();
+        surfaces
+    };
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let lines = fixture.daemon_lines.lock().unwrap().clone();
+        if released(&lines) == [7, 9] {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "no releases after the phone closed: {lines:?}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 }
