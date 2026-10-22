@@ -371,4 +371,68 @@ mod script {
         f.router.publish_with("terminal.title_changed", json!({ "title": "two" }));
         assert_eq!(titles.join().unwrap().unwrap(), json!(["one", "two"]));
     }
+
+    const CONFIG: &str = "cmux.action({ name: 'hello', title: 'Say hello', run: (ctx, args) => ({ origin: ctx.origin, who: args.who }) }); \
+        cmux.keys.bind('cmd+k h', 'user.hello', { args: { who: 'key' } }); \
+        cmux.keys.mode('resize', { title: 'Resize' }); \
+        cmux.keys.bind('left', 'pane.resize', { mode: 'resize', args: { direction: 'left' } }); \
+        cmux.keys.bind('cmd+k f', async (ctx) => 'fn from ' + ctx.origin); \
+        cmux.keys.unbind('newTab', 'cmd+t')";
+
+    #[test]
+    fn config_registers_actions_keys_and_modes() {
+        let f = start();
+        eval(&f, CONFIG).unwrap();
+        let config = f.session.export("config", json!({}), SHORT).unwrap();
+        assert_eq!(
+            config,
+            json!({
+                "actions": [
+                    { "id": "user.hello", "name": "hello", "title": "Say hello", "description": null, "palette": true },
+                    { "id": "user.key.1", "name": "key.1", "title": "cmd+k f", "description": null, "palette": false },
+                ],
+                "keys": [
+                    { "key": "cmd+k h", "command": "user.hello", "args": { "who": "key" }, "when": null, "mode": null },
+                    { "key": "left", "command": "pane.resize", "args": { "direction": "left" }, "when": null, "mode": "resize" },
+                    { "key": "cmd+k f", "command": "user.key.1", "args": {}, "when": null, "mode": null },
+                ],
+                "modes": [{ "name": "resize", "title": "Resize", "exclusive": true }],
+                "removals": [{ "command": "newTab", "key": "cmd+t" }],
+            })
+        );
+    }
+
+    #[test]
+    fn config_actions_run_with_their_context_and_args() {
+        let f = start();
+        eval(&f, CONFIG).unwrap();
+        let run = |name: &str, args: Value| {
+            f.session.export(
+                "action",
+                json!({ "name": name, "args": args, "context": { "origin": "palette" } }),
+                SHORT,
+            )
+        };
+        assert_eq!(
+            run("hello", json!({ "who": "me" })).unwrap(),
+            json!({ "origin": "palette", "who": "me" })
+        );
+        assert_eq!(run("key.1", json!({})).unwrap(), json!("fn from palette"));
+        assert_eq!(run("missing", json!({})).unwrap_err().code, "action.not_found");
+    }
+
+    #[test]
+    fn config_refuses_bad_and_duplicate_definitions() {
+        let f = start();
+        eval(&f, "cmux.action({ name: 'twice', run: () => 1 })").unwrap();
+        for code in [
+            "cmux.action({ name: 'twice', run: () => 2 })",
+            "cmux.action({ name: 'Bad Name', run: () => 1 })",
+            "cmux.action({ name: 'norun' })",
+            "cmux.keys.bind('', 'newTab')",
+            "cmux.keys.bind('cmd+k x', 'newTab', { mode: 'nosuchmode' })",
+        ] {
+            assert_eq!(eval(&f, code).unwrap_err().code, "validation.invalid", "{code}");
+        }
+    }
 }
