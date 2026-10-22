@@ -23,6 +23,10 @@ final class CEFHostView: NSView {
     var pageBackdrop: CGColor? {
         didSet { if pageBackdrop != oldValue { updateBackground() } }
     }
+    /// The shown page is see-through (a cmux page, `CEFTab.pageSeeThrough`): this view under it
+    /// paints nothing, so the pane and the window backdrop show as under a WebKit page.
+    var pageSeeThrough = false
+
     /// Called when the window starts a live resize (`CEFPaneHost` re-reads
     /// the shown page's background).
     var liveResizeWillStart: (() -> Void)?
