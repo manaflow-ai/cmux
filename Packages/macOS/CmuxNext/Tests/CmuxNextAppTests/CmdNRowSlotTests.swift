@@ -160,6 +160,7 @@ struct CmdNInGroupRowSlotTests {
 
         var frames: [[String]] = []
         var tags: [String] = []
+        let intentBefore = doc.lastIntentKey
         list.onApply = { layout in
             let frame = rows(layout)
             frames.append(frame)
@@ -169,9 +170,12 @@ struct CmdNInGroupRowSlotTests {
                 let provisional = services.machines.workspace(id: id)?.0.isProvisional == true ? "+prov" : ""
                 let item = SidebarDocWiring.item(workspace: id, services.machines) != nil ? "+d" : ""
                 let placing = services.windows.pendingPlacements[id] != nil ? "+placing" : ""
-                return "@\(frame.firstIndex(of: id) ?? -1)\(pending)\(provisional)\(item)\(placing)"
+                let lag = doc.version != doc.shownVersion ? "+lag" : ""
+                let sent = doc.lastIntentKey != intentBefore ? "+sent" : ""
+                return "@\(frame.firstIndex(of: id) ?? -1)\(pending)\(provisional)\(item)\(placing)\(lag)\(sent)"
             }.joined(separator: ","))
         }
+        refused.removeAll()
         _ = services.registry.perform("newTab", invocation: ActionInvocation(origin: instantPage ? .user : .script))
         await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { settled(before.count + 1) && rows(list.displayed).count > before.count }
         // A late reorder (the item's arrival, a placement echo) would draw within this; test-only wait.
@@ -181,7 +185,7 @@ struct CmdNInGroupRowSlotTests {
         await launched.stop()
 
         let created = try #require(after.first { !before.contains($0) }, "the new row: \(after)")
-        print("cmd-n-group instantPage=\(instantPage): anchor @\(at), frames \(frames.count): \(tags.joined(separator: " | "))")
+        print("cmd-n-group instantPage=\(instantPage): anchor @\(at), frames \(frames.count): \(tags.joined(separator: " | ")); refused \(refused); sent \(doc.lastIntentKey != intentBefore)")
         #expect(after == Array(before[...at]) + [created] + before[(at + 1)...], "rows \(before) became \(after)")
         let elsewhere = frames.filter { frame in frame.contains(created) && frame.firstIndex(of: created) != frame.firstIndex(of: anchor).map { $0 + 1 } }
         #expect(elsewhere.isEmpty, "frames that drew the new row away from its slot below \(anchor): \(elsewhere.count) of \(frames.count): \(tags)")
