@@ -167,6 +167,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                     options.observe(object, replyTo: method)
                     sessions.observe(object)
                     sessions.observeFolder(object, replyTo: method)
+                    if wire != nil { sessions.observeTabSession(object, replyTo: method) }
                     decisions.observe(object, replyTo: method)
                     if Self.pageWaits(on: object) { awaited += 1 }
                     page.append(fresh)

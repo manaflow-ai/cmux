@@ -94,38 +94,45 @@ pub(crate) fn segment(packet: &[u8]) -> Option<Segment> {
     let (source, destination, protocol, header_len, total): (IpAddr, IpAddr, u8, usize, usize) =
         match packet.first()? >> 4 {
             4 if packet.len() >= 20 => {
-                let source: [u8; 4] = packet[12..16].try_into().ok()?;
-                let destination: [u8; 4] = packet[16..20].try_into().ok()?;
-                let total = usize::from(u16::from_be_bytes([packet[2], packet[3]]));
-                let header_len = usize::from(packet[0] & 0x0F) * 4;
-                (source.into(), destination.into(), packet[9], header_len, total)
+                let source: [u8; 4] = packet.get(12..16)?.try_into().ok()?;
+                let destination: [u8; 4] = packet.get(16..20)?.try_into().ok()?;
+                let total = usize::from(be16(packet, 2)?);
+                let header_len = usize::from(packet.first()? & 0x0F) * 4;
+                (source.into(), destination.into(), *packet.get(9)?, header_len, total)
             }
             6 if packet.len() >= 40 => {
-                let source: [u8; 16] = packet[8..24].try_into().ok()?;
-                let destination: [u8; 16] = packet[24..40].try_into().ok()?;
-                let total = 40 + usize::from(u16::from_be_bytes([packet[4], packet[5]]));
-                (source.into(), destination.into(), packet[6], 40, total)
+                let source: [u8; 16] = packet.get(8..24)?.try_into().ok()?;
+                let destination: [u8; 16] = packet.get(24..40)?.try_into().ok()?;
+                let total = 40 + usize::from(be16(packet, 4)?);
+                (source.into(), destination.into(), *packet.get(6)?, 40, total)
             }
             _ => return None,
         };
     let tcp = packet.get(header_len..total.min(packet.len()))?;
-    if protocol != TCP || tcp.len() < 20 {
+    if protocol != TCP {
         return None;
     }
-    let data_offset = usize::from(tcp[12] >> 4) * 4;
-    let flags = tcp[13];
+    let (header, _) = tcp.split_first_chunk::<20>()?;
+    let [s0, s1, d0, d1, q0, q1, q2, q3, a0, a1, a2, a3, offset, flags, w0, w1, ..] = *header;
+    let data_offset = usize::from(offset >> 4) * 4;
     let payload = tcp.len().checked_sub(data_offset)?;
     let syn_fin = u32::from(flags & 0x02 != 0) + u32::from(flags & 0x01 != 0);
     Some(Segment {
-        source: (source, u16::from_be_bytes([tcp[0], tcp[1]])),
-        destination: (destination, u16::from_be_bytes([tcp[2], tcp[3]])),
-        seq: u32::from_be_bytes(tcp[4..8].try_into().ok()?),
-        ack: (flags & 0x10 != 0).then(|| u32::from_be_bytes([tcp[8], tcp[9], tcp[10], tcp[11]])),
+        source: (source, u16::from_be_bytes([s0, s1])),
+        destination: (destination, u16::from_be_bytes([d0, d1])),
+        seq: u32::from_be_bytes([q0, q1, q2, q3]),
+        ack: (flags & 0x10 != 0).then(|| u32::from_be_bytes([a0, a1, a2, a3])),
         len: u32::try_from(payload).ok()? + syn_fin,
         reset: flags & 0x04 != 0,
         syn: flags & 0x02 != 0,
-        window: u16::from_be_bytes([tcp[14], tcp[15]]),
+        window: u16::from_be_bytes([w0, w1]),
     })
+}
+
+/// The big-endian `u16` at `at` in `bytes`, if both bytes are there.
+fn be16(bytes: &[u8], at: usize) -> Option<u16> {
+    let pair = bytes.get(at..at.checked_add(2)?)?;
+    Some(u16::from_be_bytes(pair.try_into().ok()?))
 }
 
 /// A bare SYN (no ACK: a SYN-ACK answers a SYN this flow already restarted
@@ -139,11 +146,11 @@ fn opens_again(segment: &Segment, seen_end: Option<u32>) -> bool {
 /// Where the TCP header of a packet [`segment`] parses starts.
 fn tcp_offset(packet: &[u8]) -> Option<usize> {
     let offset = match packet.first()? >> 4 {
-        4 => usize::from(packet[0] & 0x0F) * 4,
+        4 => usize::from(packet.first()? & 0x0F) * 4,
         6 => 40,
         _ => return None,
     };
-    (packet.len() >= offset + 20).then_some(offset)
+    (packet.len() >= offset.checked_add(20)?).then_some(offset)
 }
 
 /// A one's-complement checksum after 16-bit words changed from `old` to
@@ -279,7 +286,7 @@ impl Connection {
         if let Some((timed, sent)) = self.timed
             && !after(timed, ack)
         {
-            let sample = now - sent;
+            let sample = now.saturating_duration_since(sent);
             self.srtt = Some(match self.srtt {
                 Some(srtt) => (srtt * 7 + sample) / 8,
                 None => sample,
@@ -415,7 +422,8 @@ impl Pacer {
             (segment.source.0, segment.source.1, segment.destination.0, segment.destination.1);
         if !self.connections.contains_key(&flow) {
             self.connections.retain(|_, connection| {
-                !connection.queue.is_empty() || now - connection.last_seen < FORGET_AFTER
+                !connection.queue.is_empty()
+                    || now.saturating_duration_since(connection.last_seen) < FORGET_AFTER
             });
         }
         let connection = self.connections.entry(flow).or_insert_with(|| Connection::new(now));
@@ -488,11 +496,16 @@ impl Pacer {
         let Some(tcp) = tcp_offset(packet) else { return false };
         let old = [(ack >> 16) as u16, ack as u16, segment.window];
         let new = [(una >> 16) as u16, una as u16, window];
-        packet[tcp + 8..tcp + 12].copy_from_slice(&una.to_be_bytes());
-        packet[tcp + 14..tcp + 16].copy_from_slice(&window.to_be_bytes());
-        let checksum = u16::from_be_bytes([packet[tcp + 16], packet[tcp + 17]]);
-        let checksum = checksum_replace(checksum, &old, &new);
-        packet[tcp + 16..tcp + 18].copy_from_slice(&checksum.to_be_bytes());
+        // The header bytes rewritten below: ack (8..12), window (14..16)
+        // and checksum (16..18).
+        let Some(header) = packet.get_mut(tcp..).and_then(|tcp| tcp.first_chunk_mut::<20>()) else {
+            return false;
+        };
+        let [.., a0, a1, a2, a3, _, _, w0, w1, c0, c1, _, _] = header;
+        let checksum = checksum_replace(u16::from_be_bytes([*c0, *c1]), &old, &new);
+        [*a0, *a1, *a2, *a3] = una.to_be_bytes();
+        [*w0, *w1] = window.to_be_bytes();
+        [*c0, *c1] = checksum.to_be_bytes();
         true
     }
 
@@ -512,7 +525,7 @@ impl Pacer {
         now: Instant,
     ) -> Result<Option<(Vec<u8>, Priority)>, Instant> {
         if let Some(packet) = self.other.pop_front() {
-            self.queued -= 1;
+            self.queued = self.queued.saturating_sub(1);
             return Ok(Some((packet, Priority::Interactive)));
         }
         if let Some(packet) = self.interactive.pop_front() {
@@ -603,11 +616,13 @@ impl Pacer {
             })
             .min_by_key(|(_, connection)| connection.queue.len())
             .map(|(flow, _)| *flow)?;
-        let connection = self.connections.get_mut(&flow).expect("chosen above");
-        let packet = connection.queue.pop_front().expect("non-empty queue");
-        let segment = segment(&packet).expect("queued as TCP");
-        connection.sent(&segment, packet.len(), now);
-        self.queued -= 1;
+        let connection = self.connections.get_mut(&flow)?;
+        let packet = connection.queue.pop_front()?;
+        // Only packets `segment` parsed are queued on a connection.
+        if let Some(segment) = segment(&packet) {
+            connection.sent(&segment, packet.len(), now);
+        }
+        self.queued = self.queued.saturating_sub(1);
         Some(packet)
     }
 }

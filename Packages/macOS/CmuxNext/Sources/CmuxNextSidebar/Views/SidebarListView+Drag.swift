@@ -16,9 +16,14 @@ extension SidebarListViewComponents {
         switch press.key {
         case let .workspace(id):
             guard !model.isPlaceholder(id) else { return }
-            let ids = model.selection.contains(id) ? model.orderedSelection : [id]
-            // A plain press's drag moves the row and leaves the shown workspace (and the selection) as it is.
-            if !model.selection.contains(id), press.clickOnRelease != id { model.click(id) }
+            let ids = model.selection.contains(id) && press.switchedOnPress == nil ? model.orderedSelection : [id]
+            // A plain press's drag moves the row and leaves the shown workspace (and the selection) as it was
+            // before the press: a press that switched on mouse-down switches back.
+            if let before = press.switchedOnPress {
+                if let shown = before.shown, shown != model.activeWorkspaceID { model.click(shown) }
+                model.selection = before.selection
+                if !patchSelection(from: .workspace(id), oldSelection: [id]) { reload(animated: false) }
+            } else if !model.selection.contains(id), press.clickOnRelease != id { model.click(id) }
             payload = .workspaces(ids)
             hidden = Set(ids.map(SidebarRowKey.workspace))
             origin = ids.first.flatMap { SidebarEdits.position(of: $0, in: model.sections) }.map(DropTarget.position)
@@ -40,7 +45,7 @@ extension SidebarListViewComponents {
             payload = .item(item)
             hidden = [press.key]
             origin = .position(DropPosition(section: row.section, group: row.group, index: row.siblingIndex)) // a group's member item: inside it
-        case .tab, .section, .emptySection, .folder, .block, .doneFold, .showMore, .status:
+        case .tab, .section, .emptySection, .emptyGroup, .folder, .block, .doneFold, .showMore, .status:
             return
         }
         hidden.formUnion(Self.tabKeys(of: hidden, in: model))
