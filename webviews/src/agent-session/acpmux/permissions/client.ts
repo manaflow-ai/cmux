@@ -114,6 +114,9 @@ function isPendingDecision(value: unknown): value is PendingDecision {
   );
 }
 
+/// What a chat shows again at once when it is selected again (`PermissionGroupClient.lastRead`).
+type LastRead = Pick<PermissionClientState, "groups" | "chatAllowance" | "allowRefused">;
+
 /** Client-side projection for daemon-owned grouped permission asks. */
 export class PermissionGroupClient {
   state: PermissionClientState = {
@@ -137,7 +140,7 @@ export class PermissionGroupClient {
   /// Each chat's last authoritative groups and grant, shown again at once when it is selected again
   /// (a tab or workspace switch), until the refresh answers: the panel and the access chip's grant
   /// keep their place instead of leaving for one read (Leo 2026-10-19). A chat never read starts empty.
-  private readonly lastRead = new Map<string, Pick<PermissionClientState, "groups" | "chatAllowance" | "allowRefused">>();
+  private readonly lastRead = new Map<string, LastRead>();
   /// The shown groups and grant are `lastRead`'s, not this selection's read: a failed refresh drops them.
   private restored = false;
 

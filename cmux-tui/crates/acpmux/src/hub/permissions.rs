@@ -623,7 +623,7 @@ impl Hub {
         // checks below run again under its lock.
         if control == Control::Web {
             let (narrows, proved) = {
-                let state = session.permissions.lock().unwrap();
+                let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
                 state.pending.get(permission_id).map_or((false, false), |p| {
                     let options = p.request["options"].as_array().map_or(&[][..], Vec::as_slice);
                     let narrows = option_id.as_deref().is_none_or(|o| {
