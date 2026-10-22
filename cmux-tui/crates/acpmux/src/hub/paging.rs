@@ -40,6 +40,8 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "permission_chat_allowance",
     "message_superseded",
     "failover",
+    // A restricted chat that stayed on its harness: the pane notes it where a failover would be.
+    "failover_refused",
     // A policy narrower than approve-all that the chat's harness cannot keep
     // (`policy_mode.rs`): the chat says so where it happened.
     "policy_unenforced",

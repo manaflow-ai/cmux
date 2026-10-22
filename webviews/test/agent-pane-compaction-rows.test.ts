@@ -164,6 +164,22 @@ test("a failover to the fallback harness is noted", async () => {
   ).toEqual([{ from: "claude-sr2", to: "codex" }]);
 });
 
+test("a restricted chat that stayed on its harness notes why", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "keep going" }],
+      ["mux", "turn_started", {}],
+      ["mux", "failover_refused", { from: "claude", to: "codex", reason: "restricted", turnId: "t1" }],
+    ]),
+  );
+  const { rows } = await connect(daemon);
+  expect(
+    rows()
+      .filter((row) => row.kind === "failover")
+      .map((row) => row.failover),
+  ).toEqual([{ from: "claude", to: "codex", refused: "restricted" }]);
+});
+
 test("token counts read as thousands", () => {
   expect([27183, 2047, 999, 1000, 412000].map(compactTokens)).toEqual(["27k", "2k", "999", "1k", "412k"]);
 });

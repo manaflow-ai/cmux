@@ -69,12 +69,18 @@ pub(super) fn claude_settings(endpoint: Option<&str>) -> String {
         "sandbox": {"enabled": false, "autoAllowBashIfSandboxed": false},
         // Ask rules come before allow rules in every settings source, so the
         // user's own allow rules never skip the question in a remote chain.
-        "permissions": {"disableBypassPermissionsMode": "disable", "ask": ASK_TOOLS},
+        "permissions": ask_every_tool(),
     });
     if let Some(url) = endpoint {
         v["env"] = json!({"ANTHROPIC_BASE_URL": url});
     }
     v.to_string()
+}
+
+/// The `permissions` of an inline `--settings` that asks before every acting tool and
+/// disables bypass mode; a restricted chat's too (`hub/restricted.rs`).
+pub(super) fn ask_every_tool() -> Value {
+    json!({"disableBypassPermissionsMode": "disable", "ask": ASK_TOOLS})
 }
 
 /// Where a remote chain's Claude Code reaches its API.
@@ -274,6 +280,13 @@ const REFUSED_ARGS: &[&str] = &[
     "--system-prompt-file",
     "--append-system-prompt",
 ];
+
+/// The first word of `argv` that is (or sets, `--flag=value`) one of `REFUSED_ARGS`; a
+/// restricted chat refuses the same (`hub/restricted.rs`).
+pub(super) fn refused_arg(argv: &[String]) -> Option<&String> {
+    argv.iter()
+        .find(|a| REFUSED_ARGS.iter().any(|r| a.as_str() == *r || a.starts_with(&format!("{r}="))))
+}
 
 /// Profile env a remote chain never spawns with: another Claude config
 /// folder, or code loaded into the Claude process.
@@ -499,10 +512,7 @@ pub(super) fn wrap(
     program: String,
     mut args: Vec<String>,
 ) -> Result<(String, Vec<String>), String> {
-    let refused = |a: &String| {
-        REFUSED_ARGS.iter().any(|r| a.as_str() == *r || a.starts_with(&format!("{r}=")))
-    };
-    if let Some(bad) = profile.argv.iter().find(|a| refused(a)) {
+    if let Some(bad) = refused_arg(&profile.argv) {
         return Err(format!("a remote chain never runs Claude Code with {bad}"));
     }
     if let Some(bad) = REFUSED_ENV.iter().find(|k| profile.env.contains_key(**k)) {
