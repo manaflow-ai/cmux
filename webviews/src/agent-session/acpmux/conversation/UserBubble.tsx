@@ -14,7 +14,7 @@
 // images a prompt sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they
 // vanished once sent). A long prompt opens collapsed on its first ten lines with Show more, and a
 // pasted block is a chip that opens in place (PromptText.tsx); Copy still copies the whole prompt.
-import { memo, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AcpmuxRow, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
@@ -27,7 +27,9 @@ import { PromptText } from "./PromptText";
 import { ForkButton, MessageCopy, MessageDot, MessageTime, PromptRetry, ReadReceipt, ROW_ICON } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
 
-export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
+/// `pending` is a waiting steer's clock and Send now (PendingSteer.tsx): it sits beside the bubble's
+/// left edge, on the bubble's own row, so it takes no line of its own (Leo, 2026-10-21).
+export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: string; pending?: ReactNode }) {
   const t = useT();
   const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
   const branch = branches?.of.get(row.id);
@@ -69,6 +71,7 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
           <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
           {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
           {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
+          {pending}
         </div>
       )}
       {text && !row.failed && !row.queued && (
@@ -210,6 +213,8 @@ const SentImage = memo(function SentImage({ image }: { image: PromptImage }) {
   return (
     <button
       type="button"
+      /* The image drags out as a file (conversation/dragOut.ts). */
+      draggable
       /* tooltip-allow: an image thumbnail shows no name */ title={label}
       aria-label={label || t("image.view")}
       onClick={() => openImage(src, label)}
