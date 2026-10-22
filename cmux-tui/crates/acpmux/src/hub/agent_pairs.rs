@@ -8,7 +8,8 @@
 //! daemon's delivery pump); and a prompt one sub-session family member sends another
 //! (`subsession_message`, `subsessions.rs`): cmux-subsessions `send_message` and
 //! `start_session`'s first prompt; and a prompt a session sends another from inside itself
-//! with no provenance of its own (`session_message`, `prompt_provenance.rs`: `acpmux send`).
+//! with no provenance of its own (`session_message`, `prompt_provenance.rs`: `acpmux send`); and
+//! a lane's report of its turn to its parent (`lane_report`, `lane_reports.rs`).
 //! All count toward the same pair. Only a sender that is a
 //! session of this daemon counts: the person's `cmux agent message` (sender `cli`), a terminal,
 //! or any other address passes untouched.
@@ -405,7 +406,12 @@ impl Hub {
         let kind = p.get("kind").and_then(Value::as_str);
         if !matches!(
             kind,
-            Some("agent_message" | "session_message" | super::subsessions::PROVENANCE_KIND)
+            Some(
+                "agent_message"
+                    | "session_message"
+                    | super::subsessions::PROVENANCE_KIND
+                    | super::lane_reports::KIND
+            )
         ) {
             return None;
         }
