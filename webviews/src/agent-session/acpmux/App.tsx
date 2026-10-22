@@ -5999,12 +5999,22 @@ function AcpmuxPane() {
             accepted?.();
             return;
           }
+          // A send in a chat takes the lost drafts put back there with it (the composer sends all it
+          // holds): a late resend of one of them then has no draft left to take out. Only once the
+          // composer lets go of the prompt: a send that fails first puts the draft back as it was,
+          // and its next send must still leave out what ran.
+          const putBack = [...restoredLost].filter(([, back]) => back.sessionId === client.selectedSession);
+          const letGo = () => {
+            for (const [id] of putBack) restoredLost.delete(id);
+          };
           // Whether the composer let go of the prompt (acpmux took it, or a switch row holds it).
           let released = !accepted;
+          if (released) letGo();
           const accept =
             accepted &&
             (() => {
               released = true;
+              letGo();
               accepted();
             });
           // The person sends a prompt "Not sent" named again: it goes under its first promptId.
@@ -6013,10 +6023,6 @@ function AcpmuxPane() {
             text,
             attachments.map((attachment) => attachment.id),
           );
-          // A send in a chat takes the lost draft put back there with it (the composer sends all it
-          // holds): a late resend of that prompt then has no draft left to take out.
-          for (const [promptId, back] of restoredLost)
-            if (back.sessionId === client.selectedSession) restoredLost.delete(promptId);
           // acpmux holds the prompt while the folder's trust question is open (on session/new
           // or session/prompt): the question shows for the folder acpmux named, and Trust sends
           // the prompt the composer kept. `inComposer`: the composer still holds the prompt (or got it back); else it goes back.
