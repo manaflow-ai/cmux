@@ -24,7 +24,6 @@
 mod approvals;
 mod children;
 mod control;
-mod desk;
 mod drafts;
 mod engine_control;
 pub mod files;
@@ -44,8 +43,8 @@ mod spawns;
 mod steer;
 mod turns;
 mod wakes;
-pub use desk::DESK_GRACE;
 pub use replies::{REACTIONS, reaction, tapback};
+pub use steer::STEER_DEADLINE;
 pub use turns::stuck_notice;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -789,15 +788,12 @@ pub struct Brain {
     /// the latest at this deadline.
     handoff_at: Option<Instant>,
     handoff_wait: std::time::Duration,
-    /// How long a message waits on a running turn before the front desk's
-    /// receipt (`desk.rs`); None: no receipts.
-    desk_grace: Option<Duration>,
-    /// The receipt waiting for its grace.
-    desk: Option<desk::DeskPending>,
-    /// The turn the last receipt was for: one receipt per turn.
-    desk_told: Option<String>,
-    /// The running turn's latest activity line, by turn key.
-    turn_activity: Option<(String, String)>,
+    /// How long a person's message steered into the running turn may stay
+    /// unread before the turn is interrupted (`steer.rs`); None: it waits
+    /// for the turn's next tool boundary.
+    steer_deadline: Option<Duration>,
+    /// When that deadline passes, and for which turn.
+    steer_due: Option<(Instant, String)>,
 }
 
 impl Brain {
@@ -918,10 +914,8 @@ impl Brain {
             upstream_backoff: turns::UPSTREAM_RESUME_BACKOFF.to_vec(),
             handoff_at: None,
             handoff_wait: HANDOFF_DEADLINE,
-            desk_grace: None,
-            desk: None,
-            desk_told: None,
-            turn_activity: None,
+            steer_deadline: None,
+            steer_due: None,
         };
         // Each cut turn runs again first, on the reference client's note;
         // its messages are in the log already and are not logged again.
@@ -1094,7 +1088,7 @@ impl Brain {
             self.resume_at,
             self.orphan_wait,
             self.handoff_at,
-            self.desk_due(),
+            self.steer_due.as_ref().map(|(at, _)| *at),
         ]
         .into_iter()
         .flatten()
@@ -1426,7 +1420,7 @@ impl Brain {
             self.flush_outbox();
         }
         self.on_resume_timer();
-        self.on_desk_timer(now);
+        self.on_steer_deadline(now);
         if self.orphan_wait.is_some_and(|at| at <= now) {
             (self.log)("an adopted turn session ran past its wait; folding and ending it");
             self.adopt_orphans(true);
@@ -1548,14 +1542,6 @@ impl Brain {
         // the next turn and never stops it (decision 2026-10-09).
         let human = matches!(source, Source::Message { .. } | Source::Spawn(_));
         let same = self.phase == Phase::Running && self.turn_side() == conversation;
-        // A person's message to the main conversation's running turn: the
-        // front desk answers if the turn is still at it after the grace.
-        if let Source::Message { seq, .. } = &source
-            && same
-            && conversation.is_none()
-        {
-            self.desk_arm(*seq);
-        }
         let item = Queued {
             logged: false,
             text,

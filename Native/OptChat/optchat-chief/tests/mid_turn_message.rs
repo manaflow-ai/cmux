@@ -71,7 +71,7 @@ fn until_prompts(h: &mut Harness, n: usize) {
 fn a_message_that_waits_on_a_running_turn_posts_nothing_from_the_host() {
     let mut h = Harness::new(default_script());
     h.agents.inner.lock().unwrap().steering = true;
-    h.brain.set_desk_grace(Some(Duration::from_millis(20)));
+    h.brain.set_steer_deadline(Some(Duration::from_millis(20)));
     running(&mut h, "fix the sidebar");
     h.say("user_local", "hello?");
     h.say("user_local", "are you there?");
@@ -83,7 +83,7 @@ fn a_message_that_waits_on_a_running_turn_posts_nothing_from_the_host() {
 fn a_steer_the_turn_reads_in_time_keeps_the_turn() {
     let mut h = Harness::new(default_script());
     h.agents.inner.lock().unwrap().steering = true;
-    h.brain.set_desk_grace(Some(Duration::from_millis(20)));
+    h.brain.set_steer_deadline(Some(Duration::from_millis(20)));
     running(&mut h, "fix the sidebar");
     h.say("user_local", "and the composer");
     h.agents.wait_steers(1);
@@ -102,7 +102,7 @@ fn a_steer_left_unread_past_the_deadline_interrupts_and_the_next_turn_takes_it()
         // the turn ends.
         inner.steer_at_end = true;
     }
-    h.brain.set_desk_grace(Some(Duration::from_millis(20)));
+    h.brain.set_steer_deadline(Some(Duration::from_millis(20)));
     running(&mut h, "fix the sidebar");
     h.say("user_local", "stop, do the composer first");
     h.agents.wait_steers(1);
