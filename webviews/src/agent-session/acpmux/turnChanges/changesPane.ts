@@ -7,19 +7,20 @@
 // `changes:` reveal, and that pane shows the turn's diff; closing the diff there closes the tab. A
 // host that opens none (the gallery, Quick Chat, an older app) shows the diff in this pane, as before.
 
-/// The `revealTurn` prefix that opens a pane on a turn's changes: `changes:<row>`, then a line
-/// break and the file to show first, if any.
+/// The `revealTurn` prefix that opens a pane on a turn's changes: `changes:<session>`, a line
+/// break, the row, then a line break and the file to show first, if any. Row ids repeat across
+/// sessions, so the request names its chat and applies to no other.
 export const CHANGES_REVEAL = "changes:";
 
-/// The turn (by row) and file a `changes:` reveal names, or undefined for any other reveal.
-export function revealedChanges(value: string): { rowId: string; path?: string } | undefined {
+export type ChangesRequest = { sessionId: string; rowId: string; path?: string };
+
+/// The chat, turn (by row) and file a `changes:` reveal names, or undefined for any other reveal.
+export function revealedChanges(value: string): ChangesRequest | undefined {
   if (!value.startsWith(CHANGES_REVEAL)) return undefined;
-  const rest = value.slice(CHANGES_REVEAL.length);
-  const cut = rest.indexOf("\n");
-  const rowId = cut < 0 ? rest : rest.slice(0, cut);
-  const path = cut < 0 ? "" : rest.slice(cut + 1);
-  if (!rowId) return undefined;
-  return path ? { rowId, path } : { rowId };
+  const [sessionId, rowId, ...rest] = value.slice(CHANGES_REVEAL.length).split("\n");
+  const path = rest.join("\n");
+  if (!sessionId || !rowId) return undefined;
+  return path ? { sessionId, rowId, path } : { sessionId, rowId };
 }
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;

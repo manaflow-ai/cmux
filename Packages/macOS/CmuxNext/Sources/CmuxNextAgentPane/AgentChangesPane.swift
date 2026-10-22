@@ -31,8 +31,9 @@ public final class AgentChangesPane {
     /// Records the tab that shows the changes.
     public func record(_ key: String) { tab = key }
 
-    /// The `revealTurn` value that opens a pane on the changes of the turn holding `row`, at `path`.
-    public func reveal(row: String, path: String?) -> String {
-        "changes:" + row + (path.map { "\n" + $0 } ?? "")
+    /// The `revealTurn` value that opens a pane on the changes of session `session`'s turn holding
+    /// `row`, at `path`: row ids repeat across sessions, so it names the chat too.
+    public static func reveal(session: String, row: String, path: String?) -> String {
+        "changes:" + session + "\n" + row + (path.map { "\n" + $0 } ?? "")
     }
 }

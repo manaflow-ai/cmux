@@ -215,7 +215,7 @@ import {
   sessionEdits,
   type SessionEdits,
 } from "./turnChanges/sessionRows";
-import { openChangesPane, revealedChanges } from "./turnChanges/changesPane";
+import { openChangesPane, revealedChanges, type ChangesRequest } from "./turnChanges/changesPane";
 import { repositoryRoot, viewChangesBeside } from "./turnChanges/viewChanges";
 import { TurnActionsContext, chatLoginCommand, type TurnActions } from "./conversation/turnActions";
 import {
@@ -3760,8 +3760,8 @@ function AcpmuxPane() {
   /// it read only (`readOnlySubagent`).
   const [ownSubagentPane, setOwnSubagentPane] = useState(false);
   /// This pane was opened on a turn's changes (a `changes:` reveal, turnChanges/changesPane.ts): the
-  /// turn and file it shows once its chat has that turn.
-  const [requestedChanges, setRequestedChanges] = useState<{ rowId: string; path?: string }>();
+  /// chat, turn and file it shows once it shows that chat and the chat has that turn.
+  const [requestedChanges, setRequestedChanges] = useState<ChangesRequest>();
   /// The chat whose changes this pane was opened on, once it shows them: closing that view closes
   /// the tab. A pane that moves to another chat is an ordinary chat pane again.
   const changesPane = useRef<string | undefined>(undefined);
@@ -4521,12 +4521,18 @@ function AcpmuxPane() {
   useEffect(() => {
     if (diffView && !diffOpen) setDiffView(undefined);
   }, [diffView, diffOpen]);
-  // A pane opened on a turn's changes shows them once its chat has that turn.
+  // A pane opened on a turn's changes shows them once it shows that chat and the chat has that
+  // turn. A pane that shows another chat first drops the request and is an ordinary chat pane.
   useEffect(() => {
     if (!requestedChanges || !snapshot.sessionId) return;
+    if (snapshot.sessionId !== requestedChanges.sessionId) {
+      changesRequested.current = false;
+      return setRequestedChanges(undefined);
+    }
     if (!snapshot.rows.some((row) => row.id === requestedChanges.rowId)) return;
+    const { rowId, path } = requestedChanges;
     changesPane.current = snapshot.sessionId;
-    setDiffView({ sessionId: snapshot.sessionId, ...requestedChanges });
+    setDiffView({ sessionId: snapshot.sessionId, rowId, ...(path ? { path } : {}) });
     setRequestedChanges(undefined);
   }, [requestedChanges, snapshot.sessionId, snapshot.rows]);
   // A changes pane that moves to another chat is an ordinary chat pane from then on.

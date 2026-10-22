@@ -4,19 +4,21 @@
 import { expect, test } from "bun:test";
 import { CHANGES_REVEAL, openChangesPane, revealedChanges } from "../src/agent-session/acpmux/turnChanges/changesPane";
 
-test("a changes reveal names the row and the file", () => {
-  expect(revealedChanges(`${CHANGES_REVEAL}row-7\n/private/tmp/scratch/batch103.sh`)).toEqual({
+test("a changes reveal names the chat, the row and the file", () => {
+  expect(revealedChanges(`${CHANGES_REVEAL}chat-1\nrow-7\n/private/tmp/scratch/batch103.sh`)).toEqual({
+    sessionId: "chat-1",
     rowId: "row-7",
     path: "/private/tmp/scratch/batch103.sh",
   });
-  expect(revealedChanges(`${CHANGES_REVEAL}row-7`)).toEqual({ rowId: "row-7" });
+  expect(revealedChanges(`${CHANGES_REVEAL}chat-1\nrow-7`)).toEqual({ sessionId: "chat-1", rowId: "row-7" });
 });
 
-test("other reveals and an empty row are not changes", () => {
+test("other reveals, and one missing its chat or row, are not changes", () => {
   expect(revealedChanges("turn-12")).toBeUndefined();
   expect(revealedChanges("subagent:abc")).toBeUndefined();
   expect(revealedChanges(CHANGES_REVEAL)).toBeUndefined();
-  expect(revealedChanges(`${CHANGES_REVEAL}\n/a.txt`)).toBeUndefined();
+  expect(revealedChanges(`${CHANGES_REVEAL}chat-1`)).toBeUndefined();
+  expect(revealedChanges(`${CHANGES_REVEAL}\nrow-7\n/a.txt`)).toBeUndefined();
 });
 
 test("the page asks for the pane and reads whether one opened", async () => {

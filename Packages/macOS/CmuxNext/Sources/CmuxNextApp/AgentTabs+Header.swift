@@ -71,7 +71,7 @@ extension AgentTabStore {
     /// The changes of session `session`'s turn holding `row` (at file `path`) in a chat pane right of
     /// the chat (``AgentChangesPane``): the open one shows that turn and takes focus, else one opens.
     private func openChanges(_ row: String, at path: String?, of session: String, beside provisional: String) -> Bool {
-        let changes = AgentChangesPane.session(session), reveal = changes.reveal(row: row, path: path)
+        let changes = AgentChangesPane.session(session), reveal = AgentChangesPane.reveal(session: session, row: row, path: path)
         if let open = changes.tab(isOpen: { [weak self] in self?.locate($0) != nil }) {
             revealTurn(reveal, in: open)
             _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: resolve(open)), origin: .user))
