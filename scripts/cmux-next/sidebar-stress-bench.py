@@ -24,7 +24,7 @@ Traces go to OUT/traces/*.trace; OUT/results.json holds every number and the top
 Usage (nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA):
   sidebar-stress-bench.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS/stress" [--sizes 100,500,1000]
 """
-import argparse, json, os, shutil, socket, statistics, subprocess, sys, tempfile, time
+import argparse, glob, json, os, shutil, socket, statistics, subprocess, sys, tempfile, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -89,8 +89,11 @@ def timed_rpc(method, params=None):
 
 
 def cli(*args, quiet=True):
-    env = dict(os.environ, CMUX_TAG=opts.tag)
-    done = subprocess.run([DEBUG_CLI, "--app-socket", SOCKET, *args], env=env, capture_output=True, text=True, timeout=120)
+    """The tagged app's own CLI against its socket (as tab-switch-matrix.py runs it)."""
+    env = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
+           "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": opts.tag,
+           "CMUX_BUNDLE_ID": f"com.cmuxterm.app.debug.{opts.tag}", "CMUX_BUNDLED_CLI_PATH": APP_CLI}
+    done = subprocess.run([APP_CLI, *args], env=env, capture_output=True, text=True, timeout=120)
     if not quiet or done.returncode != 0:
         note(f"cli {' '.join(args)[:160]} -> {done.returncode} {(done.stdout + done.stderr).strip()[-200:]}")
     return done
@@ -665,12 +668,21 @@ def main():
            "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY, "CMUX_NEXT_CHIEF_ISOLATED": "1",
            "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"), "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(map(str, WINDOW))}
     log = open(os.path.join(OUT, "app.log"), "a")
-    app = subprocess.Popen([os.path.join(opts.app, "Contents/MacOS/cmux DEV")], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    note(f"launched pid {app.pid}")
+    # The app's executable (a tagged build names it after its tag), as the other benches find it.
+    binary = next((p for p in sorted(glob.glob(os.path.join(opts.app, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
+    app = subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+    note(f"launched pid {app.pid} ({os.path.basename(binary or '-')})")
     results["load_at_start"] = os.getloadavg()
     try:
-        if not wait(lambda: os.path.exists(SOCKET) and workspace_rows(), 180):
-            sys.exit("the tagged app did not come up")
+        if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 180):
+            log.flush()
+            tail = open(os.path.join(OUT, "app.log"), errors="replace").read()[-1500:]
+            sys.exit(f"the tagged app did not come up: socket {SOCKET} exists={os.path.exists(SOCKET)} exit={app.poll()}\n{tail}")
+        # A fresh profile may open on Home with no workspace yet: make one, so the list has a row to measure.
+        if not wait(workspace_rows, 15):
+            cli("workspace", "create", "--name", "bench start")
+            if not wait(workspace_rows, 60):
+                sys.exit(f"the sidebar lists no workspace row: {json.dumps(sidebar())[:600]}")
         time.sleep(3)
         results["stale_closed"] = close_scratch("before")
         time.sleep(2)
