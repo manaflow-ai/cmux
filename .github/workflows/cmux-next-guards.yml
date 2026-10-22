@@ -165,6 +165,17 @@ jobs:
       - name: package-notices.json covers vt-link-graph.json
         run: python3 cmux-tui/dist/scripts/package_notices.py check-data
 
+      # Pull-request dry runs of the nightly's Ghostty notice steps
+      # (.github/nightly-step-coverage.json), on fixtures: the license collector
+      # and verify-ghostty-license-bundle.py behind "Inject the Ghostty
+      # dependency licenses", and check_ghostty_vt_notices.py's --license-manifest
+      # mode behind "libghostty-vt Zig packages are covered by the notices".
+      - name: The nightly's Ghostty license checks pass on fixtures
+        run: |
+          python3 cmux-tui/build-support/notices/ghostty/test_ghostty_licenses.py
+          python3 scripts/cmux-next/notices/test_check_bundle_notices.py
+          python3 scripts/cmux-next/notices/test_check_ghostty_vt_notices.py
+
   # The nightly-next build generates the Rust third-party notices from the
   # tree (scripts/cmux-next/generate-third-party-notices.sh --tui-source tree).
   # A new path crate it cannot map failed the nightly publish (run 38359624385,

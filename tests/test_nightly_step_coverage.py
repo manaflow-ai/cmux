@@ -15,9 +15,10 @@ calls, followed transitively) and says how a pull request exercises it:
                                      the Release app or a Mac, said precisely
 
 An entry may add a "note". A step is keyed by its name; a step without one by
-"uses: <action>" (the action without its pinned ref). A new nightly step fails
-this test until it has an entry, a renamed or removed one until its entry goes,
-and a "pr" entry until the step it names exists.
+"uses: <action>" (the action without its pinned ref). A step that only uses a
+PLUMBING_ACTIONS action is plumbing by derivation and has no entry. A new
+nightly step fails this test until it has an entry, a renamed or removed one
+until its entry goes, and a "pr" entry until the step it names exists.
 """
 
 from __future__ import annotations
@@ -34,6 +35,12 @@ REGISTRY = ROOT / ".github" / "nightly-step-coverage.json"
 LOCAL_WORKFLOW = "./.github/workflows/"
 KINDS = ("pr", "plumbing", "nightly_only")
 MIN_REASON = 20
+# Checkout, artifact transfer, caches and toolchain setup: no check of their own.
+PLUMBING_ACTIONS = {
+    "actions/checkout", "actions/upload-artifact", "actions/download-artifact", "actions/cache",
+    "actions/setup-node", "actions/setup-go", "actions/setup-python", "oven-sh/setup-bun",
+    "Swatinem/rust-cache", "./.github/actions/cache-restore", "./.github/actions/cache-save",
+}
 
 
 def load_workflow(name: str) -> dict:
@@ -72,8 +79,14 @@ def step_key(step: dict) -> str:
     raise AssertionError(f"a run step has no name: {str(step.get('run', ''))[:60]!r}; name it")
 
 
-def job_steps(workflow: dict, job_id: str) -> list:
-    return [step_key(step) for step in (workflow["jobs"][job_id].get("steps") or [])]
+def is_plumbing(step: dict) -> bool:
+    uses = step.get("uses")
+    return isinstance(uses, str) and uses.split("@", 1)[0] in PLUMBING_ACTIONS
+
+
+def job_steps(workflow: dict, job_id: str, skip_plumbing: bool = False) -> list:
+    steps = workflow["jobs"][job_id].get("steps") or []
+    return [step_key(step) for step in steps if not (skip_plumbing and is_plumbing(step))]
 
 
 def nightly_workflows(roots: list) -> list:
@@ -89,14 +102,14 @@ def nightly_workflows(roots: list) -> list:
 
 
 def nightly_steps(roots: list) -> dict:
-    """{(workflow, job, step key): count} for every step the nightly runs."""
+    """{(workflow, job, step key): count} for every nightly step that is not derived plumbing."""
     counts = {}
     for name in nightly_workflows(roots):
         workflow = load_workflow(name)
         for job_id, job in (workflow.get("jobs") or {}).items():
             if not isinstance(job, dict) or "steps" not in job:
                 continue
-            for key in job_steps(workflow, job_id):
+            for key in job_steps(workflow, job_id, skip_plumbing=True):
                 counts[(name, job_id, key)] = counts.get((name, job_id, key), 0) + 1
     return counts
 
@@ -162,7 +175,7 @@ class NightlyStepCoverageTests(unittest.TestCase):
 
     def test_no_stale_entries(self) -> None:
         stale = [label(key) for key in self.entries if key not in self.steps]
-        self.assertEqual(stale, [], "these steps are gone or renamed; update their entries")
+        self.assertEqual(stale, [], "these steps are gone, renamed or derived plumbing (PLUMBING_ACTIONS); update their entries")
 
     def test_entries_have_one_kind(self) -> None:
         bad = []
