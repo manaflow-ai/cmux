@@ -4353,7 +4353,7 @@ function AcpmuxPane() {
   const trustNow = useRef(trustAsk.trust);
   trustNow.current = trustAsk.trust;
   const canTrustFolder = answersTrust && !trustAsk.trusted && trustAsk.ask?.state !== "remote";
-  const trustBlock = trustAsk.holdsAsks ? trustAsk.blocked?.reason : undefined;
+  const trustBlock = trustAsk.blocked?.reason;
   const failedSends = useMemo<FailedSends>(
     () => ({
       runs,
@@ -6501,7 +6501,14 @@ function AcpmuxPane() {
           // lets go and handed back with the next page's handshake (`wake`).
           // The transcript's place: an anchor, at its latest message, or left out when unknown
           // (never in view, or a subagent's view open) so the chat's kept anchor stands.
-          "pane.wakeState": async ({ quitting }) => {
+          "pane.wakeState": async ({ quitting, closing }) => {
+            // The tab closes (AgentPageRetirer, while the bridge still answers): held prompts go
+            // into their chats' drafts and kept chips, never its composer, which goes with it.
+            if (closing === true) {
+              const all = trustHeld.release();
+              if (all.length) await giveBackTrustHeld.current(all, false, true);
+              return {};
+            }
             // Prompts the folder's trust holds or sends keep a hidden page (AgentPageHibernation
             // `holdsPrompts`): their tickets live with it. Quitting puts them back into drafts; the
             // composer saves its draft once the text settles (UNSENT_DRAFT_SETTLE_MS for a new chat),

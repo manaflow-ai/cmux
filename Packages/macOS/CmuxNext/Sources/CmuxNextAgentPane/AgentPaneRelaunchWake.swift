@@ -27,7 +27,7 @@ public final class AgentPaneRelaunchWake {
     public var maximumAttachmentBytes = 128 * 1024 * 1024
     /// Asks a live page what it holds, within the limit (``AgentPaneView/wakeState(limit:)``).
     public var read: @MainActor (AgentPaneView, Duration) async -> AgentPaneWakeState? = {
-        await $0.wakeState(limit: $1, quitting: true)
+        await AgentPaneWakeState.quitting($0, limit: $1)
     }
 
     public init(file: URL?) {

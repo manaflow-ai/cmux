@@ -71,13 +71,29 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
 extension AgentPaneView {
     /// Asks the page what it holds that acpmux does not, before it lets go. Nil when it does not
     /// answer within `limit`; empty when it holds nothing.
-    /// `quitting`: the app quits, so the page puts what it holds for later (prompts waiting for a
-    /// folder trust answer) into its drafts instead of asking to stay.
-    public func wakeState(limit: Duration = .seconds(1), quitting: Bool = false) async -> AgentPaneWakeState? {
-        await agentPaneFirst(within: limit) { [weak self] in
-            guard let self else { return nil }
-            let script = "const read = window.cmuxAcpmuxActions?.['pane.wakeState']; return read ? await read({quitting: \(quitting)}) : null;"
-            let value = try? await self.callPageScript(script)
+    public func wakeState(limit: Duration = .seconds(1)) async -> AgentPaneWakeState? {
+        await AgentPaneWakeState.read(self, limit: limit, ask: "{}")
+    }
+}
+
+extension AgentPaneWakeState {
+    /// `view`'s wake state as the app quits: the page puts prompts it holds for a folder trust
+    /// answer into its drafts (webviews trustHeld.ts) instead of asking to stay.
+    public static func quitting(_ view: AgentPaneView, limit: Duration) async -> AgentPaneWakeState? {
+        await read(view, limit: limit, ask: "{quitting: true}")
+    }
+
+    /// The tab closes: the page puts prompts it holds for a folder trust answer into their chats'
+    /// drafts while its bridge still answers. Done when it answered or `limit` passed.
+    public static func releaseHeldPrompts(in view: AgentPaneView, limit: Duration = .milliseconds(400)) async {
+        _ = await read(view, limit: limit, ask: "{closing: true}")
+    }
+
+    static func read(_ view: AgentPaneView, limit: Duration, ask: String) async -> AgentPaneWakeState? {
+        await agentPaneFirst(within: limit) { [weak view] in
+            guard let view else { return nil }
+            let script = "const read = window.cmuxAcpmuxActions?.['pane.wakeState']; return read ? await read(\(ask)) : null;"
+            let value = try? await view.callPageScript(script)
             return AgentPaneWakeState(page: value)
         }
     }
