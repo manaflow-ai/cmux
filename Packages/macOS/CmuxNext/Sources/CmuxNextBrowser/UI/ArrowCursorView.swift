@@ -1,7 +1,10 @@
 public import AppKit
 
-/// A toolbar row that shows the arrow over its whole frame and the I-beam
-/// over the omnibar's text area (`OmnibarPointer`).
+/// A toolbar row that shows the arrow over its whole frame, the I-beam over
+/// the omnibar's text area and the pointing hand over an enabled button
+/// (`OmnibarPointer`). The buttons' own cursor rects (`ClickableButton`) sit
+/// above the row's arrow rect in the key window; the row's pointer moves give
+/// the same hand in any window state.
 ///
 /// Cursor rects work only in the key window. A Chromium page is a child
 /// window that takes the key while the page has the keyboard
