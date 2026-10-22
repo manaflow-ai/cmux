@@ -78,7 +78,9 @@ extension TerminalController {
                     from: dock.surfaceResumeBinding(panelId: panel.id)
                 ),
                 renderHealthRawValue: terminal?.surface.renderHealth.rawValue,
-                dockScopeRawValue: dock.scope.rawValue
+                dockScopeRawValue: dock.scope.rawValue,
+                controllingTTY: terminal?.surface.controllingTTYName(),
+                foregroundProcessID: terminal?.surface.foregroundProcessID()
             )
         }
     }
