@@ -100,7 +100,7 @@ fn app_answer(chat_ok: bool) -> impl Fn(&Value, &Log) -> Option<Value> + Send + 
                 "generation": "g", "pid": 1, "registry_id": "r", "session": "cmux-app",
                 "terminal_revision": 1, "workspace_revision": 1})),
             (Some("list-workspaces"), _) => Some(json!({"groups": [], "workspaces": if created {
-                json!([{"id": 70, "key": "k-1", "kind": "normal", "name": "Panes performance", "resource_id": "ws_new1", "screens": []}])
+                json!([{"id": 70, "key": "k-1", "kind": "normal", "name": "Panes performance", "resource_id": "ws_new1", "screens": [{"panes": [{"id": 90, "tabs": []}]}]}])
             } else { json!([]) }})),
             (Some("create-workspace"), _) => Some(json!({"workspace": 70, "key": req["key"]})),
             (Some("create-terminal"), _) => {
@@ -151,9 +151,15 @@ fn an_owner_session_workspace_moves_into_the_users_session_with_its_chat() {
         created[0]["name"], "Panes performance",
         "the name the user saw"
     );
-    assert_eq!(sent(&app, "create-terminal")[0]["cwd"], "/Users/x/fun/cmux");
+    // The idle shell is not re-created (Lawrence 2026-10-21): no terminal, no
+    // host, no PTY; the chat goes into the new workspace itself.
+    assert!(
+        sent(&app, "create-terminal").is_empty(),
+        "an idle shell is never re-created: {:?}",
+        sent(&app, "create-terminal")
+    );
     let chat = sent(&app, "new-conversation-tab");
-    assert_eq!(chat[0]["pane"], 90);
+    assert_eq!(chat[0]["workspace"], 70);
     assert_eq!(
         chat[0]["agent_session"]["session"], "sess-421",
         "the same acpmux session"
