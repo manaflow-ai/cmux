@@ -7,6 +7,7 @@ import { translate, type StringKey } from "./i18n";
 const TRANSPORT_TEXT: Record<string, StringKey> = {
   "transport.gesture_required": "transport.gestureRequired",
   "transport.path_outside_roots": "transport.pathOutsideRoots",
+  "transport.person_required": "transport.personRequired",
   "transport.session_not_in_pane": "transport.sessionNotInPane",
   "transport.intent_invalid": "transport.intentInvalid",
   "transport.mode_not_confirmed": "transport.modeNotConfirmed",
@@ -14,9 +15,12 @@ const TRANSPORT_TEXT: Record<string, StringKey> = {
 };
 
 // acpmux's own refusals (`data.reason`, which direct.ts copies to `error.reason`) that read the
-// same as the pane host's: start_mode.rs refuses full access with `full_access_off`.
+// same as the pane host's: start_mode.rs refuses full access with `full_access_off`, and
+// hub/person.rs an allow from a client that is not the person at the app with
+// `permission.person_required`.
 const DAEMON_REASON_CODE: Record<string, string> = {
   full_access_off: "transport.full_access_off",
+  "permission.person_required": "transport.person_required",
 };
 
 function refusalCode(error: unknown): unknown {
@@ -32,9 +36,21 @@ export function isHostRefusal(error: unknown): boolean {
   return typeof code === "string" && code.startsWith("transport.");
 }
 
+// acpmux's refusals the pane words itself (`data.reason`; the daemon's message stays English for
+// its CLI): the folder-trust gate (server/trust_gate.rs, hub/pool/mod.rs). They are not host
+// refusals: the pane's trust route asks the question.
+const DAEMON_REASON_TEXT: Record<string, StringKey> = {
+  "trust.pending": "error.trustPending",
+  "trust.untrusted": "error.trustUntrusted",
+};
+
 /// The text to show for `error`: a transport refusal's own text (a code without one reads as the
-/// generic refusal, never the host's English message), else the error's message.
+/// generic refusal, never the host's English message), acpmux's worded reasons, else the error's
+/// message.
 export function errorMessage(error: unknown): string {
+  const reason = typeof error === "object" && error !== null ? (error as { reason?: unknown }).reason : undefined;
+  const reasonKey = typeof reason === "string" ? DAEMON_REASON_TEXT[reason] : undefined;
+  if (reasonKey) return translate(reasonKey);
   const code = refusalCode(error);
   const key =
     typeof code === "string"
