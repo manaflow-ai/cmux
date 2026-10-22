@@ -27,13 +27,13 @@ nonisolated extension BrowserMediaState {
         (() => {
           if (window.__cmuxMedia) return;
           window.__cmuxMedia = true;
-          let last = '', reported = false, pending = false, heartbeat = false, timer = 0, actions = '', tabMuted = false, seeked = false;
+          let last = '', reported = false, pending = false, heartbeat = false, timer = 0, ticker = 0, ticks = 0, actions = '', tabMuted = false, seeked = false;
           // The elements the tab's mute muted, which Unmute unmutes.
           const hushed = new WeakSet();
           const media = (e) => !!e && (e.tagName === 'VIDEO' || e.tagName === 'AUDIO');
           const hush = (e) => { if (tabMuted && !e.muted) { e.muted = true; hushed.add(e); } };
           const send = (report) => {
-            if (!(\#(ready))) { pending = true; return false; }
+            if (!(\#(ready))) { pending = true; tick(); return false; }
             pending = false;
             try { \#(post); return true; } catch (_) { return false; }
           };
@@ -79,6 +79,7 @@ nonisolated extension BrowserMediaState {
             if (!send(state)) return;
             last = key;
             reported = true;
+            tick();
           };
           const schedule = () => { if (!timer) timer = setTimeout(report, 250); };
           for (const type of ['play', 'playing', 'pause', 'ended', 'emptied', 'volumechange', 'loadedmetadata', 'durationchange',
@@ -120,13 +121,19 @@ nonisolated extension BrowserMediaState {
             schedule();
           }, true);
           // Metadata changes fire no event: look again while something
-          // plays, and retry a report the binding was not ready for.
-          let ticks = 0;
-          setInterval(() => {
-            ticks += 1;
-            heartbeat = reported && ticks % 3 === 0;
-            if (reported || pending) schedule();
-          }, 1000);
+          // plays, and retry a report the binding was not ready for. The
+          // timer runs only then, so a frame that never played (most
+          // frames: ads, embeds) has no timer.
+          function tick() {
+            if (ticker) return;
+            ticker = setInterval(() => {
+              ticks += 1;
+              heartbeat = reported && ticks % 3 === 0;
+              if (reported || pending) { schedule(); return; }
+              clearInterval(ticker);
+              ticker = 0;
+            }, 1000);
+          }
         })();
         """#
     }
