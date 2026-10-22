@@ -196,6 +196,8 @@ async fn connect_once(
             name: config.device_name.clone(),
             team_id: config.team_id.clone(),
             wg_public_key: None,
+            machine_id: config.machine_id(&owner),
+            sibling_device_ids: config.sibling_device_ids.clone(),
         })
         .await
         .context("POST /v1/devices")?;

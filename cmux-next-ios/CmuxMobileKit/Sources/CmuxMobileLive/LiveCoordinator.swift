@@ -484,8 +484,10 @@ public final class LiveCoordinator {
             forgetMac(mac.deviceId)
         case .mac(let mac):
             var current = store.teams.first { $0.id == teamID }?.macs ?? []
-            let owner = current.first { $0.id == mac.deviceId }?.ownerUserID
-            let device = MacDevice(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate, ownerUserID: owner)
+            let known = current.first { $0.id == mac.deviceId }
+            // A Worker that predates machine ids sends none: keep the one the list had.
+            let device = MacDevice(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate,
+                                   ownerUserID: known?.ownerUserID, machineID: mac.machineId ?? known?.machineID)
             if let index = current.firstIndex(where: { $0.id == mac.deviceId }) { current[index] = device } else { current.append(device) }
             store.setMacs(current, teamID: teamID)
             let session = sessions[mac.deviceId]
@@ -534,7 +536,7 @@ public final class LiveCoordinator {
             if let owner = mac.ownerUserId, owner != userID { othersMacs.insert(mac.deviceId) } else { othersMacs.remove(mac.deviceId) }
         }
         store.setMacs(macs.map { MacDevice(id: $0.deviceId, name: $0.name, isOnline: $0.online, lastSeenAt: $0.lastSeenDate,
-                                           ownerUserID: $0.ownerUserId) }, teamID: teamID)
+                                           ownerUserID: $0.ownerUserId, machineID: $0.machineId) }, teamID: teamID)
         retarget()
         scheduleSnapshotSave()
     }
@@ -545,12 +547,19 @@ public final class LiveCoordinator {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
         let remembered = UserDefaults.standard.string(forKey: "cmuxMobile.live.mac.\(team.id)")
             ?? (snapshot?.teamID == team.id ? snapshot?.linkedMacID : nil)
-        let dialable = team.macs.filter { !othersMacs.contains($0.id) }
+        let dialable = dialableMacs(team)
         let next = LinkMachine.target(in: dialable, remembered: remembered, current: focusedMacID)
         // The focused Mac's session exists before the focus moves to it.
         if let next { _ = session(for: next) }
         setFocus(next?.id)
         applyLinks(dialable)
+    }
+
+    /// The Macs this phone may link: the owner's own, one build per computer
+    /// (``MacRoster``), as the screens list them. Another build on a listed
+    /// Mac is never focused or linked behind the list's back.
+    private func dialableMacs(_ team: Team) -> [MacDevice] {
+        MacRoster(team.macs.filter { !othersMacs.contains($0.id) }).visible
     }
 
     /// The focused Mac changed: the last one stays linked while it is recent
@@ -568,7 +577,7 @@ public final class LiveCoordinator {
     /// Opens a link to every Mac the policy keeps and closes the others.
     func applyLinks(_ dialable: [MacDevice]? = nil) {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
-        let macs = dialable ?? team.macs.filter { !othersMacs.contains($0.id) }
+        let macs = dialable ?? dialableMacs(team)
         let now = ContinuousClock.now
         let showing = showingMacs ?? Set(macs.map(\.id))
         for id in showing { lastShown[id] = now }

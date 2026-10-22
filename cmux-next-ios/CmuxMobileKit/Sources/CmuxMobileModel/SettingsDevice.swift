@@ -18,9 +18,12 @@ public struct SettingsDevice: Identifiable, Hashable, Sendable {
     public var isThisDevice: Bool
     /// A phone with an APNs token registered.
     public var receivesNotifications: Bool
+    /// A Mac's machine id (``MacDevice/machineID``): rows with one are builds of one computer.
+    public var machineID: String?
 
     public init(ids: [String], kind: Kind, name: String, online: Bool?, lastSeenAt: Date?, addedAt: Date? = nil,
-                isThisDevice: Bool, receivesNotifications: Bool) {
+                isThisDevice: Bool, receivesNotifications: Bool, machineID: String? = nil) {
+        self.machineID = machineID
         self.ids = ids
         self.kind = kind
         self.name = name
@@ -43,7 +46,7 @@ public enum SettingsDeviceRows {
             var seen = Set<String>()
             return liveMacs.filter { seen.insert($0.id).inserted }.map {
                 SettingsDevice(ids: [$0.id], kind: .mac, name: $0.name, online: $0.isOnline, lastSeenAt: $0.lastSeenAt,
-                               isThisDevice: false, receivesNotifications: false)
+                               isThisDevice: false, receivesNotifications: false, machineID: $0.machineID)
             }
         }
         guard let service else { return nil }
@@ -53,8 +56,19 @@ public enum SettingsDeviceRows {
             var next = device
             next.online = mac.isOnline
             next.lastSeenAt = mac.lastSeenAt ?? device.lastSeenAt
+            next.machineID = device.machineID ?? mac.machineID
             return next
         }
+    }
+
+    /// The Mac rows that are another cmux build on a computer whose most
+    /// recently active build Workspaces lists (``MacRoster``): Settings
+    /// still lists them, so each can be removed, and says what they are.
+    public static func otherBuilds(_ macs: [SettingsDevice]) -> Set<String> {
+        let devices = macs.map {
+            MacDevice(id: $0.id, name: $0.name, isOnline: $0.online == true, lastSeenAt: $0.lastSeenAt, machineID: $0.machineID)
+        }
+        return MacRoster(devices).hiddenIDs
     }
 
     /// The phone rows (only a device service lists phones).

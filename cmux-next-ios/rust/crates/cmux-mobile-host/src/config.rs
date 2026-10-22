@@ -85,6 +85,13 @@ pub struct HostConfig {
     pub team_id: String,
     pub device_id: String,
     pub device_name: String,
+    /// The computer this build runs on (`gethostuuid`), never sent raw: see
+    /// [`machine_id`]. None when the OS gives none (Linux, tests).
+    pub host_uuid: Option<[u8; 16]>,
+    /// `CMUX_MOBILE_MACHINE_ID`: a machine id to send as is (tests, the rig).
+    pub machine_id_override: Option<String>,
+    /// Device ids other cmux builds on this Mac registered ([`sibling_device_ids`]).
+    pub sibling_device_ids: Vec<String>,
     pub tokens: TokenSource,
     /// The Stack user whose phones may dial; defaults to the token's `sub`.
     pub owner_user_id: Option<String>,
@@ -149,7 +156,88 @@ pub fn persistent_device_id(state_dir: &Path) -> Result<String> {
     Ok(id)
 }
 
+/// The salt of [`machine_id`]: names the purpose, so the value matches nothing else derived from the host UUID.
+const MACHINE_ID_KEY: &[u8] = b"cmux-mobile machine-id v1";
+
+/// The machine id a Mac registers (PROTOCOL.md "Devices"): the same for every
+/// cmux build on one computer and one account, so the phone lists the computer
+/// once, and different on any other computer whatever its name. HMAC-SHA256 of
+/// the owner and the host UUID under a cmux key, first 16 bytes in hex: the
+/// hardware id never leaves the Mac, and two accounts on one Mac get unrelated
+/// ids (the backend compares them within one owner only).
+pub fn machine_id(owner: &str, host_uuid: &[u8; 16]) -> String {
+    let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, MACHINE_ID_KEY);
+    let mut message = Vec::with_capacity(owner.len() + 17);
+    message.extend_from_slice(owner.as_bytes());
+    message.push(0);
+    message.extend_from_slice(host_uuid);
+    let tag = ring::hmac::sign(&key, &message);
+    tag.as_ref()[..16].iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// This computer's host UUID (the IOPlatformUUID every build reads alike).
+#[cfg(target_os = "macos")]
+pub fn host_uuid() -> Option<[u8; 16]> {
+    let mut id = [0u8; 16];
+    let wait = libc::timespec { tv_sec: 1, tv_nsec: 0 };
+    // SAFETY: `id` is the 16-byte uuid_t gethostuuid fills; `wait` outlives the call.
+    let ok = unsafe { libc::gethostuuid(id.as_mut_ptr(), &raw const wait) } == 0;
+    (ok && id != [0u8; 16]).then_some(id)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn host_uuid() -> Option<[u8; 16]> {
+    None
+}
+
+/// At most this many sibling ids per registration (the backend's limit).
+pub const MAX_SIBLINGS: usize = 16;
+
+/// The device ids other cmux builds on this Mac registered, read from their
+/// state folders in `app_support` (`<bundle id>/cmux-mobile-host/device-id`,
+/// the pre-rename `<bundle id>/cnx-host/device-id`, and a standalone host's
+/// `cmux-mobile-host/device-id`), without `own`. The backend gives each the
+/// registering Mac's machine id when it is the same owner's Mac and has none
+/// yet: the record a deleted build left behind is then listed as that
+/// computer's, instead of as another Mac. Unreadable folders are skipped.
+pub fn sibling_device_ids(app_support: &Path, own: &str) -> Vec<String> {
+    let mut files = vec![app_support.join("cmux-mobile-host/device-id")];
+    if let Ok(entries) = std::fs::read_dir(app_support) {
+        let mut folders: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+        folders.sort();
+        for folder in folders {
+            files.push(folder.join("cmux-mobile-host/device-id"));
+            files.push(folder.join("cnx-host/device-id"));
+        }
+    }
+    let mut ids: Vec<String> = Vec::new();
+    for file in files {
+        let Ok(text) = std::fs::read_to_string(&file) else { continue };
+        let Ok(id) = uuid::Uuid::parse_str(text.trim()) else { continue };
+        let id = id.to_string();
+        if !id.eq_ignore_ascii_case(own) && !ids.contains(&id) {
+            ids.push(id);
+        }
+        if ids.len() == MAX_SIBLINGS {
+            break;
+        }
+    }
+    ids
+}
+
+/// `~/Library/Application Support` (`CMUX_MOBILE_APP_SUPPORT_DIR` in tests).
+fn app_support_dir() -> PathBuf {
+    env("CMUX_MOBILE_APP_SUPPORT_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home().join("Library/Application Support"))
+}
+
 impl HostConfig {
+    /// The machine id to register for `owner`: the override, else derived from the host UUID.
+    pub fn machine_id(&self, owner: &str) -> Option<String> {
+        self.machine_id_override.clone().or_else(|| self.host_uuid.map(|uuid| machine_id(owner, &uuid)))
+    }
+
     /// Reads the environment. `supplied` (supervised mode) replaces the token
     /// variables and the acpmux lookup with what the app sends over stdin.
     pub fn from_env(supplied: Option<Supplied>) -> Result<Self> {
@@ -214,6 +302,9 @@ impl HostConfig {
             team_id,
             device_id,
             device_name: env("CMUX_MOBILE_DEVICE_NAME").unwrap_or_else(hostname),
+            host_uuid: host_uuid(),
+            machine_id_override: env("CMUX_MOBILE_MACHINE_ID"),
+            sibling_device_ids: sibling_device_ids(&app_support_dir(), &device_id),
             tokens,
             owner_user_id: env("CMUX_MOBILE_OWNER_USER_ID"),
             include_loopback: env("CMUX_MOBILE_INCLUDE_LOOPBACK").is_some_and(|v| v == "1"),

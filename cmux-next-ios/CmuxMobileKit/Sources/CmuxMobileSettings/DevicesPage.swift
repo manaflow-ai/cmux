@@ -156,6 +156,8 @@ struct DevicesPage: View {
 
     private var loadedMacs: [SettingsDevice]? { list.macs(store: store, hasService: directory != nil) }
     private var macs: [SettingsDevice] { loadedMacs ?? [] }
+    /// Mac rows that are another cmux build of a listed Mac.
+    private var otherBuilds: Set<String> { SettingsDeviceRows.otherBuilds(macs) }
     private var phones: [SettingsDevice] { list.phones }
 
     /// Tags for Macs that share a name ("Aziz's MacBook Pro" twice), so
@@ -286,9 +288,10 @@ struct DevicesPage: View {
         } else {
             presence = "Offline"
         }
+        let build = otherBuilds.contains(device.id) ? ["Another cmux build on this Mac"] : []
         // Same-name Macs: when each was added (the tag is next to the name).
-        guard let added = sameNames.added(for: device.id, addedAt: device.addedAt) else { return presence }
-        return "\(presence) · \(added)"
+        let added = sameNames.added(for: device.id, addedAt: device.addedAt).map { [$0] } ?? []
+        return ([presence] + build + added).joined(separator: " · ")
     }
 
     /// Presence plus this phone's own connection, for a Mac this phone knows:
