@@ -18,10 +18,17 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
 use cmux_mobile_link::api::NotifyEvent;
 use serde_json::Value;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::UnixStream;
+use tokio::sync::mpsc;
 
-use crate::notify_content::Places;
+use crate::notify::{Reporter, label};
+use crate::notify_content::{PlaceMap, Places, tail};
 
 /// An agent hook's and the terminal's own notification this close on one tab are one event.
 pub const ECHO_WINDOW: Duration = Duration::from_secs(10);
@@ -37,11 +44,115 @@ pub struct TerminalClassifier {
     last: HashMap<u64, (String, Instant)>,
 }
 
+const SEEN_LIMIT: usize = 512;
+
 impl TerminalClassifier {
-    /// One daemon event line; `Some` when it should be pushed. `tail` is filled by the caller.
-    pub fn handle_at(&mut self, _event: &Value, _places: &Places, _now: Instant) -> Option<NotifyEvent> {
-        None
+    fn first_time(&mut self, id: u64) -> bool {
+        if !self.seen.insert(id) {
+            return false;
+        }
+        self.order.push_back(id);
+        if self.order.len() > SEEN_LIMIT
+            && let Some(old) = self.order.pop_front()
+        {
+            self.seen.remove(&old);
+        }
+        true
     }
+
+    /// One daemon event line; `Some` when it should be pushed. `tail` is filled by the caller.
+    pub fn handle_at(&mut self, event: &Value, places: &Places, now: Instant) -> Option<NotifyEvent> {
+        if event.get("event").and_then(Value::as_str) != Some("notification") {
+            return None;
+        }
+        let id = event.get("notification").and_then(Value::as_u64)?;
+        let source = event.get("source").and_then(Value::as_str).unwrap_or("cli");
+        if source == "daemon" || event.get("desktop").and_then(Value::as_bool) == Some(false) {
+            return None;
+        }
+        let surface = event.get("surface").and_then(Value::as_u64);
+        let place = surface.and_then(|s| places.surface(s));
+        match (&place, source) {
+            // An agent chat tab: acpmux's events push it.
+            (Some(p), _) if !p.terminal => return None,
+            // An agent hook on a tab the tree does not show (yet): it may be an agent chat's.
+            (None, "agent") if surface.is_some() => return None,
+            _ => {}
+        }
+        if !self.first_time(id) {
+            return None;
+        }
+        if let Some(surface) = surface {
+            // An agent hook's and the terminal's own notification for one event.
+            let echo = self.last.get(&surface).is_some_and(|(last, at)| {
+                now.saturating_duration_since(*at) <= ECHO_WINDOW
+                    && last != source
+                    && matches!((last.as_str(), source), ("agent", "terminal") | ("terminal", "agent"))
+            });
+            if echo {
+                return None;
+            }
+            self.last.insert(surface, (source.to_owned(), now));
+            if self.last.len() > SEEN_LIMIT {
+                self.last.retain(|_, (_, at)| now.saturating_duration_since(*at) <= ECHO_WINDOW);
+            }
+        }
+        let text =
+            |key: &str| event.get(key).and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty());
+        let title = text("title").map(|t| label(t, 200)).filter(|t| !t.is_empty());
+        let body = [text("subtitle"), text("body")]
+            .into_iter()
+            .flatten()
+            .map(|t| label(t, 400))
+            .filter(|t| !t.is_empty())
+            .collect::<Vec<_>>()
+            .join(" · ");
+        let level = event.get("level").and_then(Value::as_str).unwrap_or("info");
+        let agent = if source == "agent" {
+            title.as_deref().and_then(hook_agent).unwrap_or("Your agent")
+        } else {
+            "Terminal"
+        };
+        let state = match level {
+            "error" => "failed",
+            "warning" => "waiting",
+            _ => "notified",
+        };
+        let workspace_id = place
+            .as_ref()
+            .map(|p| p.workspace_id.clone())
+            .or_else(|| text("workspace_id").map(|w| label(w, 128)));
+        Some(NotifyEvent {
+            event_id: format!("n-{id}"),
+            kind: "terminal".into(),
+            agent: Some(agent.into()),
+            place: place.as_ref().map(|p| p.workspace.clone()),
+            workspace: place.as_ref().map(|p| p.workspace.clone()),
+            workspace_id,
+            tab_id: place.map(|p| p.tab_id),
+            notification_id: Some(id.to_string()),
+            title,
+            body: Some(body).filter(|b| !b.is_empty()),
+            state: Some(state.into()),
+            replyable: Some(event.get("reply").and_then(Value::as_bool).unwrap_or(false)),
+            ..NotifyEvent::default()
+        })
+    }
+}
+
+/// The agent an agent hook names first in its title ("Codex needs approval").
+fn hook_agent(title: &str) -> Option<&'static str> {
+    let first = title.split_whitespace().next()?.to_ascii_lowercase();
+    Some(match first.as_str() {
+        "claude" => "Claude",
+        "codex" => "Codex",
+        "gemini" => "Gemini",
+        "opencode" => "OpenCode",
+        "cursor" => "Cursor",
+        "amp" => "Amp",
+        "copilot" => "Copilot",
+        _ => return None,
+    })
 }
 
 /// The kinds the owner's phones want from this Mac (the notify answer's `wants`).
@@ -52,12 +163,134 @@ pub struct Wants {
 
 impl Wants {
     /// Whether to send `kind` at `now`: unknown, wanted, or the answer is older than `WANTS_TTL`.
-    pub fn allows(&self, _kind: &str, _now: Instant) -> bool {
-        true
+    pub fn allows(&self, kind: &str, now: Instant) -> bool {
+        match &self.known {
+            Some((kinds, at)) if now.saturating_duration_since(*at) < WANTS_TTL => kinds.contains(kind),
+            _ => true,
+        }
     }
 
     /// A notify answer arrived at `now`.
-    pub fn learn(&mut self, _answer: &Value, _now: Instant) {}
+    pub fn learn(&mut self, answer: &Value, now: Instant) {
+        let Some(kinds) = answer.get("wants").and_then(Value::as_array) else { return };
+        self.known = Some((kinds.iter().filter_map(Value::as_str).map(str::to_owned).collect(), now));
+    }
+}
+
+/// Runs until the process stops: subscribe to the daemon at `socket`, keep
+/// `places` current, and report terminal notifications. Reconnects with backoff
+/// (the app's daemon may not be up yet).
+pub async fn run(socket: PathBuf, places: Arc<Places>, reporter: Reporter) {
+    let mut classifier = TerminalClassifier::default();
+    let mut backoff = Duration::from_secs(2);
+    loop {
+        match watch_once(&socket, &places, &reporter, &mut classifier).await {
+            Ok(()) => backoff = Duration::from_secs(2),
+            Err(reason) => {
+                tracing::debug!(reason, "terminal push watch ended");
+                backoff = (backoff * 2).min(Duration::from_secs(30));
+            }
+        }
+        tokio::time::sleep(backoff).await;
+    }
+}
+
+async fn watch_once(
+    socket: &Path,
+    places: &Arc<Places>,
+    reporter: &Reporter,
+    classifier: &mut TerminalClassifier,
+) -> Result<(), String> {
+    let stream = UnixStream::connect(socket).await.map_err(|e| e.to_string())?;
+    let (read, mut write) = stream.into_split();
+    write
+        .write_all(b"{\"cmd\":\"subscribe\",\"id\":\"cmux-mobile-push\"}\n")
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut reader = BufReader::new(read);
+    tracing::info!("terminal push watch started");
+    // The tree is read again after a change, one read at a time (a burst of changes is one read).
+    let (dirty_tx, mut dirty_rx) = mpsc::channel::<()>(1);
+    let refresher = {
+        let (socket, places) = (socket.to_path_buf(), Arc::clone(places));
+        tokio::spawn(async move {
+            while dirty_rx.recv().await.is_some() {
+                match query(&socket, "list-workspaces", None).await {
+                    Ok(reply) => places.set(PlaceMap::from_workspaces(&reply)),
+                    Err(error) => tracing::debug!(error, "list-workspaces for push places failed"),
+                }
+            }
+        })
+    };
+    let _ = dirty_tx.try_send(());
+    let result = loop {
+        let mut line = Vec::new();
+        match reader.read_until(b'\n', &mut line).await {
+            Ok(0) => break Ok(()),
+            Err(e) => break Err(e.to_string()),
+            Ok(_) => {}
+        }
+        let Ok(value) = serde_json::from_slice::<Value>(&line) else { continue };
+        let event = value.get("event").and_then(Value::as_str).unwrap_or("");
+        if event == "overflow" {
+            break Err("subscription overflowed".into());
+        }
+        if event == "tree-changed"
+            || ["workspace-", "screen-", "pane-", "tab-"].iter().any(|p| event.starts_with(p))
+        {
+            let _ = dirty_tx.try_send(());
+            continue;
+        }
+        if event == "notification" && !places.has_surface(&value) {
+            // A tab the tree does not show yet (just opened): read it first.
+            if let Ok(reply) = query(socket, "list-workspaces", None).await {
+                places.set(PlaceMap::from_workspaces(&reply));
+            }
+        }
+        let Some(mut push) = classifier.handle_at(&value, places, Instant::now()) else { continue };
+        if !reporter.wants(&push.kind) {
+            continue;
+        }
+        let surface = value.get("surface").and_then(Value::as_u64);
+        if let (Some(surface), true) = (surface, push.tab_id.is_some())
+            && let Ok(reply) = query(socket, "read-screen", Some(surface)).await
+        {
+            let text = reply.pointer("/data/text").and_then(Value::as_str).unwrap_or("");
+            push.tail = tail(text);
+        }
+        reporter.send(push);
+    };
+    refresher.abort();
+    result
+}
+
+/// One request on a fresh connection to the daemon (at most 3 s): its reply.
+async fn query(socket: &Path, command: &str, surface: Option<u64>) -> Result<Value, String> {
+    let mut request = serde_json::json!({"cmd": command, "id": "cmux-mobile-push-q"});
+    if let Some(surface) = surface {
+        request["surface"] = surface.into();
+    }
+    let read = async {
+        let stream = UnixStream::connect(socket).await.map_err(|e| e.to_string())?;
+        let (read, mut write) = stream.into_split();
+        write.write_all(format!("{request}\n").as_bytes()).await.map_err(|e| e.to_string())?;
+        let mut reader = BufReader::new(read);
+        loop {
+            let mut line = Vec::new();
+            if reader.read_until(b'\n', &mut line).await.map_err(|e| e.to_string())? == 0 {
+                return Err("closed".to_owned());
+            }
+            let Ok(value) = serde_json::from_slice::<Value>(&line) else { continue };
+            if value.get("id").and_then(Value::as_str) == Some("cmux-mobile-push-q") {
+                return if value.get("ok").and_then(Value::as_bool) == Some(false) {
+                    Err(value.get("error").map(Value::to_string).unwrap_or_default())
+                } else {
+                    Ok(value)
+                };
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(3), read).await.map_err(|_| "timed out".to_owned())?
 }
 
 #[cfg(test)]
@@ -69,7 +302,12 @@ mod tests {
     fn places() -> Places {
         let places = Places::default();
         let mut map = PlaceMap::default();
-        let place = |tab: &str, terminal: bool| Place { workspace_id: "ws_a".into(), workspace: "cmux-next".into(), tab_id: tab.into(), terminal };
+        let place = |tab: &str, terminal: bool| Place {
+            workspace_id: "ws_a".into(),
+            workspace: "cmux-next".into(),
+            tab_id: tab.into(),
+            terminal,
+        };
         map.surfaces.insert(7, place("s7", true));
         map.surfaces.insert(8, place("s8", false));
         places.set(map);
@@ -104,7 +342,10 @@ mod tests {
             }
         );
         // Each notification once (a resubscribe never repeats one).
-        assert!(c.handle_at(&event(41, Some(7), "terminal"), &places(), Instant::now() + ECHO_WINDOW * 2).is_none());
+        assert!(
+            c.handle_at(&event(41, Some(7), "terminal"), &places(), Instant::now() + ECHO_WINDOW * 2)
+                .is_none()
+        );
     }
 
     #[test]
@@ -153,12 +394,18 @@ mod tests {
         let pushed = c.handle_at(&hook, &places(), t0).unwrap();
         assert_eq!((pushed.agent.as_deref(), pushed.state.as_deref()), (Some("Codex"), Some("waiting")));
         // Codex's own OSC 9 for the same event: not again.
-        assert!(c.handle_at(&event(11, Some(7), "terminal"), &places(), t0 + Duration::from_secs(2)).is_none());
+        assert!(
+            c.handle_at(&event(11, Some(7), "terminal"), &places(), t0 + Duration::from_secs(2)).is_none()
+        );
         // Either order.
-        assert!(c.handle_at(&event(12, Some(7), "terminal"), &places(), t0 + Duration::from_secs(60)).is_some());
+        assert!(
+            c.handle_at(&event(12, Some(7), "terminal"), &places(), t0 + Duration::from_secs(60)).is_some()
+        );
         assert!(c.handle_at(&hook_n(13), &places(), t0 + Duration::from_secs(61)).is_none());
         // Two OSC notifications in a row are two events.
-        assert!(c.handle_at(&event(14, Some(7), "terminal"), &places(), t0 + Duration::from_secs(62)).is_some());
+        assert!(
+            c.handle_at(&event(14, Some(7), "terminal"), &places(), t0 + Duration::from_secs(62)).is_some()
+        );
         // Past the window both push.
         assert!(c.handle_at(&hook_n(15), &places(), t0 + Duration::from_secs(120)).is_some());
     }
