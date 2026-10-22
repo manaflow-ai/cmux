@@ -13,7 +13,7 @@ import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { elapsed, running, STATE_LABEL, useNow } from "../subagents/SubagentGroup";
-import type { Subagent } from "../subagents/subagentFold";
+import { subagentName, type Subagent } from "../subagents/subagentFold";
 import {
   SUBSESSION_STATE_LABEL,
   type SubsessionRow,
@@ -173,7 +173,7 @@ export function SubagentStatusList({
             <li key={agent.id}>
               {/* The tray's own line (subagents/AgentLine.tsx): a subagent reads the same here and above the composer. */}
               <AgentLine
-                name={agent.name}
+                name={subagentName(agent, t)}
                 detail={agent.kind}
                 status={status}
                 state={t(subagentStatusLabel(agent, waiting))}

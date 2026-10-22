@@ -30,6 +30,7 @@ import { STATUS_LABEL, type SubagentStatus, subagentStatus, subagentStatusLabel 
 import { AgentLine } from "./AgentLine";
 import { elapsed, StopButton, useNow } from "./SubagentGroup";
 import { itemStart, type TrayItem } from "./runningTray";
+import { subagentName } from "./subagentFold";
 import type { StartedSession } from "../started/startedSessions";
 
 /// Lines the tray shows under its header without a click.
@@ -140,14 +141,14 @@ export const SubagentTray = memo(function SubagentTray({
   function line(item: TrayItem) {
     return item.kind === "agent" ? (
       <AgentLine
-        name={item.agent.name}
+        name={subagentName(item.agent, t)}
         detail={item.agent.action ?? item.agent.kind}
         status={subagentStatus(item.agent, waiting)}
         state={t(subagentStatusLabel(item.agent, waiting))}
         time={formatDuration(elapsed(item.agent, now))}
         depth={item.depth}
         title={item.agent.task}
-        label={t("subagents.open", { name: item.agent.name })}
+        label={t("subagents.open", { name: subagentName(item.agent, t) })}
         onOpen={() => onOpen(item.agent.id)}
         after={stop && item.agent.state === "running" && <StopButton agent={item.agent} stop={stop} />}
       />
