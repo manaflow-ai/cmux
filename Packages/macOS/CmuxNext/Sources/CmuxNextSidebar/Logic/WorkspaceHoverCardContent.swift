@@ -33,11 +33,14 @@ struct WorkspaceHoverCardContent: Equatable {
         var accessory: HoverCardAccessory?
         /// The text's own ink, over the message or metadata ink (an offline machine's warning).
         var ink: HoverCardTone?
+        /// The machine a machine row names: its icon draws that machine's color pick, if any.
+        var machine: String?
 
         /// The row the shared hover card row draws (`HoverCardRowView`).
         var row: HoverCardRowContent {
             HoverCardRowContent(text: text, ink: ink ?? (isMessage ? .primary : .secondary), lines: lines, status: status,
-                                statusTone: statusTone, additions: additions, deletions: deletions, accessory: accessory)
+                                statusTone: statusTone, additions: additions, deletions: deletions, accessory: accessory,
+                                iconMachine: machine)
         }
 
         /// What someone said or asked (a waiting reason, a notification, the task, the last
@@ -205,7 +208,7 @@ struct WorkspaceHoverCardContent: Equatable {
             let own = ownIcon(remote.icon)
             let tone = connectionTone(remote.status)
             facts.append(Fact(icon: hostIcon(remote), text: remote.name, mark: own.mark, image: own.image, kind: "machine",
-                              accessory: .dot(tone)))
+                              accessory: .dot(tone), machine: remote.name))
             if let word = connectionWord(remote.status) {
                 facts.append(Fact(icon: .statusDisconnected, text: word, kind: "machineStatus", ink: tone))
             }

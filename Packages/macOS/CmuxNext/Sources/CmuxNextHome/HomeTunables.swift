@@ -82,10 +82,18 @@ public nonisolated struct HomeTunables {
         help: "New Chief… shows its name and engine card as a sheet over Home, as before. Off (the default) opens it as a New Chief tab beside your work, or beside the Chief on Home.",
         default: false, code: "HomeTunables.newChiefSheet")
 
+    /// The avatar-only list with only one conversation in it (`HomeSidebarSplitView`): off by default,
+    /// so a lone Chief takes no column and the chat gets the width (visual QA 2026-10-21: one avatar in
+    /// an empty band); on keeps the avatar-only column for it.
+    public static let loneConversationRail = Tunable<Bool>.toggle(
+        "home.loneConversationRail", section, "Avatar list for one conversation",
+        help: "A narrow Home column whose list holds one conversation (only the Chief) still shows the avatar-only list beside the chat. Off gives the chat the whole width; compose stays at its top-left.",
+        default: false, code: "HomeTunables.loneConversationRail")
+
     public static var all: [TunableDescriptor] {
         [flightRecorder.descriptor, flightRecorderCaptures.descriptor, firstRunHero.descriptor, launchIntoHome.descriptor,
          turnProgress.descriptor, richTables.descriptor, voiceInput.descriptor, chatHeader.descriptor,
-         newChiefSheet.descriptor]
+         newChiefSheet.descriptor, loneConversationRail.descriptor]
     }
 }
 
