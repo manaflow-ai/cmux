@@ -25,6 +25,10 @@ enum WorkspaceMetadataHandlers {
             }
             try setColor(color, invocation, context)
         })
+        // The color row checks the workspace's color, and Remove Color when it has none (u9783).
+        ActionTargetTitles.setChoiceState("palette.workspaceColor", in: registry) { target in
+            context.scope(ActionInvocation(target: target)).workspace?.color
+        }
         // One pin path (PinCommands): a layout tile once the store serves the
         // layout, else the legacy flag, which then needs `workspace-pin-v1`.
         registry.bind("palette.toggleWorkspacePin", requires: DaemonCapabilities.shared.workspacePin, daemon: {

@@ -121,11 +121,17 @@ extension ActionRegistry {
 extension ActionRegistry {
     /// A right-click row's icon: its action's SF Symbol as a template, inked like the row's text.
     /// Nil for `ActionDescriptor`'s default symbol (`command`), so a row without its own icon shows none.
+    /// Loaded once per symbol (u9786): a right-click asks for about a hundred rows' icons, and
+    /// loading a symbol image is the slow part of a row. Rows share the template image; none edits it.
     static func menuIcon(_ symbol: String) -> NSImage? {
-        guard symbol != "command", let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) else { return nil }
-        image.isTemplate = true
+        if let cached = menuIcons[symbol] { return cached }
+        let image = symbol == "command" ? nil : NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        image?.isTemplate = true
+        menuIcons[symbol] = .some(image)
         return image
     }
+
+    private static var menuIcons: [String: NSImage?] = [:]
 }
 
 private extension String {
