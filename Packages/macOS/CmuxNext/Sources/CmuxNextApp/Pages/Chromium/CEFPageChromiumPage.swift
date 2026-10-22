@@ -25,6 +25,12 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 
     var contentView: NSView { tab.contentView }
 
+    /// The tab's holes for native UI (`CEFTab.occlusionRects`, `contentView` coordinates).
+    var occlusionRects: [CGRect] {
+        get { tab.occlusionRects }
+        set { if tab.occlusionRects != newValue { tab.occlusionRects = newValue } }
+    }
+
     var onEvent: ((PageChromiumEvent) -> Void)? {
         didSet { listen() }
     }
