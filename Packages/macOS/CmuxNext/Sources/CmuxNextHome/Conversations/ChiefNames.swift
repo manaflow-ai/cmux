@@ -33,7 +33,7 @@ extension String {
         var parts = chiefNameTokens(base)
         if let last = parts.last, last.count == 8, last.allSatisfy(\.isNumber) {
             parts.removeLast()
-        } else if parts.count > 3, zip(parts.suffix(3), [4, 2, 2]).allSatisfy({ $0.count == $1 && $0.allSatisfy(\.isNumber) }) {
+        } else if parts.count > 3, chiefNameIsDate(parts.suffix(3)) {
             parts.removeLast(3)
         }
         guard !parts.isEmpty else { return id }
@@ -65,6 +65,13 @@ private nonisolated let chiefNameRoutes = ["cr": "CodeRouter", "sr": "Subrouter"
 private nonisolated let chiefNameBuiltins = [
     "aider": "Aider", "gemini": "Gemini CLI", "muse": "Muse Code", "opencode": "OpenCode", "pi": "Pi",
 ]
+
+/// Whether `parts` (three tokens) are a `YYYY-MM-DD` date: a month of 1 to 12 and a day of 1 to 31.
+private nonisolated func chiefNameIsDate(_ parts: ArraySlice<Substring>) -> Bool {
+    let numbers = zip(parts, [4, 2, 2]).compactMap { $0.count == $1 && $0.allSatisfy(\.isNumber) ? Int($0) : nil }
+    guard numbers.count == 3 else { return false }
+    return (1...12).contains(numbers[1]) && (1...31).contains(numbers[2])
+}
 
 /// Words always written in capitals.
 private nonisolated let chiefNameAcronyms: Set<String> = ["gpt", "glm", "oss", "ai", "api", "acp", "llm", "xai"]

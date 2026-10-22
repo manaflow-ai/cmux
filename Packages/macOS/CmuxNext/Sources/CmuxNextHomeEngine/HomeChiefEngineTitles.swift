@@ -42,7 +42,7 @@ nonisolated struct HomeChiefEngineTitles {
         let defaultModelRow = snapshot.model == nil ? defaultRuns.flatMap { HomeChiefModelMenu.release(of: $0, in: snapshot.models) } : nil
         // A model the catalog does not name reads by its id made readable, never the raw id.
         defaultModel = Self.titled(snapshot.model == nil
-            ? defaultModelRow.map { $0.shortName ?? $0.name } ?? defaultRuns.map { $0 == "default" ? $0 : HomeChiefModelMenu.name(of: $0, in: snapshot.models) }
+            ? defaultModelRow.map { $0.shortName ?? HomeChiefModelMenu.readable($0) } ?? defaultRuns.map { $0 == "default" ? $0 : HomeChiefModelMenu.name(of: $0, in: snapshot.models) }
             : nil)
         let defaultLevel = engine?.effort ?? running?.defaultEffort
         defaultEffort = Self.titled((snapshot.effort == nil ? defaultLevel : nil).map(HomeEngineStrings.effortTitle))
