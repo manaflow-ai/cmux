@@ -318,7 +318,8 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    import would use (the app matches the profile's folder or name; with no
    profile, every profile of the browser) and looks for those, never at
    the title, which is localized and the person may rename; a browser or
-   profile the app does not find is `needs_user` (`kind` `browser`).
+   profile the app does not find, with no folder of it there yet, is
+   `needs_user` (`kind` `browser`).
    `bookmark.list` answers `loaded` false with an empty list until the app
    has the stored bookmarks; setup reads again until 2 seconds after the
    first answer (each reread gets only the time left), then is
@@ -333,7 +334,8 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    imports never enter it. A new folder of another profile of the browser
    came from an import running at the same time (`chrome:Work` next to
    `chrome:Default`): it is in `after.other`, with a `note`, and the undo
-   leaves it. Two runs of the same profile at once both name its folder;
+   leaves it; it is no sign this run's import landed, so a run whose app
+   stopped waiting with only such folders in is still `wait`. Two runs of the same profile at once both name its folder;
    the app's import returns no ids, so setup cannot tell them apart. The app replaces a folder of the same `source_key` in
    place (same id, new title and children), as when the browser's
    profiles changed between `bookmark.importSources` and the import: such

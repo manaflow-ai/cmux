@@ -217,9 +217,6 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
     // folder titles are localized), and only folders of those keys can be
     // this run's.
     let keys = match import_sources(global, &id, source) {
-        Ok(keys) if keys.is_empty() => {
-            return needs_user(report, no_bookmarks(browser, "no browser profile matches."));
-        }
         Ok(keys) => keys,
         Err(action) => return needs_user(report, action),
     };
@@ -229,6 +226,10 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
         report["after"] = report["before"].clone();
         report["state"] = json!("ok");
         return report;
+    }
+    // Not imported yet, and the browser (or the profile) is gone.
+    if keys.is_empty() {
+        return needs_user(report, no_bookmarks(browser, "no browser profile matches."));
     }
     if args.dry_run {
         report["state"] = json!("planned");
@@ -269,16 +270,17 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
         .partition(|folder| !known.contains(&folder["id"]));
     // A new folder of a profile this run did not read came from another
     // import running at the same time: the undo leaves it.
-    let (added, other): (Vec<_>, Vec<_>) =
-        new.into_iter().partition(|folder| keys.iter().any(|key| folder["source_key"] == **key));
+    let mine = |folder: &Value| keys.iter().any(|key| folder["source_key"] == key.as_str());
+    let (added, other): (Vec<_>, Vec<_>) = new.into_iter().partition(mine);
     report["after"] = json!({"profile": profile, "folders": added, "refreshed": refreshed});
     if !other.is_empty() {
         report["after"]["other"] = json!(other);
     }
     // The app answered that the import ran: with no new folder it refreshed
     // one already there (the app replaces a folder of the same source in place).
+    // Another run's folders are no sign that this one landed.
     let ran = failure.is_none() && !running;
-    if added.is_empty() && refreshed.is_empty() && other.is_empty() && !ran {
+    if added.is_empty() && !refreshed.iter().any(mine) && !ran {
         let action = if running {
             json!({
                 "kind": "wait",
@@ -304,7 +306,7 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
         report["undo"] = json!(undo);
     }
     let mut notes = Vec::new();
-    if (added.is_empty() && other.is_empty()) || !refreshed.is_empty() {
+    if added.is_empty() || !refreshed.is_empty() {
         notes.push(
             "cmux refreshed the existing \"Imported from\" folder in place (`after.refreshed`); \
              the undo does not cover it, and the Undo on cmux's toast is its only undo"
