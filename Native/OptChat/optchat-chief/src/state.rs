@@ -70,18 +70,14 @@ pub struct HostState {
     /// that turn's end still belongs to it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub last_answers: Vec<String>,
-    /// E22: what a turn stopped for a newer message answered: the next turn
-    /// answers it too.
+    /// E22: what a turn stopped for a newer message answered, as hosts
+    /// before `carries` saved it: the next turn of any conversation takes it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub carry_answers: Vec<String>,
-    /// The conversation `carry_answers` belong to: only its next turn takes
-    /// them (None: any, as before this was recorded).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub carry_for: Option<String>,
-    /// The stopped turn carried another person's text: the turn that takes
-    /// `carry_answers` answers it too, so it runs with policy `ask`.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub carry_ask: bool,
+    /// What turns the owner's message stopped owe, one entry per
+    /// conversation: only that conversation's next turn takes it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub carries: Vec<Carry>,
     /// E22: ids a posted reply named in `answers_pending`: the turn that
     /// ends their work answers them even when it says nothing (a done
     /// marker), so a waiting `cmux chief -p` ends.
@@ -177,7 +173,70 @@ pub struct Wake {
 /// How many thread roots `HostState::message_roots` keeps.
 pub const MESSAGE_ROOTS_KEPT: usize = 512;
 
+/// What a turn the owner's message stopped owes its conversation's next
+/// turn: the messages it answered, and whether it carried another person's
+/// text (then the next turn runs with policy `ask` too).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Carry {
+    pub conversation: Option<String>,
+    pub answers: Vec<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ask: bool,
+}
+
 impl HostState {
+    /// What `conversation`'s next turn takes over from stopped turns: the
+    /// ids it answers too, and whether it must run with policy `ask`.
+    pub fn carried(&self, conversation: &Option<String>) -> (Vec<String>, bool) {
+        let mut answers = self.carry_answers.clone();
+        let mut ask = false;
+        for carry in self
+            .carries
+            .iter()
+            .filter(|c| &c.conversation == conversation)
+        {
+            for id in &carry.answers {
+                if !answers.contains(id) {
+                    answers.push(id.clone());
+                }
+            }
+            ask |= carry.ask;
+        }
+        (answers, ask)
+    }
+
+    /// `conversation`'s next turn took what it was owed (`carried`).
+    pub fn take_carry(&mut self, conversation: &Option<String>) {
+        self.carry_answers.clear();
+        self.carries.retain(|c| &c.conversation != conversation);
+    }
+
+    /// A stopped turn of `conversation` owes its next turn `answers` (and
+    /// policy `ask` when `ask`); other conversations' carries are untouched.
+    pub fn carry(&mut self, conversation: Option<String>, answers: Vec<String>, ask: bool) {
+        let at = match self
+            .carries
+            .iter()
+            .position(|c| c.conversation == conversation)
+        {
+            Some(at) => at,
+            None => {
+                self.carries.push(Carry {
+                    conversation,
+                    ..Carry::default()
+                });
+                self.carries.len() - 1
+            }
+        };
+        let carry = &mut self.carries[at];
+        for id in answers {
+            if !carry.answers.contains(&id) {
+                carry.answers.push(id);
+            }
+        }
+        carry.ask |= ask;
+    }
+
     /// Records that user message `id` is a reply in the thread of `root`.
     pub fn note_root(&mut self, id: &str, root: &str) {
         if id == root || self.message_roots.iter().any(|(m, _)| m == id) {
@@ -531,6 +590,16 @@ pub struct PendingTurn {
     /// turn that spawned it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub answers: Vec<String>,
+    /// The turn took over another person's text from a turn the owner's
+    /// message stopped (`Carry::ask`): it runs with policy `ask`, and so
+    /// does its run after a cut or a restart.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ask: bool,
+    /// The owner's message stopped the turn (saved before its cancel is
+    /// sent): it posts nothing, and after a restart its session is folded
+    /// and ended, never waited for.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stopped: bool,
 }
 
 impl PendingTurn {

@@ -355,3 +355,166 @@ fn busy_chief_takes_a_subagents_report_as_a_steer_never_a_stop() {
     );
     assert_no_receipt(&h);
 }
+
+/// The stopped turn's own end can race the stop: acpmux ends it normally
+/// (the cancel came too late) with an answer. The stop was accepted, so
+/// that stale answer is never posted; the next turn answers.
+#[test]
+fn busy_chief_stopped_turn_that_still_ends_normally_posts_nothing() {
+    let mut h = Harness::new(busy_first_turn());
+    h.connect();
+    busy(&mut h);
+    h.agents.inner.lock().unwrap().ignore_cancels = usize::MAX;
+    h.say("user_local", "use the other branch");
+    h.agents.wait_cancels(1);
+    let session = h
+        .brain
+        .state()
+        .turn
+        .as_ref()
+        .and_then(|t| t.session_id.clone())
+        .expect("the Chief turn's session");
+    // The tool call finishes and the turn answers anyway.
+    h.agents.append_events(
+        &session,
+        vec![
+            update(
+                "tool_call_update",
+                json!({"toolCallId": "long", "status": "completed", "content": [{"type": "content", "content": {"type": "text", "text": "done"}}]}),
+            ),
+            update(
+                "agent_message_chunk",
+                json!({"content": {"type": "text", "text": "STALE ANSWER"}}),
+            ),
+            json!({"dir": "mux", "kind": "turn_end", "msg": {}}),
+        ],
+    );
+    h.agents.hold(false);
+    h.agents.release();
+    h.settle_posts();
+    let prompts = prompt_texts(&h);
+    assert_eq!(prompts.len(), 2, "{prompts:?}");
+    assert!(
+        prompts[1].contains("use the other branch"),
+        "{}",
+        prompts[1]
+    );
+    let sends = h.owner.lock().unwrap().sends();
+    assert_eq!(sends.len(), 1, "only the next turn's reply: {sends:?}");
+    assert!(sends[0].1.contains("answer 1"), "{sends:?}");
+    assert!(
+        sends.iter().all(|(_, t)| !t.contains("STALE ANSWER")),
+        "the stopped turn's answer is not posted: {sends:?}"
+    );
+    assert_no_receipt(&h);
+}
+
+/// Each conversation keeps what its stopped turn owes: another
+/// conversation's stopped turn never takes it, overwrites it or drops its
+/// `ask` (a turn stopped in A while B waits, then B's turn stopped too).
+#[test]
+fn a_stopped_turns_carry_stays_with_its_conversation() {
+    use optchat_chief::state::HostState;
+    let a = Some("conv_a".to_owned());
+    let b = Some("conv_b".to_owned());
+    let mut state = HostState::default();
+    state.carry(a.clone(), vec!["a1".into()], true);
+    state.carry(b.clone(), vec!["b1".into()], false);
+    state.carry(b.clone(), vec!["b2".into()], false);
+    assert_eq!(state.carried(&a), (vec!["a1".to_owned()], true));
+    assert_eq!(
+        state.carried(&b),
+        (vec!["b1".to_owned(), "b2".to_owned()], false)
+    );
+    // B's next turn takes its own and leaves A's, through a save.
+    state.take_carry(&b);
+    let saved: HostState = serde_json::from_value(serde_json::to_value(&state).unwrap()).unwrap();
+    assert_eq!(saved.carried(&a), (vec!["a1".to_owned()], true));
+    assert_eq!(saved.carried(&b), (Vec::new(), false));
+}
+
+/// acpmux relaunches while the owner's message stops a turn: the next
+/// daemon is up before the stopped turn's runner reports its end (lost
+/// link). No other Up follows, so the next turn still starts at once, and
+/// the stopped turn's session is folded and ended.
+#[test]
+fn busy_chief_stopped_turn_ending_after_a_fast_reconnect_lets_the_next_turn_start() {
+    let mut h = Harness::new(busy_first_turn());
+    h.connect();
+    busy(&mut h);
+    h.agents.inner.lock().unwrap().ignore_cancels = usize::MAX;
+    h.say("user_local", "use the other branch");
+    h.agents.wait_cancels(1);
+    h.brain.step(Input::from(AgentEvent::Down));
+    h.brain.step(Input::from(AgentEvent::Up(Vec::new())));
+    h.agents.inner.lock().unwrap().lose = true;
+    h.agents.hold(false);
+    h.agents.release();
+    h.settle_posts();
+    let prompts = prompt_texts(&h);
+    assert_eq!(prompts.len(), 2, "{prompts:?}");
+    assert!(
+        prompts[1].contains("use the other branch"),
+        "{}",
+        prompts[1]
+    );
+    let sends = h.owner.lock().unwrap().sends();
+    assert_eq!(sends.len(), 1, "only the next turn's reply: {sends:?}");
+    assert!(sends[0].1.contains("answer 1"), "{sends:?}");
+    let ended = h.agents.inner.lock().unwrap().ended.clone();
+    assert!(ended.contains(&"s1".to_owned()), "{ended:?}");
+}
+
+/// The host restarts after the owner's message asked the turn to stop but
+/// before it ended, while its session still runs in acpmux. The stop was
+/// saved: the next host folds and ends that session at once instead of
+/// waiting for it, and a turn answers the message.
+#[test]
+fn busy_chief_restarted_before_its_stop_lands_never_waits_for_the_stopped_turn() {
+    let mut h = Harness::new(busy_first_turn());
+    h.connect();
+    busy(&mut h);
+    h.agents.inner.lock().unwrap().ignore_cancels = usize::MAX;
+    h.say("user_local", "use the other branch");
+    h.agents.wait_cancels(1);
+    assert!(
+        h.brain.state().turn.as_ref().is_some_and(|t| t.stopped),
+        "the stop is saved before the turn ends"
+    );
+    let (specs, events) = {
+        let inner = h.agents.inner.lock().unwrap();
+        (inner.specs.clone(), inner.events.clone())
+    };
+    let Harness {
+        dir,
+        chat,
+        owner,
+        brain,
+        ..
+    } = h;
+    drop(brain);
+    chat.shutdown();
+    drop(chat);
+    let mut h = Harness::in_dir(dir, default_script(), owner);
+    {
+        // The next acpmux still runs the stopped turn's session.
+        let mut inner = h.agents.inner.lock().unwrap();
+        inner.specs = specs;
+        inner.events = events;
+    }
+    h.connect();
+    h.settle_posts();
+    let ended = h.agents.inner.lock().unwrap().ended.clone();
+    assert!(ended.contains(&"s1".to_owned()), "{ended:?}");
+    let prompts = prompt_texts(&h);
+    assert!(
+        prompts.iter().any(|p| p.contains("use the other branch")),
+        "{prompts:?}"
+    );
+    let sends = h.owner.lock().unwrap().sends();
+    assert!(!sends.is_empty(), "the message is answered");
+    assert!(
+        sends.iter().all(|(_, t)| !t.contains("turn failed")),
+        "{sends:?}"
+    );
+}

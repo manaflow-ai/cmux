@@ -392,21 +392,11 @@ impl Brain {
             .filter(|_| self.prewarm_ours != Some(false));
         // What a stopped turn of this conversation answered: this turn
         // answers it too, with policy `ask` when it carried another
-        // person's text.
-        let carry = self.state.carry_for.is_none() || self.state.carry_for == conversation;
-        let carried_ask = carry && self.state.carry_ask;
-        let mut answers = if carry {
-            self.state.carry_answers.clone()
-        } else {
-            Vec::new()
-        };
+        // person's text. Other conversations' carries wait for their turns.
+        let (mut answers, carried_ask) = self.state.carried(&conversation);
         add_answers(&mut answers, self.answers_of(&items));
         let done = self.log_items(&items, move |next, done| {
-            if carry {
-                next.carry_answers.clear();
-                next.carry_for = None;
-                next.carry_ask = false;
-            }
+            next.take_carry(&conversation);
             let first = done.ids.first().copied().unwrap_or(first_id);
             let stamp = done.stamps.first().map(String::as_str).unwrap_or("");
             next.turn = Some(PendingTurn {
@@ -416,6 +406,7 @@ impl Brain {
                 first_id: Some(first_id),
                 items: opening,
                 answers,
+                ask: carried_ask,
                 ..PendingTurn::default()
             });
         })?;
@@ -432,6 +423,7 @@ impl Brain {
             self.set_typing(true);
         }
         self.phase = Phase::Running;
+        self.turn_link = self.agents_link;
         self.stop_wanted = false;
         self.tool_stopped = false;
         self.denial_stopped = None;
@@ -901,6 +893,12 @@ impl Brain {
                 "turn {}: a new message arrived; stopping it so the next turn answers",
                 key.unwrap_or_default()
             ));
+            // Saved before the cancel goes: a restart before the turn ends
+            // folds and ends its session instead of waiting for it.
+            if let Some(turn) = self.state.turn.as_mut() {
+                turn.stopped = true;
+                self.save();
+            }
         }
         self.stop_wanted = true;
         self.interrupt.request_hard();
@@ -1179,11 +1177,12 @@ impl Brain {
             .filter(|t| t.key == key)
             .and_then(|t| t.conversation.clone());
         let done_conversation = conversation.clone();
-        // A turn stopped for the owner's newer message posts nothing, not
-        // even a failure when it ended in an error rather than a clean
-        // cancel: the next turn, which starts now with that message, answers
-        // both ("no fake messages", Lawrence 2026-10-21).
-        let superseded = self.stop_wanted && (outcome.cancelled || outcome.error.is_some());
+        // A turn stopped for the owner's newer message posts nothing, however
+        // it ended: cancelled, in an error, or with an answer that raced the
+        // stop (the stop was accepted). The next turn, which starts now with
+        // that message, answers both ("no fake messages", Lawrence
+        // 2026-10-21).
+        let superseded = self.stop_wanted;
         self.trace_end(key, &outcome, superseded);
         // A failure names the harness that ran the turn, and the one it
         // stood in for when acpmux moved the session onto a fallback.
@@ -1271,6 +1270,7 @@ impl Brain {
             (self.log)(&format!("turn {key} stopped for a newer message"));
         }
         let stopped_ask = superseded && self.turn_ask;
+        let mut adopt_now = false;
         self.turn_ask = false;
         self.turn_denied.clear();
         self.repeat_denials = 0;
@@ -1278,9 +1278,15 @@ impl Brain {
         if let Some(mut orphan) = outcome.orphan {
             // A stopped turn's session lost with the link is folded and
             // ended at the next connect, never waited for.
+            // When the next daemon's Up came before this end (it can
+            // overtake the turn's runner), no Up follows: it is adopted now.
             orphan.stopped = superseded || owner_stopped;
             if orphan.stopped {
-                self.agents_up = false;
+                if self.agents_link == self.turn_link {
+                    self.agents_up = false;
+                } else {
+                    adopt_now = self.agents_up;
+                }
             }
             self.state.orphans.push(orphan);
         }
@@ -1309,9 +1315,8 @@ impl Brain {
             .map(|t| t.answers.clone())
             .unwrap_or_default();
         if superseded {
-            add_answers(&mut self.state.carry_answers, answers.clone());
-            self.state.carry_for = conversation.clone();
-            self.state.carry_ask |= stopped_ask;
+            self.state
+                .carry(conversation.clone(), answers.clone(), stopped_ask);
         } else if !answers.is_empty() {
             self.state.last_answers = answers.clone();
         }
@@ -1406,6 +1411,9 @@ impl Brain {
         self.state.turn = None;
         self.stop_wanted = false;
         self.save_with(extra);
+        if adopt_now {
+            self.adopt_orphans(false);
+        }
         self.flush_outbox();
         // After the reply: a client drops the draft as the message lands.
         if let (Some(done), Some(conversation)) = (outcome_done, &done_conversation) {

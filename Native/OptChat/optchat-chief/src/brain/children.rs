@@ -27,6 +27,7 @@ impl Brain {
         match event {
             AgentEvent::Up(sessions) => {
                 self.agents_up = true;
+                self.agents_link += 1;
                 self.reap_closed_compactor_sessions(&sessions);
                 self.reconcile_spawns(&sessions);
                 // Only the Chief's own children: the compactor and turn

@@ -59,7 +59,9 @@ pub(super) fn recover(chat: &OptChat, state: &mut HostState, acpmux: bool) -> Ve
     }
     let mut human = false;
     let mut remote = false;
-    let mut requires_approval = false;
+    // A turn that took over another person's text from a stopped turn
+    // runs again with policy `ask` too.
+    let mut requires_approval = turn.ask;
     // The cut messages' full text, in log order (the resume turn's).
     let mut cut: Vec<String> = Vec::new();
     for (k, (at, items, done)) in batches.iter().enumerate() {
@@ -154,7 +156,9 @@ pub(super) fn recover(chat: &OptChat, state: &mut HostState, acpmux: bool) -> Ve
             state.orphans.push(Orphan {
                 session,
                 after,
-                stopped: false,
+                // The owner's message stopped it: folded and ended, never
+                // waited for.
+                stopped: turn.stopped,
             });
             Vec::new()
         }

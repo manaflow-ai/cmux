@@ -344,6 +344,55 @@ fn the_owners_message_that_stops_another_persons_turn_keeps_the_next_turn_asking
     );
 }
 
+/// The turn that took over a stopped teammate's turn keeps policy `ask`
+/// when it runs again: an upstream error cuts it, and its resume (built
+/// from the pending turn, whose new items are the owner's alone) still
+/// asks.
+#[test]
+fn the_turn_after_a_stopped_teammates_turn_still_asks_when_it_runs_again() {
+    // The first two turns never end on their own; the third answers.
+    let mut h = shared(Box::new(|turn, _| {
+        let mut events = vec![json!({"dir": "mux", "kind": "turn_started", "msg": {}})];
+        if turn >= 2 {
+            events.push(update(
+                "agent_message_chunk",
+                json!({"content": {"type": "text", "text": "done"}}),
+            ));
+            events
+                .push(json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}}));
+        }
+        events
+    }));
+    h.brain.set_upstream_resume_backoff(vec![Duration::ZERO]);
+    teammate_turn(&mut h, "@Chief clean the build directory");
+    deliver_mention(
+        &mut h,
+        "user_local",
+        "@Chief what did the teammate ask for?",
+    );
+    h.agents.wait_cancels(1);
+    // The owner's turn starts, held, and then fails once with a passing
+    // upstream error.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while h.agents.inner.lock().unwrap().prompts.len() < 2 {
+        assert!(Instant::now() < deadline, "the next turn never started");
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(10)) {
+            h.brain.step(input);
+        }
+    }
+    h.agents.inner.lock().unwrap().answer_error =
+        Some("API Error: 502 upstream request failed".into());
+    finish(&mut h);
+    let specs = h.agents.inner.lock().unwrap().specs.len();
+    assert_eq!(specs, 3, "the stopped turn, the cut one and its resume");
+    assert_eq!(policy(&h, 1), "ask");
+    assert_eq!(
+        policy(&h, 2),
+        "ask",
+        "the resume still answers the teammate"
+    );
+}
+
 #[test]
 fn a_refused_request_asked_for_again_and_again_stops_the_turn() {
     let mut h = shared(started());

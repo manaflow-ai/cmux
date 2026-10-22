@@ -607,6 +607,11 @@ pub struct Brain {
     queue: VecDeque<Queued>,
     phase: Phase,
     agents_up: bool,
+    /// acpmux connects seen (each `Up`), and the count when the running
+    /// turn started: a turn whose link was lost can tell whether the next
+    /// daemon's Up came already.
+    agents_link: u64,
+    turn_link: u64,
     sessions: HashMap<String, SessionSummary>,
     /// Turn sessions left by a host that stopped mid-turn before it knew
     /// their id, removed by name once acpmux is up.
@@ -827,6 +832,8 @@ impl Brain {
             queue: VecDeque::new(),
             phase: Phase::Idle,
             agents_up: false,
+            agents_link: 0,
+            turn_link: 0,
             sessions: HashMap::new(),
             stale_sessions,
             outbox_timer: None,
