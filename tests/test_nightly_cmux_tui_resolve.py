@@ -84,7 +84,7 @@ def tooling_checkout(body: str) -> "str | None":
     """The publication-tooling checkout of a job: `ref: github.sha` into .publish-tooling whose
     whole sparse-checkout value names only paths under scripts/, nothing else (a `/*` line would
     be the whole tree at the workflow's commit). The text to drop before the build-ref check."""
-    match = re.search(r"^(\s+)ref: \$\{\{ github\.sha \}\}\n\1path: \.publish-tooling\n\1sparse-checkout: (.*)\n", body, re.MULTILINE)
+    match = re.search(r"^( +)ref: \$\{\{ github\.sha \}\}\n\1path: \.publish-tooling\n\1sparse-checkout: (.*)\n", body, re.MULTILINE)
     if not match:
         return None
     indent, value = match.group(1), match.group(2).strip()
@@ -119,6 +119,9 @@ check(tooling_checkout("          ref: ${{ github.sha }}\n          path: .publi
 check(tooling_checkout("          ref: ${{ github.sha }}\n          path: .publish-tooling\n          sparse-checkout: scripts\n\n"
                        "            /*\n          sparse-checkout-cone-mode: false\n") is None,
       "a `/*` continuing the inline sparse value must not be exempt")
+check(tooling_checkout("\n  ref: ${{ github.sha }}\n\n  path: .publish-tooling\n\n  sparse-checkout: scripts\n\n    /*\n"
+                       "  sparse-checkout-cone-mode: false\n") is None,
+      "blank lines between the keys must not hide a `/*` continuation")
 check(tooling_checkout("          ref: ${{ github.sha }}\n          path: .publish-tooling\n          sparse-checkout: scripts\n"
                        "          sparse-checkout-cone-mode: false\n") is not None,
       "a sibling key after the inline sparse value ends it")
