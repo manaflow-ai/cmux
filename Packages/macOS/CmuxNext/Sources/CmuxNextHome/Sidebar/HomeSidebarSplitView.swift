@@ -130,7 +130,7 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     }
 
     private func updateChatCompose() {
-        chatColumn.showsCompose = HomeSidebarHeaderLayout.isCompact(width: sidebarWidth) && !composing
+        chatColumn.showsCompose = !composing
     }
 
     /// A narrow column squeezing a list of one conversation (only the Chief) to avatars would leave
