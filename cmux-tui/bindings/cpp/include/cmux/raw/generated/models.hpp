@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298";
+inline constexpr std::string_view kProtocolIrSha256 = "14d8af5728debdd6caf62cd0f2d9bf34926b4672256abd95cb286e193dce9275";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -120,6 +120,7 @@ struct SetTerminalIdlePolicyResult;
 struct ShutdownDaemonResult;
 struct SidebarPluginResult;
 struct Size;
+enum class SizeActivityKind;
 struct SizeDetachActor;
 enum class SizeDeviceKind;
 enum class SizeMode;
@@ -1833,7 +1834,13 @@ struct NewWorkspaceRequest {
     friend bool operator==(const NewWorkspaceRequest&, const NewWorkspaceRequest&) = default;
 };
 
+enum class SizeActivityKind {
+    input,
+    focus,
+};
+
 struct NoteSizeActivityRequest {
+    Field<SizeActivityKind> kind{};
     Id surface{};
     Field<std::string> view{};
     friend bool operator==(const NoteSizeActivityRequest&, const NoteSizeActivityRequest&) = default;
@@ -3619,6 +3626,12 @@ template <>
 struct Codec<Size> {
     static Result<Json> encode(const Size& value);
     static Result<Size> decode(const Json& value);
+};
+
+template <>
+struct Codec<SizeActivityKind> {
+    static Result<Json> encode(const SizeActivityKind& value);
+    static Result<SizeActivityKind> decode(const Json& value);
 };
 
 template <>

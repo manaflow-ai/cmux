@@ -16,7 +16,7 @@ import Testing
 
     private func state(generation: UInt64, cols: Int = 200, rows: Int = 60) -> TerminalSizingState {
         var engine = TerminalSizingEngine(initialSize: TerminalGridSize(cols: 80, rows: 24))
-        engine.attach(me.participant(id: "mac:host", deviceKind: .mac, viewport: TerminalGridSize(cols: cols, rows: rows)))
+        engine.attach(me.participant(id: "mac:host", deviceKind: .mac, viewport: TerminalGridSize(cols: cols, rows: rows)), at: 0)
         var state = engine.state
         state.generation = generation
         return state

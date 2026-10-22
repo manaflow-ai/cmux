@@ -3,7 +3,8 @@
 //! Decides the PTY grid of one shared terminal. Pure and synchronous: the
 //! host feeds attach, detach, viewport, activity, counts and policy events and
 //! publishes [`TerminalSizingEngine::state`] whenever a mutation returns
-//! `true`.
+//! `true`. Attach and activity carry the host's monotonic clock in
+//! milliseconds, so the reducer never reads a clock itself.
 //!
 //! This is the Rust twin of `Packages/Shared/CmuxTerminalSizing`
 //! (`TerminalSizingEngine.swift`). Both replay
@@ -252,6 +253,24 @@ impl TerminalDetachActor {
     }
 }
 
+/// How long the owner keeps the grid against input from another participant
+/// after the owner's own last activity. Keep equal to
+/// `TerminalSizingEngine.activityHoldMilliseconds` in Swift and
+/// docs/shared-terminal-sizing.md.
+pub const ACTIVITY_HOLD_MS: u64 = 2000;
+
+/// What kind of activity a participant showed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TerminalSizingActivityKind {
+    /// Keyboard, paste or mouse input. Waits for the owner's hold.
+    #[default]
+    Input,
+    /// An explicit focus-click (or "Size to My Window"). Takes the grid at
+    /// once.
+    Focus,
+}
+
 /// Wire values of the `reason` field on a `detached` event.
 pub mod detach_reason {
     pub const NETWORK: &str = "network";
@@ -263,7 +282,10 @@ pub mod detach_reason {
 #[derive(Clone, Debug)]
 struct Entry {
     participant: TerminalSizingParticipant,
+    /// Event order of the latest attach or recorded activity.
     activity: u64,
+    /// Host clock (ms) of the latest attach or recorded activity.
+    active_at: u64,
 }
 
 /// Decides the PTY grid of one shared terminal.
@@ -309,12 +331,14 @@ impl TerminalSizingEngine {
 
     // Mutations. Each returns true when the published state changed.
 
-    /// Adds a view, or replaces one with the same id. Attach counts as activity.
-    pub fn attach(&mut self, participant: TerminalSizingParticipant) -> bool {
+    /// Adds a view, or replaces one with the same id. Attach counts as
+    /// activity and ignores the owner's hold. `at` is the host's monotonic
+    /// clock in milliseconds.
+    pub fn attach(&mut self, participant: TerminalSizingParticipant, at: u64) -> bool {
         self.activity_clock += 1;
         let mut participant = participant;
         participant.viewport = participant.viewport.map(TerminalGridSize::clamped);
-        let entry = Entry { participant, activity: self.activity_clock };
+        let entry = Entry { participant, activity: self.activity_clock, active_at: at };
         match self.index(&entry.participant.id) {
             Some(index) => self.entries[index] = entry,
             None => self.entries.push(entry),
@@ -335,10 +359,27 @@ impl TerminalSizingEngine {
     }
 
     /// Explicit focus-click or keyboard, paste or mouse input. Never hover.
-    pub fn note_activity(&mut self, id: &str) -> bool {
+    ///
+    /// The owner's own activity always refreshes its hold. Input from another
+    /// participant that would move the grid is dropped while the owner has
+    /// been active within [`ACTIVITY_HOLD_MS`]; focus never waits. `at` is the
+    /// host's monotonic clock in milliseconds.
+    pub fn note_activity(&mut self, id: &str, kind: TerminalSizingActivityKind, at: u64) -> bool {
         let Some(index) = self.index(id) else { return false };
+        if kind == TerminalSizingActivityKind::Input
+            && self.holding_owner(at).is_some_and(|owner| owner != id)
+        {
+            let mut next = self.entries.clone();
+            next[index].activity = self.activity_clock + 1;
+            next[index].active_at = at;
+            let counting = next.iter().filter(|entry| self.entry_counts(entry)).collect::<Vec<_>>();
+            if self.decide(&counting).1 != self.state.owners {
+                return false;
+            }
+        }
         self.activity_clock += 1;
         self.entries[index].activity = self.activity_clock;
+        self.entries[index].active_at = at;
         self.publish()
     }
 
@@ -435,6 +476,22 @@ impl TerminalSizingEngine {
                 && other.viewport.is_some()
                 && other.counts_override != Some(false)
         })
+    }
+
+    /// The single owner picked by activity, while it is inside its hold.
+    fn holding_owner(&self, at: u64) -> Option<&str> {
+        if !matches!(
+            self.state.reason,
+            TerminalSizingReason::Latest
+                | TerminalSizingReason::Priority
+                | TerminalSizingReason::PriorityFallback
+        ) {
+            return None;
+        }
+        let [owner] = self.state.owners.as_slice() else { return None };
+        let entry = self.entries.iter().find(|entry| &entry.participant.id == owner)?;
+        // A clock that went backwards counts as inside the hold.
+        (at < entry.active_at || at - entry.active_at < ACTIVITY_HOLD_MS).then_some(owner.as_str())
     }
 
     fn decide(&self, counting: &[&Entry]) -> (TerminalGridSize, Vec<String>, TerminalSizingReason) {
@@ -570,7 +627,7 @@ mod tests {
                     "attach" => {
                         let participant: TerminalSizingParticipant =
                             serde_json::from_value(step["participant"].clone()).unwrap();
-                        engine.attach(participant);
+                        engine.attach(participant, step["at"].as_u64().expect("attach at"));
                     }
                     "detach" => {
                         engine.detach(id);
@@ -579,7 +636,11 @@ mod tests {
                         engine.report(id, size(step));
                     }
                     "activity" => {
-                        engine.note_activity(id);
+                        let kind = match step.get("kind") {
+                            Some(kind) => serde_json::from_value(kind.clone()).unwrap(),
+                            None => TerminalSizingActivityKind::Input,
+                        };
+                        engine.note_activity(id, kind, step["at"].as_u64().expect("activity at"));
                     }
                     "set_counts" => {
                         engine.set_counts_override(id, step["counts_override"].as_bool());
@@ -655,15 +716,18 @@ mod tests {
             TerminalGridSize::new(80, 24),
             TerminalSizingPolicy::new(TerminalSizingMode::Latest, Vec::new(), None),
         );
-        engine.attach(TerminalSizingParticipant {
-            id: "c3".into(),
-            user_id: Some("u_maya".into()),
-            display_name: Some("Maya Ortiz".into()),
-            device_kind: TerminalDeviceKind::Mac,
-            device_name: Some("Mac Studio".into()),
-            viewport: Some(TerminalGridSize::new(118, 38)),
-            ..TerminalSizingParticipant::default()
-        });
+        engine.attach(
+            TerminalSizingParticipant {
+                id: "c3".into(),
+                user_id: Some("u_maya".into()),
+                display_name: Some("Maya Ortiz".into()),
+                device_kind: TerminalDeviceKind::Mac,
+                device_name: Some("Mac Studio".into()),
+                viewport: Some(TerminalGridSize::new(118, 38)),
+                ..TerminalSizingParticipant::default()
+            },
+            0,
+        );
         let wire = serde_json::to_value(engine.state()).unwrap();
         assert_eq!(
             wire,
@@ -693,8 +757,8 @@ mod tests {
         a.viewport = Some(TerminalGridSize::new(100, 30));
         let mut b = TerminalSizingParticipant::new("b", TerminalDeviceKind::Tui);
         b.viewport = Some(TerminalGridSize::new(90, 20));
-        engine.attach(a.clone());
-        engine.attach(b);
+        engine.attach(a.clone(), 0);
+        engine.attach(b, 10_000);
         assert_eq!(engine.state().owners, ["b"]);
         a.display_name = Some("renamed".into());
         assert!(engine.update_identity(&a));

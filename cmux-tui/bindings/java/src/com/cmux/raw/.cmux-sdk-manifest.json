@@ -812,8 +812,8 @@
     },
     {
       "path": "NoteSizeActivityRequest.java",
-      "sha256": "2088ea8ae0fb61a81a28f92f7636fca7788f9bc62f1e0e3931b943b8e120f1e3",
-      "size": 2683
+      "sha256": "effe40fe1141835b9604fdfe108acfec42aabf1a078987590a366a81af6a41e6",
+      "size": 3300
     },
     {
       "path": "NoteSizeActivityResult.java",
@@ -932,7 +932,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "5f8f26287b7d0d48eddb7d1847c31fd91d458d8a9d6dce38c64b84ab5ac1dbf6",
+      "sha256": "ef1f04f51d2b192915920be0d0ead9a9bf586466f882e0560f4b28bdab21a84c",
       "size": 4325
     },
     {
@@ -1361,6 +1361,11 @@
       "size": 2323
     },
     {
+      "path": "SizeActivityKind.java",
+      "sha256": "9f76d11db5df6ef47434c1e1c8295b96694be60e3f0bea090eccc2f8b0e6aa90",
+      "size": 900
+    },
+    {
       "path": "SizeDetachActor.java",
       "sha256": "88545d6802717287160e8cfeefc721b74ab5ce4c4274b59c643f300e1ef2bd1c",
       "size": 3313
@@ -1732,7 +1737,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298",
+  "ir_sha256": "14d8af5728debdd6caf62cd0f2d9bf34926b4672256abd95cb286e193dce9275",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

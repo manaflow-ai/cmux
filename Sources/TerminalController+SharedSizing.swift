@@ -65,7 +65,7 @@ extension TerminalController {
         if let viewport = localSizingControllersBySurfaceID[surfaceID]?.naturalViewport() {
             host.updateMacViewport(viewport)
         }
-        host.syncPhones(Array(phoneParticipants(reports: reports, surfaceID: surfaceID).values))
+        host.syncPhones(Array(phoneParticipants(reports: reports, surfaceID: surfaceID).values), at: localSizingClock.milliseconds)
         if let countsOverride {
             host.setCountsOverride(
                 LocalTerminalSizingHost.phoneParticipantID(clientID: countsOverride.clientID),
@@ -133,7 +133,8 @@ extension TerminalController {
                 deviceKind: .mac,
                 viewport: viewport
             ),
-            initialSize: viewport
+            initialSize: viewport,
+            at: localSizingClock.milliseconds
         )
         localSizingHostsBySurfaceID[surfaceID] = host
         localSizingControllersBySurfaceID[surfaceID] = controller
@@ -203,13 +204,16 @@ extension TerminalController {
         applyLocalSizing(surfaceID: surfaceID, previous: previous, reason: "mac.viewport")
     }
 
-    /// Explicit keyboard, paste or mouse input on the Mac pane. O(1) when the
+    /// Explicit keyboard, paste or mouse input on the Mac pane (`.input`), or
+    /// an explicit claim such as Size to My Window (`.focus`). O(1) when the
     /// terminal is not shared, because it runs on every keystroke.
-    func noteLocalTerminalSizingActivity(surfaceID: UUID) {
+    func noteLocalTerminalSizingActivity(surfaceID: UUID, kind: TerminalSizingActivityKind = .input) {
         guard var host = localSizingHostsBySurfaceID[surfaceID] else { return }
         let previous = host.state
-        guard host.noteActivity(host.macParticipantID) else { return }
+        let changed = host.noteActivity(host.macParticipantID, kind: kind, at: localSizingClock.milliseconds)
+        // Store even without a change: the owner's own input refreshes its hold.
         localSizingHostsBySurfaceID[surfaceID] = host
+        guard changed else { return }
         applyLocalSizing(surfaceID: surfaceID, previous: previous, reason: "mac.activity")
     }
 
@@ -224,8 +228,14 @@ extension TerminalController {
         }
         guard var host = localSizingHostsBySurfaceID[surfaceID] else { return }
         let previous = host.state
-        guard host.noteActivity(LocalTerminalSizingHost.phoneParticipantID(clientID: clientID)) else { return }
+        let changed = host.noteActivity(
+            LocalTerminalSizingHost.phoneParticipantID(clientID: clientID),
+            kind: .input,
+            at: localSizingClock.milliseconds
+        )
+        // Store even without a change: the owner's own input refreshes its hold.
         localSizingHostsBySurfaceID[surfaceID] = host
+        guard changed else { return }
         applyLocalSizing(surfaceID: surfaceID, previous: previous, reason: "mobile.activity")
     }
 
@@ -495,8 +505,9 @@ extension TerminalController {
         return true
     }
 
+    /// Size to My Window: an explicit claim, so it skips the typing hold.
     func localSizingNoteSelfActivity(surfaceID: UUID) {
-        noteLocalTerminalSizingActivity(surfaceID: surfaceID)
+        noteLocalTerminalSizingActivity(surfaceID: surfaceID, kind: .focus)
     }
 
     /// Reattaches this Mac pane's view after someone disconnected it.
@@ -506,7 +517,7 @@ extension TerminalController {
             host.updateMacViewport(viewport)
         }
         let previous = host.state
-        guard host.reattach(host.macParticipantID, asViewer: asViewer) else { return false }
+        guard host.reattach(host.macParticipantID, asViewer: asViewer, at: localSizingClock.milliseconds) else { return false }
         localSizingHostsBySurfaceID[surfaceID] = host
         applyLocalSizing(surfaceID: surfaceID, previous: previous, immediate: true, reason: "terminal.participant.reattach.mac")
         return true
@@ -565,7 +576,11 @@ extension TerminalController {
         cloudDetachedPhonesBySurfaceID[surfaceID]?[clientID] = nil
         if cloudDetachedPhonesBySurfaceID[surfaceID]?.isEmpty == true { cloudDetachedPhonesBySurfaceID[surfaceID] = nil }
         if var host = localSizingHostsBySurfaceID[surfaceID] {
-            host.reattach(LocalTerminalSizingHost.phoneParticipantID(clientID: clientID), asViewer: asViewer)
+            host.reattach(
+                LocalTerminalSizingHost.phoneParticipantID(clientID: clientID),
+                asViewer: asViewer,
+                at: localSizingClock.milliseconds
+            )
             localSizingHostsBySurfaceID[surfaceID] = host
         }
         var replayParams = params

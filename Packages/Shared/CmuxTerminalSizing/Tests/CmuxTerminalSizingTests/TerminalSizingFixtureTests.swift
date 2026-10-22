@@ -24,9 +24,11 @@ struct TerminalSizingFixtureTests {
         var priorityKeys: [String: String]?
         var policy: TerminalSizingPolicy?
         var countsOverride: Bool??
+        var at: UInt64?
+        var kind: TerminalSizingActivityKind?
 
         enum CodingKeys: String, CodingKey {
-            case op, participant, id, cols, rows, owners, reason, generation, counts, policy
+            case op, participant, id, cols, rows, owners, reason, generation, counts, policy, at, kind
             case countsOverride = "counts_override"
             case priorityKeys = "priority_keys"
         }
@@ -44,6 +46,8 @@ struct TerminalSizingFixtureTests {
             counts = try c.decodeIfPresent([String: Bool].self, forKey: .counts)
             priorityKeys = try c.decodeIfPresent([String: String].self, forKey: .priorityKeys)
             policy = try c.decodeIfPresent(TerminalSizingPolicy.self, forKey: .policy)
+            at = try c.decodeIfPresent(UInt64.self, forKey: .at)
+            kind = try c.decodeIfPresent(TerminalSizingActivityKind.self, forKey: .kind)
             countsOverride = c.contains(.countsOverride) ? .some(try c.decodeIfPresent(Bool.self, forKey: .countsOverride)) : nil
         }
     }
@@ -62,11 +66,12 @@ struct TerminalSizingFixtureTests {
         var engine = TerminalSizingEngine(initialSize: fixture.initial)
         for (index, step) in fixture.steps.enumerated() {
             switch step.op {
-            case "attach": engine.attach(try #require(step.participant))
+            case "attach": engine.attach(try #require(step.participant), at: try #require(step.at))
             case "detach": engine.detach(try #require(step.id))
             case "report":
                 engine.report(try #require(step.id), viewport: TerminalGridSize(cols: try #require(step.cols), rows: try #require(step.rows)))
-            case "activity": engine.noteActivity(try #require(step.id))
+            case "activity":
+                engine.noteActivity(try #require(step.id), kind: step.kind ?? .input, at: try #require(step.at))
             case "set_counts": engine.setCountsOverride(try #require(step.id), try #require(step.countsOverride))
             case "set_policy": engine.setPolicy(try #require(step.policy))
             case "expect":
@@ -89,7 +94,8 @@ struct TerminalSizingFixtureTests {
     @Test func stateRoundTripsThroughWireJSON() throws {
         var engine = TerminalSizingEngine(initialSize: TerminalGridSize(cols: 80, rows: 24))
         engine.attach(TerminalSizingParticipant(id: "c3", userID: "u_maya", displayName: "Maya", deviceKind: .mac,
-                                                deviceName: "Mac Studio", viewport: TerminalGridSize(cols: 118, rows: 38)))
+                                                deviceName: "Mac Studio", viewport: TerminalGridSize(cols: 118, rows: 38)),
+                      at: 0)
         let data = try JSONEncoder().encode(engine.state)
         let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         let row = try #require((object["participants"] as? [[String: Any]])?.first)

@@ -582,6 +582,13 @@
     "error"
    ]
   },
+  "SizeActivityKind": {
+   "kind": "enum",
+   "values": [
+    "input",
+    "focus"
+   ]
+  },
   "AgentState": {
    "kind": "enum",
    "values": [
@@ -11614,6 +11621,18 @@
       "default": null,
       "constraints": [
        "Relay sub-view of this connection; omitted marks the caller's own view."
+      ]
+     },
+     "kind": {
+      "type": {
+       "kind": "ref",
+       "name": "SizeActivityKind"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": "input",
+      "constraints": [
+       "input waits until the grid owner has been idle for 2000 ms; focus takes the grid at once."
       ]
      }
     },
