@@ -404,7 +404,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     y += m.groupBottomPadding
                 }
             }
-            // Group by Folder lists groups and document items (links, tabs, apps) as they are.
+            // Group by Folder lists groups, document items and every folder's rows as they are: no Done fold, no row limit.
             func isGroup(_ entry: (node: SidebarNode, children: [SidebarWorkspace])) -> Bool {
                 if case .workspace = entry.node { false } else { true }
             }
