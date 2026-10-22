@@ -20,6 +20,7 @@ import {
   type CardInput,
   type CardState,
 } from "./cardState";
+import { inlineText } from "./inlineText";
 import {
   declineReply,
   hasPreviews,
@@ -316,7 +317,7 @@ function PendingQuestion({
     >
       <legend id={legendId} className="acpmux-question-head">
         <span className="acpmux-hidden-label">{t("question.asking", { agent })}</span>
-        <span className="acpmux-question-prompt">{item.prompt}</span>
+        <span className="acpmux-question-prompt">{inlineText(item.prompt)}</span>
         {item.header && <span className="acpmux-question-chip">{item.header}</span>}
       </legend>
       {state.question.items.length > 1 && (
@@ -359,8 +360,8 @@ function PendingQuestion({
               >
                 <ChoiceMark multi={multi} chosen={chosen} />
                 <span className="acpmux-question-text">
-                  <span className="acpmux-question-label">{option.label}</span>
-                  {option.detail && <span className="acpmux-question-detail">{option.detail}</span>}
+                  <span className="acpmux-question-label">{inlineText(option.label)}</span>
+                  {option.detail && <span className="acpmux-question-detail">{inlineText(option.detail)}</span>}
                 </span>
               </button>
             );

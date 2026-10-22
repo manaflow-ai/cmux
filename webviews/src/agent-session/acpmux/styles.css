@@ -706,6 +706,8 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question-text{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
 .acpmux-question-label{line-height:19px;font-weight:var(--weight-emphasis);overflow-wrap:anywhere}
 .acpmux-question-detail{color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);overflow-wrap:anywhere}
+/* Inline marks in a question, an option or its description (question/inlineText.tsx): code as the transcript's inline code, a tint behind the mono face at the line's own size. */
+.acpmux-question-code{padding:0.5px 4px;border-radius:4px;background:color-mix(in srgb,var(--agent-text) 10%,transparent);font-family:var(--cv-code-font,var(--cv-mono,ui-monospace,"SF Mono",Menlo,monospace));font-size:0.92em;overflow-wrap:anywhere}
 .acpmux-question-mark{flex:none;position:relative;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:16px;height:16px;margin-top:1.5px;border:1px solid color-mix(in srgb,var(--agent-text) 35%,transparent);border-radius:50%;color:var(--agent-page-bg,var(--acpmux-base))}
 .acpmux-question-mark[data-multi]{border-radius:4px}
 .acpmux-question-mark[data-chosen]{border-color:var(--agent-text)}
