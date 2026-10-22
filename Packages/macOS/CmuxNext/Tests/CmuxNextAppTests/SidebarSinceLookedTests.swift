@@ -73,6 +73,9 @@ import Testing
         }
         #expect(store.stamps.count == 50)
         #expect(defaults.writes <= 1, "50 stamps wrote defaults \(defaults.writes) times")
+        store.flush()
+        #expect(defaults.writes == 1, "a flush writes the pending stamps once")
+        #expect(SidebarLookedStore(defaults: defaults).stamps.count == 50, "the stamps read back")
     }
 }
 
