@@ -106,6 +106,8 @@ test("the pointer on Other shows the highlighted option's preview, not the last 
   const card = await render(withPreviews());
   await pointer(row(card, 1), "mouseover", null);
   expect(previewLabel(card)).toBe("Preview of Tabs");
+  // As a browser does when the pointer moves from one row to the next: out of Tabs, over Other.
+  await pointer(row(card, 1), "mouseout", row(card, 3));
   await pointer(row(card, 3), "mouseover", row(card, 1));
   expect(previewLabel(card)).toBe("Preview of Sidebar");
 });
