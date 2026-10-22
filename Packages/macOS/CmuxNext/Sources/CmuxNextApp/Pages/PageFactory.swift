@@ -195,6 +195,9 @@ struct PageFactory {
                       PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
                       PageRoute(prefix: "cmux.settings.mobile.", provider: MobilePageProvider(host: services.iphone)),
+                      PageRoute(prefix: TailnetNodePageRoute.prefix, provider: TailnetNodePageRoute(
+                          service: services.tailnetNode, enabled: { [weak services] in services?.settings?.snapshot.previewFeatures == true },
+                          copy: { CloudPresenter.copy($0) })),
                       PageRoute(prefix: ChannelsPageProvider.prefix, provider: ChannelsPageProvider(updater: services.updater)),
                       // Chief > Voice input: the home.voiceInput tunable (DEV and NIGHTLY).
                       PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute())]
