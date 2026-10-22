@@ -132,9 +132,11 @@ def plan_issues(found: Iterable[Mapping[str, Any]], open_issues: Iterable[Mappin
 def sync_issues(github: Any, found: Sequence[Mapping[str, Any]], generated_at: str) -> list[str]:
     """Open, update and close the per-label issues; returns one line per action."""
     repo = github.repo
-    query = urllib.parse.urlencode({"labels": ISSUE_LABEL, "state": "open", "per_page": 100})
-    open_issues = [issue for issue in github.request("GET", f"/repos/{repo}/issues?{query}") or []
-                   if "pull_request" not in issue]
+    # Found by title, not by ISSUE_LABEL: GitHub drops a label that does not exist yet when the token
+    # cannot create it, and a lookup by label would then open a new issue every sweep.
+    query = urllib.parse.urlencode({"q": f'repo:{repo} is:issue is:open in:title "{ISSUE_PREFIX.strip()}"',
+                                    "per_page": 100})
+    open_issues = (github.request("GET", f"/search/issues?{query}") or {}).get("items") or []
     plan = plan_issues(found, open_issues)
     lines = []
     for entry in plan.open:
