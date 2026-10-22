@@ -472,7 +472,7 @@ export function QuickModelMenu({
         {children}
       </MenuButton>
       <MenuPopup
-        side="bottom"
+        side="top"
         align="start"
         label={t("picker.model")}
         className={families ? "acpmux-quick-menu acpmux-quick-railed" : "acpmux-quick-menu"}
