@@ -1002,6 +1002,9 @@ pub struct Served {
     /// caller under one of its subagents is a subagent whatever it says.
     /// None: no caller is a turn.
     pub turn: Option<crate::turn_caller::TurnBinding>,
+    /// The Chiefs on other machines (peer_chiefs.rs): `tell("chief:<name>")`
+    /// posts to them through the agent hub and `chiefs` lists them. None: off.
+    pub peers: Option<Arc<crate::peer_chiefs::PeerChiefs>>,
 }
 
 /// Serves the tools on `path` until the process ends. The host holds the
@@ -1025,6 +1028,7 @@ pub fn serve_with(
             inspector: None,
             chief: None,
             turn: None,
+            peers: None,
         },
     )
 }
@@ -1292,7 +1296,11 @@ fn connection(conn: UnixStream, served: &Served) {
                             if chief.is_turn(turn_key.as_deref())
                                 && role() == crate::turn_caller::Role::Turn =>
                         {
-                            chief.chiefs_call(&args)
+                            let answer = chief.chiefs_call(&args);
+                            match &served.peers {
+                                Some(peers) => peers.merge_list(&args, answer),
+                                None => answer,
+                            }
                         }
                         Some(_) => Err(NOT_THE_TURN.to_owned()),
                         None => Err(crate::chief_profile::Grant::refusal("chiefs")),
@@ -1306,6 +1314,20 @@ fn connection(conn: UnixStream, served: &Served) {
                         if grant.is_some_and(|g| !g.allows("tell")) =>
                     {
                         Err(crate::chief_profile::Grant::refusal("tell"))
+                    }
+                    // A Chief on another machine (peer_chiefs.rs), through the agent hub.
+                    Ok(Call::Tell {
+                        ref id,
+                        ref message,
+                        ref key,
+                        ..
+                    }) if id.trim().starts_with(crate::peer_chiefs::PREFIX) => {
+                        match &served.peers {
+                            Some(peers) => peers.tell(id, message, key.as_deref()),
+                            None => Err(format!(
+                                "tell: no peer Chiefs are set up on this host, so {id} cannot be reached (peer-chiefs.json)"
+                            )),
+                        }
                     }
                     Ok(Call::Profile { args }) => match &served.chief {
                         Some(chief) => chief.profile_call(&args),

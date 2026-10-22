@@ -27,6 +27,7 @@ import * as sub from "./brain-sub.ts"
 import * as turnLoop from "./brain-turn.ts"
 import { ccRoute } from "../chief-brain-cc/vm.ts"
 import { ccNotes } from "../chief-brain-cc/turn.ts"
+import { toolFiles, toolsCall } from "../chief-brain-cc/tools.ts"
 import { IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, importBatch, importing, importStatus } from "./memory-import.ts"
 
 /**
@@ -445,9 +446,24 @@ export class ChiefBrainDO extends DurableObject<Env> {
     return ccNotes(this, token, body)
   }
 
+  /** The Chief's own tools (chief-brain-cc/tools.ts), on its `<agent>/tools` object only: one `chief-tools` call. */
+  async ccTools(req: unknown): Promise<{ status: number; json: unknown }> {
+    return toolsCall(this.sql, req)
+  }
+
+  /** The Chief's own tools as path -> text, for its next turn machine (chief-brain-cc/turn.ts). */
+  async ccToolFiles(): Promise<Record<string, string>> {
+    return toolFiles(this.sql)
+  }
+
   /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */
   async wake(w: { agent: string; owner: string; conversation: string; seq: number; reason: string; at?: number }): Promise<{ queued: number } | { skipped: string }> {
     return turnLoop.wake(this, w)
+  }
+
+  /** A peer Chief's message (brain-turn.ts peerNote), forwarded by the owner's install. */
+  async peerNote(w: { agent: string; owner: string; conversation: string; from: string; text: string; key: string }): Promise<{ queued: boolean } | { skipped: string }> {
+    return turnLoop.peerNote(this, w)
   }
 
   /**
