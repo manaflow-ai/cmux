@@ -29,8 +29,8 @@ nonisolated enum NewTabWidgetSettingsSchema {
                 NewTabWidgetSettings.greetingPath,
                 section: .general,
                 group: group,
-                title: SettingsText.keyed("settings.tabs.newTabWidgets.headline", "Ask What to Work On on New Tab"),
-                help: SettingsText.keyed("settings.tabs.newTabWidgets.headline.help", "A headline over the composer that asks what to work on, with the project as a picker."),
+                title: SettingsText.keyed("settings.tabs.newTabWidgets.greeting", "Ask What to Work On on New Tab"),
+                help: SettingsText.keyed("settings.tabs.newTabWidgets.greeting.help", "A headline over the composer that asks what to work on, with the project as a picker."),
                 kind: .toggle,
                 default: .bool(NewTabWidgetSettings.greetingDefault),
                 keywords: ["new tab", "widget", "headline", "greeting", "project", "question"]

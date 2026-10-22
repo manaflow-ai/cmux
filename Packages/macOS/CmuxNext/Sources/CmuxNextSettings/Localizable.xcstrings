@@ -77087,7 +77087,7 @@
         }
       }
     },
-    "settings.tabs.newTabWidgets.headline": {
+    "settings.tabs.newTabWidgets.greeting": {
       "comment": "Settings: toggle that shows a headline over the New Tab page's composer asking what to work on, with the project as an inline picker.",
       "extractionState": "manual",
       "localizations": {
@@ -77219,7 +77219,7 @@
         }
       }
     },
-    "settings.tabs.newTabWidgets.headline.help": {
+    "settings.tabs.newTabWidgets.greeting.help": {
       "comment": "Settings: help for the toggle that shows a headline over the New Tab page's composer asking what to work on.",
       "extractionState": "manual",
       "localizations": {

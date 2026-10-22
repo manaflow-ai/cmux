@@ -14,11 +14,11 @@
           "key": "tabs.newTabWidgets.greeting",
           "note": "Off by default (Leo 2026-10-22: \"new tab page let's have no greeting text by default... maybe as toggle but as useful toggle\"). On: a headline over the composer that asks \"What should we work on in <project>?\" with the project as an inline picker, never a time-of-day greeting. The key keeps its old name, so a saved true turns the headline on.",
           "title": {
-            "key": "settings.tabs.newTabWidgets.headline",
+            "key": "settings.tabs.newTabWidgets.greeting",
             "text": "Ask What to Work On on New Tab"
           },
           "help": {
-            "key": "settings.tabs.newTabWidgets.headline.help",
+            "key": "settings.tabs.newTabWidgets.greeting.help",
             "text": "A headline over the composer that asks what to work on, with the project as a picker."
           },
           "kind": "toggle",
