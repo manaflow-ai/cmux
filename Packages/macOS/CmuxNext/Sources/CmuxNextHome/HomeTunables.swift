@@ -66,9 +66,16 @@ public nonisolated struct HomeTunables {
         help: "The mic in the empty message box dictates into it (on-device speech). Off shows the drawn waveform instead.",
         default: true, code: "HomeTunables.voiceInput")
 
+    /// New Chief… opens its card as a page tab beside your work (`NewChiefPage`; Leo 2026-10-21, "Chief:
+    /// sheet as workspace"). On restores the sheet over Home for one release; remove it after.
+    public static let newChiefSheet = Tunable<Bool>.toggle(
+        "home.newChiefSheet", section, "New Chief opens as a sheet",
+        help: "New Chief… shows its name and engine card as a sheet over Home, as before. Off (the default) opens it as a New Chief tab beside your work, or beside the Chief on Home.",
+        default: false, code: "HomeTunables.newChiefSheet")
+
     public static var all: [TunableDescriptor] {
         [flightRecorder.descriptor, flightRecorderCaptures.descriptor, firstRunHero.descriptor, launchIntoHome.descriptor,
-         turnProgress.descriptor, richTables.descriptor, voiceInput.descriptor]
+         turnProgress.descriptor, richTables.descriptor, voiceInput.descriptor, newChiefSheet.descriptor]
     }
 }
 
