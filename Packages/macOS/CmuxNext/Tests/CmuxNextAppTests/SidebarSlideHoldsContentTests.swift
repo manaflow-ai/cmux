@@ -55,7 +55,6 @@ struct SidebarSlideHoldsContentTests {
             defer { window.close() }
             let sidebar = root.sidebar.frame.width, card = root.contentHost.frame
             try #require(sidebar > 0 && content.frame == root.contentHost.bounds)
-            try #require(root.contentHost.clipsHeldContent, "the default main pane is rounded and clips")
             root.sidebar.isWidthAnimating = true
             root.sidebar.onWidthMotionStart?(sidebar, 0)
             let held = card.width + sidebar
@@ -129,24 +128,30 @@ struct SidebarSlideHoldsContentTests {
         }
     }
 
-    /// A square main pane (radius 0) sets no clip, so content held wider than it would show past
-    /// its edge, and neither Chromium pages nor the overlay's rings would see the edge: no hold.
-    @Test func aSquareMainPaneHoldsNothing() throws {
+    /// A square main pane (radius 0, the flat chrome styles) clips nothing at rest. While it holds
+    /// content wider than itself it clips, so nothing shows past its edge, and Chromium pages and
+    /// the overlay's rings see that edge (`CEFClipShape.clips(around:)`, `OverlayPlane.roundedClip`).
+    @Test func aSquareMainPaneClipsOnlyWhileItHolds() throws {
         try withHold(nil) {
             let (window, root, content) = openRoot()
             defer { window.close() }
+            root.contentHost.setCornerRadius(0)
+            #expect(root.contentHost.layer?.masksToBounds == false, "a square card at rest clips nothing")
             let sidebar = root.sidebar.frame.width
             root.sidebar.isWidthAnimating = true
             root.sidebar.onWidthMotionStart?(sidebar, 0)
             try #require(root.contentHost.contentHold != nil)
-            root.contentHost.setCornerRadius(0)
-            #expect(root.contentHost.contentHold == nil, "a card that turned square mid-slide lets go")
-            #expect(content.frame == root.contentHost.bounds)
-            root.sidebar.onWidthMotionStart?(sidebar, 0)
-            #expect(root.contentHost.contentHold == nil, "a square card holds nothing")
-            frame(root, width: sidebar / 2)
-            #expect(content.frame == root.contentHost.bounds)
+            #expect(root.contentHost.layer?.masksToBounds == true, "the card clips what it holds")
+            #expect(content.frame.width > root.contentHost.bounds.width)
+            let probe = NSView(frame: CGRect(x: 0, y: 0, width: content.frame.width, height: 100))
+            content.addSubview(probe)
+            let clips = CEFClipShape.clips(around: probe)
+            let card = probe.convert(root.contentHost.bounds, from: root.contentHost)
+            #expect(clips.contains { abs($0.rect.maxX - card.maxX) < 0.5 }, "a page sees the card's edge: \(clips)")
+            #expect(root.contentHost.setCornerRadius(0) == false, "a repeat with the hold on changes nothing")
             root.sidebar.isWidthAnimating = false
+            #expect(root.contentHost.layer?.masksToBounds == false, "the landing takes the clip off again")
+            #expect(content.frame == root.contentHost.bounds)
         }
     }
 
