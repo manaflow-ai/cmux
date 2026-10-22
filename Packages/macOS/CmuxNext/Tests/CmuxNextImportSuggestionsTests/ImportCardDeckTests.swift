@@ -142,15 +142,16 @@ struct ImportCardDeckTests {
         #expect(card.id == "cmux.classic" && card.state == .ready)
         #expect(card.primary?.action == .start && card.primary?.title == "Import Again")
         #expect(card.facts != ImportSuggestionStrings.workspaces(0) && !card.facts.isEmpty && !card.benefit.isEmpty)
-        // Workspaces still to bring: the one-click card, on Home too.
+        // Workspaces still to bring: the one-click card, in Settings only (Home pops up nothing).
         var more = Self.classicAllHere
         more.count = 2
-        let home = try #require(Self.deck([more]).cards(for: .home, now: Self.now).first)
-        #expect(home.primary?.title == ImportSuggestionStrings.importWorkspaces)
+        #expect(Self.deck([more]).cards(for: .home, now: Self.now).isEmpty)
+        let offered = try #require(Self.deck([more]).cards(for: .settings, now: Self.now).first)
+        #expect(offered.primary?.title == ImportSuggestionStrings.importWorkspaces)
     }
 
-    /// A finished classic import stays offered again in Settings › Import. Home and New Tab
-    /// confirm a run that brought sessions, and show nothing for one that brought none.
+    /// A finished classic import stays offered again in Settings › Import, with what it brought.
+    /// Home and New Tab show nothing for it.
     @Test func aFinishedClassicImportOffersItAgainInSettings() throws {
         var job = ImportJob(finding: Self.classicAllHere, now: Self.now)
         job.importedClassic(0, now: Self.now)
@@ -164,8 +165,9 @@ struct ImportCardDeckTests {
         #expect(deck.cards(for: .newTab, now: Self.now).isEmpty)
         job.importedClassic(2, now: Self.now)
         ledger.put(job)
-        let home = try #require(Self.deck([Self.classicAllHere], jobs: ledger).cards(for: .home, now: Self.now).first)
-        #expect(home.state == .done && home.primary == nil && home.status == ImportSuggestionStrings.importedSessions(2))
+        #expect(Self.deck([Self.classicAllHere], jobs: ledger).cards(for: .home, now: Self.now).isEmpty)
+        let done = try #require(Self.deck([Self.classicAllHere], jobs: ledger).cards(for: .settings, now: Self.now).first)
+        #expect(done.state == .done && done.status == ImportSuggestionStrings.importedSessions(2))
     }
 
     /// Resume and Try Again start over from 0, not at the fraction the cut-off run had reached.
