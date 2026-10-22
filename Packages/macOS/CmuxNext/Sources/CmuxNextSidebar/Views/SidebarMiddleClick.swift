@@ -9,6 +9,10 @@ struct SidebarPress {
     /// A plain press on a workspace row with `sidebar.multiView` on: it navigates only if the button comes up on
     /// the same row without a drag.
     var clickOnRelease: WorkspaceID?
+    /// A plain press that switched to its workspace on mouse-down (Lawrence 2026-10-21: "on mousedown, instantly
+    /// switch"), with the item and selection shown before it: a drag puts those back, so a press that moves a row
+    /// leaves the shown workspace where it was (Leo 2026-10-21, #23977).
+    var switchedOnPress: (id: WorkspaceID, previous: SidebarItem?, previousSelection: Set<WorkspaceID>)?
     var cancelled = false
     /// An item row that switched on mouse-down (`LayoutItemRef.activatesOnPress`): its release does not run it again.
     var activatedOnPress = false

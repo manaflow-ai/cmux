@@ -187,8 +187,17 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     func showWorkspace(requested: String?) {
         let machines = services.machines
         // A parked workspace that closed, whose machine left, or that moved to another window goes now.
-        let listed = Set(services.windows.registry.members(of: state.id))
-        for (id, controller) in parked where !listed.contains(id) || machines.workspace(id: id)?.0 !== controller.workspace {
+        // O(parked), not O(workspaces): the registry's owner map answers each parked id; only an id it does not place
+        // here (a provisional member, a move) pays the window's member list (Lawrence 2026-10-21, workspace switch
+        // speed of light: 500 workspaces built a 500-id set on every switch).
+        let registry = services.windows.registry, windowID = state.id
+        var members: Set<String>?
+        func isListed(_ id: String) -> Bool {
+            if registry.value.owner(of: id) == windowID { return true }
+            if members == nil { members = Set(registry.members(of: windowID)) }
+            return members?.contains(id) == true
+        }
+        for (id, controller) in parked where !isListed(id) || machines.workspace(id: id)?.0 !== controller.workspace {
             parked[id] = nil
             controller.teardown()
         }
