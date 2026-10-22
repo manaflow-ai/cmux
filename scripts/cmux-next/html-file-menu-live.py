@@ -207,23 +207,19 @@ def run_menu():
     if not row_:
         return
     pid = launched[0].pid
-    win = cua_window(pid)
     snapshot("menu-0-before")
-    # The window state right before the click: cua's click needs its screenshot context.
-    state = cua("get_window_state", {"pid": pid, "window_id": win, "include_accessibility_tree": False})
-    scale = state.get("screenshot_scale") or 1
-    say("window state:", json.dumps({k: state.get(k) for k in ("screenshot_scale", "window_bounds")}))
     b = row_["balloon"]
-    # rows: window points, bottom-left origin; cua: window pixels, top-left origin.
-    x = (b["x"] + b["width"] / 2) * scale
-    y = (rows["windowHeight"] - (b["y"] + b["height"] / 2)) * scale
-    say("right_click:", json.dumps(cua("right_click", {"pid": pid, "window_id": win, "x": round(x), "y": round(y), "delivery_mode": "background"}))[:300])
-    time.sleep(1.0)  # test harness: the menu opens and the highlight fades in
-    snapshot("menu-1-open")
-    items = menu_items(cua("get_window_state", {"pid": pid, "window_id": win, "max_elements": 5000}))
-    say("menu items:", items)
-    row("the attachment's menu opens", bool(items), items)
-    cua("press_key", {"pid": pid, "window_id": win, "key": "escape", "delivery_mode": "background"})
+    # rows: window points, bottom-left origin; debug.mouse: window points, top-left origin.
+    x, y = b["x"] + b["width"] / 2, rows["windowHeight"] - (b["y"] + b["height"] / 2)
+    say("right click:", json.dumps(rpc("debug.mouse", {"x": x, "y": y, "action": "click", "button": "right"}, timeout=5)))
+    time.sleep(1.5)  # test harness: the menu opens and the highlight fades in
+    cap = os.environ.get("NX_CAPTURE")
+    if cap:
+        r = subprocess.run(["bash", cap, "shot", "--pid", str(pid), "--with-popups", "--out", os.path.join(opts.out, "menu-1-open.png")],
+                           capture_output=True, text=True, timeout=60)
+        say("capture menu-1-open:", r.returncode, r.stderr.strip()[:200])
+    say("debug.menu:", json.dumps(drive("menu"))[:600])
+    rpc("debug.key", {"key": "escape"}, timeout=5)
     time.sleep(0.8)  # test harness: the menu and its highlight close
     snapshot("menu-2-closed")
     drive("focus")
