@@ -101,6 +101,7 @@ private final class LocatingPage: PageChromiumPage {
     func setZoom(_ zoom: Double) {}
     func setFocused(_ focused: Bool) {}
     func setVisible(_ visible: Bool) {}
+    func setSeeThrough(_ seeThrough: Bool) {}
     func close() {}
 }
 #endif
