@@ -1839,7 +1839,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "24.11.1"
+          node-version: "24.22.1"
 
       - name: Source key of the web bundles
         id: web-bundle-key
@@ -2614,7 +2614,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "24.11.1"
+          node-version: "24.22.1"
 
       # The Linux web-bundles job builds the bundles once per source key and caches them; a
       # hit installs them here instead of building, and a miss builds them in the next step.
@@ -2902,7 +2902,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "24.11.1"
+          node-version: "24.22.1"
 
       # The Linux web-bundles job builds the bundles once per source key and caches them; a
       # hit installs them here instead of building, and a miss builds them in the next step.
@@ -3147,7 +3147,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "24.11.1"
+          node-version: "24.22.1"
 
       # The Linux web-bundles job builds the bundles once per source key and caches them; a
       # hit installs them here instead of building, and a miss builds them in the next step.
@@ -3686,7 +3686,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "24.11.1"
+          node-version: "24.22.1"
 
       - name: Build the web bundles
         run: scripts/cmux-next/build-web-bundles.sh
