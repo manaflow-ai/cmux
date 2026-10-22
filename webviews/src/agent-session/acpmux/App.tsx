@@ -4069,10 +4069,17 @@ function AcpmuxPane() {
   /// (`chat.unsentDraft`), and their chips are answered (for the wake state, which carries them).
   /// `behind`: they go after what the composer or draft holds (sent after one already given back).
   const giveBackTrustHeld = useRef(
-    async (_entries: readonly TrustHeldPrompt[], _behind?: boolean): Promise<ComposerAttachment[]> => [],
+    async (
+      _entries: readonly TrustHeldPrompt[],
+      _behind?: boolean,
+      _closing?: boolean,
+    ): Promise<ComposerAttachment[]> => [],
   );
-  giveBackTrustHeld.current = async (entries, behind = false) => {
-    const composer = composerHandle.current;
+  /// `closing`: the page goes (its tab closed): nothing goes into its composer, which goes with it.
+  giveBackTrustHeld.current = async (entries, behind = false, closing = false) => {
+    const composer = closing ? undefined : composerHandle.current;
+    // The chips the shown chat's composer keeps, which its kept chips are now (keptAttachments.ts).
+    const shownChips = closing ? (composerHandle.current?.wakeState().attachments ?? []) : undefined;
     const where = whereHeldGoes(entries, snapshot.sessionId, Boolean(composer));
     // `restore` puts what comes back first: the last one goes in first, so they read in order;
     // behind what is there, the first goes first.
@@ -4093,7 +4100,8 @@ function AcpmuxPane() {
         writePersistedDraft(chat, (behind ? [draft, ...text] : [...text, draft]).filter(Boolean).join("\n\n"));
         const chips = keptChips(entries.flatMap((entry) => entry.attachments));
         if (!chips.length) return;
-        const kept = await keptAttachments.read(chat);
+        // A closing page writes the shown chat's at once: it may be gone before a read answers.
+        const kept = shownChips && chat === snapshot.sessionId ? shownChips : await keptAttachments.read(chat);
         await keptAttachments
           .write(chat, [...chips, ...kept.filter((chip) => !chips.some((back) => back.id === chip.id))])
           .catch(() => undefined);
@@ -4109,6 +4117,19 @@ function AcpmuxPane() {
     const chips = await giveBackTrustHeld.current(all);
     return { any: all.length > 0, chips };
   };
+  // A page that goes (its tab closed, the chat archived) puts its held prompts into their chats'
+  // drafts first, as quitting does: they live only in this page. Its composer goes with it, so the
+  // shown chat's go into that chat's draft too. The web page hides before React unmounts anything.
+  const releaseHeldNow = useRef(trustHeld.release);
+  releaseHeldNow.current = trustHeld.release;
+  useEffect(() => {
+    const away = () => {
+      const all = releaseHeldNow.current();
+      if (all.length) void giveBackTrustHeld.current(all, false, true);
+    };
+    window.addEventListener("pagehide", away);
+    return () => window.removeEventListener("pagehide", away);
+  }, []);
   const individualPermission =
     snapshot.permission?.pending && !(snapshot.permissionGroups?.supported && snapshot.permission.groupId)
       ? snapshot.permission
@@ -7500,8 +7521,10 @@ function AcpmuxPane() {
       if (snapshot.summary?.watching && !(await directClient.current?.takeOver())) {
         throw new Error("watch.notTakenOver");
       }
-      // The chat this send's start made: a held prompt goes only there (`HeldSend.chat`).
+      // The chat this send's start made: a held prompt goes only there (`HeldSend.chat`), also when
+      // another chat showed before it opened (its start then answers none: `started`).
       let made: unknown;
+      const starts = directClient.current?.started.count;
       if (projectDraft && !snapshot.sessionId)
         // The chat's start is part of this send: a trust refusal there asks the folder's
         // question, keeps this prompt (with its send's gesture) and sends it after Trust
@@ -7514,6 +7537,8 @@ function AcpmuxPane() {
           if (isTrustRefusal(error)) trustRefused.current?.(error, heldGoesAfterTrust);
           throw error;
         });
+      const started = directClient.current?.started;
+      if (typeof made !== "string" && starts !== undefined && started?.count === starts + 1) made = started.sessionId;
       return callNative("chat.send", {
         text,
         attachments,

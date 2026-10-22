@@ -33,6 +33,7 @@ await requireBrowserLane("agent-pane-trust-holds-prompts.test.ts", async () => {
   const HELD = "0190a000-0000-7000-8000-0000000000f1";
   const NOT_NOW = "0190a000-0000-7000-8000-0000000000f2";
   const ASKING = "0190a000-0000-7000-8000-0000000000f3";
+  const CLOSED = "0190a000-0000-7000-8000-0000000000f4";
   const START = Date.now() - 90_000;
   const QUESTION = "Which auth method should the API use?";
   type Step = [dir: string, kind: string, msg: Record<string, unknown>];
@@ -104,6 +105,7 @@ await requireBrowserLane("agent-pane-trust-holds-prompts.test.ts", async () => {
     [HELD]: { cwd: "/home/dev/held", steps: done, status: "idle", shown: "Read it.", turns: 0 },
     [NOT_NOW]: { cwd: "/home/dev/not-now", steps: done, status: "idle", shown: "Read it.", turns: 0 },
     [ASKING]: { cwd: "/home/dev/asking", steps: asking, status: "waiting", shown: "Add auth to the API", turns: 1 },
+    [CLOSED]: { cwd: "/home/dev/closed", steps: done, status: "idle", shown: "Read it.", turns: 0 },
   };
   const record = (sessionId: string, [dir, kind, msg]: Step, seq: number) => ({
     sessionId,
@@ -319,6 +321,24 @@ await requireBrowserLane("agent-pane-trust-holds-prompts.test.ts", async () => {
       "keep this one",
     ]);
     await page.context().close();
+  });
+
+  test("closing the tab under the trust question keeps its held prompts in the chat's draft", async () => {
+    const page = await open(CLOSED);
+    await trustAsk(page).waitFor({ timeout: 10_000 });
+    await send(page, "kept when the tab closes");
+    await heldRow(page, "kept when the tab closes").waitFor({ timeout: 10_000 });
+    // The tab closes: the web page hides before anything unmounts (AgentPaneView.close).
+    await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+    const context = page.context();
+    await page.close();
+    // The chat opened again (same storage) has the prompt in its composer, and acpmux got none.
+    const reopened = await context.newPage();
+    await reopened.goto(url(CLOSED));
+    await reopened.getByText(chats[CLOSED]!.shown).first().waitFor({ timeout: 25_000 });
+    await field(reopened).getByText("kept when the tab closes").waitFor({ timeout: 10_000 });
+    expect(prompts.filter((prompt) => prompt.sessionId === CLOSED)).toEqual([]);
+    await context.close();
   });
 
   test("a running chat's question card and its steer go at once under the open trust question", async () => {

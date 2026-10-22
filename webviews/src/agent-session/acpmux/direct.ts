@@ -4470,6 +4470,9 @@ export class AcpmuxDirectClient {
   }
   /// A new session, in `cwd` when given; otherwise in the inherited cwd, then where acpmux defaults.
   /// `noProject` starts it in no project: the host's agent-home folder, never the inherited cwd.
+  /// The starts `create` made and the session the last one started, shown or not (a start whose
+  /// select another chat superseded answers none, App.tsx `sendFromComposer`).
+  started: { count: number; sessionId?: string } = { count: 0 };
   create(harness?: string, cwd?: string, peer?: string, noProject = false): Promise<string | undefined> {
     const started = (async () => {
       const sessionId = await this.startSession(
@@ -4479,6 +4482,7 @@ export class AcpmuxDirectClient {
         () => void this.create(harness, cwd, peer, noProject).catch(() => undefined),
         noProject,
       );
+      this.started = { count: this.started.count + 1, sessionId };
       return sessionId ? this.select(sessionId) : undefined;
     })();
     const tracked = started.finally(() => {
