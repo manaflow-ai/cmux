@@ -521,8 +521,7 @@ impl Hub {
         }
         let limits = self.subsession_effective(&pm);
         // One depth for every way a session starts another (`lineage.rs`).
-        let lineage =
-            self.lineage_under(&pm, super::lineage::start_tool_call(parent, &req.prompt));
+        let lineage = self.lineage_under(&pm, super::lineage::start_tool_call(parent, &req.prompt));
         let depth = lineage.depth;
         if depth > limits.max_depth {
             return Err(refused(

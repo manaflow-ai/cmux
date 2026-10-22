@@ -100,8 +100,10 @@ mod tests {
             s("coord", None),
             s("orphan", Some("purged")),
         ];
-        let order: Vec<(usize, &str)> =
-            ordered(&list).into_iter().map(|(d, v)| (d, v["sessionId"].as_str().unwrap())).collect();
+        let order: Vec<(usize, &str)> = ordered(&list)
+            .into_iter()
+            .map(|(d, v)| (d, v["sessionId"].as_str().unwrap()))
+            .collect();
         assert_eq!(
             order,
             [

@@ -69,11 +69,24 @@ pub fn tool_call_id(meta: Option<&Value>) -> Result<Option<String>, RpcError> {
     }
 }
 
+/// The `start_session` tool calls of one session's agent that run, with their input.
+type StartCalls = std::collections::HashMap<String, Value>;
+
 /// Follows a `tool_call` or `tool_call_update` of `session`'s agent: a `start_session` call
 /// is remembered with its input while it runs, so the start it makes can name it.
 pub(super) fn note_tool_call(session: &Session, update: &Value) {
+    track(&mut session.start_calls.lock().unwrap_or_else(|e| e.into_inner()), update);
+}
+
+/// The `start_session` call of `session` that asks for a child with `prompt`.
+pub(super) fn start_tool_call(session: &Session, prompt: &str) -> Option<String> {
+    asking(&session.start_calls.lock().unwrap_or_else(|e| e.into_inner()), prompt)
+}
+
+/// Follows one update in `calls`: a call named `start_session` (Claude Code's
+/// `mcp__cmux-subsessions__start_session`, or a title) is kept until it completes or fails.
+fn track(calls: &mut StartCalls, update: &Value) {
     let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { return };
-    let mut calls = session.start_calls.lock().unwrap_or_else(|e| e.into_inner());
     let named = ["/_meta/claude/tool", "/title"]
         .iter()
         .filter_map(|p| update.pointer(p).and_then(Value::as_str))
@@ -90,17 +103,16 @@ pub(super) fn note_tool_call(session: &Session, update: &Value) {
     }
 }
 
-/// The `start_session` call of `session` that asks for a child with `prompt`: the one whose
-/// input has that prompt, else the only one running; None when that does not tell.
-pub(super) fn start_tool_call(session: &Session, prompt: &str) -> Option<String> {
-    let calls = session.start_calls.lock().unwrap_or_else(|e| e.into_inner());
+/// The call in `calls` that asks for a child with `prompt`: the one whose input has that
+/// prompt, else the only one running; None when that does not tell.
+fn asking(calls: &StartCalls, prompt: &str) -> Option<String> {
     let only = |mut ids: Vec<&String>| (ids.len() == 1).then(|| ids.remove(0).clone());
-    let asking: Vec<&String> = calls
+    let matching: Vec<&String> = calls
         .iter()
         .filter(|(_, input)| input.get("prompt").and_then(Value::as_str) == Some(prompt))
         .map(|(id, _)| id)
         .collect();
-    if asking.is_empty() { only(calls.keys().collect()) } else { only(asking) }
+    if matching.is_empty() { only(calls.keys().collect()) } else { only(matching) }
 }
 
 impl Hub {
@@ -208,8 +220,12 @@ impl Hub {
 
     /// The meta of the session with id `id` (an exact id, never a name or prefix).
     pub(super) fn session_meta_by_id(&self, id: &str) -> Option<SessionMeta> {
-        let session =
-            self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(id).cloned();
+        let session = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(id)
+            .cloned();
         session.map(|s| s.meta())
     }
 }
@@ -233,11 +249,38 @@ mod tests {
 
     #[test]
     fn tool_call_id_is_bounded() {
-        assert_eq!(tool_call_id(Some(&json!({"spawnToolCallId": "toolu_1"}))).unwrap().as_deref(), Some("toolu_1"));
+        assert_eq!(
+            tool_call_id(Some(&json!({"spawnToolCallId": "toolu_1"}))).unwrap().as_deref(),
+            Some("toolu_1")
+        );
         assert_eq!(tool_call_id(Some(&json!({"spawnToolCallId": ""}))).unwrap(), None);
         assert_eq!(tool_call_id(None).unwrap(), None);
         assert!(tool_call_id(Some(&json!({"spawnToolCallId": "x".repeat(257)}))).is_err());
         assert!(tool_call_id(Some(&json!({"spawnToolCallId": 7}))).is_err());
+    }
+
+    #[test]
+    fn a_running_start_session_call_names_the_child_it_asks_for() {
+        let mut calls = StartCalls::new();
+        let call = |id: &str, prompt: &str| {
+            json!({"toolCallId": id, "status": "pending", "title": "start_session",
+                   "_meta": {"claude": {"tool": "mcp__cmux-subsessions__start_session"}},
+                   "rawInput": {"prompt": prompt}})
+        };
+        // Another tool is never kept.
+        track(&mut calls, &json!({"toolCallId": "bash", "title": "ls", "status": "pending"}));
+        assert_eq!(asking(&calls, "x"), None);
+        track(&mut calls, &call("t1", "review"));
+        // The only call running names a start even when its input is not known yet.
+        assert_eq!(asking(&calls, "other").as_deref(), Some("t1"));
+        track(&mut calls, &call("t2", "tests"));
+        assert_eq!(asking(&calls, "tests").as_deref(), Some("t2"));
+        assert_eq!(asking(&calls, "review").as_deref(), Some("t1"));
+        // Two running calls and no prompt match: unknown, never a guess.
+        assert_eq!(asking(&calls, "other"), None);
+        track(&mut calls, &json!({"toolCallId": "t1", "status": "completed"}));
+        track(&mut calls, &json!({"toolCallId": "t2", "status": "failed"}));
+        assert!(calls.is_empty());
     }
 
     #[test]
