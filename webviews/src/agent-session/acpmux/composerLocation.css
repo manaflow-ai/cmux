@@ -228,22 +228,26 @@
    context ring, in the chat, the New Tab card and the quiet row under either) is one primitive,
    `.acpmux-pill`, and these tokens are its only geometry: a text pill is --acpmux-pill-height tall
    with --acpmux-pill-pad each side; an icon pill (`.acpmux-pill-icon`) is an --acpmux-pill-icon
-   square. One corner for all of them. Inside the box a pill sits --acpmux-box-inset from the box's
-   edges on every side, and the prompt's line is centred in the same height, so + is as far from
-   the box's left edge as from its top and bottom (Lawrence: "left/top/bottom padding"). No fill at
+   square. One corner for all of them: the soft pill of the Claude app's chips (#22107), so a label
+   pill is a capsule and an icon pill a circle. Inside the box the controls sit --acpmux-box-inset
+   from its top, bottom and right edges, and the prompt's line is centred in the same height, so +
+   is as far from the box's top as from its bottom (Lawrence: "left/top/bottom padding"); + leads
+   --acpmux-box-lead from the left, which puts its glyph 16 px in, Claude desktop's (Leo
+   2026-10-20, measured). No fill at
    rest; the soft pill shows under the pointer and while its menu is open, never as press feedback
    (Leo 2026-10-19). A narrower row changes these tokens, never a control:
    scripts/cmux-next/check-composer-pills.py fails a composer rule that sizes a pill itself.
    The values are the "even" variant of the gallery's agent-pane.composer-row pills-* variants (a
-   label's pill as far from its text at the sides as above and below it, a small-radius rect, never a
-   capsule); "tight" and "roomy" are there to compare. */
+   label's pill as far from its text at the sides as above and below it, and a one-line box 44 px
+   tall, Claude desktop's); "tight" and "roomy" are there to compare. */
 :root {
   --acpmux-pill-height: 24px;
   --acpmux-pill-icon: 28px;
   --acpmux-pill-pad: 6px;
   --acpmux-pill-gap: 4px;
-  --acpmux-pill-radius: 6px;
-  --acpmux-box-inset: 7px;
+  --acpmux-pill-radius: 999px;
+  --acpmux-box-inset: 8px;
+  --acpmux-box-lead: 10px;
 }
 .acpmux-pill {
   box-sizing: border-box;
@@ -1141,16 +1145,17 @@
   grid-column: 2;
   grid-row: 2;
 }
-/* + and the actions sit --acpmux-box-inset from the box's sides and bottom, and the prompt's first
-   line is centred in a pill's height, so on one line + is that same inset from the box's top too
-   (Lawrence: "left/top/bottom padding"). The text starts one inset after +. */
+/* + and the actions sit --acpmux-box-inset from the box's bottom (and the actions from its right),
+   and the prompt's first line is centred in a pill's height, so on one line + is that same inset
+   from the box's top too (Lawrence: "left/top/bottom padding"). + leads --acpmux-box-lead from the
+   left; the text starts one inset after it. */
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) {
   --acpmux-field-pad-block: calc(var(--acpmux-box-inset) + (var(--acpmux-pill-icon) - var(--text-title--line-height, 20px)) / 2);
 }
 .acpmux-composer-inner > :not(.acpmux-composer-actions) {
   grid-column: 1;
   grid-row: 2;
-  margin: 0 0 var(--acpmux-box-inset) var(--acpmux-box-inset);
+  margin: 0 0 var(--acpmux-box-inset) var(--acpmux-box-lead);
 }
 .acpmux-composer-inner > .acpmux-composer-actions {
   grid-column: 3;
