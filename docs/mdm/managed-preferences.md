@@ -361,14 +361,14 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.workspaceRow.directory` | boolean | `false` |  | Folder |
 | `sidebar.workspaceRow.branch` | boolean | `false` |  | Git Branch |
 | `sidebar.workspaceRow.process` | boolean | `false` |  | Running Program. The terminal's title, which the shell or program sets. |
-| `sidebar.workspaceRow.agentStatus` | boolean | `true` |  | Agent Status. The status agents and hooks report, one line each. |
+| `sidebar.workspaceRow.agentStatus` | boolean | `false` |  | Agent Status. The status agents and hooks report, one line each. |
 | `sidebar.workspaceRow.tabCount` | boolean | `false` |  | Tab Count |
 | `sidebar.workspaceRow.ports` | boolean | `false` |  | Ports. Set by a hook: cmux workspace status set ports <text>. |
 | `sidebar.workspaceRow.lastActivity` | boolean | `false` |  | Last Activity |
 | `sidebar.workspaceRow.pullRequest` | boolean | `false` |  | Pull Request. Set by a hook: cmux workspace status set pr <text>. |
 | `sidebar.workspaceRow.progress` | boolean | `true` |  | Progress. A progress bar under the row and the busy mark of running work. |
 | `sidebar.workspaceRow.working` | boolean | `true` |  | Agent Working. A mark while an agent works in the workspace. |
-| `sidebar.workspaceRow.log` | boolean | `true` |  | Log. The newest line agents and scripts log: cmux workspace log append <text>. |
+| `sidebar.workspaceRow.log` | boolean | `false` |  | Log. The newest line agents and scripts log: cmux workspace log append <text>. |
 | `sidebar.workspaceRow.notification` | boolean | `false` |  | Latest Notification. The text of the workspace's newest unread notification. |
 | `sidebar.workspaceRow.secondLineOrder` | array | `["notification","directory","branch","process","agentStatus","ports","lastActivity"]` | `notification`, `directory`, `branch`, `process`, `agentStatus`, `ports`, `lastActivity` | Second Line Order. The order of the shown items under the workspace name. |
 | `sidebar.workspaceRow.terminal.icon` | boolean |  |  | Icon |

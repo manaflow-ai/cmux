@@ -24946,7 +24946,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.workspaceRows",
@@ -25276,7 +25276,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.workspaceRows",
@@ -29142,8 +29142,8 @@
       "choices" : [
         {
           "title" : {
-            "key" : "settings.choice.moderate",
-            "text" : "After 1 Hour"
+            "key" : "settings.choice.after30Minutes",
+            "text" : "After 30 Minutes"
           },
           "value" : "moderate"
         },
