@@ -152,7 +152,7 @@ final class SidebarCardTextButton: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
-        guard SidebarUpdateCheckbox.isActivationKey(event) else { return super.keyDown(with: event) }
+        guard SidebarUpdateToggle.isActivationKey(event) else { return super.keyDown(with: event) }
         press()
     }
 }

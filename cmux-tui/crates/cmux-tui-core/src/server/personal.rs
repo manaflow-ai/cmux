@@ -2,6 +2,7 @@
 //! (`profiles-v1`, plans/cmux-next/data-model.md section 3). Rooms are
 //! `profile` on the wire. Every change emits `personal-changed`.
 
+use crate::panic_free::JsonFields;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -252,14 +253,16 @@ pub(super) fn delete_group(mux: &Mux, client: u64, id: &str) -> anyhow::Result<V
         &Mux::ordinary_resource_selectors(),
         crate::state::personal::PersonalChange::GroupDelete { group: id.to_string() },
     )?;
-    let ungrouped = commit.result["ungrouped"]
+    let ungrouped = commit
+        .result
+        .field("ungrouped")
         .as_array()
         .into_iter()
         .flatten()
         .map(|workspace| {
             json!({
-                "session_id": workspace["session_id"],
-                "workspace_key": workspace["workspace_ref"],
+                "session_id": workspace.field("session_id"),
+                "workspace_key": workspace.field("workspace_ref"),
             })
         })
         .collect::<Vec<_>>();
