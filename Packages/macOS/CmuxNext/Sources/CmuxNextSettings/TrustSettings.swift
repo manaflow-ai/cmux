@@ -8,6 +8,8 @@
 public nonisolated struct TrustSettings: Sendable, Equatable {
     /// Off: every folder without an answer asks.
     public var autoTrust = TrustSettings.trustAutoTrustDefault
+    /// On: Not now leaves a Claude Code chat that still runs, restricted (acpmux restricted.rs).
+    public var restrictedChats = TrustSettings.trustRestrictedChatsDefault
     /// Folders whose contents are trusted without a question.
     public var projectRoots = TrustSettings.trustProjectRootsDefault
     /// GitHub users and organizations whose repositories are trusted without a question.
@@ -22,6 +24,13 @@ public nonisolated struct TrustSettings: Sendable, Equatable {
                 settings.autoTrust = flag
             } else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: trustAutoTrustPath.joined(separator: "."), message: "expected true or false"))
+            }
+        }
+        if let value = root.value(at: trustRestrictedChatsPath) {
+            if let flag = value.boolValue {
+                settings.restrictedChats = flag
+            } else {
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: trustRestrictedChatsPath.joined(separator: "."), message: "expected true or false"))
             }
         }
         if let value = root.value(at: trustProjectRootsPath) {
