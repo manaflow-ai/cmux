@@ -477,6 +477,31 @@ def handle_prompt(rid, params):
                      "content": {"type": "text", "text": f"chose {chosen} {json.dumps(answers, sort_keys=True)}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "preview-question: Q" asks Q with an option preview (its text ends in a line break the
+    # card trims) and echoes the answers and annotations acpmux put into the tool input.
+    if text.startswith("preview-question:"):
+        res = request(
+            "session/request_permission",
+            {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": "pq1", "title": "Question", "kind": "other", "status": "pending",
+                             "rawInput": {"questions": [{"question": text[17:].strip(), "header": "Pick",
+                                                         "multiSelect": False,
+                                                         "options": [{"label": "A", "preview": "[ A ]\n"},
+                                                                     {"label": "B", "preview": "[ B ]\n"}]}]},
+                             "_meta": {"claude": {"tool": "AskUserQuestion", "interactive": True}}},
+                "options": [
+                    {"optionId": "allow_once", "name": "Answer", "kind": "allow_once"},
+                    {"optionId": "reject_once", "name": "Reject", "kind": "reject_once"},
+                ],
+            },
+        )
+        updated = (res or {}).get("_meta", {}).get("updatedInput", {})
+        said = json.dumps({"answers": updated.get("answers"), "annotations": updated.get("annotations")},
+                          sort_keys=True)
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"got {said}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "tool-question: TOOL KIND" asks to run tool TOOL (`_meta.claude.tool`)
     # whose input also holds `questions`, with one allow option of KIND: a
     # question by its input's shape alone, or (AskUserQuestion with
