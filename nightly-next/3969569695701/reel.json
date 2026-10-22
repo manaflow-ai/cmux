@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "build": "3969569695701",
+  "notes": "notes/3969569695701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23771,
+      "title": "cmux NEXT: a finished steered turn folds each part's work below its steer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23740,
+      "title": "cmux NEXT: session hover cards and the What's New popover are glass again, not solid",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23782,
+      "title": "Agent chat: the minimap's hover card is glass, not a solid card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20295,
+      "title": "cmux-next: safe continuous nightly updates",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23779,
+      "title": "Agent chat: one live block at the bottom of a running turn; Writing a command while Claude writes it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23297,
+      "title": "cmux NEXT: add a machine with one pasted line (pairing tickets)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23817,
+      "title": "cmux NEXT glass: the Add project dialog and icon picker bars draw one edge; three popovers tested under Reduce Transparency",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23776,
+      "title": "cmux-next: agent work turns as the spinner again; nothing in a sidebar row blinks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23686,
+      "title": "ci: a tip_swift_suite dispatch runs the whole Swift suite on the feat-cmux-next tip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23748,
+      "title": "acpmux host add NAME defaults to ssh://NAME; host ls names peers off their canonical endpoint",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23457,
+      "title": "Settings > Updates: the Channels card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23660,
+      "title": "ci(cmux-tui): pin pushes run their daemon tests on their own pool, never the side lane",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
