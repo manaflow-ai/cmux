@@ -114,6 +114,14 @@ button.acpmux-chat-inspector-port:hover,
 .acpmux-chat-inspector .acpmux-summary-subagent-rows .cv-subagent {
   border-radius: var(--acpmux-inspector-row-radius);
 }
+/* A reveal (the header's Environment line, a running count) lights its section for a moment: a soft
+   tint of the text that fades on the motion scale's standard step. */
+.acpmux-chat-inspector-section {
+  transition: background-color var(--cmux-motion-standard, 180ms) var(--acpmux-motion-ease, ease-out);
+}
+.acpmux-chat-inspector-section[data-revealed] {
+  background: color-mix(in srgb, var(--agent-text) 9%, var(--agent-page-bg));
+}
 .acpmux-chat-inspector-section .ui-disclosure-trigger,
 .acpmux-chat-inspector-section__head {
   display: flex;
