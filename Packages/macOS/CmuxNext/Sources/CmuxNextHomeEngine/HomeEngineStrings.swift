@@ -107,6 +107,7 @@ public nonisolated enum HomeEngineStrings {
     static var reactionsCanWake: String { String(localized: "home.engine.reactions.canWake", defaultValue: "Can Wake the Chief", table: "Home", bundle: .module) }
     static var reactionsOn: String { String(localized: "home.engine.reactions.on", defaultValue: "On", table: "Home", bundle: .module) }
     static var reactionsOff: String { String(localized: "home.engine.reactions.off", defaultValue: "Off", table: "Home", bundle: .module) }
+    static var reactionClassifier: String { String(localized: "home.engine.reactions.classifier", defaultValue: "Classifier", table: "Home", bundle: .module) }
     static var reactionHarness: String { String(localized: "home.engine.reactions.harness", defaultValue: "Classifier Harness", table: "Home", bundle: .module) }
     static var reactionModel: String { String(localized: "home.engine.reactions.model", defaultValue: "Classifier Model", table: "Home", bundle: .module) }
     static var reactionPrompt: String { String(localized: "home.engine.reactions.prompt", defaultValue: "Instructions", table: "Home", bundle: .module) }

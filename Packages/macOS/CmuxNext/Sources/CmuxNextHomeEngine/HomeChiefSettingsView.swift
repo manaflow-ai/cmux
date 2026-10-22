@@ -176,6 +176,7 @@ public final class HomeChiefSettingsView: NSView {
         // Reactions: whether a tapback wakes this Chief, and the classifier that decides (a416).
         addFullWidth(Self.sectionHeader(HomeEngineStrings.reactionsSection))
         reactionRows.onPick = { [weak self] fields in self?.pick(fields) }
+        reactionRows.onResize = { [weak self] in self?.onResize() }
         addFullWidth(reactionRows)
         stack.setCustomSpacing(Metrics.space4, after: reactionRows)
         // Appearance: rows other features add; the section shows once it has one.

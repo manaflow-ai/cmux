@@ -7,7 +7,8 @@ import Foundation
 /// instructions). Each control shows this Chief's own value (engine.json); left at Default it runs the
 /// person's (cmux.json `chief.reactionsCanWake`, `chief.reactionClassifier.*`), which its title or
 /// placeholder names. A change is one `chief.engine.set` field through `onPick`; an emptied field clears
-/// this Chief's own value.
+/// this Chief's own value. The classifier's three fields sit behind a closed Classifier disclosure and join
+/// the card only when it opens, so the card opens with its name as its only field.
 @MainActor
 final class HomeChiefReactionRows: NSStackView {
     /// Default (names what it runs), On, Off.
@@ -15,8 +16,16 @@ final class HomeChiefReactionRows: NSStackView {
     let harness = ThemedTextField(string: "")
     let model = ThemedTextField(string: "")
     let prompt = ThemedTextField(string: "")
+    /// Opens and closes the classifier's fields (closed at first).
+    let classifierToggle = NSButton()
     /// Sends `chief.engine.set` fields (nil clears one); the card writes them to the brain.
     var onPick: ([String: String?]) -> Void = { _ in }
+    /// The card fits its new height after the disclosure opened or closed.
+    var onResize: () -> Void = {}
+    /// The harness, model and instructions rows, in the card only while the disclosure is open.
+    private var classifierRows: [NSView] = []
+    /// The note under the block, which the opened rows go above.
+    private var note: NSView?
     /// What each field showed at the last `show`, so leaving it unchanged writes nothing.
     private var shown: [ObjectIdentifier: String] = [:]
 
@@ -30,6 +39,7 @@ final class HomeChiefReactionRows: NSStackView {
         canWake.font = Typography.body
         canWake.setAccessibilityLabel(HomeEngineStrings.reactionsCanWake)
         add(HomeChiefSettingsView.row(HomeEngineStrings.reactionsCanWake, canWake))
+        add(disclosureRow())
         for (field, title, action) in [(harness, HomeEngineStrings.reactionHarness, #selector(editedHarness(_:))),
                                        (model, HomeEngineStrings.reactionModel, #selector(editedModel(_:))),
                                        (prompt, HomeEngineStrings.reactionPrompt, #selector(editedPrompt(_:)))] {
@@ -41,11 +51,67 @@ final class HomeChiefReactionRows: NSStackView {
             field.setAccessibilityLabel(title)
             let box = ThemedFieldBox(field: field, height: Metrics.controlHeight)
             box.widthAnchor.constraint(equalToConstant: HomeChiefSettingsView.pickerWidth).isActive = true
-            add(HomeChiefSettingsView.row(title, box))
+            let row = HomeChiefSettingsView.row(title, box)
+            row.translatesAutoresizingMaskIntoConstraints = false
+            classifierRows.append(row)
         }
         let note = HomeChiefSettingsView.footnote(HomeEngineStrings.reactionsNote)
         note.preferredMaxLayoutWidth = width
         add(note)
+        self.note = note
+    }
+
+    /// Whether the classifier's fields show; setting it adds or removes their rows.
+    var showsClassifier: Bool {
+        get { classifierRows.first?.superview != nil }
+        set {
+            guard newValue != showsClassifier else { return }
+            classifierToggle.state = newValue ? .on : .off
+            if newValue {
+                let at = note.flatMap { arrangedSubviews.firstIndex(of: $0) } ?? arrangedSubviews.count
+                for (offset, row) in classifierRows.enumerated() {
+                    insertArrangedSubview(row, at: at + offset)
+                    row.widthAnchor.constraint(equalTo: widthAnchor).isActive = true
+                }
+            } else {
+                for row in classifierRows {
+                    removeArrangedSubview(row)
+                    row.removeFromSuperview()
+                }
+            }
+            onResize()
+        }
+    }
+
+    /// The closed disclosure over the classifier's fields: a triangle and its title, one click target,
+    /// as the card's Diagnostics.
+    private func disclosureRow() -> NSView {
+        classifierToggle.setButtonType(.pushOnPushOff)
+        classifierToggle.bezelStyle = .disclosure
+        classifierToggle.title = ""
+        classifierToggle.state = .off
+        classifierToggle.target = self
+        classifierToggle.action = #selector(toggledClassifier)
+        classifierToggle.setAccessibilityLabel(HomeEngineStrings.reactionClassifier)
+        let title = HomeChiefLinkButton(title: HomeEngineStrings.reactionClassifier, target: self, action: #selector(clickedClassifierTitle))
+        // One control for VoiceOver and Tab: the triangle; the title is a larger pointer target only.
+        title.cell?.setAccessibilityElement(false)
+        title.refusesFirstResponder = true
+        title.ink = .secondary
+        title.textFont = Typography.body
+        let row = NSStackView(views: [classifierToggle, title])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = Metrics.space1
+        return row
+    }
+
+    @objc func toggledClassifier() {
+        showsClassifier = classifierToggle.state == .on
+    }
+
+    @objc func clickedClassifierTitle() {
+        showsClassifier.toggle()
     }
 
     @available(*, unavailable)
