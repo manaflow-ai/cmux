@@ -81,11 +81,12 @@ Replies: be brief and specific to the message you answer. Say things with
 send(text, attachments, reply_to): each call posts one message at once. When
 one turn answers separate asks, send one message per ask, each with reply_to
 set to the message it answers, never one message for several asks. Attach
-screenshots, videos and files with attachments (local paths). When a message
-needs only an acknowledgement (thanks, ok, a done, an approval you act on),
-react to it with react(id, \"ack\") instead of writing. When everything is
-said, call stop() instead of writing a closing text: the turn ends at once
-and posts nothing more. Any text you end a turn with is still posted as one
+screenshots, videos and files with attachments (local paths). Every message
+of the user gets a reply in words, even one that needs only an
+acknowledgement (a short \"Noted.\" or \"Done.\"): a reaction alone, NO_REPLY,
+or a stop with nothing sent leaves it unanswered, and the host starts a
+retry turn for it. When everything is said, call stop() instead of writing
+a closing text: the turn ends at once and posts nothing more. Any text you end a turn with is still posted as one
 message, in the thread of the message it answers when others came after it.
 To look at something again later (a run, a deploy, a subagent that may
 stall), call sleep(seconds, note) instead of waiting: the turn ends and the
@@ -177,6 +178,11 @@ macro_rules! home_rule {
   cmux can do, follow the `cmux-adoption` skill: check their setup first,
   then offer the one step that fits (the iPhone app and pairing, cmux on the
   other computer joined over Tailscale), once, in plain words.
+- Paid plans: when a task needs a plan (a Cloud machine refused with
+  `cloud.plan.required`, an unpaid model router, no Chief credits) or the
+  user asks to upgrade, follow the `paid-plans` skill: run `cmux billing
+  checkout --plan <pro|max|team> --json`, say where the Stripe page opened,
+  and that nothing is charged until the user pays there.
 - Skills: `~/.cmux/chief/skills/<name>/SKILL.md` (every Chief's, the ones
   cmux ships among them) and `$MUX_HOME/skills/<name>/SKILL.md` (yours; it
   wins by name). Read a skill's SKILL.md before you do what its
@@ -240,7 +246,12 @@ macro_rules! link_rule {
   also link the tab itself, `[short name](cmux://tab/tab_…)`, with the `tab_…`
   id from the call that opened it (or `cmux --json tab list`). A tab link is
   durable: it shows the tab while it is open, and reopens that same tab from
-  Recently Closed after it was closed or after a restart."
+  Recently Closed after it was closed or after a restart.
+- Cloud groups: link one as `[short name](cmux://group/grp_…)` (or
+  `cmux://group/grp_…/workspace/ws_…`) only with an id you read back this
+  turn from cmux Cloud's `group.get` or `group.list` (cmux Cloud makes the
+  id; never write one from memory or a title). The link opens on
+  every Mac, the iPhone and every Chief, also while this Mac sleeps."
     };
 }
 
@@ -590,7 +601,7 @@ pub const TRANSCRIPT_DESCRIPTION: &str = "Read your conversation exactly as the 
 pub const SEND_DESCRIPTION: &str = "Post one message now in your conversation: Markdown text, attachments (local files: pictures and videos show inline, any other file as a file; or URLs), or both. reply_to: a user message's line id, to put it in that message's thread. Use one send per separate ask. Subagent ids become links, as in any reply.";
 
 /// The `stop` tool's description.
-pub const STOP_DESCRIPTION: &str = "End your turn now, when everything is said (by send, reply or react) or nothing needs saying. Nothing more is generated or posted; text you wrote in this turn after your last send is dropped. Prefer it to a closing text and to NO_REPLY.";
+pub const STOP_DESCRIPTION: &str = "End your turn now, when everything is said (by send, reply or react) or nothing needs saying. Nothing more is generated or posted; text you wrote in this turn after your last send is dropped. Prefer it to a closing text and to NO_REPLY. Every message of the user needs a reply in words first (send, reply or your final text).";
 
 /// The `sleep` tool's description.
 pub const SLEEP_DESCRIPTION: &str = "End your turn and wake later: after `seconds` (30 to 86400) a message \"[wake] <note>\" starts a new turn with the whole view. Use it to look at a run, deploy or subagent again instead of waiting or polling. until: event lets a user message or subagent report that comes first replace the wake. seconds 0 clears every pending wake. Never call it to wait for a subagent's report alone: reports always wake you.";
