@@ -72,11 +72,14 @@ export function PromptText({
     return () => observer.disconnect();
   }, [parts, long, open]);
   const collapsed = long && !open;
-  // Show more and Show less (Leo 2026-10-21: "these all need animations for expand and collpase"):
-  // the bubble keeps its top where it is drawn and grows or shrinks below it, over the fold's token,
-  // so the reader stays where they were reading ("just expand the area at the bottom and you're in
-  // the same place"). The button rides the bubble's moving bottom edge instead of jumping to where
-  // it ends up. A toggle midway starts from the drawn height.
+  // Show more and Show less (Leo 2026-10-21: "these all need animations for expand and collpase"),
+  // over the fold's token, without moving what the reader looks at ("just expand the area at the
+  // bottom and you're in the same place"):
+  // - Show more holds the bubble's top: the text grows below it, and the button rides the bubble's
+  //   bottom edge down instead of jumping there.
+  // - Show less holds the button, where the reader clicked it: the text shrinks back above it into
+  //   its first lines, fully drawn until it is clipped.
+  // A toggle midway starts from the drawn height; unmounting cancels what plays.
   const resized = useRef<number | undefined>(undefined);
   const resizing = useRef<Animation[]>([]);
   const stopResize = () => {
@@ -84,10 +87,11 @@ export function PromptText({
     resizing.current = [];
   };
   useEffect(() => stopResize, []);
+  const more = () => body.current?.parentElement?.querySelector<HTMLElement>(":scope > .cv-user__more") ?? null;
   const showMore = (next: boolean) => {
     const bubble = body.current?.parentElement;
     if (bubble) {
-      holdHeader(bubble);
+      holdHeader(next ? bubble : (more() ?? bubble));
       resized.current = bubble.getBoundingClientRect().height;
     }
     stopResize();
@@ -97,11 +101,26 @@ export function PromptText({
     const from = resized.current;
     resized.current = undefined;
     const bubble = body.current?.parentElement;
+    const text = body.current;
     const ms = foldMs(bubble ?? null);
-    if (from === undefined || !bubble || ms <= 0) return;
+    if (from === undefined || !bubble || !text || ms <= 0) return;
     const to = bubble.getBoundingClientRect().height;
     if (Math.abs(to - from) < 1) return;
     const timing = { duration: ms, easing: foldMotion.easing(bubble) };
+    if (collapsed) {
+      // The clamped text is a box again: it starts as tall as the whole text was drawn.
+      const clamped = text.getBoundingClientRect().height;
+      resizing.current.push(
+        text.animate(
+          [
+            { height: `${clamped + from - to}px`, maxHeight: "none" },
+            { height: `${clamped}px`, maxHeight: "none" },
+          ],
+          timing,
+        ),
+      );
+      return;
+    }
     resizing.current.push(
       bubble.animate(
         [
@@ -111,7 +130,7 @@ export function PromptText({
         timing,
       ),
     );
-    const button = bubble.querySelector<HTMLElement>(":scope > .cv-user__more");
+    const button = more();
     if (button)
       resizing.current.push(button.animate([{ translate: `0 ${from - to}px` }, { translate: "0 0" }], timing));
   }, [collapsed]);

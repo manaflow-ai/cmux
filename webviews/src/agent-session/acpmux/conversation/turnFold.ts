@@ -45,6 +45,8 @@ export type TurnFold = {
   faded: Set<string>;
   /// The animations this fold started, so another toggle can settle them first.
   animations: Set<Animation>;
+  /// Each row's slide now: a later pass replaces it, so a row never runs two at once.
+  slides: Map<HTMLElement, Animation>;
 };
 
 /// The fold each thread plays now: a fold's own timer ends only that fold, not a later one.
@@ -75,6 +77,13 @@ function ghostOf(row: HTMLElement): HTMLElement {
   copy.setAttribute("aria-hidden", "true");
   copy.setAttribute("inert", "");
   return copy;
+}
+
+/// How far a sliding row is drawn below its place now (its animated `translate`), in px.
+function drawnShift(node: HTMLElement): number {
+  const value = node.ownerDocument.defaultView?.getComputedStyle(node).translate ?? "";
+  const y = parseFloat(value.split(" ")[1] ?? "");
+  return Number.isFinite(y) ? y : 0;
 }
 
 /// Starts the fold of row `id` the reader toggled, or undefined when it applies at once. `opening`:
@@ -110,6 +119,7 @@ export function startTurnFold(
     copies,
     faded: new Set(),
     animations: new Set(),
+    slides: new Map(),
   };
   playing.set(thread, fold);
   // The state goes when the fold is over even if nothing renders the transcript again by then.
@@ -133,6 +143,7 @@ export function settleTurnFold(thread: HTMLElement | null, fold: TurnFold | unde
   fold.copies = undefined;
   for (const animation of fold.animations) animation.finish();
   fold.animations.clear();
+  fold.slides.clear();
   for (const ghost of ghosts) ghost.remove();
   ghosts.clear();
   endTurnFold(thread, fold);
@@ -196,14 +207,18 @@ export function playTurnFold(
     const delta = was === undefined ? (fold.moved ?? 0) : was - top;
     if (Math.abs(delta) < 0.5) continue;
     if (was !== undefined) fold.moved = delta;
-    // Stacked (`composite: "add"`): a pass that moves the row again starts from where it is drawn.
-    fold.animations.add(
-      row.node.animate([{ translate: `0 ${delta}px` }, { translate: "0 0" }], {
-        duration: fold.ms,
-        easing,
-        composite: "add",
-      }),
-    );
+    // A pass that moves a row still sliding takes over from where it is drawn now, for the time left.
+    const last = fold.slides.get(row.node);
+    const sliding = last?.playState === "running" ? last : undefined;
+    const from = delta + (sliding ? drawnShift(row.node) : 0);
+    sliding?.cancel();
+    if (sliding) fold.animations.delete(sliding);
+    const slide = row.node.animate([{ translate: `0 ${from}px` }, { translate: "0 0" }], {
+      duration: sliding ? Math.max(1, fold.until - FOLD_SETTLE_MS - now) : fold.ms,
+      easing,
+    });
+    fold.slides.set(row.node, slide);
+    fold.animations.add(slide);
   }
   return true;
 }

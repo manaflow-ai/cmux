@@ -130,30 +130,38 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     }, selector);
   /// Clicks the marked line, then follows it every painted frame for `ms`: how far it ever moved, and
   /// whether a fold was playing at some frame.
-  const clickAndWatch = async (page: Page, ms = 450) => {
+  const clickAndWatch = async (page: Page, ms = 450, at?: { x: number; y: number }) => {
     const point = await page.evaluate(() => {
       const box = document.querySelector<HTMLElement>("[data-probe]")!.getBoundingClientRect();
       return { x: box.left + 24, y: box.top + box.height / 2, top: box.top };
     });
     const watching = page.evaluate(
       ({ duration, from }) =>
-        new Promise<{ moved: number; folded: boolean }>((resolve) => {
+        new Promise<{ moved: number; folded: boolean; stacked: number }>((resolve) => {
           const start = performance.now();
           let moved = 0;
           let folded = false;
+          let stacked = 0;
           window.cmuxAfterPaint(() => {
             const line = document.querySelector<HTMLElement>("[data-probe]");
             if (line) moved = Math.max(moved, Math.abs(line.getBoundingClientRect().top - from));
             for (const fold of document.querySelectorAll(".cv-fold"))
               if (fold.getAnimations().length > 0) folded = true;
+            const each = new Map<unknown, number>();
+            for (const animation of document.getAnimations())
+              if (animation.playState === "running" && animation.effect?.getTiming().iterations !== Infinity) {
+                const target = (animation.effect as KeyframeEffect | null)?.target;
+                each.set(target, (each.get(target) ?? 0) + 1);
+              }
+            stacked = Math.max(stacked, ...each.values(), 0);
             if (performance.now() - start < duration) return;
-            resolve({ moved, folded });
+            resolve({ moved, folded, stacked });
             return false;
           });
         }),
       { duration: ms, from: point.top },
     );
-    await page.mouse.click(point.x, point.y);
+    await page.mouse.click((at ?? point).x, (at ?? point).y);
     return { ...(await watching), top: point.top };
   };
   const probedTop = (page: Page) =>
@@ -260,6 +268,79 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     expect(await page.locator('[data-row-id="t3-run"]').count()).toBe(0);
     await page.close();
   });
+
+  // Every kind of collapsible, opened and closed mid-transcript: the line the reader clicked stays on
+  // its pixel (Show more holds the bubble's top: the text grows below it), and no element ever runs
+  // two animations at once (Leo 2026-10-22: "a few animations that didnt quite work for collapsing
+  // and expanding wrt tool calls and stufff").
+  const longPrompt = Array.from({ length: 24 }, (_, line) => `${line + 1}. The uploader retries on a 5xx.`).join("\n");
+  const execute = (id: string, command: string) => ({
+    kind: "tool",
+    text: "",
+    tool: { id, title: command, kind: "execute", status: "completed", command, output: "3 pass\n0 fail", exitCode: 0 },
+  });
+  const kinds: Row[] = [
+    row("k-user", "user", longPrompt),
+    row("k-run", "activity", undefined, {
+      items: [
+        {
+          kind: "thought",
+          text: "Check the retry wrapper first.\n\nIt swallows the status.",
+          startedAt: 0,
+          endedAt: 9_000,
+        },
+        read("k-read"),
+        execute("k-cmd-a", "bun test src/net"),
+        execute("k-cmd-b", "bun test src/net --watch"),
+      ],
+    }),
+    row("k-answer", "assistant", paragraphs(4)),
+  ];
+  /// Each kind: the text on its toggle, and for Show more what holds still while it opens.
+  const cases: { name: string; text: string; held?: string }[] = [
+    { name: "a thought", text: "Thought" },
+    { name: "a tool call", text: "k-read" },
+    { name: "a command group", text: "2 commands" },
+    { name: "Show more", text: "Show", held: `[data-row-id="k-user"] .cv-user__bubble` },
+  ];
+  for (const one of cases)
+    test(`${one.name} opens and closes with its line on its pixel and one animation per element`, async () => {
+      const page = await open("no-preference");
+      await show(page, [...done, ...kinds]);
+      await settle(page);
+      // Marks the toggle (`data-toggle`) and puts it 200 px down the view, away from either end.
+      const mark = () =>
+        page.evaluate((text) => {
+          for (const node of document.querySelectorAll("[data-toggle]")) node.removeAttribute("data-toggle");
+          const toggle = [...document.querySelectorAll<HTMLElement>('[data-row-id^="k-"] button[aria-expanded]')].find(
+            (node) => node.textContent?.includes(text),
+          )!;
+          toggle.dataset.toggle = "true";
+        }, one.text);
+      for (const opening of [true, false]) {
+        await mark();
+        await page.evaluate(() => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          const toggle = document.querySelector<HTMLElement>("[data-toggle]")!;
+          scroller.scrollTop += toggle.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 200;
+        });
+        await settle(page);
+        const at = await page.evaluate(() => {
+          const box = document.querySelector<HTMLElement>("[data-toggle]")!.getBoundingClientRect();
+          return { x: box.left + Math.min(24, box.width / 2), y: box.top + box.height / 2 };
+        });
+        await page.evaluate(() => document.querySelector("[data-probe]")?.removeAttribute("data-probe"));
+        // Show more holds the bubble's top while the text grows below it; Show less holds the button.
+        await probe(page, opening && one.held ? one.held : "[data-toggle]");
+        const watched = await clickAndWatch(page, 450, at);
+        expect({ opening, held: watched.moved <= 1 }).toEqual({ opening, held: true });
+        expect({ opening, stacked: Math.min(watched.stacked, 2) }).toEqual({ opening, stacked: 1 });
+        await settle(page);
+        await mark();
+        expect(await page.locator("[data-toggle]").getAttribute("aria-expanded")).toBe(String(opening));
+      }
+      await page.close();
+    });
 
   test("under Reduce Motion a tool call opens at once, and still stays on its pixel", async () => {
     const page = await open("reduce");
