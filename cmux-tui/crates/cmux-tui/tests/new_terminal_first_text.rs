@@ -7,7 +7,9 @@
 //! daemon's `first_printable_output` mark, from the request's arrival) well
 //! before one slow commit, and its reply must come after exactly one: the
 //! acknowledgment stays durable, the commits before the first output do not
-//! each wait for the disk.
+//! each wait for the disk. With `CMUX_TUI_DEBUG_SLOW_DISCOVERY_SYNC_MS` the
+//! terminal host's discovery-file syncs are slow instead: the first text
+//! may wait for one of them (the record's data barrier), not all.
 
 #![cfg(unix)]
 
@@ -56,8 +58,10 @@ impl Client {
     }
 }
 
-#[test]
-fn a_new_terminals_first_text_does_not_wait_for_a_durable_commit() {
+/// One new-tab on a fresh daemon started with `debug_env`: the ms from the
+/// request's arrival to its first text, and the ms the client waited for the
+/// reply.
+fn new_tab_first_text(debug_env: &[(&str, String)]) -> (u64, u64) {
     let dir = temp_dir();
     fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("mux.sock");
@@ -67,22 +71,24 @@ fn a_new_terminals_first_text_does_not_wait_for_a_durable_commit() {
     let quiet = dir.join("quiet-shell");
     fs::write(&quiet, "#!/bin/sh\nexec sleep 600\n").unwrap();
     fs::set_permissions(&quiet, fs::Permissions::from_mode(0o755)).unwrap();
-    let mut daemon = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+    command
         .args(["--headless", "--socket"])
         .arg(&socket)
         .arg("--state")
         .arg(dir.join("state"))
         .env("CMUX_TUI_CONFIG", dir.join("config.json"))
         .env("CMUX_TUI_DEBUG_SPANS", &spans)
-        .env("CMUX_TUI_DEBUG_SLOW_DURABLE_COMMIT_MS", SLOW_COMMIT_MS.to_string())
         .env("SHELL", &quiet)
         .env_remove("SSH_CONNECTION")
         .env_remove("SSH_CLIENT")
         .env_remove("SSH_TTY")
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
+        .stderr(Stdio::null());
+    for (key, value) in debug_env {
+        command.env(key, value);
+    }
+    let mut daemon = command.spawn().unwrap();
     let deadline = Instant::now() + Duration::from_secs(60);
     let stream = loop {
         if let Ok(stream) = UnixStream::connect(&socket) {
@@ -113,7 +119,9 @@ fn a_new_terminals_first_text_does_not_wait_for_a_durable_commit() {
         .map(|pane| pane["id"].clone())
         .unwrap_or_else(|| panic!("no pane holds the base surface: {tree}"));
 
-    let terminal_id = format!("{:08x}00004000800{:013x}", std::process::id(), 0x100);
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0x100);
+    let serial = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let terminal_id = format!("{:08x}00004000800{:013x}", std::process::id(), serial);
     let sent = Instant::now();
     client.call(json!({"cmd": "new-tab", "pane": pane, "terminal_id": terminal_id,
         "cols": 80, "rows": 24, "env": {"SHELL": "/bin/sh"},
@@ -137,11 +145,18 @@ fn a_new_terminals_first_text_does_not_wait_for_a_durable_commit() {
     let _ = daemon.kill();
     let _ = daemon.wait();
     let _ = fs::remove_dir_all(&dir);
+    (first_text_us / 1000, reply_ms)
+}
 
+#[test]
+fn a_new_terminals_first_text_does_not_wait_for_a_durable_commit() {
+    let (first_text_ms, reply_ms) = new_tab_first_text(&[(
+        "CMUX_TUI_DEBUG_SLOW_DURABLE_COMMIT_MS",
+        SLOW_COMMIT_MS.to_string(),
+    )]);
     assert!(
-        first_text_us < SLOW_COMMIT_MS * 1000,
-        "the first text came {} ms after the request: it waited for a durable commit ({SLOW_COMMIT_MS} ms each)",
-        first_text_us / 1000
+        first_text_ms < SLOW_COMMIT_MS,
+        "the first text came {first_text_ms} ms after the request: it waited for a durable commit ({SLOW_COMMIT_MS} ms each)"
     );
     assert!(
         reply_ms >= SLOW_COMMIT_MS,
@@ -150,5 +165,25 @@ fn a_new_terminals_first_text_does_not_wait_for_a_durable_commit() {
     assert!(
         reply_ms < 3 * SLOW_COMMIT_MS,
         "the reply came after {reply_ms} ms: the create waited for more than one durable commit ({SLOW_COMMIT_MS} ms each)"
+    );
+}
+
+/// The extra time of each terminal-host discovery-file sync (record, lease,
+/// workspace mirror: `barrier_sync`).
+const SLOW_DISCOVERY_SYNC_MS: u64 = 300;
+
+/// The host's discovery files (its record, liveness lease and workspace
+/// mirror) are synced after its Ready, off the first text's path; only the
+/// record's data barrier stays before it is published (a torn record after
+/// a power cut would block an explicit reset).
+#[test]
+fn a_new_terminals_first_text_waits_for_at_most_one_discovery_file_sync() {
+    let (first_text_ms, _) = new_tab_first_text(&[(
+        "CMUX_TUI_DEBUG_SLOW_DISCOVERY_SYNC_MS",
+        SLOW_DISCOVERY_SYNC_MS.to_string(),
+    )]);
+    assert!(
+        first_text_ms < 2 * SLOW_DISCOVERY_SYNC_MS,
+        "the first text came {first_text_ms} ms after the request: it waited for several discovery-file syncs ({SLOW_DISCOVERY_SYNC_MS} ms each)"
     );
 }
