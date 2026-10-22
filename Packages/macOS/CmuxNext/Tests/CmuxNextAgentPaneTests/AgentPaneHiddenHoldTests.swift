@@ -6,7 +6,7 @@ import Testing
 /// A chat pane nobody can see gets no bridge call for a streaming turn: each call woke its page's
 /// web process. Leo's running nightly (2026-10-21) had one hidden chat take 148 calls and 109
 /// web-process sleep and wake cycles in two minutes, at the 0.25 s hidden interval. What its
-/// page waits on still goes: a reply, `_acpmux/prompt_accepted`, the close and a backlog.
+/// page waits on still goes: a reply, `_acpmux/prompt_accepted`, a turn's end, the close and a backlog.
 @Suite(.serialized)
 @MainActor
 struct AgentPaneHiddenHoldTests {
@@ -22,9 +22,9 @@ struct AgentPaneHiddenHoldTests {
             rig.pacer.delivered()
         }
         #expect(rig.calls == 0, "a hidden pane's page was called \(rig.calls) times for a streaming turn")
-        // Shown: the next frames go at once, with every frame held.
+        // Shown: the held frames go at once, in one call.
         rig.hidden = false
-        rig.arrive()
+        rig.pacer.visibilityChanged()
         #expect(rig.calls == 1)
     }
 
@@ -78,6 +78,10 @@ struct AgentPaneHiddenHoldTests {
         #expect(waits(#"{"jsonrpc":"2.0","id":3,"result":{}}"#), "a reply")
         #expect(waits(#"{"jsonrpc":"2.0","id":4,"method":"session/request_permission","params":{}}"#), "a daemon request")
         #expect(waits(#"{"jsonrpc":"2.0","method":"_acpmux/prompt_accepted","params":{"promptId":"p"}}"#))
+        // Its absence 5 s after Stop says the stop was forced.
+        #expect(waits(#"{"jsonrpc":"2.0","method":"_acpmux/event","params":{"sessionId":"s","seq":9,"kind":"turn_end","msg":{}}}"#))
+        #expect(waits(#"{"jsonrpc":"2.0","method":"_acpmux/event","params":{"sessionId":"s","seq":9,"kind":"turn_result","msg":{}}}"#))
+        #expect(!waits(#"{"jsonrpc":"2.0","method":"_acpmux/event","params":{"sessionId":"s","seq":8,"kind":"agent_message_chunk","msg":{}}}"#))
         #expect(!waits(AcpmuxStandInServer.benchFrame(1)), "a streamed session/update")
     }
 

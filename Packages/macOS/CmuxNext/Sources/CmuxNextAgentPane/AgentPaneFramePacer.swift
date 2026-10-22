@@ -29,8 +29,8 @@ import CmuxNextWakeups
 ///   at most one call per frame interval.
 /// - A pane nobody can see (out of a window, hidden, or in a covered or minimized window): its
 ///   frames wait, and its page gets no call, until it shows (``visibilityChanged()``), or the frames
-///   are ones the page waits on (``schedule(urgent:_:)``: a reply to its request, the close, or a
-///   backlog). Each call woke the hidden page's web process: a streaming chat behind another tab
+///   are ones the page waits on (``schedule(urgent:_:)``: a reply to its request, a turn's end, the
+///   close, or a backlog). Each call woke the hidden page's web process: a streaming chat behind another tab
 ///   took 148 calls and 109 web-process sleep and wake cycles in two minutes (2026-10-21). Frames
 ///   the page waits on go at most every ``hiddenInterval``, on the fallback deadline. Twenty mostly
 ///   hidden chats each streaming a call per frame interval kept the main thread busy until the app
@@ -112,9 +112,10 @@ import CmuxNextWakeups
         pending = true
         // Frames the page waits on stay waiting until a call takes them.
         self.urgent = self.urgent || urgent
+        // Only frames the page waits on reach a held pacer (the socket wakes it for no others);
+        // the rest go when the pane shows (``visibilityChanged()``).
         if held {
-            // A pane that shows again before its probe says so gets its frames with the next ones.
-            guard urgent || !isHidden() else { return }
+            guard urgent else { return }
             held = false
         }
         guard !inFlight, !waitingForFrame, !waitingForInterval, !nextTurnScheduled, !waitingWhileHidden else { return }
