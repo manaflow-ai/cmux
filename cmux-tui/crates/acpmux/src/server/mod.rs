@@ -1058,6 +1058,7 @@ pub(crate) mod outbox;
 mod pairing;
 pub mod peer_auth;
 mod peer_forward;
+mod peer_status;
 pub mod peer_text;
 mod pending;
 mod processes;
