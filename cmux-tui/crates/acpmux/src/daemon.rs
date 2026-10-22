@@ -17,6 +17,7 @@ pub(crate) use router_owner::open_router_owner;
 pub(crate) use router_owner::router_owner_path;
 use router_owner::{ensure_router, release_router};
 mod notify;
+pub(crate) mod supervised;
 #[cfg(windows)]
 mod windows;
 
@@ -72,20 +73,6 @@ fn install_panic_log() {
             .name(TEST_PANIC_THREAD.into())
             // crash-allow: debug-only test trigger for the acpmux panic log
             .spawn(|| panic!("acpmux test panic"));
-    }
-}
-
-/// Debug builds only: `ACPMUX_TEST_PANIC=request:<method>` makes a request
-/// of `<method>` panic inside its handler (tests/panic_log.rs): the client
-/// gets an internal error and the daemon keeps answering.
-#[cfg(debug_assertions)]
-pub(crate) fn panic_in_request_for_test(method: &str) {
-    let armed = std::env::var(TEST_PANIC_ENV)
-        .ok()
-        .is_some_and(|value| value.strip_prefix("request:") == Some(method));
-    if armed {
-        // crash-allow: debug-only test trigger for the request boundary
-        panic!("acpmux test request panic");
     }
 }
 
@@ -324,16 +311,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         fetch_catalog.then(|| std::sync::Arc::new(crate::catalog::HttpsFetcher::current()) as _);
     hub.catalog.attach(home().join("catalog"), fetcher);
     if fetch_catalog {
-        let catalog = hub.catalog.clone();
-        tokio::spawn(async move {
-            let run = || catalog.clone().run();
-            cmux_panic_log::supervise::restarting(
-                "acpmux catalog refresh",
-                run,
-                tokio::time::sleep,
-            )
-            .await;
-        });
+        supervised::catalog_refresh(hub.catalog.clone());
     }
     // The app's pane sends no prompt before the folder's trust answer (`server/trust_gate.rs`).
     // Without a home directory no file can answer, so every folder waits (fails closed).
@@ -421,15 +399,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let peer_file = peer.as_ref().map(|a| a.path().to_owned());
     let ws_task = ws_listener.map(|(l, token)| {
         let auth = crate::server::WsAuth { local_app, peer };
-        let serve = crate::server::serve_ws_with(hub.clone(), l, token, auth);
-        // Nothing awaits this task: a panicked accept loop would leave the
-        // app's pane without a listener in a live daemon. End the daemon
-        // instead; the app starts a new one, which adopts the agent hosts.
-        tokio::spawn(async move {
-            cmux_panic_log::supervise::catch_future("acpmux web accept loop", serve)
-                .await
-                .unwrap_or_else(|panicked| cmux_panic_log::supervise::end_process(&panicked))
-        })
+        supervised::web_accept_loop(&hub, crate::server::serve_ws_with(hub.clone(), l, token, auth))
     });
     let ready = serde_json::json!({
         "ready": true,
@@ -499,15 +469,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             }
         });
     }
-    {
-        let hub = hub.clone();
-        let run = move || notify::notify_loop(hub.clone());
-        tokio::spawn(cmux_panic_log::supervise::restarting(
-            "acpmux notify",
-            run,
-            tokio::time::sleep,
-        ));
-    }
+    supervised::notify(hub.clone());
 
     let shutdown = async {
         #[cfg(unix)]
@@ -552,7 +514,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         let _ = std::fs::remove_file(file);
     }
     tracing::info!("stopped");
-    Ok(())
+    supervised::exit_status()
 }
 
 /// The next delivery of a registered signal; never, if registration failed.

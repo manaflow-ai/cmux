@@ -57,8 +57,34 @@ use crate::rpc::{Message, RpcError};
 
 const PREFIX: &str = "_acpmux/chat";
 
-/// Answers the chat methods; every other method goes to `requests.rs`.
+/// Answers one request under a panic boundary (cmux-panic-log `supervise`):
+/// a panic answers it with an internal error, so the client never waits for
+/// a reply that cannot come. The panic message stays in the panic log; it
+/// can hold paths or text a remote client must not see.
 pub(super) async fn route(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    m: &str,
+    params: Value,
+) -> Result<Value, RpcError> {
+    let request = async {
+        #[cfg(debug_assertions)]
+        crate::daemon::supervised::panic_in_request_for_test(m);
+        route_request(hub, conn, m, params).await
+    };
+    cmux_panic_log::supervise::catch_future("acpmux request", request)
+        .await
+        .unwrap_or_else(|_| Err(RpcError::internal("internal error: the request panicked")))
+}
+
+/// Handles one notification under the same boundary: a panic drops it.
+pub(super) async fn notification(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, params: Value) {
+    let notification = super::handle_notification(hub, conn, m, params);
+    let _ = cmux_panic_log::supervise::catch_future("acpmux notification", notification).await;
+}
+
+/// Answers the chat methods; every other method goes to `requests.rs`.
+async fn route_request(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
     m: &str,

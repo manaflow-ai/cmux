@@ -522,15 +522,7 @@ impl<B: Backend> Server<B> {
                     && let Some(job) = self.proxied_job(&params)
                 {
                     std::thread::spawn(move || {
-                        // A panic still answers the call: the client never waits forever.
-                        let run =
-                            cmux_panic_log::supervise::catch("mcp tools/call", || job.run(None));
-                        let response = match run {
-                            Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
-                            Err(_) => {
-                                error_response(id, -32603, "internal error: the tool call panicked")
-                            }
-                        };
+                        let response = json!({"jsonrpc": "2.0", "id": id, "result": job.run(None)});
                         let _ = output.send(&response);
                     });
                     return None;

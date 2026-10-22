@@ -24,9 +24,12 @@
 //! location, backtrace) to the panic log when a boundary sees it; the
 //! boundary adds one stderr line naming the boundary and what it did.
 //!
-//! Callers must not leave state half-changed across a boundary: every lock in
-//! cmux recovers from poison (`unwrap_or_else(PoisonError::into_inner)`), so
-//! the boundaries assert unwind safety for their bodies.
+//! The boundaries assert unwind safety for their bodies. A body must not
+//! leave shared state half-changed across a panic, and the locks it shares
+//! must recover from poison (`unwrap_or_else(PoisonError::into_inner)`,
+//! rule 1 of the plan): a restarted worker that meets a poisoned
+//! `lock().unwrap()` panics again on every run, at most once per
+//! [`RESTART_MAX`].
 
 use std::any::Any;
 use std::future::Future;

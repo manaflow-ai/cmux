@@ -405,7 +405,7 @@ pub async fn serve_ws_with(
         let policy = policy.clone();
         let local_app = auth.local_app.clone();
         let peer_auth = auth.peer.clone();
-        let serve = async move {
+        tokio::spawn(cmux_panic_log::supervise::catch_future("acpmux web conn", async move {
             let mut head = [0u8; 4096];
             let n = match tokio::time::timeout(
                 std::time::Duration::from_secs(5),
@@ -587,8 +587,7 @@ pub async fn serve_ws_with(
             let _ = stop.send(());
             // Its read half may wait on a silent client; the close is ours.
             reader.abort();
-        };
-        tokio::spawn(cmux_panic_log::supervise::catch_future("acpmux web connection", serve));
+        }));
     }
 }
 
@@ -819,20 +818,7 @@ async fn serve_connection_from(
                 let hub = hub.clone();
                 let conn = conn.clone();
                 tokio::spawn(async move {
-                    // A panic answers this request with an internal error; the
-                    // client never waits for a reply that cannot come.
-                    let route = async {
-                        #[cfg(debug_assertions)]
-                        crate::daemon::panic_in_request_for_test(&m);
-                        chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null)).await
-                    };
-                    let result = cmux_panic_log::supervise::catch_future("acpmux request", route)
-                        .await
-                        .unwrap_or_else(|_| {
-                            // The message stays in the panic log: it can hold
-                            // paths or text a remote client must not see.
-                            Err(RpcError::internal("internal error: the request panicked"))
-                        });
+                    let result = chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
                     conn.send(&match result {
                         Ok(v) => Message::ok(id, v),
                         Err(e) => Message::err(id, e),
@@ -844,12 +830,9 @@ async fn serve_connection_from(
             Message::Notification { method: m, params } => {
                 let hub = hub.clone();
                 let conn = conn.clone();
-                tokio::spawn(cmux_panic_log::supervise::catch_future(
-                    "acpmux notification",
-                    async move {
-                        handle_notification(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
-                    },
-                ));
+                tokio::spawn(async move {
+                    chats::notification(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
+                });
             }
             Message::Response { .. } => {
                 // acpmux sends no requests to clients today (permission goes

@@ -122,9 +122,10 @@ fn fatal_for_test(kind: &str) {
             std::hint::black_box(recurse(0));
         }
         "oom" => {
-            // An allocation the system refuses: `handle_alloc_error` aborts
-            // ("memory allocation of N bytes failed"), as a real OOM does.
-            let bytes = std::hint::black_box(1_usize << 46);
+            // An allocation no allocator can give (and no overcommit lends):
+            // `handle_alloc_error` aborts ("memory allocation of N bytes
+            // failed"), as a real OOM does.
+            let bytes = std::hint::black_box(isize::MAX as usize);
             let buffer = Vec::<u8>::with_capacity(bytes);
             std::hint::black_box(buffer);
         }

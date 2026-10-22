@@ -377,8 +377,19 @@ pub(super) struct ProxiedCall {
 }
 
 impl ProxiedCall {
-    /// The server's result, or a tool error with the call's state.
+    /// The server's result, or a tool error with the call's state. A panic
+    /// is a tool error too (cmux-panic-log `supervise`): the client always
+    /// gets an answer.
     pub(super) fn run(self, cap: Option<Duration>) -> Value {
+        cmux_panic_log::supervise::catch("mcp tools/call", || self.call(cap)).unwrap_or_else(|_| {
+            let error = json!({"code": "internal", "message": "internal error: the tool call panicked",
+                "details": {}, "retryable": false});
+            // The call may have reached the server: its outcome is not known.
+            super::tool_error(super::envelope(error, "in_progress", None))
+        })
+    }
+
+    fn call(self, cap: Option<Duration>) -> Value {
         let mut upstream = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let Some(tool) = upstream.owns(&self.name) else {
             let error = json!({"code": "upstream.failed", "message": format!(
