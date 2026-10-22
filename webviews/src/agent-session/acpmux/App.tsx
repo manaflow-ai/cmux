@@ -5219,7 +5219,9 @@ function AcpmuxPane() {
   const composerHandle = useRef<ComposerHandle | null>(null);
   /// The composer is in shell mode, whose ⌘Return answers no recap card (RecapCard.tsx `keyHint`).
   const [composerShell, setComposerShell] = useState(false);
-  const heldBack = useRef<{ text: string; attachments: ComposerAttachment[] }[] | undefined>(undefined);
+  const heldBack = useRef<{ text: string; attachments: ComposerAttachment[]; sessionId?: string }[] | undefined>(
+    undefined,
+  );
   /// What a released page's composer held (the handshake's `wake`), for the composer once it mounts.
   const pendingWake = useRef<ComposerWake | undefined>(undefined);
   /// Where the shown transcript rests now (VirtualTranscript `anchorNow`).
@@ -5237,7 +5239,7 @@ function AcpmuxPane() {
     const waiting = heldBack.current;
     if (!handle || !waiting) return;
     heldBack.current = undefined;
-    for (const back of waiting) handle.restore(back.text, back.attachments);
+    for (const back of waiting) handle.restore(back.text, back.attachments, back.sessionId);
   }, []);
   useComposerKeyboard(() => {
     if (!prompt.current) return false;
@@ -5646,9 +5648,10 @@ function AcpmuxPane() {
     const heldRowPrompt = heldPrompts((intent) =>
       postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
     );
-    const restorePrompt = (text: string, attachments: ComposerAttachment[]) => {
-      if (composerHandle.current) composerHandle.current.restore(text, attachments);
-      else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
+    /// `sessionId`: the chat it belongs to, when the composer may not hold that chat yet.
+    const restorePrompt = (text: string, attachments: ComposerAttachment[], sessionId?: string) => {
+      if (composerHandle.current) composerHandle.current.restore(text, attachments, sessionId);
+      else heldBack.current = [...(heldBack.current ?? []), { text, attachments, sessionId }];
     };
     /// The host sent a lost prompt again after its sender gave up, and acpmux ran it: its id goes
     /// (the next identical prompt is new) and its draft waiting for another chat goes. Its part of
@@ -5831,7 +5834,9 @@ function AcpmuxPane() {
               queueMicrotask(() => {
                 const shown = directClient.current;
                 for (const draft of backHere) {
-                  if (draft.text || draft.attachments.length > 0) restorePrompt(draft.text, draft.attachments);
+                  // The composer may still hold the chat shown before: it goes in once this one is.
+                  if (draft.text || draft.attachments.length > 0)
+                    restorePrompt(draft.text, draft.attachments, next.summary?.sessionId);
                   const noticeId = shown?.notice(draft.notice);
                   if (noticeId && next.summary)
                     restoredLost.set(draft.promptId, {

@@ -183,9 +183,9 @@ export function withoutParts(
     const part = parts[at]!;
     if (!text.startsWith(part.text)) return undefined;
     const rest = text.slice(part.text.length);
-    if (rest && !rest.startsWith(gap)) return undefined;
-    // An empty part over typed text left a blank line ahead of it.
-    text = rest.slice(rest ? gap.length : 0);
+    if (rest && part.text && !rest.startsWith(gap)) return undefined;
+    // An empty part over typed text left a blank line ahead of it, which Send trims away.
+    text = rest.startsWith(gap) ? rest.slice(gap.length) : rest;
     if (!part.attachmentIds.every((id, position) => attachmentIds[position] === id)) return undefined;
     attachmentIds = attachmentIds.slice(part.attachmentIds.length);
   }

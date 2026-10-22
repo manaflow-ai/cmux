@@ -348,6 +348,16 @@ test("a send leaves out every lost prompt that ran after all, as it came back, a
   });
   // Edited: the person's draft, sent as typed.
   expect(withoutParts({ text: "continue now", attachmentIds: [] }, [first], new Set([0]))).toBeUndefined();
+  // An attachment-only prompt put back ahead of a note: the composer holds "\n\nmy note", and
+  // Send trims it to "my note" (Composer.tsx `submit`); the image that ran still goes.
+  const held = { text: "\n\nmy note".trim(), attachmentIds: ["img-1"] };
+  expect(withoutParts(held, [image], new Set([0]))).toEqual({ text: "my note", attachmentIds: [] });
+  expect(withoutParts({ text: "\n\nmy note", attachmentIds: ["img-1"] }, [image], new Set([0]))).toEqual({
+    text: "my note",
+    attachmentIds: [],
+  });
+  // Kept, it goes back ahead of the note.
+  expect(withoutParts(held, [image], new Set())).toEqual({ text: "\n\nmy note", attachmentIds: ["img-1"] });
 });
 
 test("a lost prompt the host sent after all leaves the composer; the person's own text and edits stay", () => {

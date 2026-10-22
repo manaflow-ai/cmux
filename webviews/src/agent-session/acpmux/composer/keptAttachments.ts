@@ -26,13 +26,14 @@ type Pending = { sessionId: string; chips: ComposerAttachment[]; timer: ReturnTy
 /// says, when the session changes, whether the chips held now move to the new one (a harness
 /// switch's new session, as the typed prompt does); otherwise the chat shows only its own. Nothing
 /// is written for a chat before its read, so a page that opens empty never erases what it gets back.
+/// Returns the chat whose chips have been read (`sessionId` itself without a store).
 export function useKeptAttachments(
   sessionId: string | undefined,
   attachments: ComposerAttachment[],
   setAttachments: (update: (current: ComposerAttachment[]) => ComposerAttachment[]) => void,
   store: KeptAttachments | undefined,
   carrying: () => boolean,
-): void {
+): string | undefined {
   const [readFor, setReadFor] = useState<string>();
   /// The chips' ids the host holds for the chat as last written, and which of them it has contents for.
   const written = useRef<{ sessionId?: string; ids: string; stored: Set<string> }>({ ids: "", stored: new Set() });
@@ -138,6 +139,7 @@ export function useKeptAttachments(
       flushNow.current();
     };
   }, []);
+  return store ? readFor : sessionId;
 }
 
 const signature = (chips: readonly ComposerAttachment[]) => chips.map((chip) => chip.id).join("\n");
