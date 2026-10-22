@@ -132,16 +132,23 @@ struct ImportCardDeckTests {
         #expect(home.primary?.title == ImportSuggestionStrings.importWorkspaces)
     }
 
-    /// A finished classic import stays offered again in Settings › Import, not on Home.
-    @Test func aFinishedClassicImportOffersItAgainInSettings() {
+    /// A finished classic import stays offered again in Settings › Import. Home and New Tab
+    /// confirm a run that brought sessions, and show nothing for one that brought none.
+    @Test func aFinishedClassicImportOffersItAgainInSettings() throws {
         var job = ImportJob(finding: Self.classicAllHere, now: Self.now)
-        job.finishedStep(0, counts: ImportCounts(), now: Self.now)
+        job.importedClassic(0, now: Self.now)
         var ledger = ImportJobLedger()
         ledger.put(job)
         let deck = Self.deck([Self.classicAllHere], jobs: ledger)
         let settings = deck.cards(for: .settings, now: Self.now).first
         #expect(settings?.state == .done && settings?.primary?.action == .start && settings?.primary?.title == "Import Again")
-        #expect(deck.cards(for: .home, now: Self.now).first?.primary == nil)
+        #expect(settings?.status == ImportSuggestionStrings.importedSessions(0))
+        #expect(deck.cards(for: .home, now: Self.now).isEmpty)
+        #expect(deck.cards(for: .newTab, now: Self.now).isEmpty)
+        job.importedClassic(2, now: Self.now)
+        ledger.put(job)
+        let home = try #require(Self.deck([Self.classicAllHere], jobs: ledger).cards(for: .home, now: Self.now).first)
+        #expect(home.state == .done && home.primary == nil && home.status == ImportSuggestionStrings.importedSessions(2))
     }
 
     /// Resume and Try Again start over from 0, not at the fraction the cut-off run had reached.
