@@ -156,6 +156,30 @@ import Testing
         }
     }
 
+    /// #21999 review: joined, switching Debug Settings' group header from the solid band to a
+    /// quieter look (which has no bar to join) hid the joined line, and the list drew no line view
+    /// in its place until something else reloaded it. The look change redraws the list's lines.
+    @Test func switchingTheHeaderLookWhileJoinedKeepsTheLine() throws {
+        Motion.reduceMotionOverride = true
+        defer { Motion.reduceMotionOverride = nil }
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        let key = SidebarGroupHeaderStyle.tunable.key
+        defer { TunableStore.shared.set(key, nil) }
+        let sidebar = Self.sidebar(minimal: false, joined: true)
+        #expect(Self.lineView(sidebar) == nil, "joined under the band, the bar draws the line")
+        for style in [SidebarGroupHeaderStyle.line, .band] {
+            try #require(TunableStore.shared.set(key, style.tunableValue) == style.tunableValue, "the header look takes the override")
+            sidebar.renderNow()
+            sidebar.layoutSubtreeIfNeeded()
+            let joined = style == .band
+            #expect(sidebar.list.joinsHeaders == joined, "\(style): the list's join")
+            #expect((Self.lineView(sidebar) != nil) == !joined, "\(style): the members' line view")
+            let (layer, _, _) = try Self.parts(sidebar)
+            #expect((layer.mask != nil) == joined, "\(style): the bar's joined outline")
+        }
+    }
+
     /// VoiceOver reads an unnamed group's header as a group, not ", 2 workspaces".
     @Test func anUnnamedGroupHeaderReadsAsAGroup() throws {
         let header = try Self.header(Self.sidebar(minimal: false, name: ""))

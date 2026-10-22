@@ -141,4 +141,32 @@ import Testing
         #expect(outline.animation(forKey: "path") is CASpringAnimation, "a layout mid-spring replaced the outline's spring")
         #expect(outline.animation(forKey: "bounds") is CASpringAnimation, "a layout mid-spring replaced the outline's spring")
     }
+
+    /// #21999 review: a header reused for another group (a space switch, a scroll) mid-spring kept
+    /// the old group's joined-line springs on its bar and outline, so the new group's line went on
+    /// with the old one's motion. Reuse ends them.
+    @Test(.enabled("a window with no screen applies its changes at once") { await SidebarCalmMotionTests.hasDisplay() })
+    func aReusedHeaderDropsTheOldGroupsSprings() throws {
+        let (sidebar, model) = Self.sidebar(joined: true)
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 600), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        defer { window.orderOut(nil) }
+        window.contentView?.addSubview(sidebar)
+        window.orderFrontRegardless()
+        try #require(window.screen != nil)
+        sidebar.layoutSubtreeIfNeeded()
+        let header = try #require(sidebar.list.rowViews[.group(Self.group)] as? GroupHeaderRowView)
+        header.layoutSubtreeIfNeeded()
+        CATransaction.flush() // Core Animation animates only layers it has committed once
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        model.sections = Self.sections(Array(Self.members.dropLast()))
+        sidebar.list.reload(animated: true)
+        header.layoutSubtreeIfNeeded()
+        let outline = try #require(header.barLayer.mask, "the joined bar has no outline")
+        try #require(outline.animation(forKey: "path") != nil, "the shrink did not spring")
+        header.prepareForReuse(key: .group(GroupID("grp-other")))
+        #expect(header.barLayer.animationKeys() ?? [] == [], "the reused bar keeps \(header.barLayer.animationKeys() ?? [])")
+        #expect(outline.animationKeys() ?? [] == [], "the reused outline keeps \(outline.animationKeys() ?? [])")
+    }
 }
