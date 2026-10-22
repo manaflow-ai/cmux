@@ -36,7 +36,8 @@ public final class NowPlayingSources: NowPlayingSource {
 
     private var sources: [any NowPlayingSource] {
         let sources: [any NowPlayingSource] = [player, tabs]
-        return sources + (system.map { [$0] } ?? [])
+        guard let system, otherApps() else { return sources }
+        return sources + [system]
     }
 
     private var holder: (any NowPlayingSource, SidebarNowPlaying)? {
@@ -48,7 +49,7 @@ public final class NowPlayingSources: NowPlayingSource {
     public var nowPlaying: SidebarNowPlaying? { holder?.1 }
 
     public func run(_ on: Bool) {
-        system?.run(on)
+        system?.run(on && otherApps())
     }
 
     public func perform(_ command: SidebarNowPlayingCommand) {

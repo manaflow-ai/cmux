@@ -13,7 +13,7 @@ extension NowPlayingSettings {
 extension NowPlayingSettings {
     /// `tabs.newTabNowPlaying`: Off by default since 2026-10-21 (Lawrence), as the sidebar card (sidebar.nowPlaying.enabled) is. Off: no player on the New Tab page and no space kept for it. A cmux.json without the key gets the new default; a true written by the user stays.
     public nonisolated static let newTabPath = ["tabs", "newTabNowPlaying"]
-    public nonisolated static let newTabDefault = true
+    public nonisolated static let newTabDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).

@@ -82,7 +82,7 @@
             "text": "A player for what is playing, on the New Tab page."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "music",
             "now playing",
