@@ -76,7 +76,43 @@ public struct PushActions: Sendable {
     /// Single-choice options shown as buttons; more become "Answer…".
     public static let maxOptionButtons = 4
 
-    public init() {}
+    /// Settings → Require Face ID (shared with the content extension through
+    /// the App Group's defaults): Reply and Deny then open the app, so its
+    /// lock stands in front of them too (PR #24156 review L2).
+    public var requireFaceID: Bool
+
+    public init(requireFaceID: Bool = false) {
+        self.requireFaceID = requireFaceID
+    }
+
+    public static let requireFaceIDKey = "cmuxMobile.push.requireFaceID"
+
+    /// With the choice saved in `defaults` (the App Group's suite, else standard).
+    public init(defaults: UserDefaults?) {
+        self.init(requireFaceID: defaults?.bool(forKey: Self.requireFaceIDKey) ?? false)
+    }
+
+    /// The app saves the choice for the extension (and re-registers its categories).
+    public static func setRequireFaceID(_ on: Bool, defaults: UserDefaults?) {
+        defaults?.set(on, forKey: requireFaceIDKey)
+    }
+
+    /// The App Group's shared defaults.
+    public static func sharedDefaults(_ group: PushAppGroup?) -> UserDefaults? {
+        group.flatMap { UserDefaults(suiteName: $0.identifier) }
+    }
+
+    /// Whether `button` opens the app under these preferences.
+    public func opensApp(_ button: PushAction) -> Bool {
+        button.opensApp || (requireFaceID && (button == .deny || button == .reply || button == .terminalReply))
+    }
+
+    /// The buttons the content extension sets: the payload's own, except with
+    /// Show previews off, when the static buttons stay (their titles never name
+    /// an option on the lock screen; PR #24156 review L1).
+    public func extensionActions(for payload: PushPayload) -> [UNNotificationAction] {
+        payload.previews ? actions(for: payload) : []
+    }
 
     /// Every category, with the buttons a notification gets without the
     /// content extension (which replaces them with the payload's own).
@@ -151,10 +187,11 @@ public struct PushActions: Sendable {
         case .answer, .retry:
             return UNNotificationAction(identifier: action.identifier, title: title, options: [.foreground])
         case .deny:
-            return UNNotificationAction(identifier: action.identifier, title: title, options: [.destructive, .authenticationRequired])
+            let options: UNNotificationActionOptions = requireFaceID ? [.destructive, .authenticationRequired, .foreground] : [.destructive, .authenticationRequired]
+            return UNNotificationAction(identifier: action.identifier, title: title, options: options)
         case .reply, .terminalReply:
             return UNTextInputNotificationAction(
-                identifier: action.identifier, title: title, options: [.authenticationRequired],
+                identifier: action.identifier, title: title, options: requireFaceID ? [.authenticationRequired, .foreground] : [.authenticationRequired],
                 textInputButtonTitle: String(localized: "Send"), textInputPlaceholder: String(localized: "Reply")
             )
         }

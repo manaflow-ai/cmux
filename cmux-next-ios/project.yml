@@ -278,6 +278,9 @@ targets:
     dependencies:
       - package: CmuxMobileKit
         product: CmuxMobileNotifications
+      # iOS finds the extension's context class in UserNotificationsUI: without the
+      # framework loaded the extension traps at launch (scripts/check-notification-extension.sh).
+      - sdk: UserNotificationsUI.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(CMUX_MOBILE_APP_BUNDLE_ID).notification-content

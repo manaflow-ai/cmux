@@ -41,6 +41,7 @@ final class AppLockController {
         locked = enabled
         asksOnActivate = enabled
         NotificationRouter.shared.appLocked = enabled
+        PushReplies.shared.setRequireFaceID(enabled)
     }
 
     /// What the lock window shows: the lock, or the privacy cover while inactive.
@@ -49,6 +50,7 @@ final class AppLockController {
     func setEnabled(_ on: Bool) {
         guard on != enabled else { return }
         enabled = on
+        PushReplies.shared.setRequireFaceID(on)
         // Turning it off unlocks; turning it on locks from the next background.
         if !on { locked = false }
         update()

@@ -5,8 +5,10 @@ import Foundation
 /// composer (through `PushOutbox`), or a "Couldn't reach" Retry.
 public struct PushReply: Codable, Sendable, Equatable, Identifiable {
     public enum Action: Codable, Sendable, Equatable {
-        /// A single-choice option, by index in the first question.
-        case option(Int)
+        /// A single-choice option, by index in the first question, with the
+        /// label the person saw: the Mac's option there must still read so
+        /// (PR #24156 review M1), or nothing is sent.
+        case option(Int, label: String)
         /// Every question's chosen labels, and its free text ("" for none), in question order.
         case answers(selected: [[String]], other: [String])
         /// An allow option's acpmux id.
@@ -80,7 +82,7 @@ public struct PushReply: Codable, Sendable, Equatable, Identifiable {
         switch button {
         case .option(let index):
             guard payload.isSingleChoice, let q = payload.questions.first, q.options.indices.contains(index) else { return nil }
-            action = .option(index)
+            action = .option(index, label: q.options[index].label)
         case .allowOnce, .allowAlways:
             let kind: PushOption.Kind = button == .allowOnce ? .allowOnce : .allowAlways
             guard let option = payload.options.first(where: { $0.kind == kind }) else { return nil }
@@ -100,17 +102,11 @@ public struct PushReply: Codable, Sendable, Equatable, Identifiable {
         self.init(payload: payload, action: action, id: id, now: now)
     }
 
-    public static let userInfoKey = "cmuxMobileReply"
+    /// The key of a "Couldn't reach" notification's retry: only the reply's
+    /// id. The reply itself stays in the app's own storage (`PushRetryStore`),
+    /// so a remote push can never carry one in (PR #24156 review H1).
+    public static let retryIDKey = "cmuxMobileRetry"
 
     /// The `userInfo` of the "Couldn't reach" notification that retries this reply.
-    public var userInfo: [AnyHashable: Any] {
-        guard let data = try? JSONEncoder().encode(self), let text = String(data: data, encoding: .utf8) else { return [:] }
-        return [Self.userInfoKey: text]
-    }
-
-    public init?(userInfo: [AnyHashable: Any]) {
-        guard let text = userInfo[Self.userInfoKey] as? String,
-              let reply = try? JSONDecoder().decode(PushReply.self, from: Data(text.utf8)) else { return nil }
-        self = reply
-    }
+    public var retryUserInfo: [AnyHashable: Any] { [Self.retryIDKey: id.uuidString] }
 }

@@ -766,20 +766,34 @@ characters become spaces, then it cuts to the limit in code points):
 | `title` | 200 | the question, the permission's command or tool title, a terminal notification's title |
 | `body` | 400 | a terminal notification's body, an error's summary, a Chief reply's first lines |
 | `options` | 6 × (`id` 64, `label` 60, `kind`) | a permission's acpmux options (`kind` `allow_once`, `allow_always`, `reject_once`, `reject_always`) |
-| `questions` | 4 × (`question` 200, `header` 30, `multiSelect`, `allowsOther`, `options` 6 × `label` 60) | an AskUserQuestion-style ask |
-| `tail` | 6 × 160 | the last lines: the chat's last messages, or a terminal's last screen rows |
+| `questions` | 4 × (`question` 200, `header` 30, `multiSelect`, `allowsOther`, `options` 6 × (`label` 60, `description` 120)) | an AskUserQuestion-style ask |
+| `tail` | 6 × 160 | the last lines of the chat (never a terminal's screen: it stays on the Mac until payloads are sealed) |
 | `state` | | `waiting`, `finished`, `failed`, `notified` |
 | `replyable` | | a terminal notification whose poster takes a typed reply (`notify --reply`, daemon `notification-reply-v1`) |
 
 The answer adds `wants`: the kinds any phone of the owner that has not muted
-this Mac still wants, so the host skips kinds nobody wants (it asks again at
-most every 60 s).
+this Mac still wants, so the host skips kinds nobody wants. It sends a
+skipped kind again 15 s after the answer, so a phone that turns a kind on
+gets it within about that.
+
+Only `eventId` and `kind` are required. Any other field that is malformed
+(an id outside its pattern, a value of the wrong type, an unknown `state`, an
+option without a valid `id`) is dropped, not the push. A text cut to its
+limit ends with "…". Combining marks past two on one character are dropped.
+Terminal notifications have their own rate bucket (60 a minute), apart from
+the Mac's asks and turns; the host also sends at most one per terminal tab in
+10 s and ten a minute.
 
 Content moved from minimized to granular in 0.13.0 by the person's decision
-(rich notifications). Paths, prompts and tool arguments beyond the title are
-still never sent; `tail` is the visible text the phone's chat or terminal
-would show. Until payload encryption (PR B, `sealed`) every field is visible
-to the Worker and to APNs.
+(rich notifications). A permission's `title` is the tool's own title, which
+for a shell command is the whole command line, and `tail` and `body` are what
+the agent printed: they can name paths and command arguments. The host
+redacts credentials in every text field first (tokens such as `sk-`, `ghp_`,
+`xoxb-`, `AKIA`, JWTs, `Bearer` and `Basic` values, `password=`-style
+assignments, PEM blocks and long high-entropy runs become `[redacted]`). The
+person's prompts and a terminal's screen are never sent. Until payload
+encryption (PR B, `sealed`) every field is visible to the Worker and to
+APNs.
 
 ### Worker → APNs
 
@@ -798,19 +812,24 @@ to the Worker and to APNs.
 
 - `thread-id`: `<mac>:<sessionId>`, else `<mac>:<tabId>` (terminal), else
   `<mac>:chief:<conversationId>`, else `<mac>`. Collapse ids are unchanged
-  (#23803); a terminal notification collapses per `notificationId`.
+  (#23803); a terminal notification collapses per Mac and `notificationId`
+  (`term-<fnv64(mac)>-<notificationId>`, hashed when longer than 64).
 - `category`: `CMUX_MOBILE_QUESTION` (one question, one choice, at most 4
   options), `CMUX_MOBILE_QUESTION_FORM` (any other ask: multi-select, more
   options, several questions, or none listed), `CMUX_MOBILE_PERMISSION`,
   `CMUX_MOBILE_COMPLETED`, `CMUX_MOBILE_FAILED`, `CMUX_MOBILE_CHIEF`,
   `CMUX_MOBILE_TERMINAL`.
-- The payload stays under 4096 bytes: the Worker drops `tail` lines from the
-  oldest, then option descriptions, then shortens `title`, and finally drops
-  `questions` (the category becomes `CMUX_MOBILE_QUESTION_FORM`).
+- The payload stays under 4096 bytes: the Worker drops option descriptions,
+  then `tail` lines from the oldest, then shortens `title`, then drops
+  `questions` (the category becomes `CMUX_MOBILE_QUESTION_FORM`), then
+  shortens `body`. If it still does not fit (every field full of 4-byte
+  characters), only the ids, `kind`, `state` and texts cut to 20 characters
+  stay.
 - Banner text: question "<Agent> asks" / the question; permission "<Agent>
   needs permission" / the title; completed "<Agent> finished" / the last
   `tail` line; failed "<Agent> stopped with an error" / `body` or the last
-  line; chief "Chief" / `body`; terminal `title` / `body`. Subtitle
+  line; chief "Chief" / `body`; terminal "Terminal · <workspace>" /
+  "<title>: <body>" (a program never chooses the banner's title). Subtitle
   "<workspace or place> · <Mac>".
 - `previews: false` (the phone turned Show previews off): the 0.11 banner
   text ("Claude has a question", body the Mac's name) and no subtitle; the

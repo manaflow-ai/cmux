@@ -150,9 +150,11 @@ import UserNotifications
         #expect(PushReply(payload: permission, button: .option(0)) == nil)
     }
 
-    @Test func roundTripsThroughUserInfo() throws {
+    @Test func roundTripsThroughTheRetryStore() throws {
         let reply = try #require(PushReply(payload: permission, action: .answers(selected: [["a", "b"]], other: ["c"])))
-        #expect(PushReply(userInfo: reply.userInfo) == reply)
+        let store = PushRetryStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("retry-\(UUID().uuidString)"))
+        try store.put(reply)
+        #expect(store.resolve(userInfo: reply.retryUserInfo, fromPush: false) == reply)
     }
 }
 

@@ -2,7 +2,7 @@ import { authenticate, bearerOf, primaryProject, stackProjects, type Caller } fr
 import type { Env } from "./env.ts"
 import { iceServers } from "./ice.ts"
 import { createTeam, sendTeamInvite, userTeams } from "./stack.ts"
-import { apnsConfig, apnsTopics, clean, isSealedText, MAX_MAILBOX_SEALED, parseNotify, pushTargets, sendApns, TURN_PUSH_WINDOW_MS, turnPushKey, wantedKinds } from "./push.ts"
+import { apnsConfig, apnsTopics, clean, isSealedText, MAX_MAILBOX_SEALED, notifyLimitKey, parseNotify, pushTargets, sendApns, TURN_PUSH_WINDOW_MS, turnPushKey, wantedKinds } from "./push.ts"
 import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
 import { userHubName, type Attachment } from "./team-hub.ts"
 import { Timing, timingFor } from "./timing.ts"
@@ -425,7 +425,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       const device = await withStore(env, ctx, (s) => s.getDevice(deviceId))
       if (!device) throw new HttpError(404, "not_found", "no such device")
       if (device.ownerUserId !== me || device.kind !== "mac") throw new HttpError(403, "not_owner", "notify from your own Mac")
-      await limit(env.NOTIFY_LIMIT, deviceId, "notifications")
+      await limit(env.NOTIFY_LIMIT, notifyLimitKey(deviceId, parsed.kind), "notifications")
       const config = apnsConfig(env)
       const kind = parsed.kind
       const regs = await withStore(env, ctx, (s) => s.listOwnerPush(me))

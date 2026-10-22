@@ -52,7 +52,7 @@ export interface PushQuestion {
   readonly header?: string
   readonly multiSelect: boolean
   readonly allowsOther: boolean
-  readonly options: ReadonlyArray<{ readonly label: string }>
+  readonly options: ReadonlyArray<{ readonly label: string; readonly description?: string }>
 }
 export const PUSH_STATES = ["waiting", "finished", "failed", "notified"] as const
 export type PushState = (typeof PUSH_STATES)[number]
@@ -119,13 +119,16 @@ const parseSealed = (v: unknown): Record<string, SealedBox> | string => {
   return out
 }
 
+/** Combining marks past two on one character are dropped (a Zalgo flood). */
+const marks = (text: string): string => text.replace(/(\p{Mn}{2})\p{Mn}+/gu, "$1")
+
+/** `chars` cut to `max` code points; a cut text ends with "…", so a long command's end is never hidden unmarked. */
+const cut = (chars: ReadonlyArray<string>, max: number): string =>
+  chars.length <= max ? chars.join("") : `${chars.slice(0, Math.max(0, max - 1)).join("")}…`
+
 /** Printable text cut to `max` code points: control and format characters become spaces. */
 export const clean = (text: unknown, max: number): string =>
-  typeof text !== "string"
-    ? ""
-    : Array.from(text.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, " ").replace(/\s+/g, " ").trim())
-        .slice(0, max)
-        .join("")
+  typeof text !== "string" ? "" : cut(Array.from(marks(text.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, " ").replace(/\s+/g, " ").trim())), max)
 
 const EVENT_ID = /^[A-Za-z0-9._:-]{1,64}$/
 const OPAQUE_ID = /^[A-Za-z0-9._:-]{1,128}$/
@@ -140,6 +143,7 @@ const present = (v: unknown) => v !== undefined && v !== null
 export const parseNotify = (b: Record<string, unknown>): Omit<NotifyEvent, "macId" | "macName"> | string => {
   if (typeof b.eventId !== "string" || !EVENT_ID.test(b.eventId)) return "eventId must be 1-64 of A-Z a-z 0-9 . _ : -"
   if (!(PUSH_KINDS as ReadonlyArray<unknown>).includes(b.kind)) return `kind must be one of ${PUSH_KINDS.join(", ")}`
+  // Everything else is optional: a malformed field is dropped, not the push (a lost ask is worse than a plain one).
   const ids: Record<string, string> = {}
   for (const [k, re] of [
     ["workspaceId", OPAQUE_ID],
@@ -150,9 +154,7 @@ export const parseNotify = (b: Record<string, unknown>): Omit<NotifyEvent, "macI
     ["notificationId", EVENT_ID]
   ] as const) {
     const v = b[k]
-    if (!present(v)) continue
-    if (typeof v !== "string" || !re.test(v)) return `${k} must be an id`
-    ids[k] = v
+    if (typeof v === "string" && re.test(v)) ids[k] = v
   }
   const texts: Record<string, string> = {}
   for (const [k, max] of [
@@ -162,43 +164,37 @@ export const parseNotify = (b: Record<string, unknown>): Omit<NotifyEvent, "macI
     ["title", 200],
     ["body", 400]
   ] as const) {
-    const v = b[k]
-    if (!present(v)) continue
-    if (typeof v !== "string") return `${k} must be a string`
-    const c = clean(v, max)
+    const c = clean(b[k], max)
     if (c) texts[k] = c
   }
-  let state: PushState | undefined
-  if (present(b.state)) {
-    if (!(PUSH_STATES as ReadonlyArray<unknown>).includes(b.state)) return `state must be one of ${PUSH_STATES.join(", ")}`
-    state = b.state as PushState
-  }
+  const state = (PUSH_STATES as ReadonlyArray<unknown>).includes(b.state) ? (b.state as PushState) : undefined
   let options: Array<PushOption> | undefined
-  if (present(b.options)) {
-    if (!Array.isArray(b.options)) return "options must be a list"
+  if (Array.isArray(b.options)) {
     options = []
-    for (const o of b.options.slice(0, 6)) {
-      if (!isObject(o) || typeof o.id !== "string" || !OPAQUE_ID.test(o.id) || o.id.length > 64 || typeof o.label !== "string")
-        return "options must be {id, label, kind?}"
+    for (const o of b.options) {
+      if (options.length >= 6) break
+      if (!isObject(o) || typeof o.id !== "string" || !OPAQUE_ID.test(o.id) || o.id.length > 64 || typeof o.label !== "string") continue
       const kind = (OPTION_KINDS as ReadonlyArray<unknown>).includes(o.kind) ? (o.kind as OptionKind) : undefined
       options.push({ id: o.id, label: clean(o.label, 60), ...(kind ? { kind } : {}) })
     }
   }
   let questions: Array<PushQuestion> | undefined
-  if (present(b.questions)) {
-    if (!Array.isArray(b.questions)) return "questions must be a list"
+  if (Array.isArray(b.questions)) {
     questions = []
-    for (const q of b.questions.slice(0, 4)) {
-      if (!isObject(q) || typeof q.question !== "string" || (present(q.options) && !Array.isArray(q.options)))
-        return "questions must be {question, header?, multiSelect, allowsOther, options}"
-      const opts: Array<{ label: string }> = []
-      for (const o of ((q.options as Array<unknown> | undefined) ?? []).slice(0, 6)) {
-        if (!isObject(o) || typeof o.label !== "string") return "questions' options must be {label}"
-        opts.push({ label: clean(o.label, 60) })
+    for (const q of b.questions) {
+      if (questions.length >= 4) break
+      if (!isObject(q) || typeof q.question !== "string") continue
+      const opts: Array<{ label: string; description?: string }> = []
+      for (const o of Array.isArray(q.options) ? q.options : []) {
+        if (opts.length >= 6) break
+        if (!isObject(o) || typeof o.label !== "string") continue
+        const description = clean(o.description, 120)
+        opts.push({ label: clean(o.label, 60), ...(description ? { description } : {}) })
       }
-      const header = typeof q.header === "string" ? clean(q.header, 30) : ""
+      const header = clean(q.header, 30)
       questions.push({ question: clean(q.question, 200), ...(header ? { header } : {}), multiSelect: q.multiSelect === true, allowsOther: q.allowsOther === true, options: opts })
     }
+    if (!questions.length) questions = undefined
   }
   let sealed: Record<string, SealedBox> | undefined
   if (present(b.sealed)) {
@@ -207,9 +203,12 @@ export const parseNotify = (b: Record<string, unknown>): Omit<NotifyEvent, "macI
     sealed = r
   }
   let tail: Array<string> | undefined
-  if (present(b.tail)) {
-    if (!Array.isArray(b.tail) || b.tail.some((l) => typeof l !== "string")) return "tail must be a list of strings"
-    tail = (b.tail as Array<string>).slice(-6).map((l) => clean(l, 160))
+  if (Array.isArray(b.tail)) {
+    tail = (b.tail as Array<unknown>)
+      .filter((l): l is string => typeof l === "string")
+      .slice(-6)
+      .map((l) => clean(l, 160))
+    if (!tail.length) tail = undefined
   }
   return {
     eventId: b.eventId,
@@ -223,6 +222,10 @@ export const parseNotify = (b: Record<string, unknown>): Omit<NotifyEvent, "macI
     ...(sealed ? { sealed } : {})
   }
 }
+
+/** The rate-limit key of a notify: terminal notifications have their own bucket, so a program that loops
+ * OSC 9 never starves a Mac's questions and permission requests (review M3). */
+export const notifyLimitKey = (macId: string, kind: PushKind): string => (kind === "terminal" ? `${macId}:terminal` : macId)
 
 const TITLES: Record<PushKind, (agent: string) => string> = {
   question: (a) => `${a} has a question`,
@@ -248,8 +251,12 @@ const fnv = (text: string): string => {
  * so a newer one replaces the older on the lock screen; each ask keeps its own (every one needs an answer);
  * a terminal notification collapses per daemon ledger id.
  */
-export const collapseId = (e: Pick<NotifyEvent, "eventId" | "kind" | "sessionId" | "notificationId">): string => {
-  if (e.kind === "terminal" && e.notificationId) return `term-${e.notificationId}`
+export const collapseId = (e: Pick<NotifyEvent, "eventId" | "kind" | "sessionId" | "notificationId"> & { readonly macId?: string }): string => {
+  // Ledger ids repeat across Macs: scoped by Mac, so one Mac's notification never replaces another's.
+  if (e.kind === "terminal" && e.notificationId) {
+    const id = `term-${fnv(e.macId ?? "")}-${e.notificationId}`
+    return id.length <= 64 ? id : `term-${fnv(`${e.macId ?? ""}:${e.notificationId}`)}`
+  }
   if (!e.sessionId || !TURN_KINDS.has(e.kind)) return e.eventId.slice(0, 64)
   const id = `turn-${e.sessionId}`
   return id.length <= 64 ? id : `turn-${fnv(e.sessionId)}`
@@ -299,7 +306,8 @@ const alert = (e: NotifyEvent, previews: boolean) => {
       case "chief":
         return ["Chief", e.body || last || ""]
       case "terminal":
-        return [e.title || "Terminal", e.body || ""]
+        // A program chooses its own title: it never stands where an agent's banner would (review M3).
+        return [where ? `Terminal · ${where}` : "Terminal", [e.title, e.body].filter(Boolean).join(": ")]
     }
   })()
   return { title, subtitle: where ? `${where} · ${e.macName}` : e.macName, body }
@@ -308,7 +316,10 @@ const alert = (e: NotifyEvent, previews: boolean) => {
 /** APNs refuses a payload over 4096 bytes. */
 export const MAX_PAYLOAD_BYTES = 4096
 const size = (v: unknown) => new TextEncoder().encode(JSON.stringify(v)).length
-const shorten = (s: string) => Array.from(s).slice(0, Math.max(20, Math.floor(Array.from(s).length / 2))).join("")
+const shorten = (s: string) => {
+  const chars = Array.from(s.endsWith("…") ? s.slice(0, -1) : s)
+  return cut(chars, Math.max(20, Math.floor(chars.length / 2)))
+}
 
 /** The `cmuxMobile` object of a v2 payload: the Mac's name, the routing ids and the content the phone acts on. */
 export type MobilePayload = { v: 2; mac: string; macName: string; kind: PushKind; eventId: string; previews: boolean } & Partial<
@@ -381,24 +392,47 @@ export const apnsPayload = (e: NotifyEvent, opts: { previews?: boolean } = {}) =
   let cur: NotifyEvent = { ...e }
   let p = build(cur, previews)
   const fits = () => size(p) <= MAX_PAYLOAD_BYTES
+  const set = (next: NotifyEvent) => {
+    cur = next
+    p = build(cur, previews)
+  }
+  // Option descriptions are the least needed to act: they go first.
+  if (!fits() && cur.questions?.some((q) => q.options.some((o) => o.description)))
+    set({ ...cur, questions: cur.questions.map((q) => ({ ...q, options: q.options.map(({ label }) => ({ label })) })) })
   while (!fits() && cur.tail?.length) {
     const tail = cur.tail.slice(1)
-    cur = { ...cur, tail }
-    if (!tail.length) delete (cur as { tail?: unknown }).tail
-    p = build(cur, previews)
+    const next = { ...cur, tail }
+    if (!tail.length) delete (next as { tail?: unknown }).tail
+    set(next)
   }
-  while (!fits() && cur.title && Array.from(cur.title).length > 20) {
-    cur = { ...cur, title: shorten(cur.title) }
-    p = build(cur, previews)
-  }
+  while (!fits() && cur.title && Array.from(cur.title).length > 20) set({ ...cur, title: shorten(cur.title) })
   if (!fits() && cur.questions) {
-    cur = { ...cur }
-    delete cur.questions
-    p = build(cur, previews)
+    const next = { ...cur }
+    delete next.questions
+    set(next)
   }
-  while (!fits() && cur.body && Array.from(cur.body).length > 20) {
-    cur = { ...cur, body: shorten(cur.body) }
-    p = build(cur, previews)
+  while (!fits() && cur.body && Array.from(cur.body).length > 20) set({ ...cur, body: shorten(cur.body) })
+  // Last resort: only what names and routes the push (every text shortened to its floor).
+  if (!fits()) {
+    const floor = (t: string | undefined, n: number) => (t ? clean(t, n) : undefined)
+    const next: NotifyEvent = {
+      eventId: cur.eventId,
+      kind: cur.kind,
+      macId: cur.macId,
+      macName: clean(cur.macName, 20),
+      ...(cur.agent ? { agent: floor(cur.agent, 20)! } : {}),
+      ...(cur.workspace ? { workspace: floor(cur.workspace, 20)! } : {}),
+      ...(cur.place ? { place: floor(cur.place, 20)! } : {}),
+      ...(cur.title ? { title: floor(cur.title, 20)! } : {}),
+      ...(cur.sessionId ? { sessionId: cur.sessionId } : {}),
+      ...(cur.workspaceId ? { workspaceId: cur.workspaceId } : {}),
+      ...(cur.tabId ? { tabId: cur.tabId } : {}),
+      ...(cur.permissionId ? { permissionId: cur.permissionId } : {}),
+      ...(cur.conversationId ? { conversationId: cur.conversationId } : {}),
+      ...(cur.notificationId ? { notificationId: cur.notificationId } : {}),
+      ...(cur.state ? { state: cur.state } : {})
+    }
+    set(next)
   }
   return p
 }
