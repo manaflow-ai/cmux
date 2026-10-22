@@ -2659,28 +2659,36 @@ fn commit_codex_trust_state(write: &PreparedCodexTrustWrite) -> anyhow::Result<(
 /// the hook trust state) in the window between read and rename.
 const CODEX_CONFIG_LOCK_FILE: &str = "config.toml.cmux-lock";
 
-/// Blocks until this process holds `lock_path` exclusively. The other holders
-/// keep it only for one bounded read and rename. Best effort: a directory that
-/// refuses the lock file or a filesystem without flock leaves the write
-/// unlocked, as before the lock existed, instead of failing the install.
+/// How long the installer waits for another writer's lock. The shell-start
+/// holders keep it for one bounded read and rename and give up after 5 s, but
+/// a stopped or hung holder must not stall an install forever.
+const CODEX_CONFIG_LOCK_WAIT: Duration = Duration::from_secs(15);
+
+/// Returns once this process holds `lock_path` exclusively, or `None` when it
+/// cannot: a directory that refuses the lock file, a filesystem without flock,
+/// or a holder that keeps it past `CODEX_CONFIG_LOCK_WAIT`. The write then
+/// goes ahead unlocked, as before the lock existed, instead of failing or
+/// hanging the install; the commit's own re-read still guards that case.
 #[cfg(unix)]
 fn lock_codex_config(lock_path: &Path) -> Option<fs::File> {
-    use std::os::fd::AsRawFd as _;
     use std::os::unix::fs::OpenOptionsExt as _;
     let file = OpenOptions::new()
         .create(true)
         .append(true)
         .mode(0o600)
-        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+        .custom_flags(libc::O_CLOEXEC)
         .open(lock_path)
         .ok()?;
+    let deadline = Instant::now() + CODEX_CONFIG_LOCK_WAIT;
     loop {
-        // SAFETY: flock on a descriptor this function owns.
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
-            return Some(file);
-        }
-        if io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
-            return None;
+        match file.try_lock() {
+            Ok(()) => return Some(file),
+            Err(fs::TryLockError::WouldBlock) if Instant::now() < deadline => {
+                // Lock contention, not synchronization: flock has no
+                // wait-with-timeout, so poll at a short interval to a deadline.
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Err(_) => return None,
         }
     }
 }

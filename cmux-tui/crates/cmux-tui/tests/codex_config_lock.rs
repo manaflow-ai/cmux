@@ -34,6 +34,19 @@ fn cli() -> &'static Path {
     })
 }
 
+/// Kills and reaps the install if the test panics before it exits, so no
+/// writer outlives the temp HOME the test deletes.
+struct Reap(Option<std::process::Child>);
+
+impl Drop for Reap {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
 #[test]
 fn codex_hook_install_waits_for_the_config_lock_and_keeps_the_provider_merge() {
     let root = tempfile::tempdir().unwrap();
@@ -51,7 +64,7 @@ fn codex_hook_install_waits_for_the_config_lock_and_keeps_the_provider_merge() {
     // SAFETY: flock on a descriptor this test owns.
     assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
 
-    let mut install = Command::new(cli())
+    let install = Command::new(cli())
         .args(["--json", "agent", "hook", "install", "codex"])
         .env("HOME", &home)
         .env_remove("CODEX_HOME")
@@ -65,27 +78,31 @@ fn codex_hook_install_waits_for_the_config_lock_and_keeps_the_provider_merge() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
+    let mut install = Reap(Some(install));
+    let child = install.0.as_mut().unwrap();
 
     // An unlocked install finishes in well under a second; one that waits for
     // the lock cannot finish at all while it is held. Load can only make an
     // unlocked install look like a waiting one, never the reverse.
-    let early = install.wait_timeout(Duration::from_secs(5)).unwrap();
+    let early = child.wait_timeout(Duration::from_secs(5)).unwrap();
     if early.is_some() {
-        let output = install.wait_with_output().unwrap();
+        let output = install.0.take().unwrap().wait_with_output().unwrap();
         panic!("the install wrote config.toml while another writer held the lock: {output:?}");
     }
     assert_eq!(std::fs::read_to_string(&config).unwrap(), "# user settings\n");
 
     // What the shell merge writes under the lock: the provider around the old text.
-    let merged = "model_provider = \"cmux\"\n\n# user settings\n\n[model_providers.cmux]\nname = \"cmux\"\n";
+    let merged =
+        "model_provider = \"cmux\"\n\n# user settings\n\n[model_providers.cmux]\nname = \"cmux\"\n";
     std::fs::write(&config, merged).unwrap();
     drop(lock);
 
-    let status = install.wait_timeout(Duration::from_secs(120)).unwrap();
+    let child = install.0.as_mut().unwrap();
+    let status = child.wait_timeout(Duration::from_secs(120)).unwrap();
     if status.is_none() {
-        let _ = install.kill();
+        let _ = child.kill();
     }
-    let output = install.wait_with_output().unwrap();
+    let output = install.0.take().unwrap().wait_with_output().unwrap();
     assert!(output.status.success(), "{output:?}");
 
     let text = std::fs::read_to_string(&config).unwrap();
