@@ -20,9 +20,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
 use std::time::{Duration, Instant};
 
-fn scratch() -> PathBuf {
+fn scratch(tag: &str) -> PathBuf {
     // Short: the socket path must stay under the macOS limit.
-    let dir = std::env::temp_dir().join(format!("amx-sar-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("amx-sar-{tag}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(dir.join("p")).unwrap();
     // The daemon refuses a state folder others may write to.
@@ -73,7 +73,7 @@ impl Drop for Shutdown<'_> {
 
 #[test]
 fn a_send_during_a_daemon_handover_waits_for_the_next_daemon_and_is_delivered() {
-    let dir = scratch();
+    let dir = scratch("h");
     let _shutdown = Shutdown(&dir);
     let made = cli(&dir, &["run", "-n", "lane", "warm up"]);
     assert!(
@@ -130,4 +130,17 @@ fn a_send_during_a_daemon_handover_waits_for_the_next_daemon_and_is_delivered() 
         "the next daemon did not deliver the send: {}",
         text(&last)
     );
+}
+
+#[test]
+fn a_lock_the_daemon_cannot_open_fails_at_once_instead_of_waiting_for_a_handover() {
+    let dir = scratch("l");
+    let _shutdown = Shutdown(&dir);
+    // Not another daemon: a lock file the daemon refuses to open.
+    std::os::unix::fs::symlink(dir.join("elsewhere"), dir.join("daemon.lock")).unwrap();
+    let started = Instant::now();
+    let out = cli(&dir, &["send", "--no-wait", "lane", "hello"]);
+    assert!(!out.status.success(), "{}", text(&out));
+    assert!(started.elapsed() < Duration::from_secs(5), "failed after {:?}", started.elapsed());
+    assert!(!text(&out).contains("still holds"), "{}", text(&out));
 }
