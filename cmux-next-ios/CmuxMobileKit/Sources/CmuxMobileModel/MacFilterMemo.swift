@@ -1,4 +1,3 @@
-import CmuxMobileModel
 import Foundation
 
 /// The Workspaces toolbar's per-Mac text, computed once per change instead of
@@ -59,6 +58,18 @@ public final class MacFilterMemo {
     public private(set) var entryComputations = 0
 
     public init() {}
+
+    private var rosterKey: (macs: [MacDevice], minute: Int)?
+    private var cachedRoster = MacRoster([])
+
+    /// ``MacRoster`` of `macs`, recomputed only when a Mac changed or the minute moved on.
+    public func roster(_ macs: [MacDevice], now: Date) -> MacRoster {
+        let minute = Int(now.timeIntervalSince1970 / 60)
+        if let rosterKey, rosterKey.minute == minute, rosterKey.macs == macs { return cachedRoster }
+        rosterKey = (macs, minute)
+        cachedRoster = MacRoster(macs, now: now)
+        return cachedRoster
+    }
 
     /// The disambiguation for `macs` (pass the account's Macs), recomputed only when an id or a name changed.
     public func names(_ macs: [MacDevice]) -> MacNameDisambiguation {

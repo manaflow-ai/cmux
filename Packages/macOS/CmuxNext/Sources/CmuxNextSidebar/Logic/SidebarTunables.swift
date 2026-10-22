@@ -90,11 +90,13 @@ public nonisolated enum SidebarTunables {
         help: "A workspace row's status mark also follows the acpmux lane of each agent chat in it on this Mac: waiting on you or failed wins, then working, then the row's own status.",
         default: true, code: "SidebarTunables.laneStatus")
 
-    /// A row names the state of its most urgent agent chat with the Priority view's words (needs
-    /// you, done, failed, lost) at the right of its name (`SidebarLaneStatus`). On by default.
+    /// A row's accessibility label names the state of its most urgent agent chat with the Priority
+    /// view's words (needs you, failed, lost; never Done, `WorkspaceRowContent.rowChip`;
+    /// `SidebarLaneStatus`). The row draws no status words: its badge's dot says it (Leo 2026-10-21).
+    /// On by default.
     public static let rowStatus = Tunable<Bool>.toggle(
-        "sidebar.rowStatus", .sidebar, "Rows name their agent's state",
-        help: "A workspace row says needs you, done, failed or lost at the right of its name, in the Priority view's words, for the most urgent agent chat in it on this Mac.",
+        "sidebar.rowStatus", .sidebar, "Row labels name their agent's state",
+        help: "A workspace row's accessibility label says needs you, failed or lost, in the Priority view's words, for the most urgent agent chat in it on this Mac. The row itself draws no status words; its badge's dot says it.",
         default: true, code: "SidebarTunables.rowStatus")
 
     /// Workspaces marked Done fold into one "Done (N)" row at the end of their group or list (`SidebarLayout+DoneFold`).
@@ -133,7 +135,8 @@ public nonisolated enum SidebarTunables {
         default: false, code: "SidebarTunables.laneFixture")
 
     /// Every row carries its pull requests' badge, with or without the session tree
-    /// (`SidebarSessionTreeFeed`). On by default; the tree's nesting and keycaps stay opt-in.
+    /// (`SidebarSessionTreeFeed`), while the row's Pull Request element is on
+    /// (`sidebar.workspaceRow.pullRequest`, off by default). On by default; the tree's nesting and keycaps stay opt-in.
     public static let pullRequestBadges = Tunable<Bool>.toggle(
         "sidebar.pullRequestBadges", .sidebar, "Rows show their pull requests",
         help: "A workspace row shows a badge for the pull requests its agent chats opened or its folder's branch has, colored by their state, even with the session tree off.",
