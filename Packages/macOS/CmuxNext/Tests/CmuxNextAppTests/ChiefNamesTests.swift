@@ -13,13 +13,19 @@ import Testing
         #expect("claude-sr2-pipe".chiefHarnessName == "\(ChiefBackend.claude.title) (SR2 Pipe)")
         #expect("claude-cr".chiefHarnessName == "\(ChiefBackend.claude.title) (CodeRouter)")
         #expect("claude-sr".chiefHarnessName == "\(ChiefBackend.claude.title) (Subrouter)")
-        #expect("gemini".chiefHarnessName == "Gemini")
+        // acpmux's built-in harnesses read by acpmux's own names (cmux-tui/crates/acpmux/harnesses).
+        #expect("gemini".chiefHarnessName == "Gemini CLI")
+        #expect("pi".chiefHarnessName == "Pi")
+        #expect("opencode".chiefHarnessName == "OpenCode")
+        #expect("aider".chiefHarnessName == "Aider")
+        #expect("muse".chiefHarnessName == "Muse Code")
         #expect("codex_gpt".chiefHarnessName == "\(ChiefBackend.codex.title) (GPT)")
         #expect("".chiefHarnessName == "")
         // The shared title and the Home row's badge use it for every id that is not official.
         #expect(ChiefBackend.title(for: "claude-sr2-pipe") == "\(ChiefBackend.claude.title) (SR2 Pipe)")
         #expect(ChiefBackend.title(for: "unii") == ChiefBackend.unii.title)
-        #expect(ChiefBackend.badge(for: "gemini") == "Gemini")
+        #expect(ChiefBackend.badge(for: "gemini") == "Gemini CLI")
+        #expect(ChiefBackend.badge(for: "pi") == "Pi")
     }
 
     @Test func aModelIdReadsAsAName() {
@@ -27,6 +33,9 @@ import Testing
         #expect("claude-sonnet-4-5-20250929".chiefModelName == "Claude Sonnet 4.5")
         #expect("gpt-5.1-codex-max".chiefModelName == "GPT 5.1 Codex Max")
         #expect("opus[1m]".chiefModelName == "Opus (1M)")
+        // A dated snapshot drops its date, written either way.
+        #expect("gpt-4o-2024-08-06".chiefModelName == "GPT 4o")
+        #expect("gpt-5-2025-08-07".chiefModelName == "GPT 5")
         #expect("opus".chiefModelName == "Opus")
         #expect("".chiefModelName == "")
     }

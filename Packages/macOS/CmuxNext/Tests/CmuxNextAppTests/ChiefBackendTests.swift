@@ -25,7 +25,7 @@ import Testing
         #expect(ChiefBackend.title(for: "unii") == ChiefBackend.unii.title)
         #expect(!ChiefBackend.unii.title.isEmpty && ChiefBackend.unii.title != "unii")
         #expect(ChiefBackend.title(for: "claude-cr") == "\(ChiefBackend.claude.title) (CodeRouter)")
-        #expect(ChiefBackend.title(for: "gemini") == "Gemini")
+        #expect(ChiefBackend.title(for: "gemini") == "Gemini CLI")
         #expect(ChiefBackend(id: "unii") == .unii)
         #expect(ChiefBackend(id: "claude-sr") == nil)
         #expect(ChiefBackend.unii.hint != nil)
@@ -35,7 +35,7 @@ import Testing
     @Test func onlyAChiefOffTheDefaultEngineGetsABadge() {
         #expect(ChiefBackend.badge(for: "unii") == ChiefBackend.unii.title)
         #expect(ChiefBackend.badge(for: "codex") == ChiefBackend.codex.title)
-        #expect(ChiefBackend.badge(for: "gemini") == "Gemini")
+        #expect(ChiefBackend.badge(for: "gemini") == "Gemini CLI")
         for harness in [nil, "", "default", "claude", "claude-cr", "claude-sr"] as [String?] {
             #expect(ChiefBackend.badge(for: harness) == nil, "\(String(describing: harness))")
         }
