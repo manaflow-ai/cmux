@@ -55,4 +55,20 @@ import Testing
         #expect(Self.same(icon, picked), "icon \(icon), pick \(picked)")
         #expect(row.content.accessory == .dot(.success))
     }
+
+    /// A pick made while the card is open reaches its icon: the store's repaint runs each view's
+    /// appearance hook, and the row recolors in it.
+    @Test func aPickWhileTheCardIsOpenRecolorsTheIcon() throws {
+        let (_, secondary, row) = try Self.machineRow(picks: .none)
+        ThemeStore.shared.setMachineColors(MachineColorOverrides(["big-red": "#12ab34"]))
+        defer { ThemeStore.shared.setMachineColors(.none) }
+        row.viewDidChangeEffectiveAppearance()
+        let icon = try #require(row.icon.contentTintColor?.usingColorSpace(.sRGB))
+        let picked = try #require(ThemeRGB(cssHex: "#12ab34")?.nsColor.usingColorSpace(.sRGB))
+        #expect(Self.same(icon, picked), "icon \(icon), pick \(picked)")
+        ThemeStore.shared.setMachineColors(.none)
+        row.viewDidChangeEffectiveAppearance()
+        let reset = try #require(row.icon.contentTintColor?.usingColorSpace(.sRGB))
+        #expect(Self.same(reset, secondary), "icon \(reset), textSecondary \(secondary)")
+    }
 }
