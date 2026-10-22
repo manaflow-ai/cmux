@@ -160,7 +160,7 @@ fn the_router_publishes_every_family_stream_on_a_committed_change_until_dropped(
     let seen: Arc<Mutex<Vec<String>>> = Arc::default();
     let sink = seen.clone();
     let guard = router.watch(Arc::new(move |stream: &str, _fields: Value| {
-        sink.lock().unwrap().push(stream.to_string())
+        sink.lock().unwrap().push(stream.to_string());
     }));
     let deadline = Instant::now() + Duration::from_secs(10);
     // The watcher reads the epoch when it starts; bump until it has seen one.
