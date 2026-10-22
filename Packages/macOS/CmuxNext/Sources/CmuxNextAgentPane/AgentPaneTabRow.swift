@@ -16,6 +16,17 @@ import CmuxNextSettings
     public var onChange: (() -> Void)?
     /// The row last pushed to the page, nil before the first.
     private(set) var offered: (height: CGFloat, trailingInset: CGFloat)?
+    /// The pane's strip and toolbar over the chat, in the chat view's coordinates
+    /// (`PaneTabRowSharing.setTabRowHoles`); empty while the chat does not share the row.
+    var holes: [CGRect] = []
+
+    /// Gives `view`'s page ``holes`` in the page's coordinates: on every offer and every layout of
+    /// `view`, which moves the page (its top bar) without laying the pane out again.
+    static func cutHoles(in view: AgentPaneView) {
+        guard let page = view.page else { return }
+        let holes = view.model.tabRow.holes
+        page.nativeHoles = page.isDescendant(of: view) ? holes.map { page.convert($0, from: view) } : holes
+    }
 
     /// The page reported its tools' width.
     func report(width: CGFloat) {
@@ -80,7 +91,7 @@ extension PaneTabRowSharing where Self: AgentPaneView {
     public func setTabRow(height: CGFloat, trailingInset: CGFloat) { AgentPaneTabRow.offer(points: height, trailingInset: trailingInset, to: self) }
     /// A chat in Chromium draws in a window over the pane's: it leaves the strip and toolbar out.
     public func setTabRowHoles(_ holes: [CGRect]) {
-        guard let page else { return }
-        page.nativeHoles = page.isDescendant(of: self) ? holes.map { page.convert($0, from: self) } : holes
+        model.tabRow.holes = holes
+        AgentPaneTabRow.cutHoles(in: self)
     }
 }
