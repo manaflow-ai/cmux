@@ -6018,11 +6018,13 @@ function AcpmuxPane() {
               accepted();
             });
           // The person sends a prompt "Not sent" named again: it goes under its first promptId.
-          const again = lostPrompts.take(
-            client.selectedSession ?? "",
-            text,
-            attachments.map((attachment) => attachment.id),
-          );
+          const againIn = client.selectedSession ?? "";
+          const again = lostPrompts.take(againIn, text, attachments.map((attachment) => attachment.id));
+          // A send that fails before acpmux takes it and leaves no row of its own goes back to the
+          // composer: the lost prompt keeps its id for the next send, which runs it at most once.
+          const keepAgain = () => {
+            if (again) lostPrompts.keep(againIn, again, text, attachments.map((attachment) => attachment.id));
+          };
           // acpmux holds the prompt while the folder's trust question is open (on session/new
           // or session/prompt): the question shows for the folder acpmux named, and Trust sends
           // the prompt the composer kept. `inComposer`: the composer still holds the prompt (or got it back); else it goes back.
@@ -6124,9 +6126,13 @@ function AcpmuxPane() {
             // A refused start (a chat on another machine, cx-k21v) says why in this page's own
             // view: the host's typed refusal, already localized, under the localized "Not sent".
             if (isStartRefusal(error)) client.notice(failedSendText(error, false));
+            keepAgain();
             return refused(error, Boolean(accepted));
           });
-          await persistSession(sessionId);
+          await persistSession(sessionId).catch((error: unknown) => {
+            keepAgain();
+            throw error;
+          });
           const turn = client
             .send(text, attachments, kept?.promptId ?? again, accept, kept?.ticket, steer)
             .then(
@@ -6136,6 +6142,8 @@ function AcpmuxPane() {
               },
               (error: unknown) => {
                 if (failedRowOf(error)) letGo();
+                // A lost send keeps its id itself (`resent`).
+                else if (!lostPrompt(error)) keepAgain();
                 throw error;
               },
             )
