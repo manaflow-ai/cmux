@@ -12,7 +12,7 @@ import GhosttyKit
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.
 @MainActor
 final class TerminalPanel: Panel, ObservableObject {
-    private enum TextBoxInputFocusIntent: Equatable {
+    enum TextBoxInputFocusIntent: Equatable {
         case hidden
         case terminal
         case textBox
@@ -64,18 +64,10 @@ final class TerminalPanel: Panel, ObservableObject {
     @Published var textBoxContent: String = ""
     @Published var textBoxAttachments: [TextBoxAttachment] = []
     weak var textBoxInputView: TextBoxInputTextView?
-    private var shouldFocusTextBoxWhenAvailable = false
+    private(set) var shouldFocusTextBoxWhenAvailable = false
     private var shouldOpenTextBoxFilePickerWhenAvailable = false
     private var shouldHideTextBoxOnNextEscape = false
-    private var textBoxInputFocusIntent: TextBoxInputFocusIntent = .hidden
-#if DEBUG
-    /// Whether the shown TextBox takes keyboard focus, now or once it mounts.
-    var debugTextBoxTakesKeyboardFocus: Bool {
-        isTextBoxActive && (textBoxInputFocusIntent == .textBox || shouldFocusTextBoxWhenAvailable)
-    }
-    /// Explicit requests to give this pane's terminal keyboard focus.
-    private(set) var debugTerminalFocusRequestCount = 0
-#endif
+    private(set) var textBoxInputFocusIntent: TextBoxInputFocusIntent = .hidden
     private var preservedTextBoxAttributedContent: NSAttributedString?
     private var restoredTextBoxDraft: SessionTextBoxInputDraftSnapshot?
     private var isClosingPanel = false
@@ -663,9 +655,6 @@ final class TerminalPanel: Panel, ObservableObject {
         clearTextBoxHideArm: Bool = true,
         focusTransactionId: UUID? = nil
     ) -> Bool {
-#if DEBUG
-        debugTerminalFocusRequestCount += 1
-#endif
         if clearTextBoxHideArm {
             shouldHideTextBoxOnNextEscape = false
         }

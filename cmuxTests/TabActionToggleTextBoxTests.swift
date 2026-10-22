@@ -42,14 +42,41 @@ struct TabActionToggleTextBoxTests {
         #expect(opened["ok"] as? Bool == true, "\(opened)")
         #expect(other.isTextBoxActive)
         #expect(workspace.focusedPanelId == focusedPanelId)
-        #expect(!other.debugTextBoxTakesKeyboardFocus, "opening another pane's TextBox takes keyboard focus")
+        #expect(other.textBoxInputFocusIntent != .textBox && !other.shouldFocusTextBoxWhenAvailable,
+                "opening another pane's TextBox takes keyboard focus")
 
-        let focusRequests = other.debugTerminalFocusRequestCount
+        let window = try #require(appDelegate.mainWindow(for: windowId))
         let closed = try send("surface.action", params)
         #expect(closed["ok"] as? Bool == true, "\(closed)")
         #expect(!other.isTextBoxActive)
         #expect(workspace.focusedPanelId == focusedPanelId)
-        #expect(other.debugTerminalFocusRequestCount == focusRequests, "closing another pane's TextBox focused its terminal")
+        let responder = window.firstResponder as? NSView
+        #expect(responder?.isDescendant(of: other.hostedView) != true,
+                "closing another pane's TextBox focused its terminal")
+    }
+
+    /// With focus requested, the toggle selects the target pane and gives its
+    /// TextBox the keyboard, like the Toggle TextBox Input command.
+    @Test func toggleTextBoxWithFocusSelectsTheTargetPane() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+        defer { appDelegate.discardMainWindowWithoutClosedHistory(windowId: windowId) }
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try #require(manager.selectedWorkspace)
+        let focusedPanelId = try #require(workspace.focusedPanelId)
+        let other = try #require(workspace.newTerminalSplit(from: focusedPanelId, orientation: .horizontal, focus: false))
+        try #require(workspace.focusedPanelId == focusedPanelId)
+
+        let opened = try send("surface.action", [
+            "action": "toggle_text_box",
+            "workspace_id": workspace.id.uuidString,
+            "surface_id": other.id.uuidString,
+            "focus": true,
+        ])
+        #expect(opened["ok"] as? Bool == true, "\(opened)")
+        #expect(other.isTextBoxActive)
+        #expect(other.textBoxInputFocusIntent == .textBox)
+        #expect(workspace.focusedPanelId == other.id, "the focused toggle left another pane selected")
     }
 
     @Test func toggleTextBoxOpensAndClosesTheTerminalsTextBox() throws {
