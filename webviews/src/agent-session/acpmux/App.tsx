@@ -1249,16 +1249,16 @@ const CHAT_OPEN_FADE_MS = 150;
 /// motion scale's micro step without the host), at most CHAT_OPEN_FADE_MS: opacity only, so no row
 /// moves, starting on the frame its rows first draw. None when the host turned motion off or its
 /// token is 0 (Reduce Motion, ui.animationSpeed off), or while the page is away (entranceAllowed).
-function fadeInOpenedChat(node: HTMLElement | null): void {
-  if (!node || typeof node.animate !== "function" || !entranceAllowed()) return;
-  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+function fadeInOpenedChat(node: HTMLElement | null): Animation | undefined {
+  if (!node || typeof node.animate !== "function" || !entranceAllowed()) return undefined;
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return undefined;
   const style = getComputedStyle(document.documentElement);
   const token = style.getPropertyValue("--agent-motion-in").trim();
   const value = Number.parseFloat(token);
   const asked = !token || !Number.isFinite(value) ? MOTION_MS.micro : token.endsWith("ms") ? value : value * 1000;
   const duration = Math.min(asked, CHAT_OPEN_FADE_MS);
-  if (!(duration > 0)) return;
-  node.animate([{ opacity: 0 }, { opacity: 1 }], {
+  if (!(duration > 0)) return undefined;
+  return node.animate([{ opacity: 0 }, { opacity: 1 }], {
     duration,
     easing: style.getPropertyValue("--agent-ease-out").trim() || "ease-out",
   });
@@ -2117,10 +2117,22 @@ export function VirtualTranscript({
   useEffect(() => () => stopReadingAloud(), [sessionId]);
   // A cold open's rows fade in on the first frame that draws them, before that frame paints.
   const fadedOpen = useRef<number | undefined>(undefined);
+  /// The fade running on this transcript. The transcript stays mounted across a switch, so a fade
+  /// ends with the chat it was for: a cached chat opened mid-fade shows whole on its first frame,
+  /// not under the last chat's fade, and a transcript that unmounts leaves none running.
+  const openFade = useRef<Animation | undefined>(undefined);
+  useLayoutEffect(
+    () => () => {
+      openFade.current?.cancel();
+      openFade.current = undefined;
+    },
+    [sessionId],
+  );
   useLayoutEffect(() => {
     if (coldOpen === undefined || rows.length === 0 || fadedOpen.current === coldOpen) return;
     fadedOpen.current = coldOpen;
-    fadeInOpenedChat(ref.current);
+    openFade.current?.cancel();
+    openFade.current = fadeInOpenedChat(ref.current);
     onColdOpenShown?.(coldOpen);
   }, [coldOpen, rows.length, onColdOpenShown]);
   const previousSession = useRef(sessionId);
@@ -4241,10 +4253,15 @@ function AcpmuxPane() {
     });
   // A chat read with nothing in it (a new chat: its first prompt enters as a live row) has nothing
   // to fade in, and a chat whose kept tail drew after the switch's hold gave up (a slow host read
-  // under load, a reconnect) is cached all the same: it shows at once.
+  // under load, a reconnect) is cached all the same: it shows at once. Rows that show before the
+  // chat is read (a live event, or a prompt sent, while a slow attach is out) are on screen
+  // already: the fade never takes them back to nothing, and what the read adds under them shows
+  // as it lands.
   else if (
     opened.cold &&
-    ((snapshot.chatRead === true && (freshView || transcriptRows.length === 0)) || snapshot.drewKeptTail === true)
+    ((snapshot.chatRead === true && (freshView || transcriptRows.length === 0)) ||
+      snapshot.drewKeptTail === true ||
+      (snapshot.chatRead !== true && transcriptRows.length > 0))
   )
     setOpened({ ...opened, cold: false });
   const coldOpenShown = useCallback(
