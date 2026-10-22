@@ -131,5 +131,19 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(6)),
       play: (ctx) => look(ctx, "codex"),
     },
+    "newtab-classic-codex": {
+      note: "Classic New Tab with Codex's look: the page stays Classic (its dot marked among the styles), its box's row in Codex's order, the mode first and the model by Send.",
+      height: 520,
+      ready: newTab({ template: "classic" }),
+      snapshot: noChat(manySessions(4)),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "newtab-cards-codex": {
+      note: "Cards New Tab with Codex's look: the project strip is Codex's tray over the box, the model in the box's row, the chat cards under it.",
+      height: 560,
+      ready: newTab({ template: "cards" }),
+      snapshot: noChat(manySessions(6)),
+      play: (ctx) => look(ctx, "codex"),
+    },
   },
 });
