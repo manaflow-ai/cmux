@@ -26,6 +26,14 @@ fn is_mirrored_session(summary: &Value) -> bool {
     summary.get("peer").and_then(Value::as_str).is_some()
 }
 
+/// The link's own `_acpmux/attach` of a peer's session `id`: it subscribes and reads no history,
+/// and names its byte limit all the same, as `bound_page` does for a client's attach. A peer on an
+/// older build reads `limit: 0` as no limit and has none of its own, so it answers with the whole
+/// log in one frame, and one of 32.8 MB reset the link with its 29 chats (2026-10-21).
+pub fn hidden_attach(id: &str) -> Value {
+    json!({"sessionId": id, "limit": 0, "visible": false, "maxBytes": crate::hub::page_bytes(&json!({}))})
+}
+
 /// What the hub receives from a peer, tagged with the peer's name and
 /// generation so notices from a replaced or removed peer can be dropped.
 #[derive(Debug)]
@@ -505,8 +513,7 @@ impl Peer {
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
             let attached: Vec<String> = me.attached.lock_or_recover().iter().cloned().collect();
             for sid in attached {
-                let attach = json!({"sessionId": sid, "limit": 0, "visible": false});
-                let _ = me.request(method::MUX_ATTACH, attach).await;
+                let _ = me.request(method::MUX_ATTACH, hidden_attach(&sid)).await;
             }
             Ok::<(), RpcError>(())
         });
@@ -844,6 +851,15 @@ impl Drop for ForgetPending {
 #[cfg(test)]
 mod remote_config_tests {
     use super::*;
+
+    #[test]
+    fn the_links_own_attach_names_its_byte_limit() {
+        let attach = hidden_attach("s");
+        assert_eq!(attach["sessionId"], "s");
+        assert_eq!(attach["limit"], 0);
+        assert_eq!(attach["visible"], false);
+        assert_eq!(attach["maxBytes"], crate::hub::page_bytes(&json!({})));
+    }
 
     #[test]
     fn a_remote_config_gives_its_token_and_listen_address() {
