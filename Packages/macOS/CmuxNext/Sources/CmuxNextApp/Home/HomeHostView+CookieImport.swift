@@ -6,7 +6,7 @@ import CmuxNextCookieImport
 /// (`CookieImportCardView`) above the composer, until the person closes it.
 extension HomeHostView {
     /// A Chief conversation the person can see now: in a visible, unoccluded window and not hidden.
-    var showsChiefOnScreen: Bool {
+    var canShowCookieImport: Bool {
         guard isChief, let window, window.isVisible, window.occlusionState.contains(.visible) else { return false }
         return !isHiddenOrHasHiddenAncestor
     }
