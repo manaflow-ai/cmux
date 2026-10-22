@@ -116,6 +116,12 @@ final class DividerMouseCatcherView: NSView {
         trackingArea = area
     }
 
+    /// Whether the pointer is over this catcher now: its panel shows, takes the mouse, and holds
+    /// the pointer. A seam for tests, which have no screen pointer.
+    var isPointerOver: () -> Bool = { false }
+    /// The cursor set queued after an enter, while it is pending (tests await it).
+    private(set) var pendingCursorSet: Task<Void, Never>?
+
     override func cursorUpdate(with event: NSEvent) { cursor.set() }
     override func mouseEntered(with event: NSEvent) {
         cursor.set()
