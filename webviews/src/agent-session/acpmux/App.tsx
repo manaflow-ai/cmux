@@ -4886,6 +4886,10 @@ function AcpmuxPane() {
   );
   // The turn's tokens so far, said after its time (direct.ts `turnTokens`).
   const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
+  // Its output apart from what it read, when every call carried the split; held by its numbers, as
+  // a new snapshot's split is a new object.
+  const split = snapshot.isWorking ? snapshot.turnTokenSplit : undefined;
+  const splitKey = split ? `${split.output}/${split.input}/${split.cacheRead}/${split.cacheWrite}` : "";
   const counted = useRef({
     runningAgents,
     runningCommands,
@@ -4948,6 +4952,7 @@ function AcpmuxPane() {
       commands: runningCommands.length,
       sessions: runningSessions.length,
       tokens: turnTokens,
+      split,
       openAgents: () => {
         const { runningAgents: agents, summaryCard: card, inspector: panel } = counted.current;
         if (agents.length === 1) showSubagent(agents[0]!.id);
@@ -4968,7 +4973,16 @@ function AcpmuxPane() {
         else card.show();
       },
     };
-  }, [runningAgents.length, runningCommands.length, runningSessions.length, turnTokens, showSubagent, openFold]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the split is new on every snapshot; its key is not
+  }, [
+    runningAgents.length,
+    runningCommands.length,
+    runningSessions.length,
+    turnTokens,
+    splitKey,
+    showSubagent,
+    openFold,
+  ]);
   // A tray command opens its terminal beside the chat; where none opens (a peer's chat, or a
   // command only the transcript knows), the summary card, which lists it, or, while the Inspector
   // takes the card's place, its section that lists it (Background tasks, or Servers for a dev server).

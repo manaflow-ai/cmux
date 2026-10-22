@@ -68,6 +68,19 @@ async fn only_a_streamed_calls_usage_is_marked_as_a_call() {
     // a turn's last call (and a steer's or late Stop's result) never counts twice.
     assert!(usages(&hub, &id).len() >= 2, "{:?}", usages(&hub, &id));
     assert_eq!(call_usages(&hub, &id), vec![4500]);
+    // The call's split: what it read (fresh input, cache reads, cache writes) and what it wrote,
+    // so the pane's line can say output apart from input.
+    let splits: Vec<serde_json::Value> = hub
+        .events(&id, 0, 10_000)
+        .unwrap()
+        .iter()
+        .filter(|e| e.kind == "usage_update")
+        .filter_map(|e| e.msg.pointer("/params/update/_meta/acpmux/tokens").cloned())
+        .collect();
+    assert_eq!(
+        splits,
+        vec![json!({"input": 1200, "cacheRead": 3000, "cacheWrite": 0, "output": 300})]
+    );
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }

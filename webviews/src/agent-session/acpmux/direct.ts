@@ -19,6 +19,7 @@ import type {
   PromptDelivery,
   PromptDeliveryHop,
   StartSource,
+  TurnTokenSplit,
 } from "./model";
 import { continuesTurn } from "./turnStart";
 import { mergeModelCatalog } from "./modelCatalog";
@@ -182,6 +183,37 @@ const USAGE_KIND = "usage_update";
 /// repeats its last call's for the context ring; other harnesses, whatever their family, report
 /// only that), which does not add up.
 const isCallUsage = (update: any) => update?._meta?.acpmux?.call === true;
+const tokenCount = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0);
+/// A marked call's split (`_meta.acpmux.tokens`: its output apart from its fresh input, cache reads and
+/// cache writes), when acpmux sent one.
+function callTokenSplit(update: any): TurnTokenSplit | undefined {
+  const split = update?._meta?.acpmux?.tokens;
+  if (!split || typeof split !== "object") return undefined;
+  return {
+    output: tokenCount(split.output),
+    input: tokenCount(split.input),
+    cacheRead: tokenCount(split.cacheRead),
+    cacheWrite: tokenCount(split.cacheWrite),
+  };
+}
+/// A `turn_result`'s tokens (acpmux hub/turn_usage.rs: Claude Code's main loop for the turn), when
+/// it names its output.
+function resultTokenSplit(msg: any): TurnTokenSplit | undefined {
+  if (typeof msg?.outputTokens !== "number") return undefined;
+  return {
+    output: tokenCount(msg.outputTokens),
+    input: tokenCount(msg.inputTokens),
+    cacheRead: tokenCount(msg.cacheReadTokens),
+    cacheWrite: tokenCount(msg.cacheWriteTokens),
+  };
+}
+const addSplit = (sum: TurnTokenSplit, call: TurnTokenSplit): TurnTokenSplit => ({
+  output: sum.output + call.output,
+  input: sum.input + call.input,
+  cacheRead: sum.cacheRead + call.cacheRead,
+  cacheWrite: sum.cacheWrite + call.cacheWrite,
+});
+const NO_TOKENS: TurnTokenSplit = { output: 0, input: 0, cacheRead: 0, cacheWrite: 0 };
 /// The agent's own change of a config option (a reasoning level, a model): the whole option list.
 const CONFIG_KIND = "config_option_update";
 const SESSION_INFO_KIND = "session_info_update";
@@ -969,6 +1001,10 @@ export class AcpmuxDirectClient {
   /// running line's count (conversation/WorkingFor.tsx). Unset outside a turn, and for a turn
   /// whose start this client did not see (it missed calls before it attached).
   private turnTokens: number | undefined;
+  /// `turnTokens` split into output and what the calls read, while every call so far carried its split
+  /// (claude_stdio/inbound.rs); unset from the first that did not (an older acpmux), so the line
+  /// never shows a split that leaves calls out.
+  private turnTokenSplit: TurnTokenSplit | undefined;
   /// The first seq whose usage this client holds: the attach page's first record when acpmux has
   /// older ones (older pages carry no usage), else 0. A turn that started before it has calls this
   /// client never saw, so every rebuild leaves its tokens unset. Infinity until an attach answers:
@@ -1443,6 +1479,7 @@ export class AcpmuxDirectClient {
     this.configSeq = 0;
     this.usage = undefined;
     this.turnTokens = undefined;
+    this.turnTokenSplit = undefined;
     this.usageFromSeq = Infinity;
     this.queue = [];
     this.queueWithdrawn = [];
@@ -2315,6 +2352,7 @@ export class AcpmuxDirectClient {
     this.turnOpen = false;
     this.silentTurn = false;
     this.turnTokens = undefined;
+    this.turnTokenSplit = undefined;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
     this.streamingActivity = undefined;
@@ -2566,8 +2604,11 @@ export class AcpmuxDirectClient {
       const used = Number(update.used);
       const size = Number(update.size);
       // Counted before the window: Claude Code reports a size of 0 until its first result.
-      if (this.turnTokens !== undefined && isCallUsage(update) && Number.isFinite(used) && used > 0)
+      if (this.turnTokens !== undefined && isCallUsage(update) && Number.isFinite(used) && used > 0) {
         this.turnTokens += used;
+        const split = callTokenSplit(update);
+        this.turnTokenSplit = split && this.turnTokenSplit ? addSplit(this.turnTokenSplit, split) : undefined;
+      }
       if (Number.isFinite(used) && Number.isFinite(size) && size > 0) this.usage = { used, size };
       return;
     }
@@ -2768,6 +2809,7 @@ export class AcpmuxDirectClient {
         this.turnOpen = true;
         this.silentTurn = false;
         this.turnTokens = event.seq >= this.usageFromSeq ? 0 : undefined;
+        this.turnTokenSplit = this.turnTokens === undefined ? undefined : NO_TOKENS;
         this.subagents.startTurn();
         this.settleCompactions(event.seq, true);
         // A Stop before this turn never judges it.
@@ -2786,6 +2828,7 @@ export class AcpmuxDirectClient {
         this.turnOpen = false;
         this.silentTurn = false;
         this.turnTokens = undefined;
+        this.turnTokenSplit = undefined;
         this.settleCompactions(event.seq, event.kind === "turn_result" && msg.cancelForced === true);
         this.landSteer();
         // Stop was answered: its grace must not judge the next turn.
@@ -2817,6 +2860,7 @@ export class AcpmuxDirectClient {
             kind: "turnSummary",
             seq: event.seq,
             ...this.turnTotals(event.at),
+            ...(event.kind === "turn_result" && resultTokenSplit(msg) ? { tokens: resultTokenSplit(msg) } : {}),
             status,
             ...(continued ? { continued } : {}),
             // An agent that could not start ends its turn with `error` and no `errorText`
@@ -3253,6 +3297,9 @@ export class AcpmuxDirectClient {
       isWorking:
         this.replayThrough === undefined && !this.stopGaveUp && (this.turnOpen || summary?.status === "running"),
       ...(this.replayThrough === undefined && this.turnTokens ? { turnTokens: this.turnTokens } : {}),
+      ...(this.replayThrough === undefined && this.turnTokens && this.turnTokenSplit
+        ? { turnTokenSplit: this.turnTokenSplit }
+        : {}),
       ...(this.replayThrough === undefined && this.turnOpen && this.silentTurn ? { silentTurn: true as const } : {}),
       // Only a peer runs on another clock; this computer's own sessions need no correction.
       ...(summary?.peer && this.clockOffset !== undefined ? { clockOffsetMs: this.clockOffset } : {}),
@@ -4765,6 +4812,7 @@ export class AcpmuxDirectClient {
       turnOpen: this.turnOpen,
       silentTurn: this.silentTurn,
       turnTokens: this.turnTokens,
+      turnTokenSplit: this.turnTokenSplit,
       streamingAssistant: this.streamingAssistant,
       streamingAssistantMessageId: this.streamingAssistantMessageId,
       streamingActivity: this.streamingActivity,
@@ -4795,6 +4843,7 @@ export class AcpmuxDirectClient {
     this.turnOpen = false;
     this.silentTurn = false;
     this.turnTokens = undefined;
+    this.turnTokenSplit = undefined;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
     this.streamingActivity = undefined;

@@ -144,14 +144,14 @@ impl Translator {
                     }
                     Some("message_delta") => {
                         if let Some(u) = ev.get("usage") {
-                            let used = u.get("input_tokens").and_then(Value::as_u64).unwrap_or(0)
-                                + u.get("cache_read_input_tokens")
-                                    .and_then(Value::as_u64)
-                                    .unwrap_or(0)
-                                + u.get("cache_creation_input_tokens")
-                                    .and_then(Value::as_u64)
-                                    .unwrap_or(0)
-                                + u.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
+                            let count = |key: &str| u.get(key).and_then(Value::as_u64).unwrap_or(0);
+                            let (input, cache_read, cache_write, output) = (
+                                count("input_tokens"),
+                                count("cache_read_input_tokens"),
+                                count("cache_creation_input_tokens"),
+                                count("output_tokens"),
+                            );
+                            let used = input + cache_read + cache_write + output;
                             // A subagent's usage is its own context, not the chat's.
                             if parent.is_none() {
                                 self.context_used.store(used, Ordering::SeqCst);
@@ -160,12 +160,19 @@ impl Translator {
                             // One model call's own usage, marked so a client can add a turn's
                             // calls up (the pane's running line). The result's resend below is
                             // the context ring's and is not marked. A subagent's calls are
-                            // marked too: they are the turn's spend.
+                            // marked too: they are the turn's spend. `tokens` splits `used`
+                            // so the line can say output apart from what the call read (fresh
+                            // input, cache reads and cache writes).
                             out.push(upd(json!({
                                 "sessionUpdate": "usage_update",
                                 "used": used,
                                 "size": size,
-                                "_meta": {"acpmux": {"call": true}},
+                                "_meta": {"acpmux": {"call": true, "tokens": {
+                                    "input": input,
+                                    "cacheRead": cache_read,
+                                    "cacheWrite": cache_write,
+                                    "output": output,
+                                }}},
                             })));
                         }
                     }
