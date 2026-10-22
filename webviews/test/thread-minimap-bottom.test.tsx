@@ -197,6 +197,12 @@ test("the rail keeps clear of the transcript's widest fades (the model reads the
 test("in a short pane every lit tick stays clear of the transcript's faded edges, at any offset", async () => {
   const document = dom.window.document;
   viewport = 320;
+  // A short pane in a full window, as in the app: the rail's 70%-of-the-window cap is then taller
+  // than the pane, so only the pane's own room holds the rail. (Bun's globalThis has no innerHeight,
+  // so without this the rail took 70% of the pane and never reached the fades.)
+  const scope = globalThis as { innerHeight?: number };
+  const windowBefore = scope.innerHeight;
+  scope.innerHeight = 900;
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -238,5 +244,6 @@ test("in a short pane every lit tick stays clear of the transcript's faded edges
     await act(async () => root.unmount());
     host.remove();
     viewport = 600;
+    scope.innerHeight = windowBefore;
   }
 });

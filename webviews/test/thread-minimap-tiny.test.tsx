@@ -39,6 +39,9 @@ const replacements: Record<string, unknown> = {
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
+  // The panes are short, the window is not (the app's transcript sits under a title bar and over a
+  // composer): the rail's 70%-of-the-window cap is taller than any pane here, as in the app.
+  innerHeight: 900,
 };
 // Pierre's registered elements read their own DOM constructors at import time.
 for (const key of Object.getOwnPropertyNames(dom.window))
