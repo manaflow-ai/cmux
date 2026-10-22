@@ -419,6 +419,7 @@ public nonisolated struct AgentPaneTunables {
             reasoningSliderStyle.descriptor,
             sessionStatus.descriptor,
             sidebarPreviewVariant.descriptor,
+            scrollerFade.descriptor,
             sideSessions.descriptor,
             streamWords.descriptor,
             subagentTray.descriptor,

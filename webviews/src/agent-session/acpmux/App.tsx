@@ -403,6 +403,7 @@ import {
 import { experimentArm } from "../../experiments/experiment";
 import { setSessionStatus, useSessionStatus } from "./sessionStatus";
 import { MOTION_MS } from "../../motion/scale.generated";
+import { SHOWN_SCROLLER_ATTRIBUTE } from "../../scrollers";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -3168,6 +3169,9 @@ export function VirtualTranscript({
         role="feed"
         aria-label={t("transcript.label")}
         onScroll={onScroll}
+        // Its thin scrollbar stays shown while the chat overflows, as in every agent app, and never
+        // flashes as rows arrive or the view follows them (scrollers.ts, Leo 2026-10-21).
+        {...{ [SHOWN_SCROLLER_ATTRIBUTE]: "" }}
         // Soft edges (conversation.css): the top once scrolled from the start, the bottom while more
         // lies below. A followed reply has nothing below it, even while its growth outruns the offset.
         data-seeking={seeking || undefined}

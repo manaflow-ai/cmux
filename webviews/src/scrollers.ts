@@ -1,6 +1,7 @@
 // SCROLLBARS-THIN (was SCROLLBARS-FOLLOW-MACOS): every scrollbar in cmux is thin and shows only
 // while its element scrolls, whatever the macOS "Show scroll bars" setting (Leo 2026-10-12: "never a
-// permanent gray track").
+// permanent gray track"). A shown scroller (`SHOWN_SCROLLER_ATTRIBUTE`, the agent chat's transcript)
+// keeps its thumb, never a track, the whole time its content overflows (Leo 2026-10-21).
 //
 // Native page scrolling (`overflow: auto`) draws WebKit's overlay scrollers for "Automatically" and
 // "When scrolling", which already look that way. For "Always" WebKit draws a legacy bar with a gray
@@ -179,11 +180,27 @@ export const PIERRE_TREES_SCROLLER_CSS = `
 }
 `;
 
+/** On a scroller whose thin thumb stays drawn while its content overflows, whatever the macOS
+    setting: the agent chat's transcript (Leo 2026-10-21: "SCROLLBAR IT SHOULD FUCKING SHOW").
+    Content that fits has no scrollbar (`overflow: auto`). */
+export const SHOWN_SCROLLER_ATTRIBUTE = "data-cmux-shown-scroller";
+/** On `<html>` when shown scrollers fade out at rest instead (opt-in: Debug Settings
+    `agentPane.debug.scrollerFade`, the agent theme's `scrollerFade`). */
+export const SCROLLER_FADE_ATTRIBUTE = "data-cmux-scroller-fade";
+
 /**
  * The one scrollbar style, for "Always" (WebKit draws overlay scrollers otherwise): a thin thumb in
  * the theme's text color (`--cmux-scroller-thumb`), on no track, hidden at rest and shown while the
  * element scrolls, while its thumb is dragged or under the pointer (where AppKit reveals an overlay
  * scroller too).
+ *
+ * A shown scroller (`SHOWN_SCROLLER_ATTRIBUTE`) draws the same thumb for every macOS setting and
+ * keeps it at rest: it never shows, hides and shows again as rows arrive or the view follows them.
+ * Its ink is `--cmux-shown-scroller-ink`, a registered percentage, so under
+ * `SCROLLER_FADE_ATTRIBUTE` it fades: out over `--cmux-scroller-fade-out` once the element stops
+ * scrolling (`SCROLLING_HIDE_MS`), in over `--cmux-scroller-fade-in` when it scrolls again. A
+ * scrollbar part takes no transition itself; the ink transitions on the element and the thumb
+ * repaints with it. The `:root` prefix outranks the legacy thumb rule above.
  */
 export const SCROLLER_ROOT_CSS = `
 :root {
@@ -209,6 +226,42 @@ html[data-scrollers="legacy"][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb,
 html[data-scrollers="legacy"][${SCROLLING_ATTRIBUTE}] > body::-webkit-scrollbar-thumb,
 html[data-scrollers="legacy"] ::-webkit-scrollbar-thumb:hover,
 html[data-scrollers="legacy"] ::-webkit-scrollbar-thumb:active {
+  background-color: var(--cmux-scroller-thumb);
+}
+@property --cmux-shown-scroller-ink {
+  syntax: "<percentage>";
+  inherits: true;
+  initial-value: 38%;
+}
+:root [${SHOWN_SCROLLER_ATTRIBUTE}] {
+  --cmux-shown-scroller-ink: 38%;
+}
+:root [${SHOWN_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar {
+  width: var(--cmux-scroller-size);
+  height: var(--cmux-scroller-size);
+  background: transparent;
+}
+:root [${SHOWN_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-track,
+:root [${SHOWN_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-corner {
+  background: transparent;
+}
+:root [${SHOWN_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb,
+:root [${SHOWN_SCROLLER_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb {
+  min-height: 24px;
+  border: 2px solid transparent;
+  border-radius: var(--cmux-scroller-size);
+  background: color-mix(in srgb, currentColor var(--cmux-shown-scroller-ink), transparent) padding-box;
+}
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${SHOWN_SCROLLER_ATTRIBUTE}] {
+  --cmux-shown-scroller-ink: 0%;
+  transition: --cmux-shown-scroller-ink var(--cmux-scroller-fade-out, var(--cmux-motion-large, 240ms)) ease-out;
+}
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${SHOWN_SCROLLER_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}] {
+  --cmux-shown-scroller-ink: 38%;
+  transition-duration: var(--cmux-scroller-fade-in, var(--cmux-motion-micro, 120ms));
+}
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${SHOWN_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:hover,
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${SHOWN_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:active {
   background-color: var(--cmux-scroller-thumb);
 }
 `;

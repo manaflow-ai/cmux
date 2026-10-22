@@ -27,24 +27,16 @@ import { warmViteServer } from "./support/warmDevServer";
 await requireBrowserLane("agent-pane-scrollbar-shown.test.ts", async () => {
   setDefaultTimeout(300_000);
   type Recording = Window & { __lanes?: number[]; __stopLanes?: () => void };
-  const engines: [string, () => Promise<Browser>][] = [
-    ["chromium", () => chromium.launch({ headless: true, timeout: 30_000, ignoreDefaultArgs: ["--hide-scrollbars"] })],
-    ["webkit", () => webkit.launch({ headless: true, timeout: 30_000 })],
+  const launchers: [string, () => Promise<Browser>][] = [
+    ["chromium", () => chromium.launch({ headless: true, ignoreDefaultArgs: ["--hide-scrollbars"] })],
+    ["webkit", () => webkit.launch({ headless: true })],
   ];
-  // An engine that cannot launch here is skipped and says so; on GitHub Actions requireBrowserLane
-  // fails the file first, so CI runs both.
-  const launchers: [string, () => Promise<Browser>][] = [];
-  for (const [name, launch] of engines) {
+  for (const [name, launch] of launchers) {
     try {
       await (await launch()).close();
-      launchers.push([name, launch]);
     } catch {
-      console.warn(`agent-pane-scrollbar-shown: skipping ${name} (run \`bunx playwright install ${name}\`)`);
+      throw new Error(`agent-pane-scrollbar-shown: cannot launch ${name}`);
     }
-  }
-  if (launchers.length === 0) {
-    describe.skip("agent-pane-scrollbar-shown", () => test("no engine", () => {}));
-    return;
   }
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
