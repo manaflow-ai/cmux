@@ -418,7 +418,7 @@ pub enum EngineRequest {
         compactor_harness: Option<String>,
         compactor_model: Option<String>,
         /// The reaction classifier's fields (reaction_wake.rs).
-        reactions: ReactionFields,
+        reactions: Box<ReactionFields>,
     },
 }
 

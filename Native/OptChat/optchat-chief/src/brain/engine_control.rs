@@ -152,7 +152,7 @@ impl Brain {
             apply(&mut choice.compactor_speed, compactor_speed);
             apply(&mut choice.compactor_harness, compactor_harness);
             apply(&mut choice.compactor_model, compactor_model);
-            if let Err(e) = apply_reactions(&mut choice, reactions) {
+            if let Err(e) = apply_reactions(&mut choice, *reactions) {
                 return e;
             }
             if let Err(e) = crate::engine::save(&file, &choice) {

@@ -571,6 +571,9 @@ impl Timing {
 
 pub type Log = Arc<dyn Fn(&str) + Send + Sync>;
 
+/// The harness and model one node runs on instead of the compactor's.
+type NodeOverride = (Option<String>, Option<String>);
+
 pub struct AcpmuxCompactor {
     port: Arc<dyn AgentPort>,
     spec: CompactorSpec,
@@ -585,7 +588,7 @@ pub struct AcpmuxCompactor {
     /// The harness and model a node runs on instead of the compactor's
     /// (a reaction classifier's, `ReactionJudge`); such a node never takes
     /// or leaves a warm session.
-    overrides: Mutex<HashMap<NodeId, (Option<String>, Option<String>)>>,
+    overrides: Mutex<HashMap<NodeId, NodeOverride>>,
     /// Makes prompt ids unique across host starts (acpmux runs an id once).
     stamp: u64,
     /// Claude Code refused the node's cache marker (it placed a fourth
@@ -1087,7 +1090,10 @@ impl AcpmuxCompactor {
     }
 
     /// Starts a session named `name` in `slot` (held by the caller), with
-    /// `system` as the slot preset's system prompt: its id, cwd and preset.
+    /// `system` as the slot preset's system prompt and `model`: its id, cwd
+    /// and preset.
+    // Each argument is one fact of the session; a struct would only rename them.
+    #[allow(clippy::too_many_arguments)]
     fn start(
         &self,
         slot: usize,
@@ -1779,7 +1785,7 @@ impl crate::brain::images::Describe for AcpmuxCompactor {
 
 impl AcpmuxCompactor {
     /// The harness and model node `node` runs on instead of the compactor's.
-    fn node_override(&self, node: NodeId) -> Option<(Option<String>, Option<String>)> {
+    fn node_override(&self, node: NodeId) -> Option<NodeOverride> {
         self.overrides
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)

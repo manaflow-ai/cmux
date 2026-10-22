@@ -313,7 +313,7 @@ fn the_engine_set_takes_the_reaction_classifier() {
         compactor_speed: None,
         compactor_harness: None,
         compactor_model: None,
-        reactions,
+        reactions: Box::new(reactions),
     };
     let shown = engine(&mut brain, EngineRequest::Show);
     assert_eq!(
