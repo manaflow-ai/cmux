@@ -291,3 +291,171 @@ delete waits for that push.
   Mac's push yet: the check now fetches first), then deleted the VM, the
   peer and the tailnet device. Cost of the whole proof: 0.0077 USD.
 - Tests: red run 39725656487 (fails), green run 39725658965 (passes).
+
+## v2: every subagent in its own VM, by default (a489, 2026-10-22)
+
+Ask (user, Oct 22, through the Chief): every Chief subagent runs in its own
+new Freestyle VM and the VM pauses when its task is done. Replaces a242;
+builds on the one-VM-per-subagent slice above (a466) and on the Worker VM
+verbs (a475). Seven parts; for each, what exists and what is still to do.
+
+| # | Ask | Now (feat-cmux-next 328330284cc, hq main) | To do |
+|---|---|---|---|
+| 1 | One base image: cmux and cmuxterm-hq, toolchains, build caches, acpmux, Claude Code; each VM starts from it | `deploy.sh base`: cmux clone (no checkout, hq #2989), acpmux, cmux-tui, Claude Code, bun. No cmuxterm-hq, no Rust/Go/Node, no `cmux-ci`, no caches. | V2-1 |
+| 2 | Cloud by default; the Mac only for the app window, screenshots, the user's machine | Off until `control cloud freestyle`; `needs_mac` keeps GUI tasks here. | V2-2 |
+| 3 | Swift/macOS builds go to the Mac minis through `cmux-ci` over Tailscale, with a short-lived tailnet key limited to what the VM needs | Fork joins with a 1 h, single-use, preauthorized `tag:agent-cloud` key. ACL lets the tag reach the controller :18765 and sr2 :4016, and also mini/macbuilder SSH and VNC (Lawrence, Oct 22). `cmux-ci` is not on the VM. | V2-1 (client), V2-3 (key) |
+| 4 | Auth through client sessions only: the team key stays on the Worker; Claude through the sr2 gateway; a short-lived scoped git token | The Mac runs `deploy.sh` with the HQ Freestyle key in `~/.secrets`. Claude goes through sr2 already. No git credential on the VM: `deploy.sh land` pushes through the Mac. | V2-4, V2-5 |
+| 5 | Pause on the final report; resume on a tell; pause while waiting on fleet jobs and wake on the result; remove after N days paused | Pause 60 s after the last live subagent; resume before a tell; delete 30 min after done (once pushed). No fleet wait. | V2-2 |
+| 6 | The app shows cloud agents like local ones: link, chat, terminal | Link and chat: the cmux workspace's chat tab relays the peer session. No terminal on the VM. | V2-6 |
+| 7 | Cost per hour at 1, 50 and 200 agents | Below. | - |
+
+### Auth: what each side holds
+
+No long-lived secret is on a subagent VM, and the Freestyle team key is only
+on the cmux VM Worker (`vm.cmux.dev`, `workers/cmux-vm`).
+
+| Who | Holds | For |
+|---|---|---|
+| cmux VM Worker | the Freestyle team key | every provider call |
+| Chief host (Mac) | a cmux VM API key (`cmuxvm_sk_`, `vm:read vm:write vm:exec`, labels `role=chief-sub`), in `~/.config/cloud-subagents/cmux-vm.json` (0600) | create from the base snapshot, pause, resume, resize, delete, exec, client sessions, of its own labelled VMs only |
+| Chief host | `tsadmin` (Tailscale API) | one tailnet auth key per VM join |
+| Chief host | a GitHub App private key (path in `~/.config/cloud-subagents/git.json`) | one installation token per VM, 1 h |
+| Subagent VM | a client session (one VM, Linux user `agent`, revoked at delete) only when the Mac needs SSH without the tailnet; a tailnet node identity (tag `agent-cloud`); a git token file that expires in 1 h | its own work |
+| Subagent VM, sandboxes | an agent key (sandbox keys above), labels `cmux.agent=<id>` | throwaway VMs it starts itself |
+
+- Claude Code: `ANTHROPIC_BASE_URL` = sr2 on the tailnet (the gateway's
+  tailnet-auth mode; the token in settings is a dummy). No Anthropic key.
+- Git: the host mints an installation token for `manaflow-ai/cmux` and
+  `manaflow-ai/cmuxterm-hq` only, `contents: write` and `pull_requests:
+  write` only, and writes it on resume and every 45 min while the VM runs
+  (`~/.config/git/cmux-token`, 0600; a credential helper reads it). A paused
+  VM's token expires on its own. Until the user picks the App (a credential
+  step), the host writes no token and the subagent lands with `deploy.sh
+  land` through the Mac, as today.
+- Freestyle through the Worker (V2-4): `deploy.ts` gets a backend switch.
+  `CLOUD_SUBAGENTS_BACKEND=cmux-vm` makes every call through the Worker
+  (`POST /v1/vms {snapshotId, resources, labels, autoDeleteSeconds}`, `/pause`,
+  `/resume`, `/resize`, `DELETE`, `/exec`, `/snapshots`); `freestyle` (the
+  default until the Worker path is proved on staging and production) keeps
+  the direct calls. The base snapshot is made through the Worker too, so it is
+  the tenant's `snap_` and carries the `role=chief-sub` label.
+
+### Tailnet key (V2-3)
+
+Per join: `reusable: false`, `preauthorized: true`, `ephemeral: false` (a
+paused VM is offline for days and must come back as the same node),
+`tags: ["tag:agent-cloud"]`, `expirySeconds: 600` (was 3600; a join takes
+under 10 s). The key goes to the VM as a file through the Worker's file write
+(never in an exec argument, which the audit log keeps) and the fork script
+deletes it after `tailscale up --auth-key=file:`. Delete removes the device.
+What the tag reaches is the ACL above; narrowing it to the controller and
+sr2 only would undo Lawrence's Oct 22 grant, so it stays, and the report says
+so.
+
+### Lifecycle (V2-2)
+
+| Event | Host action |
+|---|---|
+| spawn (cloud placement) | create or resume `chief-sub-aN` from the base snapshot, join, start the session |
+| final report (the subagent's turn ends with its report and nothing of it runs) | pause at once (was: after `cloud.autoPauseIdleSeconds`, which still covers a VM whose report was not seen) |
+| tell | resume, then send |
+| `cmux-ci wait` on the VM | the wrapper (`~/.local/bin/cmux-ci`) does not block: it records the job id in `~/.cmux-park/JOB` and tells the subagent to end its turn. The host reads the park file before it pauses, pauses the VM, polls the controller (`GET /jobs/ID`) every 30 s, and on a final state resumes the VM and sends the subagent `fleet job ID finished: STATE` with the job's receipt URL. |
+| paused N days (`cloud.deleteAfterPausedDays`, default 7) | delete (the unpushed-work check still refuses and the VM stays paused; a refusal is logged and retried daily). Freestyle `autoDeleteSeconds` = N + 1 days is the leak guard. Replaces the 30 min `REAP_AFTER_DONE`. |
+| host stops | pause idle VMs (unchanged) |
+
+The fleet wait wakes on the result, not on a timer: a subagent that waits on a
+40 min build costs 0 USD of VM time during the wait.
+
+### Placement (V2-2)
+
+With no saved `control cloud` (never set) and a pool tool configured, the
+default is `freestyle` (one VM per subagent). `control cloud off` is
+remembered and wins. `needs_mac` and `place: "local"` keep a subagent here.
+No pool tool: local, as before.
+
+### App (V2-6)
+
+A cloud subagent's workspace gets a second tab: a terminal that runs
+`ssh agent@chief-sub-aN` (Tailscale SSH) into its worktree, opened
+when the VM is up. Opening it resumes a paused VM. The sidebar row shows a
+cloud badge and the VM state (running, paused, deleted).
+
+### Slices
+
+| Slice | Repo | What | Tests first |
+|---|---|---|---|
+| V2-1 | hq | base image: cmuxterm-hq clone (no checkout), Node 22 + pnpm, Go, Rust stable (minimal) with a fetched cargo registry for `optchat-chief`, `cmux-ci` client, bun and cargo caches warmed; `disk` report | `deploy.test.ts`: base script names every part; fork does no install |
+| V2-2 | cmux | cloud default; pause on final report; delete after N days paused; fleet park and wake | `tests/cloud_subagents.rs` |
+| V2-3 | hq | 600 s single-use key, key as a file, deleted after join | `deploy.test.ts` |
+| V2-4 | hq | Worker backend for `deploy.ts`, proved on `vm-staging.cmux.dev` | `deploy.test.ts` against a fake Worker |
+| V2-5 | cmux + hq | git token: host mints, writes, refreshes; credential helper on the VM | unit tests; live only after the user picks the App |
+| V2-6 | cmux | terminal tab and cloud badge | optchat-chief workspace test |
+
+### Cost (V2, 2026-10-22)
+
+Freestyle VM time, priced as the Worker's budget check does (0.05 USD per
+vCPU-hour + 0.0075 USD per GiB-hour): small (2 vCPU / 4 GiB) 0.13 USD per
+running hour, medium (4 / 8) 0.26. Mix: 70% small, 30% medium (`size_for`
+gives medium to test and type-check tasks), 0.169 USD per agent-hour running.
+
+| Agents | All running, all small | All running, mix | 50% running (rest paused on fleet waits and between tells), mix |
+|---|---|---|---|
+| 1 | 0.13 USD/h | 0.17 USD/h | 0.08 USD/h |
+| 50 | 6.50 USD/h | 8.45 USD/h | 4.23 USD/h |
+| 200 | 26.00 USD/h | 33.80 USD/h | 16.90 USD/h |
+
+Not in the table: model tokens through sr2 (the largest cost; a444 measures
+it per agent), paused storage (about 1 GB own bytes per VM above the shared
+base; Freestyle's storage price is not checked), and the fleet minis (owned).
+Limits to check before 200: the `deploy.sh` daily budget guard is 20 USD/day,
+which 50 running agents use in about 2.4 h (then new subagents run on the
+Mac); Freestyle's concurrent-VM limit on the Pro plan; Tailscale's device
+count for 200 more nodes. Raising any of them is a money decision for the user.
+
+### Base without a working tree (2026-10-22, cmuxterm-hq #2989)
+
+The base clone is now `--no-checkout` (depth 1, one branch, HEAD blobs kept
+in the pack, no `--filter`): subagents use their own worktrees, so the
+checkout in `~/src/cmux` was unused bytes. Base snapshot
+`sh-494cda79998f4c5e809f5180060690ec`: 6.42 GB used (was 7.44 GB). Fork test
+`chief-sub-a9465`: up in 8.7 s, `worktree add` in 8 s with no blob download
+(32,137 files), 7.48 GB used in total (was 8.49 GB), 1.06 GB its own; then
+deleted. The old base snapshot is deleted.
+
+### Base image v2 measured (2026-10-22)
+
+hq [#2993](https://github.com/manaflow-ai/cmuxterm-hq/pull/2993): base snapshot
+`sh-274a385d8c944d9895a8d3adc179119c`, 9.09 GB used (was 6.42 GB): cmux
+feat-cmux-next and cmuxterm-hq main (depth 1, no checkout), Node 22 + pnpm,
+Go 1.27.3, Rust 1.95.0, `cmux-ci`, cargo and Go module caches, Claude Code
+2.1.308. A small fork (`chief-sub-a9489`): up in 9.8 s; cmux worktree 10 s,
+hq worktree 4 s; `cargo fetch --offline` for cmux-tui 1 s; `cmux-ci status`
+answers from the VM over the tailnet; 1.56 GB own bytes; then deleted.
+
+### rift for per-agent workspaces (user idea, 2026-10-22)
+
+[rift](https://github.com/anomalyco/rift) v0.0.13 makes copy-on-write copies of
+a folder (APFS `clonefile` on the Mac, btrfs or `FICLONE` reflinks on Linux).
+Timed on a scratch clone of cmux (32,141 files, 958 MB) on this Mac (APFS), 3
+runs each:
+
+| How | Time | Notes |
+|---|---|---|
+| `git worktree add` | 9.5-12.3 s | shares the object store; `git status` in it 1.35 s |
+| `rift create` (filtered) | 8.1-9.4 s | walks the tree to drop `target`, `node_modules`, `dist`... |
+| `rift create --copy-all` | 0.64-0.82 s | one `clonefile` of the whole folder, `.git` too; `git status` 0.34 s |
+
+- In the VMs: no use. The VM disk is ext4 without reflink (`base.sh` logs
+  `fs=ext2/ext3 reflink=no`), so rift cannot copy on write there, and a
+  Freestyle fork already copies on write at the block level: one subagent per
+  VM needs one worktree, made in 10 s from the base clone. Pairing rift with
+  Freestyle fork adds nothing until a VM holds several agents.
+- On the Mac: `--copy-all` is about 13 times faster than `git worktree add`
+  and its `git status` is 4 times faster (its own index, no linked worktree).
+  Limits: it refuses a linked worktree as the source; it copies the source's
+  working state, so the source must be a clean seed clone, never the shared
+  main checkout (the user's edits would leak in); each copy is its own repo,
+  so its commits reach the branch only by push. Not adopted in this change:
+  local subagents are now only the Mac-only tasks. Next step when local
+  workspace time matters: one clean seed clone per repo, updated on each
+  spawn, `rift create --copy-all` from it.
