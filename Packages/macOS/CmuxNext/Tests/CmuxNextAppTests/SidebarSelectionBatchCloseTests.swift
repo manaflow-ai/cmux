@@ -80,7 +80,7 @@ struct SidebarSelectionBatchCloseTests {
             let undone = ContinuousClock.now
             #expect(CmuxToastCenter.shared.runAction(id: Self.toastID, in: window))
             let names = Set((1...50).map { String(format: "bulk-%02d", $0) })
-            func reopened() -> Set<String> { Set(services.daemon.store.workspaces.map(\.name)).intersection(names) }
+            @MainActor func reopened() -> Set<String> { Set(services.daemon.store.workspaces.map { $0.name }).intersection(names) }
             try? await PinnedPageTests.until({ reopened().count == names.count }, within: .seconds(60))
             print("SidebarSelectionBatchClose: undo reopened \(reopened().count) of 50 after \(ContinuousClock.now - undone)")
             #expect(reopened() == names, "not reopened: \(names.subtracting(reopened()).sorted())")
