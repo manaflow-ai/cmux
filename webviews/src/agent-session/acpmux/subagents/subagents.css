@@ -177,7 +177,7 @@ button.cv-subagent > :last-child {
   color: var(--cv-text-muted);
   cursor: pointer;
 }
-.cv-subagent__stop:hover {
+.cv-subagent__stop:hover:not(:disabled) {
   background: var(--agent-control-hover);
   color: var(--cv-text);
 }
