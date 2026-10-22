@@ -714,10 +714,7 @@ impl Mux {
                 let running = reattach
                     .then(|| tab["terminal_id"].as_str())
                     .flatten()
-                    .and_then(|terminal| self.resolve_terminal(terminal).ok().flatten())
-                    .filter(|resolution| {
-                        resolution.terminal.lifecycle == TerminalLifecycle::Running
-                    });
+                    .and_then(|terminal| self.resolve_running_terminal(terminal));
                 match running.and_then(|resolution| {
                     same_id(&mut || {
                         self.project_terminal_into_pane(

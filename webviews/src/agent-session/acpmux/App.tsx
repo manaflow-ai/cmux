@@ -156,6 +156,7 @@ import { SubagentDoneLine } from "./subagents/SubagentDoneLine";
 import {
   type DoneLineCache,
   configureSubagentTray,
+  finishedTrayItems,
   trayItems,
   useSubagentTray,
   withSubagentLines,
@@ -259,6 +260,7 @@ import { turnPreviewUrl } from "./conversation/previewUrl";
 import {
   canFork,
   forkRefusal,
+  forkToTarget,
   earlierForkPrompts,
   forksAnyTurn,
   latestForkSeq,
@@ -1046,7 +1048,7 @@ const PermissionRow = memo(
           <strong>{t("permission.required")}</strong>
         </div>
       );
-    return <PermissionAsk permission={permission} />;
+    return <PermissionAsk permission={permission} shortcuts={false} />;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
@@ -1248,16 +1250,16 @@ const CHAT_OPEN_FADE_MS = 150;
 /// motion scale's micro step without the host), at most CHAT_OPEN_FADE_MS: opacity only, so no row
 /// moves, starting on the frame its rows first draw. None when the host turned motion off or its
 /// token is 0 (Reduce Motion, ui.animationSpeed off), or while the page is away (entranceAllowed).
-function fadeInOpenedChat(node: HTMLElement | null): void {
-  if (!node || typeof node.animate !== "function" || !entranceAllowed()) return;
-  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+function fadeInOpenedChat(node: HTMLElement | null): Animation | undefined {
+  if (!node || typeof node.animate !== "function" || !entranceAllowed()) return undefined;
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return undefined;
   const style = getComputedStyle(document.documentElement);
   const token = style.getPropertyValue("--agent-motion-in").trim();
   const value = Number.parseFloat(token);
   const asked = !token || !Number.isFinite(value) ? MOTION_MS.micro : token.endsWith("ms") ? value : value * 1000;
   const duration = Math.min(asked, CHAT_OPEN_FADE_MS);
-  if (!(duration > 0)) return;
-  node.animate([{ opacity: 0 }, { opacity: 1 }], {
+  if (!(duration > 0)) return undefined;
+  return node.animate([{ opacity: 0 }, { opacity: 1 }], {
     duration,
     easing: style.getPropertyValue("--agent-ease-out").trim() || "ease-out",
   });
@@ -2116,10 +2118,22 @@ export function VirtualTranscript({
   useEffect(() => () => stopReadingAloud(), [sessionId]);
   // A cold open's rows fade in on the first frame that draws them, before that frame paints.
   const fadedOpen = useRef<number | undefined>(undefined);
+  /// The fade running on this transcript. The transcript stays mounted across a switch, so a fade
+  /// ends with the chat it was for: a cached chat opened mid-fade shows whole on its first frame,
+  /// not under the last chat's fade, and a transcript that unmounts leaves none running.
+  const openFade = useRef<Animation | undefined>(undefined);
+  useLayoutEffect(
+    () => () => {
+      openFade.current?.cancel();
+      openFade.current = undefined;
+    },
+    [sessionId],
+  );
   useLayoutEffect(() => {
     if (coldOpen === undefined || rows.length === 0 || fadedOpen.current === coldOpen) return;
     fadedOpen.current = coldOpen;
-    fadeInOpenedChat(ref.current);
+    openFade.current?.cancel();
+    openFade.current = fadeInOpenedChat(ref.current);
     onColdOpenShown?.(coldOpen);
   }, [coldOpen, rows.length, onColdOpenShown]);
   const previousSession = useRef(sessionId);
@@ -4092,7 +4106,7 @@ function AcpmuxPane() {
   // A chat on a Cloud VM or another machine lists the children its daemon reports with its own
   // session (RemoteAcpmuxWire `_acpmux/watch`). A new list only when an entry changes.
   const childSessions = useMemo(
-    () => (spawned.length ? startedSessions(spawned, snapshot.sessionId) : NO_STARTED),
+    () => (spawned.length ? startedSessions(spawned, snapshot.sessionId, { doing: true }) : NO_STARTED),
     [spawned, snapshot.sessionId],
   );
   // Only a chat it started can be an offer's started task: the rows are read only when there is one.
@@ -4240,10 +4254,15 @@ function AcpmuxPane() {
     });
   // A chat read with nothing in it (a new chat: its first prompt enters as a live row) has nothing
   // to fade in, and a chat whose kept tail drew after the switch's hold gave up (a slow host read
-  // under load, a reconnect) is cached all the same: it shows at once.
+  // under load, a reconnect) is cached all the same: it shows at once. Rows that show before the
+  // chat is read (a live event, or a prompt sent, while a slow attach is out) are on screen
+  // already: the fade never takes them back to nothing, and what the read adds under them shows
+  // as it lands.
   else if (
     opened.cold &&
-    ((snapshot.chatRead === true && (freshView || transcriptRows.length === 0)) || snapshot.drewKeptTail === true)
+    ((snapshot.chatRead === true && (freshView || transcriptRows.length === 0)) ||
+      snapshot.drewKeptTail === true ||
+      (snapshot.chatRead !== true && transcriptRows.length > 0))
   )
     setOpened({ ...opened, cold: false });
   const coldOpenShown = useCallback(
@@ -4944,8 +4963,8 @@ function AcpmuxPane() {
       setAutoOpenSubagents,
     ],
   );
-  // The Inspector (Debug Settings `agent.inspector`): its toggle at the header's end, the panel
-  // beside or over the chat. On, it takes the summary card's place.
+  // The Inspector (Debug Settings `agent.inspector`): its toggle the first of the header's
+  // top-right icons, the panel beside or over the chat. On, it takes the summary card's place.
   const inspectorSummary = snapshot.summary;
   const inspectorLocal =
     inspectorSummary !== undefined &&
@@ -4991,13 +5010,25 @@ function AcpmuxPane() {
   // the started chats that run. A new list only when what it shows changes, so streamed text never redraws the tray.
   const commandsKey = runningCommandList
     .map((task) =>
-      [task.id, task.command, task.startedAt ?? "", task.processId ?? "", task.toolCallId ?? ""].join("\u0000"),
+      [
+        task.id,
+        task.command,
+        task.description ?? "",
+        task.startedAt ?? "",
+        task.processId ?? "",
+        task.toolCallId ?? "",
+      ].join("\u0000"),
     )
     .join("\u0001");
   const trayList = useMemo(
-    () => (subagentTray ? trayItems(chatAgents, runningCommandList, runningChildSessions, snapshot.isWorking) : []),
+    () => (subagentTray ? trayItems(chatAgents, runningCommandList, childSessions, snapshot.isWorking) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runningCommandList is new on every snapshot; its key is not
-    [subagentTray, chatAgents, commandsKey, runningChildSessions, snapshot.isWorking],
+    [subagentTray, chatAgents, commandsKey, childSessions, snapshot.isWorking],
+  );
+  // What ended, behind the tray's one folded line; never in its count.
+  const trayFinished = useMemo(
+    () => (subagentTray ? finishedTrayItems(chatAgents, childSessions) : []),
+    [subagentTray, chatAgents, childSessions],
   );
   // The turn's tokens so far, said after its time (direct.ts `turnTokens`).
   const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
@@ -5064,8 +5095,14 @@ function AcpmuxPane() {
       sessions: runningSessions.length,
       tokens: turnTokens,
       openAgents: () => {
-        const { runningAgents: agents, summaryCard: card, inspector: panel } = counted.current;
-        if (agents.length === 1) showSubagent(agents[0]!.id);
+        const {
+          runningAgents: agents,
+          runningSessions: sessions,
+          summaryCard: card,
+          inspector: panel,
+        } = counted.current;
+        // One count with the chats it started (WorkingFor.tsx `workingParts`): one subagent alone opens.
+        if (agents.length === 1 && sessions.length === 0) showSubagent(agents[0]!.id);
         // The Inspector takes the summary card's place while it is on (its panel is never drawn).
         else if (panel.reveal) panel.reveal("subagents");
         else card.show();
@@ -6103,25 +6140,23 @@ function AcpmuxPane() {
             return persistSession(await client.select(forked));
           },
           // Fork Conversation from the app (the palette's step, the chat's right-click menu, its
-          // shortcut): a fork through the chat's latest finished turn, opened where the app names
-          // (`placement`). A chat that cannot fork now says why in its transcript.
+          // shortcut): a fork through the chat's latest finished turn, or of a working chat as it is
+          // now, opened where the app names (`placement`). A chat that cannot fork says why in its
+          // transcript.
           "chat.forkTo": async ({ placement }) => {
             const shown = snapshotRef.current;
             const refusal = shown ? forkRefusal(shown) : "unavailable";
-            const through = shown ? latestForkSeq(shown.rows) : undefined;
-            if (refusal || through === undefined) {
+            const target = shown ? forkToTarget(shown) : undefined;
+            if (refusal || target === undefined) {
               client.notice(
-                refusal === "busy"
-                  ? translate("notice.forkBusy")
-                  : refusal === "nothingYet"
-                    ? translate("notice.forkNothingYet")
-                    : translate("notice.forkFailed"),
+                refusal === "nothingYet" ? translate("notice.forkNothingYet") : translate("notice.forkFailed"),
               );
               return undefined;
             }
             harnessSwitch.cancel();
             const chat = client.selectedSession;
-            const forked = await client.fork(through, undefined, true);
+            // A working chat forks now, as it is; its own turn goes on (acpmux `hub/fork.rs`).
+            const forked = await client.fork("live" in target ? "live" : target.throughSeq, undefined, true);
             if (!forked || (await openOwnTab(forked, String(placement ?? "tab"))) || client.selectedSession !== chat)
               return forked;
             return persistSession(await client.select(forked));
@@ -7378,6 +7413,7 @@ function AcpmuxPane() {
             <SubagentTray
               key={shownSessionId}
               items={trayList}
+              finished={trayFinished}
               working={snapshot.isWorking}
               waiting={waitingAgents}
               onOpen={showSubagent}
@@ -7961,7 +7997,6 @@ function AcpmuxPane() {
                         {snapshot.summary?.enforcement ? handoffLabels.nativePolicy : handoffLabels.unverified}
                       </span>
                     )}
-                    <NeedsYouButton items={needsYou.items} mode={needsYou.mode} actions={needsYou.actions} />
                     <ChatHeaderTools
                       tabTools={!quick}
                       pullRequestChip={!readOnlySubagent}
@@ -8029,6 +8064,7 @@ function AcpmuxPane() {
                         );
                       }}
                       inspector={inspector.button}
+                      inbox={<NeedsYouButton items={needsYou.items} mode={needsYou.mode} actions={needsYou.actions} />}
                       summary={inspector.on ? null : <SummaryButton card={summaryCard} />}
                       menu={chatMenu}
                       onMenuOpen={readTabState}

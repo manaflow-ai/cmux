@@ -4,6 +4,7 @@ import { ackWake, chiefPrincipal, chiefRecord, postReply, readConversation } fro
 import { manageChiefs } from "../chief-brain/brain-chiefs.ts"
 import type { BrainConfig } from "../chief-brain/brain-store.ts"
 import { OWNER_APPROVAL_REQUIRED } from "../chief-brain/effect-policy.ts"
+import { attachmentLine, type AttachmentMeta } from "../chief-brain/brain-text.ts"
 
 /**
  * The Chief Protocol HOST services O's brain calls (brain -> host JSON-RPC requests), as the Chief
@@ -28,7 +29,7 @@ export class HostRefused extends Error {
 
 const TEXT_PARTS = (parts: ReadonlyArray<{ type: string; text?: string; name?: string; url?: string }>) =>
   parts
-    .map((p) => (p.type === "text" ? (p.text ?? "") : p.type === "attachment" ? `[attachment: ${p.name ?? "file"}]` : p.type === "link_preview" ? `[link: ${p.url ?? ""}]` : ""))
+    .map((p) => (p.type === "text" ? (p.text ?? "") : p.type === "attachment" ? attachmentLine(p as AttachmentMeta, false) : p.type === "link_preview" ? `[link: ${p.url ?? ""}]` : ""))
     .filter((t) => t.trim())
     .join("\n")
 
