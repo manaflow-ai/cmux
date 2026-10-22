@@ -98,7 +98,7 @@ await requireBrowserLane("clickable-cursor-gallery.test.ts", async () => {
       const result = await page.evaluate(
         ({ named, arrow }) => {
           const CLICKABLE =
-            'button, a[href], [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"], summary, label[for], select';
+            'button, a[href], [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"], summary, label[for], label:has(input[type="checkbox"], input[type="radio"]), select, input:is([type="checkbox"], [type="radio"], [type="button"], [type="submit"], [type="reset"], [type="color"], [type="file"])';
           const reactClick = (element: Element) => {
             const key = Object.keys(element).find((name) => name.startsWith("__reactProps$"));
             const props = key ? (element as unknown as Record<string, { onClick?: unknown }>)[key] : undefined;

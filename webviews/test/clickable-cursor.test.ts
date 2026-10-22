@@ -74,9 +74,23 @@ const PANE = `
   <fieldset>
     <label data-expect="pointer" data-name="size choice"><input type="radio" name="size" /><span data-expect="pointer" data-name="size choice text">8 GB</span></label>
     <label data-expect="default" data-name="locked size choice"><input type="radio" name="size" disabled /><span data-expect="default" data-name="locked size choice text">32 GB</span></label>
-    <input id="fixture-locked" type="checkbox" disabled /><label data-expect="default" data-name="label for a disabled box" for="fixture-locked">Locked</label>
-    <label data-expect="default" data-name="label for a disabled box, before it" for="fixture-locked-2">Locked</label><input id="fixture-locked-2" type="checkbox" disabled />
+    <!-- A label for an enabled control keeps the hand beside a disabled one, after it or before it.
+         CSS cannot follow \`for\` to a disabled control, so such a label keeps the hand too. -->
+    <input type="checkbox" disabled /><label data-expect="pointer" data-name="label after a disabled box, for an enabled one" for="fixture-on-a"><span data-expect="pointer" data-name="its text">On</span></label><input id="fixture-on-a" type="checkbox" />
+    <input id="fixture-on-b" type="checkbox" /><label data-expect="pointer" data-name="label before a disabled box, for an enabled one" for="fixture-on-b">On</label><input type="checkbox" disabled />
+    <label>Model <select data-expect="pointer" data-name="enabled select with a disabled placeholder, in a label"><option disabled>Pick one</option><option>A</option></select></label>
+    <label data-expect="pointer" data-name="for label around an enabled select with a disabled option" for="fixture-select">Model <select id="fixture-select"><option disabled>Pick one</option><option>A</option></select></label>
   </fieldset>
+  <div>
+    <input data-expect="pointer" data-name="checkbox" type="checkbox" />
+    <input data-expect="pointer" data-name="radio" type="radio" />
+    <input data-expect="pointer" data-name="input button" type="button" value="Go" />
+    <input data-expect="pointer" data-name="submit" type="submit" />
+    <input data-expect="pointer" data-name="reset" type="reset" />
+    <input data-expect="pointer" data-name="colour well" type="color" />
+    <input data-expect="pointer" data-name="file picker" type="file" />
+    <input data-expect="default" data-name="disabled checkbox" type="checkbox" disabled />
+  </div>
 </div>`;
 
 test("every clickable thing in the agent pane shows the pointing hand, a disabled one the arrow", () => {
@@ -187,11 +201,26 @@ function targetsClickable(selector: string, classes: Set<string>): boolean {
 }
 
 const DISABLED_STATE = /:disabled|\[disabled|aria-disabled|data-disabled|\[inert/;
+/// The selector with every `:not(…)` removed, however deeply its parentheses nest.
+function withoutNot(selector: string): string {
+  let out = "";
+  for (let index = 0; index < selector.length;) {
+    if (!selector.startsWith(":not(", index)) {
+      out += selector[index++];
+      continue;
+    }
+    let depth = 0;
+    for (index += 4; index < selector.length; index++) {
+      if (selector[index] === "(") depth++;
+      else if (selector[index] === ")" && --depth === 0) break;
+    }
+    index++;
+  }
+  return out;
+}
 /// The selector matches only a disabled element: a disabled state outside `:not(…)`
-/// (`button:not(:disabled)` is an enabled button).
-const DISABLED = {
-  test: (selector: string) => DISABLED_STATE.test(selector.replace(/:not\((?:[^()]|\([^()]*\))*\)/g, "")),
-};
+/// (`button:not(:disabled)` and `button:not(:is(:where(:disabled)))` are enabled buttons).
+const DISABLED = { test: (selector: string) => DISABLED_STATE.test(withoutNot(selector)) };
 
 type Rule = { file: string; line: number; selectors: string[]; body: string };
 
@@ -219,6 +248,17 @@ function styleRules(): Rule[] {
 
 const subjectOf = (selector: string) => selector.split(/\s*[>+~]\s*|\s+(?![^()]*\))/).at(-1) ?? selector;
 const SETS_A_CURSOR = /(^|[;\s{])cursor\s*:\s*(?!default\b|auto\b|inherit\b|unset\b|initial\b|revert)[a-z-]/;
+
+test("only a disabled selector is exempt", () => {
+  expect(["button:disabled", '.x[aria-disabled="true"]', "a:not(.y):disabled"].map(DISABLED.test)).toEqual([
+    true,
+    true,
+    true,
+  ]);
+  expect(
+    ["button:not(:disabled)", "button:not(:is(:where(:disabled)))", ".x:not([disabled]) span"].map(DISABLED.test),
+  ).toEqual([false, false, false]);
+});
 
 test("no stylesheet sets the arrow or auto on a clickable element", () => {
   const classes = clickableClasses();
