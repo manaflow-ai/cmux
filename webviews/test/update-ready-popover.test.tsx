@@ -199,7 +199,9 @@ test("the update card's hover card says which version it updates from", async ()
       />,
     ),
   );
-  expect(host.querySelector(".wn-pop-from")?.textContent).toBe("Updating from nightly 3801702");
+  // Only "What's new in …": no "Updating from …" line (Lawrence 2026-10-22: "too much info").
+  expect(host.querySelector(".wn-pop-from")).toBeNull();
+  expect(host.textContent).not.toContain("3801702");
   expect(host.textContent).toContain("Workspace groups");
   expect(host.textContent).toContain("See all changes");
 });
@@ -221,7 +223,9 @@ test("without a change list the hover card shows the versions and See release no
       />,
     ),
   );
-  expect(host.querySelector(".wn-pop-from")?.textContent).toBe("Updating from nightly 3801702");
+  // Only "What's new in …": no "Updating from …" line (Lawrence 2026-10-22: "too much info").
+  expect(host.querySelector(".wn-pop-from")).toBeNull();
+  expect(host.textContent).not.toContain("3801702");
   expect(host.querySelector(".wn-pop-list")).toBeNull();
   const link = host.querySelector<HTMLButtonElement>(".wn-pop-all");
   expect(link?.textContent).toContain("See release notes");
