@@ -128,7 +128,13 @@ describe("the inline player", () => {
     await act(async () => {
       root = createRoot(container);
       root.render(
-        <MediaPlayer src="data:video/mp4;base64,AAAA" source={SOURCE} kind="video" name="login-tests.mp4" onError={() => {}} />,
+        <MediaPlayer
+          src="data:video/mp4;base64,AAAA"
+          source={SOURCE}
+          kind="video"
+          name="login-tests.mp4"
+          onError={() => {}}
+        />,
       );
     });
     const video = container.querySelector("video")!;

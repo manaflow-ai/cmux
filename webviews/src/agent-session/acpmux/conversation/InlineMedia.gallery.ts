@@ -44,6 +44,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/Markdown.tsx",
     "agent-session/acpmux/chips/ReplyImage.tsx#OpenableImage",
     "agent-session/acpmux/chips/ReplyMedia.tsx#VideoThumbnail",
+    "agent-session/acpmux/conversation/icons.tsx#OpenTab",
   ],
   variants: {
     "before-after": {
