@@ -43,14 +43,16 @@ terminal in the updated app:
 
 ```sh
 cmux acp --version; cmux acp --json daemon status | grep '"build"'   # the app's build, then the running daemon's; stop if they match
-cmux acp host update --all   # ssh peers of this Mac's platform get the app's build, put back if it doesn't start
+cmux acp host update --all   # only with ssh peers: those of this Mac's platform get the app's build, put back if it doesn't start
 cmux acp daemon shutdown     # ends the old daemon; hosted agents keep running for the next one
 ```
 
-Run `host update` first: it reads the peer list from the running daemon, and
-run after the shutdown it would start a daemon from the terminal, which the app
-keeps. It restarts a peer's daemon mid-turn too. A Linux peer is skipped from a
-Mac unless you pass `--binary-dir DIR` with an `acpmux-<target>` binary for it.
+Run `host update` before the shutdown: it needs the running daemon, and after
+the shutdown it would start one from this terminal, which the app then keeps.
+Without ssh peers it fails with "no ssh peer to update"; skip it. It restarts a
+peer's daemon mid-turn too, unless you add `--if-idle`. A Linux peer is skipped
+from a Mac; update it on its own with `host update NAME --binary-dir DIR`, where
+DIR holds an `acpmux-<target>` binary for it.
 
 Then open a new agent chat: the app starts its bundled acpmux, which adopts the
 running agents. An open chat only says acpmux is not running.
