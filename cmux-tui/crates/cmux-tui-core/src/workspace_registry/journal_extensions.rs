@@ -1923,7 +1923,13 @@ impl WorkspaceRegistry {
         // intentionally a small step: journal sealing must release the
         // registry writer quickly even when a busy VM has many free pages.
         let db = self.connection.get();
-        db.execute_batch("PRAGMA incremental_vacuum(256);")?;
+        // SQLite frees one page per step of this pragma, so it must be stepped
+        // until done: `execute_batch` steps once and freed a single page.
+        let mut vacuum = db.prepare("PRAGMA incremental_vacuum(256)")?;
+        let mut steps = vacuum.raw_query();
+        while steps.next()?.is_some() {}
+        drop(steps);
+        drop(vacuum);
         // A legacy registry (auto_vacuum 0) keeps its free pages until it is
         // converted, so they are no work for a later call.
         let mode: i64 = db.query_row("PRAGMA auto_vacuum", [], |row| row.get(0))?;
