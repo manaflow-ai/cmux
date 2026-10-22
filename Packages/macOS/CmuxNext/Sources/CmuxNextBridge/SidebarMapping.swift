@@ -121,7 +121,8 @@ public struct SidebarMapping {
         let indicator = StatusMapping.shared.summary(tabs: tabs, status: workspace.status)
         let front = frontTab(workspace, selectedTab: selectedTab)
         let folder = folderTab(tabs)
-        let page = front.flatMap { pageFace(workspace, $0, $0.kind == .browser ? workTab(workspace, selectedTab: selectedTab) : nil) }
+        let work = front?.kind == .browser ? workTab(workspace, selectedTab: selectedTab) : nil
+        let page = front.flatMap { pageFace(workspace, $0, work) }
         // Each browser tab's face once: its favicon in the tab list, its sound on the row.
         var browserFaces: [String: PageFace] = [:]
         for tab in tabs where tab.kind == .browser {
@@ -147,8 +148,10 @@ public struct SidebarMapping {
             lastActivity: lastActivity(tabs),
             rowKind: rowKind(tabs),
             agentWorking: StatusMapping.shared.isWorking(tabs: tabs),
+            // A page in a split beside a chat or terminal leaves the row's icon to that work, as it
+            // leaves its name (#22250; Leo 2026-10-21: "why did this turn into the githb favicon?").
             icon: Self.icon(color: workspace.color, icon: workspace.icon, asset: iconAsset)
-                ?? page?.favicon.map(WorkspaceIcon.favicon),
+                ?? (work == nil ? page?.favicon.map(WorkspaceIcon.favicon) : nil),
             kind: kind(front),
             kindBrand: front?.agentBrand,
             // A tab marked unread by hand (Mark Tab Unread) shows as the workspace's manual dot.
