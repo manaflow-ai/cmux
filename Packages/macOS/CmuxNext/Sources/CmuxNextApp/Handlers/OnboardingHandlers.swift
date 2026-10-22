@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextCookieImport
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextImportCards
 import CmuxNextOnboarding
@@ -29,8 +30,12 @@ enum OnboardingHandlers {
         registry.bind("browser.importFromFiles", run: { invocation in
             BrowserFileImport(services: services).run(profile: BookmarkResolver(services: services).profile(invocation))
         })
-        // Cookies of one browser profile, for the CLI and agents: an agent's run asks the person first.
+        // Cookies of one browser profile, for the CLI and agents: an agent's run asks the person first,
+        // inline where the person talks to it (Home for a Chief, its chat tab), else in a window card.
         let cef = services.cache.cef
+        let destination = ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) }
+        let ledger = CookieImportLedger(file: CookieImportLedger.defaultFile)
+        var showAll: @MainActor () -> Void = {}
         let cookieImports = CookieImportService(host: CookieImportHost(
             requester: { invocation in
                 let agentTabs = services.agentTabs
@@ -50,10 +55,45 @@ enum OnboardingHandlers {
                 return (id, services.browserProfiles.record(id)?.name ?? id)
             },
             window: { services.windows.active?.window ?? NSApp.mainWindow ?? NSApp.windows.first(where: \.isVisible) },
+            presentInline: { ask in
+                switch ask.request.requester.kind {
+                case .homeChief: return services.home.showCookieImport(ask)
+                case .agentChat, .terminal:
+                    guard let tab = ask.request.requester.tabID, ask.request.requester.kind == .agentChat else { return false }
+                    return CookieImportChatCards(services: services).show(ask, tab: tab)
+                case .unknown: return false
+                }
+            },
             reveal: { tab in _ = registry.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab), origin: .user)) },
+            showAll: { showAll() },
             track: { registry.track($0) },
-            destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) }))
+            destination: destination,
+            ledger: ledger))
+        let importsWindow = CookieImportsWindow(ledger: ledger) { id in try await cookieImports.remove(id) }
+        showAll = { importsWindow.show() }
         registry.bind("browser.importCookies", run: { invocation in try cookieImports.run(invocation) })
+        registry.bind("browser.cookieImports", run: { invocation in
+            // A person's run opens the window; any other run (the CLI, an agent) gets the list, with no focus change.
+            guard invocation.origin != .user else { return importsWindow.show() }
+            registry.track(result: Task { @MainActor () -> Result<[String: ActionResultValue], ActionWorkFailure> in
+                let records = await ledger.records()
+                let sources = await CookieImportHost.liveSources()
+                return .success(CookieImportExport(records: records, sources: CookieSourceListing(sources: sources)).fields)
+            })
+        })
+        registry.bind("browser.removeImportedCookies", run: { invocation in
+            guard let id = invocation["id"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty else {
+                throw ActionFailure(message: CookieImportExport.missingID)
+            }
+            registry.track(Task { @MainActor in
+                do {
+                    try await cookieImports.remove(id)
+                    return nil
+                } catch {
+                    return ActionWorkFailure(String(describing: error))
+                }
+            })
+        })
         // Import suggestion cards (Home, New Tab, Settings › Import): the same import run as the window's.
         ImportSuggestionsCenter.shared.bind(into: registry, host: importCardsHost(services))
         // Every entrypoint previews the exact snapshot and waits for the

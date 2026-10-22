@@ -131,6 +131,9 @@ final class HomeService {
     @ObservationIgnored var cloudLinker: HomeCloudLink?
     /// Each conversation tab's view, by tab id; released with the tab.
     @ObservationIgnored var tabViews: [String: HomeHostView] = [:]
+    /// Every Home conversation view alive (tabs, the Home page, New Message), weakly: where a
+    /// Chief's ask for the person (a cookie import's permission card) can show inline.
+    @ObservationIgnored let askHosts = NSHashTable<HomeHostView>.weakObjects()
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
     /// The local user's participant id in local conversations.
     let actor = ConversationParticipant.localUserID

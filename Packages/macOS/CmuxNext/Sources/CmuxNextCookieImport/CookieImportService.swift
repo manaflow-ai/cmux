@@ -1,6 +1,6 @@
 import AppKit
 public import CmuxNextActions
-import CmuxNextBrowserImport
+public import CmuxNextBrowserImport
 import CmuxNextDesign
 import Foundation
 
@@ -9,19 +9,22 @@ import Foundation
 /// one profile of another browser on this Mac (Chromium family, Safari,
 /// Firefox family) into a cmux browser profile, optionally only some sites.
 ///
-/// A person's run (palette) imports at once. Any other run (an agent's MCP
-/// tool, the CLI from a script or agent) must give a reason, and the person
-/// first answers ``CookieImportConsentPanel``, which names the agent's chat or
-/// terminal tab; nothing of the other browser is read before Allow. After
-/// Allow macOS asks for the browser's Keychain key (Chromium) or cmux needs
-/// Full Disk Access (Safari). Cookies stay in memory between the reader and
-/// the target profile's Chromium jar; only counts leave the run, and no
-/// cookie value is logged or printed.
+/// A person's run (palette) imports at once. Any other run (an agent's MCP tool, the CLI from a
+/// script, an agent or a Home Chief) must give a reason, and the person first answers the
+/// permission card (``CookieImportAsk``): inline in the chat where they talk to that agent (the
+/// Home Chief's conversation, the agent's chat tab), else as a window card. Nothing of the other
+/// browser is read before Allow Once. After it macOS asks for the browser's Keychain key
+/// (Chromium) or cmux needs Full Disk Access (Safari); the card says so first.
+///
+/// Every request, whatever its outcome, gets one audit record in ``CookieImportHost/ledger``: who
+/// asked, why, from where, into which profile, the answer, the counts and the written cookies'
+/// names, domains and paths, so ``remove(_:)`` can take exactly those back out. Cookies stay in
+/// memory between the reader and the target jar; no cookie value is logged, printed or recorded.
 @MainActor
 public final class CookieImportService {
     private let host: CookieImportHost
-    /// The panel waiting for the person; one at a time.
-    private var asking: CookieImportConsentPanel?
+    /// The ask waiting for the person; one at a time.
+    private var asking: CookieImportAsk?
 
     /// Creates the service over what the App supplies.
     public init(host: CookieImportHost) {
@@ -30,15 +33,16 @@ public final class CookieImportService {
 
     /// Validates the run, then (in tracked work, so the CLI waits) asks the person when needed and imports.
     ///
-    /// - Throws: `CookieImportRefusal` when `--from` is missing or malformed, an agent gave no reason, or a panel is already up.
+    /// - Throws: `CookieImportRefusal` when `--from` is missing or malformed, a site is not a host
+    ///   name, an agent gave no reason, or an ask is already up.
     public func run(_ invocation: ActionInvocation) throws {
         guard let from = invocation["from"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !from.isEmpty else {
             throw CookieImportRefusal(message: CookieImportStrings.missingSource)
         }
         let query: CookieSourceQuery
         do { query = try CookieSourceQuery(from) } catch { throw CookieImportRefusal(message: CookieImportStrings.missingSource) }
-        let filter = CookieDomainFilter(invocation["domain"]?.stringValue ?? "")
-        let reason = invocation["reason"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let filter = try Self.filter(invocation["domain"]?.stringValue ?? "")
+        let reason = CookieImportText().shown(invocation["reason"]?.stringValue ?? "")
         let asks = Self.needsConsent(invocation)
         if asks, Self.needsReason(invocation), reason.isEmpty { throw CookieImportRefusal(message: CookieImportStrings.reasonRequired) }
         if asks, asking != nil { throw CookieImportRefusal(message: CookieImportStrings.busy) }
@@ -56,18 +60,31 @@ public final class CookieImportService {
     }
 
     /// An agent must say why. A person typing the command at a terminal (`cli` origin with no
-    /// agent session) may leave it out; the panel still asks them.
+    /// agent session) may leave it out; the card still asks them.
     nonisolated static func needsReason(_ invocation: ActionInvocation) -> Bool {
-        invocation.origin != .user && !(invocation.origin == .cli && invocation.callerAgentSession == nil)
+        invocation.origin != .user && !(invocation.origin == .cli && invocation.callerAgentSession == nil && !invocation.callerHomeChat)
     }
+
+    /// The `--domain` list as the card shows it and the import keeps it: each site in ASCII. A
+    /// value that is not a host name refuses the run, so the card never shows less than is read.
+    nonisolated static func filter(_ list: String) throws -> CookieDomainFilter {
+        let text = CookieImportText()
+        let raw = CookieDomainFilter(list).domains
+        var sites: [String] = []
+        for domain in raw {
+            guard let site = text.site(domain) else { throw CookieImportRefusal(message: CookieImportStrings.invalidSite(text.shown(domain, limit: 60))) }
+            sites.append(site)
+        }
+        return CookieDomainFilter(sites)
+    }
+
+    /// The ask on screen now, nil when none (Debug and tests).
+    public var currentAsk: CookieImportAsk? { asking }
 
     private func importCookies(query: CookieSourceQuery, filter: CookieDomainFilter, reason: String, target: (id: String, name: String),
                                requester: CookieImportRequester?) async -> ActionWorkFailure? {
         // Finding the browsers reads only folder names and Local State profile names (no cookie file).
-        let sources = await Task.detached {
-            let environment = ImportEnvironment.live { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
-            return BrowserSourceDetector(environment: environment).detect()
-        }.value
+        let sources = await host.sources()
         let profile: BrowserSourceProfile
         do {
             profile = try query.resolve(in: sources)
@@ -75,38 +92,131 @@ public final class CookieImportService {
             return ActionWorkFailure(Self.message(for: error))
         }
         let sourceName = Self.sourceName(profile)
+        let audit = Audit(requester: requester, reason: reason, source: sourceName, target: target, sites: filter.domains)
+        var ask: CookieImportAsk?
         if let requester {
             guard asking == nil else { return ActionWorkFailure(CookieImportStrings.busy) }
-            guard let window = host.window() else { return ActionWorkFailure(CookieImportStrings.noWindow) }
-            let request = CookieImportRequest(requester: requester, reason: reason, source: sourceName,
-                                              sourceIsSafari: profile.browser.family == .safari, domains: filter.domains, target: target.name)
+            let request = CookieImportRequest(requester: requester, reason: reason, source: sourceName, prompt: Self.prompt(profile.browser),
+                                              domains: filter.domains, target: target.name)
+            let shown = CookieImportAsk(request: request, armDelay: host.armDelay)
             let reveal = host.reveal
-            let panel = CookieImportConsentPanel(request: request, onShowRequester: requester.tabID.map { tab in { reveal(tab) } })
-            asking = panel
-            let answer = await panel.ask(on: window)
+            shown.onShowRequester = requester.tabID.map { tab in { reveal(tab) } }
+            shown.onShowAll = host.showAll
+            if !host.presentInline(shown) {
+                guard let window = host.window() else {
+                    await record(audit, .failed, failure: CookieImportStrings.noWindow)
+                    return ActionWorkFailure(CookieImportStrings.noWindow)
+                }
+                CookieImportConsentPanel(ask: shown).show(on: window)
+            }
+            asking = shown
+            ask = shown
+            shown.shown()
+            let answer = await shown.nextAnswer()
             asking = nil
             switch answer {
             case .allow: break
-            case .deny: return ActionWorkFailure(refusal: .unavailable, reason: CookieImportStrings.denied)
-            case .timedOut: return ActionWorkFailure(refusal: .unavailable, reason: CookieImportStrings.timedOut)
+            case .deny:
+                // The person's own Deny needs no "nothing was imported" card after it: it goes away.
+                shown.end(CookieImportStrings.denied)
+                shown.dismiss()
+                await record(audit, .denied)
+                return ActionWorkFailure(refusal: .unavailable, reason: CookieImportStrings.denied)
+            case .timedOut:
+                shown.end(CookieImportStrings.timedOut)
+                await record(audit, .timedOut)
+                return ActionWorkFailure(refusal: .unavailable, reason: CookieImportStrings.timedOut)
             }
         }
-        let importer = CookieImporter(destination: host.destination, keys: OneReadSafeStorage(SafeStorageKeys().live()))
+        let importer = CookieImporter(destination: host.destination, keys: host.keys())
         let report: CookieImportReport
+        let cookies: [ImportedCookieIdentity]
         do {
-            report = try await importer.run(profile, into: target.id, filter: filter)
-        } catch let error as CookieImportError {
-            return ActionWorkFailure(CookieImportStrings.failed(Self.describe(error)))
+            let result = try await importer.runListing(profile, into: target.id, filter: filter)
+            report = result.report
+            cookies = result.cookies
         } catch {
-            // The type only: an error's text could hold a path or a cookie row.
-            return ActionWorkFailure(CookieImportStrings.failed(String(describing: type(of: error))))
+            // A typed import error by its words; anything else by its type only: its text could hold a path or a cookie row.
+            let detail = (error as? CookieImportError).map(Self.describe) ?? String(describing: type(of: error))
+            let text = CookieImportStrings.failed(detail)
+            ask?.end(text)
+            await record(audit, .failed, failure: text)
+            return ActionWorkFailure(text)
         }
-        if report.written == 0 && report.rejected == 0 && !filter.keepsAll { return ActionWorkFailure(CookieImportStrings.nothingMatched) }
-        if let window = host.window() {
+        if report.written == 0 && report.rejected == 0 && !filter.keepsAll {
+            ask?.end(CookieImportStrings.nothingMatched)
+            await record(audit, .nothingMatched, report: report)
+            return ActionWorkFailure(CookieImportStrings.nothingMatched)
+        }
+        let saved = await record(audit, .imported, report: report, cookies: cookies)
+        if let ask {
+            ask.phase = .imported(saved)
+            ask.onRemove = { [weak self, weak ask] in
+                guard let self else { return }
+                Task { @MainActor in  // task-owner: one removal the person pressed; the card shows its end
+                    if let removed = try? await self.remove(saved.id) { ask?.phase = .removed(removed) }
+                }
+            }
+        } else if let window = host.window() {
             _ = CmuxToastCenter.shared.show(CmuxToast(id: "cookieImport", message: CookieImportStrings.done(count: report.written, browser: sourceName)),
                                             in: window)
         }
         return nil
+    }
+
+    /// Takes the cookies import `id` wrote back out of its cmux profile and marks the record removed.
+    ///
+    /// - Returns: The updated record.
+    /// - Throws: `CookieImportRefusal` when the ledger has no such import, or it has nothing left to remove.
+    @discardableResult
+    public func remove(_ id: String) async throws -> CookieImportRecord {
+        guard let record = await host.ledger.record(id) else { throw CookieImportRefusal(message: CookieImportStrings.unknownImport) }
+        guard record.canRemove else { throw CookieImportRefusal(message: CookieImportStrings.alreadyRemoved) }
+        let removed = try await host.destination.removeCookies(record.cookies, profileID: record.targetProfileID)
+        let marked = await host.ledger.markRemoved(id, at: Date()) ?? record
+        if let window = host.window() {
+            _ = CmuxToastCenter.shared.show(CmuxToast(id: "cookieImportRemoved", message: CookieImportStrings.removedToast(removed)), in: window)
+        }
+        return marked
+    }
+
+    /// The facts of one request the audit record keeps.
+    private struct Audit {
+        var requester: CookieImportRequester?
+        var reason: String
+        var source: String
+        var target: (id: String, name: String)
+        var sites: [String]
+    }
+
+    @discardableResult
+    private func record(_ audit: Audit, _ outcome: CookieImportRecord.Outcome, failure: String? = nil, report: CookieImportReport? = nil,
+                        cookies: [ImportedCookieIdentity] = []) async -> CookieImportRecord {
+        let who = audit.requester.map { CookieImportRecord.Requester(kind: Self.kindName($0.kind), name: $0.name) }
+            ?? CookieImportRecord.Requester(kind: "person", name: "")
+        let record = CookieImportRecord(date: Date(), requester: who, reason: audit.reason, source: audit.source,
+                                        targetProfileID: audit.target.id, targetProfileName: audit.target.name, requestedSites: audit.sites,
+                                        outcome: outcome, failure: failure, report: report, cookies: cookies)
+        await host.ledger.append(record)
+        return record
+    }
+
+    nonisolated static func kindName(_ kind: CookieImportRequester.Kind) -> String {
+        switch kind {
+        case .agentChat: "agentChat"
+        case .homeChief: "homeChief"
+        case .terminal: "terminal"
+        case .unknown: "unknown"
+        }
+    }
+
+    /// What macOS asks after Allow for `browser`.
+    nonisolated static func prompt(_ browser: ImportBrowser) -> CookieImportRequest.Prompt {
+        switch browser.family {
+        case .chromium: browser.safeStorageService.map { .keychain(service: $0) } ?? .none
+        case .safari: .fullDiskAccess
+        default: .none
+        }
     }
 
     static func sourceName(_ profile: BrowserSourceProfile) -> String {

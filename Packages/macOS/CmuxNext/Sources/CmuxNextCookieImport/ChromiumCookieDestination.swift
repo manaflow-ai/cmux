@@ -25,6 +25,28 @@ public struct ChromiumCookieDestination: CookieDestination {
         return CookieWriteResult(written: result.written, rejected: result.rejected + cookies.count - writes.count)
     }
 
+    /// Writes each cookie again already expired: Chromium's cookie store first deletes the cookie
+    /// with the same name, domain and path, then drops the expired one (CookieMonster::
+    /// SetCanonicalCookie), so the profile no longer holds it, whatever value the site set since.
+    public func removeCookies(_ cookies: [ImportedCookieIdentity], profileID: String) async throws -> Int {
+        let profile = BrowserProfileRecord.engineProfile(for: profileID) ?? .default
+        let writes = cookies.compactMap(Self.removal(for:))
+        guard !writes.isEmpty else { return 0 }
+        do {
+            return try await write(writes, profile).written
+        } catch is BrowserEngineError {
+            throw CookieImportError.storeUnavailable
+        }
+    }
+
+    /// The write that removes `cookie`: the import's own URL, domain and path rule, an empty
+    /// value and an expiry in 1970. Nil when the cookie has no usable URL.
+    public nonisolated static func removal(for cookie: ImportedCookieIdentity) -> ChromiumCookieWrite? {
+        let stand = ImportedCookie(name: cookie.name, value: "", domain: cookie.domain, path: cookie.path, secure: cookie.secure,
+                                   expires: Date(timeIntervalSince1970: 86_400))
+        return write(for: stand)
+    }
+
     /// Nil when the cookie has no usable URL (an empty or invalid domain).
     public nonisolated static func write(for cookie: ImportedCookie) -> ChromiumCookieWrite? {
         guard !cookie.host.isEmpty, let url = cookie.url else { return nil }

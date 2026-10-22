@@ -4,6 +4,9 @@ public import Foundation
 /// App: Chromium's `CefCookieManager` of that profile's request context).
 public protocol CookieDestination: Sendable {
     func setCookies(_ cookies: [ImportedCookie], profileID: String) async throws -> CookieWriteResult
+    /// Takes the cookies an import wrote back out of the profile's store (each one by its name,
+    /// domain and path, whatever its value is now); returns how many the store accepted removing.
+    func removeCookies(_ cookies: [ImportedCookieIdentity], profileID: String) async throws -> Int
 }
 
 /// How many cookies the store took; the rest it rejected (an invalid

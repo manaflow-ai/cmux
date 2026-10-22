@@ -45,10 +45,15 @@ below do not:
   chrome:Work --domain github.com --reason "Open the PR review page signed in"`
   copies that browser profile's cookies into a cmux browser profile. You must
   pass `--reason` with what you will do with them; the person sees your chat
-  (by name), your reason and your latest message in a consent panel and must
-  click Allow before anything is read. Ask only for the sites you need. A Deny
-  or no answer within 3 minutes fails the command; do not ask again unless the
-  person tells you to. Never print cookie values. See
+  (by name), your reason and your latest message on a permission card (inline
+  in your chat or Home conversation when it is on screen, else a window card)
+  and must click Allow Once before anything is read. Ask only for the sites you
+  need: asking for every site shows the person a warning. A Deny or no answer
+  within 3 minutes fails the command; do not ask again unless the person tells
+  you to. `cmux browser cookie-imports` lists the browsers on this Mac (which
+  are open, their profiles, what macOS asks) and every past import;
+  `cmux browser remove-imported-cookies --id ID` removes one import's cookies.
+  Never print cookie values. See
   [references/authentication.md](references/authentication.md).
 - Remote tabs (a page that runs on another machine) use the same tab ids and
   the same REPL calls once that machine's browser host serves them

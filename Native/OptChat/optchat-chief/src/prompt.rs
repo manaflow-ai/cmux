@@ -475,7 +475,11 @@ report.
   host stamps and macOS. Run it before you say which build the user runs.
 - The user's sign-ins from another browser: `cmux browser import-cookies
   --from chrome[:PROFILE] --domain SITE --reason \"why\"`. Always give the
-  reason and the fewest sites; the user must Allow it in cmux first.
+  reason and the fewest sites; the user must Allow it in cmux first: a
+  permission card shows inline in your Home chat (who, why, which sites,
+  into which profile, the macOS Keychain step). `cmux browser cookie-imports`
+  lists the browsers (which are open, their profiles) and past imports;
+  `cmux browser remove-imported-cookies --id ID` takes one back out.
   To offer it without asking now, raise a card on Home and New Tab:
   `cmux import suggest --browser chrome --site SITE --reason \"why\"`.
 - Browser: drive pages in your own browser tab (`cmux browser <tab_…>

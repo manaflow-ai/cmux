@@ -1,264 +1,2491 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "cookieImport.consent.afterAllow" : {
+    "cookieImport.card.andMore" : {
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "بعد اختيار «السماح»، سيطلب macOS كلمة المرور لإلغاء قفل ملفات تعريف الارتباط الخاصة بالمتصفح. لا شيء يغادر هذا الـ Mac."
+            "value" : "%1$@ و%2$lld أخرى"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nakon što odaberete Dozvoli, macOS traži vašu lozinku da otključa kolačiće preglednika. Ništa ne napušta ovaj Mac."
+            "value" : "%1$@ i još %2$lld"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Efter Tillad beder macOS om din adgangskode for at låse browserens cookies op. Intet forlader denne Mac."
+            "value" : "%1$@ og %2$lld mere"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nach „Erlauben“ fragt macOS nach deinem Passwort, um die Cookies des Browsers zu entsperren. Nichts verlässt diesen Mac."
+            "value" : "%1$@ und %2$lld weitere"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "After Allow, macOS asks for your password to unlock the browser’s cookies. Nothing leaves this Mac."
+            "value" : "%1$@ and %2$lld more"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Tras pulsar Permitir, macOS te pedirá la contraseña para desbloquear las cookies del navegador. Nada sale de este Mac."
+            "value" : "%1$@ y %2$lld más"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Après « Autoriser », macOS demande votre mot de passe pour déverrouiller les cookies du navigateur. Rien ne quitte ce Mac."
+            "value" : "%1$@ et %2$lld de plus"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Dopo aver premuto Consenti, macOS chiede la password per sbloccare i cookie del browser. Nulla lascia questo Mac."
+            "value" : "%1$@ e altri %2$lld"
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "許可すると、ブラウザのCookieのロックを解除するためにmacOSがパスワードを求めます。データはこのMacの外に出ません。"
+            "state" : "needs_review",
+            "value" : "%1$@ ほか %2$lld 件"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "បន្ទាប់ពីអនុញ្ញាត macOS នឹងសុំពាក្យសម្ងាត់របស់អ្នក ដើម្បីដោះសោខូគីរបស់កម្មវិធីរុករក។ គ្មានអ្វីចេញពី Mac នេះទេ។"
+            "value" : "%1$@ និង %2$lld ទៀត"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "허용하면 macOS가 브라우저의 쿠키 잠금을 해제하기 위해 암호를 요청합니다. 어떤 데이터도 이 Mac을 벗어나지 않습니다."
+            "value" : "%1$@ 외 %2$lld개"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Etter Tillat ber macOS om passordet ditt for å låse opp nettleserens informasjonskapsler. Ingenting forlater denne Macen."
+            "value" : "%1$@ og %2$lld til"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Po kliknięciu Zezwól macOS poprosi o hasło, aby odblokować pliki cookie przeglądarki. Nic nie opuszcza tego Maca."
+            "value" : "%1$@ i %2$lld więcej"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Depois de Permitir, o macOS pede sua senha para desbloquear os cookies do navegador. Nada sai deste Mac."
+            "value" : "%1$@ e mais %2$lld"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "После нажатия «Разрешить» macOS запросит ваш пароль, чтобы разблокировать cookie браузера. Ничто не покидает этот Mac."
+            "value" : "%1$@ и ещё %2$lld"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "หลังจากกดอนุญาต macOS จะขอรหัสผ่านของคุณเพื่อปลดล็อกคุกกี้ของเบราว์เซอร์ ไม่มีข้อมูลใดออกจาก Mac เครื่องนี้"
+            "value" : "%1$@ และอีก %2$lld"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "İzin Ver’den sonra macOS, tarayıcının çerezlerinin kilidini açmak için parolanızı ister. Hiçbir şey bu Mac’ten çıkmaz."
+            "value" : "%1$@ ve %2$lld tane daha"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Після натискання «Дозволити» macOS запитає ваш пароль, щоб розблокувати файли cookie браузера. Ніщо не залишає цей Mac."
+            "value" : "%1$@ і ще %2$lld"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Sau khi chọn Cho phép, macOS sẽ yêu cầu mật khẩu của bạn để mở khóa cookie của trình duyệt. Không có gì rời khỏi Mac này."
+            "value" : "%1$@ và %2$lld khác"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "允许后，macOS 会要求你输入密码以解锁浏览器的 Cookie。任何内容都不会离开这台 Mac。"
+            "value" : "%1$@ 等另外 %2$lld 个"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "允許後，macOS 會要求你輸入密碼以解鎖瀏覽器的 Cookie。任何內容都不會離開這台 Mac。"
+            "value" : "%1$@ 等另外 %2$lld 個"
           }
         }
       }
     },
-    "cookieImport.consent.afterAllowSafari" : {
+    "cookieImport.card.done" : {
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "تحتاج ملفات تعريف الارتباط في Safari إلى «الوصول الكامل إلى القرص» لـ cmux في إعدادات النظام. لا شيء يغادر هذا الـ Mac."
+            "value" : "تم"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Safarijevi kolačići zahtijevaju Full Disk Access za cmux u System Settings. Ništa ne napušta ovaj Mac."
+            "value" : "Gotovo"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Safaris cookies kræver Fuld diskadgang til cmux i Systemindstillinger. Intet forlader denne Mac."
+            "value" : "Færdig"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Für die Cookies von Safari braucht cmux „Festplattenvollzugriff“ in den Systemeinstellungen. Nichts verlässt diesen Mac."
+            "value" : "Fertig"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Safari’s cookies need Full Disk Access for cmux in System Settings. Nothing leaves this Mac."
+            "value" : "Done"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Las cookies de Safari requieren «Acceso total al disco» para cmux en Ajustes del Sistema. Nada sale de este Mac."
+            "value" : "Listo"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Les cookies de Safari nécessitent « Accès complet au disque » pour cmux dans Réglages Système. Rien ne quitte ce Mac."
+            "value" : "Terminé"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "I cookie di Safari richiedono «Accesso completo al disco» per cmux in Impostazioni di Sistema. Nulla lascia questo Mac."
+            "value" : "Fine"
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "SafariのCookieを読むには、システム設定でcmuxにフルディスクアクセスが必要です。データはこのMacの外に出ません。"
+            "state" : "needs_review",
+            "value" : "完了"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ខូគីរបស់ Safari ត្រូវការ Full Disk Access សម្រាប់ cmux ក្នុង System Settings។ គ្មានអ្វីចេញពី Mac នេះទេ។"
+            "value" : "រួចរាល់"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Safari의 쿠키를 읽으려면 시스템 설정에서 cmux에 전체 디스크 접근 권한이(가) 필요합니다. 어떤 데이터도 이 Mac을 벗어나지 않습니다."
+            "value" : "완료"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Safaris informasjonskapsler krever «Full disktilgang» for cmux i Systeminnstillinger. Ingenting forlater denne Macen."
+            "value" : "Ferdig"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Pliki cookie Safari wymagają dla cmux uprawnienia „Pełny dostęp do dysku” w sekcji Ustawienia systemowe. Nic nie opuszcza tego Maca."
+            "value" : "Gotowe"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Os cookies do Safari exigem “Acesso Total ao Disco” para o cmux em Ajustes do Sistema. Nada sai deste Mac."
+            "value" : "OK"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Для cookie Safari cmux требуется «Полный доступ к диску» в разделе «Системные настройки». Ничто не покидает этот Mac."
+            "value" : "Готово"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "คุกกี้ของ Safari ต้องใช้ การเข้าถึงดิสก์แบบเต็ม สำหรับ cmux ใน การตั้งค่าระบบ ไม่มีข้อมูลใดออกจาก Mac เครื่องนี้"
+            "value" : "เสร็จ"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Safari çerezleri için Sistem Ayarları’nde cmux’a “Tam Disk Erişimi” izni gerekir. Hiçbir şey bu Mac’ten çıkmaz."
+            "value" : "Bitti"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Для файлів cookie Safari потрібен «Повний доступ до диска» для cmux у розділі «Системні параметри». Ніщо не залишає цей Mac."
+            "value" : "Готово"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Cookie của Safari cần quyền “Truy cập toàn bộ ổ đĩa” cho cmux trong Cài đặt hệ thống. Không có gì rời khỏi Mac này."
+            "value" : "Xong"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Safari 的 Cookie 需要在“系统设置”中为 cmux 开启“完全磁盘访问权限”。任何内容都不会离开这台 Mac。"
+            "value" : "完成"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Safari 的 Cookie 需要在「系統設定」中為 cmux 開啟「完整磁碟取用權限」。任何內容都不會離開這台 Mac。"
+            "value" : "完成"
+          }
+        }
+      }
+    },
+    "cookieImport.card.endedTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لم يُستورد أي شيء"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ništa nije uvezeno"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Intet blev importeret"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nichts wurde importiert"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing was imported"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "No se importó nada"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rien n’a été importé"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Non è stato importato nulla"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "何も読み込まれませんでした"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "គ្មានអ្វីត្រូវបាននាំចូលទេ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "가져온 항목이 없습니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ingenting ble importert"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nic nie zaimportowano"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nada foi importado"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ничего не импортировано"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไม่มีสิ่งใดถูกนำเข้า"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hiçbir şey içe aktarılmadı"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Нічого не імпортовано"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không có gì được nhập"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "未导入任何内容"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "未匯入任何內容"
+          }
+        }
+      }
+    },
+    "cookieImport.card.importedLead" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "إنها في ملف تعريف متصفح cmux «%@». تؤدي الإزالة إلى إخراج ملفات تعريف الارتباط هذه بالضبط مجددًا، مما يسجّل خروج ذلك الملف من هذه المواقع."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nalaze se u cmux profilu preglednika „%@”. Ukloni ponovo uklanja upravo ove kolačiće, što odjavljuje taj profil s ovih stranica."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "De ligger i cmux-browserprofilen “%@”. Fjern tager præcis disse cookies ud igen, hvilket logger profilen ud af disse websteder."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sie liegen im cmux-Browserprofil „%@“. Entfernen nimmt genau diese Cookies wieder heraus und meldet das Profil bei diesen Websites ab."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "They are in the cmux browser profile “%@”. Remove takes exactly these cookies out again, which signs that profile out of these sites."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Están en el perfil del navegador de cmux «%@». Quitar elimina exactamente estas cookies, lo que cierra la sesión de ese perfil en estos sitios."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ils sont dans le profil de navigateur cmux « %@ ». Supprimer retire exactement ces cookies, ce qui déconnecte ce profil de ces sites."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sono nel profilo del browser cmux «%@». Rimuovi toglie esattamente questi cookie, scollegando quel profilo da questi siti."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux ブラウザのプロファイル「%@」に入っています。「削除」でこれらの Cookie だけを取り除けます。そのプロファイルはこれらのサイトからサインアウトします。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "វានៅក្នុងប្រវត្តិរូបកម្មវិធីរុករក cmux “%@”។ លុប នឹងដកខូគីទាំងនេះចេញវិញយ៉ាងពិតប្រាកដ ដែលធ្វើឱ្យប្រវត្តិរូបនោះចាកចេញពីគេហទំព័រទាំងនេះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 브라우저 프로필 “%@”에 있습니다. 제거를 누르면 정확히 이 쿠키만 다시 빼내며, 그 프로필은 이 사이트들에서 로그아웃됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "De ligger i cmux-nettleserprofilen «%@». Fjern tar akkurat disse informasjonskapslene ut igjen, noe som logger profilen ut av disse nettstedene."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Są w profilu przeglądarki cmux „%@”. Usuń usuwa dokładnie te pliki cookie, co wylogowuje ten profil z tych witryn."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eles estão no perfil do navegador do cmux “%@”. Remover tira exatamente esses cookies, o que desconecta esse perfil desses sites."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Они в профиле браузера cmux «%@». «Удалить» уберёт именно эти cookie, и профиль выйдет из этих сайтов."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "คุกกี้อยู่ในโปรไฟล์เบราว์เซอร์ cmux “%@” การลบจะนำคุกกี้เหล่านี้ออกตรงตามนี้ ซึ่งจะทำให้โปรไฟล์นั้นออกจากระบบของเว็บไซต์เหล่านี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bunlar cmux tarayıcı profili “%@” içinde. Kaldır tam olarak bu çerezleri yeniden çıkarır ve o profilin bu sitelerdeki oturumunu kapatır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вони в профілі браузера cmux «%@». «Видалити» прибере саме ці cookie, і профіль вийде з цих сайтів."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chúng nằm trong hồ sơ trình duyệt cmux “%@”. Xóa sẽ gỡ đúng các cookie này, đăng xuất hồ sơ đó khỏi các trang này."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "它们位于 cmux 浏览器配置文件“%@”中。“移除”会准确移除这些 Cookie，并让该配置文件退出这些网站。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "它們位於 cmux 瀏覽器設定檔「%@」中。「移除」會準確移除這些 Cookie，並讓該設定檔登出這些網站。"
+          }
+        }
+      }
+    },
+    "cookieImport.card.noSites" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لم تُكتب أي ملفات تعريف ارتباط."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nijedan kolačić nije upisan."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ingen cookies blev skrevet."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Es wurden keine Cookies geschrieben."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No cookies were written."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "No se escribió ninguna cookie."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aucun cookie n’a été écrit."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nessun cookie è stato scritto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cookie は書き込まれませんでした。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "គ្មានខូគីត្រូវបានសរសេរទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "기록된 쿠키가 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ingen informasjonskapsler ble skrevet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nie zapisano żadnych plików cookie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nenhum cookie foi gravado."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cookie не записаны."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไม่มีการเขียนคุกกี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hiç çerez yazılmadı."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cookie не записано."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không có cookie nào được ghi."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "未写入任何 Cookie。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "未寫入任何 Cookie。"
+          }
+        }
+      }
+    },
+    "cookieImport.card.readingKeychain" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يطلب macOS كلمة مرور الـ Mac لتحرير المفتاح «%@». اختر «السماح» وليس «السماح دائمًا». الرفض هناك يوقف الاستيراد ولا يُقرأ شيء."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "macOS traži lozinku vašeg Maca da otpusti ključ „%@”. Odaberite Dozvoli, a ne Uvijek dozvoli. Odbijanje tamo zaustavlja uvoz i ništa se ne čita."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "macOS beder om din Mac-adgangskode for at frigive nøglen “%@”. Vælg Tillad, ikke Tillad altid. Afvis dér stopper importen, og intet læses."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "macOS fragt nach deinem Mac-Passwort, um den Schlüssel „%@“ freizugeben. Wähle „Erlauben“, nicht „Immer erlauben“. Ablehnen dort stoppt den Import, und nichts wird gelesen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS is asking for your Mac password to release the “%@” key. Choose Allow, not Always Allow. Deny there stops the import and nothing is read."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "macOS pide la contraseña de tu Mac para liberar la clave «%@». Elige Permitir, no Permitir siempre. Denegar allí detiene la importación y no se lee nada."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "macOS demande le mot de passe de votre Mac pour libérer la clé « %@ ». Choisissez Autoriser, pas Toujours autoriser. Refuser arrête l’importation et rien n’est lu."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "macOS chiede la password del Mac per sbloccare la chiave «%@». Scegli Consenti, non Consenti sempre. Negare lì interrompe l’importazione e nulla viene letto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "macOS が「%@」キーを渡すために Mac のパスワードを求めています。「常に許可」ではなく「許可」を選んでください。そこで拒否すると読み込みは止まり、何も読まれません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "macOS កំពុងសួរពាក្យសម្ងាត់ Mac របស់អ្នក ដើម្បីបញ្ចេញសោ “%@”។ សូមជ្រើស អនុញ្ញាត មិនមែន អនុញ្ញាតជានិច្ច។ ការបដិសេធនៅទីនោះបញ្ឈប់ការនាំចូល ហើយគ្មានអ្វីត្រូវបានអានទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "macOS가 “%@” 키를 넘겨주기 위해 Mac 암호를 묻고 있습니다. ‘항상 허용’이 아닌 ‘허용’을 선택하세요. 그곳에서 거부하면 가져오기가 멈추고 아무것도 읽지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "macOS ber om Mac-passordet ditt for å frigi nøkkelen «%@». Velg Tillat, ikke Tillat alltid. Avslå der stopper importen, og ingenting leses."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "macOS prosi o hasło do Maca, aby udostępnić klucz „%@”. Wybierz Zezwól, a nie Zawsze zezwalaj. Odmowa tam zatrzymuje import i nic nie zostanie odczytane."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O macOS está pedindo a senha do seu Mac para liberar a chave “%@”. Escolha Permitir, não Sempre Permitir. Negar lá interrompe a importação e nada é lido."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "macOS запрашивает пароль от Mac, чтобы выдать ключ «%@». Выберите «Разрешить», а не «Всегда разрешать». Отказ там остановит импорт, и ничего не будет прочитано."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "macOS กำลังขอรหัสผ่าน Mac ของคุณเพื่อปลดคีย์ “%@” ให้เลือก อนุญาต ไม่ใช่ อนุญาตเสมอ หากปฏิเสธตรงนั้นการนำเข้าจะหยุดและไม่มีการอ่านสิ่งใด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "macOS, “%@” anahtarını vermek için Mac parolanızı istiyor. Her Zaman İzin Ver’i değil İzin Ver’i seçin. Orada reddetmek içe aktarmayı durdurur ve hiçbir şey okunmaz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "macOS просить пароль від Mac, щоб видати ключ «%@». Виберіть «Дозволити», а не «Завжди дозволяти». Відмова там зупинить імпорт, і нічого не буде прочитано."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "macOS đang hỏi mật khẩu Mac để mở khóa “%@”. Hãy chọn Cho phép, không phải Luôn cho phép. Từ chối ở đó sẽ dừng việc nhập và không có gì được đọc."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "macOS 正在请求你的 Mac 密码以释放“%@”密钥。请选择“允许”，而不是“始终允许”。在那里拒绝会停止导入，不会读取任何内容。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "macOS 正在要求你的 Mac 密碼以釋出「%@」金鑰。請選擇「允許」，而非「永遠允許」。在那裡拒絕會停止匯入，不會讀取任何內容。"
+          }
+        }
+      }
+    },
+    "cookieImport.card.readingPlain" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "جارٍ قراءة ملفات تعريف الارتباط ونسخها…"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Čitanje i kopiranje kolačića…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Læser og kopierer cookies…"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cookies werden gelesen und kopiert…"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reading and copying the cookies…"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Leyendo y copiando las cookies…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lecture et copie des cookies…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lettura e copia dei cookie…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cookie を読み込んでコピーしています…"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កំពុងអាន និងចម្លងខូគី…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "쿠키를 읽고 복사하는 중…"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Leser og kopierer informasjonskapslene…"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odczytywanie i kopiowanie plików cookie…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lendo e copiando os cookies…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Чтение и копирование cookie…"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "กำลังอ่านและคัดลอกคุกกี้…"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Çerezler okunuyor ve kopyalanıyor…"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Читання й копіювання cookie…"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đang đọc và sao chép cookie…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "正在读取并复制 Cookie…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "正在讀取並複製 Cookie…"
+          }
+        }
+      }
+    },
+    "cookieImport.card.readingSafari" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "جارٍ قراءة ملفات تعريف الارتباط في Safari. إذا رفض macOS، فامنح cmux «الوصول الكامل إلى القرص» في إعدادات النظام › الخصوصية والأمن."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Čitanje Safari kolačića. Ako macOS odbije, dajte cmuxu Potpuni pristup disku u Postavke sistema › Privatnost i sigurnost."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Læser Safaris cookies. Hvis macOS afviser, så giv cmux fuld diskadgang under Systemindstillinger › Anonymitet og sikkerhed."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Safaris Cookies werden gelesen. Wenn macOS ablehnt, gib cmux Festplattenvollzugriff unter Systemeinstellungen › Datenschutz & Sicherheit."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reading Safari’s cookies. If macOS refuses, give cmux Full Disk Access in System Settings › Privacy & Security."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Leyendo las cookies de Safari. Si macOS lo rechaza, da a cmux acceso total al disco en Ajustes del Sistema › Privacidad y seguridad."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lecture des cookies de Safari. Si macOS refuse, accordez l’accès complet au disque à cmux dans Réglages Système › Confidentialité et sécurité."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lettura dei cookie di Safari. Se macOS rifiuta, concedi a cmux l’accesso completo al disco in Impostazioni di Sistema › Privacy e sicurezza."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Safari の Cookie を読み込み中です。macOS に拒否された場合は、システム設定 › プライバシーとセキュリティで cmux にフルディスクアクセスを許可してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កំពុងអានខូគី Safari។ ប្រសិនបើ macOS បដិសេធ សូមផ្តល់ការចូលប្រើថាសពេញលេញដល់ cmux ក្នុង ការកំណត់ប្រព័ន្ធ › ឯកជនភាព និងសុវត្ថិភាព។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Safari 쿠키를 읽는 중입니다. macOS가 거부하면 시스템 설정 › 개인정보 보호 및 보안에서 cmux에 전체 디스크 접근 권한을 주세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Leser Safaris informasjonskapsler. Hvis macOS nekter, gi cmux full disktilgang i Systeminnstillinger › Personvern og sikkerhet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odczytywanie plików cookie Safari. Jeśli macOS odmówi, nadaj cmux pełny dostęp do dysku w Ustawienia systemowe › Prywatność i ochrona."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lendo os cookies do Safari. Se o macOS recusar, dê ao cmux Acesso Total ao Disco em Ajustes do Sistema › Privacidade e Segurança."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Чтение cookie Safari. Если macOS откажет, дайте cmux полный доступ к диску в «Системные настройки › Конфиденциальность и безопасность»."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "กำลังอ่านคุกกี้ของ Safari หาก macOS ปฏิเสธ ให้สิทธิ์ cmux เข้าถึงดิสก์เต็มรูปแบบใน การตั้งค่าระบบ › ความเป็นส่วนตัวและความปลอดภัย"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Safari çerezleri okunuyor. macOS reddederse Sistem Ayarları › Gizlilik ve Güvenlik’te cmux’a Tam Disk Erişimi verin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Читання cookie Safari. Якщо macOS відмовить, надайте cmux повний доступ до диска в «Системні параметри › Приватність і безпека»."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đang đọc cookie của Safari. Nếu macOS từ chối, hãy cấp Toàn quyền truy cập ổ đĩa cho cmux trong Cài đặt hệ thống › Quyền riêng tư & Bảo mật."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "正在读取 Safari 的 Cookie。如果 macOS 拒绝，请在“系统设置 › 隐私与安全性”中为 cmux 开启完全磁盘访问权限。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "正在讀取 Safari 的 Cookie。若 macOS 拒絕，請在「系統設定 › 隱私權與安全性」中為 cmux 開啟完整磁碟取用權限。"
+          }
+        }
+      }
+    },
+    "cookieImport.card.readingTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "جارٍ قراءة ملفات تعريف الارتباط من %@…"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Čitanje kolačića iz %@…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Læser cookies fra %@…"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cookies aus %@ werden gelesen…"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reading cookies from %@…"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Leyendo cookies de %@…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lecture des cookies de %@…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lettura dei cookie da %@…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ から Cookie を読み込み中…"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កំពុងអានខូគីពី %@…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@에서 쿠키를 읽는 중…"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Leser informasjonskapsler fra %@…"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odczytywanie plików cookie z %@…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lendo cookies de %@…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Чтение cookie из %@…"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "กำลังอ่านคุกกี้จาก %@…"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ çerezleri okunuyor…"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Читання cookie з %@…"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đang đọc cookie từ %@…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "正在从 %@ 读取 Cookie…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "正在從 %@ 讀取 Cookie…"
+          }
+        }
+      }
+    },
+    "cookieImport.card.remove" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "إزالة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ukloni"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fjern"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Entfernen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quitar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Supprimer"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rimuovi"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "削除"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "លុប"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "제거"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fjern"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Usuń"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Remover"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Удалить"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ลบ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kaldır"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Видалити"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Xóa"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "移除"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "移除"
+          }
+        }
+      }
+    },
+    "cookieImport.card.removedLead" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تمت إزالة %1$lld من ملفات تعريف الارتباط من ملف تعريف متصفح cmux «%2$@»."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uklonjeno %1$lld kolačića iz cmux profila preglednika „%2$@”."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fjernede %1$lld cookies fra cmux-browserprofilen “%2$@”."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$lld Cookies aus dem cmux-Browserprofil „%2$@“ entfernt."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed %1$lld cookies from the cmux browser profile “%2$@”."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Se quitaron %1$lld cookies del perfil del navegador de cmux «%2$@»."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$lld cookies supprimés du profil de navigateur cmux « %2$@ »."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rimossi %1$lld cookie dal profilo del browser cmux «%2$@»."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux ブラウザのプロファイル「%2$@」から %1$lld 件の Cookie を削除しました。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បានលុបខូគី %1$lld ពីប្រវត្តិរូបកម្មវិធីរុករក cmux “%2$@”។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 브라우저 프로필 “%2$@”에서 쿠키 %1$lld개를 제거했습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fjernet %1$lld informasjonskapsler fra cmux-nettleserprofilen «%2$@»."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Usunięto %1$lld plików cookie z profilu przeglądarki cmux „%2$@”."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$lld cookies removidos do perfil do navegador do cmux “%2$@”."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Удалено cookie: %1$lld из профиля браузера cmux «%2$@»."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ลบคุกกี้ %1$lld รายการออกจากโปรไฟล์เบราว์เซอร์ cmux “%2$@”"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux tarayıcı profili “%2$@” içinden %1$lld çerez kaldırıldı."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Видалено cookie: %1$lld з профілю браузера cmux «%2$@»."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đã xóa %1$lld cookie khỏi hồ sơ trình duyệt cmux “%2$@”."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已从 cmux 浏览器配置文件“%2$@”中移除 %1$lld 个 Cookie。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已從 cmux 瀏覽器設定檔「%2$@」中移除 %1$lld 個 Cookie。"
+          }
+        }
+      }
+    },
+    "cookieImport.card.removedTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تمت إزالة ملفات تعريف الارتباط المستوردة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uvezeni kolačići uklonjeni"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importerede cookies fjernet"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importierte Cookies entfernt"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Imported cookies removed"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cookies importadas quitadas"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cookies importés supprimés"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cookie importati rimossi"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "読み込んだ Cookie を削除しました"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បានលុបខូគីដែលបាននាំចូល"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "가져온 쿠키를 제거했습니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importerte informasjonskapsler fjernet"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Usunięto zaimportowane pliki cookie"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cookies importados removidos"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Импортированные cookie удалены"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ลบคุกกี้ที่นำเข้าแล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "İçe aktarılan çerezler kaldırıldı"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Імпортовані cookie видалено"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đã xóa cookie đã nhập"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已移除导入的 Cookie"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已移除匯入的 Cookie"
+          }
+        }
+      }
+    },
+    "cookieImport.card.showAll" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "كل عمليات استيراد ملفات تعريف الارتباط…"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Svi uvozi kolačića…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alle cookieimporter…"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alle Cookie-Importe…"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All Cookie Imports…"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Todas las importaciones de cookies…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Toutes les importations de cookies…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tutte le importazioni di cookie…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "すべての Cookie 読み込み…"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការនាំចូលខូគីទាំងអស់…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "모든 쿠키 가져오기…"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alle importer av informasjonskapsler…"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wszystkie importy plików cookie…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Todas as importações de cookies…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Все импорты cookie…"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "การนำเข้าคุกกี้ทั้งหมด…"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tüm Çerez İçe Aktarımları…"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Усі імпорти cookie…"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tất cả lần nhập cookie…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "所有 Cookie 导入…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "所有 Cookie 匯入…"
+          }
+        }
+      }
+    },
+    "cookieImport.card.showSites" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "عرض كل المواقع (%lld)"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prikaži svih %lld stranica"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vis alle %lld websteder"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alle %lld Websites anzeigen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show All %lld Sites"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostrar los %lld sitios"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Afficher les %lld sites"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostra tutti i %lld siti"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%lld 件のサイトをすべて表示"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បង្ហាញគេហទំព័រទាំង %lld"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "사이트 %lld개 모두 보기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vis alle %lld nettsteder"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pokaż wszystkie witryny (%lld)"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostrar todos os %lld sites"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показать все сайты (%lld)"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แสดงทั้ง %lld เว็บไซต์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%lld Sitenin Tümünü Göster"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показати всі сайти (%lld)"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hiện tất cả %lld trang"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "显示全部 %lld 个网站"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "顯示全部 %lld 個網站"
+          }
+        }
+      }
+    },
+    "cookieImport.card.siteCount" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ (%2$lld)"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ (%2$lld)"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ (%2$lld)"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ (%2$lld)"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ (%2$lld)"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ (%2$lld)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ (%2$lld)"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ (%2$lld)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@（%2$lld）"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ (%2$lld)"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ (%2$lld)"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ (%2$lld)"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ (%2$lld)"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ (%2$lld)"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ (%2$lld)"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ (%2$lld)"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ (%2$lld)"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ (%2$lld)"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ (%2$lld)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@（%2$lld）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@（%2$lld）"
+          }
+        }
+      }
+    },
+    "cookieImport.card.skipped" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تم تخطي %lld من ملفات تعريف الارتباط (تعذّر على cmux فك تشفيرها أو تخزينها)."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Preskočeno je %lld kolačića (cmux ih nije mogao dešifrovati ili spremiti)."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%lld cookies blev sprunget over (cmux kunne ikke dekryptere eller gemme dem)."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%lld Cookies wurden übersprungen (cmux konnte sie nicht entschlüsseln oder speichern)."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld cookies were skipped (cmux could not decrypt or store them)."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Se omitieron %lld cookies (cmux no pudo descifrarlas ni guardarlas)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%lld cookies ont été ignorés (cmux n’a pas pu les déchiffrer ou les stocker)."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%lld cookie sono stati saltati (cmux non è riuscito a decifrarli o salvarli)."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%lld 件の Cookie をスキップしました（cmux が復号または保存できませんでした）。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បានរំលងខូគី %lld (cmux មិនអាចឌិគ្រីប ឬរក្សាទុកវាបានទេ)។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "쿠키 %lld개를 건너뛰었습니다(cmux가 복호화하거나 저장할 수 없음)."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%lld informasjonskapsler ble hoppet over (cmux kunne ikke dekryptere eller lagre dem)."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pominięto %lld plików cookie (cmux nie mógł ich odszyfrować ani zapisać)."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%lld cookies foram ignorados (o cmux não conseguiu decifrá-los nem armazená-los)."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Пропущено cookie: %lld (cmux не смог их расшифровать или сохранить)."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ข้ามคุกกี้ %lld รายการ (cmux ถอดรหัสหรือจัดเก็บไม่ได้)"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%lld çerez atlandı (cmux bunları çözemedi veya saklayamadı)."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Пропущено cookie: %lld (cmux не зміг їх розшифрувати або зберегти)."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đã bỏ qua %lld cookie (cmux không thể giải mã hoặc lưu chúng)."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已跳过 %lld 个 Cookie（cmux 无法解密或存储它们）。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已略過 %lld 個 Cookie（cmux 無法解密或儲存它們）。"
+          }
+        }
+      }
+    },
+    "cookieImport.consent.afterAllowFDA" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تحتاج ملفات تعريف الارتباط في Safari إلى منح cmux «الوصول الكامل إلى القرص» (إعدادات النظام › الخصوصية والأمن)."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Za Safari kolačiće cmux treba Potpuni pristup disku (Postavke sistema › Privatnost i sigurnost)."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Safaris cookies kræver fuld diskadgang for cmux (Systemindstillinger › Anonymitet og sikkerhed)."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Für Safaris Cookies braucht cmux Festplattenvollzugriff (Systemeinstellungen › Datenschutz & Sicherheit)."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Safari’s cookies need Full Disk Access for cmux (System Settings › Privacy & Security)."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Las cookies de Safari requieren acceso total al disco para cmux (Ajustes del Sistema › Privacidad y seguridad)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les cookies de Safari exigent l’accès complet au disque pour cmux (Réglages Système › Confidentialité et sécurité)."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "I cookie di Safari richiedono l’accesso completo al disco per cmux (Impostazioni di Sistema › Privacy e sicurezza)."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Safari の Cookie には cmux へのフルディスクアクセスが必要です（システム設定 › プライバシーとセキュリティ）。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ខូគី Safari ត្រូវការការចូលប្រើថាសពេញលេញសម្រាប់ cmux (ការកំណត់ប្រព័ន្ធ › ឯកជនភាព និងសុវត្ថិភាព)។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Safari 쿠키를 읽으려면 cmux에 전체 디스크 접근 권한이 필요합니다(시스템 설정 › 개인정보 보호 및 보안)."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Safaris informasjonskapsler krever full disktilgang for cmux (Systeminnstillinger › Personvern og sikkerhet)."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pliki cookie Safari wymagają pełnego dostępu do dysku dla cmux (Ustawienia systemowe › Prywatność i ochrona)."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Os cookies do Safari exigem Acesso Total ao Disco para o cmux (Ajustes do Sistema › Privacidade e Segurança)."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Для cookie Safari cmux нужен полный доступ к диску (Системные настройки › Конфиденциальность и безопасность)."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "คุกกี้ของ Safari ต้องให้ cmux เข้าถึงดิสก์เต็มรูปแบบ (การตั้งค่าระบบ › ความเป็นส่วนตัวและความปลอดภัย)"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Safari çerezleri için cmux’a Tam Disk Erişimi gerekir (Sistem Ayarları › Gizlilik ve Güvenlik)."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Для cookie Safari cmux потрібен повний доступ до диска (Системні параметри › Приватність і безпека)."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cookie của Safari cần cấp Toàn quyền truy cập ổ đĩa cho cmux (Cài đặt hệ thống › Quyền riêng tư & Bảo mật)."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Safari 的 Cookie 需要为 cmux 开启完全磁盘访问权限（系统设置 › 隐私与安全性）。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Safari 的 Cookie 需要為 cmux 開啟完整磁碟取用權限（系統設定 › 隱私權與安全性）。"
+          }
+        }
+      }
+    },
+    "cookieImport.consent.afterAllowKeychain" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "بعد السماح، يطلب macOS كلمة مرور الـ Mac ليتمكّن cmux من قراءة المفتاح «%@». اختر «السماح» هناك، وليس «السماح دائمًا»، حتى يضطر cmux إلى السؤال مجددًا في المرة القادمة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nakon dozvole, macOS traži lozinku vašeg Maca kako bi cmux mogao pročitati ključ „%@”. Tamo odaberite Dozvoli, a ne Uvijek dozvoli, kako bi cmux morao ponovo pitati sljedeći put."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Efter Tillad beder macOS om din Mac-adgangskode, så cmux kan læse nøglen “%@”. Vælg Tillad dér, ikke Tillad altid, så cmux skal spørge igen næste gang."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nach dem Erlauben fragt macOS nach deinem Mac-Passwort, damit cmux den Schlüssel „%@“ lesen kann. Wähle dort „Erlauben“, nicht „Immer erlauben“, damit cmux beim nächsten Mal wieder fragen muss."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "After Allow, macOS asks for your Mac password so cmux can read the “%@” key. Choose Allow there, not Always Allow, so cmux has to ask again next time."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tras permitir, macOS pide la contraseña de tu Mac para que cmux pueda leer la clave «%@». Elige Permitir allí, no Permitir siempre, para que cmux tenga que volver a preguntar la próxima vez."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Après l’autorisation, macOS demande le mot de passe de votre Mac pour que cmux puisse lire la clé « %@ ». Choisissez Autoriser, pas Toujours autoriser, pour que cmux doive redemander la prochaine fois."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dopo aver consentito, macOS chiede la password del Mac perché cmux possa leggere la chiave «%@». Scegli Consenti, non Consenti sempre, così cmux dovrà chiedere di nuovo la prossima volta."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "許可すると、cmux が「%@」キーを読めるよう macOS が Mac のパスワードを求めます。そこでは「常に許可」ではなく「許可」を選んでください。次回も cmux が確認するようになります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បន្ទាប់ពីអនុញ្ញាត macOS នឹងសួរពាក្យសម្ងាត់ Mac របស់អ្នក ដើម្បីឱ្យ cmux អានសោ “%@” បាន។ សូមជ្រើស អនុញ្ញាត នៅទីនោះ មិនមែន អនុញ្ញាតជានិច្ច ដើម្បីឱ្យ cmux ត្រូវសួរម្តងទៀតពេលក្រោយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "허용하면 cmux가 “%@” 키를 읽을 수 있도록 macOS가 Mac 암호를 묻습니다. 그곳에서 ‘항상 허용’이 아닌 ‘허용’을 선택하세요. 그래야 다음에도 cmux가 다시 묻습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Etter Tillat ber macOS om Mac-passordet ditt slik at cmux kan lese nøkkelen «%@». Velg Tillat der, ikke Tillat alltid, slik at cmux må spørre igjen neste gang."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Po zezwoleniu macOS poprosi o hasło do Maca, aby cmux mógł odczytać klucz „%@”. Wybierz tam Zezwól, a nie Zawsze zezwalaj, aby cmux musiał zapytać ponownie następnym razem."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Depois de permitir, o macOS pede a senha do seu Mac para que o cmux possa ler a chave “%@”. Escolha Permitir lá, não Sempre Permitir, para que o cmux tenha de perguntar de novo da próxima vez."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "После разрешения macOS попросит пароль от Mac, чтобы cmux мог прочитать ключ «%@». Выберите там «Разрешить», а не «Всегда разрешать», чтобы в следующий раз cmux снова спросил."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "หลังจากอนุญาต macOS จะขอรหัสผ่าน Mac ของคุณเพื่อให้ cmux อ่านคีย์ “%@” ได้ ให้เลือก อนุญาต ไม่ใช่ อนุญาตเสมอ เพื่อให้ cmux ต้องถามอีกครั้งในครั้งหน้า"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "İzin verdikten sonra macOS, cmux’un “%@” anahtarını okuyabilmesi için Mac parolanızı ister. Orada Her Zaman İzin Ver’i değil İzin Ver’i seçin; böylece cmux bir dahaki sefere yine sormak zorunda kalır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Після дозволу macOS попросить пароль від Mac, щоб cmux міг прочитати ключ «%@». Виберіть там «Дозволити», а не «Завжди дозволяти», щоб наступного разу cmux знову спитав."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sau khi cho phép, macOS sẽ hỏi mật khẩu Mac để cmux đọc được khóa “%@”. Hãy chọn Cho phép, không phải Luôn cho phép, để lần sau cmux phải hỏi lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "允许后，macOS 会要求输入你的 Mac 密码，以便 cmux 读取“%@”密钥。请在那里选择“允许”，而不是“始终允许”，这样下次 cmux 仍需再次询问。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "允許後，macOS 會要求輸入你的 Mac 密碼，讓 cmux 能讀取「%@」金鑰。請在那裡選擇「允許」，而非「永遠允許」，這樣下次 cmux 仍須再次詢問。"
+          }
+        }
+      }
+    },
+    "cookieImport.consent.afterAllowNone" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "بعد السماح، يقرأ cmux ملفات تعريف الارتباط فورًا؛ ولا يسأل macOS."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nakon dozvole cmux odmah čita kolačiće; macOS ne pita."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Efter Tillad læser cmux straks cookies; macOS spørger ikke."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nach dem Erlauben liest cmux die Cookies sofort; macOS fragt nicht."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "After Allow, cmux reads the cookies at once; macOS does not ask."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tras permitir, cmux lee las cookies de inmediato; macOS no pregunta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Après l’autorisation, cmux lit les cookies immédiatement ; macOS ne demande rien."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dopo aver consentito, cmux legge subito i cookie; macOS non chiede nulla."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "許可すると cmux はすぐに Cookie を読み込みます。macOS からの確認はありません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បន្ទាប់ពីអនុញ្ញាត cmux អានខូគីភ្លាម។ macOS មិនសួរទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "허용하면 cmux가 바로 쿠키를 읽습니다. macOS는 묻지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Etter Tillat leser cmux informasjonskapslene med en gang; macOS spør ikke."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Po zezwoleniu cmux od razu odczyta pliki cookie; macOS nie pyta."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Depois de permitir, o cmux lê os cookies na hora; o macOS não pergunta."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "После разрешения cmux сразу прочитает cookie; macOS не спрашивает."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "หลังจากอนุญาต cmux จะอ่านคุกกี้ทันที macOS จะไม่ถาม"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "İzin verdikten sonra cmux çerezleri hemen okur; macOS sormaz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Після дозволу cmux одразу прочитає cookie; macOS не питає."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sau khi cho phép, cmux đọc cookie ngay; macOS không hỏi."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "允许后，cmux 会立即读取 Cookie；macOS 不会询问。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "允許後，cmux 會立即讀取 Cookie；macOS 不會詢問。"
           }
         }
       }
@@ -394,133 +2621,133 @@
         }
       }
     },
-    "cookieImport.consent.allow" : {
+    "cookieImport.consent.allowOnce" : {
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "سماح"
+            "value" : "السماح مرة واحدة"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Dozvoli"
+            "value" : "Dozvoli jednom"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Tillad"
+            "value" : "Tillad én gang"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Erlauben"
+            "value" : "Einmal erlauben"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Allow"
+            "value" : "Allow Once"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Permitir"
+            "value" : "Permitir una vez"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Autoriser"
+            "value" : "Autoriser une fois"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Consenti"
+            "value" : "Consenti una volta"
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "許可"
+            "state" : "needs_review",
+            "value" : "今回のみ許可"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "អនុញ្ញាត"
+            "value" : "អនុញ្ញាតម្តង"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "허용"
+            "value" : "한 번 허용"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Tillat"
+            "value" : "Tillat én gang"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Zezwól"
+            "value" : "Zezwól jednorazowo"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Permitir"
+            "value" : "Permitir uma vez"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Разрешить"
+            "value" : "Разрешить один раз"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "อนุญาต"
+            "value" : "อนุญาตครั้งเดียว"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "İzin Ver"
+            "value" : "Bir kez izin ver"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Дозволити"
+            "value" : "Дозволити один раз"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Cho phép"
+            "value" : "Cho phép một lần"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "允许"
+            "value" : "允许一次"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "允許"
+            "value" : "允許一次"
           }
         }
       }
@@ -783,6 +3010,137 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "拒絕"
+          }
+        }
+      }
+    },
+    "cookieImport.consent.everySite" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "كل المواقع: يؤدي هذا إلى تسجيل دخول cmux إلى كل ما سجّلت الدخول إليه في ملف تعريف ذلك المتصفح، بما في ذلك البريد والبنوك. ارفض واطلب من الوكيل تسمية المواقع التي يحتاجها فقط."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sve stranice: ovo prijavljuje cmux u sve u što ste prijavljeni u tom profilu preglednika, uključujući e-poštu i bankarstvo. Odbijte i tražite od agenta da navede samo stranice koje treba."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alle websteder: dette logger cmux ind på alt, du er logget ind på i den browserprofil, også e-mail og netbank. Afvis, og bed agenten om kun at nævne de websteder, den har brug for."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alle Websites: Damit wird cmux überall angemeldet, wo du in diesem Browserprofil angemeldet bist, auch bei E-Mail und Bank. Lehne ab und bitte den Agenten, nur die nötigen Websites zu nennen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every site: this signs cmux in to everything you are signed in to in that browser profile, email and banking too. Deny and ask the agent to name only the sites it needs."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Todos los sitios: esto inicia sesión en cmux en todo lo que tienes abierto en ese perfil del navegador, también correo y banca. Deniega y pide al agente que nombre solo los sitios que necesita."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tous les sites : cmux sera connecté partout où vous l’êtes dans ce profil de navigateur, y compris messagerie et banque. Refusez et demandez à l’agent de ne nommer que les sites nécessaires."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tutti i siti: cmux viene connesso a tutto ciò a cui sei connesso in quel profilo del browser, anche email e banca. Nega e chiedi all’agente di indicare solo i siti che gli servono."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "すべてのサイト：そのブラウザプロファイルでサインインしているすべて（メールや銀行も）に cmux がサインインします。拒否して、必要なサイトだけを指定するようエージェントに求めてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "គេហទំព័រទាំងអស់៖ វាធ្វើឱ្យ cmux ចូលគណនីគ្រប់កន្លែងដែលអ្នកបានចូលក្នុងប្រវត្តិរូបកម្មវិធីរុករកនោះ រួមទាំងអ៊ីមែល និងធនាគារ។ សូមបដិសេធ ហើយសុំឱ្យភ្នាក់ងារដាក់ឈ្មោះតែគេហទំព័រដែលវាត្រូវការ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "모든 사이트: 그 브라우저 프로필에서 로그인한 모든 곳(이메일, 은행 포함)에 cmux가 로그인됩니다. 거부하고 필요한 사이트만 지정하도록 에이전트에게 요청하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alle nettsteder: dette logger cmux inn overalt der du er logget inn i den nettleserprofilen, også e-post og nettbank. Avslå og be agenten bare nevne nettstedene den trenger."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wszystkie witryny: cmux zostanie zalogowany wszędzie, gdzie jesteś zalogowany w tym profilu przeglądarki, także w poczcie i banku. Odmów i poproś agenta o podanie tylko potrzebnych witryn."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Todos os sites: isso conecta o cmux a tudo em que você está conectado nesse perfil do navegador, incluindo e-mail e banco. Negue e peça ao agente que cite apenas os sites de que precisa."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Все сайты: cmux войдёт везде, где вы вошли в этом профиле браузера, включая почту и банк. Откажите и попросите агента указать только нужные сайты."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ทุกเว็บไซต์: การนี้จะทำให้ cmux ลงชื่อเข้าใช้ทุกที่ที่คุณลงชื่อเข้าใช้ในโปรไฟล์เบราว์เซอร์นั้น รวมถึงอีเมลและธนาคาร ปฏิเสธแล้วขอให้เอเจนต์ระบุเฉพาะเว็บไซต์ที่จำเป็น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tüm siteler: bu, cmux’ta o tarayıcı profilinde oturum açtığınız her yerde (e-posta ve banka dahil) oturum açar. Reddedin ve ajandan yalnızca gereken siteleri belirtmesini isteyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Усі сайти: cmux увійде всюди, де ви увійшли в цьому профілі браузера, зокрема в пошту й банк. Відмовте й попросіть агента вказати лише потрібні сайти."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mọi trang: thao tác này đăng nhập cmux vào mọi nơi bạn đã đăng nhập trong hồ sơ trình duyệt đó, kể cả email và ngân hàng. Hãy từ chối và yêu cầu tác tử chỉ nêu các trang cần thiết."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "所有网站：这会让 cmux 登录你在该浏览器配置文件中登录的所有网站，包括邮箱和银行。请拒绝，并让代理只列出它需要的网站。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "所有網站：這會讓 cmux 登入你在該瀏覽器設定檔中登入的所有網站，包括電子郵件和銀行。請拒絕，並請代理只列出它需要的網站。"
           }
         }
       }
@@ -1180,264 +3538,395 @@
         }
       }
     },
-    "cookieImport.consent.lead" : {
+    "cookieImport.consent.leadInto" : {
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "يطلب نسخ ملفات تعريف الارتباط الخاصة بـ %@ إلى متصفح cmux، لتصبح علامات التبويب فيه مسجّلة الدخول مثل ذلك المتصفح."
+            "value" : "يطلب نسخ ملفات تعريف الارتباط من %1$@ إلى ملف تعريف متصفح cmux «%2$@»، لتكون الصفحات هناك مسجّلة الدخول كما في ذلك المتصفح."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Traži da kopira vaše kolačiće iz %@ u cmux preglednik, tako da su njegovi tabovi prijavljeni kao u tom pregledniku."
+            "value" : "Traži da kopira kolačiće iz %1$@ u cmux profil preglednika „%2$@”, tako da su stranice tamo prijavljene kao u tom pregledniku."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Den vil kopiere dine %@-cookies til cmux-browseren, så dens faner er logget ind ligesom i den browser."
+            "value" : "Den beder om at kopiere cookies fra %1$@ til cmux-browserprofilen “%2$@”, så sider dér er logget ind som i den browser."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Er bittet darum, deine %@-Cookies in den cmux-Browser zu kopieren, damit dessen Tabs wie in diesem Browser angemeldet sind."
+            "value" : "Es bittet darum, Cookies aus %1$@ in das cmux-Browserprofil „%2$@“ zu kopieren, damit Seiten dort wie in diesem Browser angemeldet sind."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "It asks to copy your %@ cookies into the cmux browser, so its tabs are signed in like that browser."
+            "value" : "It asks to copy cookies from %1$@ into the cmux browser profile “%2$@”, so pages there are signed in as in that browser."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Solicita copiar tus cookies de %@ al navegador de cmux para que sus pestañas tengan la sesión iniciada como en ese navegador."
+            "value" : "Pide copiar cookies de %1$@ al perfil del navegador de cmux «%2$@», para que las páginas allí tengan la sesión iniciada como en ese navegador."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Il demande de copier vos cookies %@ dans le navigateur cmux, afin que ses onglets soient connectés comme dans ce navigateur."
+            "value" : "Il demande à copier les cookies de %1$@ dans le profil de navigateur cmux « %2$@ », pour que les pages y soient connectées comme dans ce navigateur."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chiede di copiare i tuoi cookie di %@ nel browser di cmux, così le sue schede risultano autenticate come in quel browser."
+            "value" : "Chiede di copiare i cookie da %1$@ nel profilo del browser cmux «%2$@», così le pagine lì risultano connesse come in quel browser."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ のCookieをcmuxブラウザにコピーし、そのブラウザと同じようにタブでサインインできるようにすることを求めています。"
+            "state" : "needs_review",
+            "value" : "%1$@ の Cookie を cmux ブラウザのプロファイル「%2$@」にコピーし、そこでのページがそのブラウザと同じようにサインインした状態になるよう求めています。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "វាសុំចម្លងខូគី %@ របស់អ្នកទៅកម្មវិធីរុករក cmux ដើម្បីឱ្យផ្ទាំងរបស់វាចូលគណនីដូចកម្មវិធីរុករកនោះ។"
+            "value" : "វាស្នើចម្លងខូគីពី %1$@ ទៅប្រវត្តិរូបកម្មវិធីរុករក cmux “%2$@” ដើម្បីឱ្យទំព័រនៅទីនោះចូលគណនីដូចនៅក្នុងកម្មវិធីរុករកនោះ។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%@의 쿠키를 cmux 브라우저로 복사하여, 해당 브라우저처럼 탭에서 로그인된 상태가 되도록 요청합니다."
+            "value" : "%1$@의 쿠키를 cmux 브라우저 프로필 “%2$@”에 복사해 그곳의 페이지가 그 브라우저처럼 로그인되도록 요청합니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Den ber om å kopiere %@-informasjonskapslene dine til cmux-nettleseren, slik at fanene der er pålogget som i den nettleseren."
+            "value" : "Den ber om å kopiere informasjonskapsler fra %1$@ til cmux-nettleserprofilen «%2$@», slik at sider der er logget inn som i den nettleseren."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Prosi o skopiowanie plików cookie z %@ do przeglądarki cmux, aby jej karty były zalogowane tak jak w tamtej przeglądarce."
+            "value" : "Prosi o skopiowanie plików cookie z %1$@ do profilu przeglądarki cmux „%2$@”, aby strony w nim były zalogowane jak w tamtej przeglądarce."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ele pede para copiar seus cookies do %@ para o navegador do cmux, para que as abas dele fiquem conectadas como nesse navegador."
+            "value" : "Pede para copiar cookies de %1$@ para o perfil do navegador do cmux “%2$@”, para que as páginas lá fiquem conectadas como naquele navegador."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Он просит скопировать ваши cookie из %@ в браузер cmux, чтобы его вкладки были авторизованы так же, как в том браузере."
+            "value" : "Просит скопировать cookie из %1$@ в профиль браузера cmux «%2$@», чтобы страницы там были авторизованы, как в том браузере."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ขอคัดลอกคุกกี้ %@ ของคุณไปยังเบราว์เซอร์ cmux เพื่อให้แท็บของเบราว์เซอร์นั้นลงชื่อเข้าใช้เหมือนกับเบราว์เซอร์ดังกล่าว"
+            "value" : "ขอคัดลอกคุกกี้จาก %1$@ ไปยังโปรไฟล์เบราว์เซอร์ cmux “%2$@” เพื่อให้หน้าเว็บในนั้นลงชื่อเข้าใช้เหมือนในเบราว์เซอร์นั้น"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%@ çerezlerinizi cmux tarayıcısına kopyalamak istiyor; böylece sekmeleri o tarayıcıdaki gibi oturum açmış olur."
+            "value" : "%1$@ çerezlerini cmux tarayıcı profili “%2$@” içine kopyalamak istiyor; böylece oradaki sayfalarda o tarayıcıdaki gibi oturum açık olur."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Він просить скопіювати ваші файли cookie з %@ у браузер cmux, щоб його вкладки були авторизовані так само, як у тому браузері."
+            "value" : "Просить скопіювати cookie з %1$@ у профіль браузера cmux «%2$@», щоб сторінки там були авторизовані, як у тому браузері."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Yêu cầu sao chép cookie %@ của bạn vào trình duyệt cmux, để các tab của nó được đăng nhập như trình duyệt đó."
+            "value" : "Nó yêu cầu sao chép cookie từ %1$@ vào hồ sơ trình duyệt cmux “%2$@”, để các trang ở đó được đăng nhập như trong trình duyệt đó."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "它请求将你的 %@ Cookie 复制到 cmux 浏览器中，使其标签页像该浏览器一样处于登录状态。"
+            "value" : "它请求将 %1$@ 的 Cookie 复制到 cmux 浏览器配置文件“%2$@”中，使那里的页面像在该浏览器中一样处于登录状态。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "它請求將你的 %@ Cookie 複製到 cmux 瀏覽器中，讓其分頁像該瀏覽器一樣處於登入狀態。"
+            "value" : "它請求將 %1$@ 的 Cookie 複製到 cmux 瀏覽器設定檔「%2$@」中，讓那裡的頁面像在該瀏覽器中一樣保持登入。"
           }
         }
       }
     },
-    "cookieImport.consent.reason" : {
+    "cookieImport.consent.nothingLeaves" : {
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "سبب الوكيل"
+            "value" : "تبقى ملفات تعريف الارتباط على هذا الـ Mac، ولا تُسجَّل أبدًا، ويمكنك إزالتها لاحقًا."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Razlog agenta"
+            "value" : "Kolačići ostaju na ovom Macu, nikad se ne bilježe i kasnije ih možete ukloniti."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Agentens begrundelse"
+            "value" : "Cookies bliver på denne Mac, logges aldrig, og du kan fjerne dem senere."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Begründung des Agenten"
+            "value" : "Cookies bleiben auf diesem Mac, werden nie protokolliert, und du kannst sie später entfernen."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The agent’s reason"
+            "value" : "Cookies stay on this Mac, are never logged, and you can remove them later."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Motivo del agente"
+            "value" : "Las cookies se quedan en este Mac, nunca se registran y puedes quitarlas más tarde."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Raison de l’agent"
+            "value" : "Les cookies restent sur ce Mac, ne sont jamais journalisés et vous pourrez les supprimer plus tard."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Motivo dell’agente"
+            "value" : "I cookie restano su questo Mac, non vengono mai registrati e potrai rimuoverli in seguito."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "エージェントの理由"
+            "state" : "needs_review",
+            "value" : "Cookie はこの Mac から出ず、ログにも残らず、後で削除できます。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "មូលហេតុរបស់ភ្នាក់ងារ"
+            "value" : "ខូគីនៅលើ Mac នេះ មិនដែលត្រូវបានកត់ត្រា ហើយអ្នកអាចលុបវាពេលក្រោយ។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "에이전트의 사유"
+            "value" : "쿠키는 이 Mac에만 남고 기록되지 않으며 나중에 제거할 수 있습니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Agentens begrunnelse"
+            "value" : "Informasjonskapslene blir på denne Macen, logges aldri, og du kan fjerne dem senere."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Powód podany przez agenta"
+            "value" : "Pliki cookie zostają na tym Macu, nigdy nie są zapisywane w logach i możesz je później usunąć."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Motivo do agente"
+            "value" : "Os cookies ficam neste Mac, nunca são registrados e você pode removê-los depois."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Причина от агента"
+            "value" : "Cookie остаются на этом Mac, никогда не записываются в журнал, и их можно удалить позже."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "เหตุผลของเอเจนต์"
+            "value" : "คุกกี้จะอยู่บน Mac นี้ ไม่ถูกบันทึก และคุณลบออกได้ภายหลัง"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ajanın gerekçesi"
+            "value" : "Çerezler bu Mac’te kalır, asla günlüğe yazılmaz ve daha sonra kaldırabilirsiniz."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Причина від агента"
+            "value" : "Cookie залишаються на цьому Mac, ніколи не записуються в журнал, і їх можна видалити пізніше."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Lý do của tác nhân"
+            "value" : "Cookie ở lại trên máy Mac này, không bao giờ được ghi nhật ký và bạn có thể xóa sau."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "代理的理由"
+            "value" : "Cookie 只保留在这台 Mac 上，绝不会写入日志，之后你可以移除它们。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "代理的理由"
+            "value" : "Cookie 只保留在這台 Mac 上，絕不會寫入記錄，之後你可以移除它們。"
+          }
+        }
+      }
+    },
+    "cookieImport.consent.reasonOwnWords" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "سببه، بكلماته الخاصة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Njegov razlog, njegovim riječima"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dens begrundelse, med dens egne ord"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seine Begründung, in eigenen Worten"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Its reason, in its own words"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Su motivo, en sus propias palabras"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sa raison, dans ses propres mots"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il suo motivo, con le sue parole"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "理由（本人の言葉のまま）"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ហេតុផលរបស់វា ជាពាក្យរបស់វាផ្ទាល់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "요청 이유(요청자가 쓴 그대로)"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Begrunnelsen, med egne ord"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jego powód, jego własnymi słowami"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O motivo, nas palavras dele"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Причина, его собственными словами"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เหตุผล ตามคำพูดของผู้ขอเอง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gerekçesi, kendi sözleriyle"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Причина, його власними словами"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lý do, theo lời của chính nó"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "它的理由（原话）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "它的理由（原話）"
           }
         }
       }
@@ -2097,6 +4586,399 @@
         }
       }
     },
+    "cookieImport.consent.titleChief" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يريد Chief الخاص بك استيراد ملفات تعريف الارتباط من متصفحك"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vaš Chief želi uvesti kolačiće iz vašeg preglednika"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Din Chief vil importere cookies fra din browser"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dein Chief möchte Cookies aus deinem Browser importieren"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your Chief wants to import your browser cookies"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tu Chief quiere importar las cookies de tu navegador"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Votre Chief veut importer les cookies de votre navigateur"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il tuo Chief vuole importare i cookie del tuo browser"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief がブラウザの Cookie を読み込もうとしています"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief របស់អ្នកចង់នាំចូលខូគីពីកម្មវិធីរុករករបស់អ្នក"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief가 브라우저 쿠키를 가져오려고 합니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief-en din vil importere informasjonskapsler fra nettleseren din"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Twój Chief chce zaimportować pliki cookie z Twojej przeglądarki"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seu Chief quer importar os cookies do seu navegador"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ваш Chief хочет импортировать cookie из вашего браузера"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief ของคุณต้องการนำเข้าคุกกี้จากเบราว์เซอร์ของคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief'iniz tarayıcınızdaki çerezleri içe aktarmak istiyor"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ваш Chief хоче імпортувати cookie з вашого браузера"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief của bạn muốn nhập cookie từ trình duyệt của bạn"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你的 Chief 想导入你浏览器中的 Cookie"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你的 Chief 想匯入你瀏覽器中的 Cookie"
+          }
+        }
+      }
+    },
+    "cookieImport.consent.titleProgram" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يريد برنامج استيراد ملفات تعريف الارتباط من متصفحك"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Program želi uvesti kolačiće iz vašeg preglednika"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Et program vil importere cookies fra din browser"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ein Programm möchte Cookies aus deinem Browser importieren"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A program wants to import your browser cookies"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un programa quiere importar las cookies de tu navegador"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un programme veut importer les cookies de votre navigateur"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un programma vuole importare i cookie del tuo browser"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "プログラムがブラウザの Cookie を読み込もうとしています"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កម្មវិធីមួយចង់នាំចូលខូគីពីកម្មវិធីរុករករបស់អ្នក"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "프로그램이 브라우저 쿠키를 가져오려고 합니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Et program vil importere informasjonskapsler fra nettleseren din"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Program chce zaimportować pliki cookie z Twojej przeglądarki"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Um programa quer importar os cookies do seu navegador"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Программа хочет импортировать cookie из вашего браузера"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "โปรแกรมหนึ่งต้องการนำเข้าคุกกี้จากเบราว์เซอร์ของคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir program tarayıcınızdaki çerezleri içe aktarmak istiyor"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Програма хоче імпортувати cookie з вашого браузера"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Một chương trình muốn nhập cookie từ trình duyệt của bạn"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "有程序想导入你浏览器中的 Cookie"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "有程式想匯入你瀏覽器中的 Cookie"
+          }
+        }
+      }
+    },
+    "cookieImport.error.alreadyRemoved" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لم تُدخل عملية الاستيراد هذه أي ملفات تعريف ارتباط، أو تمت إزالتها بالفعل."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Taj uvoz nije unio kolačiće ili su već uklonjeni."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Den import bragte ingen cookies ind, eller de er allerede fjernet."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dieser Import hat keine Cookies gebracht, oder sie wurden bereits entfernt."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "That import brought no cookies in, or they were already removed."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Esa importación no trajo cookies, o ya se quitaron."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cette importation n’a apporté aucun cookie, ou ils ont déjà été supprimés."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quell’importazione non ha portato cookie, oppure sono già stati rimossi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "その読み込みでは Cookie が取り込まれていないか、すでに削除されています。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការនាំចូលនោះមិនបាននាំខូគីចូលទេ ឬវាត្រូវបានលុបរួចហើយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "그 가져오기로 들어온 쿠키가 없거나 이미 제거되었습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Den importen brakte ingen informasjonskapsler inn, eller de er allerede fjernet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ten import nie dodał plików cookie albo zostały już usunięte."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Essa importação não trouxe cookies, ou eles já foram removidos."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Этот импорт не добавил cookie, или они уже удалены."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "การนำเข้านั้นไม่ได้นำคุกกี้เข้ามา หรือถูกลบไปแล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu içe aktarım hiç çerez getirmedi ya da çerezler zaten kaldırıldı."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Цей імпорт не додав cookie, або їх уже видалено."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lần nhập đó không đưa cookie nào vào, hoặc chúng đã bị xóa."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "该导入没有带入任何 Cookie，或它们已被移除。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "該匯入沒有帶入任何 Cookie，或它們已被移除。"
+          }
+        }
+      }
+    },
     "cookieImport.error.busy" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2490,6 +5372,137 @@
         }
       }
     },
+    "cookieImport.error.invalidSite" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«%@» ليس اسم موقع. اذكر المواقع باسم المضيف، مثل --domain github.com."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "„%@” nije naziv stranice. Navedite stranice po hostu, npr. --domain github.com."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“%@” er ikke et webstedsnavn. Angiv websteder ved værtsnavn, f.eks. --domain github.com."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "„%@“ ist kein Website-Name. Nenne Websites per Host, zum Beispiel --domain github.com."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” is not a site name. Name sites by host, for example --domain github.com."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«%@» no es un nombre de sitio. Indica los sitios por host, por ejemplo --domain github.com."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "« %@ » n’est pas un nom de site. Nommez les sites par hôte, par exemple --domain github.com."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«%@» non è un nome di sito. Indica i siti per host, ad esempio --domain github.com."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「%@」はサイト名ではありません。サイトはホスト名で指定してください（例：--domain github.com）。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“%@” មិនមែនជាឈ្មោះគេហទំព័រទេ។ សូមដាក់ឈ្មោះគេហទំព័រតាមម៉ាស៊ីន ឧទាហរណ៍ --domain github.com។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“%@”은(는) 사이트 이름이 아닙니다. 사이트는 호스트로 지정하세요(예: --domain github.com)."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«%@» er ikke et nettstedsnavn. Oppgi nettsteder med vertsnavn, for eksempel --domain github.com."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "„%@” nie jest nazwą witryny. Podawaj witryny po nazwie hosta, np. --domain github.com."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“%@” não é um nome de site. Indique os sites pelo host, por exemplo --domain github.com."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«%@» — не имя сайта. Указывайте сайты по имени хоста, например --domain github.com."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“%@” ไม่ใช่ชื่อเว็บไซต์ ให้ระบุเว็บไซต์ด้วยชื่อโฮสต์ เช่น --domain github.com"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“%@” bir site adı değil. Siteleri ana makine adıyla belirtin, örneğin --domain github.com."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«%@» — не назва сайту. Вказуйте сайти за ім’ям хоста, наприклад --domain github.com."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“%@” không phải tên trang. Hãy nêu trang theo tên máy chủ, ví dụ --domain github.com."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“%@”不是网站名称。请按主机名指定网站，例如 --domain github.com。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「%@」不是網站名稱。請以主機名稱指定網站，例如 --domain github.com。"
+          }
+        }
+      }
+    },
     "cookieImport.error.keyNotFound" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2748,6 +5761,137 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "macOS 密碼提示被拒絕"
+          }
+        }
+      }
+    },
+    "cookieImport.error.missingImportID" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "حدّد عملية الاستيراد: --id <id> (يعرضها cmux browser cookie-imports)."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Navedite uvoz: --id <id> (cmux browser cookie-imports ih prikazuje)."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Angiv importen: --id <id> (cmux browser cookie-imports viser dem)."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nenne den Import: --id <id> (cmux browser cookie-imports listet sie)."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Name the import: --id <id> (cmux browser cookie-imports lists them)."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Indica la importación: --id <id> (cmux browser cookie-imports las lista)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Indiquez l’importation : --id <id> (cmux browser cookie-imports les liste)."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Indica l’importazione: --id <id> (cmux browser cookie-imports le elenca)."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "読み込みを指定してください：--id <id>（cmux browser cookie-imports で一覧できます）。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "សូមដាក់ឈ្មោះការនាំចូល៖ --id <id> (cmux browser cookie-imports រាយបញ្ជីវា)។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "가져오기를 지정하세요: --id <id>(cmux browser cookie-imports로 목록 확인)."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oppgi importen: --id <id> (cmux browser cookie-imports viser dem)."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wskaż import: --id <id> (cmux browser cookie-imports je wyświetla)."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Indique a importação: --id <id> (cmux browser cookie-imports as lista)."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Укажите импорт: --id <id> (список: cmux browser cookie-imports)."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ระบุการนำเข้า: --id <id> (ดูรายการด้วย cmux browser cookie-imports)"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "İçe aktarımı belirtin: --id <id> (cmux browser cookie-imports bunları listeler)."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вкажіть імпорт: --id <id> (список: cmux browser cookie-imports)."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hãy nêu lần nhập: --id <id> (cmux browser cookie-imports liệt kê chúng)."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "请指定导入：--id <id>（cmux browser cookie-imports 可列出）。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "請指定匯入：--id <id>（cmux browser cookie-imports 可列出）。"
           }
         }
       }
@@ -3669,6 +6813,137 @@
         }
       }
     },
+    "cookieImport.error.unknownImport" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا توجد عملية استيراد بهذا المعرّف. اعرضها باستخدام cmux browser cookie-imports."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nijedan uvoz kolačića nema taj id. Prikažite ih pomoću cmux browser cookie-imports."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ingen cookieimport har det id. Vis dem med cmux browser cookie-imports."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kein Cookie-Import hat diese ID. Liste sie mit cmux browser cookie-imports auf."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No cookie import has that id. List them with cmux browser cookie-imports."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ninguna importación de cookies tiene ese id. Lístalas con cmux browser cookie-imports."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aucune importation de cookies n’a cet identifiant. Listez-les avec cmux browser cookie-imports."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nessuna importazione di cookie ha quell’id. Elencale con cmux browser cookie-imports."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "その ID の Cookie 読み込みはありません。cmux browser cookie-imports で一覧できます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "គ្មានការនាំចូលខូគីណាមាន id នោះទេ។ សូមរាយបញ្ជីដោយ cmux browser cookie-imports។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "그 ID의 쿠키 가져오기가 없습니다. cmux browser cookie-imports로 목록을 보세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ingen import av informasjonskapsler har den id-en. List dem med cmux browser cookie-imports."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Żaden import plików cookie nie ma tego id. Wyświetl je poleceniem cmux browser cookie-imports."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nenhuma importação de cookies tem esse id. Liste-as com cmux browser cookie-imports."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Нет импорта cookie с таким id. Список: cmux browser cookie-imports."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไม่มีการนำเข้าคุกกี้ที่มี id นั้น ดูรายการด้วย cmux browser cookie-imports"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu kimliğe sahip çerez içe aktarımı yok. cmux browser cookie-imports ile listeleyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Немає імпорту cookie з таким id. Список: cmux browser cookie-imports."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không có lần nhập cookie nào có id đó. Liệt kê bằng cmux browser cookie-imports."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "没有该 id 的 Cookie 导入。可用 cmux browser cookie-imports 列出。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "沒有該 id 的 Cookie 匯入。可用 cmux browser cookie-imports 列出。"
+          }
+        }
+      }
+    },
     "cookieImport.error.unknownProfile" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3931,6 +7206,792 @@
         }
       }
     },
+    "cookieImport.outcome.denied" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مرفوض"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odbijeno"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Afvist"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Abgelehnt"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denied"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denegado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Refusé"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Negato"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "拒否"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បានបដិសេធ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "거부됨"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Avslått"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odmówiono"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Negado"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Отклонено"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ปฏิเสธแล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Reddedildi"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Відхилено"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đã từ chối"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已拒绝"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已拒絕"
+          }
+        }
+      }
+    },
+    "cookieImport.outcome.failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "فشل"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Neuspjelo"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mislykkedes"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fehlgeschlagen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Falló"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Échec"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Non riuscito"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "失敗"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បរាជ័យ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "실패"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mislyktes"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Niepowodzenie"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Falhou"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ошибка"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ล้มเหลว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Başarısız"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Помилка"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thất bại"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "失败"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "失敗"
+          }
+        }
+      }
+    },
+    "cookieImport.outcome.imported" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تم الاستيراد"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uvezeno"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importeret"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importiert"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Imported"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importé"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importato"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "読み込み済み"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បាននាំចូល"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "가져옴"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importert"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zaimportowano"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importado"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Импортировано"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "นำเข้าแล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "İçe aktarıldı"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Імпортовано"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đã nhập"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已导入"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已匯入"
+          }
+        }
+      }
+    },
+    "cookieImport.outcome.nothingMatched" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا تطابق"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ništa se ne podudara"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Intet matchede"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nichts passte"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing matched"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nada coincidió"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aucune correspondance"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nessuna corrispondenza"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "該当なし"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "គ្មានអ្វីត្រូវគ្នា"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "일치 항목 없음"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ingen treff"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Brak dopasowań"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nada correspondeu"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Нет совпадений"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไม่มีรายการตรงกัน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eşleşme yok"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Немає збігів"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không có gì khớp"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "无匹配项"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "無相符項目"
+          }
+        }
+      }
+    },
+    "cookieImport.outcome.removed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تمت الإزالة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uklonjeno"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fjernet"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Entfernt"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quitado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Supprimé"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rimosso"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "削除済み"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បានលុប"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "제거됨"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fjernet"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Usunięto"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Removido"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Удалено"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ลบแล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kaldırıldı"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Видалено"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đã xóa"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已移除"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已移除"
+          }
+        }
+      }
+    },
+    "cookieImport.outcome.timedOut" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا إجابة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bez odgovora"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Intet svar"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Keine Antwort"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No answer"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sin respuesta"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pas de réponse"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nessuna risposta"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "応答なし"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "គ្មានចម្លើយ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "응답 없음"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ikke besvart"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Brak odpowiedzi"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sem resposta"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Нет ответа"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไม่มีคำตอบ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Yanıt yok"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Немає відповіді"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không có phản hồi"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "无应答"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "無回應"
+          }
+        }
+      }
+    },
     "cookieImport.requester.agentChat" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4058,6 +8119,268 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "代理聊天「%@」"
+          }
+        }
+      }
+    },
+    "cookieImport.requester.homeChief" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief الخاص بك «%@» (الرئيسية)"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vaš Chief „%@” (Početna)"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Din Chief “%@” (Hjem)"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dein Chief „%@“ (Home)"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your Chief “%@” (Home)"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tu Chief «%@» (Inicio)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Votre Chief « %@ » (Accueil)"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il tuo Chief «%@» (Home)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "あなたの Chief「%@」（ホーム）"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief របស់អ្នក “%@” (ទំព័រដើម)"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "내 Chief “%@”(홈)"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief-en din «%@» (Hjem)"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Twój Chief „%@” (Strona główna)"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seu Chief “%@” (Início)"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ваш Chief «%@» (Главная)"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief ของคุณ “%@” (หน้าหลัก)"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief’iniz “%@” (Ana Sayfa)"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ваш Chief «%@» (Головна)"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief của bạn “%@” (Trang chủ)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你的 Chief“%@”（主页）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你的 Chief「%@」（首頁）"
+          }
+        }
+      }
+    },
+    "cookieImport.requester.homeChiefUnnamed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief الخاص بك (الرئيسية)"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vaš Chief (Početna)"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Din Chief (Hjem)"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dein Chief (Home)"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your Chief (Home)"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tu Chief (Inicio)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Votre Chief (Accueil)"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il tuo Chief (Home)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "あなたの Chief（ホーム）"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief របស់អ្នក (ទំព័រដើម)"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "내 Chief(홈)"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief-en din (Hjem)"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Twój Chief (Strona główna)"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seu Chief (Início)"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ваш Chief (Главная)"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief ของคุณ (หน้าหลัก)"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief’iniz (Ana Sayfa)"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ваш Chief (Головна)"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief của bạn (Trang chủ)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你的 Chief（主页）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你的 Chief（首頁）"
           }
         }
       }
@@ -4582,6 +8905,661 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "已從 %2$@ 匯入 %1$lld 個 Cookie。"
+          }
+        }
+      }
+    },
+    "cookieImport.toast.removed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تمت إزالة %lld من ملفات تعريف الارتباط المستوردة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uklonjeno %lld uvezenih kolačića."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fjernede %lld importerede cookies."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%lld importierte Cookies entfernt."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed %lld imported cookies."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Se quitaron %lld cookies importadas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%lld cookies importés supprimés."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rimossi %lld cookie importati."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "読み込んだ Cookie を %lld 件削除しました。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បានលុបខូគីដែលបាននាំចូល %lld។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "가져온 쿠키 %lld개를 제거했습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fjernet %lld importerte informasjonskapsler."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Usunięto %lld zaimportowanych plików cookie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%lld cookies importados removidos."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Удалено импортированных cookie: %lld."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ลบคุกกี้ที่นำเข้า %lld รายการแล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "İçe aktarılan %lld çerez kaldırıldı."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Видалено імпортованих cookie: %lld."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đã xóa %lld cookie đã nhập."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已移除 %lld 个导入的 Cookie。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已移除 %lld 個匯入的 Cookie。"
+          }
+        }
+      }
+    },
+    "cookieImport.window.empty" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا توجد عمليات استيراد لملفات تعريف الارتباط بعد."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Još nema uvoza kolačića."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ingen cookieimporter endnu."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Noch keine Cookie-Importe."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No cookie imports yet."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aún no hay importaciones de cookies."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aucune importation de cookies pour l’instant."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ancora nessuna importazione di cookie."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cookie の読み込みはまだありません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មិនទាន់មានការនាំចូលខូគីនៅឡើយទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "아직 쿠키 가져오기가 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ingen importer av informasjonskapsler ennå."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Brak importów plików cookie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nenhuma importação de cookies ainda."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Импортов cookie пока нет."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ยังไม่มีการนำเข้าคุกกี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Henüz çerez içe aktarımı yok."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Імпортів cookie ще немає."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chưa có lần nhập cookie nào."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "尚无 Cookie 导入。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "尚無 Cookie 匯入。"
+          }
+        }
+      }
+    },
+    "cookieImport.window.lead" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "كل طلب لاستيراد ملفات تعريف الارتباط من متصفح آخر، ومن طلبه، ولماذا، وما الذي تم استيراده. لا تُحفظ هنا أي قيمة لملف تعريف ارتباط."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Svaki zahtjev za uvoz kolačića iz drugog preglednika, ko je tražio, zašto i šta je uvezeno. Ovdje se ne čuva nijedna vrijednost kolačića."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hver anmodning om at importere cookies fra en anden browser, hvem der spurgte, hvorfor, og hvad der kom ind. Ingen cookieværdi gemmes her."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jede Anfrage, Cookies aus einem anderen Browser zu importieren: wer fragte, warum und was hereinkam. Hier wird kein Cookie-Wert gespeichert."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every request to import cookies from another browser, who asked, why, and what came in. No cookie value is kept here."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cada solicitud para importar cookies de otro navegador, quién la pidió, por qué y qué entró. Aquí no se guarda ningún valor de cookie."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chaque demande d’importation de cookies depuis un autre navigateur : qui l’a faite, pourquoi et ce qui est entré. Aucune valeur de cookie n’est conservée ici."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ogni richiesta di importare cookie da un altro browser: chi l’ha fatta, perché e cosa è entrato. Qui non viene conservato alcun valore dei cookie."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "他のブラウザから Cookie を読み込むすべての依頼と、依頼者、理由、取り込まれた内容です。Cookie の値はここに保存されません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "សំណើនីមួយៗដើម្បីនាំចូលខូគីពីកម្មវិធីរុករកផ្សេង អ្នកណាសុំ ហេតុអ្វី និងអ្វីដែលបាននាំចូល។ គ្មានតម្លៃខូគីណាមួយត្រូវបានរក្សាទុកនៅទីនេះទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "다른 브라우저에서 쿠키를 가져오려는 모든 요청과 요청자, 이유, 가져온 내용입니다. 쿠키 값은 여기에 저장되지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hver forespørsel om å importere informasjonskapsler fra en annen nettleser, hvem som spurte, hvorfor og hva som kom inn. Ingen verdier lagres her."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Każda prośba o import plików cookie z innej przeglądarki: kto prosił, dlaczego i co trafiło. Żadna wartość pliku cookie nie jest tu przechowywana."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cada pedido para importar cookies de outro navegador, quem pediu, por quê e o que entrou. Nenhum valor de cookie é guardado aqui."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Каждый запрос на импорт cookie из другого браузера: кто просил, зачем и что было импортировано. Значения cookie здесь не хранятся."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ทุกคำขอนำเข้าคุกกี้จากเบราว์เซอร์อื่น ใครขอ เพราะอะไร และนำเข้าอะไรบ้าง ไม่มีการเก็บค่าคุกกี้ไว้ที่นี่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Başka bir tarayıcıdan çerez içe aktarma isteklerinin tümü: kim istedi, neden ve neler geldi. Burada hiçbir çerez değeri saklanmaz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Кожен запит на імпорт cookie з іншого браузера: хто просив, навіщо і що було імпортовано. Значення cookie тут не зберігаються."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mọi yêu cầu nhập cookie từ trình duyệt khác, ai yêu cầu, vì sao và những gì đã được nhập. Không lưu giá trị cookie nào ở đây."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每一次从其他浏览器导入 Cookie 的请求：谁请求、原因以及导入了什么。这里不保存任何 Cookie 值。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "每一次從其他瀏覽器匯入 Cookie 的請求：誰請求、原因以及匯入了什麼。這裡不保存任何 Cookie 值。"
+          }
+        }
+      }
+    },
+    "cookieImport.window.person" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "أنت"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vi"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dig"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Du"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tú"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vous"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tu"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "あなた"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "អ្នក"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "나"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Deg"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ty"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Você"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вы"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "คุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Siz"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ви"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bạn"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你"
+          }
+        }
+      }
+    },
+    "cookieImport.window.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "عمليات استيراد ملفات تعريف الارتباط"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uvozi kolačića"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cookieimporter"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cookie-Importe"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cookie Imports"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importaciones de cookies"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importations de cookies"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importazioni di cookie"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cookie の読み込み"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការនាំចូលខូគី"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "쿠키 가져오기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importer av informasjonskapsler"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importy plików cookie"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importações de cookies"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Импорты cookie"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "การนำเข้าคุกกี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Çerez İçe Aktarımları"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Імпорти cookie"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các lần nhập cookie"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cookie 导入"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cookie 匯入"
           }
         }
       }

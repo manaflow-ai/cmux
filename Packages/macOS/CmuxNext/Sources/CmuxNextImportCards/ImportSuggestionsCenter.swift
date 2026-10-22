@@ -283,6 +283,7 @@ public final class ImportSuggestionsCenter {
         invocation.callerApp = caller.callerApp
         invocation.callerAgentSession = caller.callerAgentSession
         invocation.callerTerminal = caller.callerTerminal
+        invocation.callerHomeChat = caller.callerHomeChat
         return invocation
     }
 

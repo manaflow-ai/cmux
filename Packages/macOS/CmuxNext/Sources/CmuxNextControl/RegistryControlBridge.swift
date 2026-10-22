@@ -112,6 +112,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         invocation.opensInBackground = request.background
         invocation.callerAgentSession = request.callerAgentSession
         invocation.callerTerminal = request.callerTerminal
+        invocation.callerHomeChat = request.callerHomeChat
         guard registry.isAvailable(id, for: invocation) else { return .unavailable }
         guard action.isEnabled() else { return .disabled }
         if registry.needsConfirmation(id, invocation) { return .confirmationRequired }

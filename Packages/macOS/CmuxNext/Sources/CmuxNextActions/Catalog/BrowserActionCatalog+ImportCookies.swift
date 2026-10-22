@@ -27,6 +27,33 @@ nonisolated extension BrowserActionCatalog {
         )
         // The person answers the consent panel and macOS's Keychain prompt: the run waits for both.
         importCookies.waitsForPerson = true
-        return [importCookies]
+        // What came in and from where: a person's run opens the Cookie Imports window (who asked,
+        // why, the sites, Remove); the CLI and agents get the audit list and the browsers on this
+        // Mac (`cmux browser cookie-imports`), sites and counts only, never a cookie.
+        let cookieImports = ActionDescriptor(
+            id: "browser.cookieImports",
+            title: String(localized: "action.browser.cookieImports", defaultValue: "Show Cookie Imports", bundle: .module),
+            keywords: ["browser", "cookies", "imported", "import", "audit", "remove", "revoke", "sign in", "agent"],
+            category: .browser, symbol: "list.bullet.rectangle",
+            surfaces: [.palette],
+            cliName: "browser cookie-imports",
+            surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+        )
+        // Takes one import's cookies back out of its cmux profile (`--id` from `browser cookie-imports`);
+        // the Cookie Imports window and the finished card offer the same Remove.
+        let removeImported = ActionDescriptor(
+            id: "browser.removeImportedCookies",
+            title: String(localized: "action.browser.removeImportedCookies", defaultValue: "Remove Imported Cookies", bundle: .module),
+            keywords: ["browser", "cookies", "imported", "remove", "revoke", "sign out"],
+            category: .browser, symbol: "trash",
+            surfaces: [.keyboard],
+            arguments: [
+                ActionArgument(name: "id", title: String(localized: "argument.browser.removeImportedCookies.id", defaultValue: "Import",
+                                                         bundle: .module), kind: .string),
+            ],
+            cliName: "browser remove-imported-cookies",
+            surfacePlan: ActionSurfacePlan(palette: .exempt(.noObject), cli: .offered, contextMenuExemption: .noObject)
+        )
+        return [importCookies, cookieImports, removeImported]
     }
 }

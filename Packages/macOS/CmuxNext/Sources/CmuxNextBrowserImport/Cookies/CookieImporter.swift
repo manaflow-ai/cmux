@@ -23,6 +23,15 @@ public struct CookieImporter: Sendable {
     /// main actor, so the whole app hung until the prompt was answered.
     @concurrent public func run(_ profile: BrowserSourceProfile, into target: String, filter: CookieDomainFilter = CookieDomainFilter([String]()),
                     now: Date = Date()) async throws -> CookieImportReport {
+        try await runListing(profile, into: target, filter: filter, now: now).report
+    }
+
+    /// ``run(_:into:filter:now:)``, also naming each cookie it handed to the destination (name,
+    /// domain and path, never a value), so the import's audit record can list the sites and a later
+    /// Remove can take exactly those cookies back out.
+    @concurrent public func runListing(_ profile: BrowserSourceProfile, into target: String,
+                                       filter: CookieDomainFilter = CookieDomainFilter([String]()),
+                                       now: Date = Date()) async throws -> (report: CookieImportReport, cookies: [ImportedCookieIdentity]) {
         let read = try Self.read(profile, keys: keys, now: now)
         var report = CookieImportReport(undecryptable: read.undecryptable, partitioned: read.partitioned, expired: read.expired)
         let cookies = filter.keepsAll ? read.cookies : read.cookies.filter(filter.keeps)
@@ -35,7 +44,7 @@ public struct CookieImporter: Sendable {
             report.rejected += written.rejected
             start += slice.count
         }
-        return report
+        return (report, cookies.map(ImportedCookieIdentity.init))
     }
 
     /// Reads (and decrypts) the cookies of one profile. Blocks on the

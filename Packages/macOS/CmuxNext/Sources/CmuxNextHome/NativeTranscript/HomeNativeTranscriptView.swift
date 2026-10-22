@@ -31,6 +31,11 @@ public final class HomeNativeTranscriptView: NSView {
     /// The notice's one action under it (Open System Settings for a denied microphone).
     let noticeButton = NSButton(title: "", target: nil, action: nil)
     private(set) var noticeAction: HomeNoticeAction?
+    /// A card that asks the person something for the Chief (a cookie import's permission card),
+    /// above the field and its notice (HomeNativeTranscriptView+Ask.swift).
+    var askView: NSView?
+    /// The ask card's height for a width.
+    var askHeight: ((CGFloat) -> CGFloat)?
     /// The message box's mic (Debug Settings > Home > Mic button in the message box).
     let voice = HomeVoiceDictation()
     /// Prepares dropped, pasted and picked files (the data side; the store
@@ -360,6 +365,7 @@ public final class HomeNativeTranscriptView: NSView {
         let panel = CGRect(x: 0, y: top, width: bounds.width, height: max(0, transcript.fieldTop - top))
         if firstRun.frame != panel { firstRun.frame = panel }
         layoutNotice()
+        layoutAsk()
     }
 
     /// Above the field, inset like it; MessagesLab's field keeps its geometry.

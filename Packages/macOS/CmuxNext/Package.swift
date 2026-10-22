@@ -430,7 +430,7 @@ let package = Package(
         // the agent consent panel and the import. The App supplies `CookieImportHost`.
         .target(
             name: "CmuxNextCookieImport",
-            dependencies: ["CmuxNextActions", "CmuxNextBrowser", "CmuxNextBrowserImport", "CmuxNextDesign", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextActions", "CmuxNextBrowser", "CmuxNextBrowserImport", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],

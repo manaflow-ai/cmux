@@ -8,6 +8,8 @@ public struct CookieImportRequester: Sendable, Equatable {
     public enum Kind: Sendable, Equatable {
         /// An agent chat tab (`caller.agent_session`).
         case agentChat
+        /// A Home Chief's turn (`caller.home_chat`): its session has no tab; the ask shows in Home.
+        case homeChief
         /// A terminal tab (`caller.terminal_id`).
         case terminal
         /// No chat or terminal named itself (a script outside cmux).
@@ -35,7 +37,8 @@ public struct CookieImportRequester: Sendable, Equatable {
     }
 
     /// Finds who asked among the open tabs: the agent chat whose session is
-    /// `caller.agent_session`, else the terminal whose id is `caller.terminal_id`.
+    /// `caller.agent_session`, else a Home Chief (`caller.home_chat`), else the closed chat the
+    /// session names, else the terminal whose id is `caller.terminal_id`.
     ///
     /// - Parameters:
     ///   - invocation: The run; its caller fields name the requester.
@@ -43,11 +46,16 @@ public struct CookieImportRequester: Sendable, Equatable {
     ///   - chat: The acpmux chat of a session (title and latest reply), nil when unknown.
     public init(_ invocation: ActionInvocation, among tabs: [CookieImportCandidate],
                 chat: (String) -> (title: String?, preview: String?)?) {
-        if let session = invocation.callerAgentSession {
-            let found = tabs.first { $0.agentSession == session }
+        if let session = invocation.callerAgentSession, let found = tabs.first(where: { $0.agentSession == session }) {
             let latest = chat(session)
-            self.init(kind: .agentChat, name: found?.title ?? latest?.title ?? session, workspace: found?.workspace,
-                      tabID: found?.tabID, latestMessage: latest?.preview)
+            self.init(kind: .agentChat, name: found.title, workspace: found.workspace, tabID: found.tabID, latestMessage: latest?.preview)
+        } else if invocation.callerHomeChat {
+            // A Chief's turn runs in a session no tab shows; the person talks to it in Home.
+            let latest = invocation.callerAgentSession.flatMap(chat)
+            self.init(kind: .homeChief, name: latest?.title ?? "", latestMessage: latest?.preview)
+        } else if let session = invocation.callerAgentSession {
+            let latest = chat(session)
+            self.init(kind: .agentChat, name: latest?.title ?? session, latestMessage: latest?.preview)
         } else if let terminal = invocation.callerTerminal, let found = tabs.first(where: { $0.terminalIDs.contains(terminal) }) {
             self.init(kind: .terminal, name: found.title, workspace: found.workspace, tabID: found.tabID)
         } else {
@@ -55,10 +63,11 @@ public struct CookieImportRequester: Sendable, Equatable {
         }
     }
 
-    /// The reference shown on the panel ("Agent chat “a49 · …”").
+    /// The reference shown on the card ("Agent chat “a49 · …”").
     var reference: String {
         switch kind {
         case .agentChat: CookieImportStrings.agentChat(name)
+        case .homeChief: name.isEmpty ? CookieImportStrings.homeChiefUnnamed : CookieImportStrings.homeChief(name)
         case .terminal: CookieImportStrings.terminal(name)
         case .unknown: CookieImportStrings.unknownRequester
         }

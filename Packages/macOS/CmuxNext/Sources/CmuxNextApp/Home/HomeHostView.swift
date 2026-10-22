@@ -63,6 +63,7 @@ final class HomeHostView: NSView {
         petRows = ChiefPetSettingsRows(settings: { [weak services] in services?.settings }, homes: services.chiefPetHomes,
                                        picks: services.chiefMascotPicks)
         super.init(frame: .zero)
+        service.askHosts.add(self)
         transcript.linkScheme = services.linkScheme  // "Copy Link" names messages in this build's scheme
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
         // The header's name: the Chief's settings over a Chief; a DM's or group's info otherwise.

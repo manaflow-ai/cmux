@@ -81,6 +81,10 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// `caller.terminal_id`: the terminal whose cmux CLI sent the run (an agent running in a
     /// terminal), nil for any other run. Like ``callerAgentSession``, the caller's own claim.
     public var callerTerminal: String?
+    /// `caller.home_chat`: the run came from a Home Chief's turn (`CMUX_CALLER_HOME_CHAT=1`), whose own
+    /// session has no tab; an ask for the person shows in the Home chat. The caller's own claim, like
+    /// ``callerAgentSession``.
+    public var callerHomeChat = false
     /// A split that opens a terminal even where a person's split opens the New Tab page (the chat
     /// header's Terminal, cx-00n1). In-app only: the control socket never sets it.
     public var opensTerminal = false

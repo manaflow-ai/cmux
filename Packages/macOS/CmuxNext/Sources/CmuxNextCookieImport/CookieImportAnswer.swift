@@ -1,7 +1,9 @@
-/// The person's answer on the consent panel.
-enum CookieImportAnswer: Sendable, Equatable {
+/// The person's answer on the permission card.
+public enum CookieImportAnswer: Sendable, Equatable {
+    /// Allow once: this import only, never remembered.
     case allow
+    /// Deny (also closing the card, Escape, or the window closing).
     case deny
-    /// No answer within the panel's limit; treated as Deny.
+    /// No answer within the card's limit; treated as Deny.
     case timedOut
 }
