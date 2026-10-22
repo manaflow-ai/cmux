@@ -151,8 +151,17 @@ def main(argv=None):
         return 0
     if args.command == "import":
         import importers
+        try:
+            records = importers.chat_load(args.source, args.host_class, args.sha)
+        except importers.ImportError_ as error:
+            print(f"perf100: import: {error}", file=sys.stderr)
+            return 2
         os.makedirs(args.out, exist_ok=True)
-        for record in importers.chat_load(args.source, args.host_class, args.sha):
+        # Stale records of an earlier import would still match their budgets: remove them first.
+        for name in os.listdir(args.out):
+            if name.startswith("chat-load-") and name.endswith(".json"):
+                os.unlink(os.path.join(args.out, name))
+        for record in records:
             path = os.path.join(args.out, f"{record['scenario']}-{record['variant']}-seed0.json")
             with open(path, "w") as handle:
                 import json
