@@ -69,9 +69,9 @@ final class CEFPaneHost {
     /// hidden pane lays out for the pane and does not reflow when shown;
     /// else the hidden-tab viewport.
     static func creationSize(for bounds: NSSize, lastKnown: NSSize?) -> NSSize {
-        // RED: the failing tests land before the pane's size is used.
-        _ = lastKnown
-        return bounds.width >= 1 && bounds.height >= 1 ? bounds : hiddenTabViewport
+        if bounds.width >= 1, bounds.height >= 1 { return bounds }
+        if let lastKnown, lastKnown.width >= 1, lastKnown.height >= 1 { return lastKnown }
+        return hiddenTabViewport
     }
 
     /// The last on-screen page size of each pane, any profile's host. In
@@ -86,8 +86,8 @@ final class CEFPaneHost {
     /// size is real; the frame an off-screen host is given at creation is
     /// not a pane size.
     static func rememberLayout(_ size: NSSize, pane: BrowserPaneID, inWindow: Bool) {
-        // RED: nothing is remembered yet.
-        _ = (size, pane, inWindow)
+        guard inWindow, size.width >= 1, size.height >= 1 else { return }
+        laidOutSizes[pane] = size
     }
 
     func add(_ tab: CEFTab) {
