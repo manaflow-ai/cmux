@@ -72,10 +72,36 @@ export function tickProgress(distance: number | undefined): number {
 /// The drawn length of a tick at `progress`: 6 px at rest, 26 px hovered.
 export const tickLength = (progress: number) => TICK_BOX * (0.2308 + 0.7692 * progress);
 
+/// The transcript's soft edges (conversation.css `.acpmux-scroll[data-fade-*]`): its mask fades
+/// rows out over this many px under the top once scrolled from the start, and above the view's foot
+/// (the bottom stack's top) while more lies below, 56 px while Jump to latest shows (18 px without).
+/// The rail is inside the scroller, so the mask fades it too: its rows stay clear of both bands, at
+/// the widest they get, so the rail never moves as the bands come and go. A test reads the CSS.
+export const TRANSCRIPT_FADE_TOP = 18;
+export const TRANSCRIPT_FADE_BOTTOM = 56;
+/// Where the rail's rows may sit, in px down the transcript's viewport: clear of the mask's bands by
+/// EDGE_MARGIN's half. `foot` is where the mask's view ends (the bottom stack's top), when it is
+/// above `viewportHeight` (a composer grown while the view follows the latest row).
+export function railRoom(viewportHeight: number, foot = viewportHeight): { top: number; bottom: number } {
+  const clear = EDGE_MARGIN / 2;
+  return {
+    top: TRANSCRIPT_FADE_TOP + clear,
+    bottom: Math.min(viewportHeight, foot) - TRANSCRIPT_FADE_BOTTOM - clear,
+  };
+}
+
 /// The rail's height for `count` rows in a window `windowHeight` tall: every row up to 64 rows or
-/// 70% of the window, after which the rows scroll. It never outgrows the transcript it is centered
-/// on (`viewportHeight`, less EDGE_MARGIN at each end), so a short pane's rows all scroll into view.
-export function railHeight(count: number, windowHeight: number, viewportHeight = windowHeight): number {
+/// 70% of the window, after which the rows scroll. It never outgrows the room the transcript gives it
+/// (railRoom: its viewport less the mask's bands), so a short pane's rows all scroll into view and no
+/// tick sits under the transcript's fades (Leo 2026-10-22: "it wouldn't show the highlighted bottom
+/// ... it just didn't go to the bottom").
+export function railHeight(
+  count: number,
+  windowHeight: number,
+  viewportHeight = windowHeight,
+  foot = viewportHeight,
+): number {
+  const room = railRoom(viewportHeight, foot);
   return Math.max(
     0,
     Math.min(
@@ -83,9 +109,18 @@ export function railHeight(count: number, windowHeight: number, viewportHeight =
       RAIL_MAX_ROWS * ROW_PITCH,
       Math.floor(windowHeight * RAIL_MAX_SHARE),
       // A transcript not measured yet (0) does not cap it.
-      viewportHeight > 0 ? Math.floor(viewportHeight - 2 * EDGE_MARGIN) : Infinity,
+      viewportHeight > 0 ? Math.floor(room.bottom - room.top) : Infinity,
     ),
   );
+}
+
+/// The rail's top in the transcript's viewport: centered on it, as the Codex rail is, then moved as
+/// little as it takes to keep the rail inside railRoom.
+export function railTop(height: number, viewportHeight: number, foot = viewportHeight): number {
+  const room = railRoom(viewportHeight, foot);
+  const centered = Math.round((viewportHeight - height) / 2);
+  if (viewportHeight <= 0) return centered;
+  return Math.max(room.top, Math.min(centered, Math.floor(room.bottom - height)));
 }
 
 /// The fade a rail longer than its room draws at an edge with more rows past it (2.5rem,

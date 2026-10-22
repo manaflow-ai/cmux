@@ -3191,6 +3191,9 @@ export function VirtualTranscript({
           // Above the room under the last row, so a composer that grows while the reader is scrolled
           // up leaves the map as it was, as it does the scrollbar.
           viewportHeight={height - room}
+          // Where the transcript's mask ends the view (conversation.css --acpmux-view-foot): the
+          // rail's rows stay above its bottom band.
+          foot={height - dockSpace}
           scrolls={layout.totalHeight - height > 0.5}
           width={width}
           placed={minimapPlaced}

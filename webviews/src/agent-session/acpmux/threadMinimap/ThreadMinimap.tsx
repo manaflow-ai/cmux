@@ -32,6 +32,7 @@ import {
   RAIL_LEFT,
   railHeight,
   railScrollTop,
+  railTop as railTopAt,
   ROW_PITCH,
   ROW_WIDTH,
   SETTLE_FRAMES,
@@ -87,6 +88,7 @@ export function ThreadMinimap({
   scroller,
   scrollTop,
   viewportHeight,
+  foot,
   scrolls,
   width,
   placed,
@@ -97,6 +99,9 @@ export function ThreadMinimap({
   scroller: React.RefObject<HTMLElement | null>;
   scrollTop: number;
   viewportHeight: number;
+  /// Where the transcript's mask ends its view (the bottom stack's top), when it is above
+  /// `viewportHeight`: the rail keeps its rows above the mask's bottom band (model.ts railRoom).
+  foot?: number;
   /// Whether the transcript scrolls at all (its layout, dock space included, is taller than it).
   scrolls: boolean;
   width: number;
@@ -163,7 +168,7 @@ export function ThreadMinimap({
   const top = (seen ?? scrollTop) + shift;
   const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight);
   const shown = arm === "compact" && turns.length >= MIN_PROMPTS && gutter(width) >= MIN_GUTTER;
-  const height = railHeight(turns.length, windowHeight, viewportHeight);
+  const height = railHeight(turns.length, windowHeight, viewportHeight, foot);
   const overflow = turns.length * ROW_PITCH > height;
 
   /// What the handlers below read: the turns and layout as of the last commit.
@@ -364,7 +369,7 @@ export function ThreadMinimap({
     anchor.current = undefined;
     holding.current = false;
     if (!shown || !turns.length) return;
-    const railTop = Math.round((viewportHeight - height) / 2);
+    const railTop = railTopAt(height, viewportHeight, foot);
     let scrolled = listTop;
     if (added !== undefined && was) {
       holding.current = true;
@@ -514,7 +519,7 @@ export function ThreadMinimap({
     if (event.currentTarget.hasPointerCapture?.(state.pointer))
       event.currentTarget.releasePointerCapture(state.pointer);
   };
-  const railTop = Math.round((viewportHeight - height) / 2);
+  const railTop = railTopAt(height, viewportHeight, foot);
   // The previewed prompt stays lit while the pointer is on its card, as ChatGPT's rail does.
   const active = hovered ?? focused ?? (showCard ? cardRow : undefined);
   const cardMarked = cardTurn ? marks.has(cardTurn) : false;
