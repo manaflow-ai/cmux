@@ -124,6 +124,13 @@ PREFIX: dict[tuple[str, str, str], tuple[str, str]] = {
     # owner + 4 vCPU fork pull request branches.
     ("cmux-tui-sdks.yml", "conformance", "runs-on"): (
         OWNER + FORK_PULL_REQUEST.format(label="blacksmith-8vcpu-ubuntu-2404"), ""),
+    # These three read no variable before the move, so a fork pull request
+    # took the trusted literal. Reading LINUX_RUNNER now needs the fork pull
+    # request branch first (test_ci_fork_runner_routing.py); it names the
+    # label a fork pull request ran on before: 16 vCPU here, 4 vCPU for
+    # cmux-next.yml web-bundles and gallery-health (the default prefix).
+    ("cmux-next-car-guards.yml", "linux", "runs-on"): (
+        OWNER + FORK_PULL_REQUEST.format(label="blacksmith-16vcpu-ubuntu-2404"), ""),
     ("cmux-tui-artifacts.yml", "macos-cross-shadow", "runs-on"): (OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
     ("macos-cross-parity.yml", "linux-build", "runs-on"): (OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
     ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_DARWIN_RUNNER"): (
@@ -141,7 +148,6 @@ OWNER_ONLY = {
     ("cmux-browser-host-release.yml", "build"),
     ("cmux-mobile-ffi.yml", "rust"),
     ("cmux-mobile-ffi.yml", "android"),
-    ("cmux-next-car-guards.yml", "linux"),
     ("cmux-next-source-archive.yml", "vt-link-graph"),
     ("cmux-tui-windows-check.yml", "windows-gnu-check"),
     ("iroh-relay-minter.yml", "test"),
@@ -151,8 +157,6 @@ OWNER_ONLY = {
     ("sdk-publish-npm.yml", "bindings-e2e-typescript"),
     ("sdk-publish-python.yml", "bindings-e2e-python"),
     ("cmux-next-web-bundle-publish.yml", "build"),
-    ("cmux-next.yml", "web-bundles"),
-    ("gallery-health.yml", "health"),
     ("presence.yml", "test"),
     ("sdk-bootstrap-crates.yml", "build"),
     ("sdk-publish-go.yml", "validate-go-module"),
