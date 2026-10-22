@@ -31,6 +31,11 @@ import Testing
         }
 
         func tearDown() {
+            // A test that ends with its frame still up (one whose page never painted) would leave
+            // `LaunchImageHold.shared` counting it for the rest of the process: the pane's deinit
+            // does not end the hold by design, so the next test to await it would take the 4 s
+            // backstop instead of returning at once.
+            pane.clearLaunchImage()
             window.orderOut(nil)
             window.close()
         }

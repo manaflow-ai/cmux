@@ -1,6 +1,11 @@
 import AppKit
 
-/// How long a launch image may stay when its page never reports a first frame.
+/// How long a launch image may stay once the page it stands in for has painted. It is not the
+/// bound on a page that never reports a first frame: such a page keeps its frame past this
+/// (`launchImageMayClear`), because taking it leaves the pane empty. What bounds that case is
+/// `AgentPaneLoadingView`'s give-up, which shows the page as it is after two unpainted checks
+/// (2 x `paintCheckInterval`, about 8 s). Deferred launch work has its own bound either way:
+/// `LaunchImageHold`'s backstop runs the waiters at this limit plus a second.
 let paneLaunchImageLimit: Duration = .seconds(3)
 
 extension PaneContentView {
@@ -27,7 +32,11 @@ extension PaneContentView {
             // page was still inside its own first-paint budget, which is a chat that draws, goes
             // dark for several seconds, then comes back (Leo 2026-10-22). What takes it instead is
             // the page drawing over it, or the pane giving up on a page that never reports and
-            // showing it as it is (`AgentPaneLoadingView`), both of which end on the page.
+            // showing it as it is (`AgentPaneLoadingView`), both of which end on the page. The
+            // give-up is still the earlier of the two budgets (about 8 s against the page's own
+            // ~10 s `CHAT_DRAW_HOLD_MS` after its handshake), so a daemon slow enough to miss it
+            // reveals the page while it is itself still blank. That narrows Leo's dark gap rather
+            // than closing it; closing it means moving one of the two budgets.
             guard launchImageMayClear?() ?? true else { return }
             clearLaunchImage()
         }
