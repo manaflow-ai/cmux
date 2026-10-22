@@ -93,7 +93,8 @@ public struct MotionDebug {
             "work": MotionTrace.work.mapValues { frames -> [String: Any] in
                 let sorted = frames.sorted()
                 func at(_ p: Double) -> Double { ((sorted.isEmpty ? 0 : sorted[Int((Double(sorted.count - 1) * p).rounded())]) * 100).rounded() / 100 }
-                return ["frames": sorted.count, "p50_ms": at(0.5), "p95_ms": at(0.95), "max_ms": at(1), "over_4_ms": sorted.filter { $0 > 4 }.count]
+                return ["frames": sorted.count, "p50_ms": at(0.5), "p95_ms": at(0.95), "max_ms": at(1), "over_4_ms": sorted.filter { $0 > 4 }.count,
+                        "total_ms": (sorted.reduce(0, +) * 100).rounded() / 100]
             },
         ]
     }

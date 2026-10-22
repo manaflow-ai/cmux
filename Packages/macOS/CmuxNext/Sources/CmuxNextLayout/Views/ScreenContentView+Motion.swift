@@ -55,7 +55,7 @@ extension ScreenContentView {
             }
         }
         if !moving { scrollRidesFrames = false }
-        applyPresentation()
+        MotionTrace.measure("layout.present") { applyPresentation() }
         // A zoom that landed in this frame lets go of the panes it covered.
         releaseCovered()
         return moving
@@ -103,10 +103,12 @@ extension ScreenContentView {
             if springing { host.isOnLayoutSpring = true }
             defer { if !springing { host.isOnLayoutSpring = false } }
             if host.frame != placed {
-                host.frame = placed
-                // Its tab strip and content lay out in this frame's step, with the frame: never a
-                // layout pass behind it (`PaneContentView.layout` sizes the strip).
-                host.layoutSubtreeIfNeeded()
+                MotionTrace.measure(host.frame.size == placed.size ? "layout.hostMove" : "layout.hostResize") {
+                    host.frame = placed
+                    // Its tab strip and content lay out in this frame's step, with the frame: never a
+                    // layout pass behind it (`PaneContentView.layout` sizes the strip).
+                    host.layoutSubtreeIfNeeded()
+                }
             }
             (host.alphaValue, host.isDocked) = (frame.alpha.value, !scrolls)
             // The zooming pane is above the docks (`rank`) until it lands: the strip's dock clip does not cut it.

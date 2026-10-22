@@ -213,6 +213,11 @@ def measure(label, name):
         "grid_reports": trace.get("terminal_grid_reports"), "resizes_sent": trace.get("terminal_resizes_sent"),
         "hangs": len(hang_list) if isinstance(hang_list, list) else hangs.get("count"),
     }
+    all_work = (motion.get("work") or {}) if isinstance(motion, dict) else {}
+    result["work"] = {k: v for k, v in all_work.items() if k == "clock" or k.startswith("layout.")}
+    parts = "  ".join(f"{k[7:] if k.startswith('layout.') else k} n{v.get('frames')} p95 {v.get('p95_ms')} max {v.get('max_ms')} sum {v.get('total_ms')}"
+                      for k, v in sorted(result["work"].items()))
+    print(f"  {label:<22} work: {parts}", flush=True)
     print(f"  {label:<22} moved {moving:>3}  frame p50 {result['frames_p50_ms']} p95 {result['frames_p95_ms']} "
           f"p99 {result['frames_p99_ms']} max {result['frames_max_ms']} ms  missed {result['missed']} "
           f"(refresh {result['refresh_ms']})  tick p95 {result['layout_p95_ms']} max {result['layout_max_ms']} ms  "

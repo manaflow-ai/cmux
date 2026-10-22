@@ -327,8 +327,8 @@ public final class LayoutRootView: NSView {
                 // A hidden screen lands at once: frames step only the screens shown (`advanceFrame`), so a
                 // spring started there (a restore, a daemon echo) froze its panes mid-motion, their
                 // content held wider than the pane and pinned to its edge (Leo 2026-10-21).
-                if view.update(layout: screen.layout, zoomed: screen.zoomed, zoomHidden: screen.zoomHiddenPanes, canvas: canvas,
-                               animated: (animated || reflows) && !view.isHidden) {
+                if MotionTrace.measure("layout.reconcile", { view.update(layout: screen.layout, zoomed: screen.zoomed, zoomHidden: screen.zoomHiddenPanes, canvas: canvas,
+                               animated: (animated || reflows) && !view.isHidden) }) {
                     needsFrames = true
                 }
                 // The focus ring of a split's new pane appears with the pane; the focus flash still
@@ -392,7 +392,7 @@ public final class LayoutRootView: NSView {
         let policy = Motion.panes.policy
         var moving = false
         for view in screenViews.values where !view.isHidden {
-            if view.step(dt, policy: policy) { moving = true }
+            if MotionTrace.measure("layout.step", { view.step(dt, policy: policy) }) { moving = true }
             if view.stepCanvasCamera(dt, policy: policy) { moving = true }
         }
         let screenSpring = policy.spring(.screen)
@@ -402,7 +402,7 @@ public final class LayoutRootView: NSView {
         applyScreenFrames()
         if highlight.step(dt) { moving = true }
         updateVisibility()
-        flushOverlaySync()
+        MotionTrace.measure("layout.overlay") { flushOverlaySync() }
         // A gesture requests frames on each pointer change; an active
         // gesture with a still pointer needs none.
         return moving
