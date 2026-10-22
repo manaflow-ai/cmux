@@ -202,6 +202,26 @@ test("the Return that commits an input method's candidate is the input method's:
   expect({ sent, during, after, lines: lines(field) }).toEqual({ sent: [], during: true, after: true, lines: 1 });
 });
 
+// WebKit (jsdom's vendor is Apple): ProseMirror's after-composition guard swallows the commit
+// Return and clears itself. Kept from that keydown, the guard stayed armed, so a Shift-Return right
+// after went to the browser, whose paragraph input sent the draft.
+test("Shift-Return right after an input method's commit Return adds a line and sends nothing", async () => {
+  const { field, sent } = await composer(chat(), "日本語");
+  await dispatch(field, new window.CompositionEvent("compositionstart", { bubbles: true }), 1_000);
+  await dispatch(field, new window.CompositionEvent("compositionend", { bubbles: true }), 2_000);
+  await dispatch(field, key({ key: "Enter", keyCode: 229 }), 2_010);
+  await dispatch(field, new window.KeyboardEvent("keyup", { key: "Enter", bubbles: true }), 2_050);
+  const shift = key({ key: "Enter", keyCode: 13, shiftKey: true });
+  const proceeded = await dispatch(field, shift, 2_300);
+  if (proceeded)
+    await dispatch(
+      field,
+      new window.InputEvent("beforeinput", { inputType: "insertParagraph", bubbles: true, cancelable: true }),
+      2_301,
+    );
+  expect({ sent, lines: lines(field) }).toEqual({ sent: [], lines: 2 });
+});
+
 test("a paragraph the input method inserts on its own sends instead", async () => {
   const { field, sent } = await composer(working(), "What is Spotlight?");
   const inserted = await dispatch(
