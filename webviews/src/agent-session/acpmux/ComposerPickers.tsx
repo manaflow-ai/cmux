@@ -277,20 +277,33 @@ export function ComposerPickers({
   // A profile the catalog does not map to its family (a second Claude account's harness id) still
   // runs a catalogued model: its family's row for that id (else any harness's) names it and its
   // default level, so the chips never fall back to the raw id or to the word Reasoning.
+  const kinRows = () =>
+    [
+      ...(pickerCatalog?.harnesses.filter((entry) => entry.id === summary?.family) ?? []),
+      ...(pickerCatalog?.harnesses ?? []),
+    ].map((entry) => catalogRow(entry.models, runningModel));
   const catalogModel =
     catalogRow(
       pickerCatalog?.harnesses.find(
         (entry) => entry.acpmuxHarness === summary?.harness || entry.id === summary?.harness,
       )?.models,
       runningModel,
-    ) ??
-    [
-      ...(pickerCatalog?.harnesses.filter((entry) => entry.id === summary?.family) ?? []),
-      ...(pickerCatalog?.harnesses ?? []),
-    ]
-      .map((entry) => catalogRow(entry.models, runningModel))
-      .find((row) => row !== undefined);
-  const efforts: Choice[] = reasoningChoices(effort?.options ?? [], catalogModel, t);
+    ) ?? kinRows().find((row) => row !== undefined);
+  // The level the agent's "default" runs: the running model's own default. A profile's probed row
+  // (a claude-sr2 chat's Opus 5.5) names the model but no level, so another catalog row of that
+  // model names it. Unresolved, the button named no effort and the menu checked none (Leo
+  // 2026-10-22: "this should just show the effort too right? and then the effort tells you what
+  // you're already currrently on?").
+  const defaultEffort =
+    catalogModel?.defaultEffort ?? kinRows().find((row) => row?.defaultEffort !== undefined)?.defaultEffort;
+  const efforts: Choice[] = reasoningChoices(
+    effort?.options ?? [],
+    {
+      ...(catalogModel?.efforts ? { efforts: catalogModel.efforts } : {}),
+      ...(defaultEffort ? { defaultEffort } : {}),
+    },
+    t,
+  );
   // Claude Code's Ultracode: a switch beside the levels, offered where the model runs Extra High.
   // It rides the free effort option (ultracode on, Extra High off): acpmux's own `ultracode` id is a
   // mode switch the app would confirm with a sheet.
@@ -542,7 +555,7 @@ export function ComposerPickers({
   // The agent's own level ("default") names the level it resolves to: the running model's default
   // effort. It never guesses the first level.
   const effortDefaulted = effort?.currentValue === "default";
-  const effortValue = effort && (effortDefaulted ? catalogModel?.defaultEffort : effort.currentValue);
+  const effortValue = effort && (effortDefaulted ? defaultEffort : effort.currentValue);
   const effortChoice = efforts.find((choice) => choice.id === effortValue);
   const ultracodeOn = ultracode !== undefined && ultracode.current === ultracode.on;
   const lastChips = awaiting && chipHarness ? loadLastChips()[chipHarness] : undefined;
