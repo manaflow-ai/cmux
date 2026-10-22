@@ -59,10 +59,21 @@ fn scratch(tag: &str) -> PathBuf {
     dir
 }
 
+/// The daemon, stopped and reaped however the test ends.
+struct Daemon(std::process::Child);
+
+impl Drop for Daemon {
+    fn drop(&mut self) {
+        // SAFETY: the pid is this test's own child.
+        unsafe { libc::kill(self.0.id() as i32, libc::SIGTERM) };
+        let _ = self.0.wait();
+    }
+}
+
 fn hard_limit() -> u64 {
     let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
     assert_eq!(unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) }, 0);
-    lim.rlim_max as u64
+    lim.rlim_max
 }
 
 #[tokio::test]
@@ -108,9 +119,8 @@ async fn daemon_started_with_launchds_256_raises_it_for_itself_and_its_agents() 
             Ok(())
         });
     }
-    let mut child = cmd.spawn().unwrap();
-    let pid = child.id() as i32;
-    let stdout = child.stdout.take().unwrap();
+    let mut child = Daemon(cmd.spawn().unwrap());
+    let stdout = child.0.stdout.take().unwrap();
     let ready = tokio::task::spawn_blocking(move || {
         for line in BufReader::new(stdout).lines() {
             let line = line.unwrap();
@@ -139,10 +149,7 @@ async fn daemon_started_with_launchds_256_raises_it_for_itself_and_its_agents() 
     .await;
     // The agent wrote the file before it answered the prompt.
     let text = std::fs::read_to_string(&seen).expect("the agent recorded its limit");
-    unsafe {
-        libc::kill(pid, libc::SIGTERM);
-    }
-    let _ = child.wait();
+    drop(child);
     let _ = std::fs::remove_dir_all(&dir);
 
     let limit = text.trim();

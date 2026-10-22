@@ -21,18 +21,23 @@ pub(super) fn raise() {
         tracing::warn!("open-file limit: getrlimit: {}", std::io::Error::last_os_error());
         return;
     }
-    let (soft, hard) = (lim.rlim_cur as u64, lim.rlim_max as u64);
+    let (soft, hard) = (lim.rlim_cur, lim.rlim_max);
     let target = target(soft, hard, per_process_cap());
     if target <= soft {
         return;
     }
     match set_soft(target, lim.rlim_max) {
-        Ok(()) => tracing::info!("open-file limit raised from {soft} to {target} (hard {hard})"),
+        Ok(()) => {
+            tracing::info!("open-file limit raised from {soft} to {target} (hard {})", show(hard))
+        }
         // Older macOS refuses a soft limit above OPEN_MAX.
         #[cfg(target_os = "macos")]
         Err(_) if target > OPEN_MAX && OPEN_MAX > soft => match set_soft(OPEN_MAX, lim.rlim_max) {
             Ok(()) => {
-                tracing::info!("open-file limit raised from {soft} to {OPEN_MAX} (hard {hard})");
+                tracing::info!(
+                    "open-file limit raised from {soft} to {OPEN_MAX} (hard {})",
+                    show(hard)
+                );
             }
             Err(e) => tracing::warn!("open-file limit stays {soft}: setrlimit: {e}"),
         },
@@ -47,6 +52,11 @@ fn set_soft(soft: u64, hard: libc::rlim_t) -> std::io::Result<()> {
     } else {
         Err(std::io::Error::last_os_error())
     }
+}
+
+/// A limit as `ulimit -n` shows it: `RLIM_INFINITY` is "unlimited".
+fn show(limit: u64) -> String {
+    if limit == libc::RLIM_INFINITY { "unlimited".to_owned() } else { limit.to_string() }
 }
 
 /// The soft limit to set: `WANTED`, at most the hard limit and the kernel's
