@@ -116,7 +116,10 @@ export type PromptDelivery = {
   /// No answer for a while: the row says it is still sending.
   slow?: boolean;
   hop?: PromptDeliveryHop;
+  /// The refusal's code and acpmux's reason (`trust.pending`): the failure's cause, which the card's
+  /// words and actions follow (sendFailure.ts). `error` is the refuser's own words, for Details.
   code?: string;
+  reason?: string;
   error?: string;
   /// The machine acpmux runs on, when it is not this one.
   connection?: string;

@@ -195880,6 +195880,534 @@
         }
       }
     },
+    "prompt.failure.trustPending": {
+      "comment": "Agent pane: under prompts acpmux held because the folder's trust question is unanswered; the Trust folder button follows",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لن يُرسَل حتى تثق بهذا المجلد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neće biti poslano dok ne vjerujete ovoj fascikli."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke sendt, før du stoler på denne mappe."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nicht gesendet, bis du diesem Ordner vertraust."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not sent until you trust this folder."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se enviará hasta que confíes en esta carpeta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non envoyé tant que vous ne faites pas confiance à ce dossier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non inviato finché non ti fidi di questa cartella."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このフォルダを信頼するまで送信されません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនផ្ញើទេ រហូតដល់អ្នកទុកចិត្តថតនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 폴더를 신뢰할 때까지 보내지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke sendt før du stoler på denne mappen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie wysłano. Najpierw zaufaj temu folderowi."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não enviado até você confiar nesta pasta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не отправлено, пока вы не доверите эту папку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จะไม่ส่งจนกว่าคุณจะเชื่อถือโฟลเดอร์นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu klasöre güvenene kadar gönderilmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не надіслано, доки ви не довіритеся цій папці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa gửi cho đến khi bạn tin cậy thư mục này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "信任此文件夹后才会发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "信任此資料夾後才會傳送。"
+          }
+        }
+      }
+    },
+    "prompt.failure.trustUntrusted": {
+      "comment": "Agent pane: under prompts acpmux refused because the person answered Not now to the folder's trust question; the Trust folder button follows",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يُرسَل لأنك اخترت «ليس الآن» لهذا المجلد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije poslano jer ste za ovu fasciklu odabrali „Ne sada”."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke sendt, fordi du valgte Ikke nu for denne mappe."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nicht gesendet, weil du für diesen Ordner „Nicht jetzt“ gewählt hast."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not sent because you chose Not now for this folder."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No enviado porque elegiste Ahora no para esta carpeta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non envoyé, car vous avez choisi « Pas maintenant » pour ce dossier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non inviato perché hai scelto Non ora per questa cartella."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このフォルダで「後で」を選んだため、送信されていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនបានផ្ញើទេ ព្រោះអ្នកបានជ្រើស «មិនមែនឥឡូវ» សម្រាប់ថតនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 폴더에 '나중에'를 선택해서 보내지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke sendt fordi du valgte Ikke nå for denne mappen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie wysłano, bo dla tego folderu wybrano „Nie teraz”."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não enviado porque você escolheu Agora não para esta pasta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не отправлено: для этой папки вы выбрали «Не сейчас»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ได้ส่ง เพราะคุณเลือก ไม่ใช่ตอนนี้ สำหรับโฟลเดอร์นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu klasör için Şimdi değil seçtiğiniz için gönderilmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не надіслано, бо для цієї папки ви вибрали «Не зараз»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa gửi vì bạn đã chọn Để sau cho thư mục này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未发送，因为你对此文件夹选择了“以后再说”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未傳送，因為你對此資料夾選擇了「稍後再說」。"
+          }
+        }
+      }
+    },
+    "prompt.failure.pane": {
+      "comment": "Agent pane: under prompts the app refused because the agent pane sent a request it does not accept (a bug in the pane, not the person's doing)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يُرسَل بسبب خطأ في لوحة الوكيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije poslano zbog greške u panelu agenta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke sendt på grund af en fejl i agentpanelet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wegen eines Fehlers im Agentenbereich nicht gesendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not sent because of an error in the agent pane."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No enviado por un error en el panel del agente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non envoyé en raison d'une erreur dans le panneau de l'agent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non inviato a causa di un errore nel pannello dell'agente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントペインのエラーにより送信されていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនបានផ្ញើទេ ដោយសារកំហុសនៅក្នុងផ្ទាំងភ្នាក់ងារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 패널 오류로 보내지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke sendt på grunn av en feil i agentpanelet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie wysłano z powodu błędu w panelu agenta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não enviado por causa de um erro no painel do agente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не отправлено из-за ошибки в панели агента."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ได้ส่ง เพราะเกิดข้อผิดพลาดในแผงเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan bölmesindeki bir hata nedeniyle gönderilmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не надіслано через помилку в панелі агента."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa gửi do lỗi trong khung tác tử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "由于智能体面板出错，未发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "由於代理程式面板發生錯誤，未傳送。"
+          }
+        }
+      }
+    },
+    "prompt.failure.paneAgain": {
+      "comment": "Agent pane: under prompts whose Retry the app refused again because the agent pane sent a request it does not accept",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يُرسَل بعد بسبب خطأ في لوحة الوكيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Još nije poslano zbog greške u panelu agenta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stadig ikke sendt på grund af en fejl i agentpanelet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wegen eines Fehlers im Agentenbereich immer noch nicht gesendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still not sent because of an error in the agent pane."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aún no enviado por un error en el panel del agente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Toujours pas envoyé en raison d'une erreur dans le panneau de l'agent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancora non inviato a causa di un errore nel pannello dell'agente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントペインのエラーにより、まだ送信されていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅតែមិនបានផ្ញើទេ ដោយសារកំហុសនៅក្នុងផ្ទាំងភ្នាក់ងារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 패널 오류로 아직 보내지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fortsatt ikke sendt på grunn av en feil i agentpanelet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nadal nie wysłano z powodu błędu w panelu agenta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda não enviado por causa de um erro no painel do agente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Всё ещё не отправлено из-за ошибки в панели агента."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังคงไม่ได้ส่ง เพราะเกิดข้อผิดพลาดในแผงเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan bölmesindeki bir hata nedeniyle hâlâ gönderilmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Досі не надіслано через помилку в панелі агента."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vẫn chưa gửi do lỗi trong khung tác tử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "由于智能体面板出错，仍未发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "由於代理程式面板發生錯誤，仍未傳送。"
+          }
+        }
+      }
+    },
     "chatInspector.title": {
       "comment": "Agent pane: the Inspector, the chat's right-hand panel (Environment, Context, Changes, Subagents...); also its header toggle's label",
       "extractionState": "manual",

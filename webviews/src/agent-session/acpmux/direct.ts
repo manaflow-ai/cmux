@@ -53,6 +53,7 @@ import { incomingPrompt, renderedReply, type IncomingMessage } from "./conversat
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
+import { failedSendText } from "./sendFailure";
 import { SessionPager, type SessionPage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { SubagentFold, subagentsLeft } from "./subagents/subagentFold";
@@ -3532,9 +3533,7 @@ export class AcpmuxDirectClient {
         // says just that, not the generic refusal's pick wording (cx-w2p8r).
         if (held && !isTrustRefusal(error))
           this.notice(
-            code === "transport.gesture_required"
-              ? translate("prompt.notSentAgain")
-              : translate("prompt.notSent", { reason: errorMessage(error) }),
+            code === "transport.gesture_required" ? translate("prompt.notSentAgain") : failedSendText(error, false),
           );
         else this.emit();
         throw error;
@@ -3555,18 +3554,14 @@ export class AcpmuxDirectClient {
       const row = this.rows.get(rowId);
       if (row) {
         // A new row object: the transcript's rows are memoized on identity and version. The
-        // bubble says why it got no reply, in the words of whoever refused it. A refusal for want
-        // of a gesture names that (the generic refusal's text is about a pick): posted input (a
-        // script, a computer-use agent) is never the person's (cx-ocdz), and the Retry click is
-        // (hq#2569 item 5). A Retry refused again says "Still", so the click visibly did something.
-        const reason = code === "transport.gesture_required" ? translate("prompt.gestureReason") : errorMessage(error);
+        // bubble says why it got no reply in one plain sentence chosen by the refusal's reason and
+        // code (sendFailure.ts); the refuser's own words and code stay for Details.
+        const reason = (error as { reason?: unknown } | null)?.reason;
         this.rows.set(rowId, {
           ...row,
           pending: false,
           failed: true,
-          error: translate(this.retriedPrompts.has(promptId) ? "prompt.stillNotSent" : "prompt.notSent", {
-            reason: reason || translate("transport.refused"),
-          }),
+          error: failedSendText(error, this.retriedPrompts.has(promptId)),
           version: row.version + 1,
         });
         this.failedPrompts.set(rowId, { input, attachments, promptId });
@@ -3575,7 +3570,8 @@ export class AcpmuxDirectClient {
           failedAt: Date.now(),
           hop: deliveryHop(typeof code === "string" ? code : undefined, taken),
           ...(typeof code === "string" ? { code } : {}),
-          error: errorMessage(error),
+          ...(typeof reason === "string" ? { reason } : {}),
+          error: error instanceof Error ? error.message : errorMessage(error),
         });
         // The prompt stays as this failed row: the pane's sender puts nothing back in the composer,
         // and a Trust answer re-sends this row (not whatever the composer holds then).
@@ -3610,6 +3606,7 @@ export class AcpmuxDirectClient {
     if (next.state !== "failed") {
       delete next.hop;
       delete next.code;
+      delete next.reason;
       delete next.error;
       delete next.failedAt;
     }
@@ -3679,6 +3676,29 @@ export class AcpmuxDirectClient {
     } finally {
       this.retriedPrompts.delete(promptId);
     }
+  }
+  /// Retry on a card for a run of prompts that were not sent for one cause (sendFailure.ts). One
+  /// click is one gesture, which the host spends on one `session/prompt`, so the run goes again as
+  /// one prompt: its texts in order, its attachments together, over `anchor`'s row and under its
+  /// prompt id (a trust refusal's kept gesture is bound to that id, heldPrompt.ts). The run's other
+  /// rows go.
+  async retryPrompts(rowIds: readonly string[], ticket?: string, anchor?: string): Promise<string | undefined> {
+    const run = rowIds.filter((id) => this.failedPrompts.has(id));
+    const kept = anchor && run.includes(anchor) ? anchor : run[run.length - 1];
+    if (!kept) return undefined;
+    if (run.length > 1) {
+      const failed = run.map((id) => this.failedPrompts.get(id)!);
+      const into = this.failedPrompts.get(kept)!;
+      for (const id of run) if (id !== kept) this.dropFailedPrompt(id, this.failedPrompts.get(id)?.promptId);
+      this.failedPrompts.set(kept, {
+        input: failed.map((prompt) => prompt.input).join("\n\n"),
+        attachments: failed
+          .flatMap((prompt) => prompt.attachments)
+          .filter((attachment, index, all) => all.findIndex((other) => other.id === attachment.id) === index),
+        ...(into.promptId ? { promptId: into.promptId } : {}),
+      });
+    }
+    return this.retryPrompt(kept, ticket);
   }
   /// Edit on a prompt that was not sent: its row goes and what it held comes back, for the composer.
   takeFailedPrompt(rowId: string): { input: string; attachments: ComposerAttachment[] } | undefined {
