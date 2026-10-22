@@ -160,8 +160,9 @@ enum HomeMarkdown {
                         var code = String(c.slice(i + ticks, close))
                         if code.count > 2, code.first == " ", code.last == " " { code = String(code.dropFirst().dropLast()) }
                         flush()
-                        // A code span that is one whole path or cmux id (`~/a.md`) links to it.
-                        let whole = link == nil ? HomeMarkdown.autoLinks(in: code).first.flatMap {
+                        // A code span that is one whole path or cmux id (`~/a.md`) links to it; a
+                        // subagent id in code stays code, as optchat-chief leaves it.
+                        let whole = link == nil ? HomeMarkdown.autoLinks(in: code, subagents: HomeSubagentLinks.none).first.flatMap {
                             $0.range == NSRange(location: 0, length: (code as NSString).length) ? $0 : nil
                         } : nil
                         out.append(whole?.label ?? code, add("code", to: styles), link: link ?? whole?.link)

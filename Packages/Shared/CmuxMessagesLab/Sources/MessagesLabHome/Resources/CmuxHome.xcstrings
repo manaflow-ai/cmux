@@ -6309,7 +6309,7 @@
       }
     },
     "home.turn.moreSteps": {
-      "comment": "Chief running indicator: more finished steps after a folded group, e.g. \"Ran 3 commands · 2 more steps\" (count is 2 or more).",
+      "comment": "Chief running indicator: the finished steps before the newest one, which is named, e.g. \"Checking on a31 · 2 more steps\" (count is 1 or more).",
       "extractionState": "manual",
       "localizations": {
         "en": {
