@@ -51,6 +51,7 @@ extension WindowRootView {
         guard width > 0 else { return }
         let x = sidebarSide == .left ? bounds.width - width : 0
         rightPanel.topInset = rowHeight
+        rightPanel.innerEdge = sidebarSide == .left ? .minX : .maxX
         let frame = CGRect(x: x, y: 0, width: width, height: bounds.height)
         if rightPanel.frame != frame { rightPanel.frame = frame }
     }

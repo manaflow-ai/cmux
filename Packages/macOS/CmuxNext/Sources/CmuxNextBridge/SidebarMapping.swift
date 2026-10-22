@@ -135,7 +135,7 @@ public struct SidebarMapping {
         var row = SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
-            // The Chief's subagent workspaces show their task title, never the subagent id.
+            // An older Chief's subagent workspaces show their task title, never the subagent id.
             title: machine.isLocalChief ? title.chiefTaskTitle ?? title : title,
             directory: folder?.cwd.map(shorten),
             branch: folder?.gitBranch.flatMap { $0.isEmpty ? nil : $0 },
