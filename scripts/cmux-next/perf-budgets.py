@@ -332,6 +332,10 @@ def main():
     runs, values = {}, {}
     for name in only:
         argv, report, mapper = plan[name]
+        # Some benches open files in their --out without making it.
+        for flag, value in zip(argv, argv[1:]):
+            if flag == "--out":
+                os.makedirs(value, exist_ok=True)
         if not os.path.exists(argv[1]):  # a bench another lane adds (anim-perf) on a checkout without it
             print(f"\n=== {name}: {os.path.basename(argv[1])} is not in this checkout; its rows stay n/a", flush=True)
             continue

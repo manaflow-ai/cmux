@@ -57,7 +57,9 @@ jobs:
           fi
           sha="$(git rev-parse HEAD)"
           status=0
-          "$client" run --class exclusive --measurement --label measure --label macos-27 \
+          # The AWS minis have no console login: the app never shows a window there, so every row would
+          # read n/a. cmuxs-Mac-mini (user cmux at the console, M4 Pro, macOS 27) is the baseline's host.
+          "$client" run --class exclusive --measurement --label measure --target-worker cmuxs-Mac-mini.local \
             --script scripts/measure/split-spring.sh --ref "$sha" --timeout 7200 \
             --key "perf-budgets-$sha" --artifact artifacts/split-spring/report.json \
             --arg=--suite=budgets --arg=--gate | tee "$RUNNER_TEMP/budgets.log" || status=$?
