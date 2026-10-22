@@ -248,6 +248,14 @@ public final class MessagesLabHomeView: NSView {
     /// The header views a click on which runs ``onNamePill``: the pill and the avatar.
     public var namePillToggles: [NSView] { [controller.host.paneHeader.pill, controller.host.paneHeader.avatar] }
 
+    /// cmux: controls at the header's top right (Home's panel toggles), on the avatar's line.
+    /// They get their own clicks; the header's empty space still drags the window. Sized by its
+    /// `intrinsicContentSize`; hidden in a pane too narrow to keep it clear of the avatar. Nil: none.
+    public var headerTrailingAccessory: NSView? {
+        get { controller.host.paneHeader.trailingAccessory }
+        set { controller.host.paneHeader.trailingAccessory = newValue }
+    }
+
     /// The header avatar's text (one or two characters, an emoji); nil
     /// shows the conversation's initials.
     public var avatarText: String? {

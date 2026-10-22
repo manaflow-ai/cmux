@@ -207,6 +207,18 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
     extra?: () => Record_[];
     width?: number;
   };
+  /// The Retry buttons a page shows: under the person's prompts (each prompt's own, Leo's prompt row),
+  /// and anywhere else (a turn's footer, another agent's message).
+  async function retryButtons(page: Page): Promise<{ prompts: number; elsewhere: number }> {
+    return page.evaluate(() => {
+      const shown = [...document.querySelectorAll('button[aria-label="Retry"]')].filter(
+        (button) => button.getClientRects().length > 0,
+      );
+      const prompts = shown.filter((button) => button.closest(".cv-user__actions")).length;
+      return { prompts, elsewhere: shown.length - prompts };
+    });
+  }
+
   async function openChat({ offered, experiment = "on", extra, width = 900 }: Setup): Promise<Page> {
     calls = [];
     seq = 0;
@@ -515,8 +527,6 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
   // envelopes in a prompt (an adopted Claude session's history).
   describe("messages from other agents", () => {
     const incoming = (page: Page) => page.locator(".cv-received");
-    /// A line's text as it reads: the name and › are flex items, which innerText puts on lines of their own.
-    const lineText = (text: string) => text.replace(/\s+/g, " ");
     /// One message as cmux's agent_message_prompt.rs `render` writes it: the prompt's text.
     const renderedMessage = (body: string, { id = "m-1", from = "Grid fix (acp:child-3)", reply = true } = {}) =>
       [
@@ -554,9 +564,13 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       });
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
-      // One quiet line, "Received message from Grid fix ›"; the message waits behind ›.
-      expect(lineText(await card.innerText())).toContain("Received message from Grid fix");
-      expect(await card.innerText()).not.toContain("The grid fix is on cmux/grid-fix; tests pass.");
+      // One line at the left: the sender's chip and the message's first line as a preview; the
+      // card waits behind it.
+      expect(await card.locator(".cv-received__name").innerText()).toBe("Grid fix");
+      expect(await card.locator(".cv-received__preview").innerText()).toBe(
+        "The grid fix is on cmux/grid-fix; tests pass.",
+      );
+      expect(await card.locator(".cv-received__body").count()).toBe(0);
       expect(await page.locator(".cv-user__bubble").filter({ hasText: "The grid fix is on" }).count()).toBe(0);
       // Opened, the line shows the sender's words only; the prompt as the agent got it (cmux's
       // envelope, message id and note) waits behind Details.
@@ -622,7 +636,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       });
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
-      expect(lineText(await card.innerText())).toContain("Received message from leoli-fb");
+      expect(await card.locator(".cv-received__name").innerText()).toBe("leoli-fb");
       const body = await page.locator("body").innerText();
       expect(body).not.toContain("<cross-session-message");
       expect(body).not.toContain("This came from another Claude session");
@@ -862,8 +876,8 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       expect(order.footers.some((index) => index > order.first && index < order.second)).toBe(true);
       expect(await page.locator("body").innerText()).not.toContain("The date changed.");
       // The last turn is the reminder's, which has no prompt of the person's to send again: no
-      // Retry resends the earlier prompt in its place.
-      expect(await page.getByRole("button", { name: "Retry", exact: true }).count()).toBe(0);
+      // Retry resends the earlier prompt in its place. Only the person's one prompt has its own.
+      expect(await retryButtons(page)).toEqual({ prompts: 1, elsewhere: 0 });
       await page.close();
     });
 
@@ -907,7 +921,8 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
         ],
       });
       await page.getByText("The build is done.").first().waitFor({ timeout: 10_000 });
-      expect(await page.getByRole("button", { name: "Retry", exact: true }).count()).toBe(0);
+      // Only the person's one prompt has its own Retry; the notification's turn offers none.
+      expect(await retryButtons(page)).toEqual({ prompts: 1, elsewhere: 0 });
       await page.close();
     });
 
