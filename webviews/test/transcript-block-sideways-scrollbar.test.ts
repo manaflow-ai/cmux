@@ -33,6 +33,8 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
   ];
   /// The thin scroller's tallest lane; WebKit's and Chromium's classic bars are 15 px.
   const THIN = 10;
+  /// The cards' corner radius (12px) and a little more: the lane's right end a reading skips.
+  const CORNER = 16;
 
   /// A gallery state, its block and the box in it that scrolls sideways.
   type Block = { variant: string; card: string; scroller: string; shadow: boolean; cut: boolean };
@@ -135,10 +137,11 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
     }, block);
 
   /// Whether the lane draws a thumb at rest, read from the pixels the page drew. Scrolled to the
-  /// start, a thumb sits at the lane's left end and the right end shows the card under the lane (a
-  /// track with no color, the right-edge fade over the lines): a column that differs from the
-  /// lane's right end in some row is drawn on. A thumb is a run of such columns; a track would be
-  /// the whole lane.
+  /// start, a thumb sits at the lane's left end and the lane's right part shows the card under it
+  /// (a track with no color, the right-edge fade over the lines). `CORNER` px at each end are left
+  /// out: a card whose lane is its bottom edge clips them to its rounded corners, the page's color.
+  /// A column that differs from the last one read in some row is drawn on. A thumb is a run of such
+  /// columns; a track would be all of them.
   async function thumb(page: Page, box: Awaited<ReturnType<typeof measure>>) {
     if (box.lane <= 0) return { thumb: false, track: false, columns: 0, width: 0 };
     const clip = {
@@ -148,9 +151,10 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
       height: box.lane,
     };
     const png = PNG.sync.read(await page.screenshot({ clip }));
-    const reference = png.width - 3;
+    const end = png.width - CORNER;
+    const reference = end - 1;
     let columns = 0;
-    for (let x = 0; x < png.width; x++)
+    for (let x = CORNER; x < end; x++)
       for (let y = 0; y < png.height; y++) {
         const at = (y * png.width + x) * 4;
         const ref = (y * png.width + reference) * 4;
@@ -163,7 +167,7 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
           break;
         }
       }
-    return { thumb: columns >= 16, track: columns > png.width - 8, columns, width: png.width };
+    return { thumb: columns >= 16, track: columns > end - CORNER - 8, columns, width: end - CORNER };
   }
 
   /// Every point of a grid over `selector`'s visible part whose element (inside shadow roots too)
