@@ -533,3 +533,31 @@ button.cv-subagent > :last-child {
 .cv-subagent-done[data-state="failed"] {
   color: var(--agent-danger);
 }
+/* The line and, on hover or focus, its Restart (SubagentDoneLine.tsx), the hover row's compact
+   button (conversation/MessageActions.tsx): hidden, it keeps its room, so pointing moves nothing. */
+.cv-subagent-done-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.cv-subagent-done-row > .cv-subagent-done {
+  width: auto;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.cv-subagent-done__actions {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  margin-inline-start: 4px;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-subagent-done__actions {
+    transition: opacity 120ms ease-out;
+  }
+}
+.cv-subagent-done-row:hover .cv-subagent-done__actions,
+.cv-subagent-done__actions:focus-within {
+  opacity: 1;
+}

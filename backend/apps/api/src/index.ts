@@ -16,6 +16,7 @@ const WIRE_OWNER: Readonly<Record<string, string>> = { team: "cloud:TeamDO", fee
 import { handleInviteCard, handleInvitePreview } from "./home-routes.ts"
 import { handleAttachmentCommit, handleAttachmentDownload, handleAttachmentIntent, handleAttachmentDerived, handleAttachmentUpload, handleAttachmentUrl } from "./home-attachments.ts"
 import { CARD_PATH, handleContactCard, handleSendblueHook } from "./home-text.ts"
+import { GROUP_PAGE_ANY, GROUP_PAGE_PATH, groupLinkPage } from "./group-link-page.ts"
 import { handleOutboxReplay } from "./admin-outbox.ts"
 import { handleCloudAbandonedClear } from "./cloud-admin.ts"
 import { handleTeamVmAdmin } from "./team-vm-admin.ts"
@@ -225,6 +226,11 @@ export default {
     // The Claude Code route's turn machines stream their turn back here (chief-brain-cc/turn.ts; a per-turn token).
     const ccNotes = url.pathname.match(CC_NOTES_PATH)
     if (ccNotes) return handleCcNotes(request, env, ccNotes[1]!, ccNotes[2]!)
+    // Cloud group links (cloud-groups-DESIGN.md): an anonymous hand-off page with no group data.
+    if (request.method === "GET" && GROUP_PAGE_ANY.test(url.pathname)) {
+      const g = url.pathname.match(GROUP_PAGE_PATH)
+      return g ? groupLinkPage(g[1]!) : new Response("not found", { status: 404 })
+    }
     // Home invite links: anonymous; the card answers only for open invites, the preview only with the secret.
     const card = url.pathname.match(/^\/v1\/invites\/card\/([dg][0-9A-HJKMNP-TV-Z]{26})$/)
     if (card && request.method === "GET") return handleInviteCard(env, card[1]!)
