@@ -169,10 +169,11 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.subagentPane")
             }
             return AgentPaneReply.success(["opened": header.openSubagent(sessionId, agent, focus)])
-        case .changesPane(let row, let path):
+        case .changesPane(let asked, let row, let path):
             // The chat's own turn, in a pane of its own; a refusal answers `opened: false`, and the
-            // page shows the changes in this pane instead.
-            guard let sessionId, newTab == nil, let header else {
+            // page shows the changes in this pane instead. A pane that moved to another chat since
+            // the click opens none.
+            guard let sessionId, sessionId == asked, newTab == nil, let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.changesPane")
             }
             return AgentPaneReply.success(["opened": header.openChanges(sessionId, row, path)])

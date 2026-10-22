@@ -25,11 +25,12 @@ export function revealedChanges(value: string): ChangesRequest | undefined {
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
-/// Asks the app for a pane right of the chat on the changes of the turn holding `rowId`, at `path`;
-/// false when it opened none.
-export async function openChangesPane(call: Call, rowId: string, path?: string): Promise<boolean> {
+/// Asks the app for a pane right of the chat `sessionId` on the changes of its turn holding `rowId`,
+/// at `path`; false when it opened none (the app refuses a pane that shows another chat by now).
+export async function openChangesPane(call: Call, sessionId: string, rowId: string, path?: string): Promise<boolean> {
   try {
-    const reply = await call("chat.changesPane", path ? { row: rowId, path } : { row: rowId });
+    const params = { session: sessionId, row: rowId, ...(path ? { path } : {}) };
+    const reply = await call("chat.changesPane", params);
     return (reply as { opened?: unknown } | null)?.opened === true;
   } catch {
     return false;

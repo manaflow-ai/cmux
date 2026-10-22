@@ -28,15 +28,20 @@ test("the page asks for the pane and reads whether one opened", async () => {
       calls.push([method, params]);
       return { opened: true };
     },
+    "chat-1",
     "row-7",
     "/a.txt",
   );
   expect(opened).toBe(true);
-  expect(calls).toEqual([["chat.changesPane", { row: "row-7", path: "/a.txt" }]]);
-  expect(await openChangesPane(async () => ({ opened: false }), "row-7")).toBe(false);
+  expect(calls).toEqual([["chat.changesPane", { session: "chat-1", row: "row-7", path: "/a.txt" }]]);
+  expect(await openChangesPane(async () => ({ opened: false }), "chat-1", "row-7")).toBe(false);
   expect(
-    await openChangesPane(async () => {
-      throw new Error("unsupported");
-    }, "row-7"),
+    await openChangesPane(
+      async () => {
+        throw new Error("unsupported");
+      },
+      "chat-1",
+      "row-7",
+    ),
   ).toBe(false);
 });

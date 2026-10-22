@@ -4393,16 +4393,22 @@ function AcpmuxPane() {
   /// (Quick Chat, the gallery, a pane already showing a turn's changes, a chat on another machine,
   /// whose session the app opens no second tab on): the diff then opens in place.
   /// Set below, once the header's actions exist.
-  const diffBeside = useRef<(rowId: string, path?: string) => Promise<boolean>>(async () => false);
+  const diffBeside = useRef<(sessionId: string, rowId: string, path?: string) => Promise<boolean>>(
+    async () => false,
+  );
   // A click does not focus a button in WebKit, so the clicked control is the opener, not the focus.
   const openDiff = useCallback<OpenDiff>((rowId, path, opener) => {
     const clicked = opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined);
+    // The chat clicked in: a pane that moves to another chat while the open runs drops it.
+    const sessionId = sessionIdRef.current;
     const inPlace = () => {
+      if (sessionIdRef.current !== sessionId) return;
       inspectorOpenRef.current = false;
       setInspectorOpen(false);
-      setDiffView({ sessionId: sessionIdRef.current, rowId, path, opener: clicked });
+      setDiffView({ sessionId, rowId, path, opener: clicked });
     };
-    void diffBeside.current(rowId, path).then((opened) => {
+    if (!sessionId) return inPlace();
+    void diffBeside.current(sessionId, rowId, path).then((opened) => {
       if (!opened) inPlace();
     }, inPlace);
   }, []);
@@ -6541,13 +6547,15 @@ function AcpmuxPane() {
     runHeaderAction(id, cwd, mode);
     window.setTimeout(refreshTabState, 400);
   };
-  diffBeside.current = async (rowId, path) => {
+  diffBeside.current = async (sessionId, rowId, path) => {
     // Quick Chat's panel has no tab beside it; a pane on a turn's changes shows another turn in place;
     // a remote or cloud chat's folder is not on this Mac, and the app opens no second tab on its session.
     if (quick || changesRequested.current || !localCwd) return false;
     // The folder's diff is its repository's: a folder outside a repository, or a file the turn wrote
     // outside it, opens the turn's own diff in a pane of its own (turnChanges/viewChanges.ts).
     const root = await repositoryRoot(localCwd, readFolderStatus);
+    // The pane moved to another chat meanwhile: its rows and folder are not the clicked chat's.
+    if (sessionIdRef.current !== sessionId) return true;
     if (viewChangesBeside(turnRowsRef.current, rowId, root)) {
       const reply = await callNative<{ ran?: boolean } | null>("pane.action", {
         id: HEADER_ACTIONS.changes,
@@ -6557,7 +6565,7 @@ function AcpmuxPane() {
       window.setTimeout(refreshTabState, 400);
       if (reply?.ran === true) return true;
     }
-    return openChangesPane(callNative, rowId, path);
+    return openChangesPane(callNative, sessionId, rowId, path);
   };
   // The label starts from the chat's layout; Quick Chat's panel has no tab to read.
   useEffect(() => {
