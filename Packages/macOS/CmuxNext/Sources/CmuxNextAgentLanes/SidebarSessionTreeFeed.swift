@@ -95,10 +95,16 @@ public final class SidebarSessionTreeFeed {
                 state.parents[id] = parent
             }
         }
-        // The parent recorded when an agent opened the workspace, for sessions whose daemon lists none.
-        // Set first, so the daemon's lineage, read below, replaces it wherever it has one.
+        // The parent recorded when an agent opened the workspace, only for a session whose daemon lists no
+        // lineage at all: a daemon parent wins even when no workspace here shows it. Set first, so the
+        // daemon's lineage, read below, replaces it wherever it has one.
         for (id, refs) in chats where state.parents[id] == nil {
-            let recorded = refs.lazy.compactMap { $0.session.flatMap { recordedParents[$0] }.flatMap { owner[$0] } }
+            let recorded = refs.lazy.compactMap { ref -> SidebarWorkspaceID? in
+                guard let session = ref.session else { return nil }
+                let daemon = ref.host == localHost ? lanes[session]?.spawnedBy : remoteParents[session]
+                guard daemon == nil else { return nil }
+                return recordedParents[session].flatMap { owner[$0] }
+            }
             if let parent = recorded.first(where: { $0 != id }) { state.parents[id] = parent }
         }
         for (id, ids) in sessions {

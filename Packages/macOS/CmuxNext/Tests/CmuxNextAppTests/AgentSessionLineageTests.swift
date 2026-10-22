@@ -70,6 +70,20 @@ import Testing
         #expect(remote.state.parents == [Self.opened: Self.spawner])
     }
 
+    /// A daemon parent no workspace here shows still wins: the child stays top level rather than
+    /// nesting under the recorded caller.
+    @Test func aDaemonParentNoWorkspaceShowsStillWins() {
+        let recorded = ["s-opened": "s-caller"]
+        let lanes = ["s-opened": Self.lane("s-opened", spawnedBy: "s-hidden")]
+        let local = SidebarSessionTreeFeed.pass(Self.chats(), lanes: lanes, recordedParents: recorded,
+                                                localHost: Self.localHost, pullRequests: [:])
+        #expect(local.state.parents.isEmpty)
+        let remote = SidebarSessionTreeFeed.pass(Self.chats(host: "registry:vm"), lanes: [:],
+                                                 remoteParents: ["s-opened": "s-hidden"], recordedParents: recorded,
+                                                 localHost: Self.localHost, pullRequests: [:])
+        #expect(remote.state.parents.isEmpty)
+    }
+
     @Test func recordedParentsSurviveARelaunchAndKeepTheNewest() throws {
         let suite = "cmux.next.tests.lineage.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
