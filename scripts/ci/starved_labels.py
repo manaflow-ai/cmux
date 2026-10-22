@@ -19,7 +19,8 @@ queue_janitor.py calls starved() and writes the result into the
 macos-pool-load snapshot as ``starved``. ci-queue-janitor.yml then runs this
 script on that snapshot: one ::error:: annotation and a step-summary line per
 starved label, and one open issue per label titled ISSUE_PREFIX + label,
-updated while it stays starved and closed when it recovers. Issues use the
+updated while it stays starved and closed only on evidence of recovery
+(a job on the label running or started, or none queued; see plan_issues()). Issues use the
 cmux-bot App token the janitor already mints with issues: write; without it a
 starved label fails this step instead. The heal itself runs on the minis:
 glaeda-mini-health kickstarts a stopped runner LaunchAgent (runner_stopped),
@@ -57,9 +58,9 @@ def fleet_key(job: Mapping[str, Any]) -> str:
     return "+".join(sorted({str(label) for label in job.get("labels") or () if str(label).startswith(FLEET_PREFIX)}))
 
 
-def starved(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]], *,
-            now: dt.datetime, after: dt.timedelta = STARVED_AFTER) -> list[dict[str, Any]]:
-    """The fleet labels with a job queued past `after` and none running or started within it."""
+def _unserved_queues(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]], *,
+                     now: dt.datetime, after: dt.timedelta) -> dict[str, list[Mapping[str, Any]]]:
+    """Fleet label key -> its queued jobs, for labels no job is running on or started on within `after`."""
     waiting: dict[str, list[Mapping[str, Any]]] = {}
     served: set[frozenset[str]] = set()
     for run in runs:
@@ -73,12 +74,29 @@ def starved(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequenc
                 waiting.setdefault(key, []).append(job)
             elif status == "in_progress" or (job.get("runner_name") and started and now - started <= after):
                 served.add(frozenset(key.split("+")))
+    return {key: jobs for key, jobs in sorted(waiting.items())
+            if not any(frozenset(key.split("+")) <= runner_labels for runner_labels in served)}
+
+
+def unserved(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]], *,
+             now: dt.datetime, after: dt.timedelta = STARVED_AFTER) -> list[str]:
+    """Fleet labels with a queued job, of any age, and no sign of service: an open alert stays open.
+
+    Recovery needs positive evidence: a job on the label running or started within `after`, or no
+    queued job on it at all. A stuck job cancelled and replaced on the same stopped listener leaves a
+    replacement younger than the alert threshold, which is not recovery.
+    """
+    return list(_unserved_queues(runs, jobs_by_run, now=now, after=after))
+
+
+def starved(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]], *,
+            now: dt.datetime, after: dt.timedelta = STARVED_AFTER) -> list[dict[str, Any]]:
+    """The fleet labels with a job queued past `after` and none running or started within it."""
     found = []
-    for key, jobs in sorted(waiting.items()):
+    for key, jobs in _unserved_queues(runs, jobs_by_run, now=now, after=after).items():
         oldest = min(jobs, key=lambda job: parse_time(job.get("created_at")) or now)
         age = now - (parse_time(oldest.get("created_at")) or now)
-        labels = frozenset(key.split("+"))
-        if age < after or any(labels <= runner_labels for runner_labels in served):
+        if age < after:
             continue
         found.append({"label": key, "oldest_queued_minutes": int(age.total_seconds() // 60), "queued": len(jobs),
                       "job": str(oldest.get("name") or ""), "job_url": str(oldest.get("html_url") or "")})
@@ -113,23 +131,47 @@ class IssuePlan:
     open: list[Mapping[str, Any]]
     update: list[tuple[Mapping[str, Any], Mapping[str, Any]]]
     close: list[Mapping[str, Any]]
+    # (duplicate, the oldest issue with its title, which is kept)
+    duplicates: list[tuple[Mapping[str, Any], Mapping[str, Any]]] = dataclasses.field(default_factory=list)
 
 
-def plan_issues(found: Iterable[Mapping[str, Any]], open_issues: Iterable[Mapping[str, Any]]) -> IssuePlan:
-    by_title = {str(issue.get("title")): issue for issue in open_issues
-                if str(issue.get("title") or "").startswith(ISSUE_PREFIX)}
+def plan_issues(found: Iterable[Mapping[str, Any]], open_issues: Iterable[Mapping[str, Any]], *,
+                unserved: Iterable[str] = (), generated_at: str = "") -> IssuePlan:
+    """What to do with each open starved-label issue.
+
+    Sweeps are serialized (the workflow's concurrency group never cancels one in progress), and this
+    fences anyway: a title with several open issues keeps its oldest and closes the rest as
+    duplicates, a label still queued and unserved keeps its issue open even below the alert
+    threshold, and an issue updated at or after this snapshot's time is never closed by it.
+    """
+    by_title: dict[str, list[Mapping[str, Any]]] = {}
+    for issue in open_issues:
+        if str(issue.get("title") or "").startswith(ISSUE_PREFIX):
+            by_title.setdefault(str(issue["title"]), []).append(issue)
     plan = IssuePlan([], [], [])
+    keepers: dict[str, Mapping[str, Any]] = {}
+    for title, issues in sorted(by_title.items()):
+        issues.sort(key=lambda issue: issue["number"])
+        keepers[title] = issues[0]
+        plan.duplicates.extend((issue, issues[0]) for issue in issues[1:])
     for entry in found:
-        issue = by_title.pop(issue_title(entry["label"]), None)
+        issue = keepers.pop(issue_title(entry["label"]), None)
         if issue is None:
             plan.open.append(entry)
         else:
             plan.update.append((issue, entry))
-    plan.close = sorted(by_title.values(), key=lambda issue: issue["number"])
+    held = {issue_title(label) for label in unserved}
+    snapshot_at = parse_time(generated_at)
+    for title, issue in sorted(keepers.items(), key=lambda item: item[1]["number"]):
+        updated = parse_time(issue.get("updated_at"))
+        if title in held or (snapshot_at and updated and updated >= snapshot_at):
+            continue
+        plan.close.append(issue)
     return plan
 
 
-def sync_issues(github: Any, found: Sequence[Mapping[str, Any]], generated_at: str) -> list[str]:
+def sync_issues(github: Any, found: Sequence[Mapping[str, Any]], generated_at: str, *,
+                unserved: Iterable[str] = ()) -> list[str]:
     """Open, update and close the per-label issues; returns one line per action."""
     repo = github.repo
     # Found by title, not by ISSUE_LABEL: GitHub drops a label that does not exist yet when the token
@@ -137,8 +179,14 @@ def sync_issues(github: Any, found: Sequence[Mapping[str, Any]], generated_at: s
     query = urllib.parse.urlencode({"q": f'repo:{repo} is:issue is:open in:title "{ISSUE_PREFIX.strip()}"',
                                     "per_page": 100})
     open_issues = (github.request("GET", f"/search/issues?{query}") or {}).get("items") or []
-    plan = plan_issues(found, open_issues)
+    plan = plan_issues(found, open_issues, unserved=unserved, generated_at=generated_at)
     lines = []
+    for issue, keeper in plan.duplicates:
+        github.request("POST", f"/repos/{repo}/issues/{issue['number']}/comments",
+                       {"body": f"Duplicate of #{keeper['number']}, which tracks this label."})
+        github.request("PATCH", f"/repos/{repo}/issues/{issue['number']}",
+                       {"state": "closed", "state_reason": "not_planned"})
+        lines.append(f"closed #{issue['number']} as a duplicate of #{keeper['number']}")
     for entry in plan.open:
         created = github.request("POST", f"/repos/{repo}/issues", {
             "title": issue_title(entry["label"]), "body": issue_body(entry, generated_at), "labels": [ISSUE_LABEL]})
@@ -148,10 +196,18 @@ def sync_issues(github: Any, found: Sequence[Mapping[str, Any]], generated_at: s
         lines.append(f"updated #{issue['number']} for `{entry['label']}`")
     for issue in plan.close:
         github.request("POST", f"/repos/{repo}/issues/{issue['number']}/comments",
-                       {"body": f"Recovered: the sweep at {generated_at} found this label served or idle."})
+                       {"body": f"Recovered: the sweep at {generated_at} found a job on this label running or "
+                                        "started, or none queued."})
         github.request("PATCH", f"/repos/{repo}/issues/{issue['number']}", {"state": "closed", "state_reason": "completed"})
         lines.append(f"closed #{issue['number']} ({issue['title'][len(ISSUE_PREFIX):]} recovered)")
     return lines
+
+
+def client(token: str, repo: str) -> Any:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from queue_janitor import GitHub  # noqa: PLC0415 the janitor imports this module
+
+    return GitHub(token, repo)
 
 
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None) -> int:
@@ -188,11 +244,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             lines.append("- No cmux-bot token this sweep: the tracking issues were not opened or updated.")
             code = 1
     else:
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
-        from queue_janitor import GitHub  # noqa: PLC0415 the janitor imports this module
-
         try:
-            lines.extend(f"- {line}" for line in sync_issues(GitHub(token, repo), found, generated_at))
+            lines.extend(f"- {line}" for line in sync_issues(client(token, repo), found, generated_at,
+                                                            unserved=snapshot.get("unserved") or ()))
         except RuntimeError as error:
             print(f"::error title=Runner label starved::tracking issues: {error}")
             lines.append(f"- Tracking issues could not be synced: {error}")

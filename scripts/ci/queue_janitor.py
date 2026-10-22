@@ -1586,6 +1586,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Fleet labels no runner is taking jobs from; the workflow's alert step
         # (starved_labels.py) annotates them and keeps one issue per label.
         snapshot["starved"] = starved_labels.starved(runs, jobs_by_run, now=now)
+        snapshot["unserved"] = starved_labels.unserved(runs, jobs_by_run, now=now)
         # Warm affinity on: which root runner kept a build of which main
         # commits (owned_warm_state.py). A failure leaves `warm` out, and the
         # picker then routes admission by the root label as before.
