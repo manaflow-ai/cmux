@@ -76,6 +76,9 @@ export type ModelPickerProps = {
   quick?: QuickMenuExtras;
   /// The effort's short name ("Med") the compact chip shows in a narrow row (composerRowFit.ts).
   detailShort?: string;
+  /// Set while the picker is mounted to a call that opens its menu (the compact one when `quick`
+  /// is set), whose rail switches harness: the footer's harness item opens it (ComposerHarness.tsx).
+  opener?: { current: (() => void) | undefined };
   /// The room, in px, left of the open menu for its submenus (`menuRoom`). Tests pass a
   /// number in place of real layout.
   measureRoom?(menu: HTMLElement): number;

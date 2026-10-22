@@ -16,6 +16,9 @@ import type { SpeedSection } from "./EffortPicker";
 import { type SpeedTiers, useSpeedToggle } from "./FastToggle";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
+import { ComposerHarness } from "./ComposerHarness";
+import { knownMark } from "../shared/AgentMark";
+import { agentName } from "./agents";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { extraConfigOptions } from "./agentOptions";
 import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
@@ -694,10 +697,37 @@ export function ComposerPickers({
       ? t(PICKER_LABELS.context, { percent: Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) })
       : undefined;
 
+  // The quiet row starts with the harness (ComposerHarness.tsx): the one a switch is starting, else
+  // the one the chips draw, marked and named as the model button's rail names it.
+  const switchTarget = snapshot.switching?.phase === "failed" ? undefined : snapshot.switching;
+  const footHarness = switchTarget?.harness ?? chipHarness;
+  const footEntry = footHarness ? snapshot.catalog.find((entry) => entry.id === footHarness) : undefined;
+  const footPicker =
+    footHarness === chipHarness
+      ? chipEntry
+      : pickerCatalog?.harnesses.find((entry) => (entry.acpmuxHarness ?? entry.id) === footHarness);
+  const harnessMark = footHarness
+    ? knownMark(footEntry?.icon, footEntry?.family, footPicker?.brand ?? undefined, footHarness)
+    : undefined;
+  const harnessName = footHarness
+    ? (switchTarget?.name ?? footPicker?.name ?? agentName(footHarness, footEntry?.name))
+    : undefined;
+  // The model button's menu, which the harness item opens while the chat can still switch.
+  const switcher = useRef<(() => void) | undefined>(undefined);
+  const picksModel =
+    snapshot.catalog.length > 0 || Boolean(harness) || Boolean(pickerCatalog?.harnesses.length && !harnessesListed);
   const chips = (
     <div className="acpmux-chips">
-      {snapshot.catalog.length > 0 || harness || Boolean(pickerCatalog?.harnesses.length && !harnessesListed) ? (
+      {harnessMark && harnessName && (
+        <ComposerHarness
+          mark={harnessMark}
+          name={harnessName}
+          {...(switchHarness && picksModel ? { openSwitcher: () => switcher.current?.() } : {})}
+        />
+      )}
+      {picksModel ? (
         <ModelPicker
+          opener={switcher}
           catalog={pickerEntries}
           harness={harness}
           model={shown}
