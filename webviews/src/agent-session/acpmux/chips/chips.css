@@ -253,10 +253,14 @@
   box-sizing: border-box;
   border-radius: 50%;
   color: var(--cv-text);
-  transition: transform 120ms;
 }
 .cv-media__poster:hover .cv-media__play {
   transform: scale(1.06);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-media__play {
+    transition: transform var(--cmux-motion-micro, 120ms);
+  }
 }
 /* The length, in the frame's corner on its own dark scrim so it reads over any frame. */
 .cv-media__duration {
@@ -288,7 +292,11 @@
   display: flex;
   gap: 4px;
   opacity: 0;
-  transition: opacity 120ms;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-media__actions {
+    transition: opacity var(--cmux-motion-micro, 120ms);
+  }
 }
 .cv-media__action {
   display: grid;

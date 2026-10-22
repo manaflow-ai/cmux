@@ -5,7 +5,7 @@
 // does not show. A video first draws as its thumbnail (Leo 2026-10-21: "id like to be able to watch
 // .mp4s direclty in cmux next"): its poster frame, a play button and its length. The pointer
 // resting on it previews it muted; a click plays it with sound and controls. Expand shows it large
-// over the pane, and Open in tab opens it in a tab the way a link opens (the host's link setting):
+// over the pane (paused until Play), and Open in tab opens it in a tab the way a link opens (the host's link setting):
 // a file in cmux's file pages, a web video in a cmux browser tab. Until the host answers, or when
 // it will not play the file, the file shows as its name.
 // Web media (a GitHub user attachment or an https media link, alone on its line or as an image)
@@ -222,8 +222,8 @@ export function MediaPlayer({
               </button>
             </div>
             <div className="cv-media-stage">
-              {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- an agent's recording has no captions */}
-              <video src={src} controls autoPlay playsInline aria-label={name} />
+              {/* Opens paused, like the thumbnail: only Play starts it with sound (never autoplay). */}
+              <VideoThumbnail src={src} name={name} onError={onError} />
             </div>
           </div>
         </Dialog>
