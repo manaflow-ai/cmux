@@ -274,6 +274,31 @@ impl Hub {
         }
     }
 
+    /// Before a prompt for a session with no running agent is taken: its folder, restored when
+    /// cleanup reclaimed it, or a refusal naming the folder when it is still gone (a worktree
+    /// removed by hand). The refusal is retryable, so an outbox delivery (`server/outbox.rs`)
+    /// keeps the message and sends it again once the folder is back; a harness started in a
+    /// missing folder failed the turn after it was taken, as `spawn harness process: No such
+    /// file or directory`.
+    pub(super) async fn folder_ready(&self, session: &Arc<Session>) -> Result<(), RpcError> {
+        self.care_restore_for(session).await;
+        let meta = session.meta();
+        if tokio::fs::try_exists(&meta.cwd).await.unwrap_or(true) {
+            return Ok(());
+        }
+        Err(RpcError::internal(format!(
+            "session.folder_missing: the folder of {} ({}) no longer exists; it was moved or \
+             removed, so its agent cannot start until it is back",
+            meta.name,
+            meta.cwd.display()
+        ))
+        .with_data(json!({
+            "reason": "session.folder_missing",
+            "folder": meta.cwd,
+            "retryable": true,
+        })))
+    }
+
     async fn care_restore_for(&self, session: &Arc<Session>) {
         let cwd = session.meta().cwd.clone();
         if tokio::fs::try_exists(&cwd).await.unwrap_or(true) {

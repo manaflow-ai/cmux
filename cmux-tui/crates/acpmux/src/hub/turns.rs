@@ -223,6 +223,8 @@ impl Hub {
         if !live {
             let cfg = self.config.read().await;
             super::resolve::session_profile_checked(&cfg, &m.harness, &m.cwd, m.remote_origin)?;
+            drop(cfg);
+            self.folder_ready(session).await?;
         }
         let text = prompt_text(&blocks);
         let running = session.turn();
