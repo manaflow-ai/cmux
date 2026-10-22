@@ -108,13 +108,14 @@ pub(super) fn status() -> Value {
         Ok(status) => json!(status.backend_state),
         Err(action) => json!(action["kind"]),
     };
+    let fix = if host["serving"] == true { Value::Null } else { json!("cmux setup tailnet") };
     json!({
         "task": TASK,
         "tailnet": tailnet,
         "enabled": host["enabled"],
         "serving": host["serving"],
         "name": host["name"],
-        "fix": if host["serving"] == true { Value::Null } else { json!("cmux setup tailnet") },
+        "fix": fix,
     })
 }
 
@@ -134,16 +135,15 @@ fn tailscale() -> Result<tailnet::Status, Value> {
         if message.contains("cannot run") {
             return install();
         }
-        json!({
-            "kind": "start",
-            "text": if cfg!(target_os = "macos") {
-                "Open the Tailscale app so it runs, then run this again."
-            } else {
-                "Start Tailscale (`sudo systemctl enable --now tailscaled`), then run this again."
-            },
-            "command": if cfg!(target_os = "macos") { "open -a Tailscale" } else { "sudo systemctl enable --now tailscaled" },
-            "detail": message,
-        })
+        let (text, command) = if cfg!(target_os = "macos") {
+            ("Open the Tailscale app so it runs, then run this again.", "open -a Tailscale")
+        } else {
+            (
+                "Start Tailscale (`sudo systemctl enable --now tailscaled`), then run this again.",
+                "sudo systemctl enable --now tailscaled",
+            )
+        };
+        json!({"kind": "start", "text": text, "command": command, "detail": message})
     })
 }
 
