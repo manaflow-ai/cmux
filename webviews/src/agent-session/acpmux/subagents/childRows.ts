@@ -4,7 +4,7 @@
 // row, so nesting reads the same at every level.
 import { appendThought, mergeToolItem, textFromContent } from "../direct";
 import type { AcpmuxRow } from "../model";
-import { isPlumbingCall, showsNothing } from "../hiddenTools";
+import { isPlumbingCall } from "../hiddenTools";
 import { SUBAGENTS, type Event, type Subagent } from "./subagentFold";
 
 /// One of a subagent's own updates, or the point where it spawned a subagent.
@@ -71,7 +71,9 @@ export function childRows(
       if (isPlumbingCall(update)) hidden.add(callId);
       if (hidden.has(callId)) continue;
       const known = tools.get(callId);
-      if (!known && kind === "tool_call_update" && showsNothing(update)) continue;
+      // An update to a call whose start this view never saw, with no title, names nothing but the
+      // call's raw id (Leo's subagent view opened on "toolu_01Rq…"): it draws no row.
+      if (kind === "tool_call_update" && !known && !update.title) continue;
       const rowId = known ?? activity ?? `${id}:activity-${event.seq}`;
       const existing = rows.get(rowId);
       const items = [...(existing?.items ?? [])];
