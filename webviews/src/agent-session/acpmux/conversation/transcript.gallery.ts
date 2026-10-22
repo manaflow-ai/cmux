@@ -587,6 +587,48 @@ const MCP_READ = mcpTool(
   }),
 );
 
+/// Results a harness passes on as JSON text (toolResult.ts): a one-line JSON object, an MCP
+/// content list whose text is Markdown, a `{result, error}` envelope, Codex's `{output, metadata}`,
+/// and a JSON file a tool read, which stays JSON as printed.
+const ENVELOPE_TOOLS = [
+  tool("TaskStop", "other", "completed", {
+    output: JSON.stringify({
+      message: "Successfully stopped task: b5muqfh92 (bun test src/net --watch)",
+      task_id: "b5muqfh92",
+      task_type: "local_bash",
+      command: "bun test src/net --watch",
+    }),
+  }),
+  tool("Search open issues", "search", "completed", {
+    output: JSON.stringify([
+      {
+        type: "text",
+        text: "## Open issues\n\n- **#12** Crash on launch when the cache is empty\n- **#14** Slow scroll in long chats\n- **#19** Retry button stays disabled",
+      },
+    ]),
+  }),
+  tool("Review gate", "other", "failed", {
+    output: JSON.stringify({
+      error: null,
+      result: {
+        _meta: null,
+        content: [{ type: "text", text: "Tool call rejected by review. Continue without it." }],
+        structuredContent: null,
+      },
+    }),
+  }),
+  tool("Run focused tests", "other", "completed", {
+    output: JSON.stringify({
+      output: "3 pass\n0 fail\nRan 3 tests across 1 file. [118.00ms]\n",
+      metadata: { exit_code: 0, duration_seconds: 0.4 },
+    }),
+  }),
+  tool("Read package.json", "read", "completed", {
+    output:
+      '{\n  "name": "@cmux/webviews",\n  "private": true,\n  "type": "module",\n  "scripts": {\n    "test": "bun test"\n  }\n}\n',
+  }),
+];
+
 export default agentPaneEntry({
   id: "agent-pane.transcript",
   title: "Transcript rows",
@@ -1372,6 +1414,23 @@ export default agentPaneEntry({
         ],
         { isWorking: true },
       ),
+    },
+    "tool-result-envelopes": {
+      note: "Opened tool results read as their content, not the JSON a harness wrapped them in: one-line JSON pretty-printed, an MCP text list as Markdown, a result envelope and Codex's output as their text, a JSON file kept as printed.",
+      height: 1100,
+      snapshot: chat(
+        [user("Stop the watcher, check the issues and run the tests.", 1), activity(ENVELOPE_TOOLS, 0.8)],
+        { isWorking: true },
+      ),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-tool.is-toggle").length === ENVELOPE_TOOLS.length);
+        for (let opened = 0; opened < ENVELOPE_TOOLS.length; opened++)
+          await ctx.click({ selector: '.cv-tool.is-toggle[aria-expanded="false"]' });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-tool-output-card").length === ENVELOPE_TOOLS.length);
+        if (!ctx.document.querySelector(".cv-tool-output__markdown h2"))
+          throw new Error("the MCP text list did not render as Markdown");
+        if (ctx.document.body.textContent?.includes('"type":"text"')) throw new Error("an envelope shows raw");
+      },
     },
     "tool-calls": {
       note: "An ended turn: its work folds under Worked for.",
