@@ -147,10 +147,12 @@ nonisolated struct AgentPaneReplyImages {
     }
 }
 
-/// Rebuilds an SVG file without what could run or load anything: `script`, `foreignObject` and
-/// embedded documents, every `on*` attribute, `style` attributes with `url(`, and any `href`
-/// that is not a fragment (`#id`). No DTD or entity is read. The page draws the result only as
-/// an `<img>`, where WebKit runs no script and loads nothing either; this is the second wall.
+/// Rebuilds an SVG file without what could run, load or link anything: `script`, `foreignObject`
+/// and embedded documents, every `on*` attribute, any attribute with a `url(` that is not a
+/// fragment (`url(#id)`), and any `href` that is not a fragment (`#id`). An `<a>` becomes a plain
+/// `<g>`: its content still draws, but nothing in the image is a link (media-safety R7). No DTD,
+/// entity or processing instruction is read. The page draws the result only as an `<img>`, where
+/// WebKit runs no script and loads nothing either; this is the second wall.
 nonisolated final class AgentPaneSVGSanitizer: NSObject, XMLParserDelegate {
     private static let droppedElements: Set<String> = [
         "script", "foreignobject", "iframe", "object", "embed", "audio", "video", "handler", "listener", "set", "animate",
@@ -178,15 +180,27 @@ nonisolated final class AgentPaneSVGSanitizer: NSObject, XMLParserDelegate {
             .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
     }
 
-    private static func keeps(_ name: String, _ value: String) -> Bool {
+    /// The attributes only a link has; an `<a>` rebuilt as a `<g>` drops them.
+    private static let linkAttributes: Set<String> = ["target", "download", "ping", "rel", "hreflang", "referrerpolicy", "type"]
+
+    private static func keeps(_ name: String, _ value: String, link: Bool = false) -> Bool {
         let lower = name.lowercased()
         if lower.hasPrefix("on") { return false }
-        if lower == "href" || lower.hasSuffix(":href") { return value.hasPrefix("#") }
-        if lower == "style" || lower == "filter" || lower == "mask" || lower == "clip-path" || lower == "fill" || lower == "stroke" {
-            let compact = value.lowercased().filter { !$0.isWhitespace }
-            return !compact.contains("url(") || compact.contains("url(#")
-        }
-        return true
+        if lower == "href" || lower.hasSuffix(":href") { return !link && value.hasPrefix("#") }
+        if link, linkAttributes.contains(lower) { return false }
+        return !linksOut(value)
+    }
+
+    /// A link element's name as a group with the same prefix (`a` is `g`, `svg:a` is `svg:g`).
+    private static func group(_ elementName: String) -> String {
+        guard let colon = elementName.lastIndex(of: ":") else { return "g" }
+        return elementName[...colon] + "g"
+    }
+
+    /// Whether `text` holds a `url(` that is not a fragment (`url(#id)`), quoted or not.
+    private static func linksOut(_ text: String) -> Bool {
+        let compact = text.lowercased().filter { !$0.isWhitespace && $0 != "\"" && $0 != "'" }
+        return compact.components(separatedBy: "url(").dropFirst().contains { !$0.hasPrefix("#") }
     }
 
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName: String?,
@@ -204,8 +218,9 @@ nonisolated final class AgentPaneSVGSanitizer: NSObject, XMLParserDelegate {
             skipping += 1
             return
         }
-        output += "<" + elementName
-        for (name, value) in attributes.sorted(by: { $0.key < $1.key }) where Self.keeps(name, value) {
+        let link = local == "a"
+        output += "<" + (link ? Self.group(elementName) : elementName)
+        for (name, value) in attributes.sorted(by: { $0.key < $1.key }) where Self.keeps(name, value, link: link) {
             output += " \(name)=\"\(Self.escape(value))\""
         }
         output += ">"
@@ -219,14 +234,14 @@ nonisolated final class AgentPaneSVGSanitizer: NSObject, XMLParserDelegate {
             return
         }
         inStyle = false
-        output += "</\(elementName)>"
+        let local = (elementName.split(separator: ":").last.map(String.init) ?? elementName).lowercased()
+        output += "</\(local == "a" ? Self.group(elementName) : elementName)>"
     }
 
     private func styleText(_ text: String) -> String {
         guard inStyle else { return text }
         let compact = text.lowercased().filter { !$0.isWhitespace }
-        let linksOut = compact.contains("@import") || compact.components(separatedBy: "url(").dropFirst().contains { !$0.hasPrefix("#") }
-        return linksOut ? "" : text
+        return compact.contains("@import") || Self.linksOut(text) ? "" : text
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {

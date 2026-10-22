@@ -50,9 +50,16 @@ nonisolated enum AgentPaneImageCopies {
         return "\(base) \(hash).\(extensions[type] ?? "img")"
     }
 
-    /// Writes `src`'s copy into `folder` (once per image) and returns its file.
+    /// Writes `src`'s copy into `folder` (once per image) and returns its file. An SVG is written
+    /// only as its rebuilt form (``AgentPaneSVGSanitizer``): a `data:` SVG comes from the reply as
+    /// the agent wrote it, and its copy is shown in Finder, saved, dragged out and Quick Looked
+    /// outside the pane's `<img>`, where its script and links would count (media-safety R7).
     @concurrent static func copy(_ src: String, name: String, in folder: URL) async -> Result<URL, AgentPaneReplyError> {
-        guard let image = decode(src) else { return .failure(.imageRefused) }
+        guard var image = decode(src) else { return .failure(.imageRefused) }
+        if image.type == "image/svg+xml" {
+            guard let clean = AgentPaneSVGSanitizer.sanitize(image.data) else { return .failure(.imageRefused) }
+            image.data = clean
+        }
         let file = folder.appendingPathComponent(fileName(name, data: image.data, type: image.type), isDirectory: false)
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
