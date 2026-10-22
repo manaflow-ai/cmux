@@ -32,7 +32,8 @@ export interface ChatDisplay {
   /// Where the Inspector goes when open (inspector/ChatInspector.tsx): `overlay` (the default) floats
   /// in the chat's right gutter, so opening, closing or updating it never reflows the chat (Leo,
   /// 2026-10-20), and pushes the chat aside only when the gutter has no room for it, so it never
-  /// lies over the transcript's text (Leo, 2026-10-21); `push` always moves the chat aside. Not a look: the Text & Width popover's Reset leaves it.
+  /// lies over the transcript's text (Leo, 2026-10-21); `push` always moves the chat aside. Not a
+  /// look: the Text & Width popover's Reset leaves it.
   inspector: "push" | "overlay";
 }
 

@@ -345,7 +345,7 @@ function InspectorPresence({
   const statuses = useMemo(() => headerStatus(pullRequest), [pullRequest]);
   // An output's diff opens beside the chat. When that split leaves too little room for a readable
   // chat beside the Inspector, it steps aside until the toggle opens it again.
-  const roomy = paneWidth <= 0 || paneWidth - width >= PUSH_MIN_CHAT;
+  const roomy = paneWidth <= 0 || paneWidth - pushedWidth(paneWidth, width) - FLOAT_MARGIN >= PUSH_MIN_CHAT;
   const roomyRef = useRef(roomy);
   useEffect(() => {
     const was = roomyRef.current;
@@ -357,7 +357,7 @@ function InspectorPresence({
     <InspectorPanel
       width={push ? pushedWidth(paneWidth, width) : width}
       placement={push ? "push" : "overlay"}
-      // Floating, it starts under the chat header (styles.css --acpmux-header-height; in the
+      // Floating or pushing, it starts under the chat header (styles.css --acpmux-header-height; in the
       // pane's tab row, the row's height), so the header's tools, its own toggle among them, stay in reach.
       under={tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 44px)"}
       presence={presence}
@@ -400,7 +400,7 @@ function InspectorPresence({
 
 /// The panel's frame: its width, its place beside the chat (push) or floating in the chat's right
 /// gutter (overlay), and the drag handle on its left edge (a double-click puts the width back). With
-/// `presence`, it enters from and leaves toward the pane's right edge. Floating, it starts `under` (a
+/// `presence`, it enters from and leaves toward the pane's right edge. Either way, it starts `under` (a
 /// CSS length: the chat header's height) below the pane's top, at the top by default.
 export function InspectorPanel({
   width,
