@@ -330,6 +330,7 @@ import { Notice, NoticeSlot } from "./NoticeSlot";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
 import { type ChatAccounts, ChatAccountsContext, readChatAccounts } from "./chatAccounts";
 import { HostError } from "./HostError";
+import { afterHostFailure } from "./hostRetry";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { restartOwner, restartPrompt, restartReaches } from "./subagents/restart";
@@ -5354,6 +5355,11 @@ function AcpmuxPane() {
   const [retryQueued, setRetryQueued] = useState(false);
   /// Asks the host again now, after the user fixed what `hostError` says.
   const retryHost = useRef<(() => void) | undefined>(undefined);
+  /// The host refused a daemon another binary runs on this app's socket: the card offers Restart
+  /// acpmux, and once the pane stopped retrying on its own (`stopped`) it says so.
+  const [acpmuxRestart, setAcpmuxRestart] = useState<{ stopped: boolean } | undefined>();
+  /// A Restart acpmux in flight.
+  const [restartingAcpmux, setRestartingAcpmux] = useState(false);
   // The host covers the pane with its loading state until this document first draws what it is:
   // the handshake's answer, or the host error when there is none (a failed start must show, not
   // stay behind the loading state). The frames before (no hero yet, "Connecting") stay hidden.
@@ -5698,6 +5704,8 @@ function AcpmuxPane() {
     let connecting = false;
     /// The user asked to retry while an attempt was in flight; run a full one when it ends.
     let retryPending = false;
+    /// Refusals in a row that offered Restart acpmux (hostRetry.ts afterHostFailure).
+    let refusedInRow = 0;
     // A seeded first prompt (onboarding's first task). Swift hands it out once, so it is kept
     // here until a connect succeeds: a first connect that fails retries without it.
     let pendingPrompt: string | undefined;
@@ -5934,6 +5942,8 @@ function AcpmuxPane() {
         };
         // Only a connected client clears the error, so a stale endpoint doesn't flicker it away.
         setHostError(undefined);
+        setAcpmuxRestart(undefined);
+        refusedInRow = 0;
         catalogClientId.current += 1;
         setCatalogSource({ id: catalogClientId.current, client });
         // A refreshed harness list or live model list re-reads the catalog (no polling).
@@ -6498,9 +6508,17 @@ function AcpmuxPane() {
           setHostError(errorMessage(error) || String(error));
           // A refused chat of another machine still names that machine on its chip (cx-k21v).
           setMachineName((current) => refusedMachine(error) ?? current);
+          // Another binary's daemon on the socket: asking again connects only if it goes away, so
+          // the pane asks a few times, then stops and leaves Retry and Restart acpmux to the person.
+          const failure = afterHostFailure(refusedInRow, error);
+          refusedInRow = failure.refusedInRow;
+          const stopped = failure.stopped;
+          setAcpmuxRestart(failure.offersRestart ? { stopped } : undefined);
           // Back off so a host without a daemon is not asked four times a second.
-          retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
-          retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
+          if (!stopped) {
+            retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
+            retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
+          }
         }
       } finally {
         connecting = false;
@@ -6518,6 +6536,7 @@ function AcpmuxPane() {
       retryTimer = undefined;
       reconnect = false;
       retryDelay = 250;
+      // Not `refusedInRow`: a refused Retry asks once and stops again; only a connect resets it.
       void connectHost();
     };
     retryHost.current = () => {
@@ -7805,7 +7824,28 @@ function AcpmuxPane() {
   );
   const hostErrorCard = (
     <Notice id="host-error" tier="error" when={hostError}>
-      <HostError message={hostError ?? ""} retrying={retryQueued} onRetry={() => retryHost.current?.()} />
+      <HostError
+        message={hostError ?? ""}
+        retrying={retryQueued}
+        onRetry={() => retryHost.current?.()}
+        restarting={restartingAcpmux}
+        restartStopped={acpmuxRestart?.stopped}
+        onRestart={
+          acpmuxRestart
+            ? () => {
+                // The person's click: the app stops the other binary's daemon (its chats are kept),
+                // and the next handshake starts this app's own acpmux.
+                setRestartingAcpmux(true);
+                callNative("acpmux.restart")
+                  .catch(() => undefined)
+                  .finally(() => {
+                    setRestartingAcpmux(false);
+                    retryHost.current?.();
+                  });
+              }
+            : undefined
+        }
+      />
     </Notice>
   );
   // The floating chat's compact bar shows whether the chat is working or waiting on the user, and

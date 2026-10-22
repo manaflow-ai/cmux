@@ -66,7 +66,9 @@ test("once the pane stopped retrying on its own, the card says so; a restart in 
   const container = installDom();
   await act(async () => {
     root = createRoot(container);
-    root.render(<HostError message="refused" onRetry={() => undefined} onRestart={() => undefined} restartStopped restarting />);
+    root.render(
+      <HostError message="refused" onRetry={() => undefined} onRestart={() => undefined} restartStopped restarting />,
+    );
   });
   expect(container.textContent).toContain("cmux stopped trying again");
   expect(buttons(container)).toEqual(["Restarting acpmux…", "Retry"]);
