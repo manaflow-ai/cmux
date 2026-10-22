@@ -772,6 +772,11 @@ Object.assign(variants, {
     focus: "home.chiefPetMascot",
     note: "Chief Pet, pet off: the chosen character (Orb) is checked; Show Pet floats it.",
   }),
+  // Settings > Chief > Behavior: the Voice input row on its glass card (DEV and NIGHTLY builds).
+  "chief-behavior": variant("chief", {
+    steps: [{ selector: '[data-card="voice-input"] [role="switch"]', action: "focus" }],
+    note: "Behavior: the message box's mic (Voice input) on one glass card after Look.",
+  }),
   "agents-add-custom": variant("agents", {
     focus: "agents.add",
     steps: [wait("[data-agents-custom]")],
