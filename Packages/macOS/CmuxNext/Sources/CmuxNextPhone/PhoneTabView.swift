@@ -59,7 +59,7 @@ public final class PhoneTabView: NSView {
     /// The phone this tab shows, as the tab's restore route (`sim:<udid>`).
     public var route: String? { deviceID?.description }
 
-    private func start() async {
+    func start() async {
         do {
             try await service.reload()
             if deviceID == nil { deviceID = try await service.defaultDevice().id }
