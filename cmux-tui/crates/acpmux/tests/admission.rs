@@ -8,8 +8,9 @@
 //! - `~/.cache/worktree-reclaim/under-floor` (worktree-reclaim writes it when the disk
 //!   is under its free-space floor) refuses every new session;
 //! - `lanes.max_lanes` of this machine in the fleet registry (`FLEET_REGISTRY`, else
-//!   `~/.ssh/config.d/fleet-registry.json`, the copy `reach --install` renders) caps
-//!   this host's live sessions (running, ready, waiting).
+//!   `~/.ssh/config.d/fleet-registry.json`, the copy `reach --install` renders, else a
+//!   leo-workspace checkout's `machines/fleet-registry.json`) caps this host's live
+//!   sessions (running, ready, waiting).
 //!
 //! A refusal exits 5 (lane-place's "no host qualifies"). `--force-admit` creates the
 //! session anyway, and the daemon logs it. A send to an existing session and a restart
@@ -56,16 +57,13 @@ impl Daemon {
         )
         .unwrap();
         let home = daemon_env::home(&root);
-        if let Some(max) = max_lanes {
-            let dir = home.join(".ssh").join("config.d");
-            std::fs::create_dir_all(&dir).unwrap();
-            let registry = json!({"machines": {
-                MACHINE: {"lanes": {"max_lanes": max}},
-                "elsewhere": {"lanes": {"max_lanes": 99}},
-            }});
-            std::fs::write(dir.join("fleet-registry.json"), registry.to_string()).unwrap();
-        }
         let daemon = Self { root, child: None };
+        if let Some(max) = max_lanes {
+            daemon.write_registry(
+                ".ssh/config.d",
+                json!({MACHINE: {"lanes": {"max_lanes": max}}, "elsewhere": {"lanes": {"max_lanes": 99}}}),
+            );
+        }
         if under_floor {
             daemon.set_under_floor(true);
         }
@@ -97,6 +95,14 @@ impl Daemon {
         std::thread::spawn(move || std::io::copy(&mut out, &mut log));
         self.child = Some(child);
         self
+    }
+
+    /// A fleet registry with these machines, in `dir` under the daemon's HOME.
+    fn write_registry(&self, dir: &str, machines: Value) {
+        let dir = daemon_env::home(&self.root).join(dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let registry = json!({"machines": machines});
+        std::fs::write(dir.join("fleet-registry.json"), registry.to_string()).unwrap();
     }
 
     fn set_under_floor(&self, on: bool) {
@@ -233,7 +239,16 @@ fn max_lanes_refuses_at_the_cap_and_admits_under_it() {
         daemon.wait_live(name);
     }
     let out = daemon.create("three", &[]);
-    assert_refused(&out, "max_lanes", "2 of max_lanes 2");
+    assert_refused(
+        &out,
+        "max_lanes",
+        "2 live sessions, at its cap of 2 (lanes.max_lanes of test-box in ",
+    );
+    assert!(
+        text(&out).contains(".ssh/config.d/fleet-registry.json"),
+        "names the registry: {}",
+        text(&out)
+    );
     // A session that stopped is not live: there is room again.
     let out = daemon.run(&["kill", "one"]);
     assert!(out.status.success(), "kill: {}", text(&out));
@@ -289,23 +304,32 @@ fn no_registry_or_no_entry_admits() {
     // FLEET_ORIGIN is the daemon's, not the CLI's: the daemon still runs as MACHINE.
     assert_eq!(out.status.code(), Some(5), "the daemon's own machine decides: {}", text(&out));
     drop(daemon);
-    let mut daemon = Daemon::start("noentry", None, false);
-    // Restart this daemon with a registry that lists other machines only.
-    if let Some(mut child) = daemon.child.take() {
-        let _ = daemon.run(&["daemon", "shutdown", "--end-agents"]);
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-    let dir = daemon_env::home(&daemon.root).join(".ssh").join("config.d");
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(
-        dir.join("fleet-registry.json"),
-        json!({"machines": {"elsewhere": {"lanes": {"max_lanes": 0}}}}).to_string(),
-    )
-    .unwrap();
-    let daemon = daemon.launch();
+    // A registry that lists other machines only, written after the daemon
+    // started: it is read when the session is created.
+    let daemon = Daemon::start("noentry", None, false);
+    daemon.write_registry(".ssh/config.d", json!({"elsewhere": {"lanes": {"max_lanes": 0}}}));
     let out = daemon.create("free", &[]);
     assert!(out.status.success(), "no entry for this machine: {}", text(&out));
     // FLEET_ORIGIN names a machine the registry does not list.
     daemon.wait_log(|l| l.contains("no lane cap"), "it says why it admits");
+}
+
+#[test]
+fn a_leo_workspace_checkouts_registry_caps_a_host_with_no_rendered_copy() {
+    // cmux16 has ~/Projects/leo-workspace and no ~/.ssh/config.d copy.
+    let daemon = Daemon::start("lws", None, false);
+    daemon.write_registry(
+        "Projects/leo-workspace/machines",
+        json!({MACHINE: {"lanes": {"max_lanes": 1}}}),
+    );
+    let out = daemon.create("first", &[]);
+    assert!(out.status.success(), "{}", text(&out));
+    daemon.wait_live("first");
+    let out = daemon.create("second", &[]);
+    assert_refused(&out, "max_lanes", "1 live sessions, at its cap of 1");
+    assert!(
+        text(&out).contains("Projects/leo-workspace/machines/fleet-registry.json"),
+        "names the checkout's registry: {}",
+        text(&out)
+    );
 }
