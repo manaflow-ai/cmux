@@ -6,6 +6,8 @@
 // were sent (the host allows one prompt per click, so one send each got only the first through),
 // Edit puts them back in the composer in that order, Remove takes them all away. A failure with another cause, or
 // a row between, starts a line of its own. The cause is the structured one (promptFailureCause.ts).
+// Prompts acpmux never answered in time are never joined: acpmux may have taken them, so each keeps
+// its own line, whose Retry sends it again under its own id (direct.ts retryPrompt, `resend`).
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow, PromptDelivery } from "../src/agent-session/acpmux/model";
@@ -91,6 +93,9 @@ const reply = (id: string, text: string): AcpmuxRow => ({
   kind: "assistant",
   text,
 });
+/// Refused for want of a gesture: acpmux never took it (the host refused it before it went).
+const refused = { code: "transport.gesture_required" };
+/// No answer from acpmux in time: acpmux may have taken it.
 const timeout = { code: "timeout" };
 const needsApp = { code: "transport.harness_not_confirmed" };
 
@@ -125,9 +130,9 @@ async function draw(rows: AcpmuxRow[]) {
 
 const prompts = () => [
   reply("a-0", "Added."),
-  failed("local-p1", "Ship it", timeout),
-  failed("local-p2", "Ship it now", timeout),
-  failed("local-p3", "Please ship it", timeout),
+  failed("local-p1", "Ship it", refused),
+  failed("local-p2", "Ship it now", refused),
+  failed("local-p3", "Please ship it", refused),
 ];
 
 test("three prompts that failed for one cause share one line, under the last", async () => {
@@ -185,11 +190,11 @@ test("Edit puts every prompt back in the composer in order, and Remove takes the
 
 test("another cause, or a row between, starts a line of its own", async () => {
   const view = await draw([
-    failed("local-p1", "Ship it", timeout),
+    failed("local-p1", "Ship it", refused),
     failed("local-p2", "Switch to the new harness", needsApp),
     failed("local-p3", "Switch to it again", needsApp),
     reply("a-1", "Which harness?"),
-    failed("local-p4", "Ship it now", timeout),
+    failed("local-p4", "Ship it now", refused),
   ]);
   try {
     expect(view.lineRows()).toEqual(["local-p1", "local-p3", "local-p4"]);
@@ -197,6 +202,25 @@ test("another cause, or a row between, starts a line of its own", async () => {
     // A line for one prompt says no count.
     expect(single!.textContent).not.toContain(translate("prompt.delivery.groupCount", { n: 1 }));
     expect(pair!.textContent).toContain(translate("prompt.delivery.groupCount", { n: 2 }));
+  } finally {
+    await view.unmount();
+  }
+});
+
+test("prompts acpmux never answered keep a line each, whose Retry sends that prompt alone", async () => {
+  const view = await draw([
+    reply("a-0", "Added."),
+    failed("local-p1", "Ship it", timeout),
+    failed("local-p2", "Ship it now", timeout),
+    failed("local-p3", "Please ship it", timeout),
+  ]);
+  try {
+    expect(view.lineRows()).toEqual(run);
+    for (const line of view.lines())
+      expect(line.textContent).not.toContain(translate("prompt.delivery.groupCount", { n: 3 }));
+    await view.click(translate("turn.retry"));
+    // The row on its own, no run: the page sends it again under its prompt id with `resend`.
+    expect(view.calls).toEqual([["chat.retryPrompt", "local-p1"]]);
   } finally {
     await view.unmount();
   }
