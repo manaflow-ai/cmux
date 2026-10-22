@@ -359,6 +359,7 @@ import { FolderChoice, showsFolderChoice } from "./FolderChoice";
 import { type FolderAsk, StartFolderAsk, WorktreeFailure, confirmFolder, newWorktree, pickFolder } from "./startFolder";
 import { MissingFolder, chooseChatFolder } from "./missingFolder";
 import { LiveChatChoice } from "./LiveChatChoice";
+import { MissingChat } from "./MissingChat";
 import { WatchBanner } from "./WatchBanner";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
@@ -8088,9 +8089,12 @@ function AcpmuxPane() {
                 {!diffView && checkpoints.review}
                 {/* The lines under the header drop in from the top (ui/popupSurface.css `data-enter`). */}
                 {snapshot.missingSession && (
-                  <p className="acpmux-link-missing" role="alert" data-enter="top">
-                    {t("link.sessionMissing")}
-                  </p>
+                  <MissingChat
+                    session={snapshot.missingSession}
+                    {...(machineName ? { machine: machineName } : {})}
+                    onResume={showAllChats}
+                    onClose={() => void callNative("pane.action", { id: "closeTab" }).catch(() => undefined)}
+                  />
                 )}
                 {snapshot.liveChat && (
                   <LiveChatChoice
