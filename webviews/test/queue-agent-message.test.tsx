@@ -1,7 +1,7 @@
 // Another agent's message waiting in the queue draws as its received line (ComposerQueue.tsx,
 // conversation/IncomingMessageCard.tsx), not as the person's prompt (Leo, 2026-10-21): the sender's
-// name as a chip that opens its chat, the first line as a preview, the message as a card when
-// opened, and the row's actions (Steer, Delete, ⋯) at the line's end. The person's prompt is unchanged.
+// name as a chip that opens its chat, the message as a card under it (cut to six lines when longer),
+// and the row's actions (Steer, Delete, ⋯) at the line's end. The person's prompt is unchanged.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
@@ -80,18 +80,21 @@ test("another agent's queued message draws as its received line, its actions at 
     [...row.querySelectorAll(".acpmux-queued-action")].map((button) => button.getAttribute("aria-label"));
   const all = [t("composer.queueSteer"), t("composer.queueDelete"), t("composer.queueActions")];
 
-  // The sender's chip and the first line as a preview, closed; the actions inside the line.
+  // The sender's chip, and the short message whole under the line, not cut; the actions inside the line.
   expect(agent!.querySelector(".acpmux-queued-text")).toBeNull();
   expect(agent!.querySelector(".cv-received__name")?.textContent).toBe("coord-deputy");
-  expect(agent!.querySelector(".cv-received__preview")?.textContent).toBe("Rebase onto #23738 first.");
-  expect(agent!.querySelector(".cv-received__body")).toBeNull();
+  const body = agent!.querySelector(".cv-received__body");
+  expect(body?.textContent).toContain("Rebase onto #23738 first.");
+  expect(body?.textContent).toContain("It moves the queue rows.");
+  expect(body?.hasAttribute("data-cut")).toBe(false);
   expect(agent!.querySelector(".cv-received__line .acpmux-queued-actions")).not.toBeNull();
   expect(labels(agent!)).toEqual(all);
 
-  // The chip opens the sender's chat; the preview opens the message.
+  // The chip opens the sender's chat; the rest of the line opens the message.
   await act(async () => agent!.querySelector<HTMLButtonElement>("button.cv-received__name")!.click());
   expect(opened).toEqual(["s-deputy"]);
   await act(async () => agent!.querySelector<HTMLButtonElement>(".cv-received__toggle")!.click());
+  expect(agent!.querySelector(".cv-received__toggle")?.getAttribute("aria-expanded")).toBe("true");
   expect(agent!.querySelector(".cv-received__body")?.textContent).toContain("It moves the queue rows.");
 
   // The person's prompt is unchanged.
