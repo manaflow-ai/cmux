@@ -99,7 +99,8 @@ function summary(harness: string, currentModeId: string, availableModes: Mode[])
   };
 }
 
-// What acpmux reported for a Claude chat before #23777: its own invented names, no descriptions.
+// Claude's five mode ids under acpmux's old invented names (Normal, Full access; acpmux reports
+// Claude Code's own since #23777): the menu shows Claude Code's own labels whatever names arrive.
 const CLAUDE_REPORTED: Mode[] = [
   { id: "default", name: "Normal" },
   { id: "plan", name: "Plan" },
@@ -107,7 +108,7 @@ const CLAUDE_REPORTED: Mode[] = [
   { id: "acceptEdits", name: "Accept edits" },
   { id: "bypassPermissions", name: "Full access" },
 ];
-// What the Codex bridge (cmux-codex-acp config.rs MODES) reports, plus Codex's auto-review mode.
+// The Codex bridge's modes (cmux-codex-acp config.rs MODES) plus Codex's auto-review mode.
 const CODEX_REPORTED: Mode[] = [
   { id: "ask", name: "Ask", description: "Asks before every command and every edit" },
   { id: "read-only", name: "Read Only", description: "Reads files; asks before any edit or command that needs more" },
@@ -212,6 +213,23 @@ test("a Codex chat's menu is Codex's own approval menu, with its icons and descr
   expect(all).not.toContain("Read Only");
 });
 
+test("a Codex chat on today's bridge (no auto review) shows Codex's rows it reports", async () => {
+  // The bridge's real four ids: ask and read-only are acpmux's policy modes, not Codex's menu.
+  await render(
+    summary(
+      "codex",
+      "agent",
+      CODEX_REPORTED.filter((mode) => mode.id !== "auto-review"),
+    ),
+  );
+  expect(heading()).toBe("How should actions be approved?");
+  expect(rows().map(({ name, icon, checked }) => ({ name, icon, checked }))).toEqual([
+    { name: "Ask for approval", icon: "hand", checked: true },
+    { name: "Full access", icon: "shield-alert", checked: false },
+  ]);
+  expect(dom.window.document.body.textContent ?? "").not.toContain("Approve for me");
+});
+
 test("the mode button shows the mode's symbol and its label", async () => {
   await render(summary("codex", "agent-full-access", CODEX_REPORTED));
   const trigger = host.querySelector<HTMLElement>(".acpmux-access-trigger")!;
@@ -245,5 +263,7 @@ test("menu rows are tight and the chosen row's check is the theme accent", () =>
   };
   // About 8 pt from the menu's edge to a row's text: the popup's 4 px and the row's 4 px.
   expect(rule(".ui-menu-item.acpmux-access-item")).toMatch(/padding: 5px 4px;/);
-  expect(rule(".acpmux-access-item .ui-menu-check")).toMatch(/color: var\(--agent-lit-glyph, var\(--agent-text\)\);/);
+  expect(rule(".acpmux-access-item .ui-menu-check")).toMatch(
+    /color: var\(--agent-lit-glyph, var\(--agent-accent, var\(--agent-text\)\)\);/,
+  );
 });

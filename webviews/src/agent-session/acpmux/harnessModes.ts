@@ -1,9 +1,12 @@
 // l10n-allow-file: each harness's own mode names and descriptions, shown exactly as that harness's
-// own app shows them (as model names are), never translated or reworded by cmux.
+// own app shows them (as model names are), never reworded by cmux. The menus' headings and the
+// Recommended badge are pane strings (Localizable.xcstrings).
 // The mode menu lists the harness's OWN modes, with its own labels, descriptions and order (Leo
 // 2026-10-21, against Claude Code's and Codex's menus: "WHY ARE YOU HALLUCINATING THINGS?"). acpmux
 // and the Codex bridge report the mode ids; a family listed here shows them as its own app does. A
 // harness this table does not list shows what it reports, unchanged.
+
+import type { StringKey } from "./i18n";
 
 export type ModeIconName = "hand" | "terminal-shield" | "shield-alert";
 
@@ -19,8 +22,8 @@ export type HarnessModeRow = {
 };
 
 export type HarnessModeMenu = {
-  /** The menu's heading. `undefined` uses the picker's own label ("Mode"). */
-  heading?: string;
+  /** The menu's heading, a pane string. `undefined` uses the picker's own label ("Mode"). */
+  heading?: StringKey;
   /** Rows show their number keys (1 to 9), as Claude Code's mode menu does. */
   numbered: boolean;
   rows: readonly HarnessModeRow[];
@@ -46,7 +49,7 @@ const CLAUDE: HarnessModeMenu = {
  * (Codex's auto-review) shows once the bridge reports it as `auto-review`. The bridge's own `ask` and
  * `read-only` (acpmux's policy modes) are not Codex's menu. */
 const CODEX: HarnessModeMenu = {
-  heading: "How should actions be approved?",
+  heading: "picker.codexApprovalHeading",
   numbered: false,
   rows: [
     {
@@ -123,4 +126,4 @@ export function shownModes(
 }
 
 /** The badge on the mode the harness recommends, as Claude Code's menu labels Auto. */
-export const RECOMMENDED_BADGE = "Recommended";
+export const RECOMMENDED_BADGE: StringKey = "picker.modeRecommended";

@@ -438,7 +438,7 @@ export default agentPaneEntry({
       },
     },
     "footer-essentials": {
-      note: 'Leo 2026-10-13, the footer "tells too much": the model without its vendor, the default access mode as its lock alone, no context ring before any use, the folder without this Mac\'s name. Titles and labels keep the full text.',
+      note: "Leo 2026-10-13, the footer \"tells too much\": the model without its vendor, the mode as its symbol and Claude Code's own name (Manual), no context ring before any use, the folder without this Mac's name. Titles and labels keep the full text.",
       snapshot: footerChat("default"),
     },
     // The location row is a new chat's only (locationRow.ts).

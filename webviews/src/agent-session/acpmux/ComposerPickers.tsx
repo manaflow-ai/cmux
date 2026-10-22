@@ -791,7 +791,7 @@ export function ComposerPickers({
           permissionAccess={permissionAccess}
           onMode={onMode}
           {...(pendingMenu
-            ? { heading: pendingMenu.heading ?? t(PICKER_LABELS.mode), numbered: pendingMenu.numbered }
+            ? { heading: t(pendingMenu.heading ?? PICKER_LABELS.mode), numbered: pendingMenu.numbered }
             : {})}
         />
       )}
@@ -1012,7 +1012,7 @@ function AccessMenu({
                       // The name and Claude Code's Recommended badge on one line.
                       <span className="acpmux-access-title">
                         <span className="acpmux-menu-label">{choice.name}</span>
-                        <span className="acpmux-menu-badge">{RECOMMENDED_BADGE}</span>
+                        <span className="acpmux-menu-badge">{t(RECOMMENDED_BADGE)}</span>
                       </span>
                     ) : (
                       <span className="acpmux-menu-label">{choice.name}</span>
