@@ -21,6 +21,12 @@ public final class UpdateSheetController {
 
     public var isPresented: Bool { panel != nil }
 
+    /// The sheet's body while it shows (tests read its views).
+    var bodyView: NSView? { hosting }
+
+    /// Redraws the body from the source now (the observation does it on the next turn).
+    func reload() { fit() }
+
     /// Shows the sheet on `window` (no-op when already shown). Never
     /// activates the app; a standalone panel orders front without focus.
     public func present(in window: NSWindow?) {
