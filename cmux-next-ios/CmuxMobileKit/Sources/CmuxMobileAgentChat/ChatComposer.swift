@@ -97,6 +97,9 @@ struct ChatComposer: View {
             if trimmed.isEmpty { text = draft.text }
             attachments = draft.attachments + attachments.filter { own in !draft.attachments.contains { $0.id == own.id } }
         }
+        // The flip is placed even when the target stays (focused or drafting as the history
+        // came), so a later collapse by the person is not taken for the chat opening.
+        .onChange(of: collapsible) { _, now in if !collapsedTarget { placedCollapsible = now } }
         .onChange(of: collapsedTarget, initial: true) { _, target in
             // A chat opening on its history (a replayed batch brought its first turns)
             // shows the collapsed composer at once, not the empty chat's composer collapsing.

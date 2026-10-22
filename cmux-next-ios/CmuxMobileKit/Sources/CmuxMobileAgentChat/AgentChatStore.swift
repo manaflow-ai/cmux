@@ -347,6 +347,7 @@ public final class AgentChatStore {
     func apply(_ event: AgentSessionEvent) {
         revision &+= 1
         lastChangeWasReplay = false
+        placeBottomStackInstantly = false
         switch event {
         case .userMessage(let text, let promptId, let turnId, let attachments, let at):
             currentMessageID = nil
