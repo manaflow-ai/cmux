@@ -27,6 +27,12 @@
 #   - the cloud wire clients: the TypeScript and Rust clients from the committed
 #     cloud catalog (backend/packages/protocol/scripts/export-client.ts and
 #     export-rust-client.ts; with --cloud-clients);
+#   - the cmuxd-remote license review: daemon/remote/third-party/review.json
+#     (and third-party/go when Go's license texts changed) from
+#     scripts/remote_daemon_notices.py check --update-review, which approves
+#     every allowed license of what the daemon links (it needs `go` on PATH,
+#     the go.mod toolchain). A refused or unknown license, or no go, is left to
+#     a person and never fails the run (with --license-review);
 #   - webviews formatting: applies PATCH, the `vp fmt` output of the
 #     workflow's read-only webviews-fmt job (it installs webviews' packages,
 #     which never run next to the push token); a patch reaching outside
@@ -54,10 +60,10 @@
 # Prints one line per change ("fixed: ..."), skip ("skipped (frozen): ...") or
 # repair left to a person ("left: ...").
 #
-# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO
+# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--license-review] [--webviews-fmt-patch PATCH] [--no-fmt] REPO
 set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-generated="" package_dump="" sdk=0 docs_shortcuts=0 app_host=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" fmt=1
+generated="" package_dump="" sdk=0 docs_shortcuts=0 app_host=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 license_review=0 webviews_patch="" fmt=1
 while (( $# > 1 )); do
   case "$1" in
     --generated) generated="$2"; shift 2 ;;
@@ -70,12 +76,13 @@ while (( $# > 1 )); do
     --unverified-settings-exports) unverified_settings=1; shift ;;
     --ratchets) ratchets=1; shift ;;
     --cloud-clients) cloud_clients=1; shift ;;
+    --license-review) license_review=1; shift ;;
     --webviews-fmt-patch) webviews_patch="$2"; shift 2 ;;
     --no-fmt) fmt=0; shift ;;
-    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO" >&2; exit 2 ;;
+    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--license-review] [--webviews-fmt-patch PATCH] [--no-fmt] REPO" >&2; exit 2 ;;
   esac
 done
-repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO}" && pwd)"
+repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--license-review] [--webviews-fmt-patch PATCH] [--no-fmt] REPO}" && pwd)"
 frozen_list="$script_dir/base-autofix-frozen.txt"
 
 frozen() { # repository-relative path -> 0 when frozen; a "!" line exempts a path
@@ -223,7 +230,46 @@ if (( cloud_clients )) && [[ -f "$repo/$protocol/scripts/export-rust-client.ts" 
   done <<<"$(sort -u <<<"$changed")"
 fi
 
-# 1h. Webviews formatting and the inspector page, from the read-only job's patch.
+# 1h. The cmuxd-remote license review. check --update-review exits 1 only on a
+# license it refuses (unknown or not allowed) or a go failure, and then writes
+# nothing; that is left to a person, and the other repairs go on.
+review=daemon/remote/third-party/review.json
+# What it writes: the record and Go's license texts (never the SPDX templates it reads beside them).
+review_outputs=("$review" daemon/remote/third-party/go)
+if (( license_review )) && [[ -f "$repo/scripts/remote_daemon_notices.py" && -d "$repo/daemon/remote" ]]; then
+  if ! command -v go >/dev/null 2>&1; then
+    echo "left: the cmuxd-remote license review needs go on PATH (python3 scripts/remote_daemon_notices.py check --update-review)"
+  else
+    log="$(mktemp)"
+    status=0
+    # Plain lines, not workflow annotations: the error line is quoted below.
+    env -u GITHUB_ACTIONS python3 -I "$repo/scripts/remote_daemon_notices.py" check \
+      --daemon-root "$repo/daemon/remote" --update-review > "$log" 2>&1 || status=$?
+    if (( status != 0 )); then
+      error="$(sed -n 's/^remote_daemon_notices: error: //p' "$log" | head -n 1)"
+      [[ -n "$error" ]] || error="remote_daemon_notices.py check --update-review exited $status ($(grep -m 1 . "$log" || true))"
+      git -C "$repo" checkout --quiet -- "${review_outputs[@]}" 2>/dev/null || true
+      git -C "$repo" clean -fdq -- "${review_outputs[@]}" 2>/dev/null || true
+      echo "left: $error; a person decides"
+    else
+      changed="$(git -C "$repo" ls-files --modified --deleted --others --exclude-standard -- "${review_outputs[@]}")"
+      recorded=0
+      while IFS= read -r rel; do
+        [[ -n "$rel" ]] || continue
+        if frozen "$rel"; then
+          git -C "$repo" checkout --quiet -- "$rel" 2>/dev/null || rm -f "$repo/$rel"
+          echo "skipped (frozen): $rel (stale; python3 scripts/remote_daemon_notices.py check --update-review)"
+        else
+          recorded=1
+        fi
+      done <<<"$(sort -u <<<"$changed")"
+      if (( recorded )); then echo "fixed: recorded the cmuxd-remote license review ($review)"; fi
+    fi
+    rm -f "$log"
+  fi
+fi
+
+# 1i. Webviews formatting and the inspector page, from the read-only job's patch.
 inspector_page=Native/OptChat/optchat-chief/inspector/index.html
 if [[ -n "$webviews_patch" && -s "$webviews_patch" ]]; then
   outside="" include=()

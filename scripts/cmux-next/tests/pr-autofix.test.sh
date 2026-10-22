@@ -149,4 +149,11 @@ git -C "$fixture" checkout -q -- .
 bash "$APPLY" "$tmp/licenses.patch" "$fixture" > "$tmp/out" 2>&1 || fail "the license review must apply"
 [[ "$(cat "$fixture/daemon/remote/third-party/review.json")" == new ]] || fail "review.json must be applied"
 [[ "$(cat "$fixture/daemon/remote/third-party/go/LICENSE")" == new ]] || fail "Go's license text must be applied"
+# The SPDX templates beside them are the allowlist the review reads, never an autofix output.
+mkdir -p "$fixture/daemon/remote/third-party/spdx-templates"
+echo new > "$fixture/daemon/remote/third-party/spdx-templates/MIT.template.txt"
+git -C "$fixture" add -N daemon/remote/third-party/spdx-templates/MIT.template.txt
+git -C "$fixture" diff --binary -- daemon/remote/third-party/spdx-templates > "$tmp/templates.patch"
+git -C "$fixture" reset -q -- daemon/remote/third-party/spdx-templates && rm -rf "$fixture/daemon/remote/third-party/spdx-templates"
+bash "$APPLY" "$tmp/templates.patch" "$fixture" > "$tmp/out" 2>&1 && fail "an SPDX template is not an autofix output and must be refused"
 echo "pr autofix: ok"

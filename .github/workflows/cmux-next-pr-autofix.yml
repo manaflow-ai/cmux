@@ -5,7 +5,9 @@ name: cmux-next PR autofix
 # generated files, formatting and pins already right instead of leaving them
 # to the base bot after the merge (cmux-next-base-autofix.yml stays the
 # backstop for merges that cross). Repairs that need a person stay with the
-# pull request.
+# pull request. A Go dependency change gets its cmuxd-remote license review
+# (daemon/remote/third-party/review.json) recorded here when every license is
+# allowed; a refused license is left to a person.
 #
 # The action exports (plans/cmux-next/action-surfaces.json, actions.md,
 # links.json) and the settings exports (schemas/settings/settings-schema.json,
@@ -409,6 +411,15 @@ jobs:
         with:
           bun-version: "1.4.2"
 
+      # The cmuxd-remote license review (base-autofix.sh --license-review) runs `go list` and
+      # `go mod download` with the daemon's own Go (its go.mod `toolchain` line).
+      - name: Setup Go
+        if: steps.areas.outputs.licenses == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: daemon/remote/go.mod
+          cache: false
+
       - name: Set up pinned cmux-tui Rust
         if: steps.areas.outputs.fmt == 'true' || steps.areas.outputs.clippy == 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -460,6 +471,7 @@ jobs:
           SETTINGS_VERIFIED: ${{ needs.action-exports.outputs.settings-verified }}
           RATCHETS: ${{ steps.areas.outputs.ratchets }}
           CLOUD: ${{ steps.areas.outputs.cloud }}
+          LICENSES: ${{ steps.areas.outputs.licenses }}
           GHOSTTY: ${{ steps.areas.outputs.ghostty }}
           FMT: ${{ steps.areas.outputs.fmt }}
         run: |
@@ -487,6 +499,8 @@ jobs:
           [[ "$SETTINGS" == true && "$SETTINGS_VERIFIED" != true ]] && grep -q -- '--unverified-settings-exports)' "$AUTOFIX/base-autofix.sh" && args+=(--unverified-settings-exports)
           [[ "$RATCHETS" == true ]] && args+=(--ratchets)
           [[ "$CLOUD" == true ]] && args+=(--cloud-clients)
+          # The cmuxd-remote license review: the base's script takes --license-review once this repair has landed there.
+          [[ "$LICENSES" == true ]] && grep -q -- '--license-review)' "$AUTOFIX/base-autofix.sh" && args+=(--license-review)
           [[ -s "$RUNNER_TEMP/webviews-fmt.patch" ]] && args+=(--webviews-fmt-patch "$RUNNER_TEMP/webviews-fmt.patch")
           [[ "$FMT" == true ]] || args+=(--no-fmt)
           cat "$RUNNER_TEMP/clippy.txt" 2>/dev/null > "$RUNNER_TEMP/autofix.txt" || true

@@ -41,6 +41,7 @@ allowed() { # repository-relative path -> 0 when an autofix repair writes it
     clients/ts/cloud/src/generated.ts) return 0 ;;
     cmux-tui/crates/cmux-cloud-wire/src/generated/*) return 0 ;;
     scripts/ghosttykit-checksums.txt) return 0 ;;
+    daemon/remote/third-party/review.json|daemon/remote/third-party/go/*) return 0 ;; # the cmuxd-remote license review and Go's license texts
     cmux-tui/*.rs|Native/OptChat/*.rs) return 0 ;; # cargo fmt
   esac
   return 1

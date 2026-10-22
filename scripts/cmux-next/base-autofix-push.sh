@@ -97,6 +97,7 @@ output_areas() {
       cmux-tui/crates/cmux-app-host/generated/*) echo apphost; echo actions ;;
       scripts/lint-namespace-types-ratchet.txt) echo ratchets ;;
       clients/ts/cloud/* | cmux-tui/crates/cmux-cloud-wire/src/generated/*) echo cloud ;;
+      daemon/remote/third-party/review.json | daemon/remote/third-party/go/*) echo licenses ;;
       webviews/*) echo webviews ;;
       cmux-tui/* | Native/OptChat/*) echo fmt ;;
       *) echo unknown ;;

@@ -4,7 +4,8 @@
 # commit and never sees the push token.
 #
 # The workflow's Changed areas step decides the repairs (GRAPH, STRINGS, SDK, SHORTCUTS, APPHOST,
-# ACTIONS, SETTINGS, RATCHETS, CLOUD, FMT: true or false); the Mac job hands on its verdicts
+# ACTIONS, SETTINGS, RATCHETS, CLOUD, LICENSES, FMT: true or false; LICENSES is the cmuxd-remote
+# license review, base-autofix.sh --license-review); the Mac job hands on its verdicts
 # (EXPORTS_VERIFIED, SETTINGS_VERIFIED) and its exports (EXPORTS_DIR, when it made any); the
 # webviews-fmt job hands on WEBVIEWS_PATCH. The CI target graph is dumped from REPO's own manifest
 # in the pinned Swift 6.2 Linux container (ci-target-graph.py).
@@ -69,5 +70,6 @@ fi
 [[ "$apphost" == true ]] && args+=(--app-host)
 [[ "${RATCHETS:-}" == true ]] && args+=(--ratchets)
 [[ "${CLOUD:-}" == true ]] && args+=(--cloud-clients)
+[[ "${LICENSES:-}" == true ]] && args+=(--license-review)
 [[ "${FMT:-}" == true ]] || args+=(--no-fmt)
 "$autofix" ${args[@]+"${args[@]}"} "$repo"

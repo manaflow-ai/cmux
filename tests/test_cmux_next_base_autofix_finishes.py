@@ -349,7 +349,7 @@ class BaseAutofixFinishes(unittest.TestCase):
         dump.chmod(0o755)
         clean = {key: value for key, value in os.environ.items()
                  if key not in ("GRAPH", "STRINGS", "SDK", "SHORTCUTS", "APPHOST", "ACTIONS", "SETTINGS", "RATCHETS",
-                                "CLOUD", "FMT", "EXPORTS_DIR", "WEBVIEWS_PATCH", "CMUX_BASE_AUTOFIX_AGAIN")}
+                                "CLOUD", "LICENSES", "FMT", "EXPORTS_DIR", "WEBVIEWS_PATCH", "CMUX_BASE_AUTOFIX_AGAIN")}
         done = subprocess.run(["bash", str(ROOT / "scripts/cmux-next/base-autofix-repair.sh"), str(work)],
                               env={**clean, **env, "CMUX_BASE_AUTOFIX_SCRIPT": str(stub),
                                    "CMUX_BASE_AUTOFIX_DUMP": str(dump), "ARGS_OUT": str(work / "args")},
@@ -360,7 +360,7 @@ class BaseAutofixFinishes(unittest.TestCase):
         for flag in ("--unverified-exports", "--unverified-settings-exports", "--no-fmt"):
             self.assertIn(flag, args)
         for flag in ("--generated", "--strings", "--sdk", "--docs-shortcuts", "--app-host", "--ratchets",
-                     "--cloud-clients", "--webviews-fmt-patch"):
+                     "--cloud-clients", "--license-review", "--webviews-fmt-patch"):
             self.assertNotIn(flag, args)
 
     def mac_busy(self, runs: dict[int, list[tuple[str, str]]], self_run: int = 1, fail: bool = False) -> str:

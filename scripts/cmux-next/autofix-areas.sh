@@ -38,6 +38,9 @@ area apphost 'cmux-tui/spec/resource-operations-v2\.json|backend/catalog/cloud-o
 # The namespace lint reads the package and iOS app sources.
 area ratchets 'Packages/|ios/cmux/|scripts/lint-ios-package-conventions\.sh|scripts/lint_swift_namespaces\.py|scripts/lint-namespace-types-ratchet\.txt'
 area cloud 'backend/catalog/cloud-operations\.json|backend/packages/protocol/(scripts/export-(rust-)?client\.ts|src/automation-caps\.ts)|clients/ts/cloud/|cmux-tui/crates/cmux-cloud-wire/src/generated/'
+# The cmuxd-remote license review (remote_daemon_notices.py check --update-review) reads the Go
+# modules go.mod and go.sum pin, the record itself, and the license classifier and allowlist.
+area licenses 'daemon/remote/go\.(mod|sum)$|daemon/remote/third-party/|scripts/remote_daemon_notices\.py|cmux-tui/build-support/notices/license_match\.py|scripts/cmux-next/check_app_crate_licenses\.py'
 area webviews 'webviews/'
 area ghostty 'ghostty$|scripts/ghosttykit-checksums\.txt'
 area fmt 'cmux-tui/|Native/OptChat/'

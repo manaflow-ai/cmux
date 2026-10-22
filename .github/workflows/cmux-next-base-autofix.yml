@@ -11,6 +11,8 @@ name: cmux-next base autofix
 # generated files (cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts), the namespace
 # ratchet's stale rows (scripts/lint-namespace-types-ratchet.txt), the cloud
 # wire clients from the committed cloud catalog (backend/packages/protocol),
+# the cmuxd-remote license review (daemon/remote/third-party/review.json, from
+# scripts/remote_daemon_notices.py check --update-review when go.mod or go.sum changed),
 # webviews formatting (vp fmt in the read-only webviews-fmt job), and cargo fmt
 # in cmux-tui and the OptChat crates. Each
 # runs only when its inputs changed since the last successful run that made its
@@ -80,6 +82,11 @@ on:
       - backend/packages/protocol/scripts/export-rust-client.ts
       - backend/packages/protocol/src/automation-caps.ts
       - schemas/settings/**
+      # The cmuxd-remote license review (base-autofix.sh --license-review).
+      - daemon/remote/go.mod
+      - daemon/remote/go.sum
+      - daemon/remote/third-party/**
+      - scripts/remote_daemon_notices.py
       - scripts/cmux-next/base-autofix.sh
       - scripts/cmux-next/base-autofix-push.sh
       - scripts/cmux-next/base-autofix-land.sh
@@ -504,6 +511,15 @@ jobs:
         with:
           bun-version: "1.4.2"
 
+      # The cmuxd-remote license review (base-autofix.sh --license-review) runs `go list` and
+      # `go mod download` with the daemon's own Go (its go.mod `toolchain` line).
+      - name: Setup Go
+        if: steps.areas.outputs.licenses == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: daemon/remote/go.mod
+          cache: false
+
       - name: Set up pinned cmux-tui Rust
         if: steps.areas.outputs.fmt == 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -538,6 +554,7 @@ jobs:
           SETTINGS_VERIFIED: ${{ needs.action-exports.outputs.settings_verified }}
           RATCHETS: ${{ steps.areas.outputs.ratchets }}
           CLOUD: ${{ steps.areas.outputs.cloud }}
+          LICENSES: ${{ steps.areas.outputs.licenses }}
           FMT: ${{ steps.areas.outputs.fmt }}
           EXPORTS_DIR: ${{ runner.temp }}/action-exports
           WEBVIEWS_PATCH: ${{ runner.temp }}/webviews-fmt/webviews-fmt.patch
@@ -580,6 +597,7 @@ jobs:
           SETTINGS: ${{ steps.areas.outputs.settings }}
           RATCHETS: ${{ steps.areas.outputs.ratchets }}
           CLOUD: ${{ steps.areas.outputs.cloud }}
+          LICENSES: ${{ steps.areas.outputs.licenses }}
           FMT: ${{ steps.areas.outputs.fmt }}
           # The checkout keeps no credentials; base-autofix-land.sh hands the token to the push only,
           # never to the repair it runs again on a moved tip.

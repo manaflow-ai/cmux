@@ -112,7 +112,7 @@ class SettingsOnlyArtifactLeavesTheActionFollowers(unittest.TestCase):
                     "GITHUB_SHA": "0" * 40, "AUTOFIX": str(temp / "autofix/scripts/cmux-next"), "ARGS_OUT": str(args_out),
                     "GRAPH": "false", "STRINGS": "false", "SDK": "false", "SHORTCUTS": "false", "APPHOST": "false",
                     "ACTIONS": "false", "EXPORTS_VERIFIED": "true", "SETTINGS": "true", "SETTINGS_VERIFIED": "true",
-                    "RATCHETS": "false", "CLOUD": "false", "GHOSTTY": "false", "FMT": "false"}
+                    "RATCHETS": "false", "CLOUD": "false", "LICENSES": "false", "GHOSTTY": "false", "FMT": "false"}
         result = run_step(step(doc, job, "Repair")["run"], work, {**base_env, **step_env, **env})
         self.assertEqual(result.returncode, 0, result.stderr)
         return args_out.read_text().split("\n")

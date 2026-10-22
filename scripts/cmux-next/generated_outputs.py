@@ -85,6 +85,11 @@ OUTPUTS: tuple[tuple[tuple[str, ...], str, str], ...] = (
      r"backend/catalog/cloud-operations\.json$|backend/packages/protocol/(scripts/export-(rust-)?client\.ts|src/automation-caps\.ts)$",
      "backend/packages/protocol/scripts/export-client.ts"),
     (("scripts/ghosttykit-checksums.txt",), r"ghostty$", "the base autofix's GhosttyKit pin"),
+    # The cmuxd-remote license review: every allowed license of what the daemon links.
+    (("daemon/remote/third-party/review.json", "daemon/remote/third-party/go/*"),
+     r"daemon/remote/go\.(mod|sum)$|scripts/remote_daemon_notices\.py$|daemon/remote/third-party/spdx-templates/"
+     r"|cmux-tui/build-support/notices/license_match\.py$|scripts/cmux-next/check_app_crate_licenses\.py$",
+     "scripts/remote_daemon_notices.py check --update-review (the PR and base autofix write it)"),
     # Shrink only: a pull request that fixes a listed type drops its row.
     (("scripts/lint-namespace-types-ratchet.txt",),
      r"Packages/|ios/cmux/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$",
