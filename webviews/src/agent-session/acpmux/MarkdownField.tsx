@@ -24,7 +24,7 @@ import { redo, redoDepth, undo, undoDepth } from "@milkdown/kit/prose/history";
 import { keymap } from "@milkdown/kit/prose/keymap";
 import { splitListItem } from "@milkdown/kit/prose/schema-list";
 import { type EditorState, Plugin, Selection, TextSelection } from "@milkdown/kit/prose/state";
-import type { Node as ProseNode } from "@milkdown/kit/prose/model";
+import { Fragment, type Node as ProseNode, type Slice } from "@milkdown/kit/prose/model";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import type { RemarkParser } from "@milkdown/kit/transformer";
 import { $prose, getMarkdown, replaceAll } from "@milkdown/kit/utils";
@@ -132,15 +132,83 @@ const trailingSpaces = (view: EditorView) => /[ \t]+$/.exec(view.state.doc.lastC
 
 /// Whether pasted HTML holds an image of its own data (an <img> with a `data:` source).
 const htmlHasDataImage = (html: string) => /<img\b[^<>]*\ssrc\s*=\s*["']?\s*data:/i.test(html);
-/** HTML/JSX copied from a code editor is plain text, even when its clipboard advertises HTML. */
-const looksLikeMarkupText = (text: string) => /<>|<\/?[A-Za-z][\w.-]*(?:\s[^<>]*)?\/?>(?=\s|$|[.,;:!?)]|<)/.test(text);
+
+/** Text copied as Milkdown's markdown (before this field copied plain text) wrote a blank line as
+ * a `<br />` line between blank lines: that placeholder is a blank line. Every other character,
+ * a `<br>` in pasted source included, stays as copied. */
+const withoutBreakPlaceholders = (text: string) =>
+  text
+    .replace(/\r\n?/g, "\n")
+    .replace(/\n\n<br \/>(?=\n\n)/g, "")
+    .replace(/^<br \/>\n\n/, "\n")
+    .replace(/\n\n<br \/>\n?$/, "\n");
+
+const BLOCK_TAG = /^(P|DIV|LI|PRE|BLOCKQUOTE|H[1-6]|UL|OL|TABLE|TR|SECTION|ARTICLE|HEADER|FOOTER)$/;
+
+/** HTML pasted with no plain text, as its text: each `<br>` and block (a `<p>`) ends a line. */
+function htmlText(html: string): string {
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  let out = "";
+  const walk = (node: Node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      out += (node.textContent ?? "").replace(/\s+/g, " ");
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const tag = (node as Element).tagName;
+    if (tag === "BR") {
+      out += "\n";
+      return;
+    }
+    if (tag === "STYLE" || tag === "SCRIPT" || tag === "META" || tag === "TITLE") return;
+    const block = BLOCK_TAG.test(tag);
+    if (block && out && !out.endsWith("\n")) out += "\n";
+    for (const child of node.childNodes) walk(child);
+    if (block) out += "\n";
+  };
+  for (const child of template.content.childNodes) walk(child);
+  return out.replace(/[ \t]+\n/g, "\n").replace(/^\n+|\n+$/g, "");
+}
+
+/** Plain text as the field shows it: one paragraph whose newlines are line breaks, a blank line
+ * two of them. A paste is never parsed as markdown or HTML, so its lines and characters stay. */
+function plainFragment(view: EditorView, text: string): Fragment {
+  const { schema } = view.state;
+  const hardbreak = schema.nodes.hardbreak;
+  const nodes: ProseNode[] = [];
+  text.split("\n").forEach((line, index) => {
+    if (index > 0) nodes.push(hardbreak ? hardbreak.create() : schema.text(" "));
+    if (line) nodes.push(schema.text(line));
+  });
+  return Fragment.from(nodes);
+}
+
+/** Inserts `text` at the selection as the field's lines (`plainFragment`), the caret after it. */
+function insertPlain(view: EditorView, text: string) {
+  const { from, to, $from } = view.state.selection;
+  // In a code block a newline is a newline.
+  if ($from.parent.type.spec.code) {
+    view.dispatch(view.state.tr.insertText(text, from, to).scrollIntoView());
+    return;
+  }
+  const fragment = plainFragment(view, text);
+  const tr = view.state.tr.replaceWith(from, to, fragment);
+  tr.setSelection(TextSelection.near(tr.doc.resolve(tr.mapping.map(to))));
+  view.dispatch(tr.scrollIntoView());
+}
+
+/** The copy's text/plain: the lines as the field shows them (a block or line break a newline, an
+ * empty paragraph a blank line), with no markdown escapes or `<br />` placeholders. */
+const copiedText = (slice: Slice) => slice.content.textBetween(0, slice.content.size, "\n");
 
 /// How long after a focus with no click the browser's own caret placement is overruled.
 const KEEP_CARET_MS = 100;
 /// The soft band at a long draft's scrolled edges (markdownField.css reads it as
 /// `--acpmux-md-fade-band`). The caret reveal keeps the caret this far from the field's edge, so the
-/// caret's line never sits in the fade.
-const FADE_BAND_PX = 18;
+/// caret's line never sits in the fade. The attachment row above the prompt fades its scrolled sides
+/// by the same band (composer/attachmentIntake.tsx).
+export const FADE_BAND_PX = 18;
 
 /** The document as the prompt's markdown, keeping the spaces typed at its end. */
 function promptMarkdown(editor: Editor | undefined, view: EditorView): string {
@@ -374,22 +442,31 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
                 event.preventDefault();
                 const plain = pasteIsOnlyFileNames(data) ? "" : lifted.text;
                 if (!plain.trim() || beforeInput(editorView, plain, true)) return true;
-                const { from, to } = editorView.state.selection;
-                editorView.dispatch(editorView.state.tr.insertText(plain, from, to).scrollIntoView());
+                insertPlain(editorView, plain);
                 showPastedEnd(editorView.state);
                 return true;
               },
             },
             handleTextInput: (editorView, _from, _to, text) => beforeInput(editorView, text),
             handlePaste: (editorView, event, slice) => {
-              const plain = event.clipboardData?.getData("text/plain");
-              if (plain && looksLikeMarkupText(plain)) {
-                if (beforeInput(editorView, plain, true)) return true;
-                const { from, to } = editorView.state.selection;
-                editorView.dispatch(editorView.state.tr.insertText(plain, from, to).scrollIntoView());
-                showPastedEnd(editorView.state);
-                return true;
+              // A paste is its plain text, as copied: with HTML too, the plain text wins, and HTML
+              // alone goes in as its text. Left to Milkdown, a plain paste was parsed as markdown
+              // (its `<br />` blank-line placeholder, HTML or JSX source went in as typed tags) and
+              // an HTML one as rich nodes (Leo 2026-10-21: "line breaks ... as <br />").
+              // VS Code's paste is Milkdown's (a code block in its language).
+              const data = event.clipboardData;
+              if (data && !data.getData("vscode-editor-data")) {
+                const html = data.getData("text/html");
+                const text = data.getData("text/plain");
+                const plain = text ? withoutBreakPlaceholders(text) : html ? htmlText(html) : "";
+                if (plain) {
+                  if (beforeInput(editorView, plain, true)) return true;
+                  insertPlain(editorView, plain);
+                  showPastedEnd(editorView.state);
+                  return true;
+                }
               }
+              const plain = data?.getData("text/plain");
               // The surface sees the text as copied (a huge paste becomes the composer's chip as it
               // was), else the slice's text (a paste of HTML only).
               if (beforeInput(editorView, plain || slice.content.textBetween(0, slice.content.size, "\n", "\n"), true))
@@ -533,6 +610,9 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         ctx.update(editorViewOptionsCtx, (options) => ({
           ...options,
           attributes: { class: "acpmux-md", "data-focus-ring": "none" },
+          // A copy's plain text is the lines as shown, not Milkdown's markdown (which writes a blank
+          // line as `<br />`); a view prop, so it comes before the clipboard plugin's.
+          clipboardTextSerializer: copiedText,
           scrollMargin: FADE_BAND_PX,
         }));
       })

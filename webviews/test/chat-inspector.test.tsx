@@ -7,7 +7,7 @@
 // commands and what it produced (Outputs). It is open by
 // default, stays open (or closed) across chat panes, lies over the chat so it never reflows it
 // (Settings Push moves the chat aside unless the pane is too narrow), hides a section with nothing
-// in it, and lists every row, scrolling instead of a "Show more".
+// in it, and shows five pull requests under Changes, then Show more (Claude Code desktop's).
 import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { act, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -195,13 +195,19 @@ test("the Inspector opens with a first chat: its environment, context use and ou
   expect(rows[1]!.getAttribute("title")).toBe(CWD);
   expect(rows.map((row) => row.textContent)).toContain("main");
 
-  // Context: 48K of 200K is 24% with a bar, folded until asked; then the tokens.
+  // Context: 48K of 200K is 24% with a bar, folded until asked; then, as Claude Code desktop's, the
+  // percent used with the tokens, a bar, and the used and free parts with their shares.
   const context = section(container, "context")!;
   expect(meta(context)).toContain("24%");
   expect(context.querySelector(".acpmux-chat-inspector-meter")).not.toBeNull();
   expect(context.textContent).not.toContain("tokens");
   await click(head(context));
-  expect(section(container, "context")!.textContent).toMatch(/48K of 200K tokens/);
+  const open = section(container, "context")!;
+  expect(open.querySelector(".acpmux-chat-inspector-context__total")?.textContent).toBe("24% used48K / 200K");
+  const bar = open.querySelector<HTMLElement>('.acpmux-chat-inspector-context__bar [data-part="used"]');
+  expect(bar?.style.width).toBe("24%");
+  const parts = [...open.querySelectorAll<HTMLElement>(".acpmux-chat-inspector-row[data-part]")];
+  expect(parts.map((row) => row.textContent)).toEqual(["Used48K24%", "Free space152K76%"]);
 
   // Outputs: the changed and the created file, each opening its diff by path.
   const files = [
@@ -233,7 +239,7 @@ test("open, closed, folds and width hold in every chat pane, following another p
   await render(container, localChat);
   expect(panel(container)).toBeNull();
   await click(toggle(container)!);
-  expect(section(container, "context")!.textContent).toMatch(/48K of 200K tokens/);
+  expect(section(container, "context")!.textContent).toContain("48K / 200K");
   expect(inspectorState().sections.context).toBe(true);
 
   // Another pane closes it: this one follows its storage event.
@@ -340,7 +346,7 @@ test("an output whose diff split leaves no room to push the chat closes the Insp
   paneWidth = 0;
 });
 
-test("Connectors counts the connected servers and the ones to reconnect; a harness that reports none has no section", async () => {
+test("Connectors says how many to reconnect, else how many connected; open, each server's status", async () => {
   const container = installDom(true);
   const base = chat([]);
   await render(container, {
@@ -356,14 +362,23 @@ test("Connectors counts the connected servers and the ones to reconnect; a harne
   });
   expect(sectionIds(container)).toEqual(["environment", "context", "connectors"]);
   const connectors = section(container, "connectors")!;
-  expect(meta(connectors)).toBe("1 connected · 1 to reconnect");
+  // As Claude Code desktop's head: the servers to reconnect, when any failed.
+  expect(meta(connectors)).toBe("1 to reconnect");
   expect(connectors.querySelector(".acpmux-chat-inspector-row")).toBeNull();
   await click(head(connectors));
   const rows = [...section(container, "connectors")!.querySelectorAll(".acpmux-chat-inspector-row")].map(
     (row) => row.textContent,
   );
-  expect(rows).toEqual(["github", "linearNeeds reconnect", "sentryConnecting"]);
+  expect(rows).toEqual(["githubConnected", "linearNeeds reconnect", "sentryConnecting"]);
 
+  // None failed: how many are connected.
+  await render(container, {
+    ...base,
+    summary: { ...base.summary!, mcpServers: [{ name: "github", status: "connected" }] },
+  });
+  expect(meta(section(container, "connectors"))).toBe("1 connected");
+
+  // A harness that reports none has no section.
   await render(container, base);
   expect(section(container, "connectors")).toBeNull();
 });
@@ -378,7 +393,7 @@ const opened = (number: number, title: string) =>
 const ran = (command: string, endedAt?: number) =>
   tool(command, "execute", "completed", { command, output: "", exitCode: 0, ...(endedAt ? { endedAt } : {}) });
 
-test("Changes lists the pull requests the chat opened or touched, newest first, every one of them", async () => {
+test("Changes lists the pull requests the chat opened or touched, open ones first, five then Show more", async () => {
   const container = installDom(true);
   await render(container, localChat);
   // No pull request yet: no section, not an empty one.
@@ -413,18 +428,19 @@ test("Changes lists the pull requests the chat opened or touched, newest first, 
   expect(sectionIds(container)).toEqual(["environment", "context", "changes"]);
   const changes = section(container, "changes")!;
   expect(meta(changes)).toBe("9");
-  const rows = [...changes.querySelectorAll<HTMLElement>("li.acpmux-chat-inspector-pr")];
-  // All nine: the list scrolls; nothing waits behind a "Show more".
+  const listed = () => [...changes.querySelectorAll<HTMLElement>("li.acpmux-chat-inspector-pr")];
+  // Five, then Show more for the other four.
+  expect(listed()).toHaveLength(5);
+  await click(changes.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-pr-fold")!);
+  const rows = listed();
   expect(rows).toHaveLength(9);
-  expect(changes.querySelector(".acpmux-chat-inspector-scroll, .acpmux-chat-inspector-scroll *")).not.toBeNull();
-  expect(changes.textContent).not.toContain("Show");
   const links = rows.map((row) => row.querySelector<HTMLAnchorElement>("a.acpmux-chat-inspector-pr__link")!);
   expect(links[0]!.getAttribute("href")).toBe("https://github.com/acme/atlas-web/pull/27");
-  // The one it only merged, by URL in another repository, is there with its state.
-  expect(links[7]!.getAttribute("href")).toBe("https://github.com/acme/billing/pull/7");
-  expect(rows[7]!.dataset.state).toBe("merged");
-  expect(links[7]!.querySelector(".acpmux-chat-inspector-pr__ref")?.textContent).toBe("billing #7");
-  const folder = rows[8]!;
+  // The one it only merged, by URL in another repository, is there, last, with its state.
+  expect(links[8]!.getAttribute("href")).toBe("https://github.com/acme/billing/pull/7");
+  expect(rows[8]!.dataset.state).toBe("merged");
+  expect(links[8]!.querySelector(".acpmux-chat-inspector-pr__ref")?.textContent).toBe("billing #7");
+  const folder = rows[7]!;
   expect(folder.querySelector(".acpmux-chat-inspector-pr__title")?.textContent).toBe("Retry the fetch helper");
   // Only the pull request whose checks the App reads says how they stand: how many fail.
   expect(rows[0]!.querySelector(".acpmux-chat-inspector-pr__checks")).toBeNull();
