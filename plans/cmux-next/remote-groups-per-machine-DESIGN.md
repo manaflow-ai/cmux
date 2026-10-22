@@ -1,6 +1,6 @@
 # Remote groups per machine: one machine, a machine icon, show or hide, one flat list by default
 
-Status: design + slices R1-R4, 2026-10-21. Owner lane: "Agents & routing".
+Status: design; R1 and R2 built 2026-10-21; R3 and R4 next (section 8). Owner lane: "Agents & routing".
 Ask: Lawrence's voice talk with Leo (Chief msg 9663). Builds on
 [remote-groups-DESIGN.md](remote-groups-DESIGN.md) (a283/a473: a remote group is a `machine` section
 with `host_group`), [cloud-groups-DESIGN.md](cloud-groups-DESIGN.md) (a461: cloud-homed groups,
@@ -56,7 +56,7 @@ the target case has 10× headroom.
   | laptop | name contains `macbook`, `mbp`, `mba`, `laptop` | `laptopcomputer` |
   | desktop Mac | name contains `imac`, `studio`, `macpro` | `desktopcomputer` |
   | server | anything else remote (SSH/Linux/paired server) | `server.rack` |
-  | this Mac | `kind == .local` | `laptopcomputer` when `hw.model` starts with `MacBook`, else `desktopcomputer` |
+  | this Mac | `kind == .local` | `laptopcomputer` (reading `hw.model` to pick `desktopcomputer` on a desktop Mac is a follow-up) |
 
   The name heuristic is a default only; the user's choice always wins and is stored in the home
   session registry (`session-icon-v1`), so every client draws the same icon. A later slice can read
@@ -146,3 +146,25 @@ p95 on the same mini.
 | R2 | `sidebar.showRemoteGroups` + `sidebar.toggleRemoteGroups` (palette, menus, CLI, MCP), localized | `RemoteGroupsVisibilityTests` (hidden: no host-group header, rows in one list; shown: headers back) red, then green |
 | R3 | `extra.created_ms` stamped on adopt (daemon), merged one list (Swift), drop resolution in the merged list | Rust `adopt_stamps_created_ms`; `SidebarOneListMergeTests` (interleaves machines by time, keeps each machine's manual order, old items keep order) red, then green |
 | R4 | p95 rows in a436's gate | rows present and within budget on a fleet mini |
+
+## 8. Where the slices stand (2026-10-21)
+
+- **R1, R2: built** (`SidebarMachineForm`, `SectionHeaderRowView`, `SidebarLayout.marksMachine`,
+  `sidebar.showRemoteGroups`, `sidebar.remoteGroups.hide|show`). Two older tests changed with the rule
+  the user asked for: `HostGroupHeaderStatusTests` (no "Connected" in words) and
+  `SidebarIconMeaningTests` (no bare dot; the connected header's tooltip says the state).
+- **R3: not built.** Findings that shape it:
+  - The daemon keeps no creation time for a workspace. The sidebar document's lookup by reference
+    ignores `WorkspaceRef.extra` (`ref_key` is session + workspace id), so `created_ms` can ride on
+    the reference: stamp it on each `Op::Adopt` reference that lacks one at the three daemon apply
+    sites (`sidebar_doc_ops.rs`, `sidebar_layout_ops.rs`, `sidebar_doc_sync.rs try_apply`) with a
+    pure `stamp_created(ops, now_ms)` helper in the reducer crate (clock stays injected).
+  - The layout lays out one section at a time, and each section owns its Done fold, its row limit
+    ("Show N more"), its session tree and its drop indexes. Interleaving machines means splitting
+    consecutive headerless machine sections into time-ordered runs that keep each node's index in
+    its own section (`nodeIndexBase`) and share one Done fold and one row limit across the runs.
+    That is a change to `SidebarLayout.make`'s main loop, so it gets its own red/green pair and the
+    perf rows below before it lands.
+- **R4: blocked on a436's gate.** `scripts/cmux-next/perf-budgets.json` and `perf-budgets.py` are on
+  branch `perf-gate` (not on feat-cmux-next). The rows in section 6 go there when it lands; R1 and R2
+  add no per-frame work (one cached glyph per header configure, one CALayer fewer per header).
