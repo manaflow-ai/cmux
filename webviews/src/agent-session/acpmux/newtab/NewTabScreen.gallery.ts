@@ -57,6 +57,8 @@ const nowPlayingTrack = (playing: boolean) => ({
   labels: { play: "Play", pause: "Pause", previous: "Previous Track", next: "Next Track" },
 });
 
+// The variants were drawn on Cards, the page an unset template showed before Minimal (Leo
+// 2026-10-20) became the default; they keep it unless they name another (the minimal-* ones do).
 const newTab = (fields: Record<string, unknown> = {}) => ({
   newTab: {
     layout: "b",
@@ -64,6 +66,7 @@ const newTab = (fields: Record<string, unknown> = {}) => ({
     cwd: CWD,
     home: "/Users/you",
     lastAgent: "claude",
+    template: "cards",
     ...fields,
   },
   newSession: true,
@@ -184,7 +187,7 @@ async function holdsItsPlace(ctx: PlayContext): Promise<void> {
   ctx
     .find({ selector: ".nt-field" })
     .dispatchEvent(new view.ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-  await ctx.waitFor(() => ctx.document.querySelector(".nt-box .acpmux-attachment-image") !== null);
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-box .acpmux-attachment-image:not([aria-busy])") !== null);
   view.cmuxAcpmuxBridge?.applyNowPlaying?.({
     title: "Weightless",
     artist: "Marconi Union",
@@ -235,6 +238,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/RowGlyph.tsx#RowGlyph",
     "agent-session/acpmux/newtab/StyleSwitch.tsx#StyleSwitch",
     "agent-session/acpmux/newtab/WidgetCards.tsx#WidgetCards",
+    "agent-session/acpmux/newtab/WidgetEditing.tsx",
     "agent-session/acpmux/newtab/StageCards.tsx",
     "agent-session/acpmux/DictationMic.tsx#DictationMic",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
@@ -290,6 +294,58 @@ export default agentPaneEntry({
       note: "The Default template's stage layout before any chat: its own composer at the foot of the page, the one model button (model and effort) in the box, text at rest, the soft pill only on the hovered control.",
       ready: newTab({ template: "default" }),
       snapshot: reasoningChat(),
+    },
+    // Minimal, the page as it opens by default (Leo 2026-10-20, newtab/pageWidgets.ts): the greeting
+    // and the composer, with chats on this Mac it does not list. `minimal-default` is a host that
+    // sends no template (the app's unset key); `minimal-widgets` turns the stage's widgets on.
+    "minimal-default": {
+      note: "Minimal, New Tab's default layout: a quiet greeting over the composer, which keeps its folder and machine, model, effort, mic and Send. No project card, quick actions, chats or template dots: those are widgets, off by default.",
+      ready: newTab({ template: undefined }),
+      snapshot: noChat(manySessions(12)),
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-greeting") !== null);
+        const extra = ctx.document.querySelector(".nt-stage, .nt-cards, .nt-create, .nt-style");
+        if (extra) throw new Error(`the minimal page shows ${extra.className}`);
+      },
+    },
+    "minimal-widgets": {
+      note: "Minimal with the project card, quick actions, recent chats and the template dots turned on in Settings: Default's stage around the same composer.",
+      ready: newTab({
+        template: "minimal",
+        pageWidgets: ["greeting", "projects", "actions", "chats", "styleDots"],
+      }),
+      snapshot: noChat(manySessions(12)),
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-style") !== null);
+      },
+    },
+    // Minimal's widgets in the user's order (`tabs.newTabWidgets.order`) and its edit mode
+    // (newtab/WidgetEditing.tsx): right-click > Edit New Tab, and the widgets wiggle with their ✕.
+    "minimal-widgets-ordered": {
+      note: "Minimal with Recent Chats dragged over the project card in edit mode: the stage draws the widgets in the order the user left them.",
+      ready: newTab({ template: "minimal", pageWidgets: ["greeting", "chats", "projects"] }),
+      snapshot: noChat(manySessions(12)),
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
+        const chats = ctx.document.querySelector(".nt-chats");
+        const projects = ctx.document.querySelector(".nt-env");
+        if (!chats || !projects || !(chats.compareDocumentPosition(projects) & Node.DOCUMENT_POSITION_FOLLOWING))
+          throw new Error("Recent Chats should come before the project card");
+      },
+    },
+    "minimal-edit-mode": {
+      note: "Minimal's edit mode, as an iPhone's home screen: each widget wiggles (still with Reduce Motion or animations off) and has a ✕ that turns it off; drag one, or Option-Up / Option-Down, to move it. Add Widgets opens App Store Features on New Tab; Done or Escape ends it.",
+      ready: newTab({ template: "minimal", pageWidgets: ["greeting", "projects", "actions", "chats"] }),
+      snapshot: noChat(manySessions(12)),
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
+        await ctx.contextMenu({ selector: ".nt-env" });
+        await ctx.click({ role: "menuitem", name: "Edit New Tab" });
+        // Four ✕: the greeting over the stage is a widget too, with its own frame.
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-widget-frame .nt-widget-remove").length === 4);
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-edit-bar") !== null);
+      },
     },
     // The New Tab composer's states, as the chat composer's (agent-pane.composer composer-*): the
     // same chips, pills, caret and rim (test/composer-caret-focus.test.ts).

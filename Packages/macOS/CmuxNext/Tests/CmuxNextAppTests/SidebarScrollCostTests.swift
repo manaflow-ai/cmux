@@ -32,20 +32,70 @@ struct SidebarScrollCostTests {
         #expect(held <= visible * 2, "the list holds \(held) row views for \(visible) visible rows")
     }
 
+    /// A slow runner, stood in deterministically: every frame and every reference sample does the
+    /// reference work `slowdown` times, so the runner is that much slower at both. This host's own
+    /// unslowed reference is the nominal one and its unslowed frames set the budget, so the host's
+    /// speed cancels out. The slowed frames break that budget as it is, and hold it once the
+    /// calibration scales it by the slowed reference.
+    @Test func aSlowRunnerScalesTheBudgetByItsReferenceWorkload() {
+        let slowdown = 3
+        func work(_ times: Int) { for _ in 0..<times { FrameBudgetCalibration.referenceWork() } }
+        func frames(_ times: Int) -> [Double] { (0..<60).map { _ in FrameBudgetCalibration.cpuMs { work(times) } } }
+        work(4) // warm up
+        let nominalMs = SidebarScrollBench.percentile(frames(1), 0.5)
+        let fast = frames(1)
+        var slow = FrameBudgetCalibration(nominalMs: nominalMs, reference: { work(slowdown) })
+        slow.checkpoint()
+        let slowed = frames(slowdown)
+        slow.checkpoint()
+        let budget = 1.5 * SidebarScrollBench.percentile(fast, 0.95)
+        let slowedP95 = SidebarScrollBench.percentile(slowed, 0.95)
+        print(String(format: "FRAME-BUDGET-CALIBRATION-TEST reference %.3f ms, budget %.3f ms, slowed p95 %.3f ms | ",
+                     nominalMs, budget, slowedP95) + slow.summary)
+        #expect(slowedP95 > budget, "the stand-in runner is not slow enough to break an unscaled budget")
+        if let reason = slow.skipReason { return print("FRAME-BUDGET-CALIBRATION-TEST skipped: \(reason)") }
+        #expect(slowedP95 < slow.budget(budget),
+                "a runner \(slowdown)x slower at the reference took \(slowedP95) ms a frame against a budget scaled to \(slow.budget(budget)) ms")
+    }
+
+    /// A runner faster than nominal keeps the budget as it is, and one far slower than the cap skips
+    /// the budget with a reason instead of scaling it without bound.
+    @Test func aFastRunnerKeepsTheBudgetAndATooSlowOneSkipsIt() {
+        var fast = FrameBudgetCalibration(nominalMs: 1_000)
+        fast.checkpoint()
+        #expect(fast.factor == 1 && fast.budget(8) == 8, "\(fast.summary)")
+        var tooSlow = FrameBudgetCalibration(nominalMs: 0.001)
+        tooSlow.checkpoint()
+        #expect(tooSlow.skipReason?.contains("slower than nominal") == true, "\(tooSlow.summary)")
+    }
+
+    /// The 8 ms budget is for the hosts it was set on; a slower runner gets it scaled by its own
+    /// reference workload, timed before the scrolls and after each (FrameBudgetCalibration), or skips
+    /// the timed checks with the reason printed.
     @Test func scrollingFiveHundredWorkspacesStaysInsideTheFrameBudget() {
+        var calibration = FrameBudgetCalibration()
+        calibration.checkpoint()
         for count in [10, 100] { _ = Self.measure(count) }
+        var timed: [(what: String, p95: Double)] = []
         for pointer in [false, true] {
             let frames = Self.measure(500, pointer: pointer)
-            let p95 = SidebarScrollBench.percentile(frames.map(\.cpuMs), 0.95)
-            #expect(p95 < 8, "p95 scroll frame at 500 workspaces (pointer over the list: \(pointer)) took \(p95) ms of main thread")
+            calibration.checkpoint()
+            timed.append(("p95 scroll frame at 500 workspaces (pointer over the list: \(pointer))",
+                          SidebarScrollBench.percentile(frames.map(\.cpuMs), 0.95)))
             #expect(frames.map(\.reloads).reduce(0, +) == 0, "a scroll laid the list out again (pointer: \(pointer))")
         }
         // Agents streaming while the list scrolls: three status ticks a frame.
         let ticking = Self.measure(500, pointer: true, ticks: 3)
-        let tickingP95 = SidebarScrollBench.percentile(ticking.map(\.cpuMs), 0.95)
-        #expect(tickingP95 < 8, "p95 scroll frame at 500 workspaces with ticking agents took \(tickingP95) ms of main thread")
+        calibration.checkpoint()
+        timed.append(("p95 scroll frame at 500 workspaces with ticking agents", SidebarScrollBench.percentile(ticking.map(\.cpuMs), 0.95)))
         // Not a check: a notification moving a workspace to the top every half second.
         _ = Self.measure(500, pointer: true, ticks: 3, moveToTopEvery: 60)
+        print(calibration.summary)
+        if let reason = calibration.skipReason { return print("SIDEBAR-SCROLL-BUDGET skipped the 8 ms checks: \(reason)") }
+        let budget = calibration.budget(8)
+        for (what, p95) in timed {
+            #expect(p95 < budget, "\(what) took \(p95) ms of main thread, over 8 ms scaled by \(calibration.factor) to \(budget) ms")
+        }
     }
 }
 

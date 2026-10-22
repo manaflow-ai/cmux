@@ -22,6 +22,7 @@ import { DENSITY_ROWS } from "../density";
 import { DensityCard } from "./DensityCard";
 import { BrowserProfiles, MachinesSection, SpacesSection } from "./HostSections";
 import { PlaceholderSection } from "./PlaceholderSection";
+import { VoiceInputCard } from "./VoiceInputCard";
 import { SectionActions } from "./SectionActions";
 import { ACCENT_KEY, APP_THEME_KEY, THEME_EDITS_KEY, THEME_KEY, ThemeStudio } from "./ThemeStudio";
 
@@ -50,6 +51,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   density: () => <DensityCard />,
   importSuggestions: () => <ImportSuggestionsCard />,
   channels: () => <ChannelsCard />,
+  voiceInput: () => <VoiceInputCard />,
   chiefDiagnostics: () => <ChiefDiagnosticsCard />,
 };
 
@@ -70,8 +72,7 @@ export function SectionView({
   const drawn = new Set(studio ? [THEME_KEY, APP_THEME_KEY, ACCENT_KEY] : []);
   // The background picker draws appearance.background and its Opacity while it shows.
   const picker = useBackdropsShown() && [...category.lead, ...category.trail].includes("backdrops");
-  // The Chief's Look card (ChiefPetCard) draws home.chiefPetEnabled, home.chiefPetMascot and
-  // home.chiefBubbleStyle (CHIEF_PET_ROWS).
+  // The Chief Pet card draws home.chiefPetEnabled and home.chiefPetMascot.
   const pet = category.lead.includes("chiefPet");
   // The density card draws appearance.density and the custom density keys.
   const densityCard = [...category.lead, ...category.trail].includes("density");

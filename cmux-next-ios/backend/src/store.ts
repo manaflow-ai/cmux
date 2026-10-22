@@ -29,6 +29,24 @@ export interface DeviceInput {
 export interface Prefs {
   color: string | null
   emoji: string | null
+  /** Draw the icon with no background. Only with an icon (a non-empty `emoji`); `color` stays the fallback. */
+  transparent: boolean
+}
+
+const NO_PREFS: Prefs = { color: null, emoji: null, transparent: false }
+
+/** True when `emoji` is an icon the user picked (not automatic `null` or none `""`). */
+export const hasIcon = (emoji: string | null): boolean => typeof emoji === "string" && emoji.length > 0
+
+/**
+ * The prefs after a PUT. A PUT that sets `color` without `transparent` (every build that predates it) picks a
+ * filled badge. A team without an icon is never transparent, so it always keeps a color.
+ */
+export function mergePrefs(cur: Prefs, patch: Partial<Prefs>): Prefs {
+  const color = patch.color !== undefined ? patch.color : cur.color
+  const emoji = patch.emoji !== undefined ? patch.emoji : cur.emoji
+  const transparent = patch.transparent ?? (patch.color !== undefined ? false : cur.transparent)
+  return { color, emoji, transparent: transparent && hasIcon(emoji) }
 }
 
 export type PushEnvironment = "sandbox" | "production"
@@ -171,18 +189,19 @@ export const pgStore = async (hyperdrive: Hyperdrive): Promise<Store> => {
     },
     async getPrefs(userId, teamId) {
       const [r] = await db.select().from(teamPrefs).where(and(eq(teamPrefs.userId, userId), eq(teamPrefs.teamId, teamId))).limit(1)
-      return { color: r?.color ?? null, emoji: r?.emoji ?? null }
+      return r ? { color: r.color, emoji: r.emoji, transparent: r.transparent && hasIcon(r.emoji) } : { ...NO_PREFS }
     },
     async putPrefs(userId, teamId, patch) {
       const set: Record<string, unknown> = { updatedAt: sql`now()` }
       if (patch.color !== undefined) set.color = patch.color
       if (patch.emoji !== undefined) set.emoji = patch.emoji
+      if (patch.transparent !== undefined) set.transparent = patch.transparent
       const [r] = await db
         .insert(teamPrefs)
-        .values({ userId, teamId, color: patch.color ?? null, emoji: patch.emoji ?? null })
+        .values({ userId, teamId, color: patch.color ?? null, emoji: patch.emoji ?? null, transparent: patch.transparent ?? false })
         .onConflictDoUpdate({ target: [teamPrefs.userId, teamPrefs.teamId], set })
         .returning()
-      return { color: r?.color ?? null, emoji: r?.emoji ?? null }
+      return r ? { color: r.color, emoji: r.emoji, transparent: r.transparent && hasIcon(r.emoji) } : { ...NO_PREFS }
     },
     async listTeamScopes() {
       const r = await client.query<{ project: string | null; team_id: string; device_ids: Array<string> | null }>(
@@ -251,12 +270,18 @@ export const memoryStore = (): Store => ({
     for (const [k, p] of mem.push) if (tokens.includes(p.token)) mem.push.delete(k)
   },
   async getPrefs(u, t) {
-    return { ...(mem.prefs.get(`${u}\u0000${t}`) ?? { color: null, emoji: null }) }
+    return { ...(mem.prefs.get(`${u}\u0000${t}`) ?? NO_PREFS) }
   },
   async putPrefs(u, t, patch) {
     const k = `${u}\u0000${t}`
-    const cur = mem.prefs.get(k) ?? { color: null, emoji: null }
-    const next = { color: patch.color !== undefined ? patch.color : cur.color, emoji: patch.emoji !== undefined ? patch.emoji : cur.emoji }
+    const cur = mem.prefs.get(k) ?? NO_PREFS
+    const emoji = patch.emoji !== undefined ? patch.emoji : cur.emoji
+    const next: Prefs = {
+      color: patch.color !== undefined ? patch.color : cur.color,
+      emoji,
+      // As Postgres's read: never transparent without an icon.
+      transparent: (patch.transparent !== undefined ? patch.transparent : cur.transparent) && hasIcon(emoji)
+    }
     mem.prefs.set(k, next)
     return { ...next }
   },
