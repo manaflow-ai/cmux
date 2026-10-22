@@ -40,8 +40,8 @@ enum CmuxAppLinks {
                 return FileManager.default.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
             }.value
             guard let services else { return }
-            // A tab of the focused pane (LinkOpener): the pinned Home column, which takes no tabs,
-            // gets the pane on its right or a new split.
+            // Beside the pane the link was clicked from (LinkOpener): the pinned Home column, which
+            // takes no tabs, gets the pane on its right or a new split.
             let source = services.windows.active?.focusedPane
             if isDirectory {
                 services.linkOpener.openFolder(path, from: source)

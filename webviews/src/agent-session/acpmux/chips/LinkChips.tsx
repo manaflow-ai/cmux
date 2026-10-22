@@ -3,8 +3,8 @@
 // and opens through the host (`link.openPath`: the deny list and the session's folders after
 // symlinks, then a user gesture; outside the folders, `agentPane.links.outsideRoots` decides and
 // the host's own sheet asks). Hovering a path chip opens its preview card (PathHoverCard.tsx): an
-// image's thumbnail or a text file's first lines, a locked chip's too. A web chip is an ordinary link, which the host opens outside the
-// pane after a real click. It reads as plain link text (Claude Code desktop's links): a local or
+// image's thumbnail or a text file's first lines, a locked chip's too. A web chip is an ordinary
+// link, which the host opens outside the pane after a real click. It reads as plain link text (Claude Code desktop's links): a local or
 // private address never dressed as a site, and a secret-looking query value as `•••`
 // (linkDisplay.ts). A chip's text and icon are fixed when it first draws: a site's or a pull
 // request's title arriving later never widens it and reflows the paragraph under the reader (Leo
@@ -54,6 +54,8 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
         type="button"
         className={`cv-chip is-path${outside ? " is-outside" : ""}`}
         data-path={path}
+        /* It drags out as the file itself (conversation/dragOut.ts). */
+        draggable
         onClick={() => void callChipHost("link.openPath", { path })}
         {...hover.trigger}
       >
