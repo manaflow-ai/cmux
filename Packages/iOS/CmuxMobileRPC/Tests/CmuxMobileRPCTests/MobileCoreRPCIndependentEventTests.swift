@@ -189,19 +189,23 @@ struct MobileCoreRPCIndependentEventTests {
                 "payload": ["surface_id": surfaceID],
             ]))
         }
+        // Lanes are scoped only for terminal UUIDs (any other resource is
+        // forwarded unscoped), so the terminals here are UUIDs.
+        let terminalA = "8F1C2A44-0B6D-4E1A-9C3B-5D7E8F9A0B1C"
+        let terminalB = "2B4D6F80-1A3C-4E5F-8091-A2B3C4D5E6F7"
         // Terminal A's lane carries a frame naming B, then A's own frame.
-        var laneA = try event("terminal-b")
-        laneA.append(try event("terminal-a"))
-        await source.yield(MobileEventLaneScope().scoped(laneA, surfaceID: "terminal-a"))
+        var laneA = try event(terminalB)
+        laneA.append(try event(terminalA))
+        await source.yield(MobileEventLaneScope().scoped(laneA, surfaceID: terminalA))
         // The shared lane is unscoped and delivers B's frame normally.
-        await source.yield(try event("terminal-b"))
+        await source.yield(try event(terminalB))
 
         let first = try #require(await events.next()?.payloadJSON)
         let second = try #require(await events.next()?.payloadJSON)
         let surfaces = try [first, second].map {
             try #require(JSONSerialization.jsonObject(with: $0) as? [String: String])["surface_id"]
         }
-        #expect(surfaces == ["terminal-a", "terminal-b"])
+        #expect(surfaces == [terminalA, terminalB])
 
         await client.disconnect()
     }
