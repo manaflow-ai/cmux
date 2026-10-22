@@ -34,6 +34,16 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     public var copyItem: @MainActor (NSPasteboardItem) -> Bool = { AgentPaneImageCopies.writeGeneral($0) }
     /// Save Image As…: asks where to save the file under the name (the system save panel).
     public var saveFile: @MainActor (_ file: URL, _ name: String) -> Void = { AgentPaneImageCopies.askToSave($0, name: $1) }
+    /// A path menu's Save As…: the save panel, whose answer copies `file` only while `allowed()`
+    /// holds (the chat is still on this Mac when the person picks a place).
+    public var savePathFile: @MainActor (_ file: URL, _ name: String, _ allowed: @escaping @MainActor () -> Bool) -> Void = {
+        AgentPaneImageCopies.askToSave($0, name: $1, allowed: $2)
+    }
+    /// Reads a local reply image off the main actor (``AgentPaneReplyImages/local(_:)``); tests
+    /// stand in for it.
+    public var readLocalImage: @Sendable (_ path: String) async -> Result<String, AgentPaneReplyError> = {
+        await AgentPaneReplyImages.local($0)
+    }
     /// Quick Look on a file (the system's preview panel).
     public lazy var quickLookFile: @MainActor (URL) -> Void = { [quickLook = self.quickLook] in quickLook.show($0) }
     /// Whether the person still holds the pointer's button: a page drag (`image.drag`, `file.drag`)
@@ -209,7 +219,12 @@ extension AgentPaneModel {
         guard !remoteChat, !transport.remoteWire else { return Self.replyFailure(.pathOutsideRoots) }
         guard let resolved = replyPaths().resolve(src) else { return Self.replyFailure(.pathInvalid) }
         switch resolved.place {
-        case .root: return Self.replyImage(await AgentPaneReplyImages.local(resolved.path))
+        case .root:
+            // The read runs off the main actor, right after the check above; a chat that turned
+            // remote while it ran gets none of its bytes (cx-k21v).
+            let image = await replyLinks.readLocalImage(resolved.path)
+            guard !remoteChat, !transport.remoteWire else { return Self.replyFailure(.pathOutsideRoots) }
+            return Self.replyImage(image)
         case .denied: return Self.replyFailure(.pathDenied)
         case .outside: return Self.replyFailure(.pathOutsideRoots)
         case .missing: return Self.replyFailure(.pathInvalid)

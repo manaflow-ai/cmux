@@ -18,15 +18,19 @@ extension AgentPaneView {
         default: return nil
         }
         let file = URL(fileURLWithPath: resolved.path, isDirectory: resolved.isFolder)
-        let menu = LinkMenu()
+        // Each row holds this Mac's file; the chat may turn remote before one is picked, or while
+        // its read or panel is still out, so each checks again then (cx-k21v).
+        let model = model
+        let allowed: @MainActor () -> Bool = { [weak model] in model.map { !$0.remoteChat && !$0.transport.remoteWire } ?? false }
+        var menu = LinkMenu()
+        menu.allowed = allowed
         let rows = menu.items(menu.pathRows(for: file, isDirectory: resolved.isFolder).filter { $0.kind != .open }, file: file)
         // A file (a chip, a video, an audio clip) leads with Copy and Save As…; a folder has neither.
-        let items = resolved.isFolder ? rows
-            : AgentPaneFileRows(save: { [weak self] in self?.model.replyLinks.saveFile($0, $1) }).items(for: file) + [.separator()] + rows
-        // Each row holds this Mac's file; the chat may turn remote before one is picked, so each
-        // checks again when it runs (cx-k21v).
-        let model = model
-        Self.gate(items) { [weak model] in model.map { !$0.remoteChat && !$0.transport.remoteWire } ?? false }
+        let fileRows = AgentPaneFileRows(copyItem: { [weak model] in model?.replyLinks.copyItem($0) ?? false },
+                                         save: { [weak model] in model?.replyLinks.savePathFile($0, $1, allowed) },
+                                         allowed: allowed)
+        let items = resolved.isFolder ? rows : fileRows.items(for: file) + [.separator()] + rows
+        Self.gate(items, allowed: allowed)
         return items
     }
 
