@@ -250,10 +250,9 @@
   transform: translateX(8px);
   min-width: 140px;
   padding: 6px 8px;
-  border: 1px solid var(--page-separator);
   border-radius: 6px;
-  background: var(--page-elevated);
-  box-shadow: var(--elevation-2, 0 2px 8px rgb(0 0 0 / 0.12));
+  /* The liquid glass (.ui-glass in charts.tsx) in the tooltip frost is its fill, blur, rim and
+     shadow, as every tooltip's (ui/glass/glass.css; Leo 2026-10-21: glass, never the solid card). */
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   pointer-events: none;
