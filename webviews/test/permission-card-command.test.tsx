@@ -41,7 +41,7 @@ test("a command ask shows its command", () => {
 
 test("a command ask titled with its command shows it without the Run", () => {
   const html = card(ask({ title: "Run npm test", kind: "execute" }));
-  expect(commandBlock(html)).toContain('<code class="acpmux-permission-command-preview">npm test</code>');
+  expect(commandBlock(html)).toContain('<div class="acpmux-permission-command-preview"><code>npm test</code>');
 });
 
 test("a command given as an argv array reads as the shell command", async () => {
@@ -63,5 +63,7 @@ test("a command given as an argv array reads as the shell command", async () => 
     "s1",
   );
   expect(permission?.command).toBe("npm test");
-  expect(commandBlock(card(permission!))).toContain('<code class="acpmux-permission-command-preview">npm test</code>');
+  expect(commandBlock(card(permission!))).toContain(
+    '<div class="acpmux-permission-command-preview"><code>npm test</code>',
+  );
 });

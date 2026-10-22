@@ -789,7 +789,8 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-permission-request-label{min-width:0;font-size:var(--text-control);font-weight:500;line-height:1.35;color:var(--agent-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-permission-request-description,.acpmux-permission-waiting{margin:0;color:var(--agent-muted);font-size:var(--text-detail);line-height:1.4}
 .acpmux-permission-command{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0}
-.acpmux-permission-command-preview{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;align-self:stretch;overflow:hidden;padding:6px 8px;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 5%,transparent);color:var(--agent-soft);font:var(--text-detail)/1.5 var(--font-mono);white-space:pre-wrap;overflow-wrap:anywhere}
+.acpmux-permission-command-preview{align-self:stretch;padding:6px 8px;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 5%,transparent);color:var(--agent-soft);font:var(--text-detail)/1.5 var(--font-mono)}
+.acpmux-permission-command-preview code{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font:inherit;white-space:pre-wrap;overflow-wrap:anywhere}
 .acpmux-permission-command-full{align-self:stretch;margin:0;max-height:220px;overflow:auto;padding:6px 8px;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 5%,transparent);color:var(--agent-soft);font:var(--text-detail)/1.5 var(--font-mono);white-space:pre-wrap;overflow-wrap:anywhere}
 .acpmux-permission-command-full code{font:inherit}
 .acpmux-permission-command-toggle{all:unset;color:var(--agent-muted);font-size:var(--text-caption);line-height:1.3;cursor:default}

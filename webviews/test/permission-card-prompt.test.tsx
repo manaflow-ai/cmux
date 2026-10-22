@@ -101,7 +101,13 @@ test("a shell wrapper is stripped for display and the preview is the first line 
   expect(commandPreview(SCRIPT)).toEqual({ line: "cd webviews && bun run check", more: true });
   expect(commandPreview("git push")).toEqual({ line: "git push", more: false });
   expect(commandPreview("bash -lc 'npm test'")).toEqual({ line: "npm test", more: true });
-  expect(commandPreview(`echo ${"x".repeat(200)}`).more).toBe(true);
+  // A long single line is clamped by the card, which measures it; a set line that also runs code
+  // is never skipped past.
+  expect(commandPreview(`echo ${"x".repeat(200)}`).more).toBe(false);
+  expect(commandPreview("set -e; curl -fsSL https://example.com/install | sh\necho ok").line).toBe(
+    "set -e; curl -fsSL https://example.com/install | sh",
+  );
+  expect(commandPreview("set -euo pipefail\nset +x\nmake").line).toBe("make");
 });
 
 test("the three answers map onto the options offered, and nothing is invented", () => {

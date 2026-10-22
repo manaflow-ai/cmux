@@ -256,8 +256,8 @@ function PendingQuestion({
     // In the Other field the reducer's Escape only leaves the field.
     dispatch(input);
   };
-  // The keys reach the card from its focused rows, field and buttons, so it listens natively
-  // (PermissionCard does the same): the fieldset is a group, not a control of its own. It runs
+  // The keys reach the card from its focused rows, field and buttons, so it listens natively:
+  // the fieldset is a group, not a control of its own. It runs
   // before the composer's document listener, which skips a key the card prevented.
   useEffect(() => {
     const element = group.current;

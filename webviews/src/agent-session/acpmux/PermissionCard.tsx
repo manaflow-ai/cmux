@@ -118,6 +118,21 @@ export function PermissionCard({
   /// The ask whose full command is open: a new ask opens collapsed.
   const [expanded, setExpanded] = useState<string>();
   const showFull = expanded === permission.permissionId;
+  const fullId = React.useId();
+  // A one-line command longer than the two lines the preview holds is cut off: measured, so "Show
+  // full command" is offered whenever the preview does not show all of it.
+  const previewRef = useRef<HTMLElement>(null);
+  const [clamped, setClamped] = useState(false);
+  useLayoutEffect(() => {
+    const element = previewRef.current;
+    if (!element) return;
+    const measure = () => setClamped(element.scrollHeight > element.clientHeight + 1);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [preview.line, showFull]);
   /// The field's text while it is open, for the ask it opened on; `sending` while its deny goes.
   const [draft, setDraft] = useState<{ permissionId: string; text: string; sending?: boolean }>();
   const writing = draft?.permissionId === permission.permissionId ? draft : undefined;
@@ -144,19 +159,26 @@ export function PermissionCard({
     backToOpener.current = true;
     setDraft(undefined);
   };
-  // The ask whose answer was already sent: held keys repeat, and a second key can land before the
-  // snapshot clears the ask, so each ask is answered once.
+  // The ask a key already answered: held keys repeat, and a second key can land before the
+  // snapshot clears the ask, so the keyboard answers each ask once. A click always answers (an
+  // answer acpmux never heard can be given again).
   const answered = useRef<string | undefined>(undefined);
+  // After an answer the keyboard goes back to the composer, so a stray key never answers the next
+  // ask in line.
   const answer = (option: PermissionOption) => {
+    onAnswer(option.id);
+    focusComposer?.();
+  };
+  const answerByKey = (option: PermissionOption) => {
     if (answered.current === permission.permissionId) return;
     answered.current = permission.permissionId;
-    onAnswer(option.id);
-    if (permissionOptionKind(option) === "deny") focusComposer?.();
+    answer(option);
   };
   /// Deny: the field for what to do instead when the pane can send it, else the deny itself.
-  const deny = () => {
+  const deny = (byKey = false) => {
     if (!denyOption) return;
     if (feedback) openFeedback();
+    else if (byKey) answerByKey(denyOption);
     else answer(denyOption);
   };
   /// The keys' and the shortcuts' actions, read at the time of the key.
@@ -171,12 +193,12 @@ export function PermissionCard({
       if (answered.current === permission.permissionId) return false;
       if (action === "deny") {
         if (!denyOption) return false;
-        deny();
+        deny(true);
         return true;
       }
       const option = action === "allow_once" ? allowOnce : allowAlways;
       if (!option) return false;
-      answer(option);
+      answerByKey(option);
       return true;
     };
   });
@@ -244,17 +266,20 @@ export function PermissionCard({
         {command && (
           <div className="acpmux-permission-command" data-expanded={showFull || undefined}>
             {showFull ? (
-              <pre className="acpmux-permission-command-full">
+              <pre id={fullId} className="acpmux-permission-command-full">
                 <code>{command}</code>
               </pre>
             ) : (
-              <code className="acpmux-permission-command-preview">{preview.line}</code>
+              <div className="acpmux-permission-command-preview">
+                <code ref={previewRef}>{preview.line}</code>
+              </div>
             )}
-            {preview.more && (
+            {(preview.more || clamped || showFull) && (
               <button
                 type="button"
                 className="acpmux-permission-command-toggle"
                 aria-expanded={showFull}
+                aria-controls={showFull ? fullId : undefined}
                 onClick={() => setExpanded(showFull ? undefined : permission.permissionId)}
               >
                 {showFull ? t("permission.hideFullCommand") : t("permission.showFullCommand")}
@@ -291,7 +316,7 @@ export function PermissionCard({
               shortcut={shortcuts ? denyShortcut : undefined}
               className="acpmux-permission-deny"
               data-feedback-opener=""
-              onClick={deny}
+              onClick={() => deny()}
             />
           )}
         </div>

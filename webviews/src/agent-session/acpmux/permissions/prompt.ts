@@ -77,21 +77,23 @@ export function unwrapShell(command: string): string {
   return match[2]!.replace(/\\([\\"$`])/g, "$1");
 }
 
-/// A preview line longer than this has more to show than two clamped lines hold.
-const LONG_LINE = 160;
+/// A line that only sets shell options (`set -euo pipefail`): nothing else on it, so a line that
+/// also runs code (`set -e; curl … | sh`) is never skipped past (shortCommand.ts, #20456).
+const SET_OPTIONS = /^set(?:\s+[-+][A-Za-z]+(?:\s+[A-Za-z]+)?)+$/;
 
 /// What the collapsed card shows of `command`: the first line that does something (not blank, not
-/// a comment or shebang, not a `set -e` style option line) of the script a shell wrapper runs, and
-/// whether the full text has more than that line, so "Show full command" is offered.
+/// a comment or shebang, not a bare `set -e` style option line) of the script a shell wrapper runs,
+/// and whether the full text has more than that line, so "Show full command" is offered. A long
+/// line the card clamps offers it too (PermissionCard.tsx measures that).
 export function commandPreview(command: string): { line: string; more: boolean } {
   const full = command.trim();
   const script = unwrapShell(full).trim();
   const lines = script.split("\n").map((line) => line.trim());
   const line =
-    lines.find((candidate) => candidate && !candidate.startsWith("#") && !/^set\s+[-+]/.test(candidate)) ??
+    lines.find((candidate) => candidate && !candidate.startsWith("#") && !SET_OPTIONS.test(candidate)) ??
     lines.find(Boolean) ??
     "";
-  return { line, more: full !== line || line.length > LONG_LINE };
+  return { line, more: full !== line };
 }
 
 /// The card's three answers, each the first option the agent offered of its kind: Allow once, Always
