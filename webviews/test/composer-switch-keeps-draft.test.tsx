@@ -138,3 +138,50 @@ test("moving to another chat shows that chat's draft, not the typed prompt", asy
   await render("chat-c");
   expect(prompt()).toBe("");
 });
+
+test("changing the composer look keeps the same prompt field, draft and session", async () => {
+  const { setComposerLook } = await import("../src/agent-session/acpmux/composerLook");
+  await render("look-chat", { draft: "keep this prompt while changing the look" });
+  const field = host.querySelector('[role="combobox"]');
+  const form = host.querySelector(".acpmux-composer");
+  try {
+    await act(async () => setComposerLook("codex"));
+    expect(form?.getAttribute("data-composer-look")).toBe("codex");
+    expect(host.querySelector(".acpmux-composer-foot")).toBeNull();
+    expect(host.querySelector('[role="combobox"]')).toBe(field);
+    expect(prompt()).toBe("keep this prompt while changing the look");
+    expect(dom.window.localStorage.getItem("cmux.composer.look")).toBe("codex");
+
+    // A fresh mount reads the persisted look and this chat's own saved draft.
+    await act(async () => root?.unmount());
+    root = undefined;
+    await render("look-chat");
+    expect(host.querySelector(".acpmux-composer")?.getAttribute("data-composer-look")).toBe("codex");
+    expect(prompt()).toBe("keep this prompt while changing the look");
+
+    await act(async () => setComposerLook("claude"));
+    expect(host.querySelector(".acpmux-composer-foot")).not.toBeNull();
+    expect(prompt()).toBe("keep this prompt while changing the look");
+  } finally {
+    await act(async () => setComposerLook("claude"));
+  }
+});
+
+test("a look pick still applies when storage rejects writes but exposes the previous value", async () => {
+  const { setComposerLook } = await import("../src/agent-session/acpmux/composerLook");
+  const storage = scope.localStorage;
+  scope.localStorage = {
+    getItem: () => "claude",
+    setItem: () => {
+      throw new Error("storage unavailable");
+    },
+  };
+  try {
+    await render("storage-denied");
+    await act(async () => setComposerLook("codex"));
+    expect(host.querySelector(".acpmux-composer")?.getAttribute("data-composer-look")).toBe("codex");
+  } finally {
+    scope.localStorage = storage;
+    await act(async () => setComposerLook("claude"));
+  }
+});

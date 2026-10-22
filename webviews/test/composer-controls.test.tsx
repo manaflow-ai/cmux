@@ -113,10 +113,24 @@ async function composer(text: string, shell: boolean, opens?: () => void) {
 }
 
 test("chat controls have a shared classifier, while executable paths and agent commands stay intact", () => {
-  for (const text of ["/fast", "/fast on", "/account", "/effort", "/model"])
-    expect(composerControl(text)).toBe("model");
-  for (const text of ["/bin/echo", "/usr/bin/true", "echo /fast", "/model gpt-6"])
+  for (const text of ["/fast", "/account", "/effort", "/model"]) expect(composerControl(text)).toBe("model");
+  for (const text of [
+    "/bin/echo",
+    "/usr/bin/true",
+    "echo /fast",
+    "/model gpt-6",
+    "/fast on",
+    "/effort high",
+    "/account work",
+  ])
     expect(composerControl(text)).toBeUndefined();
+});
+
+test("a control with an argument keeps its command semantics instead of silently clearing the argument", async () => {
+  let opened = 0;
+  const calls = await composer("/effort high", false, () => opened++);
+  expect(opened).toBe(0);
+  expect(calls).toEqual([["send", "/effort high"]]);
 });
 
 test("/fast opens the current model menu without sending an agent prompt", async () => {

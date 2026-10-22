@@ -7,8 +7,7 @@ export type ComposerControl = "model" | "mode";
 
 /** The controls owned by the composer rather than sent as a prompt or executed by a shell. */
 export function composerControl(text: string): ComposerControl | undefined {
-  if (/^\/(?:fast|account|effort)(?:\s|$)/i.test(text.trim())) return "model";
-  if (/^\/model\s*$/i.test(text.trim())) return "model";
+  if (/^\/(?:fast|account|effort|model)\s*$/i.test(text.trim())) return "model";
   if (/^\/(?:permissions|mode)\s*$/i.test(text.trim())) return "mode";
   return undefined;
 }

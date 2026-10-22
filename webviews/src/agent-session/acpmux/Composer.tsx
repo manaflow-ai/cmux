@@ -62,6 +62,8 @@ import { useComposerChrome } from "./composerChrome";
 import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { useComposerSettings } from "./composerSettings";
+import { useComposerLook, useQuietRow } from "./composerLook";
+import { ComposerLookSwitch } from "./ComposerLookSwitch";
 import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
 import {
@@ -419,7 +421,9 @@ export function Composer({
   const sendButton = useRef<HTMLButtonElement>(null);
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css), and
   // whether Esc stops a turn on a double press (escapeStop.ts).
-  const { plainFooter, showContextUsage, escapeDoublePress } = useComposerSettings();
+  const { showContextUsage, escapeDoublePress } = useComposerSettings();
+  const look = useComposerLook();
+  const quietRow = useQuietRow();
   const usage = snapshot.summary?.usage;
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
@@ -1418,6 +1422,7 @@ export function Composer({
       ref={form}
       className="acpmux-composer"
       data-shell={shell ? "" : undefined}
+      data-composer-look={look === "codex" ? "codex" : undefined}
       onSubmit={(event) => {
         if (!shell) return submit(event);
         event.preventDefault();
@@ -1426,6 +1431,7 @@ export function Composer({
       onBlur={blur}
       onContextMenuCapture={openChipMenu}
     >
+      <ComposerLookSwitch className="nt-style acpmux-look-dots" onCancel={() => field.current?.focus()} />
       {remote.note && (
         <p className="acpmux-composer-remote-note" role="note">
           {t(remote.note)}
@@ -1717,14 +1723,14 @@ export function Composer({
                 <ReturnIcon />
               </button>
             )}
-            {plainFooter && stopButton}
+            {quietRow && stopButton}
           </>
         }
         accessory={accessory}
         trailing={
-          !plainFooter && stop ? (
+          !quietRow && stop ? (
             stopButton
-          ) : remote.canSend && (!plainFooter || shell || (hasDraft && !(running && steerable))) ? (
+          ) : remote.canSend && (!quietRow || shell || (hasDraft && !(running && steerable))) ? (
             // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, the mic
             // alone on the right; Send comes in after it with the first letter. Mid-turn it
             // queues the draft, unless the ↵ control is there to put it into the turn.

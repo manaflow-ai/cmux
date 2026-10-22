@@ -4,6 +4,7 @@ import { AttachmentStrip, type PendingAttachment } from "./composer/attachmentIn
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
 import { useComposerSettings } from "./composerSettings";
+import { useQuietRow } from "./composerLook";
 import { useRowFit } from "./composerRowFit";
 import { FastToggle, SpeedToggleHost, type SpeedTiers } from "./FastToggle";
 import { MarkdownField, type MarkdownFieldHandle, type MarkdownFieldProps } from "./MarkdownField";
@@ -100,9 +101,10 @@ export function ComposerBox({
 }: ComposerBoxProps) {
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css).
   const { plainFooter } = useComposerSettings();
+  const quietRow = useQuietRow();
   // The controls row swaps whole units as it narrows (composerRowFit.ts).
   const bar = useRef<HTMLDivElement>(null);
-  useRowFit(bar, plainFooter);
+  useRowFit(bar, quietRow);
   // Codex's speed option, which the chips hand up: the bolt left of the mic (FastToggle.tsx). Claude
   // Code's Fast mode stays a row of the model button's menu, so its chips hand up none.
   const [speed, setSpeed] = useState<SpeedTiers | undefined>(undefined);
@@ -186,14 +188,15 @@ export function ComposerBox({
               prompt, the mic and Send or Stop; the mode, model and effort sit in a quiet row under
               it (ComposerFoot below). The other look keeps them all in this row. */}
           <div
-            ref={plainFooter ? undefined : bar}
-            className={plainFooter ? "acpmux-composer-bar acpmux-composer-inner" : "acpmux-composer-bar"}
+            ref={quietRow ? undefined : bar}
+            className={quietRow ? "acpmux-composer-bar acpmux-composer-inner" : "acpmux-composer-bar"}
             data-footer-look={plainFooter ? "plain" : undefined}
           >
             {leading}
             {/* The granted-permission status gets no slot of its own in this row (hq#1957 item 15
                 compact row): grants live in the permission mode's Access menu, one lock. */}
-            {!plainFooter && shownChips}
+            {!quietRow && shownChips}
+            {!quietRow && plainFooter && ring}
             <span className="acpmux-composer-actions">
               {actionsLead}
               {/* Codex's bolt, just left of the mic (Leo 2026-10-21), in either footer look. */}
@@ -209,7 +212,7 @@ export function ComposerBox({
           </div>
         </ChromeArea>
       </div>
-      {plainFooter && (
+      {quietRow && (
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
           <ComposerFoot ref={bar}>
             {shownChips}
