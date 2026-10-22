@@ -272,9 +272,7 @@ public nonisolated final class AcpmuxPermissionOptions: Sendable {
 
     /// The item ids and prompts of `request.toolCall._meta.acpmux.question`, when it is an object.
     static func questionKeys(_ request: [String: Any]) -> Set<String>? {
-        let tool = request["toolCall"] as? [String: Any]
-        let acpmux = (tool?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
-        guard let question = acpmux?["question"] as? [String: Any] else { return nil }
+        guard let question = AcpmuxPermissionPrompt.question(request) else { return nil }
         var keys = Set<String>()
         for case let item as [String: Any] in question["items"] as? [Any] ?? [] {
             for key in ["id", "prompt"] { if let value = item[key] as? String { keys.insert(value) } }
