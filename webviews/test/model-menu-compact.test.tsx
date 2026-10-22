@@ -456,7 +456,10 @@ test("while filtering, the rows show no number keys", async () => {
   await open();
   for (const letter of "o") await key(letter);
   await settle();
-  const rows = [...menu()!.querySelectorAll<HTMLElement>(".acpmux-quick-item")];
+  // The real rows, not the unseen ones that hold the menu's size.
+  const rows = [...menu()!.querySelectorAll<HTMLElement>(".acpmux-quick-item")].filter(
+    (row) => !row.closest(".acpmux-quick-spacer"),
+  );
   expect(rows.length).toBeGreaterThan(0);
   expect(rows.filter((row) => row.querySelector(".ui-menu-shortcut"))).toHaveLength(0);
 });
@@ -574,8 +577,9 @@ test("a started chat's compact menu has no harness rail and no Add harness…", 
 // Lucas 2026-10-22: the menu opens above its chip, so a provider tab with more or fewer rows than
 // the last one moved the menu's top edge, and the rail tabs moved out from under the pointer. The
 // list holds the tallest tab's rows and separators unseen for the whole opening: every tab fits in
-// that space, the tallest fills it, and it does not change as tabs change.
-test("every rail tab fits in the same list height, the tallest tab's, for the whole opening", async () => {
+// that space, the tallest fills it, and it does not change as tabs change. The width holds the same
+// way: every tab's rows sit at no height in the same cell, so it is as wide as the widest tab.
+test("every rail tab fits in the same list height and width, the tallest and widest tab's, for the whole opening", async () => {
   await mount({ routes: [] }, { fast: true });
   await open();
   const body = () => menu()!.querySelector<HTMLElement>(".acpmux-quick-body")!;
@@ -584,8 +588,8 @@ test("every rail tab fits in the same list height, the tallest tab's, for the wh
     expect(node, "the list holds the tallest tab's height").not.toBeNull();
     expect(node!.getAttribute("aria-hidden")).toBe("true");
     return {
-      rows: node!.querySelectorAll(".acpmux-quick-item").length,
-      separators: node!.querySelectorAll(".ui-separator").length,
+      rows: node!.querySelectorAll(":scope > .acpmux-quick-item").length,
+      separators: node!.querySelectorAll(":scope > .ui-separator").length,
     };
   };
   const shown = () => ({
@@ -593,6 +597,9 @@ test("every rail tab fits in the same list height, the tallest tab's, for the wh
     separators: body().querySelectorAll('[role="separator"]').length,
   });
   const held = spacer();
+  const probeLabels = () =>
+    [...body().querySelectorAll(".acpmux-quick-probe .acpmux-menu-label")].map((node) => node.textContent ?? "");
+  const heldWidths = probeLabels();
   const tabs = railTabs().map((tab) => tab.getAttribute("aria-label")!);
   expect(tabs.length).toBeGreaterThan(1);
   const extents: { rows: number; separators: number }[] = [];
@@ -601,6 +608,10 @@ test("every rail tab fits in the same list height, the tallest tab's, for the wh
     await act(async () => tab.click());
     await settle();
     expect(spacer(), `the held height on ${name}`).toEqual(held);
+    // The held width: every tab's rows are in the probe, the same rows on every tab.
+    const probe = probeLabels();
+    expect(probe, `the held width on ${name}`).toEqual(heldWidths);
+    for (const label of modelNames(menu()!)) expect(probe, `${name}'s ${label}`).toContain(label);
     const extent = shown();
     expect(extent.rows, `${name}'s rows`).toBeLessThanOrEqual(held.rows);
     expect(extent.separators, `${name}'s separators`).toBeLessThanOrEqual(held.separators);

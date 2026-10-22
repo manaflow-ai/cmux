@@ -56,30 +56,15 @@ export type QuickFamily = {
   note?: string;
   /// Runs a signed-out harness's login (its Log In row).
   logIn?(): void;
-  /// The harness's accounts, when it has more than one: each profile that runs it (Claude Code,
-  /// claude-sr2, a folder's Claude profile), under the tab's Account row. The tab is the first.
-  accounts?: QuickAccount[];
-  /// The account the tab runs or starts on (an acpmux profile id); the tab's own id when unset.
-  account?: string;
-  /// A started chat's other harness: the tab offers Fork to it in place of its models.
-  fork?: boolean;
 };
-
-/// One account of a harness: an acpmux profile, by id.
-export type QuickAccount = { id: string; name: string; disabled?: boolean };
 
 export type QuickFamilies = {
   list: QuickFamily[];
-  /// The chat's harness: its tab opens first, and only it shows Effort and the chat's routes.
+  /// The chat's harness: its tab opens first, and only it shows Effort and Account.
   current?: string;
   onPick(model: QuickModel): void;
   /// Add harness…, the last row of More models.
   onAddHarness?(): void;
-  /// Picks one of a tab's `accounts` (a profile id).
-  onAccount?(id: string): void;
-  /// Forks the chat to a `fork` tab's harness; `forkReady` false draws the row disabled.
-  onFork?(id: string): void;
-  forkReady?: boolean;
 };
 
 /// How many rows a filtered list shows (keys 1 to 9 pick them).
@@ -134,11 +119,26 @@ export function tabExtent(
   return { rows, separators };
 }
 
+/// One row of any tab, for the width probe: its label, its secondary value, and whether it opens a
+/// submenu (a chevron) or shows a number key.
+export type ProbeRow = { label: string; value?: string; sub?: boolean; shortcut?: boolean };
+
 /// The tallest tab's rows and separators, unseen in the list's grid cell under the real rows, so
-/// switching tabs or typing never changes the menu's height while it is open.
-function QuickMenuSpacer({ rows, separators }: TabExtent) {
+/// switching tabs or typing never changes the menu's height while it is open. `widths` is every
+/// tab's rows at no height: the cell is as wide as the widest tab, so its width holds too.
+function QuickMenuSpacer({ rows, separators, widths }: TabExtent & { widths: ProbeRow[] }) {
   return (
     <div className="acpmux-quick-spacer" aria-hidden="true" inert>
+      <div className="acpmux-quick-probe">
+        {widths.map((row, index) => (
+          <div key={index} className={`ui-menu-item acpmux-quick-item${row.sub ? " acpmux-quick-sub" : ""}`}>
+            <span className="acpmux-menu-label">{row.label}</span>
+            {row.value && <span className="acpmux-quick-value">{row.value}</span>}
+            {row.sub && <span className="ui-submenu-chevron" />}
+            {row.shortcut && <span className="ui-menu-shortcut">9</span>}
+          </div>
+        ))}
+      </div>
       <div className="ui-menu-group-label">{"\u00a0"}</div>
       {/* A separator after each of the first rows: back to back, their margins would collapse. */}
       {Array.from({ length: rows }, (_, index) => (
@@ -226,11 +226,6 @@ export function QuickModelMenu({
   }, [query, open, families]);
   const shown = families?.list.find((family) => family.id === tab);
   const onChatTab = !families || tab === families.current;
-  // A started chat's other harness: one Fork to row in place of its models.
-  const forkTab = !query && shown?.fork ? shown : undefined;
-  // The shown harness's accounts, only those that run it (Leo 2026-10-22: "not per-account available").
-  const profiles = families?.onAccount && (shown?.accounts?.length ?? 0) > 1 ? shown?.accounts : undefined;
-  const profile = shown?.account ?? shown?.id;
   // What the list draws: the typed filter's matches, else the tab's top models.
   const rows: (QuickModel & { hint?: string })[] = !families
     ? models.map((model) => ({ ...model, family: "" }))
@@ -245,6 +240,11 @@ export function QuickModelMenu({
     } else if (!(row.family === families.current && row.id === current)) families.onPick(row);
   };
   const activeAccount = accounts.list?.accounts.find((choice) => choice.id === accounts.list?.active);
+  const accountValue = accounts.switchFailed
+    ? t("picker.accountSwitchFailed")
+    : accounts.list
+      ? (activeAccount?.name ?? t("picker.harnessLogin"))
+      : undefined;
   const keyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return;
     // Only the menu's own keys, not a submenu's (React carries those up through the portal).
@@ -310,57 +310,60 @@ export function QuickModelMenu({
       separators: 0,
     },
   );
+  // Every tab's unfiltered rows, for the width the menu holds while open.
+  const widths: ProbeRow[] = families
+    ? [
+        ...families.list.flatMap((family): ProbeRow[] => [
+          ...family.models.slice(0, FILTER_ROWS).map((model) => ({ label: model.name, shortcut: true })),
+          ...(family.note && family.models.length === 0 ? [{ label: family.note }] : []),
+          ...(family.note && family.logIn ? [{ label: t("harness.logIn") }] : []),
+        ]),
+        ...(effort && levels.length > 1 ? [{ label: t("effort.title"), value: level?.name, sub: true }] : []),
+        { label: t("picker.moreModels"), sub: true },
+        ...(account ? [{ label: t("picker.account"), value: accountValue, sub: true }] : []),
+        ...(fast ? [{ label: t("picker.fastMode") }] : []),
+        ...(menu.update ? [{ label: menu.update.text, value: t("harness.update") }] : []),
+      ]
+    : [];
   const currentValue = families ? rowValue({ family: families.current ?? "", id: current ?? "" }) : (current ?? "");
   const list = (
     <>
-      {forkTab ? (
-        <MenuGroup label={forkTab.name}>
-          <MenuItem
-            className="acpmux-quick-item acpmux-quick-fork"
-            disabled={!families?.forkReady}
-            onSelect={() => families?.onFork?.(forkTab.id)}
-          >
-            <span className="acpmux-menu-label">{t("picker.forkTo", { harness: forkTab.name })}</span>
+      <MenuGroup label={query ? `“${query}”` : t("picker.modelThisSession")}>
+        <MenuRadioGroup
+          value={currentValue}
+          onValueChange={(value) => {
+            const row = rows.find((choice) => (families ? rowValue(choice) : choice.id) === value);
+            if (row) pickRow(row);
+          }}
+        >
+          {rows.map((choice, index) => {
+            const value = families ? rowValue(choice) : choice.id;
+            return (
+              <MenuRadioItem
+                key={value}
+                value={value}
+                closeOnClick
+                disabled={choice.disabled}
+                className="acpmux-quick-item"
+                shortcut={!query && index < FILTER_ROWS && value !== currentValue ? String(index + 1) : undefined}
+              >
+                <span className="acpmux-menu-label">{choice.name}</span>
+                {choice.hint && <span className="acpmux-quick-value">{choice.hint}</span>}
+              </MenuRadioItem>
+            );
+          })}
+        </MenuRadioGroup>
+        {rows.length === 0 && (
+          <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
+            {query ? t("picker.noMatches") : (shown?.note ?? t("picker.noMatches"))}
           </MenuItem>
-        </MenuGroup>
-      ) : (
-        <MenuGroup label={query ? `“${query}”` : t("picker.modelThisSession")}>
-          <MenuRadioGroup
-            value={currentValue}
-            onValueChange={(value) => {
-              const row = rows.find((choice) => (families ? rowValue(choice) : choice.id) === value);
-              if (row) pickRow(row);
-            }}
-          >
-            {rows.map((choice, index) => {
-              const value = families ? rowValue(choice) : choice.id;
-              return (
-                <MenuRadioItem
-                  key={value}
-                  value={value}
-                  closeOnClick
-                  disabled={choice.disabled}
-                  className="acpmux-quick-item"
-                  shortcut={!query && index < FILTER_ROWS && value !== currentValue ? String(index + 1) : undefined}
-                >
-                  <span className="acpmux-menu-label">{choice.name}</span>
-                  {choice.hint && <span className="acpmux-quick-value">{choice.hint}</span>}
-                </MenuRadioItem>
-              );
-            })}
-          </MenuRadioGroup>
-          {rows.length === 0 && (
-            <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
-              {query ? t("picker.noMatches") : (shown?.note ?? t("picker.noMatches"))}
-            </MenuItem>
-          )}
-          {!query && shown?.note && shown.logIn && (
-            <MenuItem className="acpmux-quick-item" onSelect={() => shown.logIn?.()}>
-              <span className="acpmux-menu-label">{t("harness.logIn")}</span>
-            </MenuItem>
-          )}
-        </MenuGroup>
-      )}
+        )}
+        {!query && shown?.note && shown.logIn && (
+          <MenuItem className="acpmux-quick-item" onSelect={() => shown.logIn?.()}>
+            <span className="acpmux-menu-label">{t("harness.logIn")}</span>
+          </MenuItem>
+        )}
+      </MenuGroup>
       {!query && onChatTab && effort && levels.length > 1 && (
         <>
           <MenuSeparator />
@@ -379,8 +382,7 @@ export function QuickModelMenu({
           </Submenu>
         </>
       )}
-      {/* A Fork to tab with one account has nothing after its row. */}
-      {!query && !(forkTab && !profiles) && <MenuSeparator />}
+      {!query && <MenuSeparator />}
       {!query && families && ((shown?.more.length ?? 0) > 0 || families.onAddHarness) && (
         <Submenu
           className="acpmux-quick-item acpmux-quick-sub"
@@ -424,58 +426,21 @@ export function QuickModelMenu({
           <span className="ui-submenu-chevron" aria-hidden="true" />
         </MenuItem>
       )}
-      {!query && ((onChatTab && account) || profiles) && (
+      {!query && onChatTab && account && (
         <Submenu
           className="acpmux-quick-item acpmux-quick-sub"
           popupClassName="acpmux-quick-menu"
-          label={
-            <QuickRowLabel
-              label={t("picker.account")}
-              value={
-                onChatTab && accounts.switchFailed
-                  ? t("picker.accountSwitchFailed")
-                  : ((onChatTab ? activeAccount?.name : undefined) ??
-                    profiles?.find((choice) => choice.id === profile)?.name ??
-                    (onChatTab && accounts.list ? t("picker.harnessLogin") : undefined))
-              }
-            />
-          }
+          label={<QuickRowLabel label={t("picker.account")} value={accountValue} />}
         >
-          {/* The harness's own accounts: a pick starts it on that profile, or forks a started chat there. */}
-          {profiles && (
-            <MenuRadioGroup
-              value={profile ?? ""}
-              onValueChange={(id) => {
-                if (id === profile) return;
-                onOpenChange(false);
-                families?.onAccount?.(id);
-              }}
-            >
-              {profiles.map((choice) => (
-                <MenuRadioItem
-                  key={choice.id}
-                  value={choice.id}
-                  closeOnClick
-                  disabled={choice.disabled}
-                  className="acpmux-quick-item acpmux-quick-profile"
-                >
-                  <span className="acpmux-menu-label">{choice.name}</span>
-                </MenuRadioItem>
-              ))}
-            </MenuRadioGroup>
-          )}
-          {profiles && onChatTab && account && <MenuSeparator />}
-          {onChatTab && account && (
-            <AccountRows
-              list={accounts.list}
-              failed={accounts.failed}
-              switchFailed={accounts.switchFailed}
-              onPick={(routeId) => {
-                onOpenChange(false);
-                accounts.pick(routeId);
-              }}
-            />
-          )}
+          <AccountRows
+            list={accounts.list}
+            failed={accounts.failed}
+            switchFailed={accounts.switchFailed}
+            onPick={(routeId) => {
+              onOpenChange(false);
+              accounts.pick(routeId);
+            }}
+          />
         </Submenu>
       )}
       {!query && onChatTab && fast && (
@@ -507,7 +472,7 @@ export function QuickModelMenu({
         {children}
       </MenuButton>
       <MenuPopup
-        side="top"
+        side="bottom"
         align="start"
         label={t("picker.model")}
         className={families ? "acpmux-quick-menu acpmux-quick-railed" : "acpmux-quick-menu"}
@@ -550,7 +515,7 @@ export function QuickModelMenu({
             </fieldset>
             <div className="acpmux-quick-body" ref={body}>
               <div className="acpmux-quick-list">{list}</div>
-              <QuickMenuSpacer {...tallest} />
+              <QuickMenuSpacer {...tallest} widths={widths} />
             </div>
           </div>
         ) : (
