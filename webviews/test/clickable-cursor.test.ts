@@ -113,23 +113,28 @@ const CLICKABLE_ROLES = new Set([
   "switch",
   "checkbox",
   "radio",
+  "treeitem",
 ]);
 /// Components that render a clickable element (Base UI's menu items and triggers, our buttons).
 const CLICKABLE_COMPONENT = /(Button|MenuItem|Item|Trigger|Tab|Link|Toggle|Checkbox|Switch|Radio|Option|Summary)$/;
 
 /// Every `className` the sources put on a clickable element (a <button>, a link, a clickable role,
-/// or a component that renders one), with the file and line it sits on.
+/// an element with a click handler, or a component that renders one), with the file and line it
+/// sits on. A component's `rowClassName` or `itemClassName` goes on its rows or items, which take
+/// the click (ui/Tree's treeitem rows, a combobox's options).
 function clickableClassNames(): { file: string; line: number; value: string }[] {
   const found: { file: string; line: number; value: string }[] = [];
   for (const file of new Glob("**/*.{ts,tsx}").scanSync(src)) {
     if (/\.test\.tsx?$/.test(file)) continue;
     const text = readFileSync(join(src, file), "utf8");
     // A literal, a template, or an expression (`cx("ui-menu-item", …)`), whose string parts count.
-    for (const match of text.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\}|\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\})/g)) {
+    for (const match of text.matchAll(
+      /\b(className|rowClassName|itemClassName)=(?:"([^"]*)"|\{`([^`]*)`\}|\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\})/g,
+    )) {
       const value =
-        match[1] ??
         match[2] ??
-        [...(match[3] ?? "").matchAll(/"([^"]*)"|'([^']*)'|`([^`]*)`/g)]
+        match[3] ??
+        [...(match[4] ?? "").matchAll(/"([^"]*)"|'([^']*)'|`([^`]*)`/g)]
           .map((part) => part.slice(1).join(" "))
           .join(" ");
       const before = text.slice(Math.max(0, match.index! - 1500), match.index!);
@@ -140,6 +145,8 @@ function clickableClassNames(): { file: string; line: number; value: string }[] 
       const attributes = head.slice(0, head.search(/[^=]>/) + 1 || head.length);
       const role = /\brole="(\w+)"/.exec(attributes)?.[1];
       const clickable =
+        match[1] !== "className" ||
+        /\son(Click|DoubleClick)=/.test(attributes) ||
         CLICKABLE_TAGS.has(tag) ||
         (role !== undefined && CLICKABLE_ROLES.has(role)) ||
         (/^[A-Z]/.test(tag) && CLICKABLE_COMPONENT.test(tag.split(".").at(-1)!));
@@ -163,7 +170,9 @@ function targetsClickable(selector: string, classes: Set<string>): boolean {
   const subject = selector.split(/\s*[>+~]\s*|\s+(?![^()]*\))/).at(-1) ?? selector;
   if (/^(button|a|summary|select)(?![\w-])/.test(subject)) return true;
   for (const [, inner] of subject.matchAll(/:(?:is|where)\(([^)]*)\)/g))
-    if (/(^|[\s,])(button|a|summary|select)(?![\w-])|\[role="?(button|link|menuitem\w*|tab|option)/.test(inner!))
+    if (
+      /(^|[\s,])(button|a|summary|select)(?![\w-])|\[role="?(button|link|menuitem\w*|tab|option|treeitem)/.test(inner!)
+    )
       return true;
   for (const [, role] of subject.matchAll(/\[role="?(\w+)/g)) if (CLICKABLE_ROLES.has(role!)) return true;
   for (const [, name] of subject.matchAll(/\.([A-Za-z][\w-]*)/g)) if (classes.has(name!)) return true;
@@ -198,7 +207,7 @@ const SETS_A_CURSOR = /(^|[;\s{])cursor\s*:\s*(?!default\b|auto\b|inherit\b|unse
 test("no stylesheet sets the arrow or auto on a clickable element", () => {
   const classes = clickableClasses();
   // Sanity: the classes of the bars and buttons Leo pointed at are known clickable.
-  const known = ["acpmux-pr-dock__bar", "acpmux-send", "acpmux-mic", "cv-chip", "ui-menu-item", "cv-tool"];
+  const known = ["acpmux-pr-dock__bar", "acpmux-send", "acpmux-mic", "cv-chip", "ui-menu-item", "cv-tool", "files-row"];
   expect(known.filter((name) => !classes.has(name))).toEqual([]);
   const offenders: string[] = [];
   for (const rule of styleRules()) {

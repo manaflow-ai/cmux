@@ -5,7 +5,8 @@
 // clickable elements are the ones the shared rule names (buttons, links, clickable roles, summaries,
 // labels of a choice) and every element React gave an onClick; each one that is drawn and enabled
 // must compute a cursor other than the arrow (`default`) or `auto` (the I-beam over text). The
-// finished-subagent row, the composer's Stop, the pull request bars and the reply chips are named.
+// finished-subagent row, the composer's Stop, the pull request bars, the reply chips, a Files tree
+// row and a shortcut row are named.
 // clickable-cursor.test.ts checks the stylesheets themselves.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -44,6 +45,10 @@ await requireBrowserLane("clickable-cursor-gallery.test.ts", async () => {
     { entry: "agent-pane.pr-dock", variant: "several", named: { "pull request bar": "a.acpmux-pr-dock__bar" } },
     { entry: "agent-pane.url-chip", variant: "pull-request", named: { "pull request chip": "a.cv-chip" } },
     { entry: "agent-pane.path-chip", variant: "file", named: { "path chip": "button.cv-chip.is-path" } },
+    // A file tree row selects on press and opens on double-click (ui/Tree's treeitem rows).
+    { entry: "pages.files", variant: "expanded", named: { "file tree row": '.files-row[role="treeitem"]' } },
+    // A shortcut row selects on click.
+    { entry: "pages.keybindings", variant: "normal", named: { "shortcut row": "tr.keys-row" } },
   ];
 
   beforeAll(async () => {
@@ -72,7 +77,7 @@ await requireBrowserLane("clickable-cursor-gallery.test.ts", async () => {
       for (const selector of Object.values(stage.named)) await page.locator(selector).first().waitFor();
       const result = await page.evaluate((named) => {
         const CLICKABLE =
-          'button, a[href], [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="switch"], [role="checkbox"], [role="radio"], summary, label[for], select';
+          'button, a[href], [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"], summary, label[for], select';
         const reactClick = (element: Element) => {
           const key = Object.keys(element).find((name) => name.startsWith("__reactProps$"));
           const props = key ? (element as unknown as Record<string, { onClick?: unknown }>)[key] : undefined;
