@@ -461,6 +461,51 @@ class CoverageFixtureTests(unittest.TestCase):
             {"name": "Gate", "run": "./gate.sh"}, {"uses": "./.github/actions/cache-restore"}])
         self.assert_rejected("'uses: ./.github/actions/cache-restore': no entry", problems)
 
+    def test_ordered_negative_trigger_patterns(self) -> None:
+        for trigger in ({"branches": ["**", "!" + BASE]}, {"paths": ["**", "!**"]},
+                        {"paths-ignore": ["docs/**", "!docs/**", "**"]}):
+            self.assert_rejected("pull_request trigger",
+                                 self.problems({"pr.yml": counterpart(on={"pull_request": trigger})}))
+        admitted = {"branches": ["feat-*", "!feat-x"], "paths": ["scripts/**", "!scripts/docs/**"]}
+        self.assertEqual(self.problems({"pr.yml": counterpart(on={"pull_request": admitted})}), [])
+
+    def test_guards_script_route_keeps_its_conditions(self) -> None:
+        def route(job_if=None, step_if=None) -> dict:
+            step = {"name": "Run guards", "run": "scripts/ci/guards-local.sh --feat-routes changed.txt"}
+            if step_if is not None:
+                step["if"] = step_if
+            job = {"steps": [step]} if job_if is None else {"if": job_if, "steps": [step]}
+            return {"on": {"pull_request": None}, "jobs": {"ci-guard-group": job}}
+        guards = counterpart(on={"workflow_call": None}, step_if="matrix.group == 'release-notary'",
+                             job={"strategy": {"matrix": {"group": "${{ fromJSON(inputs.linux_guard_test_groups) }}"}}})
+        entry = {"pr": "ci-guards.yml:check:Dry run"}
+        self.assertEqual(self.problems({"ci-guards.yml": guards, "cmux-next-guards.yml": route()}, entry), [])
+        for workflow in (route(job_if=False), route(step_if="github.event_name == 'push'")):
+            self.assert_rejected("does not run for a " + BASE + " pull request", self.problems(
+                {"ci-guards.yml": guards, "cmux-next-guards.yml": workflow}, entry))
+
+    def test_matrix_rows_follow_exclude_and_include(self) -> None:
+        multi = {"group": ["ci", "release"], "os": ["ubuntu"], "exclude": [{"group": "release", "os": "ubuntu"}]}
+        include_only = {"include": [{"group": "ci"}]}
+        for matrix in (multi, include_only):
+            self.assert_rejected("matrix", self.problems({"pr.yml": counterpart(
+                job={"strategy": {"matrix": matrix}}, step_if="matrix.group == 'release'")}))
+        self.assertEqual(self.problems({"pr.yml": counterpart(
+            job={"strategy": {"matrix": include_only}}, step_if="matrix.group == 'ci'")}), [])
+
+    def test_step_conditions_see_skipped_dependencies(self) -> None:
+        workflow = counterpart(job={"needs": ["preflight"], "if": "always()"},
+                               step_if="needs.preflight.result == 'success'")
+        workflow["jobs"]["preflight"] = {"if": "github.event_name == 'push'", "steps": [{"name": "Plan", "run": "true"}]}
+        self.assert_rejected("step 'Dry run'", self.problems({"pr.yml": workflow}))
+
+    def test_and_binds_tighter_than_or(self) -> None:
+        runs = "github.event_name == 'pull_request' || github.event_name == 'push' && github.event_name == 'schedule'"
+        self.assertEqual(self.problems({"pr.yml": counterpart(step_if=runs)}), [])
+        for never in ("(github.event_name == 'push' || github.event_name == 'schedule') && "
+                      "github.event_name == 'pull_request'", "!(github.event_name == 'pull_request')"):
+            self.assert_rejected("step 'Dry run'", self.problems({"pr.yml": counterpart(step_if=never)}))
+
 
 if __name__ == "__main__":
     unittest.main()
