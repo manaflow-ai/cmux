@@ -49,6 +49,14 @@ public final class TerminalSharingStore {
     ///   - snapshot: the new snapshot, or `nil` to remove it.
     ///   - surfaceID: the terminal surface id.
     public func publish(_ snapshot: TerminalSharingSnapshot?, surfaceID: UUID) {
+        if let current = snapshots[surfaceID], let snapshot {
+            guard snapshot.state.generation >= current.state.generation else { return }
+            // Equal-generation state replacements are competing observations.
+            // Metadata changes (for example, a detach) are still accepted when
+            // the complete authoritative state is unchanged.
+            guard snapshot.state.generation != current.state.generation
+                || snapshot.state == current.state else { return }
+        }
         guard snapshots[surfaceID] != snapshot else { return }
         snapshots[surfaceID] = snapshot
         onChange?(surfaceID)

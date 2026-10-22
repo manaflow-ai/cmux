@@ -74,6 +74,9 @@ final class TerminalSizeBoundsOverlayView: NSView {
 
     private let borderLayer = CAShapeLayer()
     private let chip = TerminalSizeBoundsChipView()
+    private var lifecycle = TerminalSizingOverlayLifecycle()
+    private var geometryRevision: UInt64 = 0
+    private var lifecycleObservers: [NSObjectProtocol] = []
     private var lastGridKey: String?
     private var lastGeometry: TerminalSizeBoundsGeometry?
     private var lastGeometryBounds: NSRect?
@@ -92,7 +95,10 @@ final class TerminalSizeBoundsOverlayView: NSView {
         chip.isHidden = true
         chip.onPress = { [weak self] in self?.onShowSizePanel?() }
         addSubview(chip)
+        installLifecycleObservers()
     }
+
+    deinit { lifecycleObservers.forEach { NotificationCenter.default.removeObserver($0) } }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -100,35 +106,136 @@ final class TerminalSizeBoundsOverlayView: NSView {
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { false }
 
-    /// Whether a snapshot is shown; the legacy phone border hides while it is.
+    /// Whether a shared sizing snapshot owns the pane's legacy viewport chrome.
+    /// The snapshot suppresses the old border even while local bounds are idle;
+    /// the lifecycle separately controls whether the new bounds draw.
     var isPresentingSharing: Bool { snapshot?.showsSizingChrome == true }
 
-    /// Applies a new authoritative sharing snapshot and invalidates presentation only when it changes.
+    /// Applies a snapshot without taking ownership of transient local presentation.
     func update(snapshot: TerminalSharingSnapshot?) {
-        guard self.snapshot != snapshot else { return }
-        self.snapshot = snapshot
-        lastGeometry = nil
-        lastGeometryBounds = nil
+        let presentation: TerminalSizingOverlayPresentation =
+            snapshot?.isCloud == true ? .persistent : .interactiveOnly
+        guard lifecycle.update(snapshot: snapshot, presentation: presentation) else { return }
+        self.snapshot = lifecycle.snapshot
+        resetMeasuredGeometry()
         updateDetachedCard()
         let key = snapshot.map { "\($0.state.cols)x\($0.state.rows)" }
         if let key, let lastGridKey, key != lastGridKey { animateNextBorderChange = true }
         lastGridKey = key
-        // Visible for the bounds (a mismatch) or the detached card.
-        isHidden = !(snapshot.map { $0.showsBoundsChrome || $0.detachment != nil } ?? false)
+        refreshGeometry()
+        applyLifecycleVisibility()
         needsDisplay = true
         needsLayout = true
+    }
+
+    /// Begins intentional pane/workspace sizing.
+    func beginSizingInteraction() {
+        _ = lifecycle.beginInteraction()
+        refreshGeometry()
+        applyLifecycleVisibility()
+    }
+
+    /// Ends sizing and clears local transient chrome.
+    func endSizingInteraction() {
+        _ = lifecycle.endInteraction()
+        resetMeasuredGeometry()
+        applyLifecycleVisibility()
+    }
+
+    /// Cancels sizing and clears local transient chrome.
+    func cancelSizingInteraction() {
+        _ = lifecycle.cancelInteraction()
+        resetMeasuredGeometry()
+        applyLifecycleVisibility()
+    }
+
+    /// Clears transient chrome when this pane loses focus.
+    func sizingFocusLost() {
+        _ = lifecycle.focusLost()
+        resetMeasuredGeometry()
+        applyLifecycleVisibility()
+    }
+
+    func sizingFocusChanged(_ focused: Bool) {
+        if focused { sizingFocusGained() } else { sizingFocusLost() }
+    }
+
+    /// Records focus returning; local chrome waits for a new sizing gesture.
+    func sizingFocusGained() {
+        _ = lifecycle.focusGained()
+        refreshGeometry()
+        applyLifecycleVisibility()
+    }
+
+    /// Clears transient chrome when a portal hides this pane.
+    func sizingSurfaceVisibilityChanged(_ visible: Bool) {
+        _ = lifecycle.surfaceVisibilityChanged(visible)
+        if visible { refreshGeometry() } else { resetMeasuredGeometry() }
+        applyLifecycleVisibility()
     }
 
     /// Re-reads the surface geometry (pane resized or font changed), and
     /// invalidates the chrome only when a rendered geometry input changes.
     func refreshGeometry() {
-        guard !isHidden, let snapshot,
+        guard let snapshot = lifecycle.snapshot,
               let geometry = currentGeometry(for: snapshot) else { return }
-        guard geometry != lastGeometry || bounds != lastGeometryBounds else { return }
+        geometryRevision &+= 1
+        guard lifecycle.updateGeometry(
+            geometry,
+            revision: geometryRevision,
+            snapshotGeneration: snapshot.state.generation
+        ) else { return }
+        let renderedGeometryChanged = geometry != lastGeometry || bounds != lastGeometryBounds
         lastGeometry = geometry
         lastGeometryBounds = bounds
+        guard renderedGeometryChanged else { return }
         needsDisplay = true
         needsLayout = true
+    }
+
+    private func resetMeasuredGeometry() {
+        lastGeometry = nil
+        lastGeometryBounds = nil
+    }
+
+    private func applyLifecycleVisibility() {
+        let hidden = !lifecycle.isVisible
+        guard isHidden != hidden else { return }
+        isHidden = hidden
+        if hidden {
+            borderLayer.isHidden = true
+            chip.isHidden = true
+        }
+        needsDisplay = true
+        needsLayout = true
+    }
+
+    private func installLifecycleObservers() {
+        let center = NotificationCenter.default
+        for name in [Notification.Name.cmuxInteractiveGeometryResizeDidBegin,
+                     NSWindow.willStartLiveResizeNotification] {
+            lifecycleObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                MainActor.assumeIsolated {
+                    guard let self, self.matchesResizeWindow(notification.object as? NSWindow) else { return }
+                    self.beginSizingInteraction()
+                }
+            })
+        }
+        for name in [Notification.Name.cmuxInteractiveGeometryResizeDidEnd,
+                     NSWindow.didEndLiveResizeNotification] {
+            lifecycleObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                MainActor.assumeIsolated {
+                    guard let self, self.matchesResizeWindow(notification.object as? NSWindow),
+                          !TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: self.window) else { return }
+                    self.endSizingInteraction()
+                }
+            })
+        }
+    }
+
+    private func matchesResizeWindow(_ source: NSWindow?) -> Bool {
+        guard let source else { return true }
+        return source === window
     }
 
     // MARK: Detached card
@@ -170,8 +277,10 @@ final class TerminalSizeBoundsOverlayView: NSView {
 
     private func layoutBoundsChrome() {
         borderLayer.frame = layer?.bounds ?? bounds
-        guard let snapshot, snapshot.showsBoundsChrome,
-              let geometry = currentGeometry(for: snapshot), geometry.needsDecoration else {
+        guard lifecycle.showsBounds,
+              let snapshot = lifecycle.snapshot,
+              let geometry = lifecycle.geometry,
+              geometry.needsDecoration else {
             borderLayer.isHidden = true
             chip.isHidden = true
             return
@@ -271,8 +380,8 @@ final class TerminalSizeBoundsOverlayView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard let snapshot, snapshot.showsBoundsChrome,
-              let geometry = currentGeometry(for: snapshot) else { return }
+        guard lifecycle.showsBounds,
+              let geometry = lifecycle.geometry else { return }
         let palette = TerminalSizingChromeColor.panePalette(for: terminalSurface, appearance: effectiveAppearance)
         if geometry.showsBounds { drawHatch(outside: geometry.gridRect, color: palette.hatch.nsColor) }
         let background = palette.background.nsColor
