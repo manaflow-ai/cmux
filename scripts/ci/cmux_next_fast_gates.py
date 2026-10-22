@@ -19,7 +19,8 @@ result is fresh for the tip they merge into.
                                                   when any gate fails, after running all of them
 
 The gates, each the same invocation as its push-time job:
-  web lint        scripts/web_lint_prepush.py --base BASE --head MERGE (cmux-next-web.yml, web lint (fast))
+  web lint        scripts/web_lint_prepush.py --base BASE --head MERGE --new-only (cmux-next-web.yml's
+                  web lint (fast); only findings the PR adds, per error)
   crash ratchet   scripts/ci/crash_ratchet_compare.py on the merge and BASE's exported tree (cmux-next-guards.yml)
   defaults stamp  scripts/ci/defaults_guard.py check-stamp --base BASE (cmux-next-guards.yml, defaults-snapshot)
   prepush gate    scripts/cmux-next/prepush-gate.py --base BASE --head MERGE (only violations the PR adds)
@@ -194,7 +195,8 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
     """(name, argv) in order; argv None is a skipped gate (SKIPPED says why)."""
     py = sys.executable
     return [
-        ("web lint", [py, "scripts/web_lint_prepush.py", "--base", base, "--head", merge, "--timings"] if web else None),
+        ("web lint", [py, "scripts/web_lint_prepush.py", "--base", base, "--head", merge, "--timings", "--new-only"]
+         if web else None),
         ("crash ratchet", [py, "scripts/ci/crash_ratchet_compare.py", "--script", "scripts/cmux-next/crash_ratchet.py",
                            "--head", str(repo), "--base", str(base_tree)]),
         ("defaults stamp", [py, "scripts/ci/defaults_guard.py", "check-stamp", "--base", base]),
