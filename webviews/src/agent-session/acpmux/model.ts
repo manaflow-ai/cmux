@@ -486,6 +486,8 @@ export type AcpmuxSnapshot = {
   forkedAtSeq?: number;
   summary?: {
     sessionId: string;
+    /** The harness's own session id (a Claude Code conversation's), for the chat-index key. */
+    agentSessionId?: string;
     cwd?: string;
     turnCount?: number;
     /// Context-window tokens used of the session's window, from the agent's last usage update.

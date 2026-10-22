@@ -41,6 +41,7 @@ public nonisolated struct AcpmuxSessionCensus: Sendable, Equatable {
             let status = summary["status"] as? String ?? ""
             let live = ["ready", "running", "waiting"].contains(status)
             let working = status == "running" || status == "waiting"
+            if ((summary["attached"] as? NSNumber)?.intValue ?? 0) > 0 { census.attached += 1 }
             if isChief(summary) {
                 if working { census.chiefInTurn = true }
                 continue

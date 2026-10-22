@@ -363,6 +363,7 @@ import { FolderChoice, showsFolderChoice } from "./FolderChoice";
 import { type FolderAsk, StartFolderAsk, WorktreeFailure, confirmFolder, newWorktree, pickFolder } from "./startFolder";
 import { MissingFolder, chooseChatFolder } from "./missingFolder";
 import { LiveChatChoice } from "./LiveChatChoice";
+import { chatIndexKey } from "./resumeKey";
 import { WatchBanner } from "./WatchBanner";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
@@ -3755,6 +3756,13 @@ function AcpmuxPane() {
   const [continuing, setContinuing] = useState(false);
   const [reviewReload, setReviewReload] = useState(0);
   useEffect(() => setContinuing(false), [snapshot.sessionId]);
+  // The chat-index key of the chat shown, kept by the app, so a later missing-chat Resume opens
+  // this exact chat (resumeKey.ts).
+  const resumeKey = chatIndexKey(snapshot.summary?.family, snapshot.summary?.agentSessionId);
+  useEffect(() => {
+    if (!snapshot.sessionId || !resumeKey) return;
+    void callNative("chat.resumeKey", { session: snapshot.sessionId, key: resumeKey }).catch(() => undefined);
+  }, [snapshot.sessionId, resumeKey]);
   // Each time the pane says a tab's chat isn't available, the app's log records the chat and why
   // (`chat.missing`, os_log category agentPane), so the views can be counted (Lawrence 2026-10-21).
   useEffect(() => {
@@ -8226,7 +8234,11 @@ function AcpmuxPane() {
                     {...(machineName ? { machine: machineName } : {})}
                     onRemove={() => runHeaderAction(HEADER_ACTIONS.close)}
                     onReconnect={() => void directClient.current?.recheckMissing()}
-                    onResume={showAllChats}
+                    onResume={() =>
+                      void (snapshot.missingSession
+                        ? resumeMissingChat(snapshot.missingSession, showAllChats)
+                        : showAllChats())
+                    }
                     onClose={() => runHeaderAction(HEADER_ACTIONS.close)}
                   />
                 ) : freshView && pastTurns && (!pastWaitsForTrust || trustAsk.ask) ? (
@@ -8338,4 +8350,13 @@ function AcpmuxPane() {
       </ChatAccountsContext.Provider>
     </SignInContext.Provider>
   );
+}
+
+/// Resume from Transcript on a missing chat: the exact chat when the app kept its chat-index key
+/// (`chat.resumeKey.get`), opened through Open Chat (`chats.open`); else All Chats, to pick it.
+async function resumeMissingChat(session: string, showAllChats: () => void): Promise<void> {
+  const reply = await callNative<{ key?: unknown } | null>("chat.resumeKey.get", { session }).catch(() => undefined);
+  const key = typeof reply?.key === "string" ? reply.key : undefined;
+  if (key) await callNative("chats.open", { key }).catch(() => showAllChats());
+  else showAllChats();
 }

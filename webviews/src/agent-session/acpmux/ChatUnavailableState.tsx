@@ -10,8 +10,9 @@ import { currentLanguage, useT } from "./i18n";
 /// isn't available""). Not listed and never seen here (it may be deleted, or in an acpmux this tab is
 /// not routed to): "Can't find this chat", never "deleted". Every case keeps what MissingChat.tsx
 /// offered (Lawrence, 86dec887282): the chat's short session id, so a person knows which chat it was,
-/// Resume from Transcript, which opens All Chats, where the chat's saved transcript resumes in a new
-/// session, and Close Tab (a deleted chat's is Remove from Sidebar).
+/// Resume from Transcript, which opens that exact chat from its harness transcript when the app kept
+/// its chat-index key (resumeKey.ts), else All Chats, and Close Tab (a deleted chat's is Remove from
+/// Sidebar).
 export function ChatUnavailableState({
   unavailable,
   session,

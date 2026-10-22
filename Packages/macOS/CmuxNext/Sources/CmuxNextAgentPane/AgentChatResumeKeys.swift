@@ -33,8 +33,23 @@ public final class AgentChatResumeKeys {
     }
 
     /// The chat-index key kept for acpmux session `session`, nil when none was.
-    public func key(for session: String) -> String? { nil }
+    public func key(for session: String) -> String? { keys[session]?.key }
 
     /// Keeps `key` as acpmux session `session`'s chat-index key.
-    public func set(_ key: String, for session: String) {}
+    public func set(_ key: String, for session: String) {
+        guard keys[session]?.key != key else { return }
+        clock += 1
+        keys[session] = Entry(key: key, order: clock)
+        if keys.count > Self.capacity {
+            let oldest = keys.sorted { $0.value.order < $1.value.order }.prefix(keys.count - Self.capacity).map(\.key)
+            for session in oldest { keys[session] = nil }
+        }
+        save()
+    }
+
+    private func save() {
+        guard let file else { return }
+        // concurrency-allow: one small atomic write when a tab shows a chat it had no key for
+        try? JSONEncoder().encode(keys).write(to: file, options: .atomic)
+    }
 }

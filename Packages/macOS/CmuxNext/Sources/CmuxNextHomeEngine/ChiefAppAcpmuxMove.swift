@@ -120,7 +120,7 @@ nonisolated struct ChiefAppAcpmuxMove: Sendable {
         }
         if plan.endOwnDaemon, let own, own.home.standardizedFileURL != app.home.standardizedFileURL {
             guard Self.idle(await AcpmuxQuit.census(own)) else {
-                Self.logger.info("Chief's own acpmux at \(own.home.path, privacy: .public) may have a session in a turn; it ends at a later start")
+                Self.logger.info("Chief's own acpmux at \(own.home.path, privacy: .public) may have a session in a turn or an attached tab; it ends at a later start")
                 return true
             }
             let result = await AcpmuxQuit.endAgents(own, keep: .nothing)
@@ -129,12 +129,13 @@ nonisolated struct ChiefAppAcpmuxMove: Sendable {
         return true
     }
 
-    /// Whether no session of a daemon is in a turn, the Chief's own included: ending it then
-    /// stops no work. An unknown census (nil: the daemon did not answer in time, perhaps busy)
-    /// is not idle: a later start ends it.
+    /// Whether no session of a daemon is in a turn, the Chief's own included, and no client (an
+    /// open subagent tab's pane, a CLI attach) is attached to one: ending it then stops no work
+    /// and cuts no tab off. An unknown census (nil: the daemon did not answer in time, perhaps
+    /// busy) is not idle: a later start ends it.
     static func idle(_ census: AcpmuxSessionCensus?) -> Bool {
         guard let census else { return false }
-        return census.inTurn == 0 && !census.chiefInTurn
+        return census.inTurn == 0 && !census.chiefInTurn && census.attached == 0
     }
 
     /// Whether process `pid` runs an executable whose file is gone (an update replaced the bundle).

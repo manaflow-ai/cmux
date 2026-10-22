@@ -91,7 +91,13 @@ struct ChiefHomeAcpmux {
 
     /// The hosts of the named Chiefs of `home` (each `c/<id>` folder, cmux-tui chief_brains.rs).
     static func namedHosts(home: ChiefHome) -> Set<String> {
-        []
+        let named = home.root.appendingPathComponent("c", isDirectory: true)
+        // concurrency-allow: one listing of a small local folder when the tab hosts are made
+        let entries = (try? FileManager.default.contentsOfDirectory(at: named, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
+        // The named home's path as the Chief names it (root + c/<id>), not the listing's resolved
+        // URL (a symlinked root lists as its target, which hashes to another id).
+        return Set(entries.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+            .map { host(muxHome: named.appendingPathComponent($0.lastPathComponent, isDirectory: true)) })
     }
 
     /// `chief:<home id>` of the Chief home `muxHome`. The id is optchat-chief
