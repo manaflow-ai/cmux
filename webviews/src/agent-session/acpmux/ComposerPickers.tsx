@@ -384,16 +384,20 @@ export function ComposerPickers({
           onPick: (value: string) => onEffort(fastOption.id, value),
         }
       : undefined;
-  // Codex keeps its bolt left of the mic; Claude Code's Fast mode is a row of the model button's
-  // menu (Leo 2026-10-21: "REMOVE it for Claude, where Fast mode lives inside the menu. KEEP it for
-  // Codex"). A second Codex profile ("codex-work") is still the Codex family.
-  const codex = /codex/i.test(summary?.family ?? "") || /codex/i.test(summary?.harness ?? "");
+  // ChatGPT/Codex-family composers keep Fast one click away as the quiet outline bolt left of the
+  // mic. Claude Code keeps Fast in the model menu, where its own composer puts the option. Match
+  // the reported family first, then the harness for older sessions that predate `family`; this
+  // keeps a Claude session with an OpenAI-looking model id on Claude's menu-only path.
+  const reportedFamily = summary?.family?.trim();
+  const fastBoltFamily = new RegExp("^(?:codex|chatgpt|openai)(?:[-_]|$)", "i").test(
+    reportedFamily ? reportedFamily : (summary?.harness ?? ""),
+  );
   // Fast mode is offered where the running model honors it, or while it is still on.
   const fastOffered =
     fastMode !== undefined && (catalogModel?.fast !== false || fastMode.currentValue !== fastMode.offValue);
   // The bolt: every tier the option offers past off.
   const speedTiers: SpeedTiers | undefined =
-    codex && fastOption && fastMode && fastOffered
+    fastBoltFamily && fastOption && fastMode && fastOffered
       ? {
           current: fastOption.currentValue,
           off: fastMode.offValue,

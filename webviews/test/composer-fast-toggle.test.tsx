@@ -92,7 +92,10 @@ type Snapshot = import("../src/agent-session/acpmux/model").AcpmuxSnapshot;
 
 function snapshot(
   speed: { options: Option[]; current: string } | undefined,
-  run: { harness: string; model: string; catalog?: Snapshot["catalog"] } = { harness: "codex", model: "gpt-6-astra" },
+  run: { harness: string; model: string; family?: string; catalog?: Snapshot["catalog"] } = {
+    harness: "codex",
+    model: "gpt-6-astra",
+  },
 ): Snapshot {
   return {
     type: "snapshot",
@@ -107,6 +110,7 @@ function snapshot(
     summary: {
       sessionId: "s1",
       harness: run.harness,
+      ...(run.family ? { family: run.family } : {}),
       model: run.model,
       turnCount: 1,
       configOptions: [
@@ -200,6 +204,7 @@ const threeTier: Option[] = [{ value: "standard" }, { value: "fast" }, { value: 
 
 const claude = { harness: "claude", model: "claude-opus-5-5" };
 const codex = { harness: "codex", model: "gpt-6-astra" };
+const chatgpt = { harness: "chatgpt", family: "chatgpt", model: "gpt-5.1" };
 const bolt = () => host.querySelector<HTMLButtonElement>(".acpmux-fast");
 async function clickBolt() {
   await act(async () => bolt()!.click());
@@ -252,6 +257,33 @@ test("Codex: the bolt sits just left of the mic, and the model button's menu has
   expect(chip().textContent).not.toMatch(/fast/i);
   await clickBolt();
   expect(sent).toEqual(["fast-mode=on", "fast-mode=off"]);
+});
+
+test("ChatGPT-family: the quiet bolt is visible and actionable, with Fast absent from the model menu", async () => {
+  sent.length = 0;
+  await render(snapshot({ options: twoState, current: "off" }, chatgpt));
+  const actions = host.querySelector<HTMLElement>(".acpmux-composer-actions")!;
+  expect(bolt()).not.toBeNull();
+  expect(actions.contains(bolt())).toBe(true);
+  expect(bolt()!.getAttribute("aria-pressed")).toBe("false");
+  await clickBolt();
+  expect(sent).toEqual(["fast-mode=on"]);
+  await render(snapshot({ options: twoState, current: "on" }, chatgpt));
+  expect(bolt()!.getAttribute("aria-pressed")).toBe("true");
+  await open();
+  expect(fastRow()).toBeNull();
+  expect(rows()).not.toContain("Fast mode");
+  await clickBolt();
+  expect(sent).toEqual(["fast-mode=on", "fast-mode=off"]);
+});
+
+test("Claude family stays menu-only even when its reported model id looks like an OpenAI model", async () => {
+  await render(
+    snapshot({ options: twoState, current: "off" }, { harness: "openai", family: "claude", model: "gpt-5.1" }),
+  );
+  expect(bolt()).toBeNull();
+  await open();
+  expect(fastRow()).not.toBeNull();
 });
 
 test("Codex: with a tier past Fast, the bolt steps Fast, Ultrafast, then back to off", async () => {
