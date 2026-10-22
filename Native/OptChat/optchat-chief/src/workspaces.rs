@@ -475,6 +475,12 @@ impl AppWorkspaces {
     }
 }
 
+/// The session daemon where subagent workspaces are made, None when this host has no cmux
+/// app (then a cloud install's own daemon holds them). `owner` is the host's `--daemon-socket`.
+pub fn subagent_daemon(owner: &str, env: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
+    AppWorkspaces::resolve(owner, env).map(|_| PathBuf::from(owner))
+}
+
 /// The Markdown link that names subagent `id` (`[a1](cmux://chief/<home id>/session/<session>)`):
 /// the app's deeplink of its session in the Chief home whose `mux.parent` tag is `parent`
 /// (`optchat-chief:<home id>`). The app opens the tab that shows that session (host

@@ -318,7 +318,30 @@ fn a_subagent_workspace_is_located_by_its_public_id_and_session() {
     assert_eq!(found.session, "main");
     assert_eq!(
         found.move_to_top(),
-        "cmux --session main workspace ws_cbd7f86ef04cb1b8d1f2f7a235d6538e move --index 0"
+        "cmux workspace ws_cbd7f86ef04cb1b8d1f2f7a235d6538e move --index 0"
     );
     assert!(w.locate("no-such-key").is_none());
+}
+
+/// a423 (2026-10-21, Lawrence: "do the workspaces u spin up, are they different in any way
+/// from workspaces i spin up? they should not be"): a Chief the app started makes each
+/// subagent workspace on the app's daemon, the session that holds the user's own workspaces,
+/// never on the Chief's owner daemon (`cmux-chief-<id>`), which the app showed apart under a
+/// "Chief" header. Without the app there is no user session here: None.
+#[test]
+fn an_app_started_chief_makes_subagent_workspaces_in_the_users_session() {
+    use optchat_chief::workspaces::subagent_daemon;
+    use std::path::PathBuf;
+    let owner = "/x/cmux-chief-h0me.sock";
+    let app = |k: &str| match k {
+        "CMUX_SOCKET_PATH" => Some("/x/app.sock".to_owned()),
+        "CMUX_APP_DAEMON_SOCKET" => Some("/x/state/app-daemon.sock".to_owned()),
+        _ => None,
+    };
+    assert_eq!(
+        subagent_daemon(owner, &app),
+        Some(PathBuf::from("/x/state/app-daemon.sock"))
+    );
+    let no_app = |_: &str| None;
+    assert_eq!(subagent_daemon(owner, &no_app), None);
 }
