@@ -364,6 +364,8 @@ export class MockSettingsProvider {
       "cmux.settings.backdrop.workspace.preview": () => ({}),
       "cmux.settings.art.search": () => ({ results: this.museumArt }),
       "cmux.settings.art.use": () => ({ id: "" }),
+      "cmux.settings.web_updates.check": () => ({}),
+      "cmux.settings.web_updates.rollback": () => ({}),
       "cmux.settings.folders.add": (params) => {
         const key = String((params as { key: string }).key);
         const current = Array.isArray(this.values.get(key)) ? (this.values.get(key) as string[]) : [];
@@ -474,6 +476,8 @@ export class MockSettingsProvider {
       "cmux.settings.backdrop.workspace.preview",
       "cmux.settings.art.search",
       "cmux.settings.art.use",
+      "cmux.settings.web_updates.check",
+      "cmux.settings.web_updates.rollback",
       "cmux.settings.section.actions",
       "cmux.app.action.run",
       "cmux.app.clipboard.write",

@@ -270,6 +270,7 @@
           "text" : "Updates"
         },
         "trail" : [
+          "webUpdates",
           "channels"
         ]
       },
