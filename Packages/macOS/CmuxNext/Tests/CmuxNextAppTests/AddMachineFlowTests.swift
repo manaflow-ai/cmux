@@ -33,6 +33,7 @@ import Testing
         /// Streams the test drives by hand (``feed(_:)``), when set.
         var live: AsyncThrowingStream<String, any Error>.Continuation?
         var holdNextRun = false
+        var connectFails = false
 
         func services() -> AddMachineServices {
             AddMachineServices(
@@ -60,10 +61,15 @@ import Testing
                     }
                 },
                 install: { [self] host, name in installs.append(host); names.append(name); return installAnswer },
-                connect: { [self] host, name in connected.append(host); names.append(name); return "ssh-\(host)" },
+                connect: { [self] host, name in connected.append(host); names.append(name); return connectFails ? nil : "ssh-\(host)" },
                 record: { [self] id, report in recorded.append((id, report)) },
                 openWorkspace: { [self] id in opened.append(id) },
-                copy: { [self] text in copied.append(text) })
+                copy: { [self] text in copied.append(text) },
+                parsePeer: { text in
+                    guard !text.isEmpty, !text.contains(" ") else { return nil }
+                    let host = (text.split(separator: "@").last.map(String.init) ?? text).split(separator: ":").first.map(String.init) ?? text
+                    return HostDestination(host: text, shortName: host.split(separator: ".").first.map(String.init) ?? host)
+                })
         }
     }
 
@@ -433,7 +439,7 @@ import Testing
     }
 
     @Test func peersAndSSHOffAreGreyedWithWhy() throws {
-        let added = HostCandidate(name: "a", dnsName: "", ip: "", os: "", online: true, alreadyPeer: true, sshOK: true)
+        let added = HostCandidate(name: "a", dnsName: "", ip: "", os: "", online: true, alreadyPeer: true, sshOK: true, inApp: true)
         let off = HostCandidate(name: "b", dnsName: "", ip: "", os: "", online: true, alreadyPeer: false, sshOK: false)
         let offline = HostCandidate(name: "c", dnsName: "", ip: "", os: "", online: false, alreadyPeer: false)
         let unprobed = HostCandidate(name: "d", dnsName: "", ip: "", os: "", online: true, alreadyPeer: false)
@@ -443,6 +449,73 @@ import Testing
         #expect(unprobed.isPickable && AddMachineCandidateList.badge(unprobed) == nil)
         model.pick(added)
         #expect(model.destination.isEmpty)
+    }
+
+    /// Leo's ask-2971491c27: huge-blue, cmux16, air-blue and big-red were acpmux peers but not in the
+    /// app, and the list greyed them out as Added. Added now means in the app; a peer the app lacks is
+    /// an Agent peer and stays pickable, its port included.
+    @Test func inAppPeerOnlyAndNewCandidatesPickAndBadgeApart() throws {
+        let inApp = HostCandidate(name: "cmux16", dnsName: "cmux16.tail1.ts.net.", ip: "", os: "macOS", online: true, alreadyPeer: true,
+                                  sshOK: true, peer: "cmux16", peerURL: "ssh://cmux16", inApp: true)
+        let peerOnly = HostCandidate(name: "huge-blue", dnsName: "huge-blue.tail1.ts.net.", ip: "", os: "linux", online: true, alreadyPeer: true,
+                                     sshOK: false, peer: "huge-blue", peerURL: "ssh://huge-blue:47822")
+        let fresh = HostCandidate(name: "big-red", dnsName: "big-red.tail1.ts.net.", ip: "", os: "linux", online: true, alreadyPeer: false, sshOK: true)
+        let offlinePeer = HostCandidate(name: "air-blue", dnsName: "", ip: "", os: "macOS", online: false, alreadyPeer: true, peer: "air-blue", peerURL: "ssh://air-blue")
+        let inAppOnly = HostCandidate(name: "box", dnsName: "", ip: "", os: "", online: true, alreadyPeer: false, inApp: true)
+        #expect(!inApp.isPickable && AddMachineCandidateList.badge(inApp) == AddMachineStrings.candidateAdded)
+        #expect(!inAppOnly.isPickable && AddMachineCandidateList.badge(inAppOnly) == AddMachineStrings.candidateAdded)
+        // The probe dialed port 22; the peer's own URL reaches it, so a failed probe does not grey it.
+        #expect(peerOnly.isPickable && AddMachineCandidateList.badge(peerOnly) == AddMachineStrings.candidateAgentPeer)
+        #expect(peerOnly.destination == "huge-blue:47822")
+        #expect(fresh.isPickable && AddMachineCandidateList.badge(fresh) == nil)
+        #expect(fresh.destination == "big-red.tail1.ts.net")
+        #expect(!offlinePeer.isPickable && AddMachineCandidateList.badge(offlinePeer) == AddMachineStrings.candidateOffline)
+        #expect(HostCandidate(name: "w", dnsName: "w.ts.net", ip: "", os: "", online: true, alreadyPeer: true, peerURL: "ws://10.0.0.9:47811").destination == "w.ts.net")
+        #expect(HostCandidate(name: "u", dnsName: "", ip: "", os: "", online: true, alreadyPeer: true, peerURL: "ssh://leo@u.ts.net/x").destination == "leo@u.ts.net")
+    }
+
+    @Test func addingAPickedPeerConnectsAndChecksWithoutEnrolling() async throws {
+        let peer = HostCandidate(name: "huge-blue", dnsName: "huge-blue.tail1.ts.net.", ip: "", os: "linux", online: true, alreadyPeer: true,
+                                 peer: "hb", peerURL: "ssh://huge-blue:47822")
+        host.candidates = [peer]
+        host.scripts = [[Self.report("hb", "huge-blue", ok: true, Self.okSteps)]]
+        model.begin()
+        try await waitFor { model.candidates != .loading }
+        model.pick(peer)
+        #expect(model.destination == "huge-blue:47822")
+        #expect(model.canAdd, "a peer's port is accepted")
+        #expect(model.defaultName == "hb")
+        #expect(host.commands.isEmpty, "a pick alone runs nothing")
+        model.perform(.add)
+        #expect(await model.finished() == nil)
+        #expect(host.commands == [.doctor(host: "hb", fix: false)], "no enroll for a peer")
+        #expect(host.connected == ["huge-blue:47822"])
+        #expect(host.names == ["hb"])
+        #expect(host.recorded.map(\.0) == ["ssh-huge-blue:47822"])
+        #expect(model.machineID == "ssh-huge-blue:47822")
+        #expect(model.buttons.last == AddMachineButton(action: .openWorkspace, key: .return))
+    }
+
+    @Test func aPickedPeerThatCannotConnectFailsAndAnEditedFieldEnrolls() async throws {
+        let peer = HostCandidate(name: "cmux16", dnsName: "cmux16.tail1.ts.net.", ip: "", os: "macOS", online: true, alreadyPeer: true,
+                                 peer: "cmux16", peerURL: "ssh://cmux16")
+        host.connectFails = true
+        model.begin()
+        model.pick(peer)
+        model.perform(.add)
+        #expect(await model.finished() != nil)
+        #expect(model.phase == .failed(nil))
+        #expect(host.commands.isEmpty, "nothing runs when the connect failed")
+        #expect(model.checklist.failing?.detail == AddMachineStrings.peerConnectFailed)
+        // Typing over the field leaves the peer path: Add enrolls what was typed.
+        host.connectFails = false
+        model.begin()
+        model.pick(peer)
+        model.destination = "leo@cmux16"
+        host.scripts = [[Self.report("cmux16", "leo@cmux16", ok: true, Self.okSteps)]]
+        model.perform(.add)
+        #expect(await model.finished() == nil)
+        #expect(host.commands == [.enroll(host: "leo@cmux16", name: "cmux16")])
     }
 
     @Test func theCandidatesObjectOfTheCLIParses() throws {
@@ -458,13 +531,15 @@ import Testing
     @Test func theCandidatesArrayParses() throws {
         let json = """
         [{"name":"huge-blue","dns_name":"huge-blue.tail1.ts.net.","ip":"100.64.0.2","os":"linux","online":true,"already_peer":false,"ssh_ok":true},
-         {"name":"air","dns_name":"air.tail1.ts.net.","ip":"100.64.0.3","os":"macOS","online":false,"already_peer":true}]
+         {"name":"air","dns_name":"air.tail1.ts.net.","ip":"100.64.0.3","os":"macOS","online":false,"already_peer":true,"peer":"air","peer_url":"ssh://air:2222"}]
         """
         let list = try HostCandidate.parseList(Data(json.utf8))
         #expect(list.map(\.name) == ["huge-blue", "air"])
         #expect(list[0].sshOK == true && list[1].sshOK == nil)
         #expect(list[1].alreadyPeer && !list[1].online)
+        #expect(list.allSatisfy { !$0.inApp }, "the app sets inApp, not the CLI")
         #expect(list[0].destination == "huge-blue.tail1.ts.net")
+        #expect(list[1].peer == "air" && list[1].peerURL == "ssh://air:2222" && list[1].destination == "air:2222")
     }
 
     // MARK: - Machines section

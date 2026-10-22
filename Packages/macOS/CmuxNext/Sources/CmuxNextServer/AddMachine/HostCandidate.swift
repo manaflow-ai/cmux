@@ -8,27 +8,38 @@ public nonisolated struct HostCandidate: Equatable, Sendable, Identifiable, Deco
     public var ip: String
     public var os: String
     public var online: Bool
-    /// Already an acpmux peer of this Mac: shown as Added, not offered.
+    /// Already an acpmux peer of this Mac (its agents reach it). Not the same as in the app's
+    /// machine list: a peer the app lacks stays pickable and is connected without a new enroll.
     public var alreadyPeer: Bool
+    /// The peer's name and URL (`ssh://[user@]host[:port]`) when ``alreadyPeer``.
+    public var peer: String?
+    public var peerURL: String?
     /// Whether key-only ssh reached it (`--probe`); nil when not probed.
     public var sshOK: Bool?
+    /// Already one of the app's SSH machines (set by the app, not the CLI): shown as Added, not offered.
+    public var inApp: Bool
 
     public var id: String { dnsName.isEmpty ? name : dnsName }
 
-    public init(name: String, dnsName: String, ip: String, os: String, online: Bool, alreadyPeer: Bool, sshOK: Bool? = nil) {
+    public init(name: String, dnsName: String, ip: String, os: String, online: Bool, alreadyPeer: Bool, sshOK: Bool? = nil,
+                peer: String? = nil, peerURL: String? = nil, inApp: Bool = false) {
         self.name = name
         self.dnsName = dnsName
         self.ip = ip
         self.os = os
         self.online = online
         self.alreadyPeer = alreadyPeer
+        self.peer = peer
+        self.peerURL = peerURL
         self.sshOK = sshOK
+        self.inApp = inApp
     }
 
     nonisolated enum CodingKeys: String, CodingKey {
-        case name, ip, os, online
+        case name, ip, os, online, peer
         case dnsName = "dns_name"
         case alreadyPeer = "already_peer"
+        case peerURL = "peer_url"
         case sshOK = "ssh_ok"
     }
 
@@ -40,18 +51,32 @@ public nonisolated struct HostCandidate: Equatable, Sendable, Identifiable, Deco
         os = try container.decodeIfPresent(String.self, forKey: .os) ?? ""
         online = try container.decodeIfPresent(Bool.self, forKey: .online) ?? false
         alreadyPeer = try container.decodeIfPresent(Bool.self, forKey: .alreadyPeer) ?? false
+        peer = try container.decodeIfPresent(String.self, forKey: .peer)
+        peerURL = try container.decodeIfPresent(String.self, forKey: .peerURL)
         sshOK = try container.decodeIfPresent(Bool.self, forKey: .sshOK)
+        inApp = false
     }
 
-    /// What the field takes when the row is picked: the MagicDNS name without its trailing dot,
-    /// else the peer's name.
+    /// What the field takes when the row is picked: an agent peer's own ssh destination (its
+    /// `ssh://` URL's `[user@]host[:port]`, so a port it is reached on stays), else the MagicDNS
+    /// name without its trailing dot, else the peer's name.
     public var destination: String {
+        if let peerDestination { return peerDestination }
         let dns = dnsName.hasSuffix(".") ? String(dnsName.dropLast()) : dnsName
         return dns.isEmpty ? name : dns
     }
 
-    /// Whether picking it can add it: online, not a peer yet, and ssh not known to be off.
-    public var isPickable: Bool { online && !alreadyPeer && sshOK != false }
+    /// The `[user@]host[:port]` of an `ssh://` peer URL; nil for no peer or another transport.
+    public var peerDestination: String? {
+        guard alreadyPeer, let peerURL, peerURL.lowercased().hasPrefix("ssh://") else { return nil }
+        let rest = peerURL.dropFirst("ssh://".count).split(whereSeparator: { "/?#".contains($0) }).first.map(String.init) ?? ""
+        return rest.isEmpty ? nil : rest
+    }
+
+    /// Whether picking it can add it: online, not in the app yet, and ssh not known to be off. An
+    /// agent peer's probe is not the answer: the probe dials its MagicDNS name on port 22, and the
+    /// peer's own URL already reaches it.
+    public var isPickable: Bool { online && !inApp && (alreadyPeer || sshOK != false) }
 
     /// The candidates of `host candidates --json` (`{"tailnet":…,"candidates":[…]}`), or a bare
     /// array; throws when the output is neither.
