@@ -196,8 +196,8 @@ test("a stopped turn says so on its last Worked for, also when its last stretch 
     turnView([...rows, row("end", "turnSummary", { status: "cancelled", durationMs: 9_000 })], new Set())
       .filter((shaped) => shaped.kind === "worked")
       .map((shaped) => `${shaped.id}:${shaped.status ?? ""}`);
-  // The last stretch folds the work after the first answer.
-  expect(stopped([row("u", "user"), ran("a"), answer("first"), ran("b")])).toEqual([
+  // The last stretch folds the work between the first answer and the closing line.
+  expect(stopped([row("u", "user"), ran("a"), answer("first"), ran("b"), say("tail", "Stopping here.")])).toEqual([
     "worked-u:",
     "worked-first:cancelled",
   ]);
