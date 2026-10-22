@@ -3,9 +3,9 @@
 // draws too: the envelope, "Sent to <recipient>", the message's first line muted, the chevron,
 // and how far it got as one muted word at the line's end (Sent, Queued, Delivered, Failed;
 // agentMessages.ts `messageDelivery`). The recipient is a name, never an id (agentNames.ts). Copy
-// is in the line's hover row. Opened, the message grows in place: its whole text in the glass
-// card, capped near eight lines and scrolling past them under a fade, and nothing else (Leo
-// 2026-10-21: the result's JSON under it was "immediately TMI"). Whether it is open lasts across
+// is in the line's hover row. Opened, the message grows in place: its whole text under the line,
+// with no box around it, capped near eight lines and scrolling past them under a fade, and
+// nothing else (Leo 2026-10-21: the result's JSON under it was "immediately TMI"). Whether it is open lasts across
 // the virtualized transcript (transcriptDisclosure.tsx), and Find in Chat opens it.
 import { useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";

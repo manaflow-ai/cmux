@@ -139,7 +139,7 @@ export default agentPaneEntry({
       },
     },
     "sent-opened": {
-      note: "Opened, the message grows in place in a glass card and nothing else draws: no status block, no result JSON.",
+      note: "Opened, the message grows in place under its line, with no box, and nothing else draws: no status block, no result JSON.",
       snapshot: sends(),
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-agentmsg__toggle" });

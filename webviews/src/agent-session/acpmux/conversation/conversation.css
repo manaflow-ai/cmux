@@ -1877,10 +1877,16 @@ pre.cv-math-source {
   }
 }
 /* A message to another agent (MessageCard.tsx) is the shared agent message row
-   (AgentMessageRow.css). Opened, its text grows in place: the card holds only the message,
-   capped near eight lines (20px each) and scrolling past them, the bottom faded while more is
-   below. */
+   (AgentMessageRow.css). Opened, its text grows in place under the line, at the line's text
+   indent and with no box around it (Leo 2026-10-21: "a full bordered box for a 2-line message"
+   is heavy): only the message, capped near eight lines (20px each) and scrolling past them, the
+   bottom faded while more is below. */
 .cv-message > .cv-agentmsg__card {
+  margin: 0 0 6px 22.5px;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
   max-height: none;
   overflow: visible;
 }
