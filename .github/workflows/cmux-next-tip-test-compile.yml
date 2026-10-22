@@ -35,6 +35,11 @@ on:
       - "scripts/ci/tip-test-compile.sh"
       - ".github/workflows/cmux-next-tip-test-compile.yml"
   workflow_dispatch:
+    inputs:
+      base:
+        description: Compile the change since this commit (full SHA) instead of the last verified one.
+        required: false
+        type: string
 
 permissions: {}
 
@@ -67,10 +72,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BEFORE: ${{ github.event.before }}
+          FORCED_BASE: ${{ inputs.base }}
         run: |
           set -euo pipefail
-          # The base: the newest commit this workflow verified (a run that passed),
-          # when it is an ancestor of this push; else the push's own before; else HEAD^.
+          # The base: a dispatch's `base`, else the newest commit this workflow verified
+          # (a run that passed), when it is an ancestor of this push; else the push's
+          # own before; else HEAD^.
           base="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/cmux-next-tip-test-compile.yml/runs?branch=feat-cmux-next&status=success&per_page=1" \
             --jq '.workflow_runs[0].head_sha // ""' || true)"
           ancestor() {
@@ -78,6 +85,7 @@ jobs:
             [ "$1" = "$GITHUB_SHA" ] && return 0
             [ "$(gh api "repos/$GITHUB_REPOSITORY/compare/$1...$GITHUB_SHA" --jq .status 2>/dev/null || true)" = ahead ]
           }
+          [ -z "${FORCED_BASE:-}" ] || base="$FORCED_BASE"
           ancestor "$base" || base="${BEFORE:-}"
           ancestor "$base" || base="$(git rev-parse HEAD^1)"
           git fetch --no-tags --depth=1 origin "$base"
