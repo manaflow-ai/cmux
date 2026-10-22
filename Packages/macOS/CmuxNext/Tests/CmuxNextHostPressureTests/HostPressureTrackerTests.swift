@@ -220,6 +220,27 @@ struct HostBudgetFormulaTests {
         #expect(await asks.value == 2)
     }
 
+    /// The contract's fixtures: every perf level but Efficiency counts (M5 and M6 report a Super tier first).
+    @Test(arguments: [
+        ("cosmic-gray", [("Super", 5), ("Performance", 10)], 15),
+        ("air-blue", [("Super", 4), ("Efficiency", 6)], 4),
+        ("cmux16", [("Super", 2), ("Performance", 4), ("Efficiency", 6)], 6),
+    ])
+    func performanceCoresSkipOnlyEfficiency(host: String, levels: [(String, Int32)], expected: Int) {
+        var ints: [String: Int32] = ["hw.nperflevels": Int32(levels.count)]
+        var names: [String: String] = [:]
+        for (index, level) in levels.enumerated() {
+            ints["hw.perflevel\(index).physicalcpu"] = level.1
+            names["hw.perflevel\(index).name"] = level.0
+        }
+        #expect(HostSampler.performanceCores(int: { ints[$0] }, string: { names[$0] }) == expected, "\(host)")
+    }
+
+    @Test func noPerfLevelsMeansNoPerformanceCount() {
+        #expect(HostSampler.performanceCores(int: { _ in nil }, string: { _ in nil }) == nil)
+        #expect(HostSampler.performanceCores(int: { $0 == "hw.nperflevels" ? 2 : nil }, string: { _ in nil }) == nil)
+    }
+
     @Test func theSwapRateIsPerMinute() {
         var rate = SwapRate()
         #expect(rate.feed(bytes: 0, seconds: 0) == nil)

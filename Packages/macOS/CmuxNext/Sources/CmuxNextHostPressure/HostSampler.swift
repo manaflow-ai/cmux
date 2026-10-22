@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 /// Reads this Mac's numbers the way the host budget does: the performance
-/// cores (hw.perflevel0.physicalcpu), the 1-minute load, the memory pressure
+/// cores (`performanceCores`), the 1-minute load, the memory pressure
 /// level and the swap-out counter. Each read is one syscall; nothing here
 /// polls on its own.
 public struct HostSampler: Sendable {
@@ -13,9 +13,24 @@ public struct HostSampler: Sendable {
     public func cores(_ which: String) -> (count: Int, kind: String) {
         let logical = (max(1, ProcessInfo.processInfo.activeProcessorCount), "logical")
         guard which == "performance" else { return logical }
-        if let count = Self.sysctlInt32("hw.perflevel0.physicalcpu"), count > 0 { return (Int(count), "performance") }
+        if let count = Self.performanceCores(int: Self.sysctlInt32, string: Self.sysctlString) { return (count, "performance") }
         if let count = Self.sysctlInt32("hw.physicalcpu"), count > 0 { return (Int(count), "physical") }
         return logical
+    }
+
+    /// Every core that is not an efficiency core: the sum of
+    /// hw.perflevelN.physicalcpu for N under hw.nperflevels whose
+    /// hw.perflevelN.name is not "Efficiency" (the host-budget contract). On
+    /// M5 and later, perflevel0 is only the "Super" tier, so it alone undercounts
+    /// (cosmic-gray: Super 5 + Performance 10). Nil when the levels are unreadable.
+    public static func performanceCores(int: (String) -> Int32?, string: (String) -> String?) -> Int? {
+        guard let levels = int("hw.nperflevels"), levels > 0 else { return nil }
+        var total = 0
+        for level in 0 ..< Int(levels) {
+            guard let count = int("hw.perflevel\(level).physicalcpu"), count >= 0 else { return nil }
+            if string("hw.perflevel\(level).name") != "Efficiency" { total += Int(count) }
+        }
+        return total > 0 ? total : nil
     }
 
     /// The share of RAM available (kern.memorystatus_level, the "System-wide
@@ -26,11 +41,7 @@ public struct HostSampler: Sendable {
 
     /// This Mac's name from kern.hostname (never a blocking name lookup).
     public func hostName() -> String {
-        var size = 0
-        guard sysctlbyname("kern.hostname", nil, &size, nil, 0) == 0, size > 0 else { return "localhost" }
-        var bytes = [CChar](repeating: 0, count: size)
-        guard sysctlbyname("kern.hostname", &bytes, &size, nil, 0) == 0 else { return "localhost" }
-        return String(decoding: bytes.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        Self.sysctlString("kern.hostname") ?? "localhost"
     }
 
     public func load1() -> Double {
@@ -63,6 +74,14 @@ public struct HostSampler: Sendable {
         var value: Int32 = 0
         var size = MemoryLayout<Int32>.size
         return sysctlbyname(name, &value, &size, nil, 0) == 0 ? value : nil
+    }
+
+    private static func sysctlString(_ name: String) -> String? {
+        var size = 0
+        guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return nil }
+        var bytes = [CChar](repeating: 0, count: size)
+        guard sysctlbyname(name, &bytes, &size, nil, 0) == 0 else { return nil }
+        return String(decoding: bytes.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 }
 
