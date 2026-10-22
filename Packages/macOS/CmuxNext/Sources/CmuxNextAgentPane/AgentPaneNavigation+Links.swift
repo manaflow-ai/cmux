@@ -24,9 +24,10 @@ extension AgentPaneNavigation {
     /// which page script cannot record), so WebKit's link-activated flag is never the only proof.
     /// True when it opened.
     /// A cmux app link (``isCmuxAppLink(_:)``) spends the gesture too and goes to `openApp`, the
-    /// app's own `link.open` (``LinkRouter/appLink``), never to the system.
+    /// app's own `link.open` for model output (``LinkRouter/modelOutputAppLink``: it only reveals
+    /// what is open, media safety R8), never to the system.
     @MainActor static func openOutside(_ url: URL, gestures: AgentPaneUserGestures, open: (URL) -> Void,
-                                       openApp: (URL) -> Bool = { LinkRouter.shared.appLink($0) }) -> Bool {
+                                       openApp: (URL) -> Bool = { LinkRouter.shared.modelOutputAppLink($0) }) -> Bool {
         if isCmuxAppLink(url) {
             guard gestures.consume() else { return false }
             return openApp(url)

@@ -91,6 +91,10 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// handler asks about running programs itself, after the row has left (`WorkspaceCloseFlow`).
     /// In-app only: the control socket never sets it.
     public var asksIfRunning = false
+    /// Where a `link.open` run's link came from (``DeepLink/Origin``): one clicked in an agent's
+    /// reply or the Chief's transcript only reveals what is already open. In-app only: the
+    /// control socket never sets it, so the CLI's and MCP's links keep their full effect.
+    public var linkOrigin: DeepLink.Origin = .person
 
     public init(target: ActionTargetRef? = nil, arguments: [String: ActionValue] = [:], origin: ActionOrigin = .user,
                 focusRequested: Bool = false) {

@@ -25,7 +25,9 @@ enum LinkHandlers {
             guard let url = URL(string: trimmed), let parsed = DeepLink.read(url, scheme: services.linkScheme) else {
                 throw ActionFailure(message: RefusalStrings.linkNotRecognized(text))
             }
-            try DeepLinkNavigator(services: services).open(parsed.link, background: background)
+            // A link clicked in an agent's reply or the Chief's transcript only reveals what is
+            // open (`linkOrigin`, set in-app only: CmuxAppLinks for the chat and Home openers).
+            try DeepLinkNavigator(services: services).open(parsed.link, background: background, origin: invocation.linkOrigin)
             // A parameter cmux does not use never costs an agent link its chat: it opens, and a
             // toast names what was left out, so a stray `?cwd=…` is visible instead of silent.
             // Only this kind, and only after it opened: the older kinds have always ignored

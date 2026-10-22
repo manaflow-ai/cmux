@@ -13101,6 +13101,137 @@
         }
       }
     },
+    "handlers.refusal.linkTargetNotOpen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "not open: %@. Links in agent messages only show what's already open"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nicht geöffnet: %@. Links in Agent-Nachrichten zeigen nur, was bereits geöffnet ist"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "non ouvert : %@. Les liens des messages d’agent n’affichent que ce qui est déjà ouvert"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير مفتوح: %@. الروابط في رسائل الوكيل تعرض فقط ما هو مفتوح بالفعل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no está abierto: %@. Los enlaces de los mensajes de agentes solo muestran lo que ya está abierto"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未開啟:%@。代理訊息中的連結只會顯示已開啟的項目"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未打开:%@。代理消息中的链接只会显示已打开的项目"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열려 있지 않음: %@. 에이전트 메시지의 링크는 이미 열려 있는 항목만 표시합니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いていません: %@。エージェントのメッセージ内のリンクは、すでに開いているものだけを表示します"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nije otvoreno: %@. Linkovi u porukama agenta prikazuju samo ono što je već otvoreno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ikke åben: %@. Links i agentbeskeder viser kun det, der allerede er åbent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "non aperto: %@. I link nei messaggi degli agenti mostrano solo ciò che è già aperto"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនបានបើក៖ %@។ តំណក្នុងសាររបស់ភ្នាក់ងារបង្ហាញតែអ្វីដែលបានបើករួចហើយប៉ុណ្ណោះ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ikke åpen: %@. Lenker i agentmeldinger viser bare det som allerede er åpent"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nie jest otwarte: %@. Linki w wiadomościach agenta pokazują tylko to, co jest już otwarte"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "não está aberto: %@. Links em mensagens de agentes só mostram o que já está aberto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "не открыто: %@. Ссылки в сообщениях агента показывают только то, что уже открыто"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ได้เปิดอยู่: %@ ลิงก์ในข้อความของเอเจนต์จะแสดงเฉพาะสิ่งที่เปิดอยู่แล้วเท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "açık değil: %@. Ajan mesajlarındaki bağlantılar yalnızca zaten açık olanı gösterir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "не відкрито: %@. Посилання в повідомленнях агента показують лише те, що вже відкрито"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "chưa mở: %@. Liên kết trong tin nhắn của tác tử chỉ hiển thị những gì đã mở"
+          }
+        }
+      }
+    },
     "handlers.refusal.agentLinksOff": {
       "extractionState": "manual",
       "localizations": {

@@ -17,6 +17,9 @@ public final class LinkRouter {
     public var textEditor: () -> String = { "" }
     /// A link this app opens itself whatever the setting (a Chief subagent's link); true when it did.
     public var appLink: (URL) -> Bool = { _ in false }
+    /// A cmux app link clicked in model output (an agent chat's reply): opened in the app like
+    /// ``appLink``, but it only reveals what is already open (media safety R8). True when it did.
+    public var modelOutputAppLink: (URL) -> Bool = { _ in false }
     /// Opens a web link in a cmux browser tab of the current window, in the background (not
     /// selected) when asked. `source` is the tab the link was clicked in (a tab id), nil for the
     /// focused pane: the App places the tab beside it (`layout.linkPlacement`).

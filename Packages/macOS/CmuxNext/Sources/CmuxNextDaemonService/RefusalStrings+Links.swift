@@ -70,6 +70,14 @@ nonisolated extension RefusalStrings {
         text("handlers.refusal.linkTargetGone", "the linked item is gone: it was closed or deleted, or its machine isn't connected")
     }
 
+    /// A tab or session link clicked in an agent's reply or the Chief's transcript whose target
+    /// is not open: model output only reveals what is open (media safety R8), so nothing was
+    /// reopened or created. `url` is the link, so the person can open it themselves.
+    public static func linkTargetNotOpen(_ url: String) -> String {
+        format("handlers.refusal.linkTargetNotOpen", "not open: %@. Links in agent messages only show what's already open",
+               truncatedLinkText(url))
+    }
+
     /// A `cmux://agent/…` link while Debug Settings turned agent links off.
     public static var agentLinksOff: String {
         text("handlers.refusal.agentLinksOff", "agent links are turned off in this build")

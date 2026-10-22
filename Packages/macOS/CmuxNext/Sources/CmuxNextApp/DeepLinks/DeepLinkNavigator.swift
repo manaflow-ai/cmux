@@ -16,6 +16,12 @@ import Foundation
 /// (``DurableTabLink``). An agent link (`agent/<harness>/<session>`) only
 /// reveals a tab this app already shows that session in, then, when the user
 /// opened it, gives that tab's input the keyboard.
+///
+/// A link clicked in model output (``DeepLink/Origin/modelOutput``: an agent's
+/// reply, the Chief's transcript) creates nothing (media safety R8): a tab link
+/// to a closed tab and a session link no tab shows answer "not open" with the
+/// link, and every other kind reveals as it always does
+/// (``DeepLink/Target/effect(for:)``).
 @MainActor
 struct DeepLinkNavigator {
     let services: AppServices
@@ -26,16 +32,21 @@ struct DeepLinkNavigator {
     ///   - link: The parsed link.
     ///   - background: Bring the target forward without taking the key
     ///     window (Cmd held, or a run this client's user did not start).
+    ///   - origin: Where the link was clicked; a model-output link only
+    ///     reveals what is open.
     /// - Throws: `ActionFailure` when the target is closed, deleted or on a
     ///   machine that is not connected, or (nightly pane and tab links)
-    ///   when only its workspace could be shown.
-    func open(_ link: DeepLink, background: Bool) throws {
+    ///   when only its workspace could be shown; for a model-output link,
+    ///   also when a tab or session it names is not open.
+    func open(_ link: DeepLink, background: Bool, origin: DeepLink.Origin = .person) throws {
         let intent: WindowActivation.Intent = background ? .bringForward : .raise
+        let opens = link.target.effect(for: origin) == .revealOrOpen
         switch link.target {
         case .tab(let id):
             // Open: show it. Closed: reopen it by its id, with the same id, and show it
-            // (DurableTabLink, plans/cmux-next/durable-links-DESIGN.md).
+            // (DurableTabLink, plans/cmux-next/durable-links-DESIGN.md); never from model output.
             if services.revealTab(id, intent: intent) { return }
+            guard opens else { throw notOpen(link) }
             DurableTabLink.open(id, intent: intent, services: services)
         case .pane(let id):
             guard let pane = services.pane(id: id) else { throw Self.gone }
@@ -45,7 +56,7 @@ struct DeepLinkNavigator {
             guard let workspace else { throw Self.gone }
             try reveal(workspace: workspace.id, intent)
         case .session(let id, let turn):
-            try openSession(id, turn: turn, intent)
+            try openSession(id, turn: turn, intent, opens: opens, link: link)
         case .chiefSession(let home, let session):
             // Only this app's Chief home, only a tab that shows that session there; never a
             // new tab (the session runs in the Chief home's acpmux, not this Mac's).
@@ -65,6 +76,12 @@ struct DeepLinkNavigator {
     }
 
     static var gone: ActionFailure { ActionFailure(message: RefusalStrings.linkTargetGone) }
+
+    /// A model-output link whose tab or session is not open: nothing opens, and the refusal
+    /// names the link so the person can open it themselves.
+    private func notOpen(_ link: DeepLink) -> ActionFailure {
+        ActionFailure(message: RefusalStrings.linkTargetNotOpen(services.linkText(link) ?? ""))
+    }
 
     /// A pane opens on its selected tab; a pane with none shows its workspace.
     private func reveal(_ pane: PaneModel, _ intent: WindowActivation.Intent) throws {
@@ -93,12 +110,14 @@ struct DeepLinkNavigator {
     /// tab in the focused pane, whose page refuses a session the daemon does
     /// not have (native cannot list acpmux sessions synchronously). Then the
     /// page scrolls to the turn, a page not loaded yet once its row renders.
-    private func openSession(_ id: String, turn: String?, _ intent: WindowActivation.Intent) throws {
+    /// Without `opens` (a model-output link) it refuses instead of opening a tab.
+    private func openSession(_ id: String, turn: String?, _ intent: WindowActivation.Intent, opens: Bool, link: DeepLink) throws {
         let tabs = services.agentTabs
         if let shown = tabs.tab(showing: id), services.revealTab(shown, intent: intent) {
             if let turn { tabs.revealTurn(turn, in: shown) }
             return
         }
+        guard opens else { throw notOpen(link) }
         guard let pane = services.windows.active?.focusedPane else { throw ActionFailure(message: MiscHandlerStrings.noPane) }
         // The store commits the tab first; the turn waits for its page.
         pane.openAgentSession(id) { key in if let turn { tabs.revealTurn(turn, in: key) } }
