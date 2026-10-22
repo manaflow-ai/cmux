@@ -401,3 +401,14 @@ test("images past the strip's limit stay in the result as JSON", () => {
   expect(result.text.match(/"type": "image"/g)).toHaveLength(2);
   expect(toolImages({ id: "c1", title: "mcp__shots__take", status: "completed", output })).toHaveLength(4);
 });
+
+test("images past the strip's limit stay JSON across envelopes inside envelopes", () => {
+  // Codex review 8: each level had its own four, so five came out and the strip dropped one.
+  const image = (i: number) => ({ type: "image", data: `${PNG}${i}`, mimeType: "image/png" });
+  const child = JSON.stringify({ content: [{ type: "text", text: "Child" }, image(1), image(2), image(3), image(4)] });
+  const output = JSON.stringify([image(0), { type: "text", text: child }]);
+  const result = toolResult(output);
+  expect(result.images).toHaveLength(4);
+  expect(result.text.match(/"type": "image"/g)).toHaveLength(1);
+  expect(result.text.startsWith("Child\n\n")).toBe(true);
+});
