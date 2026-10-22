@@ -18,10 +18,12 @@ nonisolated struct AcpmuxPeerUpdateCommand: Sendable {
     /// A `host update` uploads a binary over ssh and waits for the new daemon: minutes, not hours.
     var deadline: Duration = .seconds(900)
 
-    /// `acpmux --json host update NAME --binary-dir DIR --if-idle`. Every update the app runs is
-    /// this one: `--if-idle` is never dropped, so a busy peer is retried later, never forced.
-    static func updateArguments(peer: String, binaryDirectory: URL) -> [String] {
-        ["--json", "host", "update", peer, "--binary-dir", binaryDirectory.path, "--if-idle"]
+    /// `acpmux --json host update NAME --binary-dir DIR [--if-idle]`. `--if-idle` unless
+    /// `whileBusy`: the CLI then leaves a peer mid-turn alone and answers busy. Without it, the
+    /// update restarts the peer's daemon mid-turn, and the new daemon resumes what it interrupted.
+    static func updateArguments(peer: String, binaryDirectory: URL, whileBusy: Bool) -> [String] {
+        let arguments = ["--json", "host", "update", peer, "--binary-dir", binaryDirectory.path]
+        return whileBusy ? arguments : arguments + ["--if-idle"]
     }
 
     func run(_ arguments: [String]) async -> Result {

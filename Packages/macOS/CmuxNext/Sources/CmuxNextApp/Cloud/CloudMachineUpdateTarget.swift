@@ -8,9 +8,11 @@ import Foundation
 /// running binary, swaps `~/.cmux/bin/cmux-tui`, restarts only the daemon (terminals and chats keep
 /// running) and rolls back when the new daemon does not serve. The VM's acpmux is that same binary.
 ///
-/// When: a connected machine updates only at a quiet moment (``CloudMachineQuiet``); otherwise it
-/// answers `busy` and the policy asks again with backoff, never forcing it. A machine whose daemon
-/// the app refused (`incompatible`) updates at once: it cannot connect, so nothing on it is in use
+/// When: a connected machine updates at a quiet moment (``CloudMachineQuiet``); otherwise it
+/// answers `busy` and the policy asks again with backoff, until the machine has been busy for the
+/// policy's `updateBusyAfter`: then the policy asks with `whileBusy`, which skips the quiet read,
+/// and the new daemon adopts the terminals and chats that kept running. A machine whose daemon the
+/// app refused (`incompatible`) updates at once: it cannot connect, so nothing on it is in use
 /// through the app and nothing can be lost.
 nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
     /// The machine's daemon as the app last saw it.
@@ -61,10 +63,10 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
         }
     }
 
-    func update(to build: DaemonBuildCommit) async -> DaemonUpdateOutcome {
+    func update(to build: DaemonBuildCommit, whileBusy: Bool) async -> DaemonUpdateOutcome {
         // Gone or not connected now: try again later.
         guard let daemon = await source.daemon() else { return .busy }
-        if daemon.level != .incompatible, !(await source.isQuiet()) { return .busy }
+        if !whileBusy, daemon.level != .incompatible, !(await source.isQuiet()) { return .busy }
         let outcome: DaemonUpdateOutcome
         do {
             outcome = Self.outcome(try await source.update(), machine: displayName)

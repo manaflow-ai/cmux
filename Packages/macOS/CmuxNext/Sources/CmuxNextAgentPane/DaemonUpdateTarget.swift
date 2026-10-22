@@ -15,16 +15,19 @@ public nonisolated protocol DaemonUpdateTarget: Sendable {
     /// The build the target runs now (`<hash>[+dirty.x] [date]` or a commit); nil when unknown or
     /// unreachable: the policy then leaves it alone.
     func currentBuild() async -> String?
-    /// Brings the target to `build`, only while it is idle: a target never interrupts a turn, a
-    /// waiting permission or a sub-session's turn; it answers ``DaemonUpdateOutcome/busy`` and
-    /// changes nothing. There is no forced variant.
-    func update(to build: DaemonBuildCommit) async -> DaemonUpdateOutcome
+    /// Brings the target to `build`. Without `whileBusy`, only while it is idle: it does not
+    /// interrupt a turn, a waiting permission or a sub-session's turn; it answers
+    /// ``DaemonUpdateOutcome/busy`` and changes nothing. With `whileBusy` (the policy asks so once
+    /// the target stayed busy past ``DaemonUpdatePolicy/Dependencies/updateBusyAfter``), it updates
+    /// mid-turn too: the restarted daemon resumes what it interrupted. It still answers `busy` when
+    /// it cannot update now, such as an unreachable machine or another update running.
+    func update(to build: DaemonBuildCommit, whileBusy: Bool) async -> DaemonUpdateOutcome
     /// Whether the target updates as soon as the policy reaches it: the policy queues it also when
     /// its build is unknown, ahead of every other waiting target and without waiting out another
     /// target's backoff; still one target at a time, once per build. The idle check stays the
-    /// target's own (``update(to:)``): only a target that loses nothing by updating at once is
-    /// urgent, such as a Cloud machine whose daemon the app refused. False by default; an acpmux
-    /// ssh peer never is.
+    /// target's own (``update(to:whileBusy:)``): only a target that loses nothing by updating at
+    /// once is urgent, such as a Cloud machine whose daemon the app refused. False by default; an
+    /// acpmux ssh peer never is.
     var urgent: Bool { get async }
 }
 
@@ -34,13 +37,14 @@ extension DaemonUpdateTarget {
     }
 }
 
-/// What one ``DaemonUpdateTarget/update(to:)`` did.
+/// What one ``DaemonUpdateTarget/update(to:whileBusy:)`` did.
 public nonisolated enum DaemonUpdateOutcome: Sendable, Equatable {
     /// The target now runs the build (`build`: what it reports, when it says).
     case updated(build: String?)
     /// It already did; nothing changed.
     case current
-    /// It is not idle; nothing changed. The policy asks again later.
+    /// It is not idle, or, asked to update while busy, it cannot now (unreachable, another update
+    /// running); nothing changed. The policy asks again later.
     case busy
     /// No binary for its platform (`target`, a Rust triple) could be found; nothing changed. The
     /// next launch asks again.
@@ -81,7 +85,8 @@ public nonisolated struct DaemonBuildCommit: Sendable, Equatable {
 public nonisolated struct DaemonUpdateEvent: Sendable, Equatable {
     public enum State: Sendable, Equatable {
         case updating
-        /// The target is not idle: the update waits for an idle moment, never forces it.
+        /// The target is not idle: the update waits for an idle moment, or for
+        /// ``DaemonUpdatePolicy/Dependencies/updateBusyAfter``, then runs mid-turn.
         case waitingForIdle
         case updated(build: String)
         /// `rolledBack`: the target put its previous build back.

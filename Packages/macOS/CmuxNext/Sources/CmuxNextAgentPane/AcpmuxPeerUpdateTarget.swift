@@ -4,9 +4,11 @@ public import Foundation
 import os
 
 /// An acpmux ssh peer of this app's daemon (`acpmux host add NAME ssh://host`) as a
-/// ``DaemonUpdateTarget``: `acpmux --json host update NAME --binary-dir DIR --if-idle` on the
-/// bundled CLI. The CLI refuses a peer where any session runs a turn (`busy`), keeps the old
-/// binary and rolls back by itself when the new daemon does not come up with the expected build.
+/// ``DaemonUpdateTarget``: `acpmux --json host update NAME --binary-dir DIR [--if-idle]` on the
+/// bundled CLI. On the idle attempts (`--if-idle`) the CLI refuses a peer where any session runs a
+/// turn (`busy`); an update while busy drops the flag and restarts the peer's daemon mid-turn. The
+/// CLI keeps the old binary and rolls back by itself when the new daemon does not come up with the
+/// expected build.
 /// When it asks for the peer's platform binary (`needsBinary`), the published
 /// `cmux-tui-acpmux-<target>` of the bundled build is downloaded, staged and the update runs again.
 nonisolated struct AcpmuxPeerUpdateTarget: DaemonUpdateTarget {
@@ -23,9 +25,9 @@ nonisolated struct AcpmuxPeerUpdateTarget: DaemonUpdateTarget {
         await source.status()?.peers.first { $0.name == name && $0.connected }?.remoteBuild
     }
 
-    func update(to build: DaemonBuildCommit) async -> DaemonUpdateOutcome {
+    func update(to build: DaemonBuildCommit, whileBusy: Bool) async -> DaemonUpdateOutcome {
         let binaries = source.binaryDirectory(hash: build.hash)
-        var reply = await source.hostUpdate(name, binaries: binaries)
+        var reply = await source.hostUpdate(name, binaries: binaries, whileBusy: whileBusy)
         if case .needsBinary(let triple) = reply.outcome {
             do {
                 try await source.stage("cmux-tui-acpmux-\(triple)", as: binaries.appendingPathComponent("acpmux-\(triple)"), for: build)
@@ -33,7 +35,7 @@ nonisolated struct AcpmuxPeerUpdateTarget: DaemonUpdateTarget {
                 AcpmuxPeerUpdateSource.logger.error("\(name, privacy: .public): no binary for \(triple, privacy: .public): \(String(describing: error), privacy: .public)")
                 return .needsBinary(target: triple)
             }
-            reply = await source.hostUpdate(name, binaries: binaries)
+            reply = await source.hostUpdate(name, binaries: binaries, whileBusy: whileBusy)
             if case .needsBinary = reply.outcome { return .failed(reason: "it still asks for acpmux-\(triple) after it was staged") }
         }
         switch reply.outcome {
@@ -99,9 +101,10 @@ nonisolated struct AcpmuxPeerUpdateSource: Sendable {
         return nil
     }
 
-    /// One `host update` run and its reply; a run that prints no reply is a failure.
-    func hostUpdate(_ name: String, binaries: URL) async -> AcpmuxPeerUpdateReply {
-        let result = await command.run(AcpmuxPeerUpdateCommand.updateArguments(peer: name, binaryDirectory: binaries))
+    /// One `host update` run and its reply; a run that prints no reply is a failure. `whileBusy`
+    /// drops `--if-idle` (``AcpmuxPeerUpdateCommand/updateArguments(peer:binaryDirectory:whileBusy:)``).
+    func hostUpdate(_ name: String, binaries: URL, whileBusy: Bool) async -> AcpmuxPeerUpdateReply {
+        let result = await command.run(AcpmuxPeerUpdateCommand.updateArguments(peer: name, binaryDirectory: binaries, whileBusy: whileBusy))
         if let reply = AcpmuxPeerUpdateReply.parse(result.output, peer: name) { return reply }
         let last = result.errors.split(whereSeparator: \.isNewline).last.map { String($0).trimmingCharacters(in: .whitespaces) }
         return AcpmuxPeerUpdateReply(outcome: .failed, error: last ?? "acpmux exited \(result.status.map(String.init) ?? "without a status")")

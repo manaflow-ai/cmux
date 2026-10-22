@@ -61,23 +61,41 @@ import Testing
     }
 
     /// A machine where a long-running agent always works (huge-blue with claude-sr2) never has an
-    /// idle moment: every update answers busy. The policy keeps backing off (2, 4, 8, 16, then
-    /// every 30 minutes), leaves it for the next launch after six hours, and never forces it; the
-    /// target API has no forced update at all.
-    @Test func aTargetThatIsNeverIdleIsNeverForced() async throws {
+    /// idle moment: every idle update answers busy. The policy asks idle first (at 0, 2 and 6
+    /// minutes), then at 10 minutes updates it while busy, once, and it ends on the build.
+    @Test func aTargetThatIsNeverIdleIsUpdatedWhileBusyAfterTenMinutes() async throws {
         let fixture = try PolicyFixture()
         defer { fixture.remove() }
         let clock = PolicyTestClock()
-        let target = fixture.target("huge-blue", build: Self.older, outcomes: [.busy])
+        let target = fixture.target("huge-blue", build: Self.older, outcomes: [.busy], whileBusy: .updated(build: nil))
         await fixture.policy([target], clock: clock).run()
 
-        let minutes: [Int64] = [2, 4, 8, 16] + Array(repeating: 30, count: 11)
+        #expect(clock.sleeps == [.seconds(120), .seconds(240), .seconds(240)])
+        #expect(clock.sleeps.reduce(.zero, +) == .seconds(600))
+        #expect(fixture.whileBusy == [false, false, false, true])
+        #expect(await target.currentBuild() == "abc123def")
+        #expect(fixture.states("huge-blue") == [.updating, .waitingForIdle, .updating, .waitingForIdle, .updating, .waitingForIdle,
+                                                .updating, .updated(build: "abc123def")])
+        #expect(fixture.ledger.targets == ["huge-blue": "updated"])
+        #expect(fixture.notices.isEmpty)
+    }
+
+    /// A target that answers busy also to an update while busy (unreachable, another update
+    /// running) keeps the backoff (16, then every 30 minutes) and is left for the next launch
+    /// after six hours, unrecorded.
+    @Test func aTargetBusyAlsoWhileBusyIsLeftAfterSixHours() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let clock = PolicyTestClock()
+        let target = fixture.target("unreachable", build: Self.older, outcomes: [.busy])
+        await fixture.policy([target], clock: clock).run()
+
+        let minutes: [Int64] = [2, 4, 4, 16] + Array(repeating: 30, count: 11)
         #expect(clock.sleeps == minutes.map { .seconds($0 * 60) })
-        #expect(clock.sleeps.reduce(.zero, +) == .seconds(6 * 3600))
-        #expect(fixture.calls.count == minutes.count + 1)
+        #expect(fixture.whileBusy == Array(repeating: false, count: 3) + Array(repeating: true, count: minutes.count - 2))
         #expect(await target.currentBuild() == Self.older)
-        #expect(fixture.states("huge-blue").last == .waitingForIdle)
-        // Not recorded: the next launch waits for an idle moment again.
+        #expect(fixture.states("unreachable").last == .waitingForIdle)
+        // Not recorded: the next launch tries again.
         #expect(fixture.ledger.targets.isEmpty)
         #expect(fixture.notices.isEmpty)
     }
@@ -161,7 +179,7 @@ import Testing
     }
 
     /// An urgent target offered while another waits out its busy backoff goes at once, not after
-    /// the wait; the busy one is asked again after its backoff, never forced.
+    /// the wait; the busy one is asked again after its backoff, still idle first (before the cap).
     @Test func anUrgentTargetDoesNotWaitBehindABusyOne() async throws {
         let fixture = try PolicyFixture()
         defer { fixture.remove() }
@@ -175,6 +193,7 @@ import Testing
         await policy.drained()
 
         #expect(fixture.calls == ["busy", "refused", "busy"])
+        #expect(fixture.whileBusy == [false, false, false])
         #expect(clock.sleeps == [.seconds(120), .seconds(120)])
         #expect(!fixture.overlapped)
         #expect(fixture.states("busy") == [.updating, .waitingForIdle, .updating, .updated(build: "abc123def")])
@@ -240,8 +259,8 @@ import Testing
 /// A scratch state directory, fake targets that share one call log, and the policy's events.
 nonisolated final class PolicyFixture: Sendable {
     let root: URL
-    private let log = Mutex<(calls: [String], running: Int, overlapped: Bool, events: [DaemonUpdateEvent], targetReads: Int)>(
-        ([], 0, false, [], 0))
+    private let log = Mutex<(calls: [String], whileBusy: [Bool], running: Int, overlapped: Bool, events: [DaemonUpdateEvent],
+                             targetReads: Int)>(([], [], 0, false, [], 0))
 
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("daemon-update-\(UUID().uuidString)", isDirectory: true)
@@ -251,6 +270,8 @@ nonisolated final class PolicyFixture: Sendable {
     func remove() { try? FileManager.default.removeItem(at: root) }
 
     var calls: [String] { log.withLock { $0.calls } }
+    /// Each call's `whileBusy`, in the order of ``calls``.
+    var whileBusy: [Bool] { log.withLock { $0.whileBusy } }
     var overlapped: Bool { log.withLock { $0.overlapped } }
     var events: [DaemonUpdateEvent] { log.withLock { $0.events } }
     var targetReads: Int { log.withLock { $0.targetReads } }
@@ -261,16 +282,18 @@ nonisolated final class PolicyFixture: Sendable {
     }
 
     /// A target that runs `build` and answers `outcomes` in turn (the last one again after that).
+    /// An update while busy answers `whileBusy` when given, else the next of `outcomes`.
     /// `started` fires when its update begins, which then waits for `release`.
     func target(_ id: String, build: String?, sshHost: String? = nil, urgent: Bool = false, outcomes: [DaemonUpdateOutcome] = [],
-                started: UpdateSignal? = nil, release: UpdateSignal? = nil) -> FakeUpdateTarget {
-        FakeUpdateTarget(id: id, build: build, sshHost: sshHost, urgent: urgent, outcomes: outcomes, fixture: self,
+                whileBusy: DaemonUpdateOutcome? = nil, started: UpdateSignal? = nil, release: UpdateSignal? = nil) -> FakeUpdateTarget {
+        FakeUpdateTarget(id: id, build: build, sshHost: sshHost, urgent: urgent, outcomes: outcomes, whileBusy: whileBusy, fixture: self,
                          started: started, release: release)
     }
 
-    func began(_ id: String) {
+    func began(_ id: String, whileBusy: Bool) {
         log.withLock { log in
             log.calls.append(id)
+            log.whileBusy.append(whileBusy)
             log.running += 1
             if log.running > 1 { log.overlapped = true }
         }
@@ -305,13 +328,15 @@ nonisolated final class FakeUpdateTarget: DaemonUpdateTarget {
     private let fixture: PolicyFixture
     private let started: UpdateSignal?
     private let release: UpdateSignal?
+    private let whileBusyOutcome: DaemonUpdateOutcome?
     private let state: Mutex<(build: String?, outcomes: [DaemonUpdateOutcome])>
 
-    init(id: String, build: String?, sshHost: String?, urgent: Bool, outcomes: [DaemonUpdateOutcome], fixture: PolicyFixture,
-         started: UpdateSignal?, release: UpdateSignal?) {
+    init(id: String, build: String?, sshHost: String?, urgent: Bool, outcomes: [DaemonUpdateOutcome], whileBusy: DaemonUpdateOutcome?,
+         fixture: PolicyFixture, started: UpdateSignal?, release: UpdateSignal?) {
         self.id = id
         self.sshHost = sshHost
         isUrgent = urgent
+        whileBusyOutcome = whileBusy
         self.fixture = fixture
         self.started = started
         self.release = release
@@ -324,14 +349,15 @@ nonisolated final class FakeUpdateTarget: DaemonUpdateTarget {
 
     func currentBuild() async -> String? { state.withLock { $0.build } }
 
-    func update(to build: DaemonBuildCommit) async -> DaemonUpdateOutcome {
-        fixture.began(id)
+    func update(to build: DaemonBuildCommit, whileBusy: Bool) async -> DaemonUpdateOutcome {
+        fixture.began(id, whileBusy: whileBusy)
         started?.fire()
         await release?.wait()
         await Task.yield()
         defer { fixture.ended() }
+        let forced = whileBusy ? whileBusyOutcome : nil
         return state.withLock { state in
-            let outcome = state.outcomes.count > 1 ? state.outcomes.removeFirst() : state.outcomes.first ?? .failed(reason: "no outcome")
+            let outcome = forced ?? (state.outcomes.count > 1 ? state.outcomes.removeFirst() : state.outcomes.first ?? .failed(reason: "no outcome"))
             switch outcome {
             case .updated(let reported): state.build = reported ?? build.hash
             case .current: state.build = build.hash

@@ -32,22 +32,42 @@ struct CloudMachineUpdateTargetTests {
     }
 
     /// Leo's VM with an agent that never stops: every quiet read is busy. The policy backs off (2,
-    /// 4, 8, 16, then every 30 minutes) for six hours and leaves it for the next connect; the CLI
-    /// never runs, so nothing is forced.
-    @Test func aBusyMachineWaitsAndIsNeverForced() async throws {
-        let machine = FakeCloudMachine(build: Self.older, level: .limited, quiet: [false])
+    /// then 4 minutes), and at 10 busy minutes updates it anyway, with no quiet read: the new
+    /// daemon adopts the terminals and chats it interrupted.
+    @Test func aBusyMachineIsUpdatedAfterTenMinutes() async throws {
+        let machine = FakeCloudMachine(build: Self.older, level: .limited, quiet: [false],
+                                       answers: [CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)])
         let fixture = try CloudUpdateFixture()
         defer { fixture.remove() }
         await fixture.run(machine)
 
-        #expect(machine.updates == 0)
-        let minutes: [Int64] = [2, 4, 8, 16] + Array(repeating: 30, count: 11)
-        #expect(fixture.clock.sleeps == minutes.map { .seconds($0 * 60) })
-        #expect(machine.quietReads == minutes.count + 1)
-        #expect(fixture.states.last == .waitingForIdle)
-        #expect(!fixture.states.contains { if case .updated = $0 { true } else { false } })
-        #expect(fixture.ledger.targets.isEmpty, "not recorded: the next connect waits for a quiet moment again")
+        #expect(machine.updates == 1)
+        #expect(machine.quietReads == 3, "the update while busy reads no quiet state")
+        #expect(fixture.clock.sleeps == [.seconds(120), .seconds(240), .seconds(240)])
+        #expect(fixture.states == [.updating, .waitingForIdle, .updating, .waitingForIdle, .updating, .waitingForIdle,
+                                   .updating, .updated(build: Self.bundled)])
+        #expect(machine.reconnects == 1)
+        #expect(fixture.ledger.targets == [CloudMachineUpdateTarget.id("vm-1"): "updated"])
         #expect(fixture.notices.isEmpty)
+    }
+
+    /// `whileBusy` skips the quiet gate; the CLI's own busy answers still come back as busy.
+    @Test func anUpdateWhileBusySkipsTheQuietRead() async throws {
+        let local = try #require(DaemonBuildCommit(Self.bundled))
+        let busyCLI = CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_busy", error: "another update runs")
+        let machine = FakeCloudMachine(build: Self.older, level: .limited, quiet: [false],
+                                       answers: [busyCLI, CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)])
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        let target = fixture.target(machine)
+
+        #expect(await target.update(to: local, whileBusy: false) == .busy)
+        #expect(machine.quietReads == 1)
+        #expect(machine.updates == 0)
+        #expect(await target.update(to: local, whileBusy: true) == .busy, "machine_update_busy")
+        #expect(await target.update(to: local, whileBusy: true) == .updated(build: Self.bundled))
+        #expect(machine.quietReads == 1, "no quiet read while busy")
+        #expect(machine.updates == 2)
     }
 
     /// A refused daemon can't connect, so nothing on it is in use through the app: it updates at

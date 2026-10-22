@@ -1,6 +1,6 @@
 import Foundation
 
-/// One peer's row of `acpmux --json host update NAME --binary-dir DIR --if-idle` (`outcome`,
+/// One peer's row of `acpmux --json host update NAME --binary-dir DIR [--if-idle]` (`outcome`,
 /// `target`, `build`, `error`, `migratedFrom`, `reason`): the only place the app reads that JSON. Unknown
 /// fields (`peer`, `host`, `ok`, `version`, `status`) are ignored; an unknown outcome is a failure.
 nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {

@@ -114,7 +114,7 @@ import Testing
         #expect(await target.currentBuild() == Self.older)
 
         let local = try #require(DaemonBuildCommit(Self.local))
-        let outcome = await target.update(to: local)
+        let outcome = await target.update(to: local, whileBusy: false)
         #expect(outcome == .updated(build: Self.local))
         try #require(fixture.calls.count == 2)
         #expect(fixture.calls[0].staged.isEmpty)
@@ -131,7 +131,7 @@ import Testing
         let targets = await fixture.source(peers: ["cmux16"], downloadFails: true).targets()
         let target = try #require(targets.first)
         let local = try #require(DaemonBuildCommit(Self.local))
-        #expect(await target.update(to: local) == .needsBinary(target: "aarch64-unknown-linux-musl"))
+        #expect(await target.update(to: local, whileBusy: false) == .needsBinary(target: "aarch64-unknown-linux-musl"))
         #expect(fixture.calls.count == 1)
     }
 
@@ -143,16 +143,17 @@ import Testing
         let targets = await fixture.source(peers: ["huge-blue", "cmux16"]).targets()
         let local = try #require(DaemonBuildCommit(Self.local))
         try #require(targets.count == 2)
-        #expect(await targets[0].update(to: local) == .rolledBack(reason: "new daemon reported 0123456ff"))
-        #expect(await targets[1].update(to: local) == .failed(reason: "ssh exited 255"))
+        #expect(await targets[0].update(to: local, whileBusy: false) == .rolledBack(reason: "new daemon reported 0123456ff"))
+        #expect(await targets[1].update(to: local, whileBusy: false) == .failed(reason: "ssh exited 255"))
     }
 
-    /// huge-blue never has an idle moment: through the policy, every `host update` the app runs
-    /// carries `--if-idle`, however many times the peer answers busy.
-    @Test func everyHostUpdateCarriesIfIdle() async throws {
+    /// huge-blue never has an idle moment: through the policy, `host update` carries `--if-idle`
+    /// until the peer has been busy for 10 minutes, then runs once without it.
+    @Test func hostUpdatesCarryIfIdleUntilTheCap() async throws {
         let fixture = try StandInAcpmux()
         defer { fixture.remove() }
         try fixture.reply("huge-blue", nil, #"{"outcome":"busy"}"#)
+        try fixture.reply("huge-blue", 4, #"{"outcome":"updated","build":"abc123def 2026-10-20"}"#)
         let source = fixture.source(peers: ["huge-blue"])
         for target in await source.targets() {
             #expect(await target.urgent == false, "an acpmux peer is never urgent")
@@ -162,12 +163,19 @@ import Testing
             directory: fixture.root.appendingPathComponent("state"), clock: PolicyTestClock()
         )).run()
 
-        #expect(fixture.calls.count == 16)
+        try #require(fixture.calls.count == 4)
         let binaries = try #require(fixture.calls.first?.binaryDirectory)
-        let expected = AcpmuxPeerUpdateCommand.updateArguments(peer: "huge-blue", binaryDirectory: binaries)
-        #expect(expected.last == "--if-idle")
-        #expect(fixture.calls.allSatisfy { $0.arguments == expected })
+        let idle = AcpmuxPeerUpdateCommand.updateArguments(peer: "huge-blue", binaryDirectory: binaries, whileBusy: false)
+        let busy = AcpmuxPeerUpdateCommand.updateArguments(peer: "huge-blue", binaryDirectory: binaries, whileBusy: true)
+        #expect(fixture.calls.map(\.arguments) == [idle, idle, idle, busy])
         #expect(!fixture.overlapped)
+    }
+
+    @Test func updateArgumentsDropIfIdleOnlyWhileBusy() {
+        let binaries = URL(fileURLWithPath: "/tmp/binaries/abc123def")
+        let base = ["--json", "host", "update", "cmux16", "--binary-dir", "/tmp/binaries/abc123def"]
+        #expect(AcpmuxPeerUpdateCommand.updateArguments(peer: "cmux16", binaryDirectory: binaries, whileBusy: false) == base + ["--if-idle"])
+        #expect(AcpmuxPeerUpdateCommand.updateArguments(peer: "cmux16", binaryDirectory: binaries, whileBusy: true) == base)
     }
 }
 

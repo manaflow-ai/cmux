@@ -10,12 +10,15 @@ import os
 ///
 /// - the trigger: a target whose build is another commit than the app's bundled build (a dirty
 ///   bundled build never pushes); an ``DaemonUpdateTarget/urgent`` target also with no known build;
-/// - only while idle: a busy target is asked again with backoff (2 minutes, doubling, at most 30),
-///   never forced, and left for the next launch after 6 hours;
+/// - idle first, then anyway: a busy target is asked again with backoff (2 minutes, doubling, at
+///   most 30), and once it has been busy for 10 minutes (``Dependencies/updateBusyAfter``) it is
+///   updated mid-turn, since a machine where agents always work never has an idle moment; the
+///   restarted daemon resumes what it interrupted. One that still answers busy then (unreachable,
+///   another update running) keeps the backoff and is left for the next launch after 6 hours;
 /// - one target at a time across every source, urgent targets first;
 /// - one attempt per target and build: a final outcome is kept in ``DaemonUpdateLedger`` across
 ///   launches, so a target that rolled back or failed is not tried again until the next build; one
-///   left for the next launch (no binary, busy for 6 hours) is not tried again in this run;
+///   left for the next launch (no binary, still busy after 6 hours) is not tried again in this run;
 /// - each target's state on ``DaemonUpdateBoard``, and one notice per failed target and build;
 /// - off with the Debug Settings toggle `agent.updatePeers`, read before every step.
 public actor DaemonUpdatePolicy {
@@ -35,7 +38,12 @@ public actor DaemonUpdatePolicy {
         public var directory: URL
         public var clock: any Clock<Duration>
         public var busyBackoff = Backoff(initial: .seconds(120), maximum: .seconds(1800), multiplier: 2, jitter: 0)
-        /// A target busy for this long is left for the next launch.
+        /// A target busy for this long is updated mid-turn
+        /// (``DaemonUpdateTarget/update(to:whileBusy:)``): the cap of the local daemon's quiet
+        /// handoff (``AcpmuxQuietHandoff``).
+        public var updateBusyAfter: Duration = .seconds(600)
+        /// A target that answers busy this long, also to updates while busy, is left for the next
+        /// launch.
         public var giveUpAfter: Duration = .seconds(6 * 3600)
 
         public init(bundledBuild: @escaping @Sendable () async -> String?,
@@ -88,7 +96,7 @@ public actor DaemonUpdatePolicy {
     private var drain: Task<Void, Never>?
     /// The drain's backoff wait; ``offer(_:)`` cuts it short.
     private var sleeper: Task<Void, Never>?
-    /// Targets left for the next launch in this run (no binary, busy for 6 hours): id to bundled hash.
+    /// Targets left for the next launch in this run (no binary, still busy after 6 hours): id to bundled hash.
     private var settled: [String: String] = [:]
 
     public init(_ dependencies: Dependencies) {
@@ -219,9 +227,11 @@ public actor DaemonUpdatePolicy {
         let current = DaemonBuildCommit(await target.currentBuild())
         if let current, local.sameCommit(current.hash) { return nil }
         guard current != nil || urgent else { return nil }
+        // Busy for ``Dependencies/updateBusyAfter`` or longer: this update does not wait for an idle moment.
+        let whileBusy = pending.firstBusy.map { elapsed() - $0 >= deps.updateBusyAfter } ?? false
         await deps.report(DaemonUpdateEvent(target, .updating))
-        let outcome = await target.update(to: local)
-        Self.logger.info("\(target.displayName, privacy: .public) to \(local.hash, privacy: .public): \(String(describing: outcome), privacy: .public)")
+        let outcome = await target.update(to: local, whileBusy: whileBusy)
+        Self.logger.info("\(target.displayName, privacy: .public) to \(local.hash, privacy: .public)\(whileBusy ? " while busy" : "", privacy: .public): \(String(describing: outcome), privacy: .public)")
         if outcome == .busy {
             await deps.report(DaemonUpdateEvent(target, .waitingForIdle))
             var again = pending
@@ -234,7 +244,9 @@ public actor DaemonUpdatePolicy {
                 settled[target.id] = local.hash
                 return nil
             }
-            again.due = now + delay
+            // The first update while busy runs at the cap, not after a backoff that passes it.
+            let cap = since + deps.updateBusyAfter
+            again.due = now < cap ? min(now + delay, cap) : now + delay
             return again
         }
         if let recorded = Self.recorded(outcome) {

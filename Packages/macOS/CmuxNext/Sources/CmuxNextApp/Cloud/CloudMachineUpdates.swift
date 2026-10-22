@@ -7,9 +7,9 @@ import os
 /// Keeps every Cloud machine on the app's own cmux-tui build with no click: each handshake of a
 /// machine's daemon (the first connect and every reconnect, also one the app refused) offers it to
 /// the app's one `DaemonUpdatePolicy.shared` as a ``CloudMachineUpdateTarget``, in the same queue as
-/// the acpmux ssh peers. The policy decides (another commit than the bundled build, only while
-/// quiet, busy backoff, never forced, one target at a time, once per machine and build in its
-/// ledger, one notice per failure); this type only feeds it Cloud machines. Their state shows in
+/// the acpmux ssh peers. The policy decides (another commit than the bundled build, quiet first
+/// with busy backoff, then anyway after 10 busy minutes, one target at a time, once per machine and
+/// build in its ledger, one notice per failure); this type only feeds it Cloud machines. Their state shows in
 /// the machine header (``CloudCreationRows``) from `DaemonUpdateBoard.shared`.
 ///
 /// - Off with `cloud.updateMachines` (``CloudTunables``) or the policy's `agent.updatePeers`: no
