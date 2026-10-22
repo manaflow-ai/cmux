@@ -271,7 +271,13 @@ export function buildPickerCatalog({
   // folder profile must never stand in for a catalog harness of its family.
   acpmux = acpmux.filter((entry) => !entry.folder);
   const layered = applyUserLayer(catalog, user);
-  const join: Join = { catalog: layered, session, worked, overrides: userOverrides(user) };
+  const join: Join = {
+    catalog: layered,
+    session,
+    worked,
+    overrides: userOverrides(user),
+    releaseNames: releaseNames(catalog),
+  };
   const hidden = hiddenHarnesses(user);
   const covered = new Set<string>();
   const harnesses = layered.harnesses.map((harness) => {
@@ -294,7 +300,18 @@ type Join = {
   session: PickerInputs["session"];
   worked: string[];
   overrides: Record<string, Record<string, unknown>>;
+  /** Each catalog release's own names, before the user layer renames it: what a harness alias's
+   *  reported name is matched against (`foldAliases`). */
+  releaseNames: Map<string, string[]>;
 };
+
+function releaseNames(catalog: ModelCatalog): Join["releaseNames"] {
+  const names = new Map<string, string[]>();
+  for (const harness of catalog.harnesses)
+    for (const model of harness.models)
+      names.set(model.id, [...(names.get(model.id) ?? []), model.name, model.shortName].filter(Boolean));
+  return names;
+}
 
 function userOverrides(user: unknown): Join["overrides"] {
   const overrides = isRecord(user) && isRecord(user.overrides) ? user.overrides : {};
@@ -325,10 +342,14 @@ function layeredModel(
     provider: _provider,
     ...declared
   } = probe ? modelFields(probe as unknown as Record<string, unknown>) : {};
-  const user = {
-    ...join.overrides[`*/${model.id}`],
-    ...join.overrides[`${harnessId}/${model.id}`],
-  };
+  // An override of a catalog alias ("<harness>/opus") is one of its release, as applyUserLayer has it.
+  const user = Object.assign(
+    {},
+    ...[...(model.aliases ?? []), model.id].flatMap((id) => [
+      join.overrides[`*/${id}`],
+      join.overrides[`${harnessId}/${id}`],
+    ]),
+  ) as Record<string, unknown>;
   const fields = modelFields(user);
   const own: Own = {
     ...(model as { own?: Own }).own,
@@ -361,7 +382,7 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
   addSessionModels(models, live, harness.id, listed, join);
   const releases = models.filter((model) => listed.some((pinned) => pinned.id === model.id));
   const runs = chosen?.id === session?.harness ? runningModel(session, live) : undefined;
-  const offered = foldAliases(models, releases, runs, (release, alias) =>
+  const offered = foldAliases(models, releases, runs, reportedNames(probed, live), join, (release, alias) =>
     aliasRow(listed, release, alias, harness.id, probed, join),
   );
   return {
@@ -391,7 +412,14 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
   const kin = join.catalog.harnesses.find(
     (harness) => harness.modelSource === "catalog" && key !== undefined && harness.families.includes(key),
   );
-  const listed = kin?.models ?? [];
+  const reported = reportedNames(entry.models, live);
+  // A release the user hid here, by its id, a catalog alias or an alias the harness reports as it,
+  // is not one of this profile's releases (applyUserLayer drops it so from its own harness).
+  const listed = (kin?.models ?? []).filter(
+    (model) =>
+      ![...(model.aliases ?? []), model.id].some((id) => isHiddenByUser(entry.id, id, join)) &&
+      ![...reported].some(([id, name]) => isHiddenByUser(entry.id, id, join) && namesRelease(name, model, join)),
+  );
   const models = entry.models
     .filter((probe) => !isHiddenByUser(entry.id, probe.id, join))
     .map((probe) => probedModel(probe, entry.id, join));
@@ -399,7 +427,7 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
   const releases = listed.map((model) => listedModel(model, entry.id, entry.models, join));
   const runs = entry.id === join.session?.harness ? runningModel(join.session, live) : undefined;
   const offered = kin
-    ? foldAliases(models, releases, runs, (release, alias) =>
+    ? foldAliases(models, releases, runs, reported, join, (release, alias) =>
         aliasRow(listed, release, alias, entry.id, entry.models, join),
       )
     : models;
@@ -446,6 +474,30 @@ const nameKey = (name: string | undefined) =>
     .trim()
     .toLowerCase();
 
+/** The names the harness itself gives its models (its probe, then its session's model option),
+ *  by id: a user's rename of an alias does not change which release it is. */
+function reportedNames(probes: readonly AcpmuxModel[], options: ConfigOptions | undefined): Map<string, string> {
+  const names = new Map<string, string>();
+  for (const probe of probes) if (probe.name) names.set(probe.id, probe.name);
+  const option = options?.find((candidate) => candidate.category === "model" || candidate.id === "model");
+  for (const choice of option?.options ?? [])
+    if (choice.name && !names.has(choice.value)) names.set(choice.value, choice.name);
+  return names;
+}
+
+/** The harness's name for a model is the catalog's name for this release (a model the user added
+ *  has only the names the user gave it). */
+function namesRelease(
+  name: string | undefined,
+  release: { id: string; name: string; shortName: string },
+  join: Join,
+): boolean {
+  const key = nameKey(name);
+  if (!key) return false;
+  const own = join.releaseNames.get(release.id) ?? [release.name, release.shortName];
+  return own.some((candidate) => nameKey(candidate) === key);
+}
+
 /**
  * One row per model. A model the harness reports under an alias and names as a catalog release
  * ("opus" named "Opus 5.5", from Claude Code's initialize reply) is that release: one row, the
@@ -458,6 +510,8 @@ function foldAliases(
   models: PickerModel[],
   releases: PickerModel[],
   current: string | undefined,
+  reported: Map<string, string>,
+  join: Join,
   asAlias: (release: PickerModel, alias: PickerModel) => PickerModel,
 ): PickerModel[] {
   const releaseIds = new Set(releases.map((model) => model.id));
@@ -465,11 +519,8 @@ function foldAliases(
   const takenBy = new Map<string, PickerModel>();
   for (const model of models) {
     if (releaseIds.has(model.id)) continue;
-    const name = nameKey(model.name);
-    const release = releases.find(
-      (candidate) =>
-        !takenBy.has(candidate.id) && (nameKey(candidate.shortName) === name || nameKey(candidate.name) === name),
-    );
+    const name = reported.get(model.id) ?? model.name;
+    const release = releases.find((candidate) => !takenBy.has(candidate.id) && namesRelease(name, candidate, join));
     if (release) takenBy.set(release.id, model);
   }
   const aliasFor = new Map([...takenBy].map(([release, alias]) => [alias.id, release]));

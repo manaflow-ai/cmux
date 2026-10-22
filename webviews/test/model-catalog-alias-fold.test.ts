@@ -170,3 +170,118 @@ test("a direct session running the release the probe lists only as an alias show
     });
   }
 });
+
+// Codex review at a14ff113 and the sweep after it: every override field, on the paths this PR added
+// (the alias fold, the running release, the session's options), for a profile the catalog does not
+// map (claude-sr2, whose kin is Claude Code) and for the catalog's own Claude Code.
+const fastAndEffort = [
+  {
+    id: "fast-mode",
+    name: "Fast mode",
+    currentValue: "off",
+    options: [
+      { value: "off", name: "Off" },
+      { value: "on", name: "On" },
+    ],
+  },
+  {
+    id: "effort",
+    name: "Effort",
+    category: "thought_level",
+    currentValue: "high",
+    options: ["low", "medium", "high", "xhigh", "max"].map((value) => ({ value, name: value })),
+  },
+] as NonNullable<NonNullable<Parameters<typeof buildPickerCatalog>[0]["session"]>["configOptions"]>;
+
+const rowsFor = (
+  harness: string,
+  probe: { id: string; name: string }[],
+  overrides: Record<string, unknown>,
+  session: { model?: string; configOptions?: typeof fastAndEffort } = { model: "claude-opus-5-5" },
+) =>
+  buildPickerCatalog({
+    catalog: BUNDLED_MODEL_CATALOG,
+    user: { overrides },
+    acpmux: (harness === "claude"
+      ? [{ id: "claude", name: "Claude Code", models: probe }]
+      : profile(probe)) as AcpmuxSnapshot["catalog"],
+    session: { harness, ...session },
+  }).harnesses.find((entry) => entry.id === harness)!.models;
+
+const opusRows = (models: ReturnType<typeof rowsFor>) =>
+  models.filter((model) => model.shortName === "Opus 5.5" || model.id === "claude-opus-5-5" || model.id === "opus");
+
+for (const harness of ["claude-sr2", "claude"])
+  for (const key of [`${harness}/opus`, "*/opus", `${harness}/claude-opus-5-5`])
+    test(`${harness}: hiding ${key} keeps the running release out, as before the fold`, () => {
+      // Alias-only probe, a direct session that reports the release it runs (no model option).
+      const models = rowsFor(harness, [{ id: "opus", name: "Opus 5.5" }], { [key]: { hidden: true } });
+      const shown = opusRows(models).map((model) => model.id);
+      // Hiding the alias hides the model; hiding the release leaves the bare alias the harness lists.
+      expect(shown, models.map((model) => model.id).join(", ")).toEqual(
+        key.endsWith("/claude-opus-5-5") ? ["opus"] : [],
+      );
+    });
+
+test("an alias the user renamed still folds into its release: one row", () => {
+  const models = rowsFor(
+    "claude-sr2",
+    [
+      { id: "opus", name: "Opus 5.5" },
+      { id: "claude-opus-5-5", name: "Opus 5.5" },
+    ],
+    { "claude-sr2/opus": { name: "My Opus", shortName: "My Opus" } },
+  );
+  const rows = opusRows(models).concat(models.filter((model) => model.name === "My Opus"));
+  expect([...new Set(rows.map((model) => model.id))], models.map((model) => model.id).join(", ")).toEqual([
+    "claude-opus-5-5",
+  ]);
+  expect(rows[0]!.shortName).toBe("My Opus");
+});
+
+test("a release the user renamed still takes the alias the harness names as it: one row", () => {
+  const models = rowsFor(
+    "claude",
+    [{ id: "opus", name: "Opus 5.5" }],
+    {
+      "claude/claude-opus-5-5": { name: "Big Opus", shortName: "Big Opus" },
+    },
+    {},
+  );
+  const rows = models.filter((model) => ["opus", "claude-opus-5-5"].includes(model.id) || model.release);
+  expect(
+    rows
+      .filter((model) => model.release === "claude-opus-5-5" || model.id === "claude-opus-5-5")
+      .map((model) => model.id),
+    models.map((model) => model.id).join(", "),
+  ).toEqual(["opus"]);
+});
+
+for (const [harness, probe] of [
+  ["claude", [{ id: "opus", name: "Opus 5.5" }]],
+  ["claude", []],
+  ["claude-sr2", [{ id: "opus", name: "Opus 5.5" }]],
+  [
+    "claude-sr2",
+    [
+      { id: "opus", name: "Opus 5.5" },
+      { id: "claude-opus-5-5", name: "Opus 5.5" },
+    ],
+  ],
+] as const)
+  for (const key of [`${harness}/opus`, "*/opus", `${harness}/claude-opus-5-5`])
+    test(`${harness} (${probe.map((model) => model.id).join(" + ") || "no probe"}): ${key} set to no fast and no levels holds against the session's options`, () => {
+      const models = rowsFor(
+        harness,
+        [...probe],
+        { [key]: { fast: false, efforts: [] } },
+        {
+          model: "claude-opus-5-5",
+          configOptions: fastAndEffort,
+        },
+      );
+      const running = models.find((model) => model.id === "claude-opus-5-5");
+      expect(running, models.map((model) => model.id).join(", ")).toBeDefined();
+      expect({ fast: running!.fast, efforts: running!.efforts }).toEqual({ fast: false, efforts: [] });
+      expect(running!.own).toEqual({ efforts: true, fast: true });
+    });
