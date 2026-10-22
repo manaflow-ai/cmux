@@ -72,9 +72,10 @@ async fn handle(
     params: &Value,
 ) -> Result<Value, RpcError> {
     if m == method::MUX_SUBSESSION_LIMITS {
-        if let Some(workspace) = str_param(params, "workspaceId")
-            && str_param(params, "sessionId").is_none()
-        {
+        if params.get("workspaceId").is_some() && params.get("sessionId").is_some() {
+            return Err(RpcError::invalid_params("name a sessionId or a workspaceId, not both"));
+        }
+        if let Some(workspace) = str_param(params, "workspaceId") {
             if !conn.is_person() {
                 return Err(crate::hub::person::person_required("changing a workspace's limits"));
             }

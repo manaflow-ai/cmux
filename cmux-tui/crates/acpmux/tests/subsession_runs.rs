@@ -238,6 +238,23 @@ async fn sub_sessions_wait_for_a_run_slot_and_start_when_one_frees() {
     // A message to a child that waits for a slot says so.
     let sent = p.ok("_acpmux/subsession/send", json!({"sessionId": b, "text": "echo later"})).await;
     assert_eq!(sent["delivery"], "queued", "{sent}");
+    // A child queued for a slot is not ready: a wait on it waits (wait_for_sessions), and its
+    // row tells the parent why.
+    let w =
+        p.ok("_acpmux/wait", json!({"sessions": [b], "until": ["ready"], "timeoutMs": 300})).await;
+    assert_eq!(w["timedOut"], true, "{w}");
+    let row = p.ok("_acpmux/subsession/get", json!({"sessionId": b})).await;
+    assert_eq!(row["waitsForSlot"], true, "{row}");
+
+    // Stopped or closed while queued, a child never starts later.
+    let x = id(&p.ok(START, json!({"prompt": "echo child x", "name": "x"})).await);
+    let y = id(&p.ok(START, json!({"prompt": "echo child y", "name": "y"})).await);
+    p.ok("_acpmux/subsession/stop", json!({"sessionId": x})).await;
+    assert_eq!(app.summary(&x).await["queued"], 0, "its start is withdrawn");
+    p.ok("_acpmux/subsession/stop", json!({"sessionId": y, "close": true})).await;
+    assert_eq!(app.summary(&y).await["queued"], 0);
+    app.until(&x, "stopped waiting", |s| s.get("waitsForSlot").is_none()).await;
+    app.until_limits(&parent, "counted only b", |l| l["queued"] == 1).await;
 
     // The first ends: the second gets its slot and runs its prompts.
     release(&gate_a).await;
@@ -247,6 +264,9 @@ async fn sub_sessions_wait_for_a_run_slot_and_start_when_one_frees() {
     .await;
     assert!(app.summary(&b).await.get("waitsForSlot").is_none());
     app.until_limits(&parent, "freed", |l| l["running"] == 0 && l["queued"] == 0).await;
+    let (sx, sy) = (app.summary(&x).await, app.summary(&y).await);
+    assert_eq!((&sx["turnCount"], &sy["turnCount"]), (&json!(0), &json!(0)), "{sx} {sy}");
+    assert_eq!(sy["status"], "closed", "{sy}");
 
     // Raised by the person, a waiting child starts at once.
     let (gate_c, gate_d, gate_e) = (fifo(&root, "c"), fifo(&root, "d"), fifo(&root, "e"));

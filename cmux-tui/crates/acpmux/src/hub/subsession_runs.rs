@@ -130,20 +130,21 @@ impl Runs {
 
     /// Sets (`Some`) or clears (`None`) the workspace's `maxRunning` and saves the file.
     fn set_workspace_limit(&self, workspace: &str, max: Option<u32>) -> anyhow::Result<()> {
-        let bytes = {
+        {
+            // Written under the lock, so two sets reach the file in the order they were made.
             let mut w = self.workspaces.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let map = w.get_or_insert_with(load_workspaces);
             match max {
                 Some(n) => map.insert(workspace.to_owned(), n),
                 None => map.remove(workspace),
             };
-            serde_json::to_vec_pretty(&*map)?
-        };
-        let path = crate::config::home().join(WORKSPACES_FILE);
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
+            let bytes = serde_json::to_vec_pretty(&*map)?;
+            let path = crate::config::home().join(WORKSPACES_FILE);
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            crate::config::write_atomic(&path, &bytes)?;
         }
-        crate::config::write_atomic(&path, &bytes)?;
         self.wake();
         Ok(())
     }
@@ -252,6 +253,22 @@ impl Hub {
     /// looking at the slots, so a change in between is not missed.
     pub(super) fn run_slots_changed(&self) -> tokio::sync::futures::Notified<'_> {
         self.subsession_runs.changed.notified()
+    }
+
+    /// Takes every family prompt (`subsessions::PROVENANCE_KIND`) out of `session`'s queue, its
+    /// `queue_removed` naming `reason`: a stopped or closed sub-session starts no turn later.
+    pub(super) fn withdraw_family_prompts(&self, session: &Arc<Session>, reason: &str) {
+        let ids: Vec<String> = session
+            .queue
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .filter(|q| super::subsession_guard::is_family_prompt(q.run.provenance.as_ref()))
+            .map(|q| q.prompt_id.clone())
+            .collect();
+        for id in ids {
+            self.remove_queued_because(session, &id, Some(reason));
+        }
     }
 
     /// Whether `session` (a sub-session) waits for a run slot of its parent now.

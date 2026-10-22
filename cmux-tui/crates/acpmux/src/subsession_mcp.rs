@@ -281,6 +281,8 @@ async fn wait(daemon: &Client, args: &Value) -> Value {
                     .filter(|s| {
                         matches!(s["status"].as_str(), Some("running" | "waiting"))
                             || !s["turn"].is_null()
+                            // Queued for a run slot: it still has its task to do.
+                            || s["waitsForSlot"] == true
                     })
                     .filter_map(|s| s["sessionId"].as_str().map(str::to_owned))
                     .collect();

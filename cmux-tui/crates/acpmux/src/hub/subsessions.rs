@@ -849,6 +849,8 @@ impl Hub {
             "lastTurn": pick("lastTurn"),
             "pendingPermissions": pick("pendingPermissions"),
             "queued": pick("queued"),
+            // Its prompt waits for a run slot of its parent (`subsession_runs.rs`): not done yet.
+            "waitsForSlot": summary["waitsForSlot"].as_bool().unwrap_or(false),
             // Non-null from the moment a prompt is accepted to its turn's end.
             "turn": pick("turn"),
             // working, input, failed, lost or idle, and since when (`views::lane`).
@@ -993,6 +995,10 @@ impl Hub {
         close: bool,
     ) -> Result<Value, RpcError> {
         if !close {
+            // A start or message still waiting for a run slot is stopped too: it never runs.
+            if self.waits_for_slot(&target.meta()) {
+                self.withdraw_family_prompts(target, "stopped");
+            }
             if target.turn().is_some() {
                 self.cancel(target).await?;
             }
@@ -1011,6 +1017,8 @@ impl Hub {
         }
         let mut closed = Vec::new();
         for s in order.iter().rev() {
+            // A family prompt still queued would take a run slot later and open it again.
+            self.withdraw_family_prompts(s, "closed");
             if s.meta().status != SessionStatus::Closed {
                 self.kill(s, false).await?;
                 closed.push(Value::String(s.id.clone()));
