@@ -458,8 +458,17 @@ button.cv-subagent > :last-child {
   flex: none;
   color: var(--agent-muted);
 }
+/* Under the header's divider the first line keeps the tray's 2px gap, as the last keeps its rim's. */
 .acpmux-running-tray__head + .acpmux-running-tray__list {
+  padding-top: 2px;
   border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
+}
+/* The one folded line of what ended ("3 subagents done"), dim beside what runs. */
+.acpmux-running-tray__finished {
+  color: var(--agent-muted);
+}
+.acpmux-running-tray__finished > svg {
+  flex: none;
 }
 /* A line (AgentLine.tsx) is its button and, for a running subagent or a registry command, its
    stop button (SubagentGroup.tsx, inspector/TasksSection.tsx). */

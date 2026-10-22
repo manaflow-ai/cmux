@@ -156,6 +156,7 @@ import { SubagentDoneLine } from "./subagents/SubagentDoneLine";
 import {
   type DoneLineCache,
   configureSubagentTray,
+  finishedTrayItems,
   trayItems,
   useSubagentTray,
   withSubagentLines,
@@ -4105,7 +4106,7 @@ function AcpmuxPane() {
   // A chat on a Cloud VM or another machine lists the children its daemon reports with its own
   // session (RemoteAcpmuxWire `_acpmux/watch`). A new list only when an entry changes.
   const childSessions = useMemo(
-    () => (spawned.length ? startedSessions(spawned, snapshot.sessionId) : NO_STARTED),
+    () => (spawned.length ? startedSessions(spawned, snapshot.sessionId, { doing: true }) : NO_STARTED),
     [spawned, snapshot.sessionId],
   );
   // Only a chat it started can be an offer's started task: the rows are read only when there is one.
@@ -5009,13 +5010,25 @@ function AcpmuxPane() {
   // the started chats that run. A new list only when what it shows changes, so streamed text never redraws the tray.
   const commandsKey = runningCommandList
     .map((task) =>
-      [task.id, task.command, task.startedAt ?? "", task.processId ?? "", task.toolCallId ?? ""].join("\u0000"),
+      [
+        task.id,
+        task.command,
+        task.description ?? "",
+        task.startedAt ?? "",
+        task.processId ?? "",
+        task.toolCallId ?? "",
+      ].join("\u0000"),
     )
     .join("\u0001");
   const trayList = useMemo(
-    () => (subagentTray ? trayItems(chatAgents, runningCommandList, runningChildSessions, snapshot.isWorking) : []),
+    () => (subagentTray ? trayItems(chatAgents, runningCommandList, childSessions, snapshot.isWorking) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runningCommandList is new on every snapshot; its key is not
-    [subagentTray, chatAgents, commandsKey, runningChildSessions, snapshot.isWorking],
+    [subagentTray, chatAgents, commandsKey, childSessions, snapshot.isWorking],
+  );
+  // What ended, behind the tray's one folded line; never in its count.
+  const trayFinished = useMemo(
+    () => (subagentTray ? finishedTrayItems(chatAgents, childSessions) : []),
+    [subagentTray, chatAgents, childSessions],
   );
   // The turn's tokens so far, said after its time (direct.ts `turnTokens`).
   const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
@@ -5082,8 +5095,14 @@ function AcpmuxPane() {
       sessions: runningSessions.length,
       tokens: turnTokens,
       openAgents: () => {
-        const { runningAgents: agents, summaryCard: card, inspector: panel } = counted.current;
-        if (agents.length === 1) showSubagent(agents[0]!.id);
+        const {
+          runningAgents: agents,
+          runningSessions: sessions,
+          summaryCard: card,
+          inspector: panel,
+        } = counted.current;
+        // One count with the chats it started (WorkingFor.tsx `workingParts`): one subagent alone opens.
+        if (agents.length === 1 && sessions.length === 0) showSubagent(agents[0]!.id);
         // The Inspector takes the summary card's place while it is on (its panel is never drawn).
         else if (panel.reveal) panel.reveal("subagents");
         else card.show();
@@ -7394,6 +7413,7 @@ function AcpmuxPane() {
             <SubagentTray
               key={shownSessionId}
               items={trayList}
+              finished={trayFinished}
               working={snapshot.isWorking}
               waiting={waitingAgents}
               onOpen={showSubagent}
