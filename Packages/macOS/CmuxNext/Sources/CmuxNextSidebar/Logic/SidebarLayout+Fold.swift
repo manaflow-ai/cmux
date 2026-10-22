@@ -56,13 +56,14 @@ nonisolated extension SidebarLayout {
         }
         guard members.count == header.childCount else { return false } // the members changed too: a structural change
         let machineLabel = Self.machineLabel(section, options: o)
+        let marked = Self.marksMachine(section, options: o)
         let parent = header.siblingIndex
         var built: [SidebarRow] = []
         var y = header.maxY + m.rowSpacing
         // Members sit one level in from their header (`make`).
         let memberDepth = group.depth + 1
         func workspaceRow(_ ws: SidebarWorkspace, at childIndex: Int, last: Bool) {
-            let content = o.rowContent(ws, machine: machineLabel)
+            let content = o.rowContent(ws, machine: machineLabel, marked: marked)
             let h = m.height(for: content)
             built.append(SidebarRow(
                 key: .workspace(ws.id), y: y, height: h, section: section.id,

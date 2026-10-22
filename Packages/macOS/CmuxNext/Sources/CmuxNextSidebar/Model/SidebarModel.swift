@@ -220,6 +220,9 @@ public final class SidebarModel {
     public var grouping = SidebarGrouping()
     /// `sidebar.groupByComputer`: a header per computer; off, one list.
     public var groupsByComputer = SidebarSectionsPreferences.defaults.groupsByComputer
+    /// `sidebar.showRemoteGroups`: remote groups keep their headers in one list (R2 of
+    /// remote-groups-per-machine-DESIGN.md); off, their rows join the list.
+    public var showsRemoteGroups = SidebarSectionsPreferences.defaults.showsRemoteGroups
     /// Machine sections list loose workspaces before groups (a daemon-backed
     /// sidebar: cmux-tui keeps no slot for one after a group), so a drag
     /// never offers a slot past the first group.
@@ -518,6 +521,7 @@ public final class SidebarModel {
         hidesWorkspaces = !preferences.showProjects
         grouping.by = preferences.groupBy
         groupsByComputer = preferences.groupsByComputer
+        showsRemoteGroups = preferences.showsRemoteGroups
         if style != preferences.style { (style, isRailOpen) = (preferences.style, false) }
     }
 
@@ -543,6 +547,7 @@ public final class SidebarModel {
         o.detailedStatus = detailedStatus
         o.showsTimestamps = showsTimestamps
         o.flattensMachines = !groupsByComputer
+        o.showsRemoteGroups = showsRemoteGroups
         if o.flattensMachines {
             for section in sections {
                 guard let machine = section.machine, machine.kind != .local,

@@ -144,7 +144,8 @@ extension SidebarListView {
             }
             let o = options ?? self.options(includeGap: true)
             options = o
-            var content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section, options: o))
+            var content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section, options: o),
+                                       marked: SidebarLayout.marksMachine(section, options: o))
             content.treeDepth = row.content?.treeDepth ?? 0 // a patch moves no row: it stays where the tree put it
             (content.treeFold, content.rollUp) = (row.content?.treeFold, row.content?.rollUp) // and keeps its chevron and roll-up
             let m = o.minimal ? metrics.minimal : metrics
@@ -180,8 +181,18 @@ nonisolated extension SidebarLayout {
     /// computers' sections draw none: a remote group the person made, and the local Chief's
     /// workspaces, which read as one collapsible "Chief" group of their own, never as the rows
     /// after the last group above them (Leo 2026-10-21). The one rule for every header kind.
-    static func keepsHeaderInOneList(_ section: SidebarSection) -> Bool {
-        section.isHostGroup || section.machine?.id.isLocalChief == true
+    /// A remote group keeps it only while remote groups show (`sidebar.showRemoteGroups`, R2 of
+    /// remote-groups-per-machine-DESIGN.md); hidden, its rows join the list like another computer's.
+    static func keepsHeaderInOneList(_ section: SidebarSection, options o: SidebarLayoutOptions) -> Bool {
+        (section.isHostGroup && o.showsRemoteGroups) || section.machine?.id.isLocalChief == true
+    }
+
+    /// Whether `section`'s workspace rows draw their machine mark: not under a header that already
+    /// names the machine (a remote group in one list, or any computer's section with Group by
+    /// Computer). The one rule for `make`, a fold and a row update.
+    static func marksMachine(_ section: SidebarSection, options o: SidebarLayoutOptions) -> Bool {
+        guard section.machine != nil else { return true }
+        return o.flattensMachines && !keepsHeaderInOneList(section, options: o)
     }
 
     /// The computer a workspace row of `section` names on its second line in
