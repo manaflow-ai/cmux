@@ -6,6 +6,7 @@ import type { Translate } from "./i18n";
 export type FailureKind =
   | "trust-pending"
   | "trust-untrusted"
+  | "no-team-account"
   | "rate-limited"
   | "unreachable"
   | "invalid-key"
@@ -17,6 +18,13 @@ export type FailureKind =
 /// Who served the turn, for the copy: the harness profile's display name and id (`claude`, `claude-sr`, ...).
 export type FailureRoute = { name?: string; harness?: string };
 
+/// CodeRouter's refusal on a team Cloud machine whose team has no account for the agent: a 403
+/// `no_account_configured` (web/services/coderouter/noAccountMessage.ts). Codex shows only the body's
+/// `error.message`, so its fixed opening is the signal; the second form is the server's text before
+/// it said so. A team machine refuses own sign-ins, so neither waiting nor signing in helps: the
+/// way out is an account added for the team, with the `cr add <agent>` the refusal names.
+const NO_TEAM_ACCOUNT = /needs a team account on this machine|account is shared with this Cloud machine's team/i;
+const ADD_COMMAND = /\bcr add (?:codex|claude|opencode)\b/;
 const RATE =
   /\b(?:429|529)\b|rate.?limit|too many requests|overloaded|at capacity|no non-exhausted|usage limit|quota|\b503\b|service unavailable/i;
 const UNREACHABLE =
@@ -50,6 +58,8 @@ export function failureKind(message: string | undefined, route?: FailureRoute): 
   if (!message) return "other";
   if (/\btrust\.pending\b/i.test(message)) return "trust-pending";
   if (/\btrust\.untrusted\b/i.test(message)) return "trust-untrusted";
+  // Before capacity and sign-in: neither waiting, another model nor a sign-in fixes it.
+  if (NO_TEAM_ACCOUNT.test(message) && ADD_COMMAND.test(message)) return "no-team-account";
   // Capacity and network first: their messages often mention authentication or keys in passing.
   if (RATE.test(message)) return "rate-limited";
   if (UNREACHABLE.test(message)) return "unreachable";
@@ -75,6 +85,8 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
       return t("trust.answerFirst");
     case "trust-untrusted":
       return t("trust.notTrustedNoPrompts");
+    case "no-team-account":
+      return t("turn.failure.noTeamAccount", { harness, command: ADD_COMMAND.exec(message)?.[0] ?? "" });
     case "rate-limited":
       return t("turn.failure.rateLimited", { harness });
     case "unreachable":
