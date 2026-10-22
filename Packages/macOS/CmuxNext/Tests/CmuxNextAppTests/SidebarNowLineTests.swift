@@ -50,6 +50,7 @@ import Testing
         try body()
     }
 
+<<<<<<< HEAD
     /// Off by default (Lawrence 2026-10-21): no row reads a lane's step unless the toggle is on.
     @Test func noRowSaysItsStepByDefault() throws {
         let fixture = try Fixture()
@@ -57,6 +58,15 @@ import Testing
     }
 
     @Test func aWorkingRowKnowsWhatItsAgentDoes() throws {
+=======
+    /// Off by default since Lawrence 2026-10-21 (minimal rows).
+    @Test func offByDefault() throws {
+        let fixture = try Fixture()
+        Self.withNowLine(nil) { #expect(fixture.rows().values.allSatisfy { $0.agentStep == nil }) }
+    }
+
+    @Test func aWorkingRowKnowsWhatItsAgentDoesWhenOn() throws {
+>>>>>>> ec640373976 (cmux-next sidebar: minimal by default: no status words or log line, no Now line; one title x; no Update available on headers)
         let fixture = try Fixture()
         try Self.withNowLine(true) {
             let rows = fixture.rows()

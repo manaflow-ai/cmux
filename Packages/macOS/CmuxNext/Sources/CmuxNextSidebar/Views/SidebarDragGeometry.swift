@@ -19,6 +19,8 @@ public nonisolated struct SidebarDragGeometry: Sendable {
             case tile
             /// A section's header or its empty drop zone: the drop goes first in it.
             case section
+            /// An open empty group's row (`SidebarRowKey.emptyGroup`): the drop goes into the group.
+            case emptyGroup
         }
 
         /// The acceptance table's key (the view row key).
@@ -178,7 +180,7 @@ public nonisolated struct SidebarDragGeometry: Sendable {
     static func zone(_ slot: Slot, _ point: CGPoint) -> Zone {
         let frame = slot.frame
         switch slot.kind {
-        case .section:
+        case .section, .emptyGroup:
             return .into
         case .tile:
             return point.x < frame.midX ? .before : .after
