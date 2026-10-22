@@ -715,6 +715,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_gallery_select.py
 
+      - name: Validate that gallery health renders a pull request merged with its base
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_gallery_health_merge_ref.py
+
       - name: Validate the feat-cmux-next PR merge-tree publisher
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_cmux_next_pr_merge_tree.py
