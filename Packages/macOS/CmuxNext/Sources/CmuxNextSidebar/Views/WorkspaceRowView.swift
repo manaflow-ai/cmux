@@ -75,6 +75,8 @@ final class WorkspaceRowView: SidebarRowView {
     let statusBlock = WorkspaceStatusView()
     internal(set) var statusHeight: CGFloat = 0
     var hasSubtitle = false, isExpanded = false, timeText: String?
+    /// An idle workspace nobody named: its name reads in the secondary ink (`SidebarTunables.quietUnnamedRows`).
+    var isQuiet = false
     var grouped = false
     var iconKind: WorkspaceIcon?
     /// Selected but not active (the active row paints the selection fill).
@@ -254,6 +256,7 @@ final class WorkspaceRowView: SidebarRowView {
         }
         title.stringValue = ws.title
         lastTitle = ws.title
+        isQuiet = tunables.quietUnnamedRows && ws.isUnnamed && !ws.unread.isUnread && ws.activity == .idle && !ws.agentWorking
         let arrival = priorTitle?.isEmpty == true && !ws.title.isEmpty && !isPlaceholderRow
             && tunables.workspaceTitleMotion != .instant && Motion.sidebar.animatesMovement
         if arrival {
