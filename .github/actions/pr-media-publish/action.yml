@@ -34,6 +34,7 @@ inputs:
     description: >-
       The publisher's arguments, one per line. Each line is passed as one
       argument as it is: no shell expansion, quoting or word splitting.
+      Blank lines are skipped, so an argument cannot be empty.
     required: false
     default: ""
 

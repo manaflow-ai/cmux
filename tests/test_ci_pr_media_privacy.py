@@ -1028,7 +1028,7 @@ class PublishWorkflowTests(unittest.TestCase):
         readers = set()
         for workflow, loaded in self.workflows():
             for job_id, job in (loaded.get("jobs") or {}).items():
-                if "secrets.PR_MEDIA_PRIVATE_TERMS" not in yaml.dump(job):
+                if not self.may_read_terms(self.text_of(job)):
                     continue
                 readers.add((workflow, job_id))
                 if (workflow, job_id) == self.RESCAN:
@@ -1036,7 +1036,7 @@ class PublishWorkflowTests(unittest.TestCase):
                 with self.subTest(workflow=workflow, job=job_id):
                     self.assertEqual(job.get("environment"), "pr-media")
                     for step in job.get("steps") or []:
-                        if "secrets.PR_MEDIA_PRIVATE_TERMS" in yaml.dump(step):
+                        if self.may_read_terms(self.text_of(step)):
                             self.assertEqual(step.get("uses"), self.ACTION_USE)
         self.assertIn(self.RESCAN, readers, "the rescan no longer reads the terms; drop its exemption")
 
@@ -1096,10 +1096,38 @@ class PublishWorkflowTests(unittest.TestCase):
             names = [n + v for n in names for v in values]
         return any("pr-media" in n.lower() for n in names)
 
+    TERMS = "PR_MEDIA_PRIVATE_TERMS"
+
+    @classmethod
+    def text_of(cls, node) -> str:
+        """Every key and string in a loaded job or step, as written (yaml.dump would re-quote `'` as `''`)."""
+        if isinstance(node, dict):
+            return "\n".join(cls.text_of(k) + "\n" + cls.text_of(v) for k, v in node.items())
+        if isinstance(node, list):
+            return "\n".join(cls.text_of(v) for v in node)
+        return node if isinstance(node, str) else ""
+
+    @classmethod
+    def may_read_terms(cls, text: str) -> bool:
+        """text may read the terms secret: by name in any case, through toJSON(secrets), or through a secrets[...]
+        index unless it is a literal (read by name above) or a format() whose fixed prefix rules the name out
+        (nightly.yml's `format('APPLE_{0}_...', ...)`). GitHub matches secret names without case."""
+        if cls.TERMS.lower() in text.lower() or re.search(r"tojson\(\s*secrets\s*\)", text, re.I):
+            return True
+        for index in re.findall(r"secrets\s*\[([^\]]*)\]", text):
+            if re.fullmatch(r"\s*'[^']*'\s*", index):
+                continue
+            prefix = re.match(r"\s*format\(\s*'([^'{]*)", index)
+            if not prefix or cls.TERMS.startswith(prefix.group(1).upper()):
+                return True
+        return False
+
     def holds_pr_media(self, job: dict) -> bool:
-        """The job may enter the pr-media environment, reads its terms secret or publishes through the action."""
+        """The job may enter the pr-media environment, read its terms secret, hand every secret to a workflow
+        outside this repository (whose jobs this scan cannot read) or publish through the action."""
         return (self.may_name_pr_media(self.environment(job))
-                or "pr_media_private_terms" in yaml.dump(job).lower()
+                or self.may_read_terms(self.text_of(job))
+                or (job.get("secrets") == "inherit" and not str(job.get("uses", "")).startswith("./"))
                 or any(str(step.get("uses", "")).startswith(self.ACTION_USE) for step in job.get("steps") or []))
 
     def untrusted_event_jobs(self, workflows) -> list[tuple[str, str, dict]]:
@@ -1144,7 +1172,16 @@ class PublishWorkflowTests(unittest.TestCase):
                 "other": {"environment": "${{ (needs.plan.outputs.go == 'true' && ('ci-bot')) || '' }}"},
                 "pairs": {"environment": "${{ (inputs.x) && ('ci-bot') }}"},
                 "plain": {"environment": "ci-bot"},
+                "dyn": {"steps": [{"run": "echo ${{ secrets[format('PR_MEDIA_{0}', 'PRIVATE_TERMS')] }}"}]},
+                "open": {"steps": [{"env": {"X": "${{ secrets[format('{0}', vars.NAME)] }}"}}]},
+                "var": {"steps": [{"env": {"X": "${{ secrets[vars.NAME] }}"}}]},
+                "all": {"steps": [{"env": {"X": "${{ toJSON(secrets) }}"}}]},
+                "apple": {"steps": [{"env": {"X": "${{ secrets[format('APPLE_{0}_KEY', inputs.channel)] }}"}}]},
+                "lit": {"steps": [{"env": {"X": "${{ secrets['APPLE_KEY'] }}"}}]},
+                "away": {"uses": "someone/else/.github/workflows/x.yml@main", "secrets": "inherit"},
+                "home": {"uses": "./.github/workflows/b2.yml", "secrets": "inherit"},
             }}),
+            (".github/workflows/b2.yml", {"on": "workflow_call", "jobs": {"quiet": {"steps": []}}}),
             # The writer is exempt only when workflow_run fires it: not another job beside it, and not when an
             # untrusted event's workflow calls it.
             (".github/workflows/pr-media.yml", {True: {"workflow_run": None, "workflow_call": None}, "jobs": {
@@ -1154,7 +1191,8 @@ class PublishWorkflowTests(unittest.TestCase):
         ]
         found = sorted((w, j) for w, j, job in self.untrusted_event_jobs(workflows) if self.holds_pr_media(job))
         self.assertEqual(found, [(".github/workflows/b.yml", "post")] + [
-            (".github/workflows/d.yml", j) for j in ("case", "cond", "fallback", "named", "output", "secret")] + [
+            (".github/workflows/d.yml", j) for j in ("all", "away", "case", "cond", "dyn", "fallback", "named", "open",
+                                                     "output", "secret", "var")] + [
             (".github/workflows/pr-media.yml", "extra"), (".github/workflows/pr-media.yml", "extra"),
             (".github/workflows/pr-media.yml", "publish")])
 
