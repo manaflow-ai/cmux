@@ -61,9 +61,12 @@ public final class FeedHostView: NSView {
 
     private func resolveColors() {
         let colors = performWithTheme {
-            let floating = surface == .panel
-            let background = floating ? Palette.contentBackground : (Palette.surfaceOverride(.internalPage) ?? Palette.paneFill)
-            layer?.backgroundColor = floating ? background.cgColor : nil
+            let background: NSColor = switch surface {
+            case .panel: Palette.contentBackground
+            case .page: Palette.surfaceOverride(.internalPage) ?? Palette.paneFill
+            case .sidebar: .clear
+            }
+            layer?.backgroundColor = surface == .panel ? background.cgColor : nil
             return FeedColors.resolved(background: background)
         }
         if appearanceState.colors != colors { appearanceState.colors = colors }
