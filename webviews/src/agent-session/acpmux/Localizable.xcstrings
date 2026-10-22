@@ -142397,7 +142397,8 @@
           }
         }
       }
-    },    "composer.queueMoveUp": {
+    },
+    "composer.queueMoveUp": {
       "comment": "Agent pane: moves a queued prompt one place earlier in the queue (cx-xtg0.4)",
       "extractionState": "manual",
       "localizations": {
@@ -215020,138 +215021,6 @@
         }
       }
     },
-    "notice.forkBusy": {
-      "comment": "Agent pane: Fork Conversation while the chat's turn is running",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "هذه الدردشة قيد العمل. فرّعها عند انتهاء الدور."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ovaj chat radi. Račvajte ga kada se potez završi."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denne chat arbejder. Forgren den, når turen slutter."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dieser Chat arbeitet gerade. Zweige ihn ab, wenn der Durchgang endet."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This chat is working. Fork it when the turn ends."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Este chat está trabajando. Bifúrcalo cuando termine el turno."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ce chat est en cours. Dupliquez-le à la fin du tour."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Questa chat è al lavoro. Biforcala quando il turno finisce."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このチャットは処理中です。ターンが終わってからフォークしてください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការជជែកនេះកំពុងដំណើរការ។ សូមបំបែកវានៅពេលវេននេះបញ្ចប់។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 채팅이 작업 중입니다. 턴이 끝나면 포크하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denne chatten jobber. Forgrein den når turen er ferdig."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ten czat pracuje. Rozgałęź go po zakończeniu tury."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Este chat está trabalhando. Bifurque-o quando o turno terminar."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Этот чат работает. Ответвите его, когда ход закончится."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แชทนี้กำลังทำงาน แยกสาขาเมื่อรอบนี้จบ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu sohbet çalışıyor. Tur bitince çatallayın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Цей чат працює. Відгалузьте його, коли хід завершиться."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cuộc trò chuyện này đang chạy. Hãy phân nhánh khi lượt kết thúc."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此聊天正在运行。请在本轮结束后再分叉。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此聊天正在執行。請在本輪結束後再分叉。"
-          }
-        }
-      }
-    },
     "watch.continue": {
       "comment": "Agent pane: the View Only banner button that forks a viewed Claude Code session into a new chat, leaving the original untouched",
       "extractionState": "manual",
@@ -222216,6 +222085,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "最近的聊天"
+          }
+        }
+      }
+    },
+    "notice.forkFromTranscript": {
+      "comment": "Agent pane: a fork of a working chat whose agent could not fork mid-turn; {harness} is the agent's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يستطيع {harness} تفريع محادثة أثناء دورها، لذا يبدأ هذا الفرع من نص المحادثة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} ne može račvati chat usred poteza, pa ovaj račvani chat počinje od transkripta chata."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} kan ikke forgrene en chat midt i en tur, så denne forgrening starter fra chattens udskrift."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} kann einen Chat nicht mitten im Durchgang abzweigen, daher beginnt diese Abzweigung mit dem Verlauf des Chats."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} can't fork a chat mid-turn, so this fork starts from the chat's transcript."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} no puede bifurcar un chat a mitad de turno, así que esta bifurcación empieza desde la transcripción del chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} ne peut pas dupliquer une conversation en cours de tour : cette copie part de la transcription de la conversation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} non può diramare una chat a metà turno, quindi questa diramazione parte dalla trascrizione della chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} はターンの途中でチャットをフォークできないため、このフォークはチャットの記録から始まります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} មិនអាចបំបែកការជជែកពាក់កណ្ដាលវេនបានទេ ដូច្នេះការបំបែកនេះចាប់ផ្ដើមពីប្រតិចារិកនៃការជជែក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness}은(는) 턴 도중에 채팅을 포크할 수 없어서, 이 포크는 채팅 기록에서 시작합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} kan ikke forgrene en chat midt i en tur, så denne forgreningen starter fra chattens utskrift."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} nie może rozgałęzić czatu w trakcie tury, więc to rozgałęzienie zaczyna się od zapisu czatu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} não consegue bifurcar um chat no meio do turno, então esta bifurcação começa pela transcrição do chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} не может ответвить чат посреди хода, поэтому это ответвление начинается со стенограммы чата."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} แยกแชทกลางเทิร์นไม่ได้ แชทที่แยกนี้จึงเริ่มจากบันทึกของแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} bir sohbeti tur ortasında çatallayamaz, bu yüzden bu çatal sohbetin dökümünden başlar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} не може відгалузити чат посеред ходу, тому це відгалуження починається зі стенограми чату."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} không thể rẽ nhánh cuộc trò chuyện giữa lượt, nên nhánh này bắt đầu từ bản ghi của cuộc trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} 无法在回合中途分叉聊天，因此此分叉从聊天记录开始。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} 無法在回合中途分叉聊天，因此此分叉從聊天記錄開始。"
           }
         }
       }

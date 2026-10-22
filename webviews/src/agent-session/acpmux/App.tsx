@@ -259,6 +259,7 @@ import { turnPreviewUrl } from "./conversation/previewUrl";
 import {
   canFork,
   forkRefusal,
+  forkToTarget,
   earlierForkPrompts,
   forksAnyTurn,
   latestForkSeq,
@@ -6103,25 +6104,23 @@ function AcpmuxPane() {
             return persistSession(await client.select(forked));
           },
           // Fork Conversation from the app (the palette's step, the chat's right-click menu, its
-          // shortcut): a fork through the chat's latest finished turn, opened where the app names
-          // (`placement`). A chat that cannot fork now says why in its transcript.
+          // shortcut): a fork through the chat's latest finished turn, or of a working chat as it is
+          // now, opened where the app names (`placement`). A chat that cannot fork says why in its
+          // transcript.
           "chat.forkTo": async ({ placement }) => {
             const shown = snapshotRef.current;
             const refusal = shown ? forkRefusal(shown) : "unavailable";
-            const through = shown ? latestForkSeq(shown.rows) : undefined;
-            if (refusal || through === undefined) {
+            const target = shown ? forkToTarget(shown) : undefined;
+            if (refusal || target === undefined) {
               client.notice(
-                refusal === "busy"
-                  ? translate("notice.forkBusy")
-                  : refusal === "nothingYet"
-                    ? translate("notice.forkNothingYet")
-                    : translate("notice.forkFailed"),
+                refusal === "nothingYet" ? translate("notice.forkNothingYet") : translate("notice.forkFailed"),
               );
               return undefined;
             }
             harnessSwitch.cancel();
             const chat = client.selectedSession;
-            const forked = await client.fork(through, undefined, true);
+            // A working chat forks now, as it is; its own turn goes on (acpmux `hub/fork.rs`).
+            const forked = await client.fork("live" in target ? "live" : target.throughSeq, undefined, true);
             if (!forked || (await openOwnTab(forked, String(placement ?? "tab"))) || client.selectedSession !== chat)
               return forked;
             return persistSession(await client.select(forked));
