@@ -75,7 +75,7 @@ struct AcpmuxRefusedDaemonTests {
 }
 
 /// A unix socket served by this test process that answers every JSON-RPC request with a status.
-private nonisolated final class FakeDaemon: @unchecked Sendable {  // the fd is written once in init and closed once in stop
+nonisolated final class FakeDaemon: @unchecked Sendable {  // the fd is written once in init and closed once in stop
     private let descriptor: Int32
     private let path: String
 
