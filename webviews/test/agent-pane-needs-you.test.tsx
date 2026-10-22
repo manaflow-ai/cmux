@@ -3,8 +3,8 @@
 // agent has to restate "still waiting on you". These tests hold the list to what acpmux reports:
 // each kind of ask reads as its kind with its one-click answers, a chat waiting with no readable ask
 // is never missing, held agent pair messages offer Resume, an answer goes out the way the ask's card
-// sends it (to the ask's own chat), links name an ask, the Needs your input pill visits this chat's
-// ask first and cycles the others, and the panel draws, answers and hides what was answered.
+// sends it (to the ask's own chat), links name an ask, and the panel draws, answers and hides what
+// was answered.
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -16,7 +16,6 @@ import type { AgentQuestion } from "../src/agent-session/acpmux/question/model";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 import { needsYouItems, type NeedsYouItem, type WatchedAsk } from "../src/agent-session/acpmux/needsYou/model";
 import { needsYouLink, needsYouTarget, onOpenNeedsYou, openNeedsYou } from "../src/agent-session/acpmux/needsYou/links";
-import { nextAsk, NeedsYouPill } from "../src/agent-session/acpmux/needsYou/JumpPill";
 import { answerParams, useNeedsYou } from "../src/agent-session/acpmux/needsYou/useNeedsYou";
 import {
   NeedsYouPanel,
@@ -282,30 +281,6 @@ test("a needs-you link names its ask in any build's scheme and nothing else", ()
   expect(opened).toEqual(["acpmux:abc"]);
 });
 
-test("the pill goes to this chat's ask first, then cycles the asks open elsewhere", () => {
-  const item = (id: string, sessionId: string) =>
-    ({ id, sessionId, kind: "approval", ask: id, who: { name: sessionId, chief: false }, answers: [] }) as NeedsYouItem;
-  const items = [item("x1", "other"), item("h1", "here"), item("y1", "third")];
-  // Behind: the press jumped to the latest message, where this chat's ask card waits.
-  expect(nextAsk(items, "here", true, undefined)).toBeUndefined();
-  // At the latest message already: on to the others, in turn, and around again.
-  expect(nextAsk(items, "here", false, undefined)?.id).toBe("x1");
-  expect(nextAsk(items, "here", false, "x1")?.id).toBe("y1");
-  expect(nextAsk(items, "here", false, "y1")?.id).toBe("x1");
-  // No ask here: even a press from behind moves on to the others.
-  expect(nextAsk([item("x1", "other")], "here", true, undefined)?.id).toBe("x1");
-  expect(nextAsk([item("h1", "here")], "here", false, undefined)).toBeUndefined();
-});
-
-test("the pill reads Needs your input, and how many when several are open", () => {
-  const one = renderToStaticMarkup(<NeedsYouPill count={1} shown lift={0} onJump={() => undefined} />);
-  expect(one).toContain(translate("needsYou.pill"));
-  expect(one).toContain("acpmux-needs-you-dot");
-  expect(one).toContain("acpmux-jump-latest");
-  const three = renderToStaticMarkup(<NeedsYouPill count={3} shown lift={0} onJump={() => undefined} />);
-  expect(three).toContain(translate("needsYou.pillCount", { n: 3 }));
-});
-
 test("the Debug Settings attributes pick the list's mode", () => {
   const root = (value?: string) => ({ dataset: value ? { needsYou: value } : {} }) as { dataset: DOMStringMap };
   expect(needsYouMode(root())).toBe("pinned");
@@ -531,4 +506,24 @@ test("another chat's ask opens in that chat's own tab; the chat on screen is nev
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(calls).toEqual(["chat.asks.open:other"]);
   expect(calls.some((call) => call.startsWith("chat.select"))).toBe(false);
+});
+
+// Leo 2026-10-21: "this bottom thing gives me conniptions i dont want it at the bottom". The Needs
+// your input pill that replaced Jump to latest is gone: the pane's Needs you is the header badge
+// and its list, and nothing hands the transcript a pill to draw.
+test("Needs you gives the transcript no pill: only the header list's mode, items and actions", async () => {
+  const host = installDom();
+  let keys: string[] = [];
+  function Probe() {
+    const needsYou = useNeedsYou({
+      snapshot: { sessionId: "here", rows: [], sessions: [session("here")], asks: [ask("here", permission({}), 1)] },
+      callNative: (async () => undefined) as <T>(method: string, params?: Record<string, unknown>) => Promise<T>,
+      sideSession: async () => undefined,
+    });
+    keys = Object.keys(needsYou).sort();
+    return null;
+  }
+  root = createRoot(host);
+  await act(async () => root!.render(<Probe />));
+  expect(keys).toEqual(["actions", "items", "mode"]);
 });

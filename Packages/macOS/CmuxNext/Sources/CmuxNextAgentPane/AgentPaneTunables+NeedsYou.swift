@@ -28,12 +28,4 @@ nonisolated extension AgentPaneTunables {
         "agentPane.debug.needsYou", PageTunables.section, "Needs you list in the chat header",
         help: "A badge in the agent chat header counts every open ask; a press lists them with one-click answers, Go to source and Ask about this. New agent tabs.",
         default: .pinned, code: "AgentPaneTunables.needsYou")
-
-    /// While an ask is open, Jump to latest becomes a "Needs your input" pill that goes to the ask
-    /// and cycles through the others (Claude Code desktop's, Leo 2026-10-20). On by default; off
-    /// keeps the plain button. New agent tabs read it.
-    public static let needsYouPill = Tunable<Bool>.toggle(
-        "agentPane.debug.needsYouPill", PageTunables.section, "Needs your input pill",
-        help: "While an agent waits on you, the floating Jump to latest button reads Needs your input and goes to the ask. New agent tabs.",
-        default: true, code: "AgentPaneTunables.needsYouPill")
 }

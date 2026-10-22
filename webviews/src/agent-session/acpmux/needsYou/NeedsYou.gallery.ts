@@ -1,9 +1,10 @@
 // l10n-allow-file: gallery fixtures (sample asks, chat names and commands), not shipped UI.
 // Needs you (needsYou/NeedsYou.tsx): the header badge counts every open ask, from this chat, the
 // Chief, its subagents and the other agent chats; a press opens the pinned list with one-click
-// answers, Go to source and Ask about this. While asks are open, Jump to latest is the Needs your
-// input pill (JumpPill.tsx). Both are Debug Settings toggles, on by default; `before` is the pane
-// with both off, as it drew before. Light and dark come from the gallery's appearance control.
+// answers, Go to source and Ask about this. Nothing floats over the transcript: Jump to latest stays
+// the plain button while asks are open (Leo 2026-10-21 removed the Needs your input pill). The list
+// is a Debug Settings choice, on by default; `before` is the pane with it off. Light and dark come
+// from the gallery's appearance control.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { activity, assistant, chat, session, SESSION_ID, tool, user } from "../../../gallery/fixtures/acpmux";
@@ -121,6 +122,12 @@ function snapshot(fields: Partial<AcpmuxSnapshot> = {}): AcpmuxSnapshot {
   };
 }
 
+/** Waits for the header badge, and checks no Needs your input pill floats over the transcript. */
+const noPill = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-needs-you-button[data-count]"));
+  if (ctx.document.querySelector(".acpmux-needs-you-pill")) throw new Error("no Needs your input pill");
+};
+
 const openList = async (ctx: PlayContext) => {
   await ctx.click({ selector: ".acpmux-needs-you-button" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-needs-you-panel"));
@@ -132,19 +139,22 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 640,
   keywords: ["needs you", "asks", "approvals", "pending", "inbox", "needs your input"],
-  covers: ["agent-session/acpmux/needsYou/NeedsYou.tsx", "agent-session/acpmux/needsYou/JumpPill.tsx#NeedsYouPill"],
+  covers: ["agent-session/acpmux/needsYou/NeedsYou.tsx"],
   variants: {
     list: {
       note: "The list open: this chat's command, the Chief's merge, a subagent's choice, a verify ask and a chat on another computer.",
       snapshot: snapshot(),
       play: openList,
     },
+    // The ids are the pill's, so a before/after shows the pill's states beside the pane without it.
     "badge-and-pill": {
-      note: "Closed: the badge counts five asks and Jump to latest reads Needs your input · 5.",
+      note: "Closed: the badge counts five asks; no Needs your input pill over the transcript.",
       snapshot: snapshot(),
+      play: noPill,
     },
     "pill-one-ask": {
-      note: "One ask, in another chat: the pill reads Needs your input and goes there.",
+      note: "One ask, in another chat: the badge counts it; nothing floats over the transcript.",
+      play: noPill,
       snapshot: {
         ...chat(rows),
         sessions: [chat(rows).sessions[0]!, sessions[0]!],
@@ -177,9 +187,9 @@ export default agentPaneEntry({
       play: openList,
     },
     before: {
-      note: "Both Debug toggles off: the pane as it drew before, with no badge and the plain Jump to latest.",
+      note: "The Debug toggle off: the pane as it drew before, with no badge.",
       snapshot: snapshot(),
-      documentAttributes: { "needs-you": "off", "needs-you-pill": "off" },
+      documentAttributes: { "needs-you": "off" },
     },
   },
 });

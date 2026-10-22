@@ -1,10 +1,8 @@
-// The pane's Needs you wiring (App.tsx): the list from the snapshot, the header badge's actions,
-// and the transcript's Needs your input pill, which share one list and one way to answer.
-import { useMemo, useRef } from "react";
+// The pane's Needs you wiring (App.tsx): the list from the snapshot and the header badge's actions.
+import { useMemo } from "react";
 import { revealTurnWhenShown } from "../links";
 import type { AcpmuxSnapshot } from "../model";
 import { reply, replyParams, selection } from "../question/model";
-import { nextAsk, needsYouPillOn, type TranscriptNeedsYou } from "./JumpPill";
 import { needsYouItems, type NeedsYouAnswer, type NeedsYouItem } from "./model";
 import { needsYouMode, type NeedsYouActions, type NeedsYouMode } from "./NeedsYou";
 
@@ -42,16 +40,15 @@ export function useNeedsYou({
   /// Opens a side session about chat `sessionId` with `question` (direct.ts `btw`, then the host's
   /// `chat.sideChat`); rejects when acpmux or the relay refused it.
   sideSession: (sessionId: string, question: string) => Promise<unknown>;
-}): { mode: NeedsYouMode; items: NeedsYouItem[]; actions: NeedsYouActions; pill?: TranscriptNeedsYou } {
+}): { mode: NeedsYouMode; items: NeedsYouItem[]; actions: NeedsYouActions } {
   const mode = needsYouMode();
-  const pillOn = needsYouPillOn();
   const { sessions, asks, sessionId, rows } = snapshot;
   const items = useMemo(
     () =>
-      mode === "off" && !pillOn
+      mode === "off"
         ? []
         : needsYouItems({ sessions, asks: asks ?? [], open: { ...(sessionId ? { sessionId } : {}), rows } }),
-    [mode, pillOn, sessions, asks, sessionId, rows],
+    [mode, sessions, asks, sessionId, rows],
   );
   /// Another chat's ask: the app shows that chat's tab or opens one (`chat.asks.open`,
   /// AgentPaneAskOpen). Never `chat.select`, which replaced the chat on screen in its own tab
@@ -93,21 +90,5 @@ export function useNeedsYou({
       return sideSession(item.sessionId, question);
     },
   };
-  // The last ask the pill went to, so the next press goes to the one after it.
-  const last = useRef<string | undefined>(undefined);
-  const elsewhere = items.filter((item) => item.sessionId !== sessionId).length;
-  const pill: TranscriptNeedsYou | undefined =
-    pillOn && items.length > 0
-      ? {
-          count: items.length,
-          elsewhere,
-          next: (behind) => {
-            const item = nextAsk(items, sessionId, behind, last.current);
-            if (!item) return;
-            last.current = item.id;
-            goTo(item);
-          },
-        }
-      : undefined;
-  return { mode, items, actions, ...(pill ? { pill } : {}) };
+  return { mode, items, actions };
 }

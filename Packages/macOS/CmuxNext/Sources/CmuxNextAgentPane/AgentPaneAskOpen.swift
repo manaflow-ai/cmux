@@ -1,5 +1,5 @@
 /// `chat.asks.open {sessionId}`: the person went to another chat's ask from Needs you (its list, a
-/// row's answer or side question, the Needs your input pill). The tab that shows that chat already
+/// row's answer or side question). The tab that shows that chat already
 /// is shown and focused; else the chat opens in a new tab after this one, focused. The chat on
 /// screen is never replaced: Needs you used to switch this pane to the other chat in place
 /// (`chat.select`), and the person's own chat left its tab (Leo, 2026-10-21, his coordinator).

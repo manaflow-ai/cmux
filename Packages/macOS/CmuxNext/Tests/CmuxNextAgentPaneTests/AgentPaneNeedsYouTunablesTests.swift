@@ -1,14 +1,13 @@
 import Testing
 @testable import CmuxNextAgentPane
 
-/// Debug Settings' Needs you list and pill: both on by default, so the defaults set no attribute;
-/// the other choices set `data-needs-you` / `data-needs-you-pill` for the page (needsYou/NeedsYou.tsx).
+/// Debug Settings' Needs you list: on by default, so the default sets no attribute; the other
+/// choices set `data-needs-you` for the page (needsYou/NeedsYou.tsx). The Needs your input pill and
+/// its toggle are gone (Leo 2026-10-21).
 struct AgentPaneNeedsYouTunablesTests {
     @Test func defaultsAreOnAndSetNoAttribute() {
         #expect(AgentPaneTunables.needsYou.descriptor.key == "agentPane.debug.needsYou")
         #expect(AgentPaneTunables.needsYou.defaultValue == .pinned)
-        #expect(AgentPaneTunables.needsYouPill.descriptor.key == "agentPane.debug.needsYouPill")
-        #expect(AgentPaneTunables.needsYouPill.defaultValue == true)
         #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default).isEmpty)
     }
 
@@ -18,14 +17,9 @@ struct AgentPaneNeedsYouTunablesTests {
             == ["needs-you": style.rawValue])
     }
 
-    @Test func pillOffSetsItsAttribute() {
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, needsYouPill: false)
-            == ["needs-you-pill": "off"])
-    }
-
     @Test func listedInDebugSettings() {
         #expect(AgentPaneTunables.all.contains { $0.key == "agentPane.debug.needsYou" })
-        #expect(AgentPaneTunables.all.contains { $0.key == "agentPane.debug.needsYouPill" })
+        #expect(!AgentPaneTunables.all.contains { $0.key == "agentPane.debug.needsYouPill" })
         #expect(AgentPaneNeedsYouStyle.allCases.map(\.rawValue) == ["pinned", "compact", "off"])
     }
 }

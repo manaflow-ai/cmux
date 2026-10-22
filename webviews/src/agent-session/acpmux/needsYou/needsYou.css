@@ -1,6 +1,6 @@
-/* Needs you (needsYou/NeedsYou.tsx, JumpPill.tsx): the header badge, its pinned list, and the
-   chat's Needs your input pill. One mark says "this needs you" everywhere: the dot the
-   window sidebar draws for a workspace that waits on you (the badge, the pill, the Chief dock). */
+/* Needs you (needsYou/NeedsYou.tsx): the header badge and its pinned list. One mark says "this
+   needs you" everywhere: the dot the window sidebar draws for a workspace that waits on you (the
+   badge, the Chief dock). */
 :root,
 .acpmux-shell,
 .ui-positioner {
@@ -382,25 +382,6 @@
 }
 .acpmux-needs-you-side-field:focus {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 40%, transparent);
-}
-
-/* The Needs your input pill: Jump to latest's glass (tint, rim, hover wash), widened to a small-radius rect,
-   a little larger than Claude's (Leo 2026-10-20). */
-.acpmux-jump-latest.acpmux-needs-you-pill {
-  display: inline-flex;
-  gap: 8px;
-  width: auto;
-  height: 34px;
-  padding: 0 12px 0 13px;
-  border-radius: 9px;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
-  font-size: var(--text-control);
-  font-weight: var(--weight-emphasis, 600);
-  white-space: nowrap;
-}
-.acpmux-needs-you-pill__chevron {
-  flex: none;
-  color: var(--agent-muted);
 }
 
 /* A reply's `cmux://needs-you/<id>` link (conversation/Markdown.tsx): the dot, then its text. */

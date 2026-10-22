@@ -310,20 +310,18 @@ public nonisolated struct AgentPaneTunables {
         attributes(foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value,
                    thoughtHeader: thoughtHeader.value, liveThoughtViewport: liveThoughtViewport.value,
                    thoughtFoldThreshold: thoughtFoldThreshold.value, needsYou: needsYou.value,
-                   needsYouPill: needsYouPill.value, turnPreviewCards: turnPreviewCards.value,
-                   streamWords: streamWords.value)
+                   turnPreviewCards: turnPreviewCards.value, streamWords: streamWords.value)
     }
 
     static func attributes(foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle,
                            thoughtHeader: AgentPaneThoughtHeader = .duration,
                            liveThoughtViewport: Bool = true,
                            thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .every,
-                           needsYou: AgentPaneNeedsYouStyle = .pinned, needsYouPill: Bool = true,
+                           needsYou: AgentPaneNeedsYouStyle = .pinned,
                            turnPreviewCards: Bool = false,
                            streamWords: Bool = true) -> [String: String] {
         var attributes: [String: String] = [:]
         if needsYou != .pinned { attributes["needs-you"] = needsYou.rawValue }
-        if !needsYouPill { attributes["needs-you-pill"] = "off" }
         if !foldLongThoughts { attributes["fold-long-thoughts"] = "off" }
         if thoughtFoldThreshold != .every { attributes["thought-fold-threshold"] = thoughtFoldThreshold.rawValue }
         if thoughtHeader != .duration { attributes["thought-header"] = thoughtHeader.rawValue }
@@ -409,7 +407,6 @@ public nonisolated struct AgentPaneTunables {
             liveThoughtViewport.descriptor,
             modelMenu.descriptor,
             needsYou.descriptor,
-            needsYouPill.descriptor,
             pagesFollowLinkPlacement.descriptor,
             newTabPrivateChatLists.descriptor,
             newTabWidgets.descriptor,
