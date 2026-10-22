@@ -53,6 +53,7 @@
     "calendar.event.create",
     "calendar.event.respond",
     "calendar.events.list",
+    "chat.list",
     "chief.create",
     "chief.engine.get",
     "chief.engine.set",

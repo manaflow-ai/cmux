@@ -16,45 +16,35 @@
   };
   var exports_main = {};
   __export(exports_main, {
-    rank: () => rank,
-    renderPriority: () => renderPriority
+    renderPriority: () => renderPriority,
+    visible: () => visible
   });
-  var TIERS = [
-    { state: "blocked", title: "Needs you", symbol: "exclamationmark.bubble", tone: "warning" },
-    { state: "done", title: "Finished", symbol: "checkmark.circle", tone: "success" },
-    { state: "working", title: "Working", symbol: "circle.dotted", tone: "accent" },
-    { state: "idle", title: "Idle", symbol: "moon", tone: "secondary" }
-  ];
-  var tier = (state) => {
-    const index = TIERS.findIndex((t) => t.state === state);
-    return index < 0 ? TIERS.length : index;
+  var STYLE = {
+    needs_you: { title: "Needs you", symbol: "exclamationmark.bubble", tone: "warning" },
+    done: { title: "Finished", symbol: "checkmark.circle", tone: "success" },
+    failed: { title: "Failed", symbol: "xmark.octagon", tone: "danger" },
+    lost: { title: "Lost", symbol: "bolt.slash", tone: "danger" },
+    ci_failing: { title: "Red CI", symbol: "xmark.circle", tone: "danger" },
+    working: { title: "Working", symbol: "circle.dotted", tone: "accent" },
+    idle: { title: "Idle", symbol: "moon", tone: "secondary" }
   };
-  var label = (a) => {
-    const extra = a.extra ?? {};
-    return String(extra.name ?? extra.title ?? a.source_session ?? a.source);
-  };
-  function rank(agents, showIdle) {
-    return agents.filter((a) => showIdle || a.state !== "idle").slice().sort((a, b) => tier(a.state) - tier(b.state) || Number(b.updated_at_ms) - Number(a.updated_at_ms));
+  function visible(chats, showIdle) {
+    return chats.filter((c) => showIdle || c.pinned || c.state !== "idle");
   }
-  async function focusTerminal(terminal) {
-    const gesture = cmux.gesture() ?? undefined;
-    const t = await cmux.terminal.get({ terminal });
-    if (t.tab_id)
-      await cmux.tab.focus({ tab: t.tab_id }, { gesture });
-  }
+  var subtitle = (c) => [STYLE[c.state]?.title ?? c.state, c.project ?? c.machine].filter(Boolean).join(" · ");
   function renderPriority() {
-    const agents = cmux.live("agent.list", {});
-    const ranked = computed(() => rank(agents() ?? [], cmux.app.settings().showIdle === true));
-    const style = (a) => TIERS[tier(a.state)] ?? TIERS[TIERS.length - 1];
+    const list = cmux.live("chat.list", {});
+    const rows = computed(() => visible(list()?.chats ?? [], cmux.app.settings().showIdle === true));
+    const style = (c) => STYLE[c.state] ?? STYLE.idle;
     return VStack({ spacing: 2 }, [
-      ForEach({ items: ranked, key: (a) => a.id }, (a) => Row({
-        title: () => label(a()),
-        subtitle: () => style(a()).title,
-        symbol: () => style(a()).symbol,
-        tint: () => style(a()).tone,
-        unread: () => a().state === "blocked" || a().state === "done"
-      }).onTap(() => focusTerminal(a().terminal_id))),
-      () => agents.loading() || ranked().length ? null : EmptyState({ title: "Nothing needs you", symbol: "bell" })
+      ForEach({ items: rows, key: (c) => c.id }, (c) => Row({
+        title: () => c().title,
+        subtitle: () => subtitle(c()),
+        symbol: () => style(c()).symbol,
+        tint: () => style(c()).tone,
+        unread: () => c().unread
+      })),
+      () => list.loading() || rows().length ? null : EmptyState({ title: "Nothing needs you", symbol: "bell" })
     ]);
   }
   globalThis.__cmuxAppExports = { ...exports_main };

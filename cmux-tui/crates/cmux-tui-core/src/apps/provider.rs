@@ -63,6 +63,9 @@ pub const FAMILIES: &[&str] = &[
     // The Agent Memory app's search (`memory.search`), answered on the Mac
     // from the agent memory index (`optchat-chief agent-memory`).
     "memory",
+    // The Priority View app's ranked agent chats (`chat.list`), answered on
+    // the Mac from its acpmux lanes (plans/cmux-next/extensibility-DESIGN.md).
+    "chat",
     "credential",
 ];
 

@@ -78,7 +78,7 @@ final class AppsProviderChannel {
     static let retried: Set<String> = ["apps.provider.taken", "failed", "not_connected", "timeout"]
     /// Families newer daemons know (`apps/provider.rs` `FAMILIES`); an older daemon's
     /// `bad-request` registers again without them.
-    static let newerFamilies: Set<String> = ["memory"]
+    static let newerFamilies: Set<String> = ["memory", "chat"]
 
     /// Spacing of registration retries: 0.5 s doubling, at most 30 s, jittered.
     nonisolated static let registerBackoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))

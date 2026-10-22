@@ -209,6 +209,10 @@
       "scope": "calendar:read",
       "class": "read"
     },
+    "chat.list": {
+      "scope": "agent:read",
+      "class": "read"
+    },
     "chief.create": {
       "scope": "chief:write",
       "class": "mutation"

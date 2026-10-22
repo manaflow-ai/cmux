@@ -20,6 +20,20 @@ public nonisolated struct ChatListHandler: AppHostCapabilityHandler {
     /// - Returns: `{chats: [...]}` in rank order.
     /// - Throws: `operation.unsupported` for any other op.
     public func handle(_ request: AppHostCapabilityRequest) async throws(AppHostCapabilityError) -> AppJSON {
-        throw .unsupported(request.op)
+        guard request.op == "chat.list" else { throw .unsupported(request.op) }
+        let rows = await chats()
+        return ["chats": .array(rows.map(Self.json))]
+    }
+
+    private static func json(_ chat: AppChatSummary) -> AppJSON {
+        .object([
+            "id": .string(chat.id),
+            "title": .string(chat.title),
+            "project": chat.project.map(AppJSON.string) ?? .null,
+            "machine": chat.machine.map(AppJSON.string) ?? .null,
+            "state": .string(chat.state.rawValue),
+            "unread": .bool(chat.unread),
+            "pinned": .bool(chat.pinned),
+        ])
     }
 }

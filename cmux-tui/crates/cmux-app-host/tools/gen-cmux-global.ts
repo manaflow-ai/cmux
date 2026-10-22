@@ -153,7 +153,9 @@ export function generate(): Record<string, string> {
     "coderouter.accounts.list": { scope: "coderouter:read", class: "read" },
     "coderouter.usage.get": { scope: "coderouter:read", class: "read" },
     // The Agent Memory app's search, from the agent memory index (optchat-chief agent-memory).
-    "memory.search": { scope: "memory:read", class: "read" }
+    "memory.search": { scope: "memory:read", class: "read" },
+    // Every agent chat on every machine in the Priority view's rank order (ChatListHandler on the Mac).
+    "chat.list": { scope: "agent:read", class: "read" }
   }
   Object.assign(scopes, hostOps)
 

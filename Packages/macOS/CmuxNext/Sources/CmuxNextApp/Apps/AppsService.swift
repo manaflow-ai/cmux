@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextApps
 import CmuxNextControl
 import CmuxNextDaemonRecovery
@@ -7,6 +8,7 @@ import CmuxNextDaemonService
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextSidebar
 import Foundation
 
 /// App platform in the App (plans/cmux-next/app-platform.md section 13):
@@ -83,7 +85,9 @@ final class AppsService {
         let memory = AgentMemorySearchHandler(enabled: { [weak services] in
             services?.settings?.snapshot.agentMemoryEnabled ?? false
         }, index: BundledAgentMemoryIndex.bundled())
-        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory]))
+        // Every agent chat in the Priority view's rank order (`chat.list`), for a Priority View app.
+        let chats = ChatListHandler { AgentPriorityChats.app.entries().map(AppChatSummary.init(priority:)) }
+        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory, chats]))
         if machineCatalog == nil {
             machineCatalog = MachineCatalogPublisher { [weak machines = services.machines] in
                 machines?.catalogSource()
