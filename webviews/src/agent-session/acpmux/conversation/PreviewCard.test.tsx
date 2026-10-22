@@ -118,6 +118,51 @@ test("an unloaded card is one compact row, with Load preview among its actions a
   );
 });
 
+// Leo, ask-2d3083506c ("did we fix this bullshit yet"): a card for
+// `127.0.0.1:47811?token=ad27…` printed the whole token in its head. The head, its labels and its
+// title read a secret-looking query value as •••; only the link itself keeps the real address.
+test("the head never shows a secret query value, whatever the secret's name", () => {
+  const value = "fixture-dev-server-token-47811";
+  for (const name of ["token", "key", "secret", "auth", "sig", "password", "code", "api_key", "access_token"]) {
+    const url = `http://127.0.0.1:47811/?${name}=${value}&tab=1`;
+    root = createRoot(container);
+    act(() => root!.render(<PreviewCard url={url} onOpen={() => {}} />));
+    const head = container.querySelector(".acpmux-turn-preview-head")!;
+    expect(head.textContent).not.toContain(value);
+    expect(head.textContent).toContain(`${name}=•••&tab=1`);
+    for (const element of [head, ...head.querySelectorAll("*")]) {
+      for (const attribute of element.getAttributeNames()) {
+        if (attribute === "href") continue;
+        expect(element.getAttribute(attribute)).not.toContain(value);
+      }
+    }
+    expect(container.querySelector(".acpmux-turn-preview-address")!.getAttribute("href")).toBe(url);
+    act(() => root!.unmount());
+    root = undefined;
+  }
+});
+
+// Leo, ask-2d3083506c: the head's "Open in tab" and "Open in" were outlined pills. They read like
+// the link hover card's actions and like Load preview beside them: no outline, muted text, and a
+// background only under the pointer.
+test("the head's Open in tab and Open in are quiet: no outline, a background only on hover", () => {
+  root = createRoot(container);
+  act(() => root!.render(<PreviewCard url={PAGE} onOpen={() => {}} />));
+  expect(container.querySelectorAll(".acpmux-turn-preview-head .acpmux-review-changes")).toHaveLength(2);
+  const conversation = readFileSync(path.join(import.meta.dir, "conversation.css"), "utf8");
+  const rule = (selector: string) =>
+    new RegExp(`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\{([^}]*)\\}`).exec(conversation)?.[1];
+  const rest = rule(".acpmux-turn-preview-head .acpmux-review-changes");
+  expect(rest).toBeDefined();
+  expect(rest).toContain("box-shadow: none;");
+  expect(rest).toContain("color: var(--agent-muted);");
+  expect(rest).not.toContain("background");
+  expect(rest).not.toMatch(/border:\s*[^0n]/);
+  const hover = rule(".acpmux-turn-preview-head .acpmux-review-changes:hover");
+  expect(hover).toContain("background: color-mix(in srgb, var(--agent-text) 6%, transparent);");
+  expect(hover).toContain("color: var(--agent-text);");
+});
+
 test("a loaded card keeps its head and frame: 180px for a page, 360px for a gallery stage", () => {
   expect(previewFrameHeight(STAGE)).toBe(GALLERY_FRAME_HEIGHT);
   expect(previewFrameHeight(PAGE)).toBe(PREVIEW_FRAME_HEIGHT);

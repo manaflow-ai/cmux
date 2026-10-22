@@ -385,6 +385,11 @@ pub struct Translator {
     /// Agent tool call of a subagent's stream ("" for the chat's): its text
     /// chunks' `messageId`, so a steer's answer starts its own row (cx-f51kv).
     message_ids: Mutex<HashMap<String, String>>,
+    /// The subagents (by Agent tool call) whose text or thinking came as
+    /// stream events. Claude Code sends a subagent's output as whole
+    /// `assistant` lines only, so for every other subagent those lines carry
+    /// its text and thinking; one that streams is not sent them twice.
+    streamed_subagents: Mutex<HashSet<String>>,
     /// Running file edits: tool_use id -> their ACP diff content, which their
     /// completion carries again so the diff outlives the tool's text result.
     edits: Mutex<HashMap<String, Value>>,
@@ -476,6 +481,7 @@ impl Translator {
             awaiting_summary: AtomicBool::new(false),
             loop_model: Mutex::new(String::new()),
             message_ids: Mutex::new(HashMap::new()),
+            streamed_subagents: Mutex::new(HashSet::new()),
             edits: Mutex::new(HashMap::new()),
             announced: Mutex::new(HashMap::new()),
         })
