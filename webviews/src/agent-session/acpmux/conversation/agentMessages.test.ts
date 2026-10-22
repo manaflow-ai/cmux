@@ -105,3 +105,21 @@ test("a send's own words are never read as its receipt", async () => {
     messageDelivery(done(`${note}\ndelivered to leoli-24 (id 9defc4d0ed87)\n`), { channel: "coordinator", text: note }),
   ).toBe("delivered");
 });
+
+test("a message's words never erase a JSON receipt's failure flag", async () => {
+  const { messageDelivery } = await import("./agentMessages");
+  const done = (output: string) => ({ status: "completed", output });
+  const say = (text: string) => ({ channel: "agent" as const, text });
+  expect(messageDelivery(done('{"success":false,"error":"Agent stopped"}'), say("success"))).toBe("failed");
+  expect(messageDelivery(done('{"ok":false}'), say("ok"))).toBe("failed");
+});
+
+test("a recipient's name is not a failure word", async () => {
+  const { messageDelivery } = await import("./agentMessages");
+  const done = (output: string) => ({ status: "completed", output });
+  expect(
+    messageDelivery(done('{"success":true,"message":"Message queued for delivery to undelivered-reviewer"}')),
+  ).toBe("queued");
+  expect(messageDelivery(done("queued for not-delivered-lane"))).toBe("queued");
+  expect(messageDelivery(done("Message undeliverable"))).toBe("failed");
+});

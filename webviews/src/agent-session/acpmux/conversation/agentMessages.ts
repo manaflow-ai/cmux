@@ -176,8 +176,10 @@ export function messageDelivery(
   // A mailbox write prints what it wrote (`tee -a`), never a receipt: its words are the message's.
   if (message?.channel === "mailbox") return "sent";
   // Nor is the message itself, echoed back, a receipt ("the earlier message was not delivered").
+  // Only words are cut, never the JSON: a message saying "success" must not erase `success:false`.
   const echoed = message?.text.trim();
-  const output = (echoed ? (tool.output ?? "").split(echoed).join("") : (tool.output ?? "")).trim();
+  const words = (text: string) => (echoed ? text.split(echoed).join("") : text).trim();
+  const output = (tool.output ?? "").trim();
   if (!output) return "sent";
   const value = parseJson(output);
   if (value && typeof value === "object" && !Array.isArray(value)) {
@@ -193,9 +195,10 @@ export function messageDelivery(
     if (result.steered === true || result.delivered === true) return "delivered";
     if (result.queued === true) return "queued";
     const said = [result.message, result.status, result.result].find((part) => typeof part === "string");
-    return typeof said === "string" ? deliveryWords(said) : "sent";
+    return typeof said === "string" ? deliveryWords(words(said)) : "sent";
   }
-  return deliveryWords(output);
+  const text = words(output);
+  return text ? deliveryWords(text) : "sent";
 }
 
 /// A send's printed words, read for how far it got.
@@ -203,7 +206,7 @@ function deliveryWords(text: string): Delivery {
   if (/^\s*(?:error|failed|failure)\b/im.test(text)) return "failed";
   // "could not be delivered", "wasn't delivered", "failed to deliver", "undeliverable".
   if (
-    /(?:\bnot|\bnever|n['’]t)\s+(?:be\s+|been\s+)?(?:delivered|sent|queued)\b|\bfailed to (?:deliver|send|queue)\b|\bundeliver/i.test(
+    /(?:\bnot|\bnever|n['’]t)\s+(?:be\s+|been\s+)?(?:delivered|sent|queued)\b|\bfailed to (?:deliver|send|queue)\b|(?<![\w-])undeliver(?:able|ed)?(?![\w-])/i.test(
       text,
     )
   )
