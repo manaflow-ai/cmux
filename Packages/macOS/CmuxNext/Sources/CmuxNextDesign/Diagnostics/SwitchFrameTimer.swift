@@ -73,6 +73,9 @@ public final class SwitchFrameTimer {
     /// Whether `key` began and has not shown yet.
     public func isWaiting(_ key: AnyHashable) -> Bool { started[key] != nil }
 
+    /// Drops the intent of `key` that will not show (no sample).
+    public func forget(_ key: AnyHashable) { started[key] = nil }
+
     /// The switch of `key` reached `stage` (`focus`, `strip`, `content`, `view`, ...).
     public func mark(_ key: AnyHashable, _ stage: String) {
         guard isRecording, started[key] != nil else { return }
