@@ -2369,6 +2369,10 @@ jobs:
           retention-days: 14
           overwrite: true
 
+  # The fast tier's cargo entries (fast-tier.py --kind cargo): cmux-tui-core and the
+  # layout reducer, built and run on a Linux runner beside the Mac job, so the
+  # Mac builds only Swift. Same gating, flake policy and quarantine list as
+  # fast-tier; its own check name, receipt and concurrency group.
   fast-tier-cargo:
     needs: [push-head-preflight]
     if: ${{ !cancelled() && inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) }}
@@ -2496,6 +2500,10 @@ jobs:
           retention-days: 14
           overwrite: true
 
+  # The CmuxNext test targets the change reaches: path_route's swift_filter
+  # (an empty filter runs every target, as on a full-ci PR, a push or a dispatch). No
+  # cmux-tui wait: the live-daemon suites skip unless the same-tree binary is
+  # already published, and daemon-test runs them against it.
   swift-test:
     needs: [path_route, macos-placement, push-head-preflight, web-bundles]
     # A same-repository PR runs the targets its change reaches; a fork PR
@@ -2852,13 +2860,6 @@ jobs:
           path: ${{ runner.temp }}/swift-test-crash-reports
           if-no-files-found: ignore
           retention-days: 14
-
-  # The live-daemon suites (daemon integration and branch tests, the mobile
-  # live daemon and first launch) against this commit's own cmux-tui tree,
-  # which the gate above waits for on Linux. Only the daemon tier runs it:
-  # daemon, Rust core, FFI and control paths on a same-repository PR (a fork
-  # PR with full-ci), and every push and dispatch.
-
       # A pass records itself for the next run on the same inputs: an artifact named after
       # the key, which every pull request and the base can list (scripts/ci/job_reuse.py
       # takes only passes of this repository's own runs). Never from a fork pull request.
@@ -2880,6 +2881,11 @@ jobs:
           retention-days: 14
           overwrite: true
 
+  # The live-daemon suites (daemon integration and branch tests, the mobile
+  # live daemon and first launch) against this commit's own cmux-tui tree,
+  # which the gate above waits for on Linux. Only the daemon tier runs it:
+  # daemon, Rust core, FFI and control paths on a same-repository PR (a fork
+  # PR with full-ci), and every push and dispatch.
   daemon-test:
     needs: [path_route, macos-placement, push-head-preflight, web-bundles]
     # This run's own tier on a published tree (path routing's probe), or
@@ -3642,26 +3648,20 @@ jobs:
         env:
           CEF_DIR: ${{ steps.cef.outputs.dir }}
         run: python3 -I scripts/cmux-next/check-cef-objc-contract.py --framework "$CEF_DIR/Chromium Embedded Framework.framework"
-
-  # Caches the Swift exports of a green feat-cmux-next push under their source
-  # key (scripts/cmux-next/swift-exports-key.py), so a job that only reads them
-  # (the web bundles read the settings schema) can restore them with
-  # swift-exports-cache.sh install instead of a Mac build (cx-vn5). A push runs
-  # every tier, so on success the committed exports are the ones the Swift
-  # tests checked.
-
       # A pass records itself for the next run on the same inputs: an artifact named after
       # the key, which every pull request and the base can list (scripts/ci/job_reuse.py
       # takes only passes of this repository's own runs). Never from a fork pull request.
-      # An uncached (no_reuse) run records too.
+      # An uncached (no_reuse) run records too. On a mini, only a run whose CEF shim compile
+      # and Objective-C contract check ran records: a pass that skipped them does not stand
+      # for a run that would have checked them.
       - name: Record this pass for the same inputs
-        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (!startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') || steps.cef.outputs.dir != '') }}
         run: |
           mkdir -p "$RUNNER_TEMP/ci-job-pass"
           printf '%s\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" > "$RUNNER_TEMP/ci-job-pass/pass.txt"
 
       - name: Save the pass
-        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (!startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') || steps.cef.outputs.dir != '') }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -3671,6 +3671,12 @@ jobs:
           retention-days: 14
           overwrite: true
 
+  # Caches the Swift exports of a green feat-cmux-next push under their source
+  # key (scripts/cmux-next/swift-exports-key.py), so a job that only reads them
+  # (the web bundles read the settings schema) can restore them with
+  # swift-exports-cache.sh install instead of a Mac build (cx-vn5). A push runs
+  # every tier, so on success the committed exports are the ones the Swift
+  # tests checked.
   swift-exports-cache:
     needs: [checks, generated-files, swift-test, daemon-test]
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.checks.result == 'success' && needs.generated-files.result == 'success' && needs.swift-test.result == 'success' && needs.daemon-test.result == 'success' }}
