@@ -98,7 +98,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/route/list", "_acpmux/chat/route.set",
         // The Inspector's running-limit stepper (direct.ts setRunningLimit): how many of a chat's
         // sub-sessions in the pane's scope run a turn at once, or back to the inherited limit
-        // (`null`). Only `maxRunning`: it starts nothing and widens no permission (each child already
+        // (`null`). Only `maxRunning`: it starts nothing new and widens no permission (each child already
         // runs under its parent's policy), so no gesture; acpmux takes it only from a connection that
         // proved the person key (hub/subsessions.rs, `set_subsession_limits`).
         "_acpmux/subsession/limits",

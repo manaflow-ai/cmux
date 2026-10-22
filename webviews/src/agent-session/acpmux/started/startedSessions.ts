@@ -48,6 +48,9 @@ export type StartedSession = {
   named?: boolean;
   /// A sub-session acpmux holds until its chat's running limit has a free slot (`waitsForSlot`).
   waitsForSlot?: boolean;
+  /// What its running turn does now (acpmux's doing line, sessionList.ts `doingLine`), for the tray;
+  /// only with `doing` asked for, so the transcript's cards do not redraw on each of its calls.
+  doing?: string;
 };
 
 export function startedState(entry: AcpmuxSessionEntry): StartedState {
@@ -123,7 +126,7 @@ function pullRequestTone(pr: SessionPullRequest): StartedPullRequests["tone"] {
 export function startedSessions(
   sessions: readonly AcpmuxSessionEntry[],
   chatId: string | undefined,
-  { exclude = new Set<string>() }: { exclude?: ReadonlySet<string> } = {},
+  { exclude = new Set<string>(), doing = false }: { exclude?: ReadonlySet<string>; doing?: boolean } = {},
 ): StartedSession[] {
   if (!chatId) return [];
   return sessions
@@ -142,6 +145,7 @@ export function startedSessions(
         ...(pullRequests ? { pullRequests } : {}),
         ...(entry.createdAt !== undefined ? { createdAt: entry.createdAt } : {}),
         ...(entry.waitsForSlot ? { waitsForSlot: true } : {}),
+        ...(doing && entry.doing ? { doing: entry.doing } : {}),
       };
     })
     .sort((a, b) => (a.createdAt ?? Infinity) - (b.createdAt ?? Infinity));

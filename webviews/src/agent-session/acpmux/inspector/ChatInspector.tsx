@@ -700,7 +700,7 @@ export function ChatInspector({
             <SubagentsSection
               agents={agents}
               waiting={waiting}
-              onOpen={onOpenSubagent ?? (() => undefined)}
+              onOpen={onOpenSubagent}
               sessions={sessions}
               onOpenSession={onOpenSession}
             />

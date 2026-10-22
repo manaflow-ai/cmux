@@ -71,7 +71,8 @@ import Testing
         await settings.reload()
         let home = directory.appending(path: "brain")
         let popover = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), connection: { nil }))
-        let rows = ChiefPetSettingsRows(settings: { settings }, homes: ChiefPetHomes())
+        let rows = ChiefPetSettingsRows(settings: { settings }, homes: ChiefPetHomes(),
+                                        picks: ChiefMascotPicks(defaults: nil, defaultChief: HomeChiefAvatars.defaultChief))
         rows.install(in: popover, addRow: { popover.addAppearanceRow($0, control: $1) }, open: { false })
         return Harness(popover: popover, rows: rows, settings: settings, url: url)
     }
