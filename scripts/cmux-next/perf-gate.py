@@ -38,6 +38,13 @@ warnings only.
                  host-independent, blocks; the window's own later rows pass is not timed), and commits
                  in the first frame after it is drawn (late_vsyncs 0; a frame check). Press to drawn over
                  one frame is a warning; the reply (the daemon's confirm) is reported.
+  idle           Settings open, then 10 workspace switches: the page's host lists list the wallpaper
+                 folders 0 times (debug.layout_counters backdrop_catalog_builds; perf100). 10 workspace
+                 renames 0.3 s apart: at most 4 `Control.frames` display frames each (debug.wakeups
+                 ledger; the snapshot publisher's throttle is a deadline, not a clock check per
+                 frame). Then 5 s with
+                 nothing changing: no FrameScheduler delivers a frame (debug.wakeups frames, which
+                 count stalled-link frames too, so any console measures it).
   status         4 background workspaces print OSC 7501 progress 4 times a second for 5 s:
                  0 applies, 0 topology sends, 0 pane snapshots, 0 sidebar list reloads (I1-I3).
 
@@ -84,6 +91,13 @@ BUDGET = {
     # Per restored pane, from the relaunched app's first answer until the restore settled: one
     # snapshot when the pane mounts on its restored tabs, no re-run as the restore goes on (cx-8w027.23).
     "restore": {"pane_snapshots": 1},
+    # Settings open, per 10 workspace switches (perf100): wallpaper folder listings; then display
+    # frames delivered by every FrameScheduler in 5 s with nothing changing.
+    "idle": {"backdrop_catalog_builds": 0, "idle_frames": 0},
+    # Display frames the control batcher (`Control.frames`: work queue + snapshot publisher) runs per
+    # model change, 10 renames 0.3 s apart: the rename's work-queue frames and one publish. The
+    # publisher waited out its 100 ms throttle by checking the clock on every frame (12 at 120 Hz).
+    "publish_frames_per_change": 4,
 }
 # Known breaches of a budget above: (scenario, counter) -> (the value measured today, the bead that
 # removes it). A breach up to that value is a warning that names the bead; above it, a failure. A
@@ -100,7 +114,7 @@ FRAME_BUDGET_MS = 1000 / 60
 TAB_APPLY_BUDGET_MS = 4
 # New workspace rows: press to drawn (main-thread work and hops), one 60 Hz frame.
 NEW_ROW_BUDGET_MS = FRAME_BUDGET_MS
-SCENARIOS = ["workspaces", "theme", "drag", "tabs", "split", "relaunch", "new_workspaces", "status"]
+SCENARIOS = ["workspaces", "theme", "drag", "tabs", "split", "relaunch", "new_workspaces", "idle", "status"]
 
 ROOT = os.path.abspath(os.path.join(HERE, "../.."))
 # The source guard's rule lives in check-perf-source-guard.py, which CI and the pre-push gate run alone.
@@ -857,6 +871,81 @@ class Gate:
         return {tab.get("id") for workspace in topo.get("workspaces") or [] if workspace.get("id") == focus
                 for screen in workspace.get("screens") or [] for pane in screen.get("panes") or []
                 for tab in pane.get("tabs") or [] if tab.get("kind") != "terminal" and tab.get("id")}
+
+    def idle(self):
+        app = self.app
+        ids = getattr(self, "ids", None) or app.workspace_ids()
+        if len(ids) < 2:
+            app.cli("workspace", "create", "--name", "perf idle")
+            ids = wait(lambda: (lambda w: w if len(w) >= 2 else None)(app.workspace_ids()), 30) or []
+        if not check(len(ids) >= 2, "two workspaces for the idle scenario", "idle"):
+            return
+        layout = lambda: app.rpc("debug.layout_counters", {"reset": False}) or {}
+        builds = lambda: layout().get("backdrop_catalog_builds")
+        runs = lambda: layout().get("settings_host_list_runs", 0)
+        app.action("goToWorkspace", {"workspace": ids[0]})
+        app.action("openSettings")
+        # The page reads its host lists (with the wallpapers) once it loads.
+        first = wait(lambda: (builds() or 0) >= 1 or None, 30)
+        if builds() is None:
+            check(False, "debug.layout_counters reports backdrop_catalog_builds", "idle")
+            return
+        if not first:
+            warn("the Settings page read no host lists in 30 s; the wallpaper check is skipped", "idle")
+        else:
+            app.settle()
+            before, ran = builds(), runs()
+            for target in (ids[1], ids[0]) * 5:
+                app.action("goToWorkspace", {"workspace": target})
+            app.settle()
+            listed, reran = builds() - before, runs() - ran
+            report["phases"]["idle"] = {"backdrop_catalog_builds": listed, "settings_host_list_runs": reran}
+            # The switches must reach the page (each re-runs its host lists), or the check measured nothing.
+            check(reran > 0 and app.shown_workspace() == ids[0],
+                  f"the 10 switches re-ran the Settings host lists {reran} times and ended on the first workspace", "idle")
+            check(listed <= BUDGET["idle"]["backdrop_catalog_builds"],
+                  f"10 workspace switches with Settings open listed the wallpaper folders {listed} times "
+                  f"(budget {BUDGET['idle']['backdrop_catalog_builds']})", "idle")
+        # Settings closes again: `status` runs as before.
+        app.action("goToWorkspace", {"workspace": ids[0]})
+        app.action("closeTab")
+        # A model change publishes after the publisher's throttle without a frame per clock check.
+        ledger = lambda: sum(e.get("count", 0) for e in (app.rpc("debug.wakeups") or {}).get("ledger") or []
+                             if e.get("owner") == "Control.frames" and e.get("reason") == "frame")
+        app.quiet_counters()
+        before = ledger()
+        for i in range(10):
+            app.action("renameWorkspace", {"name": f"perf idle {i}"}, target=f"workspace:{ids[1]}")
+            time.sleep(0.3)  # test script: one model change at a time, past the 100 ms throttle
+        app.settle()
+        delta = ledger() - before
+        per_change = delta / 10
+        report["phases"].setdefault("idle", {})["publish_frames_per_change"] = per_change
+        # The renames must land and run the batcher, or the check measured nothing.
+        named = next((w.get("name") for w in app.topology().get("workspaces") or [] if w.get("id") == ids[1]), None)
+        check(named == "perf idle 9" and delta > 0,
+              f"the 10 renames landed (name {named!r}) and ran the control batcher ({delta} frames)", "idle")
+        check(per_change <= BUDGET["publish_frames_per_change"],
+              f"{per_change:g} control batcher frames per model change (10 renames; budget "
+              f"{BUDGET['publish_frames_per_change']})", "idle")
+        # Nothing changes for 5 s: no display link runs.
+        app.quiet_counters()
+        time.sleep(2.0)  # test script: trailing work of the switches above settles before the window
+        frames = lambda: {s.get("name"): s.get("frames", 0) for s in (app.rpc("debug.wakeups") or {}).get("frame_schedulers") or []}
+        start = frames()
+        time.sleep(5.0)  # test script: the measured idle window
+        wakeups = app.rpc("debug.wakeups") or {}
+        end = {s.get("name"): s.get("frames", 0) for s in wakeups.get("frame_schedulers") or []}
+        delivered = sum(max(0, n - start.get(name, 0)) for name, n in end.items())
+        busy = {name: n - start.get(name, 0) for name, n in end.items() if n - start.get(name, 0) > 0}
+        report["phases"].setdefault("idle", {}).update({
+            "idle_frames": delivered, "by_scheduler": busy, "active_frame_clients": wakeups.get("active_frame_clients"),
+            "ledger_per_second": wakeups.get("total_per_second"),
+            "ledger_top": sorted(wakeups.get("ledger") or [], key=lambda e: -(e.get("per_second") or 0))[:8]})
+        breaches = self.unknown([("idle_frames", delivered, BUDGET["idle"]["idle_frames"])]
+                                if delivered > BUDGET["idle"]["idle_frames"] else [], "idle")
+        check(not breaches, f"{delivered} display frames in 5 s with nothing changing {busy or ''} "
+              f"(active clients {wakeups.get('active_frame_clients')}; budget {BUDGET['idle']['idle_frames']})", "idle")
 
     def status(self):
         app = self.app
