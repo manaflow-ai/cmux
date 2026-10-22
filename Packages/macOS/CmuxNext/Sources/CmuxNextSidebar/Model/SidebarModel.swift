@@ -492,11 +492,14 @@ public final class SidebarModel {
         sections = Self.folding(sections, collapsedSections)
     }
 
-    /// Whether `a` and `b` are listed in one list (a section's loose rows, or one group's members): the session
-    /// tree nests a row only under a parent in its own list (`SidebarLayout.treeChildren`).
-    func sharesList(_ a: WorkspaceID, _ b: WorkspaceID) -> Bool {
-        let lists = Set(listedPaths(of: a).map { [$0.section, $0.member == nil ? -1 : $0.node] })
-        return listedPaths(of: b).contains { lists.contains([$0.section, $0.member == nil ? -1 : $0.node]) }
+    /// A membership test for each list that lists `id` (a section's loose rows, or one group's members), O(1) per
+    /// test through `rowIndex`: the session tree nests a row only under parents in the same list
+    /// (`SidebarLayout.treeChildren`), and a workspace may be listed in more than one.
+    func listsHolding(_ id: WorkspaceID) -> [(WorkspaceID) -> Bool] {
+        func key(_ path: SidebarRowIndex.Path) -> [Int] { [path.section, path.member == nil ? -1 : path.node] }
+        return Set(listedPaths(of: id).map(key)).map { list in
+            { [weak self] other in self?.listedPaths(of: other).contains { key($0) == list } ?? false }
+        }
     }
 
     private func listedPaths(of id: WorkspaceID) -> [SidebarRowIndex.Path] {

@@ -171,7 +171,7 @@ import Testing
         defaults.set(["a", "b", "d"], forKey: SidebarSessionTree.collapsedKey)
         let tree = SidebarSessionTree(defaults: defaults)
         tree.state = SidebarSessionTreeState(parents: [b: a, c: b]) // d's lane hasn't loaded yet
-        tree.reveal(c, sameList: { _, _ in true })
+        tree.reveal(c, lists: [{ _ in true }])
         #expect(tree.collapsed == [d])
         #expect(defaults.stringArray(forKey: SidebarSessionTree.collapsedKey) == ["d"])
     }
