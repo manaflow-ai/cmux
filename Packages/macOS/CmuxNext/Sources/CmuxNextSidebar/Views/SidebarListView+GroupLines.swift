@@ -7,6 +7,11 @@ struct SidebarGroupLine: Equatable {
     var group: GroupID
     var frame: CGRect
     var color: GroupTint
+    /// The group's tree level: a nested group's rail is fainter, so stacked rails stay quiet.
+    var level = 0
+
+    /// How much of its color a rail at `level` draws: 1 at the top, then less per level.
+    static func opacity(level: Int) -> CGFloat { max(0.35, 1 - 0.2 * CGFloat(level)) }
 }
 
 // The members' line (the Chrome tab group line): ONE view per open group
@@ -19,7 +24,7 @@ extension SidebarListViewComponents {
     /// each row where its view is now, the animation's start, so a new line
     /// starts over its rows and moves with them (cx-ai79).
     func groupLines(_ layout: SidebarLayout, current: Bool = false) -> [SidebarGroupLine] {
-        SidebarGroupLine.lines(layout.rows.filter { !suppressed.contains($0.key) }, colors: groups) { row in
+        SidebarGroupLine.lines(layout.rows.filter { !suppressed.contains($0.key) }, colors: groups, nested: !legacyNestedRails) { row in
             current ? rowViews[row.key]?.frame ?? frame(for: row) : frame(for: row)
         }
     }
@@ -32,13 +37,31 @@ extension SidebarGroupLine {
     /// bottom, rounded off just above it, just left of the members' rows
     /// (`SidebarStyle.groupLineX`), so no row fill covers it
     /// (cx-q5jw: straight and unbroken, Edge style). `frame` places a row.
-    static func lines(_ rows: [SidebarRow], colors: [GroupID: SidebarGroup], frame: (SidebarRow) -> CGRect) -> [SidebarGroupLine] {
+    /// With `nested` off, the rails before the nested-groups prototype: one per group, ending at its own
+    /// last member, at full strength (the "before" capture).
+    /// A header sits at its own members' x (`SidebarRow.indentLevel`), so the line sits just left of the header.
+    static func lines(_ rows: [SidebarRow], colors: [GroupID: SidebarGroup], nested: Bool = true,
+                      frame: (SidebarRow) -> CGRect) -> [SidebarGroupLine] {
         var headers: [(GroupID, SidebarRow)] = []
         var last: [GroupID: SidebarRow] = [:]
+        var drawn = Set<GroupID>()
+        // A row ends its own group's rail and every drawn ancestor's (nested-groups prototype): a subgroup sits
+        // inside its parent's rail, so nesting reads as nesting, never as a sibling drawn a little to the right.
+        func extend(_ group: GroupID, to row: SidebarRow) {
+            var current: GroupID? = group
+            var seen = Set<GroupID>()
+            while let id = current, drawn.contains(id), seen.insert(id).inserted {
+                last[id] = row
+                current = nested ? colors[id]?.parent : nil
+            }
+        }
         for row in rows {
             switch row.key {
-            case let .group(id): headers.append((id, row))
-            case .workspace, .tab, .item, .emptyGroup: if let group = row.group { last[group] = row }
+            case let .group(id):
+                headers.append((id, row))
+                drawn.insert(id)
+                if nested, let parent = colors[id]?.parent { extend(parent, to: row) }
+            case .workspace, .tab, .item, .emptyGroup: if let group = row.group { extend(group, to: row) }
             default: break
             }
         }
@@ -49,9 +72,10 @@ extension SidebarGroupLine {
             // The header's bar fills its row: the line starts just under it.
             let top = head.maxY + Metrics.space1, bottom = tail.maxY - Metrics.space1
             guard bottom > top else { return nil }
-            let x = SidebarStyle.groupLineX(membersMinX: tail.minX)
+            // Left of the group's own members' x, which is its header's (not the subtree's last row, which may sit deeper).
+            let x = SidebarStyle.groupLineX(membersMinX: head.minX)
             return SidebarGroupLine(group: id, frame: CGRect(x: x, y: top, width: width, height: bottom - top),
-                                    color: colors[id]?.tint ?? .palette(end.groupColor ?? .grey))
+                                    color: colors[id]?.tint ?? .palette(end.groupColor ?? .grey), level: nested ? header.depth : 0)
         }
     }
 }
