@@ -204,7 +204,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Guida riduce la barra laterale a una striscia sottile con un segno per ogni area di lavoro. Punta sulla striscia per aprire la barra laterale completa sopra il tuo lavoro."
+            "value": "Barra sottile riduce la barra laterale a una striscia sottile con un segno per ogni area di lavoro. Punta sulla striscia per aprire la barra laterale completa sopra il tuo lavoro."
           }
         },
         "km": {
@@ -466,7 +466,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Guida"
+            "value": "Barra sottile"
           }
         },
         "km": {
