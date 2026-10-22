@@ -6,13 +6,22 @@ extension SidebarViewComponents {
     /// (the Chief, Leo 2026-10-21: drag it out to take it off the sidebar). Nil keeps every item in.
     public var removesOnDragOut: ((String) -> Bool)? {
         get { list.removesOnDragOut }
-        set { list.removesOnDragOut = newValue }
+        set { list.removesOnDragOut = newValue; aboveRegion.removesOnDragOut = newValue }
     }
 
     /// Removes the item a drag dropped beside the sidebar (`removesOnDragOut` said yes).
     public var onDragOutRemove: ((String) -> Void)? {
         get { list.onDragOutRemove }
-        set { list.onDragOutRemove = newValue }
+        set { list.onDragOutRemove = newValue; aboveRegion.onDragOutRemove = newValue }
+    }
+}
+
+/// The drag-out edge the list and the top band share: a window point past the sidebar's side edges.
+enum SidebarDragOut {
+    static func isBeside(_ windowPoint: NSPoint, sidebar: NSView) -> Bool {
+        let frame = sidebar.convert(sidebar.bounds, to: nil)
+        let slack = Metrics.space6
+        return windowPoint.x > frame.maxX + slack || windowPoint.x < frame.minX - slack
     }
 }
 
@@ -21,9 +30,7 @@ extension SidebarListViewComponents {
     /// its card dims and a release there removes it. True while it is out there (the list keeps its slot).
     func holdsDragOut(_ drag: Drag, windowPoint: NSPoint) -> Bool {
         guard case let .item(id) = drag.payload, removesOnDragOut?(id) == true, let scroll = enclosingScrollView else { return false }
-        let sidebarFrame = scroll.convert(scroll.bounds, to: nil)
-        let slack = Metrics.space6
-        let outside = windowPoint.x > sidebarFrame.maxX + slack || windowPoint.x < sidebarFrame.minX - slack
+        let outside = SidebarDragOut.isBeside(windowPoint, sidebar: scroll)
         if outside != drag.removesOnDrop {
             drag.removesOnDrop = outside
             drag.lift.setRefused(outside || (drag.docItems != nil ? drag.docTarget == nil : drag.target == nil))

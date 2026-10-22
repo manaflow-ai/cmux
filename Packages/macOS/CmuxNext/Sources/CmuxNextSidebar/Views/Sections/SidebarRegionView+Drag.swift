@@ -13,6 +13,8 @@ final class SidebarRegionDrag {
     let hidden: [NSView]
     /// A workspace item over the workspace list: the drop takes it out of the band.
     var dropsToList = false
+    /// An item the App removes on a drag out, beside the sidebar: the drop removes it.
+    var removesOnDrop = false
 
     init(subject: SidebarRegionDragSubject, lift: DragLiftView, grab: CGPoint, followsBothAxes: Bool, hidden: [NSView]) {
         self.subject = subject
@@ -82,6 +84,11 @@ extension SidebarRegionView {
         } else {
             SidebarReorderLift.follow(drag.lift, top: origin.y, visible: host.visibleRect)
         }
+        if case let .item(id) = drag.subject, removesOnDragOut?(id.rawValue) == true {
+            let outside = SidebarDragOut.isBeside(convert(point, to: nil), sidebar: enclosingScrollView ?? self)
+            if outside != drag.removesOnDrop { drag.removesOnDrop = outside; drag.lift.setRefused(outside) }
+            if outside { return } // the band keeps its order; a release out there removes the item
+        }
         if isWorkspaceItem(drag.subject), let probe = dropToListProbe {
             drag.dropsToList = probe(convert(point, to: nil))
             if drag.dropsToList {
@@ -118,6 +125,10 @@ extension SidebarRegionView {
         if drag.dropsToList, case let .item(id) = drag.subject {
             // The document moves the item into the list (no remove): the band shows it until the move lands.
             onDropToList?(id)
+            return land(drag)
+        }
+        if drag.removesOnDrop, case let .item(id) = drag.subject {
+            onDragOutRemove?(id.rawValue)
             return land(drag)
         }
         if let sections = reorderSections, sections != content?.sections { onReorder?(drag.subject, sections) }

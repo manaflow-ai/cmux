@@ -32,6 +32,9 @@ final class SidebarRegionView: NSView {
     var dropToListProbe: ((NSPoint?) -> Bool)?
     /// A workspace item was dropped on the list.
     var onDropToList: ((LayoutItemID) -> Void)?
+    /// The older path's drag out (the list's `removesOnDragOut` and `onDragOutRemove`): an item released beside the sidebar comes off it.
+    var removesOnDragOut: ((String) -> Bool)?
+    var onDragOutRemove: ((String) -> Void)?
     /// The list this region draws one section in (the sidebar document's
     /// one renderer, `SidebarBlockRowView`): its item drags are the list's.
     weak var docList: SidebarListView?
