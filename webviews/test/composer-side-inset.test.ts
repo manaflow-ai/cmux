@@ -62,7 +62,8 @@ await requireBrowserLane("composer-side-inset.test.ts", async () => {
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,
     });
-    await page.locator(".acpmux-composer-foot button:visible, .acpmux-newtab-box").first().waitFor();
+    // The Default template keeps its chips in the box (no quiet row); the Classic page has none.
+    await page.locator(".acpmux-composer-foot button:visible, .nt-box, .acpmux-newtab-box").first().waitFor();
     await page.evaluate(() => document.fonts.ready);
     return page;
   };
@@ -151,7 +152,7 @@ await requireBrowserLane("composer-side-inset.test.ts", async () => {
             Math.abs(at.page!.left + at.page!.width - inset - at.box.right),
             "the box's right edge on the chat's column",
           ).toBeLessThanOrEqual(1);
-          // The Classic page has no quiet row.
+          // The Default template and the Classic page have no quiet row.
           if (Number.isFinite(at.last))
             expect(Math.abs(at.box.right - at.last), "the row's last control on the box's right edge").toBeLessThanOrEqual(
               0.5,
