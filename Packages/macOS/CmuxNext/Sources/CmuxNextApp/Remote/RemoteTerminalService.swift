@@ -121,7 +121,7 @@ final class RemoteTerminalService {
 
     func machineName(_ ref: RemoteTerminalRef) -> String {
         if let daemon = services.machines.daemon(session: ref.sessionID) {
-            if daemon.isLocal { return daemon.identity?.machineName ?? MacName().kernelHostName() }
+            if daemon.isLocal { return daemon.identity?.machineName ?? MacName().hostName() }
             return services.machines.machineBadge(daemon.machineID) ?? daemon.identity?.machineName ?? ref.sessionName
         }
         return ref.sessionName
@@ -185,7 +185,10 @@ final class RemoteTerminalService {
             let service = services.ssh
             return { service.reconnect(ssh) }
         }
-        if let cloud = machines.session(daemon.machineID) { return { cloud.connect(origin: .user) } }
+        // A paused Cloud machine (idle auto-pause) resumes on Connect.
+        if let cloud = machines.session(daemon.machineID) {
+            return { cloud.machine.status == .paused ? cloud.attach(origin: .user) : cloud.connect(origin: .user) }
+        }
         if let server = machines.server(daemon.machineID) { return { server.connect() } }
         return nil
     }

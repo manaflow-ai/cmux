@@ -1,6 +1,242 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.sidebar.style": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar Style"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seitenleistenstil"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Style de la barre latérale"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نمط الشريط الجانبي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estilo de la barra lateral"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "側邊欄樣式"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "边栏样式"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 스타일"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのスタイル"
+          }
+        }
+      }
+    },
+    "settings.sidebar.style.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rail shrinks the sidebar to a thin strip with a mark for each workspace. Point at the strip to open the full sidebar over your work."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leiste verkleinert die Seitenleiste auf einen schmalen Streifen mit einer Markierung pro Arbeitsbereich. Zeige auf den Streifen, um die ganze Seitenleiste über deiner Arbeit zu öffnen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bande réduit la barre latérale à une fine bande avec une marque par espace de travail. Pointez sur la bande pour ouvrir la barre latérale complète par-dessus votre travail."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يقلّص الشريط الرفيع الشريط الجانبي إلى شريط ضيق فيه علامة لكل مساحة عمل. أشر إلى الشريط لفتح الشريط الجانبي كاملًا فوق عملك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riel reduce la barra lateral a una franja fina con una marca por cada espacio de trabajo. Apunta a la franja para abrir la barra lateral completa sobre tu trabajo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "細條會把側邊欄縮成一條窄條，每個工作區一個標記。把指標移到窄條上，即可在工作上方開啟完整側邊欄。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "细条会把边栏缩成一条窄条，每个工作区一个标记。将指针移到窄条上，即可在工作上方打开完整边栏。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "레일은 사이드바를 작업 공간마다 표시가 있는 얇은 띠로 줄입니다. 띠를 가리키면 작업 위로 전체 사이드바가 열립니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レールはサイドバーを、ワークスペースごとに印のある細い帯に縮めます。帯にポインタを置くと、作業の上にサイドバー全体が開きます。"
+          }
+        }
+      }
+    },
+    "settings.choice.sidebarStandard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Normal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classique"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قياسي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estándar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标准"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표준"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準"
+          }
+        }
+      }
+    },
+    "settings.choice.sidebarRail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rail"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leiste"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bande"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط رفيع"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riel"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "細條"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "细条"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "레일"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レール"
+          }
+        }
+      }
+    },
     "settings.updates.idleInstallMaxWait": {
       "extractionState": "manual",
       "localizations": {
@@ -64064,6 +64300,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "展開未變更的行"
+          }
+        }
+      }
+    },
+    "settings.diff.groupByKind": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group Files by Kind"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ファイルを種類別にグループ化"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تجميع الملفات حسب النوع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupiši datoteke po vrsti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppér filer efter type"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dateien nach Art gruppieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agrupar archivos por tipo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grouper les fichiers par type"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Raggruppa i file per tipo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដាក់ជាក្រុមឯកសារតាមប្រភេទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "파일을 종류별로 그룹화"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupper filer etter type"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupuj pliki według rodzaju"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agrupar arquivos por tipo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Группировать файлы по типу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จัดกลุ่มไฟล์ตามประเภท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dosyaları türe göre grupla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Групувати файли за типом"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhóm tệp theo loại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按类型分组文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按類型分組檔案"
           }
         }
       }
@@ -135642,127 +136009,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from an agent chat, Home or another page opens as a tab in its own pane."
+            "value": "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "المكان الذي يظهر فيه رابط أو ملف تنقر عليه مع Command في طرفية أو صفحة متصفح. يستخدم «تقسيم إلى اليمين» اللوحة الموجودة على اليمين، أو ينشئ واحدة. ما تفتحه من محادثة وكيل أو الصفحة الرئيسية أو صفحة أخرى يُفتح كعلامة تبويب في لوحته."
+            "value": "المكان الذي يظهر فيه رابط أو ملف تفتحه من طرفية أو محادثة وكيل أو الصفحة الرئيسية أو صفحة. يستخدم «تقسيم إلى اليمين» اللوحة الموجودة على اليمين، أو ينشئ واحدة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gdje se pojavljuje link ili fajl na koji kliknete uz Command u terminalu ili na stranici preglednika. Podijeli desno koristi okno s desne strane ili ga pravi. Ono što otvorite iz chata s agentom, Početne ili druge stranice otvara se kao kartica u istom oknu."
+            "value": "Gdje se pojavljuje link ili fajl koji otvorite iz terminala, chata s agentom, Početne ili stranice. Podijeli desno koristi okno s desne strane ili ga pravi."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvor et link eller en fil, du Kommando-klikker på i en terminal eller en browserside, vises. Opdel til højre bruger ruden til højre eller opretter en. Det, du åbner fra en agentchat, Hjem eller en anden side, åbner som en fane i samme rude."
+            "value": "Hvor et link eller en fil, du åbner fra en terminal, en agentchat, Hjem eller en side, vises. Opdel til højre bruger ruden til højre eller opretter en."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wo ein Link oder eine Datei erscheint, die du in einem Terminal oder auf einer Browserseite mit gedrückter Befehlstaste anklickst. „Rechts teilen“ nutzt den Bereich rechts oder legt einen an. Was du aus einem Agent-Chat, Home oder einer anderen Seite öffnest, öffnet sich als Tab im selben Bereich."
+            "value": "Wo ein Link oder eine Datei erscheint, die du aus einem Terminal, einem Agent-Chat, Home oder einer Seite öffnest. „Rechts teilen“ nutzt den Bereich rechts oder legt einen an."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dónde aparece un enlace o archivo en el que haces clic con Comando en una terminal o una página del navegador. Dividir a la derecha usa el panel de la derecha o crea uno. Lo que abres desde un chat de agente, Inicio u otra página se abre como pestaña en su propio panel."
+            "value": "Dónde aparece un enlace o archivo que abres desde una terminal, un chat de agente, Inicio o una página. Dividir a la derecha usa el panel de la derecha o crea uno."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Où s’affiche un lien ou un fichier sur lequel vous cliquez avec Commande dans un terminal ou une page du navigateur. Diviser à droite utilise le panneau de droite ou en crée un. Ce que vous ouvrez depuis une discussion d’agent, l’Accueil ou une autre page s’ouvre dans un onglet de son propre panneau."
+            "value": "Où s’affiche un lien ou un fichier que vous ouvrez depuis un terminal, une discussion d’agent, l’Accueil ou une page. Diviser à droite utilise le panneau de droite ou en crée un."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dove appare un link o un file su cui fai clic con Comando in un terminale o in una pagina del browser. Dividi a destra usa il riquadro a destra o ne crea uno. Ciò che apri da una chat con un agente, Home o un’altra pagina si apre come scheda nel suo riquadro."
+            "value": "Dove appare un link o un file che apri da un terminale, una chat con un agente, Home o una pagina. Dividi a destra usa il riquadro a destra o ne crea uno."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナルやブラウザのページで Command キーを押しながらクリックしたリンクやファイルを表示する場所です。「右に分割」は右側のペインを使い、なければ作成します。エージェントチャット、ホーム、その他のページから開いたものは、そのペインのタブとして開きます。"
+            "value": "ターミナル、エージェントチャット、ホーム、ページから開いたリンクやファイルを表示する場所です。「右に分割」は右側のペインを使い、なければ作成します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កន្លែងដែលតំណ ឬឯកសារដែលអ្នកចុចជាមួយ Command នៅក្នុងស្ថានីយ ឬទំព័រកម្មវិធីរុករក បង្ហាញ។ «បំបែកទៅស្តាំ» ប្រើផ្ទាំងនៅខាងស្តាំ ឬបង្កើតផ្ទាំងថ្មី។ អ្វីដែលអ្នកបើកពីការជជែកជាមួយភ្នាក់ងារ ទំព័រដើម ឬទំព័រផ្សេងទៀត បើកជាថេបនៅក្នុងផ្ទាំងរបស់វាផ្ទាល់។"
+            "value": "កន្លែងដែលតំណ ឬឯកសារដែលអ្នកបើកពីស្ថានីយ ការជជែកជាមួយភ្នាក់ងារ ទំព័រដើម ឬទំព័រមួយ បង្ហាញ។ «បំបែកទៅស្តាំ» ប្រើផ្ទាំងនៅខាងស្តាំ ឬបង្កើតផ្ទាំងថ្មី។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "터미널이나 브라우저 페이지에서 Command 클릭한 링크나 파일이 나타나는 위치입니다. 오른쪽으로 분할은 오른쪽 패널을 사용하거나 새로 만듭니다. 에이전트 채팅, 홈 또는 다른 페이지에서 연 항목은 해당 패널의 탭으로 열립니다."
+            "value": "터미널, 에이전트 채팅, 홈 또는 페이지에서 연 링크나 파일이 나타나는 위치입니다. 오른쪽으로 분할은 오른쪽 패널을 사용하거나 새로 만듭니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvor en lenke eller fil du Kommando-klikker på i en terminal eller en nettleserside, vises. Del til høyre bruker ruten til høyre, eller lager en. Det du åpner fra en agentchat, Hjem eller en annen side, åpnes som en fane i samme rute."
+            "value": "Hvor en lenke eller fil du åpner fra en terminal, en agentchat, Hjem eller en side, vises. Del til høyre bruker ruten til høyre, eller lager en."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gdzie pojawia się link lub plik kliknięty z klawiszem Command w terminalu lub na stronie przeglądarki. Podziel w prawo używa panelu po prawej albo go tworzy. To, co otworzysz z czatu z agentem, strony głównej lub innej strony, otwiera się jako karta w tym samym panelu."
+            "value": "Gdzie pojawia się link lub plik otwarty z terminala, czatu z agentem, strony głównej lub strony. Podziel w prawo używa panelu po prawej albo go tworzy."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Onde aparece um link ou arquivo em que você clica com Command em um terminal ou em uma página do navegador. Dividir à Direita usa o painel à direita ou cria um. O que você abre em um chat de agente, no Início ou em outra página abre como aba no próprio painel."
+            "value": "Onde aparece um link ou arquivo que você abre em um terminal, um chat de agente, a Início ou uma página. Dividir à Direita usa o painel à direita ou cria um."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Где появляется ссылка или файл, по которым вы щёлкнули с Command в терминале или на странице браузера. «Разделить вправо» использует панель справа или создаёт её. То, что вы открываете из чата с агентом, «Главной» или другой страницы, открывается вкладкой в той же панели."
+            "value": "Где появляется ссылка или файл, открытые из терминала, чата с агентом, «Главной» или страницы. «Разделить вправо» использует панель справа или создаёт её."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ตำแหน่งที่ลิงก์หรือไฟล์ที่คุณกด Command ค้างแล้วคลิกในเทอร์มินัลหรือหน้าเบราว์เซอร์จะแสดง แยกไปทางขวาจะใช้แผงทางขวา หรือสร้างขึ้นใหม่ สิ่งที่คุณเปิดจากแชทเอเจนต์ หน้าหลัก หรือหน้าอื่นจะเปิดเป็นแท็บในแผงเดียวกัน"
+            "value": "ตำแหน่งที่ลิงก์หรือไฟล์ที่คุณเปิดจากเทอร์มินัล แชทเอเจนต์ หน้าหลัก หรือหน้าเพจจะแสดง แยกไปทางขวาจะใช้แผงทางขวา หรือสร้างขึ้นใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bir terminalde veya tarayıcı sayfasında Command ile tıkladığınız bağlantı ya da dosyanın göründüğü yer. Sağa Böl, sağdaki bölmeyi kullanır veya bir tane oluşturur. Ajan sohbetinden, Ana Sayfa'dan veya başka bir sayfadan açtığınız şey kendi bölmesinde bir sekme olarak açılır."
+            "value": "Bir terminalden, ajan sohbetinden, Ana Sayfa'dan veya bir sayfadan açtığınız bağlantı ya da dosyanın göründüğü yer. Sağa Böl, sağdaki bölmeyi kullanır veya bir tane oluşturur."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Де з’являється посилання або файл, на які ви клацнули з Command у терміналі чи на сторінці браузера. «Розділити праворуч» використовує панель праворуч або створює її. Те, що ви відкриваєте з чату з агентом, «Головної» чи іншої сторінки, відкривається вкладкою в тій самій панелі."
+            "value": "Де з’являється посилання або файл, відкриті з термінала, чату з агентом, «Головної» чи сторінки. «Розділити праворуч» використовує панель праворуч або створює її."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nơi liên kết hoặc tệp bạn Command-click trong terminal hoặc trang trình duyệt xuất hiện. Chia sang phải dùng ngăn bên phải, hoặc tạo một ngăn mới. Những gì bạn mở từ cuộc trò chuyện với tác tử, Trang chủ hoặc trang khác sẽ mở thành thẻ trong chính ngăn đó."
+            "value": "Nơi liên kết hoặc tệp bạn mở từ terminal, cuộc trò chuyện với tác tử, Trang chủ hoặc một trang xuất hiện. Chia sang phải dùng ngăn bên phải, hoặc tạo một ngăn mới."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在终端或浏览器页面中按住 Command 点按的链接或文件显示的位置。“向右拆分”使用右侧的窗格，没有则新建一个。从智能体聊天、主页或其他页面打开的内容，会在其所在窗格中以标签页打开。"
+            "value": "从终端、智能体聊天、主页或页面打开的链接或文件显示的位置。“向右拆分”使用右侧的窗格，没有则新建一个。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在終端機或瀏覽器頁面中按住 Command 點按的連結或檔案顯示的位置。「向右分割」使用右側的窗格，沒有則新建一個。從代理程式聊天、首頁或其他頁面打開的內容，會在其所在窗格中以分頁打開。"
+            "value": "從終端機、代理程式聊天、首頁或頁面打開的連結或檔案顯示的位置。「向右分割」使用右側的窗格，沒有則新建一個。"
           }
         }
       }
@@ -157714,6 +158081,399 @@
           "stringUnit": {
             "state": "translated",
             "value": "同時顯示其他 App（例如 Spotify、音樂或其他瀏覽器）中正在播放的內容。關閉：僅顯示 cmux 中播放的內容。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.needsYou": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs You"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بحاجة إليك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Treba vas"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kræver dig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Braucht dich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Te necesita"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attend votre réponse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serve a te"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたの対応待ち"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវការអ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인 필요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trenger deg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czeka na ciebie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Precisa de você"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ждёт вас"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รอคุณอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sizi bekliyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чекає на вас"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cần bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要你处理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要你處理"
+          }
+        }
+      }
+    },
+    "settings.agentPane.needsYou.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A badge in the chat header counts what your agents wait on; a click lists every ask with its answers. New agent tabs."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شارة في رأس المحادثة تعدّ ما ينتظرك فيه وكلاؤك؛ والنقر عليها يعرض كل طلب مع إجاباته. علامات تبويب الوكلاء الجديدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Značka u zaglavlju razgovora broji ono na šta vaši agenti čekaju; klik prikazuje svaki upit s odgovorima. Nove kartice agenata."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et mærke i chattens top tæller, hvad dine agenter venter på; et klik viser hver forespørgsel med dens svar. Nye agentfaner."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Badge im Chat-Kopf zählt, worauf deine Agenten warten; ein Klick listet jede Anfrage mit ihren Antworten. Neue Agenten-Tabs."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una insignia en la cabecera del chat cuenta lo que esperan tus agentes; un clic muestra cada solicitud con sus respuestas. Pestañas de agente nuevas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un badge dans l'en-tête du chat compte ce que vos agents attendent ; un clic liste chaque demande avec ses réponses. Nouveaux onglets d'agent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un badge nell'intestazione della chat conta ciò che aspettano i tuoi agenti; un clic elenca ogni richiesta con le sue risposte. Nuove schede agente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットのヘッダーのバッジに、エージェントが待っている件数を表示します。クリックすると、すべての確認を回答とともに一覧表示します。新しいエージェントタブ。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្លាកមួយនៅក្បាលការជជែក រាប់អ្វីដែលភ្នាក់ងាររបស់អ្នកកំពុងរង់ចាំ ការចុចបង្ហាញរាល់សំណើជាមួយចម្លើយរបស់វា។ ផ្ទាំងភ្នាក់ងារថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 헤더의 배지에 에이전트가 기다리는 요청 수를 표시합니다. 클릭하면 모든 요청을 답변과 함께 보여 줍니다. 새 에이전트 탭."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et merke i chattens topp teller hva agentene dine venter på; et klikk viser hver forespørsel med svarene. Nye agentfaner."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plakietka w nagłówku czatu liczy to, na co czekają twoi agenci; kliknięcie pokazuje każdą prośbę z odpowiedziami. Nowe karty agentów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um selo no cabeçalho do chat conta o que seus agentes esperam; um clique lista cada pedido com suas respostas. Novas abas de agente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Значок в заголовке чата считает, чего ждут ваши агенты; щелчок показывает каждый запрос с ответами. Новые вкладки агентов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ป้ายบนส่วนหัวของแชตนับสิ่งที่เอเจนต์ของคุณรออยู่ คลิกเพื่อดูทุกคำขอพร้อมคำตอบ แท็บเอเจนต์ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet başlığındaki rozet, ajanlarınızın beklediklerini sayar; tıklayınca her isteği yanıtlarıyla listeler. Yeni ajan sekmeleri."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Значок у заголовку чату рахує, на що чекають ваші агенти; клацання показує кожен запит із відповідями. Нові вкладки агентів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một huy hiệu ở đầu cuộc trò chuyện đếm những gì tác tử của bạn đang chờ; nhấp để xem mọi yêu cầu kèm câu trả lời. Tab tác tử mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对话标题栏的徽章显示智能体在等你处理的数量；点按即可列出每个请求及其回答。新的智能体标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "對話標題列的徽章顯示代理在等你處理的數量；點按即可列出每個請求及其回答。新的代理標籤頁。"
+          }
+        }
+      }
+    },
+    "settings.choice.after30Minutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After 30 Minutes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "30分後"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بعد 30 دقيقة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nakon 30 minuta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Efter 30 minutter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nach 30 Minuten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tras 30 minutos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Après 30 minutes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dopo 30 minuti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ទាប់ពី 30 នាទី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "30분 후"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etter 30 minutter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Po 30 minutach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Após 30 minutos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Через 30 минут"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หลัง 30 นาที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "30 Dakika Sonra"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Через 30 хвилин"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sau 30 phút"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "30 分钟后"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "30 分鐘後"
           }
         }
       }

@@ -321,6 +321,19 @@ pub struct SubRecord {
     /// revoked; the key itself is never stored here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_key: Option<String>,
+    /// Its own VM (`peer` chief-sub-<id>) was deleted after it finished and
+    /// its work was pushed: a tell can no longer reach it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub vm_deleted: bool,
+    /// When its own VM was last seen with this subagent not live (ms since
+    /// the epoch); the VM is deleted `cloud.deleteAfterPausedDays` after
+    /// it. Saved, so a host restart does not start the wait again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vm_idle_since: Option<u64>,
+    /// The fleet jobs its last report waits on (`fleet-wait: JOB` lines,
+    /// fleet_wait.rs): its VM stays paused until one ends.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fleet_wait: Vec<String>,
     pub status: SubStatus,
     /// The report waiting for the log.
     #[serde(default)]

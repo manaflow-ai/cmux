@@ -107,7 +107,7 @@ export function RunSheet({ entry, people, strings, place, asked, onClose, onLoad
               <span>{run.stepCount === 1 ? t("run.steps.one") : format("run.steps.many", String(run.stepCount))}</span>
             )}
             {tokens && <span>{format("run.tokens", tokens)}</span>}
-            {cost && <span>{cost}</span>}
+            {cost && <span title={t("run.cost.hint")}>{format("run.cost", cost)}</span>}
             {run.model && <span>{run.model}</span>}
           </p>
         </header>
