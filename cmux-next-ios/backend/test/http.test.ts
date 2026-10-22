@@ -85,6 +85,8 @@ describe("HTTP API", () => {
     // A later emoji-only change keeps it; removing the icon falls back to the stored color.
     expect((await put({ emoji: "Q" })).json).toEqual({ color: "#30D158", emoji: "Q", transparent: true })
     expect((await put({ emoji: null })).json).toEqual({ color: "#30D158", emoji: null, transparent: false })
+    // A new icon does not bring transparency back on its own.
+    expect((await put({ emoji: "🚀" })).json).toEqual({ color: "#30D158", emoji: "🚀", transparent: false })
     expect((await put({ emoji: "🚀", transparent: true })).json.transparent).toBe(true)
     expect((await put({ emoji: "" })).json).toEqual({ color: "#30D158", emoji: "", transparent: false })
     // A build that predates transparent sends {color, emoji}: picking a color means a filled badge.

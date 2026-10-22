@@ -132,7 +132,9 @@ public struct TeamAppearanceEditor: View {
             case .editorColor(let hex):
                 appearance.choose(colorHex: hex)
                 wantsTransparent = false
-            case .editorEmoji(let emoji): appearance.emoji = emoji
+            case .editorEmoji(let emoji):
+                appearance.emoji = emoji
+                if wantsTransparent { appearance.isTransparent = true }
             case .editorDone:
                 onSave(appearance)
                 dismiss()

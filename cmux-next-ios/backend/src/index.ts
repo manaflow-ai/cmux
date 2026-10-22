@@ -3,7 +3,7 @@ import type { Env } from "./env.ts"
 import { iceServers } from "./ice.ts"
 import { createTeam, sendTeamInvite, userTeams } from "./stack.ts"
 import { apnsConfig, apnsTopics, clean, sendApns, TURN_PUSH_WINDOW_MS, turnPushKey } from "./push.ts"
-import { mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
+import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
 import { userHubName, type Attachment } from "./team-hub.ts"
 import { Timing, timingFor } from "./timing.ts"
 
@@ -571,8 +571,10 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
         const next = mergePrefs(await s.getPrefs(owner, teamId), patch)
         // Transparent only with an icon: the team must keep an icon or a color.
         if (patch.transparent && !next.transparent) throw new HttpError(400, "bad_request", "transparent needs an icon (a one-grapheme emoji)")
-        // Writes only the requested fields and the derived flag, so concurrent PUTs of other fields keep theirs.
-        return s.putPrefs(owner, teamId, { ...patch, transparent: next.transparent })
+        // Writes only the requested fields, plus the flag when this PUT decides it (sets it, picks a color, or
+        // removes the icon, so a later icon never brings it back), so a concurrent PUT of other fields keeps its edit.
+        const decides = patch.transparent !== undefined || patch.color !== undefined || (patch.emoji !== undefined && !hasIcon(patch.emoji))
+        return s.putPrefs(owner, teamId, decides ? { ...patch, transparent: next.transparent } : patch)
       })
     )
   }
