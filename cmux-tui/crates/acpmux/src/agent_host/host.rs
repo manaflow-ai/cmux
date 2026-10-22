@@ -76,7 +76,9 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
     if let Some(parent) = spec.socket.parent() {
         ensure_private_dir(parent)?;
     }
-    let nonce = random_hex(16);
+    let nonce = random_hex(16)?;
+    // Before anything starts, so a failure leaves nothing running.
+    let (incarnation, owner_token) = (random_hex(16)?, random_hex(32)?);
     let live_file = live_path(&spec.hosts_dir, &spec.session_id, &nonce);
     let live = lock_live_file(&live_file)?;
     // Until the start succeeds, every early return removes what it created.
@@ -106,11 +108,11 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
     let record = HostRecord {
         record_version: RECORD_VERSION,
         session_id: spec.session_id.clone(),
-        incarnation: random_hex(16),
+        incarnation,
         host_pid: std::process::id(),
         start_nonce: nonce,
         harness_pid: child.id(),
-        owner_token: random_hex(32),
+        owner_token,
         caller_token: spec.caller_token(),
         protocol_min: PROTOCOL_MIN,
         protocol_max: PROTOCOL_MAX,

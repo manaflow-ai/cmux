@@ -23,7 +23,8 @@
 .acpmux-pr-card__body{display:grid;gap:6px;font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 .acpmux-pr-card__title{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;color:var(--agent-text);font-size:var(--text-control);line-height:var(--text-control--line-height);font-weight:600;overflow-wrap:anywhere}
 .acpmux-pr-card__facts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0;color:var(--agent-muted)}
-.acpmux-pr-card__ref{font-variant-numeric:tabular-nums}
+/* The card's owner/repo#N is the pull request's link, drawn as every link in the pane (.cv-link): blue, faintly underlined, solidly on hover. */
+.acpmux-pr-card__ref{color:var(--agent-link);font-variant-numeric:tabular-nums;font-weight:500;text-decoration:underline;text-decoration-thickness:1px;text-decoration-color:color-mix(in srgb,currentColor 40%,transparent);text-underline-offset:3px;border-radius:3px}.acpmux-pr-card__ref:hover{text-decoration-color:currentColor}.acpmux-pr-card__ref:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
 /* The state is the pull request glyph's colour alone, as Claude draws it: no pill, no word. */
 .acpmux-pr-card__glyph{display:inline-flex;flex:none;color:var(--agent-muted)}
 .acpmux-pr-card__glyph[data-state=open]{color:var(--agent-success,var(--acpmux-add,#3fb950))}

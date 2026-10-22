@@ -48,6 +48,7 @@
               "tabs.newTabWidgets.actions",
               "tabs.newTabWidgets.chats",
               "tabs.newTabWidgets.styleDots",
+              "tabs.newTabWidgets.order",
               "sidebar.showChats"
             ],
             "title" : {
@@ -136,7 +137,8 @@
               "diff.wordDiffs",
               "diff.lineNumbers",
               "diff.showBackgrounds",
-              "diff.expandUnchanged"
+              "diff.expandUnchanged",
+              "diff.groupByKind"
             ],
             "title" : {
               "key" : "settings.group.diffViewer",
@@ -459,6 +461,7 @@
               "sidebar.showProfileControl",
               "sidebar.showSearchButton",
               "sidebar.minimal",
+              "sidebar.style",
               "sidebar.density",
               "sidebar.detailedStatusIcons",
               "sidebar.showTimestamps",
@@ -492,6 +495,7 @@
               "sidebar.hoverCards.groups.sections.git",
               "sidebar.hoverCards.groups.sections.ports",
               "sidebar.nowPlaying.enabled",
+              "sidebar.nowPlaying.otherApps",
               "home.channelsEnabled"
             ],
             "title" : {
@@ -777,6 +781,7 @@
               "agentPane.display.inspector.placement",
               "agentPane.links.outsideRoots",
               "agentPane.images.remote",
+              "agentPane.needsYou.enabled",
               "agentPane.editedFiles.show",
               "agentPane.editedFiles.maxRows",
               "agentPane.editedFiles.scope",
@@ -6281,7 +6286,7 @@
       },
       "help" : {
         "key" : "settings.layout.linkPlacement.help",
-        "text" : "Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from an agent chat, Home or another page opens as a tab in its own pane."
+        "text" : "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one."
       },
       "kept_on_reset_all" : false,
       "key" : "layout.linkPlacement",
@@ -16497,6 +16502,53 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.groupByKind",
+      "keywords" : [
+        "diff",
+        "group",
+        "kind",
+        "tests",
+        "generated",
+        "order",
+        "sort"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "diff",
+        "groupByKind"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.diff.groupByKind",
+        "text" : "Group Files by Kind"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "privacy",
       "agent_settable" : false,
       "consumers" : [
@@ -21374,6 +21426,76 @@
     },
     {
       "accepts" : [
+        "standard",
+        "rail"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.sidebarStandard",
+            "text" : "Standard"
+          },
+          "value" : "standard"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.sidebarRail",
+            "text" : "Rail"
+          },
+          "value" : "rail"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "standard",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.style.help",
+        "text" : "Rail shrinks the sidebar to a thin strip with a mark for each workspace. Point at the strip to open the full sidebar over your work."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.style",
+      "keywords" : [
+        "sidebar",
+        "style",
+        "rail",
+        "thin",
+        "narrow",
+        "minimal",
+        "strip",
+        "hide",
+        "hover",
+        "overlay",
+        "auto hide"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "style"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.style",
+        "text" : "Sidebar Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "compact",
         "comfortable",
         "expanded"
@@ -23520,11 +23642,64 @@
         false
       ],
       "agent_refusal" : null,
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.nowPlaying.otherApps.help",
+        "text" : "Also show what plays in other apps, such as Spotify, Music or another browser. Off: only what plays in cmux."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.nowPlaying.otherApps",
+      "keywords" : [
+        "music",
+        "now playing",
+        "player",
+        "media",
+        "spotify",
+        "other apps",
+        "browser",
+        "chrome",
+        "safari"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "nowPlaying",
+        "otherApps"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.nowPlaying.otherApps",
+        "text" : "Include Other Apps in Now Playing"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -23809,6 +23984,93 @@
       "title" : {
         "key" : "settings.tabs.newTabWidgets.styleDots",
         "text" : "Show Template Dots on New Tab"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "chats",
+          "actions",
+          "projects"
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.tabs.newTabWidgets.order.projects",
+            "text" : "Projects"
+          },
+          "value" : "projects"
+        },
+        {
+          "title" : {
+            "key" : "settings.tabs.newTabWidgets.order.actions",
+            "text" : "Quick Actions"
+          },
+          "value" : "actions"
+        },
+        {
+          "title" : {
+            "key" : "settings.tabs.newTabWidgets.order.chats",
+            "text" : "Recent Chats"
+          },
+          "value" : "chats"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+        "projects",
+        "actions",
+        "chats"
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabWidgets.order.help",
+        "text" : "The order of the widgets on New Tab. Right-click New Tab and choose Edit New Tab to drag them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabWidgets.order",
+      "keywords" : [
+        "new tab",
+        "widget",
+        "order",
+        "arrange",
+        "edit"
+      ],
+      "kind" : "string_list",
+      "ordered" : true,
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabWidgets",
+        "order"
+      ],
+      "refuses" : [
+        "projects",
+        [
+          "__not_a_choice__"
+        ],
+        [
+          1
+        ]
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.newTabWidgets.order",
+        "text" : "New Tab Widget Order"
       },
       "validation" : "portable"
     },
@@ -28878,8 +29140,8 @@
       "choices" : [
         {
           "title" : {
-            "key" : "settings.choice.moderate",
-            "text" : "After 1 Hour"
+            "key" : "settings.choice.after30Minutes",
+            "text" : "After 30 Minutes"
           },
           "value" : "moderate"
         },
@@ -33506,6 +33768,57 @@
       "title" : {
         "key" : "settings.agentPane.remoteImages",
         "text" : "Web Images in Replies"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.needsYou.help",
+        "text" : "A badge in the chat header counts what your agents wait on; a click lists every ask with its answers. New agent tabs."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.needsYou.enabled",
+      "keywords" : [
+        "agent",
+        "chat",
+        "needs you",
+        "inbox",
+        "asks",
+        "approvals",
+        "badge"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "needsYou",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.needsYou",
+        "text" : "Needs You"
       },
       "validation" : "portable"
     },
