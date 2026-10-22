@@ -6724,6 +6724,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      # Read only: --pr-media reads the body of each highlight's pull request.
+      pull-requests: read
     env:
       NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
       NIGHTLY_VERSION: ${{ needs.build-nightly-app.outputs.daemon_version }}
@@ -6763,6 +6765,8 @@ jobs:
         env:
           CONTENT_SIGNING_ED25519_PEM: ${{ secrets.CONTENT_SIGNING_ED25519_PEM }}
           SPAN_SINCE: ${{ steps.span.outputs.since }}
+          # --pr-media: each highlight's picture from its pull request's body (read only).
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           # The previous published commit. publish-nightly has already moved the
@@ -6776,7 +6780,7 @@ jobs:
           if [ "$since" = "$HEAD_SHA" ]; then since=""; fi
           python3 scripts/cmux-next/release-notes.py build --build "$NIGHTLY_BUILD" \
             --short "$NIGHTLY_VERSION" --date "$(date -u +%Y-%m-%d)" \
-            --head "$HEAD_SHA" --since "$since" --out notes
+            --head "$HEAD_SHA" --since "$since" --out notes --pr-media
           # Extend the published index only when its signature verifies.
           previous=""
           # The first cmux NEXT build carries the history over from the old feed.
