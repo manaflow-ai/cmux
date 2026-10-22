@@ -12,10 +12,11 @@
 //! every change, so a daemon restart goes on with what was not delivered yet; a store in memory
 //! keeps it in memory. Settled deliveries are kept for [`KEEP_SETTLED_MS`].
 //!
-//! A change returns once a file that holds it is on disk, but the file is written outside the
-//! deliveries lock and changes made while one write runs share the next one (group commit): 60
-//! sends at once used to queue behind 180 whole-file writes and syncs, each up to a second on a
-//! busy disk (`design/acpmux-perf.md` in leo-workspace).
+//! A change returns once a file that holds it is on disk, unless the write failed: that is
+//! logged and the change is only in memory until a later write succeeds, as before. The file is
+//! written outside the deliveries lock and changes made while one write runs share the next one
+//! (group commit): 60 sends at once used to queue behind 180 whole-file writes and syncs, each up
+//! to a second on a busy disk (`design/acpmux-perf.md` in leo-workspace).
 //!
 //! A peer answers a forwarded `session/prompt` only when its turn ends (or, for a steer, when the
 //! agent's step ends), so the forwarding daemon passes the peer's `_acpmux/prompt_accepted` on to
@@ -166,8 +167,10 @@ impl Outbox {
         self.changed.notify_waiters();
     }
 
-    /// Returns once a file that holds change `change` is on disk (or the write failed). A write
-    /// that started after it covers it, so changes made while one write runs share the next.
+    /// Returns once a file that holds change `change` is on disk, or after logging a failed
+    /// write (then nothing is marked saved, so the next change writes everything again). A write
+    /// that started after the change covers it, so changes made while one write runs share the
+    /// next.
     fn save(&self, change: u64) {
         let Some(path) = self.path.lock().unwrap_or_else(|e| e.into_inner()).clone() else {
             return;
