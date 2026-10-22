@@ -46,10 +46,10 @@ import Testing
     }
 
     @Test func onlyAVerticalDragScrollsTheApp() {
-        #expect(TerminalTUIScroll.takesDrag(velocity: CGPoint(x: 10, y: 200)))
-        #expect(TerminalTUIScroll.takesDrag(velocity: CGPoint(x: 0, y: -80)))
-        #expect(!TerminalTUIScroll.takesDrag(velocity: CGPoint(x: 300, y: 40)))
-        #expect(!TerminalTUIScroll.takesDrag(velocity: .zero))
+        #expect(TerminalTUIScroll.takesDrag(motion: CGPoint(x: 10, y: 200)))
+        #expect(TerminalTUIScroll.takesDrag(motion: CGPoint(x: 0, y: -80)))
+        #expect(!TerminalTUIScroll.takesDrag(motion: CGPoint(x: 300, y: 40)))
+        #expect(!TerminalTUIScroll.takesDrag(motion: .zero))
     }
 
     @Test func aSlowReleaseHasNoMomentum() {

@@ -299,16 +299,71 @@ import Testing
         creator.setGroupCollapsed(red, on: mac, true)
         creator.setGroupCollapsed(ws(store, "b").group!, on: mac, false)
         #expect(ws(store, "b").group?.isCollapsed == false)
-        await recorder.waitHeld(2)
-        // The expand lands first, then the collapse is refused: its rollback
-        // must not undo the later tap.
-        recorder.held.removeLast().resume()
+        // One request at a time: the expand waits for the collapse.
         await recorder.waitHeld(1)
         recorder.held.removeFirst().resume()
+        await recorder.waitHeld(1)
+        // The collapse was refused before the expand went: its rollback
+        // must not undo the later tap.
+        #expect(ws(store, "b").group?.isCollapsed == false)
+        recorder.held.removeFirst().resume()
         await creator.settle()
+        #expect(recorder.calls == ["refused grp_r true", "update grp_r - - false"])
         #expect(ws(store, "b").group?.isCollapsed == false && ws(store, "c").group?.isCollapsed == false)
         staleRefresh(store, mac: mac, collapsed: true)
         #expect(ws(store, "b").group?.isCollapsed == false)
+    }
+
+    /// Both taps accepted: the Mac gets them in tap order, so it ends where the phone does.
+    @Test func quickTapsReachTheMacInOrder() async {
+        let (store, creator, recorder, mac) = setup()
+        recorder.holds = true
+        creator.setGroupCollapsed(red, on: mac, true)
+        creator.setGroupCollapsed(ws(store, "b").group!, on: mac, false)
+        creator.setGroupCollapsed(ws(store, "b").group!, on: mac, true)
+        for _ in 0..<3 {
+            await recorder.waitHeld(1)
+            #expect(recorder.held.count == 1)
+            recorder.held.removeFirst().resume()
+        }
+        await creator.settle()
+        #expect(recorder.calls == ["update grp_r - - true", "update grp_r - - false", "update grp_r - - true"])
+        #expect(ws(store, "b").group?.isCollapsed == true)
+    }
+
+    @Test func anUnansweredEditGivesWayToTheMac() async {
+        let (store, creator, recorder, mac) = setup()
+        var now = Date(timeIntervalSince1970: 1_000)
+        store.now = { now }
+        recorder.holds = true
+        creator.setGroupCollapsed(red, on: mac, true)
+        await recorder.waitHeld(1)
+        now += 5
+        staleRefresh(store, mac: mac)
+        #expect(ws(store, "b").group?.isCollapsed == true)
+        now += 60
+        staleRefresh(store, mac: mac)
+        #expect(ws(store, "b").group?.isCollapsed == false)
+        recorder.held.removeFirst().resume()
+        await creator.settle()
+    }
+
+    /// A new group replaces an earlier move: refreshes show the Mac's group, not the earlier one.
+    @Test func aNewGroupSupersedesAnEarlierMove() async {
+        let (store, creator, _, mac) = setup()
+        let green = MacWorkspaceGroup(id: "grp_g", name: "Green", color: "green")
+        creator.place(ws(store, "a"), in: green)
+        await creator.settle()
+        creator.moveToNewGroup(ws(store, "a"), name: "Fresh")
+        await creator.settle()
+        let made = MacWorkspaceGroup(id: "grp_new", name: "Fresh", color: "blue")
+        let rows = store.workspaces.filter { $0.macID == mac }.map { ws -> Workspace in
+            var ws = ws
+            if ws.id == "a" { ws.group = made }
+            return ws
+        }
+        store.replaceWorkspaces(macID: mac, with: rows)
+        #expect(ws(store, "a").group?.id == "grp_new")
     }
 
     @Test func aRefusedCollapseOpensAgainAndARefreshKeepsIt() async {

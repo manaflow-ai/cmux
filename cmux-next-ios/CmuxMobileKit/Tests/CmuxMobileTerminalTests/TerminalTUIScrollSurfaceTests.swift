@@ -32,7 +32,8 @@ import UIKit
         /// A wheel of `rows` rows at the middle of `cell` (column, row).
         func wheel(rows: Double, column: Int, row: Int) {
             let size = surface.cellSize
-            let point = CGPoint(x: (Double(column) + 0.5) * size.width, y: (Double(row) + 0.5) * size.height)
+            let padding = surface.gridPadding
+            let point = CGPoint(x: padding.x + (Double(column) + 0.5) * size.width, y: padding.y + (Double(row) + 0.5) * size.height)
             surface.scrollWheel(at: point, deltaY: rows * size.height, momentum: .none)
         }
 
@@ -49,6 +50,19 @@ import UIKit
         rig.sent = Data()
         rig.wheel(rows: -2, column: 0, row: 0)
         #expect(rig.text == String(repeating: "\u{1b}[<65;1;1M", count: 2))
+    }
+
+    @Test(arguments: ["1002", "1003"])
+    func buttonAndAnyMotionTrackingGetWheelReportsToo(mode: String) async throws {
+        let rig = Rig()
+        try #require(rig.surface.surface != nil)
+        await rig.feed("\u{1b}[?1049h\u{1b}[?\(mode)h\u{1b}[?1006h")
+        rig.sent = Data()
+        rig.wheel(rows: 2, column: 3, row: 5)
+        // Any-motion tracking may also report the pointer reaching the cell first.
+        #expect(rig.text.hasSuffix(String(repeating: "\u{1b}[<64;4;6M", count: 2)))
+        #expect(rig.text.components(separatedBy: "[<64;").count == 3)
+        #expect(!rig.text.contains("\u{1b}[A"))
     }
 
     @Test func theAlternateScreenGetsArrowsByDefault() async throws {

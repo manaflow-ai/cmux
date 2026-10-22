@@ -56,9 +56,10 @@ public struct TerminalTUIScroll: Equatable, Sendable {
         1 | (momentum.rawValue << 1)
     }
 
-    /// A drag scrolls the app only when it starts mostly vertical.
-    public static func takesDrag(velocity: CGPoint) -> Bool {
-        let vertical = abs(velocity.y), horizontal = abs(velocity.x)
+    /// A drag scrolls the app only when it starts mostly vertical (`motion`:
+    /// its translation so far, or its velocity).
+    public static func takesDrag(motion: CGPoint) -> Bool {
+        let vertical = abs(motion.y), horizontal = abs(motion.x)
         return vertical > 0 && vertical > horizontal
     }
 }

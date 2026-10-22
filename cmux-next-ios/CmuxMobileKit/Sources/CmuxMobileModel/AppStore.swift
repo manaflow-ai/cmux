@@ -53,6 +53,11 @@ public final class AppStore {
     @ObservationIgnored var groupEdits = PendingGroupEdits()
     /// The clock group edits are confirmed against (tests set it).
     @ObservationIgnored public var now: () -> Date = Date.init
+
+    /// Forgets the group edits not yet shown back (sign-out, another account).
+    public func resetGroupEdits() {
+        groupEdits = PendingGroupEdits()
+    }
     /// Placeholder id → the real workspace id once its creation succeeds, so
     /// a screen opened on the placeholder follows the real workspace.
     public private(set) var workspaceAliases: [String: String] = [:]

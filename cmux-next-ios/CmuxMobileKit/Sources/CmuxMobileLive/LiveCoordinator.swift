@@ -212,6 +212,7 @@ public final class LiveCoordinator {
         feedStore.actions = MultiMacFeedActions(coordinator: self)
         feedStore.syncState = .connecting
         store.workspaces = []
+        store.resetGroupEdits()
         store.tracksMacData = true
         store.macData = [:]
         store.macConnection = [:]
