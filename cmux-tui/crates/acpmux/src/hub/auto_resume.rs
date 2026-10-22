@@ -278,6 +278,15 @@ impl Hub {
         });
     }
 
+    /// Whether a continuation may still answer for the chat's cut turn: it releases what that
+    /// turn held, so a held agent message's own retry waits for it (`digest.rs`).
+    pub(super) fn continuation_pending(&self, session: &Session) -> bool {
+        matches!(
+            self.auto_resumes.lock().get(&session.id),
+            Some(Mark::Waiting(_) | Mark::Firing(_) | Mark::Ending(_))
+        )
+    }
+
     /// Stop or close: the chat's waiting continuation does not fire, and the turn running or
     /// ending now gets none, however it ends.
     pub(super) fn stop_auto_resume(&self, session: &Session) {

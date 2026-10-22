@@ -119,6 +119,7 @@ extension IconName {
         .composerCommand,
         .composerMention,
         .composerSend,
+        .composerSteer,
         .computeruseClick,
         .computeruseDrag,
         .computeruseObserve,

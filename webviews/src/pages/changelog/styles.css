@@ -53,6 +53,46 @@ html[data-cmux-page="changelog"] body {
 }
 .cl-media img,
 .cl-media video { display: block; width: 100%; height: 100%; object-fit: cover; object-position: left top; }
+/* A picture opens enlarged: the whole frame is the button, with no chrome of its own. */
+.cl-media-open { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.cl-media-open:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: -2px; }
+/* The enlarged picture: on glass over the page, the picture whole (contain), never cut. */
+.cl-lightbox-backdrop {
+  background: color-mix(in srgb, var(--cmux-surface-background, Canvas) 60%, transparent);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
+}
+.cl-lightbox.ui-dialog {
+  inset: 24px;
+  width: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: transparent;
+  box-shadow: none;
+}
+.cl-lightbox-bar { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.cl-lightbox-alt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cl-lightbox-stage { display: grid; flex: 1; min-height: 0; place-items: center; }
+.cl-lightbox-stage :is(img, video) {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px var(--page-separator);
+}
 .cl-actions { display: flex; align-items: center; gap: 14px; margin: 4px 0 8px; }
 .cl-button {
   height: 26px;
@@ -216,6 +256,98 @@ html[data-cmux-page="changelog"] body {
   padding: 48px 32px 40px;
 }
 .clw > main > .clj-span + .clj { padding-top: 0; }
+
+/* The update as happy news (SpanNews.tsx): the lead changes side by side with their pictures or
+   clips, the rest of New and Improved as glass cards in a grid, Fixed folded into one line. Every
+   gap is a step of 4 px; every size is a type token. */
+.cln-lead-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 24px;
+  margin: 24px 0 0;
+}
+.cln-lead { display: flex; flex-direction: column; min-width: 0; }
+.cln-lead-media { margin: 0 0 12px; aspect-ratio: 16 / 10; }
+.cln-lead-row[data-count="1"] .cln-lead-media { aspect-ratio: 16 / 9; }
+.cln-lead-title {
+  margin: 0 0 4px;
+  font-size: var(--text-heading);
+  line-height: var(--text-heading--line-height);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.cln-lead-row[data-count="3"] .cln-lead-title { font-size: var(--text-title); line-height: var(--text-title--line-height); }
+.cln-lead-summary {
+  margin: 0 0 8px;
+  max-width: 62ch;
+  color: var(--page-text-2);
+  font-size: var(--text-body);
+  line-height: var(--text-title--line-height);
+  text-wrap: pretty;
+}
+.cln-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  margin: 32px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.cln-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px 16px 16px;
+  border-radius: 12px;
+  background: var(--page-hover);
+  box-shadow: inset 0 0 0 1px var(--page-separator);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
+}
+.cln-card-kind {
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: var(--weight-emphasis);
+}
+.cln-card-title {
+  margin: 0;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: var(--weight-emphasis);
+  text-wrap: balance;
+}
+.cln-card-summary {
+  margin: 0;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  text-wrap: pretty;
+}
+.cln-card-media { margin: 8px 0 0; aspect-ratio: 16 / 10; }
+.cln-card .cl-row-actions { margin: auto 0 0; padding-top: 8px; opacity: 1; }
+/* Fixed as one line, "Fixed 23 ›", that opens to its list. */
+.cln-fixed { margin-top: 24px; }
+.cln-fixed + .cl-changes { margin-top: 8px; }
+.cln-fixed summary {
+  display: inline-flex;
+  gap: 6px;
+  align-items: baseline;
+  color: var(--page-text-2);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  cursor: default;
+  list-style: none;
+}
+.cln-fixed summary::-webkit-details-marker { display: none; }
+.cln-fixed summary::after { content: "›"; display: inline-block; transition: transform 120ms ease; }
+.cln-fixed[open] > summary::after { transform: rotate(90deg); }
+.cln-fixed summary:hover { color: var(--page-text); }
+.cln-fixed summary:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
+.cln-fixed ul { margin: 8px 0 0; padding: 0; list-style: none; }
+.cln-fixed li { padding: 4px 0; font-size: var(--text-body); line-height: var(--text-body--line-height); }
 .clj {
   padding: 48px max(32px, calc((100% - 640px) / 2)) 96px;
 }
@@ -375,5 +507,6 @@ html[data-cmux-page="changelog"] body {
 .cld-thumb { margin: 0; width: 76px; border-radius: 5px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .cl-changes summary::before { transition: none; }
+  .cl-changes summary::before,
+  .cln-fixed summary::after { transition: none; }
 }

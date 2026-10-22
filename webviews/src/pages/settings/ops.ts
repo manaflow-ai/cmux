@@ -106,6 +106,8 @@ export type HostLists = {
   iphone?: IPhoneHostState | null;
   /** Settings › Import: the import suggestion cards, every text localized by the host (ui/ImportCards.tsx parses it). */
   import_suggestions?: unknown;
+  /** Settings > Chief > Voice input: the Debug toggle home.voiceInput; null where it does not exist (Release). */
+  voice_input?: { on: boolean } | null;
   /**
    * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Each carries its
    * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`, `yours`, `apple`, `video`) and
@@ -451,10 +453,20 @@ export type ChannelTrack = {
   builds: ChannelBuild[];
 };
 
+/** The way back to a slower channel the running build is not on: Go Back into the build this
+ * Mac kept (`build` and `action`), or only a line that the running build stays (both null). */
+export type ChannelSwitch = {
+  ring: ChannelTrack["ring"];
+  build: string | null;
+  action: string | null;
+  detail: string;
+};
+
 /** Settings > Updates' Channels card (`cmux.settings.channels.state`). */
 export type ChannelsState = {
   title: string;
   installed: string;
+  switch: ChannelSwitch | null;
   labels: { you_are_here: string; following: string; kept: string; compare: string; commit: string; release: string };
   tracks: ChannelTrack[];
 };
@@ -469,13 +481,17 @@ export type SettingsOps = {
   /** Native: spaces, machines and browser profiles from the app's live stores. */
   "cmux.settings.host.lists": [Record<string, never>, HostLists];
   /** Native: every release channel's recent builds, read on demand (Settings > Updates). */
-  "cmux.settings.channels.state": [Record<string, never>, ChannelsState];
+  "cmux.settings.channels.state": [{ ring?: string }, ChannelsState];
+  /** Native: the card's Go Back: restarts once into a kept build of a slower channel (the person's gesture only). */
+  "cmux.settings.channels.go_back": [{ ring: string; build: string }, Record<string, never>];
   /** Native: Settings > Mobile's Remove: the phone leaves the account's devices (the person's gesture only). */
   "cmux.settings.mobile.remove_phone": [{ id: string }, Record<string, never>];
   /** Native: after the owner removed this Mac, allow iPhone connections again (a new device; the person's gesture only). */
   "cmux.settings.mobile.allow_again": [Record<string, never>, Record<string, never>];
   /** A phone's pairing request: Allow or Don't Allow (the person's own gesture only). */
   "cmux.settings.mobile.answer_pair": [{ id: string; allow: boolean }, Record<string, never>];
+  /** Native: Settings > Chief > Voice input's switch writes home.voiceInput (the person's gesture only). */
+  "cmux.settings.voice_input.set": [{ on: boolean }, Record<string, never>];
   /** Native: the Accounts part (providers, linked accounts, forms). */
   "cmux.settings.accounts.state": [Record<string, never>, AccountsState];
   /** Native: one Accounts gesture; a failed Keychain save answers its message. */

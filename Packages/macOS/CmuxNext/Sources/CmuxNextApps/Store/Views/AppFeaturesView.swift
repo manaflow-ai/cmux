@@ -120,13 +120,21 @@ struct AppFeatureButton: View {
                 .themedHelp(failure)
         }
         Button { set(!on) } label: {
-            Text(on ? AppsStrings.remove : AppsStrings.get)
-                .font(Font(on ? Typography.body : Typography.bodyEmphasized))
-                .foregroundStyle(on ? colors.danger : colors.primary)
-                .padding(.horizontal, Metrics.space3)
-                .frame(height: AppStoreColumn.actionHeight)
-                .background(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous).fill(on ? .clear : colors.selection))
-                .contentShape(Rectangle())
+            ZStack {
+                // Reserve both localized labels so toggling keeps the same button bounds.
+                Text(AppsStrings.get).hidden().accessibilityHidden(true)
+                Text(AppsStrings.remove).hidden().accessibilityHidden(true)
+                Text(on ? AppsStrings.remove : AppsStrings.get)
+            }
+            .font(Font(Typography.bodyEmphasized))
+            .foregroundStyle(on ? colors.secondary : colors.primary)
+            .lineLimit(1)
+            .padding(.horizontal, Metrics.space3)
+            .frame(height: AppStoreColumn.actionHeight)
+            .background(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous).fill(on ? colors.hover : colors.selection))
+            .overlay(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous)
+                .strokeBorder(colors.separator, lineWidth: on ? Borders.width(1) : 0))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(busy || managed)
@@ -145,8 +153,8 @@ struct AppFeatureButton: View {
     }
 }
 
-/// The card's preview: a bundled painting, sidebar rows at a density, or the feature's icon on a
-/// quiet tile.
+/// The card's preview: a bundled painting, sidebar rows at a density, or a small cmux window with
+/// the part the feature changes lit.
 struct AppFeaturePreviewView: View {
     let preview: AppFeature.Preview
     @Environment(\.appSceneColors) private var colors
@@ -160,10 +168,10 @@ struct AppFeaturePreviewView: View {
                 if let image = AppFeaturePreviewImages.shared.painting() {
                     Image(nsImage: image).resizable().scaledToFill()
                 } else {
-                    Icon(.sitePermissionImages, size: 28).foregroundStyle(colors.secondary)
+                    AppFeatureWindowPreview(area: .background, icon: .sitePermissionImages)
                 }
-            case .icon(let name):
-                Icon(name, size: 28).foregroundStyle(colors.secondary)
+            case .window(let area, let icon):
+                AppFeatureWindowPreview(area: area, icon: icon)
             case .sidebarRows(let density):
                 AppFeatureSidebarRows(density: density)
             }
