@@ -135,7 +135,11 @@ extension HomeService {
         // (the page's own read can come before sign-in, and a docked Home never makes the page).
         let account = currentCloudAccount
         let read = await readCloudChiefs()
-        if let read { setCloudChiefs(read); await directory.refreshChiefs() }
+        // An earlier account's read (the account changed while it ran) is dropped: the change runs a new check.
+        if let read {
+            guard publishCloudChiefs(read, for: account) else { return }
+            await directory.refreshChiefs()
+        }
         guard !Task.isCancelled else { return }
         // The local Chief keeps the tab until its history is in the Hosted Chief (``HostedChiefMigration/pending``).
         hostedChief.start(cloudChiefs.hosted)

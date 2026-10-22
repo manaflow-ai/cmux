@@ -79,9 +79,22 @@ extension HomeService {
         let account = currentCloudAccount
         // Known already (or signed out since the ask): only a waiting ask settles.
         guard cloudChiefsUnknown else { noteCloudChiefsChecked(for: account); return }
-        guard let read = await readCloudChiefs() else { return }
-        setCloudChiefs(read)
+        guard let read = await readCloudChiefs(), publishCloudChiefs(read, for: account) else { return }
         noteCloudChiefsChecked(for: account)
+    }
+
+    /// Records `read`, made for `account`, unless its check was cancelled or the signed-in account changed
+    /// while it ran: a late read never replaces the current account's cloud Chiefs (a newer check reads those).
+    func publishCloudChiefs(_ read: HomeCloudChiefs, for account: String?) -> Bool {
+        guard !Task.isCancelled, account == currentCloudAccount else { return false }
+        setCloudChiefs(read)
+        return true
+    }
+
+    /// The signed-in account is `account` now (nil: signed out). A sign-out or account change forgets the
+    /// last read, so signing in again, even to the same account, waits for a fresh read.
+    func noteCloudAccount(_ account: String?) {
+        if cloudChiefsCheckedAccount != account { cloudChiefsCheckedAccount = nil }
     }
 
     private func startLocalBrain(asked: Bool) {
