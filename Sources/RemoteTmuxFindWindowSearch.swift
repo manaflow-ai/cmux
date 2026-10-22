@@ -33,7 +33,7 @@ struct RemoteTmuxFindWindowSearch: Sendable {
             fuzzy = nil
             matcher = nil
         } else {
-            fuzzy = options.syntax == .text ? FzfQuery(trimmed) : nil
+            fuzzy = options.syntax == .text ? FzfQuery(trimmed, caseMode: options.caseMode) : nil
             let contentQuery = options.syntax == .text ? trimmed : query
             matcher = try PaneContentMatcher(query: contentQuery, syntax: options.syntax, caseMode: options.caseMode)
         }
@@ -105,16 +105,25 @@ struct RemoteTmuxFindWindowSearch: Sendable {
         guard options.matchesContents, let matcher else { return [] }
         var results: [RemoteTmuxFindWindowResult] = []
         var index = text.lines.endIndex
+        // Rows taken by the lines below the one being scanned.
+        var rowsBelow = 0
         while index > text.lines.startIndex, results.count < Self.maximumContentHitsPerPane {
             index = text.lines.index(before: index)
             if index & 0x3ff == 0, Task.isCancelled { return results }
             let line = text.lines[index]
+            let rows = text.maximumRows(of: line)
+            defer { rowsBelow += rows }
             guard let range = matcher.firstMatch(in: line) else { continue }
             let linesFromBottom = text.lines.endIndex - 1 - index
             results.append(RemoteTmuxFindWindowResult(
                 id: "line:\(candidate.id.hostKey):\(candidate.paneId):\(linesFromBottom)",
                 candidate: candidate,
-                match: .content(Self.contentHit(line: line, match: range, linesFromBottom: linesFromBottom)),
+                match: .content(Self.contentHit(
+                    line: line,
+                    match: range,
+                    linesFromBottom: linesFromBottom,
+                    rowsFromBottom: rowsBelow + rows - 1
+                )),
                 score: 0
             ))
         }
@@ -153,30 +162,58 @@ struct RemoteTmuxFindWindowSearch: Sendable {
     }
 
     /// Cuts `line` down to a snippet that keeps the match in view.
+    ///
+    /// Works in whole-character offsets. A glob or regex match can start or end inside
+    /// a character (a lone combining mark) or in the line's leading or trailing spaces,
+    /// so its bounds are widened to whole characters and every offset is clamped.
     static func contentHit(
         line: String,
         match: Range<String.Index>,
-        linesFromBottom: Int
+        linesFromBottom: Int,
+        rowsFromBottom: Int
     ) -> RemoteTmuxFindWindowContentHit {
-        let matchedText = String(line[match])
-        let trimmedEnd = line.lastIndex(where: { !$0.isWhitespace }).map { line.index(after: $0) } ?? line.startIndex
-        let leadingTrimmed = line.firstIndex(where: { !$0.isWhitespace }) ?? line.startIndex
-        var start = line.index(match.lowerBound, offsetBy: -snippetLeadingContext, limitedBy: leadingTrimmed)
-            ?? leadingTrimmed
-        if start < leadingTrimmed { start = leadingTrimmed }
-        let end = line.index(start, offsetBy: snippetMaximumLength, limitedBy: max(trimmedEnd, match.upperBound))
-            ?? max(trimmedEnd, match.upperBound)
-        let prefix = start > leadingTrimmed ? "…" : ""
-        let suffix = end < trimmedEnd ? "…" : ""
-        let body = String(line[start..<end])
-        let lower = prefix.count + line.distance(from: start, to: max(start, match.lowerBound))
-        let upper = prefix.count + line.distance(from: start, to: min(end, match.upperBound))
+        let characters = Array(line)
+        let (lower, upper) = characterOffsets(of: match, in: line)
+        let firstVisible = characters.firstIndex { !$0.isWhitespace } ?? characters.count
+        let visibleEnd = characters.lastIndex { !$0.isWhitespace }.map { $0 + 1 } ?? firstVisible
+        let windowEnd = max(visibleEnd, upper)
+        let start = min(max(firstVisible, max(lower, firstVisible) - snippetLeadingContext), windowEnd)
+        let end = min(start + snippetMaximumLength, windowEnd)
+        let prefix = start > firstVisible ? "…" : ""
+        let suffix = end < visibleEnd ? "…" : ""
+        let snippet = prefix + String(characters[start..<end]) + suffix
+        // Counted on the assembled text, so a combining mark that joins the ellipsis
+        // shifts the highlight with it.
+        func snippetOffset(_ offset: Int) -> Int {
+            (prefix + String(characters[start..<min(max(offset, start), end)])).count
+        }
+        let highlightLower = snippetOffset(lower)
+        let highlightUpper = min(snippetOffset(upper), snippet.count)
         return RemoteTmuxFindWindowContentHit(
-            snippet: prefix + body + suffix,
-            highlights: upper > lower ? [lower..<upper] : [],
-            matchedText: matchedText,
-            linesFromBottom: linesFromBottom
+            snippet: snippet,
+            highlights: highlightUpper > highlightLower ? [highlightLower..<highlightUpper] : [],
+            matchedText: String(line[match]),
+            linesFromBottom: linesFromBottom,
+            rowsFromBottom: rowsFromBottom
         )
+    }
+
+    /// The character offsets that cover `range`, which may start or end inside a character.
+    private static func characterOffsets(of range: Range<String.Index>, in line: String) -> (Int, Int) {
+        var lower: Int?
+        var upper = 0
+        var offset = 0
+        var index = line.startIndex
+        while index < line.endIndex {
+            let next = line.index(after: index)
+            if lower == nil, range.lowerBound < next { lower = offset }
+            if range.upperBound > index { upper = offset + 1 }
+            index = next
+            offset += 1
+        }
+        let start = lower ?? offset
+        // An empty range sits at its start.
+        return (start, range.isEmpty ? start : max(start, upper))
     }
 
     /// Character offsets of a `String.Index` range.

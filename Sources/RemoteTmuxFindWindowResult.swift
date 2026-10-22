@@ -29,4 +29,13 @@ struct RemoteTmuxFindWindowContentHit: Equatable, Sendable {
     let matchedText: String
     /// Lines between this one and the pane's bottom line; 0 is the bottom line.
     let linesFromBottom: Int
+    /// The most terminal rows between this line's first row and the pane's bottom row,
+    /// counting the rows long lines wrap onto; 0 is the bottom row.
+    let rowsFromBottom: Int
+
+    /// Whether the match may be older than the rows the attach seed put on the surface,
+    /// so the surface's own find needs the full history loaded first.
+    var isBeyondAttachSeed: Bool {
+        rowsFromBottom >= RemoteTmuxControlConnection.attachSeedHistoryRows
+    }
 }

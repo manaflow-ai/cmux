@@ -1026,7 +1026,7 @@ struct ContentView: View {
     @State private var agentInboxMoveRequest = 0
     @State private var agentInboxSubmitRequest = 0
     @State private var agentInboxOpenGeneration = 0
-    @State private var remoteTmuxFindWindowModel: RemoteTmuxFindWindowModel?
+    @State private var remoteTmuxFindWindow = RemoteTmuxFindWindowSlot()
     @State private var commandPaletteQuery: String = ""
     @State private var commandPaletteCurrentWorkSnapshot: CurrentWorkSnapshot?
     @State private var commandPaletteCurrentWorkRevision = 0
@@ -1055,6 +1055,18 @@ struct ContentView: View {
     private var isAgentInboxPresented: Bool {
         commandPaletteOverlayState.isAgentInboxPresented
     }
+
+    /// Whether the overlay can take a palette list or rename request as it is. Find-window
+    /// cannot: the palette has to be presented over it, which closes it.
+    private var canReuseCommandPaletteOverlay: Bool {
+        isCommandPalettePresented && commandPaletteOverlayState != .findTmuxWindow
+    }
+
+    /// The find-window model, only while find-window is the overlay showing.
+    private var remoteTmuxFindWindowModel: RemoteTmuxFindWindowModel? {
+        remoteTmuxFindWindow.activeModel(in: commandPaletteOverlayState)
+    }
+
     @State private var commandPaletteNucleoSearchIndex: CommandPaletteNucleoSearchIndex<String>?
     @State private var commandPaletteTaskStore = MainActorTaskStore<CommandPaletteTaskKey>()
     @State private var commandPaletteSearchIndexBuildGeneration: UInt64 = 0
@@ -3164,6 +3176,11 @@ struct ContentView: View {
                 mainWindow: NSApp.mainWindow
             ) else { return }
             openAgentInbox()
+        })
+
+        // Every path that replaces the overlay closes find-window here, not at each call site.
+        view = AnyView(view.onChange(of: commandPaletteOverlayState) { _, state in
+            remoteTmuxFindWindow.overlayDidChange(to: state)
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .findTmuxWindowRequested)) { notification in
@@ -10121,16 +10138,15 @@ struct ContentView: View {
             focusedWorkspaceId: tabManager.selectedTabId,
             didJump: { dismissRemoteTmuxFindWindow(restoreFocus: false) }
         )
-        remoteTmuxFindWindowModel = model
+        remoteTmuxFindWindow.present(model)
         commandPaletteOverlayState = .findTmuxWindow
         model.open()
     }
 
     /// Closes find-window; `restoreFocus` puts focus back where it was when it opened.
     private func dismissRemoteTmuxFindWindow(restoreFocus: Bool) {
-        remoteTmuxFindWindowModel?.close()
-        remoteTmuxFindWindowModel = nil
         commandPaletteOverlayState = .closed
+        remoteTmuxFindWindow.overlayDidChange(to: .closed)
         let focusTarget = commandPaletteRestoreFocusTarget
         commandPaletteRestoreFocusTarget = nil
         commandPaletteBrowserActionTarget = nil
@@ -10152,7 +10168,7 @@ struct ContentView: View {
 
     private func handleCommandPaletteListRequest(scope: CommandPaletteListScope) {
         let initialQuery = (scope == .commands) ? Self.commandPaletteCommandsPrefix : ""
-        guard isCommandPalettePresented else {
+        guard canReuseCommandPaletteOverlay else {
             presentCommandPalette(initialQuery: initialQuery)
             return
         }
@@ -10167,21 +10183,21 @@ struct ContentView: View {
     }
 
     private func openCommandPaletteRenameTabInput() {
-        if !isCommandPalettePresented {
+        if !canReuseCommandPaletteOverlay {
             presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
         }
         beginRenameTabFlow()
     }
 
     private func openCommandPaletteRenameInput(_ target: CommandPaletteRenameTarget) {
-        if !isCommandPalettePresented {
+        if !canReuseCommandPaletteOverlay {
             presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
         }
         startRenameFlow(target)
     }
 
     private func openCommandPaletteRenameWorkspaceInput() {
-        if !isCommandPalettePresented {
+        if !canReuseCommandPaletteOverlay {
             presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
         }
         beginRenameWorkspaceFlow()
@@ -10195,7 +10211,7 @@ struct ContentView: View {
             "window={\(debugCommandPaletteWindowSummary(observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow))}"
         )
 #endif
-        if !isCommandPalettePresented {
+        if !canReuseCommandPaletteOverlay {
             presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
         }
         beginWorkspaceDescriptionFlow()

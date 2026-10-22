@@ -32,6 +32,10 @@ struct RemoteTmuxPaneHistoryPlan: Equatable {
     /// command block. A wide pane gets proportionally fewer rows.
     static let maximumChunkCells =
         RemoteTmuxControlStreamParser.defaultMaximumCommandBlockBytes / 2 / maximumEncodedBytesPerCell
+    /// Cells per chunk of plain `capture-pane -J` text, which has no escape sequences.
+    /// 16 bytes covers a UTF-8 character with a few combining marks.
+    static let maximumPlainTextChunkCells =
+        RemoteTmuxControlStreamParser.defaultMaximumCommandBlockBytes / 2 / 16
     static let maximumChunkRows = 2_000
     static let minimumChunkRows = 32
 

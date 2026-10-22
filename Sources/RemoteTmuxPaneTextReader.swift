@@ -28,7 +28,8 @@ struct RemoteTmuxPaneTextReader {
         let plan = RemoteTmuxPaneHistoryPlan(
             historySize: shape.isAlternateScreen ? 0 : shape.historySize,
             paneWidth: shape.paneWidth,
-            maximumRows: maximumRows
+            maximumRows: maximumRows,
+            maximumChunkCells: RemoteTmuxPaneHistoryPlan.maximumPlainTextChunkCells
         )
         var lines: [String] = []
         for chunk in plan.chunks {
@@ -41,7 +42,7 @@ struct RemoteTmuxPaneTextReader {
         let screen = await query("capture-pane -p -J -t %\(paneId)")
         guard let screenRows = screen.lines else { return nil }
         lines.append(contentsOf: Self.droppingTrailingBlankRows(screenRows))
-        return RemoteTmuxPaneText(lines: lines, isTruncated: plan.isTruncated)
+        return RemoteTmuxPaneText(lines: lines, paneWidth: shape.paneWidth, isTruncated: plan.isTruncated)
     }
 
     /// A screen that is not full ends in blank rows; they match nothing and only

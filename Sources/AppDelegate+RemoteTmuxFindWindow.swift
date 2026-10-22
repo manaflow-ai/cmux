@@ -83,18 +83,23 @@ extension AppDelegate {
         guard case let .content(hit) = result.match,
               !hit.matchedText.isEmpty,
               let panel = workspace.terminalPanel(for: surfaceId) else { return }
-        let surface = panel.surface
-        guard hit.linesFromBottom >= Self.remoteTmuxSeededLinesWithinReach else {
-            _ = startOrFocusTerminalSearch(surface, initialNeedle: hit.matchedText)
-            return
-        }
-        Task { @MainActor [weak self] in
-            _ = await self?.remoteTmuxController.reseedFullHistory(forSurfaceId: surfaceId)
-            _ = startOrFocusTerminalSearch(surface, initialNeedle: hit.matchedText)
-        }
+        let tabManager = context.tabManager
+        Self.remoteTmuxFindWindowJumper.jump(
+            loadsFullHistoryFirst: hit.isBeyondAttachSeed,
+            reseed: { [weak self] in
+                await self?.remoteTmuxController.reseedFullHistory(forSurfaceId: surfaceId) ?? .failed
+            },
+            isStillTarget: { [weak tabManager, weak workspace] in
+                guard let tabManager, let workspace else { return false }
+                return tabManager.selectedTabId == workspace.id && workspace.focusedSurfaceId == surfaceId
+            },
+            openSearch: { [weak panel] in
+                guard let surface = panel?.surface else { return }
+                _ = startOrFocusTerminalSearch(surface, initialNeedle: hit.matchedText)
+            }
+        )
     }
 
-    /// Lines from the bottom a mirrored surface surely holds without loading the
-    /// full history: the attach seed's 5,000 rows, less room for wrapped lines.
-    static let remoteTmuxSeededLinesWithinReach = 4_000
+    /// One jump at a time across every window.
+    private static let remoteTmuxFindWindowJumper = RemoteTmuxFindWindowJumper()
 }
