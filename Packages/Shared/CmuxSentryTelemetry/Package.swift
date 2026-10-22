@@ -1,5 +1,6 @@
 // swift-tools-version: 6.0
 
+import Foundation
 import PackageDescription
 
 // `CmuxSentryTelemetry` is the shared (macOS + iOS) Sentry privacy and
@@ -82,3 +83,14 @@ let package = Package(
         ),
     ]
 )
+
+#if os(Linux)
+// sentry-cocoa is Apple-only: a build for Linux builds the scrubber and its tests alone. Only the Linux
+// package jobs (swift-packages-linux.yml) set CMUX_SWIFTPM_TARGET_LINUX: the fleet's app compile also
+// reads this manifest on a Linux host, but builds for macOS and needs CmuxSentryReporting.
+if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
+    package.products.removeAll { $0.name == "CmuxSentryReporting" }
+    package.targets.removeAll { $0.name == "CmuxSentryReporting" || $0.name == "CmuxSentryReportingTests" }
+    package.dependencies.removeAll()
+}
+#endif

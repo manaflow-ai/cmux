@@ -177,6 +177,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_BOOKMARK_GET, Request),
         untyped(method::MUX_BOOKMARK_SET, Request),
         untyped(method::MUX_PROMPT_WITHDRAW, Request),
+        untyped(method::MUX_SEND_QUEUE, Request),
+        untyped(method::MUX_SEND_STATUS, Request),
         // The hub asks a session's agent adapter (claude_stdio, the Codex bridge).
         untyped(method::MUX_STEP_NOW, Request),
         untyped(method::MUX_AGENT_PAIR_RESUME, Request),
@@ -310,6 +312,11 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/peer_lease", Request),
         untyped("_acpmux/peer_reconnect", Request),
         untyped("_acpmux/peer_remove", Request),
+        untyped(method::MUX_PAIR_TICKET_NEW, Request),
+        untyped(method::MUX_PAIR_LIST, Request),
+        untyped(method::MUX_PAIR_REVOKE, Request),
+        untyped(method::MUX_PAIR_ISSUE, Request),
+        untyped(method::MUX_PAIR_REDEEM, Request),
         // Notifications.
         notification::<events::SessionEvent>(method::MUX_EVENT),
         notification::<SessionChanged>(method::MUX_SESSION_CHANGED),

@@ -143,14 +143,24 @@ select {
   transition: none;
 }
 
-/* A hover card (ui/Tooltip.tsx AnchoredCard, .ui-tooltip.ui-card: a link card) keeps the solid popup
-   surface and its own look; a toolbar hint (.ui-hint) is a tooltip. */
+/* A hover card (ui/Tooltip.tsx AnchoredCard, .ui-tooltip.ui-card) with no glass (a link card) keeps
+   the solid popup surface and its own look; a toolbar hint (.ui-hint) is a tooltip. */
 .ui-card {
   border-width: 1px;
   background: var(--surface-popup);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   box-shadow: var(--elevation-2);
+}
+
+/* A glass hover card (.ui-card.ui-glass: a session's hover card, a sidebar row's preview, a New Tab
+   chat's card; plans/cmux-next/glass-lens-DESIGN.md "Surfaces"): its fill, frost and rim are the
+   liquid glass's (ui/glass/glass.css, loaded after this sheet), with the hover card elevation. The
+   border keeps its width, so the card's size never changes, but is clear: the glass rim draws the
+   edge. Plain glass frosts it like every other glass: never the solid popup surface. */
+.ui-card.ui-glass {
+  --glass-elevation: var(--elevation-2);
+  border-color: transparent;
 }
 
 .ui-hint {
@@ -348,14 +358,13 @@ input[type="submit"] {
   --layer-tooltip: 1000;
   --layer-debug: 2147483000;
   /* TRANSPARENCY. A translucent surface that carries text keeps at least this much of its fill
-     (color-mix(in srgb, <fill> var(--surface-text-min), transparent)); menus, popovers and
-     tooltips stay opaque. Reduce Transparency makes every translucent surface opaque. */
+     (color-mix(in srgb, <fill> var(--surface-text-min), transparent)); menus and popovers are the
+     liquid glass (ui/popupSurface.css). Reduce Transparency makes every translucent surface opaque. */
   --surface-text-min: 92%;
   --surface-blur: blur(20px) saturate(1.4);
-  /* The one solid surface of every menu, popover, picker and tooltip, never translucent and never
-     blurred, so text under a popup never shows through (Leo, 2026-10-12): the host's popup fill
-     (WebTheme.swift, the same color as native overlays' Palette.popupSurface), else the page
-     color lifted toward the text. */
+  /* The solid popup surface: a menu's, popover's and picker's fill under Reduce Transparency
+     (they are the liquid glass otherwise, ui/popupSurface.css), and what the tooltip tint mixes from: the host's popup fill (WebTheme.swift, the same color as native overlays'
+     Palette.popupSurface), else the page color lifted toward the text. */
   --surface-popup: var(
     --cmux-popup-surface,
     color-mix(in srgb, var(--cmux-text, CanvasText) 14%, var(--cmux-surface-solid, Canvas))

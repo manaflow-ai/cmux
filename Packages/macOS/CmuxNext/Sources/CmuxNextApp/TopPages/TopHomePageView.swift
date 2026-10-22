@@ -6,7 +6,6 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
-import CmuxNextImportCards
 import Observation
 
 /// The Home top page, two columns: MessagesLab's conversation list
@@ -42,6 +41,7 @@ final class TopHomePageView: NSView {
     private var chiefObservation: Task<Void, Never>?
     private var accountObservation: Task<Void, Never>?
     private var requestsObservation: Task<Void, Never>?
+    private var unreadColorObservation: Task<Void, Never>?
 
     init(services: AppServices, windowKey: @escaping () -> String) {
         self.services = services
@@ -53,7 +53,6 @@ final class TopHomePageView: NSView {
         split.frame = bounds
         split.autoresizingMask = [.width, .height]
         addSubview(split)
-        ImportCardsStripView.mount(over: transcriptColumn, in: self)
         wireList(services)
         observe(services.home)
         // task-owner: lives as long as this view; one read of the team and Chiefs
@@ -72,6 +71,7 @@ final class TopHomePageView: NSView {
             chiefObservation?.cancel()
             accountObservation?.cancel()
             requestsObservation?.cancel()
+            unreadColorObservation?.cancel()
         }
     }
 
@@ -230,6 +230,13 @@ final class TopHomePageView: NSView {
         // task-owner: lives as long as this view; event-driven (Observation)
         requestsObservation = Task { [weak self] in
             for await count in ObservationStream({ home.requests.items.count }) { self?.list.showRequests(count) }
+        }
+        // task-owner: lives as long as this view; event-driven (Observation). The unread dot is
+        // the unread rings' color (`notifications.attention.color`, nil: the notification blue).
+        unreadColorObservation = Task { [weak self] in
+            for await color in ObservationStream({ home.services.settings?.snapshot.attention.color }) {
+                self?.list.unreadDotColor = color?.nsColor
+            }
         }
         // task-owner: lives as long as this view; event-driven (Observation)
         selectionObservation = Task { [weak self] in

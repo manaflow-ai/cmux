@@ -32,6 +32,10 @@ acpmux new -n gui/composer \
   absolute path; a missing or empty file fails before anything starts. The
   first prompt is: who started the session and how to report back
   (`--report-to`), where its worktree is, the prompt words, then the file.
+- **No questions.** Nobody sits at a launched session's chat, so it starts
+  without Claude Code's AskUserQuestion (`--disallowedTools`, kept through
+  respawns, resumes and restarts): a multiple-choice question there would
+  wait for a pick that never comes. It decides, says why and goes on.
 - **Idempotent.** Running the same command again gives the same session and
   worktree and sends nothing (`--reuse`, which `--worktree` implies), except
   the first prompt to a session that never got one (a launcher stopped

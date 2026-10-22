@@ -45,6 +45,7 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
         }
         if let chiefPetShown, let chief = chiefPetRow(shown: chiefPetShown) { menu.addItem(chief) }
         if let settings = row(spec.settings) { menu.addItem(settings) }
+        if let updates = row(spec.updates) { menu.addItem(updates) }
         spec.account.compactMap(row).forEach(menu.addItem)
         let creation = spec.creation.compactMap(row)
         if !creation.isEmpty {
