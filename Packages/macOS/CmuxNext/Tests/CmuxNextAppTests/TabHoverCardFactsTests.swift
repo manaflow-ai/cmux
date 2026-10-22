@@ -125,6 +125,15 @@ struct TabHoverCardFactsTests {
         #expect(TabHoverCardLines.tone(item) == .secondary)
     }
 
+    /// Before its first output after the daemon starts or adopts it, a shell at its prompt has no
+    /// last output yet: it has been quiet since its prompt printed.
+    @Test func aShellAtItsPromptWithNoOutputYetSaysIdleSinceItsPrompt() throws {
+        let item = try terminalItem(extra: #"{"prompt":{"since_ms":"\#(ms(300))"}}"#)
+        let shown = lines(item, report: nil)
+        #expect(shown.contains("Idle · 5m"), "quiet since its prompt: \(shown)")
+        #expect(TabHoverCardLines.tone(item) == .secondary)
+    }
+
     /// With no shell integration the daemon sends no prompt: no claim that the shell is idle.
     @Test func aTerminalWithNoPromptRecordSaysNothingAboutOutput() throws {
         let item = try terminalItem(extra: #"{"last_output":{"at_ms":"\#(ms(12))"}}"#)
