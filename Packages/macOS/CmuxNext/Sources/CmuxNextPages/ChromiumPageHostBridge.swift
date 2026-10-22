@@ -96,6 +96,11 @@ public final class ChromiumPageHostBridge: PageHostBridge {
         }
     }
 
+    /// One expression that runs `scripts` in order.
+    nonisolated static func batch(_ scripts: [String]) -> String {
+        scripts.joined(separator: ";\n")
+    }
+
     public func uninstall() {
         handler = nil
         scripts.removeAll()
