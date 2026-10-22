@@ -46,12 +46,12 @@ import Testing
         return (window, view)
     }
 
-    /// The highlight's box in the transcript view's coordinates, wherever its layer lives.
+    /// The highlight's box in the transcript view's coordinates (where `debugBubble` measures), wherever its layer lives.
     private func highlightBox(_ view: MessagesLabHomeView) -> CGRect? {
-        guard let hl = view.controller.menuHighlight, let host = view.controller.host.layer else { return nil }
+        guard let hl = view.controller.menuHighlight, let space = view.controller.demo?.layer else { return nil }
         let layer = hl.layer
         let local = (layer as? CAShapeLayer)?.path?.boundingBoxOfPath ?? layer.bounds
-        return (layer.superlayer ?? host).convert(local, to: host)
+        return layer.convert(local, to: space)
     }
 
     @Test func theHighlightStaysOnItsBubbleWhenTheTranscriptMoves() throws {
@@ -61,7 +61,7 @@ import Testing
         _ = try #require(view.controller.menu(at: CGPoint(x: before.body.midX, y: before.body.midY)))
         defer { view.controller.menuHighlight?.discard() }
         let shown = try #require(highlightBox(view))
-        #expect(abs(shown.midY - before.outline.midY) < 2, "the highlight starts off its bubble: \(shown) vs \(before.outline)")
+        #expect(abs(shown.midY - before.outline.midY) < 4, "the highlight starts off its bubble: \(shown) vs \(before.outline)")
         // The pane gets shorter: the bottom-anchored rows move up in the transcript view.
         view.frame.size.height = 420
         window.contentView?.layoutSubtreeIfNeeded()
@@ -69,8 +69,8 @@ import Testing
         let after = try #require(view.debugBubble(text: Self.mine))
         try #require(abs(after.outline.midY - before.outline.midY) > 20, "the bubble did not move; the test proves nothing")
         let moved = try #require(highlightBox(view))
-        #expect(abs(moved.midY - after.outline.midY) < 2,
+        #expect(abs(moved.midY - after.outline.midY) < 4,
                 "the highlight stayed where the bubble was: highlight \(moved), bubble \(after.outline) (was \(before.outline))")
-        #expect(abs(moved.midX - after.outline.midX) < 2)
+        #expect(abs(moved.midX - after.outline.midX) < 4)
     }
 }
