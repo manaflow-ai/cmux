@@ -30,6 +30,7 @@ import { AnchoredCard } from "../../ui/Tooltip";
 import { HOVER_INTENT } from "../../ui/hoverIntent";
 import { useHoverCard } from "./chips/useHoverCard";
 import { ContextCardBody } from "./ContextCard";
+import type { ContextBreakdown } from "./contextBreakdown";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
@@ -981,14 +982,20 @@ export function isPlan(modeId: string): boolean {
 
 /// How much of the context window the session has used, as a ring that fills. Resting the pointer
 /// on it, or focusing it, shows the context card with no click (ContextCard.tsx; Leo 2026-10-21,
-/// after Claude's and Codex's): the share and tokens used, the window as a stacked bar, and
-/// Details ›, which opens the Inspector's Context section. A click pins the card until a press
-/// outside; Escape closes it however it opened. The ring itself never takes a hover pill
-/// (contextCard.css).
+/// after Claude's and Codex's): the share and tokens used, the window as a stacked bar and its
+/// parts, the model's window, the last compaction, Compact now and Details ›, which opens the
+/// Inspector's Context section. A click pins the card until a press outside; Escape closes it
+/// however it opened. The card renders in a portal, so Tab from the ring moves into it, Tab past
+/// its last action moves on to what follows the ring, and Shift+Tab from its first goes back to
+/// the ring. The ring itself never takes a hover pill (contextCard.css).
 export function ContextRing({
   used,
   size,
   setup,
+  breakdown,
+  model,
+  compactedAt,
+  now,
   onCompact,
   onOpenDetails,
   working = false,
@@ -997,6 +1004,15 @@ export function ContextRing({
   size?: number;
   /// Tokens the agent took before the conversation; the card splits it out when known.
   setup?: number;
+  /// Claude Code's /context rows, when the chat reported them (contextBreakdown.ts).
+  breakdown?: ContextBreakdown;
+  /// The chat's model, named as people say it, for the card's window line.
+  model?: string;
+  /// When the chat last finished a compaction (ms since the epoch).
+  compactedAt?: number;
+  /// The time the card reads the compaction's age against (tests); the time it opens otherwise.
+  now?: number;
+  /// Sends the agent's /compact; the card shows Compact now only with it.
   onCompact?(): void;
   /// Opens the Inspector at its Context section; the card shows Details › only with it.
   onOpenDetails?(): void;
@@ -1008,6 +1024,8 @@ export function ContextRing({
   const wrapper = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const card = useRef<HTMLDivElement>(null);
+  /// Focus going back to the ring from the card (Escape) must not open the card again.
+  const quietFocus = useRef(false);
   const known = used !== undefined && size !== undefined && size > 0;
   const fraction = known ? Math.min(1, Math.max(0, used / size)) : 0;
   const percent = Math.round(fraction * 100);
@@ -1032,7 +1050,7 @@ export function ContextRing({
   const dismissHover = hover.dismiss;
   useEffect(() => {
     // Escape closes the card however it opened (hover, keyboard focus or a click), and takes the
-    // press, so it doesn't also reach the composer.
+    // press, so it doesn't also reach the composer. Focus inside the card goes back to the ring.
     if (!shown) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -1040,6 +1058,11 @@ export function ContextRing({
       event.stopPropagation();
       setPinned(false);
       dismissHover();
+      if (card.current?.contains(document.activeElement)) {
+        quietFocus.current = true;
+        trigger.current?.focus();
+        quietFocus.current = false;
+      }
     };
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
@@ -1056,6 +1079,40 @@ export function ContextRing({
     document.addEventListener("pointerdown", onPress, true);
     return () => document.removeEventListener("pointerdown", onPress, true);
   }, [pinned]);
+  const actions = () => [...(card.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [])];
+  // Tab from the ring moves into the card, which sits in a portal at the end of the page: its
+  // first action takes focus, and the card stays pinned while focus is in it.
+  const onRingKey = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key !== "Tab" || event.shiftKey || !shown) return;
+    const first = actions()[0];
+    if (!first) return;
+    event.preventDefault();
+    setPinned(true);
+    first.focus();
+  };
+  // Inside the card, Tab past the last action goes on to what follows the ring in the page, and
+  // Shift+Tab before the first goes back to the ring.
+  const onCardKey = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Tab") return;
+    const all = actions();
+    const at = all.indexOf(document.activeElement as HTMLButtonElement);
+    if (event.shiftKey && at === 0) {
+      event.preventDefault();
+      trigger.current?.focus();
+    } else if (!event.shiftKey && at === all.length - 1 && trigger.current) {
+      event.preventDefault();
+      setPinned(false);
+      dismissHover();
+      focusAfter(trigger.current, card.current);
+    }
+  };
+  // Focus leaving the card for anywhere but the ring unpins it.
+  const onCardBlur = (event: React.FocusEvent<HTMLDivElement>) => {
+    hover.card.onBlurCapture();
+    const next = event.relatedTarget as Node | null;
+    if (next && (card.current?.contains(next) || wrapper.current?.contains(next))) return;
+    setPinned(false);
+  };
   const full = fraction >= 0.8 ? " acpmux-context-full" : "";
   return (
     // tooltip-allow: before any usage the inert ring says why; once usage is known the card replaces it.
@@ -1075,6 +1132,10 @@ export function ContextRing({
         // Before the first usage report there is nothing to show: the ring keeps its place, off.
         disabled={!known}
         {...hover.trigger}
+        onFocus={() => {
+          if (!quietFocus.current) hover.trigger.onFocus();
+        }}
+        onKeyDown={onRingKey}
         onClick={() => setPinned((was) => !was)}
       >
         <svg width={14} height={14} viewBox="0 0 14 14" aria-hidden="true" focusable="false">
@@ -1114,16 +1175,21 @@ export function ContextRing({
         onPointerLeave={hover.card.onPointerLeave}
       >
         {known && (
-          <div onFocusCapture={hover.card.onFocusCapture} onBlurCapture={hover.card.onBlurCapture}>
+          <div onFocusCapture={hover.card.onFocusCapture} onBlurCapture={onCardBlur} onKeyDown={onCardKey}>
             <ContextCardBody
               used={used}
               size={size}
               setup={setup}
+              breakdown={breakdown}
+              model={model}
+              compactedAt={compactedAt}
+              now={now}
               working={working}
               onCompact={
                 onCompact &&
                 (() => {
                   setPinned(false);
+                  dismissHover();
                   onCompact();
                 })
               }
@@ -1140,6 +1206,22 @@ export function ContextRing({
       </AnchoredCard>
     </span>
   );
+}
+
+const TABBABLE =
+  'a[href], button, input, select, textarea, summary, [tabindex], [contenteditable=""], [contenteditable="true"]';
+
+/// Focuses what follows `from` in the page's Tab order, outside `skip`: the first candidate that
+/// takes focus (a hidden one doesn't). Nothing takes it: focus leaves the card for the page.
+function focusAfter(from: HTMLElement, skip: HTMLElement | null): void {
+  const all = [...from.ownerDocument.querySelectorAll<HTMLElement>(TABBABLE)];
+  for (const candidate of all.slice(all.indexOf(from) + 1)) {
+    if (skip?.contains(candidate) || candidate.tabIndex < 0 || (candidate as HTMLButtonElement).disabled) continue;
+    if (candidate.closest("[inert], [hidden]")) continue;
+    candidate.focus();
+    if (candidate.ownerDocument.activeElement === candidate) return;
+  }
+  (from.ownerDocument.activeElement as HTMLElement | null)?.blur();
 }
 
 // The markers of cmux-tui/spec/full-access-modes.json, the rule acpmux and the app enforce.

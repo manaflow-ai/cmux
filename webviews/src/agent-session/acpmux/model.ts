@@ -8,6 +8,7 @@ import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
 import type { IncomingPrompt } from "./conversation/incomingMessage";
+import type { ContextBreakdown } from "./contextBreakdown";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
@@ -141,6 +142,8 @@ export type AcpmuxRow = {
   kind: string;
   /// The acpmux event a turn summary came from, where a fork through that turn ends.
   seq?: number;
+  /// A compaction row's end: the session-clock time its `completed` update came (`at` is its start).
+  endedAt?: number;
   text?: string;
   streaming?: boolean;
   pending?: boolean;
@@ -426,8 +429,10 @@ export type AcpmuxSnapshot = {
     sessionId: string;
     cwd?: string;
     turnCount?: number;
-    /// Context-window tokens used of the session's window, from the agent's last usage update.
-    usage?: { used: number; size: number };
+    /// Context-window tokens used of the session's window, from the agent's last usage update, and
+    /// what fills it as Claude Code's /context last counted it (contextBreakdown.ts), until a
+    /// compaction makes that count stale.
+    usage?: { used: number; size: number; breakdown?: ContextBreakdown };
     host?: string;
     peer?: string;
     hostKind?: "local" | "cloud";

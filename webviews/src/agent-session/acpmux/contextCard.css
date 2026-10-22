@@ -59,12 +59,27 @@
 }
 
 .acpmux-context-card [data-segment="used"],
-.acpmux-context-card [data-segment="conversation"] {
+.acpmux-context-card [data-segment="conversation"],
+.acpmux-context-card [data-segment="messages"] {
   --acpmux-context-segment: var(--agent-accent);
 }
 
 .acpmux-context-card [data-segment="setup"] {
   --acpmux-context-segment: color-mix(in srgb, var(--agent-accent) 50%, transparent);
+}
+
+/* Claude Code's /context parts: the agent's own (system, tools) faintest, then files, then the
+   conversation in the full accent, as the bar reads left to right. */
+.acpmux-context-card [data-segment="system"] {
+  --acpmux-context-segment: color-mix(in srgb, var(--agent-accent) 35%, transparent);
+}
+
+.acpmux-context-card [data-segment="tools"] {
+  --acpmux-context-segment: color-mix(in srgb, var(--agent-accent) 55%, transparent);
+}
+
+.acpmux-context-card [data-segment="files"] {
+  --acpmux-context-segment: color-mix(in srgb, var(--agent-accent) 75%, transparent);
 }
 
 .acpmux-context-card.acpmux-context-full [data-segment] {
@@ -98,6 +113,15 @@
 
 .acpmux-context-card-part-tokens {
   color: var(--agent-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.acpmux-context-card-facts {
+  display: grid;
+  gap: 2px;
+  margin-top: 10px;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
 }
 

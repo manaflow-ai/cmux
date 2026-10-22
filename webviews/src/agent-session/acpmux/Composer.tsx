@@ -55,7 +55,9 @@ import {
   writePersistedDraft,
 } from "./composerDraft";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
-import { type StringKey, useT } from "./i18n";
+import { type StringKey, type Translate, useT } from "./i18n";
+import { isDefaultChoice, modelIdName, resolvedModel } from "./defaultChoice";
+import { lastCompactedAt } from "./contextBreakdown";
 import { remoteComposer } from "./remoteEditing";
 import { ChromeArea } from "../../ui/HideableChrome";
 import { useComposerChrome } from "./composerChrome";
@@ -421,6 +423,11 @@ export function Composer({
   const { plainFooter, showContextUsage, escapeDoublePress } = useComposerSettings();
   useRowFit(bar, plainFooter);
   const usage = snapshot.summary?.usage;
+  // The context card's facts (ContextCard.tsx): the model it counts the window of, and when the
+  // chat last compacted, on this computer's clock (a peer's events carry the peer's).
+  const contextModel = modelOfChat(snapshot, t);
+  const lastCompaction = useMemo(() => lastCompactedAt(snapshot.rows), [snapshot.rows]);
+  const compactedAt = lastCompaction === undefined ? undefined : lastCompaction + (snapshot.clockOffsetMs ?? 0);
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
@@ -603,6 +610,12 @@ export function Composer({
   }, [sessionId, text, onUnsentDraft]);
   const commands = snapshot.commands;
   const remote = remoteComposer(snapshot);
+  // Compact now: the agent's own /compact (Claude Code's and Codex's), sent as a prompt, as typing
+  // it would; offered only where the agent lists it and this composer may send.
+  const compactNow =
+    remote.canSend && commands?.some((command) => command.name === "compact" && command.source !== "cmux")
+      ? () => void onSend("/compact")
+      : undefined;
   // Permission modes live in the access chip beside +; the + menu keeps only the Plan/Build toggle.
   const permissionModes = (snapshot.summary?.modes?.availableModes ?? []).filter(
     (mode) => !/(^|[-_])plan$/i.test(mode.id),
@@ -1710,7 +1723,11 @@ export function Composer({
               <ContextRing
                 used={usage?.used}
                 size={usage?.size}
+                breakdown={usage?.breakdown}
+                model={contextModel}
+                compactedAt={compactedAt}
                 working={snapshot.isWorking}
+                onCompact={compactNow}
                 onOpenDetails={onOpenContext}
               />
             )}
@@ -1833,4 +1850,15 @@ function markdownOffset(markdown: string, shown: number): number {
     index += escape ? escape[0].length : 1;
   }
   return index;
+}
+
+/// The chat's model as people say it ("Opus 5.5"), for the context card's window line: the model
+/// it runs (the one its default resolved to), named by its harness's catalog, else read off its id.
+/// Undefined until the chat reports one.
+function modelOfChat(snapshot: AcpmuxSnapshot, t: Translate): string | undefined {
+  const summary = snapshot.summary;
+  const id = resolvedModel(summary) ?? summary?.model;
+  if (!id || isDefaultChoice({ id })) return undefined;
+  const listed = snapshot.catalog.find((entry) => entry.id === summary?.harness)?.models.find((model) => model.id === id);
+  return listed?.shortName ?? listed?.name ?? modelIdName(id, t);
 }

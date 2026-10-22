@@ -4,9 +4,40 @@ import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { useT } from "./i18n";
 import { ContextRing } from "./ComposerPickers";
+import type { ContextBreakdown } from "./contextBreakdown";
 import { openPicker } from "./pickerOpeners";
 
-type Props = { used?: number; size?: number; setup?: number; details?: boolean };
+type Props = {
+  used?: number;
+  size?: number;
+  setup?: number;
+  details?: boolean;
+  breakdown?: ContextBreakdown;
+  model?: string;
+  /// Minutes since the chat last compacted.
+  compactedMinutesAgo?: number;
+  compact?: boolean;
+  working?: boolean;
+};
+
+// The gallery's clock, so a compaction's age reads the same in every capture.
+const NOW = Date.UTC(2026, 9, 21, 12, 0, 0);
+
+/// Claude Code 2.1.305's /context rows for a chat 111K into a 475K window.
+const CLAUDE_BREAKDOWN: ContextBreakdown = {
+  categories: [
+    { id: "system_prompt", name: "System prompt", tokens: 6_200 },
+    { id: "system_tools", name: "System tools", tokens: 14_300 },
+    { id: "mcp_tools", name: "MCP tools", tokens: 3_100 },
+    { id: "custom_agents", name: "Custom agents", tokens: 900 },
+    { id: "memory_files", name: "Memory files", tokens: 4_800 },
+    { id: "skills", name: "Skills", tokens: 1_600 },
+    { id: "messages", name: "Messages", tokens: 80_100 },
+    { id: "free_space", name: "Free space", tokens: 364_000 },
+  ],
+  attachmentTokens: 2_500,
+  toolResults: [{ name: "Read", tokens: 9_000 }],
+};
 
 function GalleryContextRing(props: Props) {
   const t = useT();
@@ -17,6 +48,12 @@ function GalleryContextRing(props: Props) {
         used={props.used}
         size={props.size}
         setup={props.setup}
+        breakdown={props.breakdown}
+        model={props.model}
+        compactedAt={props.compactedMinutesAgo === undefined ? undefined : NOW - props.compactedMinutesAgo * 60_000}
+        now={NOW}
+        working={props.working}
+        onCompact={props.compact ? () => {} : undefined}
         // The chat's Inspector reveal (App.tsx); the gallery has no Inspector to open.
         onOpenDetails={props.details ? () => {} : undefined}
       />
@@ -92,6 +129,30 @@ export default componentEntry<Props>({
     "card-claude": {
       note: "Hover on a Claude chat: the glass card reads 23% used · 111K / 475K, the bar splits the agent's setup from the conversation, and Details › opens the Inspector's Context section. Plan limits are not reported to the pane yet, so the card shows none.",
       props: { used: 111_000, size: 475_000, setup: 21_000, details: true },
+      play: hoverCard,
+    },
+    "card-claude-rich": {
+      note: "Hover on a Claude chat that reported Claude Code's /context rows: 23% used, the bar and a row each for system, tools, files and messages, Opus 5.5's 475K window, when it last compacted, Compact now and Details ›.",
+      props: {
+        used: 111_000,
+        size: 475_000,
+        setup: 21_000,
+        breakdown: CLAUDE_BREAKDOWN,
+        model: "Opus 5.5",
+        compactedMinutesAgo: 12,
+        compact: true,
+        details: true,
+      },
+      play: hoverCard,
+    },
+    "card-codex-rich": {
+      note: "Hover on a Codex chat: Codex reports no breakdown and this chat never compacted, so the card shows the totals, the model's window, Compact now and Details ›, and no category rows.",
+      props: { used: 111_000, size: 475_000, model: "GPT-5.5 Codex", compact: true, details: true },
+      play: hoverCard,
+    },
+    "card-working": {
+      note: "While a turn runs, Compact now stays in place but is off.",
+      props: { used: 111_000, size: 475_000, breakdown: CLAUDE_BREAKDOWN, model: "Opus 5.5", compact: true, details: true, working: true },
       play: hoverCard,
     },
     "card-codex": {

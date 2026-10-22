@@ -63,6 +63,7 @@ import { sameSessionStart, sessionStartOf } from "./conversation/sessionStart";
 import { reduceAgentPair } from "./conversation/agentPairs";
 import { pasteRanges } from "./conversation/promptCollapse";
 import { AskTracker, pendingReader, SIDE_SESSION_METHOD } from "./needsYou/asks";
+import { type ContextBreakdown, contextBreakdownOf } from "./contextBreakdown";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -906,7 +907,7 @@ export class AcpmuxDirectClient {
   /// receipt (`permissionRecord`, permissions/record.ts).
   private askedPermissions = new Map<string, AcpmuxPermission>();
   private commands: SlashCommand[] = [];
-  private usage: { used: number; size: number } | undefined;
+  private usage: { used: number; size: number; breakdown?: ContextBreakdown } | undefined;
   /// The running turn's tokens: its model calls' usage added up from its `turn_started`, the
   /// running line's count (conversation/WorkingFor.tsx). Unset outside a turn, and for a turn
   /// whose start this client did not see (it missed calls before it attached).
@@ -2485,7 +2486,12 @@ export class AcpmuxDirectClient {
       // Counted before the window: Claude Code reports a size of 0 until its first result.
       if (this.turnTokens !== undefined && isCallUsage(update) && Number.isFinite(used) && used > 0)
         this.turnTokens += used;
-      if (Number.isFinite(used) && Number.isFinite(size) && size > 0) this.usage = { used, size };
+      if (Number.isFinite(used) && Number.isFinite(size) && size > 0) {
+        // Claude Code's /context rows come on their own usage update after a turn's end
+        // (claude_stdio/inbound.rs); the updates between keep the last ones.
+        const breakdown = contextBreakdownOf(update) ?? this.usage?.breakdown;
+        this.usage = { used, size, ...(breakdown ? { breakdown } : {}) };
+      }
       return;
     }
     if (update?.sessionUpdate === CONFIG_KIND) {
@@ -2862,6 +2868,9 @@ export class AcpmuxDirectClient {
           (row.seq ?? 0) > (running?.seq ?? -1)
         )
           running = row;
+      // What filled the window before is gone: the breakdown waits for Claude Code's next count.
+      if (compaction.state === "completed" && this.usage?.breakdown)
+        this.usage = { used: this.usage.used, size: this.usage.size };
       const id = running?.id ?? `compaction-${event.seq}`;
       if (compaction.state === "running") this.compactionHeardAt.set(id, event.at);
       else this.compactionHeardAt.delete(id);
@@ -2871,6 +2880,7 @@ export class AcpmuxDirectClient {
         at: running?.at ?? event.at,
         seq: running?.seq ?? event.seq,
         kind: "compaction",
+        ...(compaction.state === "completed" ? { endedAt: event.at } : {}),
         compaction:
           compaction.state === "running" && running?.compaction
             ? stillRunning(running.compaction, compaction)

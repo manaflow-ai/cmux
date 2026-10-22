@@ -504,6 +504,21 @@ impl Translator {
                             why.unwrap_or("Claude Code did not move its work to the background");
                         Message::err(id, RpcError::internal(why))
                     });
+                } else if rid.starts_with("ctx-") {
+                    // Claude Code's /context rows (`get_context_usage`, asked at each turn's end):
+                    // the chat's usage again, carrying them, so the pane's context card splits
+                    // the window by them. A Claude Code that predates the request refuses it, and
+                    // the card shows the totals alone.
+                    let used = self.context_used.load(Ordering::SeqCst);
+                    let size = self.context_window.load(Ordering::SeqCst);
+                    if ok && used > 0 && size > 0 && let Some(context) = context_breakdown(&inner) {
+                        out.push(upd(json!({
+                            "sessionUpdate": "usage_update",
+                            "used": used,
+                            "size": size,
+                            "_meta": {"claude": {"context": context}},
+                        })));
+                    }
                 } else if let Some(acp) = rid.strip_prefix("now-") {
                     // A step stopped for a steer sent now (`MUX_STEP_NOW`).
                     let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
@@ -543,6 +558,18 @@ impl Translator {
                             json!({"sessionUpdate": "usage_update", "used": used, "size": window}),
                         ));
                     }
+                }
+                // Claude Code's /context rows for the window as the turn left it, counted from the
+                // last response's usage without the per-row token-count calls (`summary`). Its
+                // answer is a `ctx-` control_response below. Not for startup noise (returned
+                // above) and not for a subagent's result.
+                if parent.is_none() {
+                    let n = self.next_control.fetch_add(1, Ordering::SeqCst);
+                    self.stdin_replies.lock().await.push(json!({
+                        "type": "control_request",
+                        "request_id": format!("ctx-{n}"),
+                        "request": {"subtype": "get_context_usage", "detail": "summary"},
+                    }));
                 }
                 // The result of a turn acpmux already ended (a Stop Claude Code
                 // answered late): it ends only the abandoned prompts. It comes
@@ -900,6 +927,46 @@ fn todo_plan(input: &Value) -> Option<Value> {
         })
         .collect();
     Some(json!({"sessionUpdate": "plan", "entries": entries}))
+}
+
+/// What fills the chat's window, from Claude Code's `get_context_usage`
+/// answer, for the pane's context card: each /context row's id, name and
+/// tokens, the tokens files attached to prompts take, and what each tool's
+/// results take. None without rows.
+fn context_breakdown(answer: &Value) -> Option<Value> {
+    let rows = answer.get("categories")?.as_array()?;
+    let categories: Vec<Value> = rows
+        .iter()
+        .filter_map(|row| {
+            let name = row.get("name")?.as_str()?;
+            let tokens = row.get("tokens")?.as_u64()?;
+            let mut out = json!({"name": name, "tokens": tokens});
+            if let Some(id) = row.get("id").and_then(Value::as_str) {
+                out["id"] = json!(id);
+            }
+            Some(out)
+        })
+        .collect();
+    if categories.is_empty() {
+        return None;
+    }
+    let mut context = json!({"categories": categories});
+    let messages = answer.get("messageBreakdown");
+    if let Some(n) = messages.and_then(|m| m.get("attachmentTokens")).and_then(Value::as_u64) {
+        context["attachmentTokens"] = json!(n);
+    }
+    if let Some(tools) = messages.and_then(|m| m.get("toolCallsByType")).and_then(Value::as_array) {
+        let results: Vec<Value> = tools
+            .iter()
+            .filter_map(|tool| {
+                let name = tool.get("name")?.as_str()?;
+                let tokens = tool.get("resultTokens")?.as_u64()?;
+                Some(json!({"name": name, "tokens": tokens}))
+            })
+            .collect();
+        context["toolResults"] = json!(results);
+    }
+    Some(context)
 }
 
 /// A `compaction` update: a compaction of the chat's context `state`
