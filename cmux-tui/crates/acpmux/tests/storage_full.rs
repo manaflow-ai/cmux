@@ -158,7 +158,7 @@ async fn a_nearly_full_disk_refuses_the_prompt_and_the_daemon_keeps_answering() 
 }
 
 #[tokio::test]
-async fn a_write_that_found_no_space_refuses_the_next_prompt() {
+async fn a_write_that_found_the_disk_full_refuses_the_next_prompt() {
     let disk = Arc::new(Disk::default());
     disk.free.store(PLENTY, Ordering::SeqCst);
     let hub = hub(disk.clone());
@@ -199,7 +199,7 @@ fn enospc_and_quota_errors_read_as_disk_full() {
     // EDQUOT (macOS 69, Linux 122) is a full disk to the user too.
     let quota = if cfg!(target_os = "macos") { 69 } else { 122 };
     assert!(acpmux::storage_full::is_disk_full(&std::io::Error::from_raw_os_error(quota).into()));
-    let wrapped = anyhow::Error::from(no_space()).context("append session.ndjson");
+    let wrapped = no_space().context("append session.ndjson");
     assert!(acpmux::storage_full::is_disk_full(&wrapped));
     assert!(!acpmux::storage_full::is_disk_full(&std::io::Error::from_raw_os_error(13).into()));
 }
