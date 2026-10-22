@@ -661,6 +661,22 @@ class WebviewsChecksGate(unittest.TestCase):
                                   "/w/merge", "/w/base")
         self.assertEqual(added, [])
 
+    def test_replay_of_24252_unicode_frames_in_another_order_add_nothing(self):
+        # #24252's fast gates: Oxlint printed its Unicode frame (`╭─[`, `│`, `·`, `╰`), and with 4 threads the
+        # base and the merge listed the same 84 errors in another order. The run's summary glued onto whichever
+        # error came last, so the base's Toasts.tsx TS2339 read as one the merge added.
+        def unicode_error(message: str, where: str) -> str:
+            return (f"  × typescript(TS2339): {message}\n    ╭─[{where}]\n 18 │           </div>\n"
+                    f" 19 │           <button onClick={{() => onDismiss(toast.notification)}}>\n"
+                    "    ·                                                ────────────\n 20 │             ×\n    ╰────\n\n")
+        toast = unicode_error("Property 'notification' does not exist on type 'Toast'.", "src/components/Toasts.tsx:19:64")
+        row = unicode_error("Property 'muted' does not exist on type 'Row'.", "src/components/Row.tsx:7:9")
+        summary = ("Found 2 errors and 0 warnings in 2 files ({} 4 threads)\nnote: You are running `vp check` as a Vite+ "
+                   "built-in command.\nerror: Type errors found\n")
+        self.assertEqual(self.module.added(row + toast + summary.format("715ms,"), toast + row + summary.format("9ms,")), [])
+        self.assertEqual([found for found, _ in self.module.findings(toast + summary.format("1ms,"))],
+                         ["src/components/Toasts.tsx: typescript(TS2339): Property 'notification' does not exist on type 'Toast'."])
+
     def test_replay_of_23763_a_new_type_error_fails_over_a_base_red_with_another(self):
         # The base's type check is already red (a missing module); the merge moves that error two lines and adds
         # #23763's TS2339. Per error, the new one fails the gate and the base one stays a warning.
