@@ -49,11 +49,13 @@ export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; c
   const cursor = b.sql.exec<{ seq: number }>(`SELECT seq FROM cb_cursor WHERE conversation = ?`, w.conversation).toArray()[0]?.seq ?? w.seq - 1
   let queued = 0
   let top = cursor
+  // On the Claude Code route each attachment line names its file in the turn machine (chief-brain-cc/attachments.ts writes it there).
+  const files = ccRoute(b.doEnv, w.owner)
   for (const m of view.messages) {
     if (m.seq <= cursor) continue
     top = Math.max(top, m.seq)
     if (m.author === w.agent || m.retracted_at !== undefined) continue
-    const text = formatMessage(view.head, m)
+    const text = formatMessage(view.head, m, { files })
     if (!text) continue
     const fresh = b.sql
       .exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (message) DO NOTHING RETURNING n`, m.id, w.conversation, m.seq, view.head.kind ?? "group", m.thread_root ?? null, text, m.author === w.owner ? 1 : 0)
