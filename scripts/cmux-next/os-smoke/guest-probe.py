@@ -535,7 +535,7 @@ try:
                                      ("toggleSplitZoom", 3, "pane-zoom.png"), ("toggleSplitZoom", 3, None),
                                      ("closePane", 2, None), ("closePane", 1, "pane-closed.png")):
                 rpc("debug.frames", {"action": "start"})
-                reply = rpc("action.run", {"action": verb, "focus": True, "origin": "user"})
+                reply = rpc("action.run", {"action": verb, "focus": True, "origin": "script"})
                 count = wait(lambda: (lambda n: n if n == want else None)(pane_count()), 5, alive) or pane_count()
                 time.sleep(0.8)  # the spring lands before its frames are read
                 frames = rpc("debug.frames", {"action": "stop"}) or {}
