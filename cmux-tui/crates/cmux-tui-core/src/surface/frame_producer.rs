@@ -43,12 +43,13 @@ impl FrameRequests {
 impl FrameRequests {
     /// Output moved the scroll position: publish it with the next frame.
     pub(super) fn defer_scroll(&self, offset: u64, at_bottom: bool) {
-        *self.scroll.lock().unwrap() = Some((offset, at_bottom));
+        *self.scroll.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some((offset, at_bottom));
     }
 
     /// Publish a recorded output scroll change, if any; whether one was.
     pub(super) fn flush_scroll(&self, mux: &Mux, surface: SurfaceId) -> bool {
-        let mut pending = self.scroll.lock().unwrap();
+        let mut pending = self.scroll.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let Some((offset, at_bottom)) = pending.take() else { return false };
         mux.emit_terminal_scroll(surface, offset, at_bottom);
         true
@@ -63,7 +64,7 @@ impl FrameRequests {
         offset: u64,
         at_bottom: bool,
     ) {
-        let mut pending = self.scroll.lock().unwrap();
+        let mut pending = self.scroll.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         *pending = None;
         mux.emit_terminal_scroll(surface, offset, at_bottom);
     }
