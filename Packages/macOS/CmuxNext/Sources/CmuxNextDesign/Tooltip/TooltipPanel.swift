@@ -2,18 +2,20 @@ import AppKit
 
 /// The tooltip's ink and legibility tint, read in the panel's theme scope.
 struct TooltipStyle {
+    /// `TooltipSurface.ink`: the theme's primary text, unless no translucent tint reads under it.
     var ink: NSColor
     var hint: NSColor
     /// `TooltipSurface.tint`: the popup surface at the least alpha that keeps `ink` at 4.5:1 over
-    /// the tint laid on pure black and on pure white. Always translucent glass, never solid.
+    /// the tint laid on pure black and on pure white, at most `maximumTintAlpha`. Always
+    /// translucent glass, never solid.
     var tint: NSColor
 
     /// The scope's colors, frozen (the labels draw them as they are). theme-scoped
     @MainActor static func current() -> TooltipStyle {
         func frozen(_ color: NSColor) -> NSColor { color.usingColorSpace(.sRGB) ?? color }
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-        let tint = TooltipSurface(tokens, lift: ChromeTunables.opaqueOverlayLift.value).tint.nsColor
-        return TooltipStyle(ink: frozen(Palette.textPrimary), hint: frozen(Palette.textSecondary), tint: tint)
+        let surface = TooltipSurface(tokens, lift: ChromeTunables.opaqueOverlayLift.value)
+        return TooltipStyle(ink: frozen(surface.ink.nsColor), hint: frozen(Palette.textSecondary), tint: surface.tint.nsColor)
     }
 }
 

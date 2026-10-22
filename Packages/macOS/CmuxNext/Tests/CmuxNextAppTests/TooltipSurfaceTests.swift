@@ -25,37 +25,68 @@ import Testing
 
     /// The blur only averages what is under the tooltip, so the worst a backdrop can do is pure
     /// black or pure white: over both, the text keeps 4.5:1, on the glass and on the opaque
-    /// Reduce Transparency fallback.
+    /// Reduce Transparency fallback. Every theme's tint is glass, never the opaque fill in
+    /// disguise, and these themes' text reads on it as the theme draws it.
     @Test func theTextKeepsFourAndAHalfToOneOverBlackAndWhite() {
         let black = ThemeRGB(hex: 0x000000)
         let white = ThemeRGB(hex: 0xFFFFFF)
+        #expect(TooltipSurface.maximumTintAlpha < 1)
         for input in Self.themes {
             let tokens = ThemeTokens.derive(from: input)
             let surface = TooltipSurface(tokens, lift: ChromeTunables.opaqueOverlayLift.value)
-            let ink = tokens.textPrimary.withAlpha(1)
             let name = "\(input.background) \(tokens.isDark ? "dark" : "light")"
-            #expect(surface.tint.alpha >= TooltipSurface.minimumTintAlpha && surface.tint.alpha <= 1, "\(name)")
+            #expect(surface.ink == tokens.textPrimary.withAlpha(1), "\(name): the ink moved off the theme's text")
+            #expect(surface.tint.alpha >= TooltipSurface.minimumTintAlpha
+                && surface.tint.alpha <= TooltipSurface.maximumTintAlpha, "\(name): the tint is \(surface.tint.alpha)")
             for backdrop in [black, white] {
-                let glass = ink.contrast(with: surface.tint.composited(over: backdrop))
+                let glass = surface.ink.contrast(with: surface.tint.composited(over: backdrop))
                 #expect(glass >= ThemeTokens.minimumTextContrast, "\(name) over \(backdrop): \(glass)")
             }
             // Reduce Transparency: the opaque popup surface.
             #expect(surface.fill.alpha == 1)
-            let opaque = ink.contrast(with: surface.fill)
+            let opaque = surface.ink.contrast(with: surface.fill)
             #expect(opaque >= ThemeTokens.minimumTextContrast, "\(name) opaque: \(opaque)")
         }
-        // A plain light and a plain dark theme are glass, not the opaque fill in disguise.
-        for input in [Self.themes[0], Self.themes[4]] {
-            let surface = TooltipSurface(ThemeTokens.derive(from: input), lift: ChromeTunables.opaqueOverlayLift.value)
-            #expect(surface.tint.alpha < 1, "\(input.background): the tint is opaque")
+    }
+
+    /// Codex review of #23970: Solarized dark (#002B36 under #839496) found no translucent alpha
+    /// that kept its text at 4.5:1 and fell back to the solid popup surface, an opaque card. A
+    /// theme whose text does not read on its own tint walks the tint away from the text (then the
+    /// text toward its extreme), so the tooltip stays glass and the text keeps 4.5:1 over pure
+    /// black and pure white; the colors the review named, and fills and inks with next to no
+    /// contrast, included.
+    @Test func aLowContrastThemesTooltipIsStillGlassAndReads() {
+        let solarized = ThemeInput(background: ThemeRGB(hex: 0x002B36), foreground: ThemeRGB(hex: 0x839496))
+        let tokens = ThemeTokens.derive(from: solarized)
+        let themed = TooltipSurface(tokens, lift: ChromeTunables.opaqueOverlayLift.value)
+        // Reduce Transparency's opaque surface still carries the ink.
+        #expect(themed.ink.contrast(with: themed.fill) >= ThemeTokens.minimumTextContrast)
+        let pairs: [(String, TooltipSurface)] = [
+            ("Solarized dark", themed),
+            ("#002B36 under #839496", TooltipSurface(fill: ThemeRGB(hex: 0x002B36), ink: ThemeRGB(hex: 0x839496))),
+            ("#0A333E under #839496", TooltipSurface(fill: ThemeRGB(hex: 0x0A333E), ink: ThemeRGB(hex: 0x839496))),
+            ("#000000 under #777777", TooltipSurface(fill: ThemeRGB(hex: 0x000000), ink: ThemeRGB(hex: 0x777777))),
+            ("#898989 under #FFFFFF", TooltipSurface(fill: ThemeRGB(hex: 0x898989), ink: ThemeRGB(hex: 0xFFFFFF))),
+            ("#FDF7E7 under #93A1A1", TooltipSurface(fill: ThemeRGB(hex: 0xFDF7E7), ink: ThemeRGB(hex: 0x93A1A1))),
+            ("#808080 under #808080", TooltipSurface(fill: ThemeRGB(hex: 0x808080), ink: ThemeRGB(hex: 0x808080))),
+        ]
+        for (name, surface) in pairs {
+            #expect(surface.tint.alpha >= TooltipSurface.minimumTintAlpha && surface.tint.alpha < 1
+                && surface.tint.alpha <= TooltipSurface.maximumTintAlpha, "\(name): the tint is \(surface.tint.alpha), not glass")
+            for backdrop in [ThemeRGB(hex: 0x000000), ThemeRGB(hex: 0xFFFFFF)] {
+                let contrast = surface.ink.contrast(with: surface.tint.composited(over: backdrop))
+                #expect(contrast >= ThemeTokens.minimumTextContrast, "\(name) over \(backdrop): \(contrast)")
+            }
         }
     }
 
     /// Pages get the same tint (`--cmux-tooltip-tint`).
     @Test func pagesGetTheSameTint() throws {
         let tokens = ThemeTokens.derive(from: Self.themes[4])
-        let tint = try #require(WebTheme(tokens, surface: .internalPage, backgrounds: .none).variables["--cmux-tooltip-tint"])
-        #expect(tint == WebTheme.css(TooltipSurface(tokens, lift: ChromeTunables.opaqueOverlayLift.value).tint))
+        let variables = WebTheme(tokens, surface: .internalPage, backgrounds: .none).variables
+        let surface = TooltipSurface(tokens, lift: ChromeTunables.opaqueOverlayLift.value)
+        #expect(try #require(variables["--cmux-tooltip-tint"]) == WebTheme.css(surface.tint))
+        #expect(try #require(variables["--cmux-tooltip-ink"]) == WebTheme.css(surface.ink))
     }
 
     // MARK: The panel
@@ -340,12 +371,15 @@ import Testing
             let name = "\(input.background)"
             #expect(presenter.shown?.text == "Back", "\(name): the theme change put the tooltip away")
             let ink = try Self.ink(of: panel)
-            let want = scope.perform { Palette.textPrimary }.usingColorSpace(.sRGB)
-            #expect(abs(ink.red - Double(want?.redComponent ?? -1)) < 0.01
-                && abs(ink.green - Double(want?.greenComponent ?? -1)) < 0.01
-                && abs(ink.blue - Double(want?.blueComponent ?? -1)) < 0.01, "\(name): the label kept the old ink")
+            let surface = TooltipSurface(scope.tokens, lift: ChromeTunables.opaqueOverlayLift.value)
+            #expect(abs(ink.red - surface.ink.red) < 0.01 && abs(ink.green - surface.ink.green) < 0.01
+                && abs(ink.blue - surface.ink.blue) < 0.01, "\(name): the label kept the old ink")
+            let hint = try Self.rgb(try #require(panel.hint.textColor))
+            let wantHint = try Self.rgb(scope.perform { Palette.textSecondary })
+            #expect(abs(hint.red - wantHint.red) < 0.01 && abs(hint.green - wantHint.green) < 0.01
+                && abs(hint.blue - wantHint.blue) < 0.01, "\(name): the shortcut hint kept the old ink")
             let tint = try Self.tint(of: panel)
-            let expected = TooltipSurface(scope.tokens, lift: ChromeTunables.opaqueOverlayLift.value).tint
+            let expected = surface.tint
             #expect(abs(tint.alpha - expected.alpha) < 0.01 && abs(tint.red - expected.red) < 0.01, "\(name): the tint kept the old theme")
             #expect(tint.alpha < 1, "\(name): the tint is solid")
             let contrast = TooltipSurface.worstContrast(ink: ink, tint: tint)
