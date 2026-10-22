@@ -21,6 +21,12 @@ enum SidebarStyle {
     /// A workspace row's leading glyph: the size an icon takes beside the
     /// row title (cap height and stroke matched to the text).
     static var kindGlyphSize: CGFloat { .iconRowSize(forLabelPointSize: titleFont.pointSize) }
+    /// Where a list row's title text starts when its leading icon slot begins at `leading`: one
+    /// `iconBox` slot, drawn or empty, then a Chrome-like gap after the glyph's drawing, so rows
+    /// with and without an icon line up (Lawrence 2026-10-21: "weird spacing").
+    static func titleTextX(leading: CGFloat) -> CGFloat {
+        leading + iconBox + Metrics.space3 - Swift.max(0, (iconBox - kindGlyphSize) / 2)
+    }
     /// An item's glyph on its `iconBox` well (the list look), clear of the well's edge.
     static var wellGlyphSize: CGFloat { Swift.max(.iconFloor, iconBox - Metrics.space2) }
     static var controlSize: CGFloat { Metrics.iconSize + Metrics.space2 }
@@ -109,7 +115,7 @@ enum SidebarStyle {
     /// A top-level group's header and members line up with ungrouped rows: same leading x, same
     /// pill width (Leo 2026-10-21: "THE STUPID INDENT, IS THAT CHROME???? WHY IS THERE INDENT ON
     /// THIS INDENT"). Only a nested group's rows step in, one gutter per level below the first.
-    static func groupOffset(depth: Int) -> CGFloat { groupGutter * CGFloat(max(0, depth - 1)) }
+    static func groupOffset(depth: Int) -> CGFloat { SidebarIndent(step: groupGutter).offset(level: depth, width: .greatestFiniteMagnitude) }
     /// The members' line sits just left of their rows, in the list's leading inset for a
     /// top-level group, so no hover or selection fill covers it (cx-q5jw) and the rows keep
     /// the ungrouped rows' left edge.

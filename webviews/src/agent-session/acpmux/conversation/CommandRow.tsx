@@ -16,7 +16,7 @@ import { BackgroundMark } from "./BackgroundMark";
 import { Check, ChevronRight, Spinner, TerminalSquare } from "./icons";
 import { isFailed, isRunning, toolDuration } from "./toolGroups";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
-import { shortCommand } from "./shortCommand";
+import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { useFold } from "./fold";
 
 export function CommandRow({ item }: { item: AcpmuxActivity }) {
@@ -41,7 +41,7 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
   const duration = toolDuration(t, tool);
   // Find counts the line without its leading cd (chatFind.ts), so a line shortened past that is
   // skipped; opened, the Shell block draws it.
-  const short = shortCommand(tool.command ?? "");
+  const short = shortCommand(tool.command ?? "", ROW_WIDTH);
   const whole = short === commandFolder(tool.command ?? "").rest.trim();
   const exited = tool.exitCode !== undefined && tool.exitCode !== 0;
   // "Ran {command}" in the reader's language, the command drawn as code where the string puts it.

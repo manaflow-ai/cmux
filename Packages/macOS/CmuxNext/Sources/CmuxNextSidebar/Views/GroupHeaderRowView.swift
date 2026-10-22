@@ -177,6 +177,10 @@ final class GroupHeaderRowView: SidebarRowView {
     override var debugDisclosure: (icon: String, frame: CGRect, shown: Bool)? { (chevronIcon.rawValue, chevron.frame, !chevron.isHidden) }
 
     override var titleFrame: NSRect { name.frame }
+    /// The unread state the header's badge shows (nested-groups tests: a folded parent's roll-up).
+    var debugBadge: UnreadState { badge.state }
+    /// Whether the header shows a loading or activity mark.
+    var debugActivityVisible: Bool { activity.state.isVisible }
     /// The member count a collapsed header shows, nil when it shows none.
     var countText: String? { count.isHidden || count.stringValue.isEmpty ? nil : count.stringValue }
     /// The count's label, laid out (`SidebarGroupChromeLookTests`).

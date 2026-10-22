@@ -1,6 +1,6 @@
 // Codex-style tool runs while a turn runs (cx-ncc.108, the Debug toggle
 // agentPane.debug.codexToolRuns, on by default): the Codex desktop app never lets a running turn's
-// tool calls pile up as a list. Each run folds into one summary line ("Read files, ran a command")
+// tool calls pile up as a list. Each run folds into one summary line ("Read 2 files, ran a command")
 // that opens to its calls, the latest run too as its calls finish; the call in flight leaves the
 // run for the turn's live line, which names it and replaces itself as calls go by. Off, every call
 // keeps its row.
@@ -49,7 +49,7 @@ function drawnRuns(liveRuns: boolean): Record<string, string> {
 
 test("with live runs on, a run that text followed reads as one summary line", () => {
   const reads = drawnRuns(true).reads!;
-  expect(reads).toContain("Read files, ran a command");
+  expect(reads).toContain("Read 2 files, ran a command");
   expect(reads).not.toContain("README.md");
   expect(reads).not.toContain("ls src");
 });

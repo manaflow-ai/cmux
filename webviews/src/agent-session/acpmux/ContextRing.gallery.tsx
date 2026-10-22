@@ -5,8 +5,9 @@ import type { Play } from "../../gallery/play";
 import { useT } from "./i18n";
 import { ContextRing } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
+import { CONTEXT_BREAKDOWN } from "../../gallery/fixtures/acpmux";
 
-type Props = { used?: number; size?: number; setup?: number };
+type Props = { used?: number; size?: number; setup?: number; breakdown?: unknown };
 
 function GalleryContextRing(props: Props) {
   const t = useT();
@@ -46,7 +47,7 @@ export default componentEntry<Props>({
   height: 220,
   widths: { narrow: 360, normal: 520, wide: 720 },
   anchors: [{ selector: ".acpmux-context" }],
-  covers: ["agent-session/acpmux/ComposerPickers.tsx#ContextRing"],
+  covers: ["agent-session/acpmux/ComposerPickers.tsx#ContextRing", "agent-session/acpmux/inspector/ContextSection.tsx"],
   styles: () => Promise.all([import("./styles.css"), import("./composerControls.css")]),
   checks: {
     anchorMovePx: {
@@ -73,6 +74,22 @@ export default componentEntry<Props>({
       note: "Once usage is known, the same automation path opens the anchored usage details.",
       props: { used: 33551, size: 200000, setup: 12000 },
       play: openKnownByAutomation,
+    },
+    breakdown: {
+      note: "A Claude Code chat's /context: the details draw the Inspector's Context card (the bar split by category in steps of the accent, a row per category, deferred ones dimmed, then the MCP tools, Memory files and Skills folds) in place of the plain bar.",
+      props: { used: 171400, size: 400000, breakdown: CONTEXT_BREAKDOWN },
+      height: 560,
+      play: openKnownByAutomation,
+    },
+    "breakdown-memory-open": {
+      note: "Memory files, clicked: each CLAUDE.md by name with its path and tokens.",
+      props: { used: 171400, size: 400000, breakdown: CONTEXT_BREAKDOWN },
+      height: 600,
+      play: async (ctx) => {
+        await openKnownByAutomation(ctx);
+        await ctx.click({ selector: '[data-list="memoryFiles"] button' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-breakdown__items") !== null);
+      },
     },
     "usage-empty": {
       note: "A fresh chat: usage is known but nothing is used, so only the 1px track shows.",
