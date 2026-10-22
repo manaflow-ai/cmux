@@ -59,22 +59,23 @@ import Testing
         #expect(MacHomeList(rows, query: "green").rows.map(\.id) == ["conv_ops"])
     }
 
-    /// The Mac's Unread toggle (its only filter): unread or marked unread.
+    /// The Mac's Unread toggle (its only filter): unread or marked unread, with no grid
+    /// (MessagesLab's filtered list), pinned ones first in the list's order.
     @Test func unreadOnlyKeepsUnreadAndMarkedUnread() {
         let list = MacHomeList(MacHomeRow.rows(fromHomeInbox: Self.reply), unreadOnly: true)
-        #expect(list.pinned.map(\.id) == ["conv_chief"])
-        #expect(list.rows.map(\.id) == ["conv_ops"])
+        #expect(list.pinned.isEmpty)
+        #expect(list.rows.map(\.id) == ["conv_chief", "conv_ops"])
     }
 
-    /// The pinned grid holds at most nine tiles, as the Mac's.
-    @Test func pinnedGridHoldsNineTiles() {
+    /// Every pinned conversation is a tile, as on the Mac (no cap).
+    @Test func everyPinIsATile() {
         let many: [[String: Any]] = (0..<12).map { i in
             ["id": "conv_\(i)", "kind": "chief", "name": "C\(i)", "unread": 0, "activity_at": "2026-10-21T08:00:00Z",
              "pinned": true, "pin_position": i, "marked_unread": false]
         }
         let list = MacHomeList(MacHomeRow.rows(fromHomeInbox: ["me": "user_local", "rows": many]))
-        #expect(list.pinned.count == 9)
-        #expect(list.rows.map(\.id) == ["conv_9", "conv_10", "conv_11"])
+        #expect(list.pinned.count == 12)
+        #expect(list.rows.isEmpty)
     }
 }
 
@@ -118,7 +119,7 @@ final class FakeHomeOwner: @unchecked Sendable {
             switch object["cmd"] as! String {
             case "conversation-list":
                 return [ok(["conversations": rows.map { ["id": $0["id"]!, "last_seq": 7, "participants": [
-                    ["id": "user_local", "kind": "human"], ["id": $0["chief"] ?? "agent_mux", "kind": "agent"]]] }])]
+                    ["id": "user_local", "kind": "human"], ["id": $0["chief"] ?? "agent_codex", "kind": "agent"]]] }])]
             case "subscribe":
                 return [ok([:])]
             case "home-inbox":
@@ -173,17 +174,17 @@ final class FakeHomeOwner: @unchecked Sendable {
         #expect(owner.sent("home-inbox").first?["owners"] as? [String] == ["local"])
     }
 
+    /// The Mac's event alone (no request from the phone) reads the list again.
     @Test func aNewMessageOnTheMacReadsTheListAgain() async throws {
         let owner = FakeHomeOwner()
-        let pending = PendingEvents()
-        let link = MockMacLink { _, request in owner.respond(request) + pending.take() }
+        let link = PushLink { request in owner.respond(request) }
         let feed = MacHomeFeed()
         await feed.connect(link: link, macID: "mac-1")
         #expect(await until { feed.rows?.count == 4 })
-        pending.add(owner.post(in: "conv_old", preview: "Back again"))
-        // Any request lets the queued event through (the fake has no clock of its own).
-        feed.refresh()
+        let reads = owner.inboxReads
+        link.push(owner.post(in: "conv_old", preview: "Back again"))
         #expect(await until { feed.rows?.first { $0.id == "conv_old" }?.preview == "Back again" })
+        #expect(owner.inboxReads > reads)
         #expect(MacHomeList(feed.rows ?? []).rows.map(\.id) == ["conv_old", "conv_ops"])
     }
 
@@ -215,6 +216,29 @@ final class FakeHomeOwner: @unchecked Sendable {
         #expect((read["op"] as? [String: Any])?["seq"] as? Int == 7)
     }
 
+    /// A list channel that could not open is opened again by the next refresh, on the same link.
+    @Test func aFailedOpenIsTriedAgain() async throws {
+        let owner = FakeHomeOwner()
+        let link = PushLink { request in owner.respond(request) }
+        link.failNextOpen = true
+        let feed = MacHomeFeed()
+        await feed.connect(link: link, macID: "mac-1")
+        #expect(feed.problem != nil)
+        #expect(feed.rows == nil)
+        feed.refresh()
+        #expect(await until { feed.rows?.count == 4 })
+        #expect(feed.problem == nil)
+    }
+
+    /// The Mac Chief's row is known from the owner's list before its session finds it.
+    @Test func theMacChiefsRowIsNamedByTheList() async throws {
+        let owner = FakeHomeOwner()
+        let feed = MacHomeFeed()
+        await feed.connect(link: MockMacLink { _, request in owner.respond(request) }, macID: "mac-1")
+        #expect(await until { feed.rows?.count == 4 })
+        #expect(feed.macChiefID == "conv_chief")
+    }
+
     /// Another Mac chosen: its own list, never the last Mac's rows.
     @Test func anotherMacStartsFromItsOwnList() async throws {
         let owner = FakeHomeOwner()
@@ -234,10 +258,65 @@ final class FakeHomeOwner: @unchecked Sendable {
     }
 }
 
-/// Events a test releases with the next reply.
-final class PendingEvents: @unchecked Sendable {
+/// A link whose channels answer each request through `respond` and can be sent an
+/// event at any time (`push`), as the Mac's owner does.
+final class PushLink: MacLink, @unchecked Sendable {
+    let transport: TransportKind = .webRTC
+    let states: AsyncStream<LinkState>
+    private let respond: @Sendable (Data) -> [Data]
     private let lock = NSLock()
-    private var lines: [Data] = []
-    func add(_ line: Data) { lock.withLock { lines.append(line) } }
-    func take() -> [Data] { lock.withLock { defer { lines = [] }; return lines } }
+    private var channels: [PushChannel] = []
+    private var nextID: UInt32 = 1
+    var failNextOpen = false
+
+    init(respond: @escaping @Sendable (Data) -> [Data]) {
+        self.respond = respond
+        states = AsyncStream { $0.yield(.connected(.webRTC, .direct, rttMillis: 1)) }
+    }
+
+    func openChannel(service: String, args: [String: String]) async throws -> any LinkChannel {
+        try lock.withLock {
+            if failNextOpen {
+                failNextOpen = false
+                throw LinkError(code: "closed", message: "daemon channel closed")
+            }
+            defer { nextID += 2 }
+            let channel = PushChannel(id: nextID, respond: respond)
+            channels.append(channel)
+            return channel
+        }
+    }
+
+    func openInputChannel(service: String, args: [String: String]) async throws -> any LinkChannel {
+        try await openChannel(service: service, args: args)
+    }
+
+    func ping() async throws -> UInt32 { 1 }
+    func close() async {}
+    var connectedPath: LinkPathKind? { .direct }
+
+    /// One event line to every open channel.
+    func push(_ line: Data) {
+        for channel in lock.withLock({ channels }) { channel.deliver(line) }
+    }
+}
+
+final class PushChannel: LinkChannel, @unchecked Sendable {
+    let id: UInt32
+    private let respond: @Sendable (Data) -> [Data]
+    private let stream: AsyncStream<Data>
+    private let continuation: AsyncStream<Data>.Continuation
+    private var iterator: AsyncStream<Data>.AsyncIterator
+
+    init(id: UInt32, respond: @escaping @Sendable (Data) -> [Data]) {
+        self.id = id
+        self.respond = respond
+        (stream, continuation) = AsyncStream.makeStream()
+        iterator = stream.makeAsyncIterator()
+    }
+
+    func deliver(_ line: Data) { continuation.yield(line) }
+    func send(_ data: Data) async throws { for reply in respond(data) { continuation.yield(reply) } }
+    func receive() async throws -> Data? { await iterator.next() }
+    func close(code: String, reason: String) async { continuation.finish() }
 }

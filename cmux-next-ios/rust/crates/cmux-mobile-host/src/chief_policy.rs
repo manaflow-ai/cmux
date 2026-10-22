@@ -937,5 +937,32 @@ mod tests {
         assert!(policy.filter_reply(&changed(CHIEF, "user_local")).is_some());
         assert!(policy.filter_reply(&changed(REMOTE, "user_local")).is_none());
         assert!(policy.filter_reply(&changed(CHIEF, "agent_mux")).is_none());
+        let unnamed = line(serde_json::json!({"event": "conversation-inbox-changed", "conversation": CHIEF,
+            "pinned": true, "marked_unread": false}));
+        assert!(policy.filter_reply(&unnamed).is_none());
+
+        // A row with no owner (an owner before Cloud rows) is local; it still needs the scope.
+        assert_eq!(policy.evaluate(br#"{"cmd":"home-inbox","id":"h6","owners":["local"]}"#), Verdict::Forward);
+        let reply = serde_json::json!({"id": "h6", "ok": true, "data": {"me": "user_local", "rows": [
+            {"id": CHIEF, "kind": "chief", "name": "Chief", "unread": 0, "activity_at": "x", "pinned": false, "marked_unread": false},
+            {"id": REMOTE, "kind": "direct", "name": "P", "unread": 0, "activity_at": "x", "pinned": false, "marked_unread": false},
+        ]}});
+        let narrowed: Value =
+            serde_json::from_slice(&policy.filter_reply(reply.to_string().as_bytes()).unwrap()).unwrap();
+        assert_eq!(narrowed["data"]["rows"].as_array().unwrap().len(), 1);
+
+        // A new owner-and-agents conversation the owner announces joins the rows too.
+        let new = "conv_01JNEWHOME0000000000000000";
+        let announce = line(serde_json::json!({"event": "conversation-changed", "conversation": new, "rev": 1,
+            "change": {"kind": "conversation", "conversation": {"id": new, "participants": [
+                {"id": "user_local", "kind": "human"}, {"id": "agent_mux", "kind": "agent"}]}}}));
+        assert!(policy.filter_reply(&announce).is_some());
+        assert_eq!(policy.evaluate(br#"{"cmd":"home-inbox","id":"h7","owners":["local"]}"#), Verdict::Forward);
+        let reply = serde_json::json!({"id": "h7", "ok": true, "data": {"me": "user_local", "rows": [
+            {"id": new, "owner": "local", "kind": "chief", "name": "Chief 2", "unread": 1, "activity_at": "x",
+             "pinned": false, "marked_unread": false}]}});
+        let narrowed: Value =
+            serde_json::from_slice(&policy.filter_reply(reply.to_string().as_bytes()).unwrap()).unwrap();
+        assert_eq!(narrowed["data"]["rows"][0]["id"], new);
     }
 }

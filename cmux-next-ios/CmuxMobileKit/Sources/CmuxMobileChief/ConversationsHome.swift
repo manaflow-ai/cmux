@@ -12,7 +12,9 @@ private let theme = CmuxMobileTheme.standard
 /// (`HomeSidebarModel`): the pinned grid in the owner's pin order, then every
 /// other conversation newest first, each with its avatar, name, where a Chief
 /// runs, preview, time, unread dot and typing. The Cloud Chief (the account's
-/// Chief, which the Mac lists as its Main Chief tagged "Cloud") leads the grid.
+/// Chief, which the Mac lists as its Main Chief tagged "Main · Cloud") is a row
+/// placed by its newest message; its pin is the Cloud inbox's, which the phone
+/// does not read, so it never takes a tile.
 /// The header has what the Mac's has: search, the Unread toggle (the Mac's only
 /// filter) and compose. Agent chats live in their workspaces, as on the Mac.
 /// The list shows one Mac's Home, the focused Mac's; the Mac menu picks it.
@@ -90,23 +92,29 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         return mac
     }
 
+    /// The Mac Chief's own conversation: the one its session holds, else the one the Mac's
+    /// list names (before the session has found it).
+    private func isMacChief(_ row: MacHomeRow) -> Bool {
+        row.id == sources.mac.conversationID || (sources.mac.conversationID == nil && row.id == feed.macChiefID)
+    }
+
     /// Where a row of the Mac's list goes: the Mac Chief's own conversation is the Mac Chief.
     private func route(_ row: MacHomeRow) -> HomeConversationRoute {
-        if row.id == sources.mac.conversationID { return .chief(.mac) }
+        if isMacChief(row) { return .chief(.mac) }
         return .mac(MacConversationRoute(conversationID: row.id, chief: row.chief, title: row.title))
     }
 
     /// A row's avatar text: the Mac Chief's own avatar for its conversation, else the name's initials.
     private func avatarText(_ row: MacHomeRow) -> String {
-        if row.id == sources.mac.conversationID { return sources.mac.avatar }
-        return Self.initials(row.title)
+        if isMacChief(row) { return sources.mac.avatar }
+        return homeInitials(row.title)
     }
 
     /// The tag after a row's name, as the Mac's list draws it (`HomeChiefRoster.tag`): "Main" for
     /// the main Chief (the Cloud Chief when there is one, else this Mac's), then where a Chief runs.
     private func tag(_ row: MacHomeRow) -> String? {
         guard row.kind == .chief else { return nil }
-        return chiefTag(main: !sources.isCloudReady && row.id == sources.mac.conversationID, place: macTag)
+        return chiefTag(main: !sources.isCloudReady && isMacChief(row), place: macTag)
     }
 
     private func chiefTag(main: Bool, place: String?) -> String? {
@@ -141,11 +149,6 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         return entries
     }
 
-    static func initials(_ name: String) -> String {
-        let words = name.split(whereSeparator: \.isWhitespace)
-        let letters = String(words.prefix(2).compactMap(\.first)).uppercased()
-        return letters.isEmpty ? "?" : letters
-    }
 
     public var body: some View {
         let stamp = MessagesStamp()
@@ -206,7 +209,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
                     .listRowBackground(theme.colors.bg.color)
                     .contextMenu { rowMenu(row) }
-                    .accessibilityIdentifier(row.id == sources.mac.conversationID ? "home.chief.mac" : "home.row.\(row.id)")
+                    .accessibilityIdentifier(isMacChief(row) ? "home.chief.mac" : "home.row.\(row.id)")
                 case .cloud:
                     sessionRow(sources.cloud, name: primaryName, tag: chiefTag(main: true, place: String(localized: "Cloud")),
                                stamp: stamp, identifier: "home.chief", place: .cloud) { cloudTileMenu }
@@ -300,11 +303,11 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     private func pinnedTiles(_ list: MacHomeList) -> [HomeTile] {
         var tiles: [HomeTile] = []
         for row in list.pinned {
-            let isMacChief = row.id == sources.mac.conversationID
+            let macChief = isMacChief(row)
             tiles.append(HomeTile(id: row.id, avatar: avatarText(row), name: row.title, detail: tag(row),
                                   unread: row.unreadCount > 0, working: row.isWorking,
                                   bubble: row.unreadCount > 0 && !row.preview.isEmpty ? row.preview : nil,
-                                  muted: row.isMuted, identifier: isMacChief ? "home.chief.mac" : "home.pin.\(row.id)",
+                                  muted: row.isMuted, identifier: macChief ? "home.chief.mac" : "home.pin.\(row.id)",
                                   open: { open(route(row)) }, menu: AnyView(rowMenu(row))))
         }
         return tiles
@@ -568,6 +571,8 @@ struct MacConversationScreen: View {
         .task(id: route) {
             do { session = try await feed.session(for: route) } catch { failure = MacHomeFeed.reason(error) }
         }
+        // Back on Home: the conversation's channel closes.
+        .onDisappear { feed.release(route.conversationID) }
     }
 }
 

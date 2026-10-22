@@ -22,6 +22,13 @@ public struct MacConversationRoute: Hashable, Sendable {
     public let title: String
 }
 
+/// One or two letters for a name's monogram ("Build Bot" → "BB").
+func homeInitials(_ name: String) -> String {
+    let words = name.split(whereSeparator: \.isWhitespace)
+    let letters = String(words.prefix(2).compactMap(\.first)).uppercased()
+    return letters.isEmpty ? "?" : letters
+}
+
 /// One row of the Mac's Home list, as the Mac's conversation owner derives it
 /// (cmux-tui spec `home-inbox`, `home-inbox-v1`): the same rows the Mac's Home
 /// sidebar draws (`HomeInboxSource` → `HomeSidebarModel` in CmuxNext), field
@@ -88,17 +95,15 @@ public struct MacHomeRow: Identifiable, Hashable, Sendable {
     }
 }
 
-/// The Mac's Home list as its sidebar lays it out (`HomeSidebarModel`): the
-/// pinned grid (at most nine tiles) in the owner's pin order, then every other
-/// conversation in the owner's order (newest first). A search hides the grid
-/// and lists the matching pinned conversations first; the Unread toggle (the
-/// Mac's only filter) keeps unread and marked-unread conversations.
+/// The Mac's Home list as its sidebar lays it out (`HomeSidebarModel`, MessagesLab's
+/// `SidebarView`): every pinned conversation in the grid, in the owner's pin order, then
+/// every other conversation in the owner's order (newest first). A search or the Unread
+/// toggle (the Mac's only filter) hides the grid and lists the matching conversations in
+/// the list's order, pinned ones first. A search matches the name or the preview
+/// (`home-inbox` rows carry no member names, so a member's name does not match here).
 public struct MacHomeList: Equatable, Sendable {
     public private(set) var pinned: [MacHomeRow]
     public private(set) var rows: [MacHomeRow]
-
-    /// The Mac's pinned grid holds nine tiles (MessagesLab's sidebar).
-    public static let pinnedLimit = 9
 
     public init(_ all: [MacHomeRow], query: String = "", unreadOnly: Bool = false) {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -108,9 +113,9 @@ public struct MacHomeList: Equatable, Sendable {
         }
         let pinnedRows = shown.filter(\.isPinned)
         let rest = shown.filter { !$0.isPinned }
-        if needle.isEmpty {
-            pinned = Array(pinnedRows.prefix(Self.pinnedLimit))
-            rows = Array(pinnedRows.dropFirst(Self.pinnedLimit)) + rest
+        if needle.isEmpty, !unreadOnly {
+            pinned = pinnedRows
+            rows = rest
         } else {
             pinned = []
             rows = pinnedRows + rest
@@ -129,6 +134,9 @@ public struct MacHomeList: Equatable, Sendable {
 @MainActor
 @Observable
 public final class MacHomeFeed {
+    // The rows are re-read on conversation, typing and list-state events. A Chief run
+    // that starts without a message or typing (`conversation-run-changed`) is not
+    // forwarded over the link, so its typing shows with its next message or typing.
     public static let shared = MacHomeFeed()
 
     /// The owner's rows in its order; nil until the first read of this Mac.
@@ -155,29 +163,43 @@ public final class MacHomeFeed {
 
     public init() {}
 
+    /// The Mac Chief's own conversation on this Mac (the oldest with the owner and `agent_mux`,
+    /// as the Mac's Home picks it), from the owner's list: its row is the Mac Chief.
+    public private(set) var macChiefID: String?
+
     /// The Home list of the Mac behind `link` (a new link, or another Mac):
     /// opens its own `chief` channel and reads the list. Another Mac's rows
-    /// are dropped at once, so they never show under this Mac.
+    /// are dropped at once, so they never show under this Mac; conversations
+    /// opened on the last link close (their channels were on it).
     public func connect(link: any MacLink, macID: String?) async {
-        generation += 1
-        let mine = generation
         if macID != self.macID {
             rows = nil
+            macChiefID = nil
             lastSeq = [:]
-            for session in sessions.values { session.backend.close() }
-            sessions = [:]
         }
         self.macID = macID
         self.link = link
+        await open(link)
+    }
+
+    /// Opens the list's channel on `link` and reads the list; a failure leaves the
+    /// channel closed and the next ``refresh()`` tries again on the same link.
+    private func open(_ link: any MacLink) async {
+        generation += 1
+        let mine = generation
         problem = nil
-        await drop()
+        closeSessions()
+        let old = detach()
+        await old?.close()
+        var opened: DaemonClient?
         do {
             let channel = try await link.openChannel(service: ChiefDaemonBackend.service, args: [:])
+            let client = DaemonClient(channel: channel)
+            opened = client
             guard mine == generation else {
-                await channel.close(code: "eof", reason: "replaced")
+                await client.close()
                 return
             }
-            let client = DaemonClient(channel: channel)
             // The list first: the channel's filter learns the scope from it.
             try await listed(client)
             _ = try await client.request("subscribe")
@@ -191,9 +213,13 @@ public final class MacHomeFeed {
                     guard let self else { return }
                     self.note(line)
                 }
+                // The channel ended under us: the next refresh opens it again.
+                guard let self, mine == self.generation else { return }
+                self.client = nil
             }
             refresh()
         } catch {
+            await opened?.close()
             guard mine == generation else { return }
             problem = Self.reason(error)
         }
@@ -201,30 +227,46 @@ public final class MacHomeFeed {
 
     /// A conversation of the list other than the Mac Chief's, over its own
     /// `chief` channel to this Mac (the channel's filter allows only
-    /// conversations between the owner and agents, which is every row).
+    /// conversations between the owner and agents, which is every row). It
+    /// stays open while its screen shows (``release(_:)``).
     public func session(for route: MacConversationRoute) async throws -> ChiefSession {
         if let session = sessions[route.conversationID] { return session }
         guard let link else { throw LinkError(code: "offline", message: String(localized: "Your Mac isn't connected.")) }
-        let mac = macID
+        let mine = generation
         let channel = try await link.openChannel(service: ChiefDaemonBackend.service, args: [:])
         let client = DaemonClient(channel: channel)
-        // The channel's scope comes from the owner's list.
-        _ = try await Self.call(client, "conversation-list", [:])
-        guard mac == macID else {
-            await channel.close(code: "eof", reason: "replaced")
-            throw LinkError(code: "offline", message: String(localized: "Another Mac was chosen."))
-        }
-        if let session = sessions[route.conversationID] {
-            await channel.close(code: "eof", reason: "duplicate")
+        do {
+            // The channel's scope comes from the owner's list; the conversation's agent from its summary.
+            let list = try await Self.call(client, "conversation-list", [:])
+            guard mine == generation else { throw LinkError(code: "offline", message: String(localized: "The Mac's link changed.")) }
+            if let session = sessions[route.conversationID] {
+                await client.close()
+                return session
+            }
+            let summary = (list["conversations"] as? [[String: Any]] ?? []).first { $0["id"] as? String == route.conversationID }
+            let agent = route.chief ?? (summary?["participants"] as? [[String: Any]] ?? [])
+                .first { $0["kind"] as? String == "agent" }?["id"] as? String
+            let identity = ChiefIdentity(chiefID: agent ?? "agent_unknown", title: route.title,
+                                         avatar: homeInitials(route.title))
+            let backend = ChiefDaemonBackend(client: client, identity: identity, conversationID: route.conversationID)
+            let session = ChiefSession(backend: backend, identity: identity, outbox: ChiefOutbox(file: nil))
+            session.macID = macID
+            sessions[route.conversationID] = session
             return session
+        } catch {
+            await client.close()
+            throw error
         }
-        let identity = ChiefIdentity(chiefID: route.chief ?? ChiefIdentity.standard.chiefID, title: route.title,
-                                     avatar: String(route.title.prefix(1)).uppercased())
-        let backend = ChiefDaemonBackend(client: client, identity: identity, conversationID: route.conversationID)
-        let session = ChiefSession(backend: backend, identity: identity, outbox: ChiefOutbox(file: nil))
-        session.macID = mac
-        sessions[route.conversationID] = session
-        return session
+    }
+
+    /// The conversation's screen went away: its channel closes.
+    public func release(_ conversationID: String) {
+        sessions.removeValue(forKey: conversationID)?.backend.close()
+    }
+
+    private func closeSessions() {
+        for session in sessions.values { session.backend.close() }
+        sessions = [:]
     }
 
     /// Chief on `macID` is not reachable. Its list stays (it is read on its
@@ -235,23 +277,26 @@ public final class MacHomeFeed {
         generation += 1
         rows = nil
         problem = nil
+        macChiefID = nil
         lastSeq = [:]
-        for session in sessions.values { session.backend.close() }
-        sessions = [:]
+        closeSessions()
         self.macID = macID
         link = nil
-        Task { await drop() }
+        let old = detach()
+        Task { await old?.close() }
     }
 
-    private func drop() async {
+    /// Ends the current channel's state now (a later connect never meets it) and hands back its client to close.
+    private func detach() -> DaemonClient? {
         eventTask?.cancel()
         eventTask = nil
         let old = client
         client = nil
         reading = false
         readAgain = false
+        needsRelist = false
         pendingWrites = 0
-        await old?.close()
+        return old
     }
 
     /// Owner events after which the rows are read again: a message or summary
@@ -270,7 +315,17 @@ public final class MacHomeFeed {
     public func refresh() { refresh(relist: false) }
 
     private func refresh(relist: Bool) {
-        guard let client else { return }
+        guard let client else {
+            // No channel (it failed or ended) while the link is up: open it again.
+            if let link, !opening {
+                opening = true
+                Task { [weak self] in
+                    await self?.open(link)
+                    self?.opening = false
+                }
+            }
+            return
+        }
         if relist { needsRelist = true }
         if reading { readAgain = true; return }
         reading = true
@@ -301,6 +356,7 @@ public final class MacHomeFeed {
     }
 
     @ObservationIgnored private var needsRelist = false
+    @ObservationIgnored private var opening = false
 
     private func listed(_ client: DaemonClient) async throws {
         let list = try await Self.call(client, "conversation-list", [:])
@@ -309,6 +365,7 @@ public final class MacHomeFeed {
             if let id = summary["id"] as? String { seqs[id] = (summary["last_seq"] as? NSNumber)?.intValue ?? 0 }
         }
         lastSeq = seqs
+        macChiefID = ChiefWire(identity: .standard).chiefConversation(in: list["conversations"] as? [[String: Any]] ?? [])
     }
 
     // MARK: The person's list state (the Mac's owner keeps it)
@@ -317,7 +374,12 @@ public final class MacHomeFeed {
     public func setPinned(_ on: Bool, _ id: String) {
         var op: [String: Any] = ["kind": "inbox.pin", "pinned": on]
         if on { op["position"] = UInt64(Date().timeIntervalSince1970 * 1000) }
-        edit(id) { row in row.with(pinned: on) }
+        if var list = rows, let index = list.firstIndex(where: { $0.id == id }) {
+            // Shown at the end of the pinned rows (or first among the others) until the owner's rows come back.
+            let row = list.remove(at: index).with(pinned: on)
+            list.insert(row, at: list.firstIndex { !$0.isPinned } ?? list.endIndex)
+            rows = list
+        }
         write(id, cmd: "conversation-inbox-op", ["conversation": id, "op": op])
     }
 
