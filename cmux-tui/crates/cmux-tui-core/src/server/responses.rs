@@ -1,6 +1,7 @@
 //! Error replies to raw protocol requests (moved out of server.rs, behavior
 //! unchanged).
 
+use crate::panic_free::JsonFields;
 use serde_json::Value;
 
 use super::{MessageWriter, Response, ResponseErrorDelivery};
@@ -66,13 +67,13 @@ pub(super) fn send_response_with_details(
 ) -> bool {
     let Ok(mut value) = serde_json::to_value(response) else { return false };
     if let Some(reason) = reason {
-        value["reason"] = Value::String(reason);
+        value.insert("reason", Value::String(reason));
     }
     if let Some(retryable) = retryable {
-        value["retryable"] = Value::Bool(retryable);
+        value.insert("retryable", Value::Bool(retryable));
     }
     if let Some(details) = details {
-        value["error_details"] = details;
+        value.insert("error_details", details);
     }
     writer.send_control(&value).is_ok()
 }
@@ -134,7 +135,7 @@ fn resource_refusal_code(error: &anyhow::Error, code: &str) -> Option<String> {
     let refused = error.chain().any(|cause| {
         cause
             .downcast_ref::<crate::resource::ResourceError>()
-            .is_some_and(|refusal| refusal.details["extra"]["reason_code"] == code)
+            .is_some_and(|refusal| refusal.details.field("extra").field("reason_code") == code)
             || cause.to_string().starts_with(code)
     });
     refused.then(|| code.to_string())

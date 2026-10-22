@@ -75,7 +75,6 @@ final class WorkspaceRowView: SidebarRowView {
     var hasSubtitle = false, isExpanded = false, timeText: String?
     /// An idle workspace nobody named: its name reads in the secondary ink (`SidebarTunables.quietUnnamedRows`).
     var isQuiet = false
-    var grouped = false
     var iconKind: WorkspaceIcon?
     /// Selected but not active (the active row paints the selection fill).
     var isSecondarySelected = false {
@@ -224,7 +223,6 @@ final class WorkspaceRowView: SidebarRowView {
             disclosure: row.tabDisclosure, row: row.content
         )
         guard needsConfigure(content) else { return }
-        grouped = row.group != nil
         // A placeholder with a title (a connecting SSH machine, cx-gaq9) draws its text, not the bar.
         isShowingPlaceholder = ws.rowState == .placeholder && ws.title.isEmpty
         isPlaceholderRow = ws.rowState.isPending
