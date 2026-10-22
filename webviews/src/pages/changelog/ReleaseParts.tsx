@@ -321,7 +321,8 @@ function ChangeList({ changes }: { changes: ChangeItem[] }) {
             </a>
           )}
           {c.pr !== undefined && (
-            <a className="cl-pr" href={pullURL(c.pr)} rel="noreferrer">
+            // The title already links the same pull request: one tab stop per change.
+            <a className="cl-pr" href={pullURL(c.pr)} rel="noreferrer" tabIndex={-1}>
               #{c.pr}
             </a>
           )}
