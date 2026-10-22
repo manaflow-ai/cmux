@@ -468,6 +468,12 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Settings > Accounts > This Mac on Your Tailnet: one button, then re-read the host lists. */
+  async tailnet(action: "sign_in" | "cancel" | "sign_out" | "pair" | "close_pair" | "copy_address"): Promise<void> {
+    await this.request(`cmux.settings.tailnet.${action}` as const, {});
+    await this.refreshHost();
+  }
+
   /** Settings > Chief > Voice input: turn the message box's mic on or off, then re-read the host lists. */
   async setVoiceInput(on: boolean): Promise<void> {
     await this.request("cmux.settings.voice_input.set", { on });
