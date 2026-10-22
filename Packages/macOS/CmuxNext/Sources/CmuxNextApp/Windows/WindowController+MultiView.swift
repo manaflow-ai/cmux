@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextDesign
+import CmuxNextLayout
 import CmuxNextSidebar
 
 // Debug Settings `sidebar.multiView` (Leo 2026-10-21, item D): the window shows the workspaces of
@@ -62,8 +63,17 @@ extension WindowController {
         let gap = Self.multiViewGap
         host.arrangeContent = { bounds in
             for (id, frame) in set.frames(in: CGRect(origin: .zero, size: bounds.size), gap: gap) {
-                // The host is not flipped: the tree's y runs down.
-                views[id]?.frame = CGRect(x: frame.minX, y: bounds.height - frame.maxY, width: frame.width, height: frame.height).integral
+                // The host is not flipped: the tree's y runs down. The workspace lays its layout out again for its
+                // half in this pass (a frame change alone leaves the layout at its old height, cut off at the midline).
+                guard let view = views[id] else { continue }
+                let slot = CGRect(x: frame.minX, y: bounds.height - frame.maxY, width: frame.width, height: frame.height).integral
+                guard view.frame != slot else { continue }
+                let resized = view.frame.size != slot.size
+                view.frame = slot
+                guard resized else { continue }
+                view.needsLayout = true
+                (view as? WorkspaceContentView)?.layoutView.needsLayout = true
+                view.layoutSubtreeIfNeeded()
             }
         }
         setOnScreen(Set(views.keys))
@@ -100,6 +110,26 @@ extension WindowController {
             services.windows.show(workspaceID: id, in: state)
             return
         }
+    }
+
+    /// With `sidebar.multiView`, an edge of a pane of a workspace on screen that takes no drop (Home's pinned dock):
+    /// the split target there, which a sidebar workspace drag resolves to beside (`WorkspaceDragResolver.pane`).
+    func besideProposal(atScreen screenPoint: CGPoint) -> TabDropProposal? {
+        guard Self.multiViewEnabled, let window, let layout = content(atScreen: screenPoint)?.layoutView,
+              let (pane, edge) = Self.paneEdge(in: layout, at: layout.convert(window.convertPoint(fromScreen: screenPoint), from: nil)) else { return nil }
+        return TabDropProposal(kind: .newSplit(paneID: pane.rawValue, edge: edge), highlightFrame: besideHighlight(edge, at: screenPoint) ?? .zero)
+    }
+
+    /// The pane of `layout`'s active screen under `point` (layout coordinates) and the edge band of it the point is in,
+    /// by the bands a tab drop splits with; nil off every pane and in a pane's center.
+    private static func paneEdge(in layout: LayoutRootView, at point: CGPoint) -> (pane: CmuxNextLayout.PaneID, edge: TabDropEdge)? {
+        let model = layout.model
+        guard let screen = model.screens.first(where: { $0.id == model.activeScreenID }) else { return nil }
+        for pane in screen.layout.panes {
+            guard let rect = layout.frame(of: pane), rect.contains(point) else { continue }
+            return DropZoneGeometry.zone(at: point, in: rect, style: model.style).edge.map { (pane, $0) }
+        }
+        return nil
     }
 
     /// The workspaces on screen: the focused one, then the ones shown beside it.

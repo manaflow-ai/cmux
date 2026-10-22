@@ -38,8 +38,11 @@ enum WorkspaceMerge {
     /// drag that may merge there, and the layout adapter showing it.
     static func hit(_ point: CGPoint, ids: [String], group: String?, window: WindowController,
                     layout: LayoutTabDropTarget, services: AppServices) -> TabDropProposal? {
-        guard let id = ids.first, allowed(ids, group: group, into: window.content(atScreen: point)?.workspace, services: services),
-              let proposal = layout.workspaceHitTest(screenPoint: point, workspaceID: id), outcome(proposal.kind) != nil else { return nil }
+        guard let id = ids.first, allowed(ids, group: group, into: window.content(atScreen: point)?.workspace, services: services) else { return nil }
+        guard let proposal = layout.workspaceHitTest(screenPoint: point, workspaceID: id), outcome(proposal.kind) != nil else {
+            // A pane that takes no tab (Home's pinned dock) still has edges to place a workspace beside.
+            return window.besideProposal(atScreen: point)
+        }
         return proposal
     }
 
