@@ -19,6 +19,7 @@ import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPic
 import { curatedSections, modelSections } from "./modelSections";
 import { effortWords, fitsQuery, modelEffort, parseQuery } from "./modelQuery";
 import { registerPicker } from "./pickerOpeners";
+import { composerControl } from "./ComposerControl";
 import { QuickModelMenu, type QuickFamily, type QuickModel } from "./QuickModelMenu";
 import { useUiAnchor } from "../../ui/anchor";
 import { useEscapeCloses } from "../../ui/escapeDismiss";
@@ -239,7 +240,8 @@ export function ModelPicker(props: ModelPickerProps) {
   /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
   const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
   const t = useT();
-  /// The chat's agent CLI has an update (hq#2569 #12): a dot on the chip and a row in the picker,
+  /// The chat's agent CLI has an update (hq#2569 #12): a row in the picker and the chip's tooltip
+  /// (no dot on the chip: it read as a "•" between the model and its effort, Lawrence 2026-10-21),
   /// never a banner over the chat.
   const update = useUpdateOffer();
   const updateText = update
@@ -763,9 +765,6 @@ export function ModelPicker(props: ModelPickerProps) {
           data-label={chipFamily}
         />
       )}
-      {update && (
-        <span aria-hidden="true" className="acpmux-model-update-dot size-1.5 flex-none rounded-full bg-accent" />
-      )}
     </>
   );
   return (
@@ -790,6 +789,7 @@ export function ModelPicker(props: ModelPickerProps) {
           }}
           trigger={trigger}
           chip={{
+            ...composerControl("chip"),
             "data-menu": modelText,
             label: modelText,
             /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
@@ -845,6 +845,7 @@ export function ModelPicker(props: ModelPickerProps) {
           ref={trigger}
           type="button"
           className="acpmux-picker-button"
+          {...composerControl("chip")}
           data-menu={modelText}
           aria-label={modelText}
           /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */

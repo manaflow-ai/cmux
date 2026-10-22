@@ -471,6 +471,18 @@ button.cv-subagent > :last-child {
 .acpmux-agent-line > .acpmux-chat-inspector-stop {
   margin: 0 4px 0 2px;
 }
+/* The tray sits right over the composer, whose Stop ends the whole turn, so a row's square (it stops
+   that one subagent or command) shows only while its row is hovered or holds focus: at rest the
+   composer's Stop is the one Stop in view (Lawrence 2026-10-21: "there's too many buttons here"), as
+   Claude Code keeps its one Stop in the composer. A refused stop keeps its red square in view. */
+@media (hover: hover) and (pointer: fine) {
+  .acpmux-running-tray .acpmux-agent-line > :is(.cv-subagent__stop, .acpmux-chat-inspector-stop):not([data-state="failed"]) {
+    opacity: 0;
+  }
+  .acpmux-running-tray .acpmux-agent-line:is(:hover, :focus-within) > :is(.cv-subagent__stop, .acpmux-chat-inspector-stop) {
+    opacity: 1;
+  }
+}
 /* Running work's icon is the theme's accent, never a brand color. */
 .acpmux-agent-line .acpmux-lineage__icon[data-state="running"],
 .acpmux-running-tray__head .acpmux-lineage__icon {

@@ -15,6 +15,7 @@ import type { AcpmuxSnapshot } from "./model";
 import type { SpeedSection } from "./EffortPicker";
 import { type SpeedTiers, useSpeedToggle } from "./FastToggle";
 import { type StringKey, useT } from "./i18n";
+import { ComposerControl, type ComposerControlKind, composerControl } from "./ComposerControl";
 import { ModelPicker } from "./ModelPicker";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { extraConfigOptions } from "./agentOptions";
@@ -765,9 +766,9 @@ export function ComposerPickers({
         harnessesListed &&
         onAddAgent && (
           <span className="acpmux-picker acpmux-model">
-            <button type="button" className="acpmux-picker-button acpmux-add-harness" onClick={onAddAgent}>
+            <ComposerControl kind="chip" className="acpmux-picker-button acpmux-add-harness" onClick={onAddAgent}>
               <span className="acpmux-model-name">{t("composer.addHarness")}</span>
-            </button>
+            </ComposerControl>
           </span>
         )
       )}
@@ -840,7 +841,7 @@ function PendingMode({ label, modeId, icon }: { label: string; modeId?: unknown;
   const warning = typeof modeId === "string" && unrestricted(modeId) ? " acpmux-unrestricted" : "";
   return (
     <span className={`acpmux-mode acpmux-access acpmux-chip-pending${warning}`} aria-hidden="true">
-      <span className="acpmux-picker-button acpmux-access-trigger">
+      <span className="acpmux-picker-button acpmux-access-trigger" {...composerControl("chip")}>
         <ModeIcon modeId={modeId} icon={icon} />
         <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">
           {label}
@@ -962,6 +963,7 @@ function AccessMenu({
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton
           className="acpmux-picker-button acpmux-access-trigger"
+          data-control="chip"
           label={label}
           /* tooltip-allow: the chip is its shield alone; the tooltip names the mode and what the control is */
           title={tooltip}
@@ -1109,9 +1111,9 @@ export function ContextRing({
   return (
     // tooltip-allow: names the icon-only ring's reading, and why it is inert before any usage.
     <span className={`acpmux-picker acpmux-context${full}`} title={open ? undefined : tooltip}>
-      <button
+      <ComposerControl
+        kind="icon"
         ref={trigger}
-        type="button"
         className="acpmux-context-ring"
         data-menu={t("context.title")}
         aria-label={label}
@@ -1149,7 +1151,7 @@ export function ContextRing({
             />
           )}
         </svg>
-      </button>
+      </ComposerControl>
       <Popover
         open={open}
         onOpenChange={setOpen}
@@ -1226,6 +1228,7 @@ export function Picker({
   returnFocus = true,
   heading,
   tooltip,
+  control,
 }: {
   label: string;
   className: string;
@@ -1240,6 +1243,8 @@ export function Picker({
   /// What the menu holds, as the trigger's tooltip: only a trigger that draws an icon and no text
   /// passes one (a picker showing its choice's name needs none).
   tooltip?: string;
+  /// The composer control its trigger is (ComposerControl.tsx), so it takes the composer's metrics.
+  control?: ComposerControlKind;
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -1372,6 +1377,7 @@ export function Picker({
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         role="combobox"
         className="acpmux-picker-button"
+        {...(control ? composerControl(control) : {})}
         data-menu={label}
         aria-label={label}
         // tooltip-allow: only an icon-only trigger (the composer's +) passes a tooltip.

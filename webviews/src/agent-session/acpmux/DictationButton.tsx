@@ -1,6 +1,7 @@
 // The mic next to Send: a microphone, lit (an accent-tinted square, dictation.css) while a session
 // runs; the waveform and the finish key beside it are DictationListening's.
 import React from "react";
+import { ComposerControl } from "./ComposerControl";
 import { MicIcon } from "./ComposerPickers";
 import { isActive, type Dictation } from "./dictation";
 import { useT } from "./i18n";
@@ -17,8 +18,8 @@ export function DictationButton({ dictation }: { dictation: Dictation }) {
   const label = isActive(state) ? t("dictation.stop") : t("dictation.start");
   const shortcut = useShortcut(SHORTCUT_ACTIONS.toggleDictation);
   return (
-    <button
-      type="button"
+    <ComposerControl
+      kind="icon"
       className="acpmux-mic"
       data-state={state}
       aria-label={label}
@@ -30,6 +31,6 @@ export function DictationButton({ dictation }: { dictation: Dictation }) {
       onClick={dictation.toggle}
     >
       <MicIcon />
-    </button>
+    </ComposerControl>
   );
 }

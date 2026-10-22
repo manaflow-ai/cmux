@@ -849,7 +849,7 @@ export default agentPaneEntry({
       },
     },
     "working-steer": {
-      note: "A prompt typed while the turn runs: one ↵ control puts it into the turn now, as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn; Stop sits left of the mic, as in Claude's desktop app.",
+      note: "A prompt typed while the turn runs: one ↵ control puts it into the turn now, as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn. It takes Stop's place, so the box holds one primary control (Lawrence 2026-10-21: \"there's too many buttons here\"); Stop comes back when the prompt is empty, as in Claude's desktop app.",
       snapshot: steering(true),
       ready: { draft: "Use the new tokenizer instead" },
       play: async (ctx) => {
@@ -858,8 +858,10 @@ export default agentPaneEntry({
           return steer?.getAttribute("aria-label") === "Steer now" && steer.textContent?.trim() === "";
         });
         await ctx.waitFor(() =>
-          ctx.document.querySelector('.acpmux-composer-actions > button[aria-label="Stop"] + .acpmux-fit-mic'),
+          ctx.document.querySelector(".acpmux-composer-actions > .acpmux-steer-now + .acpmux-fit-mic"),
         );
+        if (ctx.document.querySelector(".acpmux-composer-box .acpmux-cancel"))
+          throw new Error("Stop shows beside ↵: the box holds one primary control while a turn runs");
       },
     },
     "working-queue": {

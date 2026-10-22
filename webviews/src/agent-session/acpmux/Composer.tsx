@@ -36,6 +36,7 @@ import {
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
 import { FastToggle, SpeedToggleHost, type SpeedTiers } from "./FastToggle";
+import { ComposerControl } from "./ComposerControl";
 import { ComposerFoot } from "./ComposerFoot";
 import { Icon } from "./icons/Icon";
 import { MentionMenu, mentionQuery, mentionResults, useMentionSearch } from "./MentionMenu";
@@ -1365,13 +1366,20 @@ export function Composer({
   ) : keepLocationSlot ? (
     <div className="acpmux-composer-strip-placeholder" aria-hidden="true" />
   ) : null;
+  // Send (or the queue's Send) while it has something to send: no Send until there is a draft in
+  // Claude desktop's box, the mic alone on the right; mid-turn it queues the draft, unless the ↵
+  // control is there to put it into the turn.
+  const sendShown = remote.canSend && (!plainFooter || shell || (hasDraft && !(running && steerable)));
   // Stop, for the whole turn. Claude desktop's box (Leo 2026-10-20) draws it left of the mic, the
-  // mic keeping the right edge; the other look keeps it at the cluster's end.
-  const stopButton = running ? (
-    <button
+  // mic keeping the right edge; the other look keeps it at the cluster's end. One primary control
+  // while a turn runs (Lawrence 2026-10-21: "there's too many buttons here"): Stop while the prompt
+  // is empty, ↵ or Send once it has something to send, as Claude Code's box swaps them.
+  const stopShown = running && (!plainFooter || !(steerable || sendShown));
+  const stopButton = stopShown ? (
+    <ComposerControl
+      kind="icon"
       key="stop"
       ref={sendButton}
-      type="button"
       className="acpmux-send acpmux-cancel"
       data-escape-armed={escapeStop.armed ? "" : undefined}
       aria-label={t(escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop)}
@@ -1381,7 +1389,7 @@ export function Composer({
     >
       {/* The first Esc of the double press keeps the glyph; its color and name say Esc again stops. */}
       <StopIcon />
-    </button>
+    </ComposerControl>
   ) : null;
   // Why a failed turn paused the queue: the paused note names it (queuePause.ts).
   const pauseReason = snapshot.summary?.queuePaused === true ? queuePauseReason(snapshot.rows) : undefined;
@@ -1590,6 +1598,7 @@ export function Composer({
                 // Codex's short tooltip (Leo, 2026-10-21): "Add files and more", not the menu's list.
                 tooltip={t("composer.addTooltip")}
                 className="acpmux-composer-plus"
+                control="icon"
                 button={<PlusIcon />}
                 align="start"
                 returnFocus={false}
@@ -1671,9 +1680,9 @@ export function Composer({
                   comes in at the cluster's leading edge, so Stop and the mic keep their places
                   (hq#1957). */}
               {steerable && (
-                <button
+                <ComposerControl
+                  kind="icon"
                   key="steer"
-                  type="button"
                   className="acpmux-send acpmux-send-ready acpmux-steer-now"
                   aria-label={t("composer.steerLabel")}
                   // tooltip-allow: names the icon-only control, what it does and its key.
@@ -1686,7 +1695,7 @@ export function Composer({
                   }}
                 >
                   <ReturnIcon />
-                </button>
+                </ComposerControl>
               )}
               {plainFooter && stopButton}
               {/* Codex's bolt, just left of the mic (Leo 2026-10-21), in either footer look. */}
@@ -1699,11 +1708,10 @@ export function Composer({
               )}
               {!plainFooter && stop ? (
                 stopButton
-              ) : remote.canSend && (!plainFooter || shell || (hasDraft && !(running && steerable))) ? (
-                // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, the mic
-                // alone on the right; Send comes in after it with the first letter. Mid-turn it
-                // queues the draft, unless the ↵ control is there to put it into the turn.
-                <button
+              ) : sendShown ? (
+                // Claude desktop's box (Leo 2026-10-20): Send comes in after the mic with the first letter.
+                <ComposerControl
+                  kind="icon"
                   key="send"
                   ref={sendButton}
                   type="submit"
@@ -1727,7 +1735,7 @@ export function Composer({
                   }
                 >
                   <ArrowUpIcon />
-                </button>
+                </ComposerControl>
               ) : null}
             </span>
           </div>

@@ -232,7 +232,8 @@
    leading padding gives + its inset back).
    test/composer-row-rhythm.test.ts measures it. */
 .acpmux-composer-bar {
-  --acpmux-row-inset: 6px;
+  /* A control's text sits the shared chip padding in from its edge (ComposerControl, below). */
+  --acpmux-row-inset: var(--composer-control-pad-x);
   /* Model and effort draw 16 px apart (inset + gap + inset), the same distance Interrupt, mic
      and Send draw apart with the trailing cluster's own 4 px gap below. */
   --acpmux-row-gap: 4px;
@@ -740,8 +741,7 @@
 /* Keep the complete control rail usable in a very narrow pane: preserve every action and only
    tighten their rhythm. */
 @container composer (max-width: 260px) {
-  .acpmux-composer-bar { --acpmux-row-group-gap: 8px; --acpmux-row-edge: 8px; --acpmux-row-inset: 4px; }
-  .acpmux-composer-bar .acpmux-composer-plus .acpmux-picker-button { width: 24px; }
+  .acpmux-composer-bar { --acpmux-row-group-gap: 8px; --acpmux-row-edge: 8px; --composer-control-pad-x: 4px; }
 }
 /* The composer is one material surface; the location strip on its top edge shares its fill and
    edge (.acpmux-composer-strip), so it cannot read as a second box over wallpaper. Its only edge is
@@ -1096,7 +1096,7 @@
    model chip's color as the quiet chip has it (Leo 2026-10-18, #21744): its "!" mark names the risk
    without the menu, and the menu keeps the warning color where the mode is chosen. */
 .acpmux-composer-foot {
-  --acpmux-row-inset: 4px;
+  --acpmux-row-inset: var(--composer-control-pad-x);
   --acpmux-row-gap: 0px;
   --acpmux-row-group-gap: 0px;
   --acpmux-row-edge: 14px;
@@ -1106,7 +1106,8 @@
   /* Room under the row so it never sits on the window's edge (Leo 2026-10-20, as Codex and Claude). */
   margin-bottom: 10px;
   padding-block: 0;
-  padding-inline: calc(17px - var(--acpmux-row-inset)) calc(var(--acpmux-row-edge) - var(--acpmux-row-inset));
+  /* The row's first and last controls line up with the box's + and mic over them: one inset. */
+  padding-inline: var(--composer-inset);
   gap: 0;
   justify-content: flex-end;
   background: none;
@@ -1156,32 +1157,41 @@
   grid-column: 2;
   grid-row: 2;
 }
+/* + and the actions sit --composer-inset from the box's edges (Lawrence 2026-10-21: "left/top/bottom
+   padding"): the prompt's one line is centred on the controls, so its padding is the inset plus half
+   of what the control is taller than the line, and a one-line box is the control plus two insets. */
+.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) {
+  --acpmux-prompt-pad-block: max(
+    4px,
+    calc(var(--composer-inset) + (var(--composer-control-height) - 20px * var(--cmux-interface-scale, 1)) / 2)
+  );
+}
 .acpmux-composer-inner > :not(.acpmux-composer-actions) {
   grid-column: 1;
   grid-row: 2;
-  margin: 0 0 8px 10px;
+  margin: 0 0 var(--composer-inset) var(--composer-inset);
 }
 .acpmux-composer-inner > .acpmux-composer-actions {
   grid-column: 3;
   grid-row: 2;
-  margin: 0 8px 8px 0;
+  margin: 0 var(--composer-inset) var(--composer-inset) 0;
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-md-field {
-  padding: calc(11px * var(--cmux-interface-scale, 1)) calc(8px * var(--cmux-interface-scale, 1))
-    calc(11px * var(--cmux-interface-scale, 1)) calc(7px * var(--cmux-interface-scale, 1));
+  padding: var(--acpmux-prompt-pad-block) calc(8px * var(--cmux-interface-scale, 1)) var(--acpmux-prompt-pad-block)
+    calc(7px * var(--cmux-interface-scale, 1));
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-md-placeholder {
   left: calc(7px * var(--cmux-interface-scale, 1));
-  top: calc(11px * var(--cmux-interface-scale, 1));
+  top: var(--acpmux-prompt-pad-block);
   right: calc(8px * var(--cmux-interface-scale, 1));
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-shell-field {
-  min-height: 44px;
-  padding: 11px 8px 11px 23px;
+  min-height: calc(var(--composer-control-height) + 2 * var(--composer-inset));
+  padding: var(--acpmux-prompt-pad-block) 8px var(--acpmux-prompt-pad-block) 23px;
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-shell-glyph {
   left: 7px;
-  top: 11px;
+  top: var(--acpmux-prompt-pad-block);
 }
 /* Under the attachments' band the prompt starts one gap down, as in the other look
    (composerAttachments.css), at this look's specificity. */
@@ -1197,12 +1207,66 @@
   :is(.acpmux-md-placeholder, .acpmux-shell-glyph) {
   top: var(--acpmux-attach-gap);
 }
-/* The context ring ends the quiet row, as Claude Code's does: the row's soft pill on hover and
-   while its details are open, the row's outline under keyboard focus. */
-.acpmux-composer-foot .acpmux-context-ring { width: 24px; height: 24px; margin-inline-start: 8px; }
-.acpmux-composer-foot .acpmux-context-ring:not(:disabled):hover,
-.acpmux-composer-foot .acpmux-context-ring[aria-expanded="true"] { background: var(--acpmux-pill-hover); }
+/* The context ring ends the quiet row, as Claude Code's does: a ComposerControl icon (below), the
+   row's soft pill while its details are open, the row's outline under keyboard focus. Its 14 px glyph
+   follows the effort at the row's label rhythm, 8 px, so its hit area reaches back over the model
+   button's trailing padding. */
+.acpmux-composer-foot .acpmux-context-ring {
+  margin-inline-start: calc(8px - var(--composer-control-pad-x) - (var(--composer-control-height) - 14px) / 2);
+}
+.acpmux-composer-foot .acpmux-context-ring[aria-expanded="true"] { background: var(--composer-control-hover); }
 .acpmux-composer-foot .acpmux-context-ring:focus-visible { outline-offset: 0; }
+
+/* ComposerControl (ComposerControl.tsx): one set of metrics for every control in the composer, the
+   box's +, mic, Send, Stop and ↵ and the quiet row's mode, model button, harness and context ring
+   (Leo 2026-10-21: "did we have a generalized solution to the weird pills? that you added to the
+   bottom?"; Lawrence: "weird padding", "left/top/bottom padding"). One height; a chip's text the
+   same padding in from both of its edges and its glyph one gap from its text; an icon button square;
+   one corner radius, a small rect and never a capsule; no fill at rest and one soft fill on hover, as
+   Claude Code's and Codex's controls; the pointing hand. Tune a token here, never one control: the
+   rules above that size a control by its class are older and lose to these.
+   test/composer-controls.test.ts measures them. */
+.acpmux-composer,
+.nt-screen {
+  --composer-control-height: 28px;
+  --composer-control-pad-x: 6px;
+  --composer-control-gap: 4px;
+  --composer-control-radius: 7px;
+  --composer-control-hover: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
+  --composer-control-cursor: pointer;
+  /* The box's own padding: + sits this far from its left, top and bottom edges, the mic or Send as
+     far from its right and bottom edges, and the quiet row's end controls line up with both. */
+  --composer-inset: 8px;
+}
+:is(.acpmux-composer, .nt-screen) :is(.acpmux-composer-box, .acpmux-composer-foot, .nt-pickers, .nt-foot) [data-control] {
+  box-sizing: border-box;
+  height: var(--composer-control-height);
+  min-height: 0;
+  border-radius: var(--composer-control-radius);
+  cursor: var(--composer-control-cursor);
+}
+:is(.acpmux-composer, .nt-screen) :is(.acpmux-composer-box, .acpmux-composer-foot, .nt-pickers, .nt-foot) [data-control="chip"] {
+  width: auto;
+  gap: var(--composer-control-gap);
+  padding-block: 0;
+  padding-inline: var(--composer-control-pad-x);
+}
+:is(.acpmux-composer, .nt-screen) :is(.acpmux-composer-box, .acpmux-composer-foot, .nt-pickers, .nt-foot) [data-control="icon"] {
+  width: var(--composer-control-height);
+  min-width: var(--composer-control-height);
+  padding: 0;
+}
+:is(.acpmux-composer, .nt-screen) :is(.acpmux-composer-box, .acpmux-composer-foot, .nt-pickers, .nt-foot) [data-control]:disabled {
+  cursor: default;
+}
+/* Hover only under a fine pointer, so a tap never leaves a wash. A lit mic keeps dictation.css's. */
+@media (hover: hover) and (pointer: fine) {
+  :is(.acpmux-composer, .nt-screen)
+    :is(.acpmux-composer-box, .acpmux-composer-foot, .nt-pickers, .nt-foot)
+    [data-control]:not(:disabled, [aria-pressed="true"]):hover {
+    background: var(--composer-control-hover);
+  }
+}
 
 /* The environment picker (EnvironmentPicker.tsx, preview): the folder popover's field and rows,
    in Local, SSH and Cloud sections. A section's name sits above its first row, outside the row's

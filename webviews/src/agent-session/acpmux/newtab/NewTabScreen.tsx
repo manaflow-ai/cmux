@@ -64,6 +64,7 @@ import { usePopupHost } from "../../../ui/UiProvider";
 import { UI_ANCHOR_GAP } from "../../../ui/anchor";
 import { useComposerChrome } from "../composerChrome";
 import { useComposerSettings } from "../composerSettings";
+import { ComposerControl } from "../ComposerControl";
 import { ComposerFoot } from "../ComposerFoot";
 import { FastToggle, SpeedToggleHost, type SpeedTiers } from "../FastToggle";
 import { useRowFit } from "../composerRowFit";
@@ -945,8 +946,8 @@ export function NewTabScreen(props: Props) {
           {/* Send: a click does what Return does (a prompt, a row, or a shell command). Cards draws
               none, as Aside's New Tab: Return sends. */}
           {!pill && (
-            <button
-              type="button"
+            <ComposerControl
+              kind="icon"
               className={text.trim() ? "acpmux-send acpmux-send-ready nt-send" : "acpmux-send nt-send"}
               aria-label={t("composer.send")}
               title={t("composer.sendTooltip")}
@@ -954,7 +955,7 @@ export function NewTabScreen(props: Props) {
               onClick={send}
             >
               <ArrowUpIcon />
-            </button>
+            </ComposerControl>
           )}
         </span>
       </div>

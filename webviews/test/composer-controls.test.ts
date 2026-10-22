@@ -4,7 +4,7 @@
 // "there's too many buttons here", "left/top/bottom padding", "weird padding", "weird padding").
 // Every control in the composer is a ComposerControl (ComposerControl.tsx): a chip (the mode, the
 // model button, the harness) or an icon button (+, the mic, Send, Stop, ↵, the context ring), drawn
-// from one set of tokens (composerControl.css). On the gallery stage, in Chromium and WebKit:
+// from one set of tokens (composerLocation.css, `--composer-control-*`). On the gallery stage, in Chromium and WebKit:
 //   - every control is one height; every chip has the same padding on both sides and the same
 //     icon-text gap; every icon button is square; all share one corner radius and the hand cursor;
 //   - at rest no control draws a fill; hovered, each draws the same one;
@@ -89,11 +89,24 @@ await requireBrowserLane("composer-controls.test.ts", async () => {
     return page;
   }
 
+  /** Two frames for a hover or focus change to apply, then until no CSS transition still runs. */
+  async function settle(page: Page) {
+    await page.evaluate(
+      () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
+    );
+    await page.waitForFunction(
+      () =>
+        !document
+          .getAnimations()
+          .some((animation) => animation instanceof CSSTransition && animation.playState === "running"),
+    );
+  }
+
   /** Nothing hovered or focused: the pointer in the page's corner, focus on the body. */
   async function rest(page: Page) {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.mouse.move(1, 1);
-    await page.waitForTimeout(250);
+    await settle(page);
   }
 
   /** The composer's controls, by what they are, with their box, metrics and resting fill. */
@@ -117,6 +130,7 @@ await requireBrowserLane("composer-controls.test.ts", async () => {
     radius: string;
     cursor: string;
     background: string;
+    disabled: boolean;
   };
   const measure = (page: Page) =>
     page.evaluate((controls) => {
@@ -128,7 +142,7 @@ await requireBrowserLane("composer-controls.test.ts", async () => {
           const style = getComputedStyle(element);
           found.push({
             name,
-            control: element.getAttribute("data-composer-control"),
+            control: element.getAttribute("data-control"),
             height: box.height,
             width: box.width,
             paddingLeft: parseFloat(style.paddingLeft),
@@ -137,6 +151,7 @@ await requireBrowserLane("composer-controls.test.ts", async () => {
             radius: style.borderTopLeftRadius,
             cursor: style.cursor,
             background: style.backgroundColor,
+            disabled: (element as HTMLButtonElement).disabled === true,
           });
         }
       return found;
@@ -154,11 +169,15 @@ await requireBrowserLane("composer-controls.test.ts", async () => {
       const names = new Set(all.map((control) => control.name));
       for (const name of ["plus", "mic", "send", "mode", "model", "ring"]) expect(names).toContain(name);
       // Each is a ComposerControl, a chip or an icon button.
-      for (const control of all) expect([control.name, control.control]).toEqual([control.name, expect.stringMatching(/^(chip|icon)$/)]);
+      for (const control of all)
+        expect([control.name, control.control]).toEqual([control.name, expect.stringMatching(/^(chip|icon)$/)]);
       const chips = all.filter((control) => control.control === "chip");
       const icons = all.filter((control) => control.control === "icon");
       expect(chips.map((control) => control.name).sort()).toEqual(
-        all.filter((control) => ["mode", "model", "harness"].includes(control.name)).map((c) => c.name).sort(),
+        all
+          .filter((control) => ["mode", "model", "harness"].includes(control.name))
+          .map((c) => c.name)
+          .sort(),
       );
       // One height.
       const height = all[0]!.height;
@@ -178,7 +197,8 @@ await requireBrowserLane("composer-controls.test.ts", async () => {
       // One radius and the hand cursor everywhere; no fill at rest.
       for (const control of all) {
         expect([control.name, control.radius]).toEqual([control.name, all[0]!.radius]);
-        expect([control.name, control.cursor]).toEqual([control.name, "pointer"]);
+        // The pointing hand on what a click works (the ring is off before the chat reports usage).
+        expect([control.name, control.cursor]).toEqual([control.name, control.disabled ? "default" : "pointer"]);
         expect([control.name, control.background, clear(control.background)]).toEqual([
           control.name,
           control.background,
@@ -189,9 +209,9 @@ await requireBrowserLane("composer-controls.test.ts", async () => {
       const fills = new Map<string, string>();
       for (const [name, selector] of Object.entries(CONTROLS)) {
         const target = page.locator(selector).last();
-        if (!(await target.isVisible())) continue;
+        if (!(await target.isVisible()) || (await target.isDisabled())) continue;
         await target.hover();
-        await page.waitForTimeout(200);
+        await settle(page);
         fills.set(name, await target.evaluate((element) => getComputedStyle(element).backgroundColor));
         await rest(page);
       }
@@ -264,7 +284,7 @@ await requireBrowserLane("composer-controls.test.ts", async () => {
       const shown = () => rowStop.evaluate((element) => getComputedStyle(element).opacity !== "0");
       expect(await shown()).toBe(false);
       await page.locator(".acpmux-running-tray .acpmux-agent-line").first().hover();
-      await page.waitForTimeout(250);
+      await settle(page);
       expect(await shown()).toBe(true);
       await page.close();
     });
@@ -276,12 +296,19 @@ await requireBrowserLane("composer-controls.test.ts", async () => {
       ] as const) {
         const page = await open(engine, entry, variant);
         const found = await page.evaluate(() => {
-          const scope = [...document.querySelectorAll(".acpmux-composer, .acpmux-model")];
+          // The controls' own faces: the box, the quiet row and the model button (not its open menu).
+          const scope = [
+            ...document.querySelectorAll(".acpmux-composer-box, .acpmux-composer-foot, .acpmux-model > button"),
+          ];
           const text = scope.map((element) => element.textContent ?? "").join(" ");
           const dots = scope.flatMap((element) => [
             ...element.querySelectorAll(".acpmux-model-update-dot, [class*='bullet']"),
           ]);
-          return { bullet: /[•·∙●]/.test(text), dots: dots.length, model: document.querySelector(".acpmux-model") !== null };
+          return {
+            bullet: /[•·∙●]/.test(text),
+            dots: dots.length,
+            model: document.querySelector(".acpmux-model") !== null,
+          };
         });
         expect([variant, found]).toEqual([variant, { bullet: false, dots: 0, model: true }]);
         await page.close();

@@ -199,24 +199,25 @@ await requireBrowserLane("composer-plain-glyphs.test.ts", async () => {
       expect(problems).toEqual([]);
     });
 
+    // Mid-turn the box holds one primary control (composer-controls.test.ts): ↵ once a prompt is
+    // typed, Stop while it is empty.
     test(`${engine}: mid-turn, ↵ and Stop are plain glyphs inside the box`, async () => {
-      const page = await open(engine, "agent-pane.composer", "working-steer");
-      await page.locator(`${CHAT_BOX} .acpmux-steer-now`).waitFor();
-      const mic = await look(page, `${CHAT_BOX} .acpmux-mic`, CHAT_BOX);
       const problems: string[] = [];
-      for (const [name, selector] of [
-        ["↵", `${CHAT_BOX} .acpmux-steer-now`],
-        ["Stop", `${CHAT_BOX} .acpmux-cancel`],
+      for (const [name, variant, selector] of [
+        ["↵", "working-steer", `${CHAT_BOX} .acpmux-steer-now`],
+        ["Stop", "working", `${CHAT_BOX} .acpmux-cancel`],
       ] as const) {
+        const page = await open(engine, "agent-pane.composer", variant);
+        await page.locator(selector).waitFor();
+        const mic = await look(page, `${CHAT_BOX} .acpmux-mic`, CHAT_BOX);
         const at = await look(page, selector, CHAT_BOX);
         problems.push(...plain(name, at, mic));
         if (at.color !== at.muted) problems.push(`${name} is ${at.color}, not the secondary text ${at.muted}`);
         if (!at.inBox) problems.push(`${name} pokes out of the box`);
+        if (name === "↵" && at.glyph?.stroke !== mic.glyph?.stroke)
+          problems.push(`↵'s stroke is ${at.glyph?.stroke}, the mic's ${mic.glyph?.stroke}`);
+        await page.close();
       }
-      const steer = await look(page, `${CHAT_BOX} .acpmux-steer-now`, CHAT_BOX);
-      if (steer.glyph?.stroke !== mic.glyph?.stroke)
-        problems.push(`↵'s stroke is ${steer.glyph?.stroke}, the mic's ${mic.glyph?.stroke}`);
-      await page.close();
       expect(problems).toEqual([]);
     });
 
