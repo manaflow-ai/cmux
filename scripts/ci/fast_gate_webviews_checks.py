@@ -40,10 +40,14 @@ CHECKS = ("check:browser-lanes", "check:fixed-waits", "typecheck", "acpmux-proto
 LINE_REF = re.compile(r"(\S):\d+(?::\d+)?\b")
 TIMING = re.compile(r"\b\d+(?:\.\d+)?\s?(?:ms|s)\b")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
-# Oxlint's graphical report (the type check, `vp lint`): `  x typescript(TS2339): message`, then
-# `   ,-[path:line:col]` and a code frame. One finding per diagnostic; the frame and the totals are not findings.
+# Oxlint's graphical report (the type check, `vp lint`): `  x typescript(TS2339): message`, wrapped lines of the
+# message, `   ,-[path:line:col]`, a code frame and `help:` lines. One finding per diagnostic, its whole message.
 DIAGNOSTIC = re.compile(r"^\s*[x!×⚠]\s+(?P<code>[\w/@-]+\([^)]*\)):\s*(?P<message>.*?)\s*$")
 LOCATION = re.compile(r"^\s*,-\[(?P<path>[^\]]+?)(?::\d+:\d+)?\]\s*$")
+FRAME = re.compile(r"^\s*(?:\d+\s*\||:|`-+)")
+HELP = re.compile(r"^\s*help:")
+# Lines that describe a run, not a finding: a count that falls when the change fixes one of the base's errors.
+NOISE = re.compile(r"^(?:error: (?:Type errors|Formatting issues|Lint issues) found$|Found \d+ errors? and \d+ warnings?\b|note: You are running)")
 
 
 def run_check(webviews: Path, check: str) -> tuple[int, str]:
@@ -64,27 +68,44 @@ def unroot(text: str, root: str) -> str:
 
 
 def findings(output: str, root: str = "") -> list[tuple[str, str]]:
-    """(key, shown) per finding: each Oxlint diagnostic when the output has any, else each non-empty line."""
-    lines = ANSI.sub("", output).splitlines()
-    diagnostics: list[tuple[str, str]] = []
-    pending = None
-    for line in lines:
-        found = DIAGNOSTIC.match(line)
-        if found:
-            if pending:
-                diagnostics.append(pending)
-            pending = (f"{found['code']}: {found['message']}",) * 2
+    """(key, shown) per finding: each Oxlint diagnostic, keyed by its path, code and whole message (wrapped lines
+    and help included, the line number not), and every other line of output, so an error the parser does not
+    know (a crash, a config failure) is a finding of its own and never hides behind a known one."""
+    out: list[tuple[str, str]] = []
+    record: dict | None = None
+
+    def close() -> None:
+        nonlocal record
+        if record:
+            message = " ".join(record["message"])
+            path = record["path"]
+            found = f"{unroot(path, root)}: {message}" if path else message
+            out.append((found, f"{path}: {message}" if path else message))
+        record = None
+
+    for line in ANSI.sub("", output).splitlines():
+        header = DIAGNOSTIC.match(line)
+        if header:
+            close()
+            record = {"message": [f"{header['code']}: {header['message']}"], "path": "", "framed": False}
             continue
-        where = LOCATION.match(line)
-        if where and pending:
-            path = unroot(where["path"], root)
-            diagnostics.append((f"{path}: {pending[0]}", f"{where['path']}: {pending[1]}"))
-            pending = None
-    if pending:
-        diagnostics.append(pending)
-    if diagnostics:
-        return diagnostics
-    return [(key(line, root), line.rstrip()) for line in lines if line.strip()]
+        if record is not None:
+            where = LOCATION.match(line)
+            if where and not record["path"]:
+                record["path"], record["framed"] = where["path"], True
+                continue
+            if FRAME.match(line) and record["framed"]:
+                continue
+            if HELP.match(line) or (not record["framed"] and line.strip()):
+                record["message"].append(line.strip().lstrip("|").strip())
+                continue
+            if not line.strip():
+                continue
+            close()
+        if line.strip() and not NOISE.match(line.strip()):
+            out.append((key(line, root), line.rstrip()))
+    close()
+    return out
 
 
 def compare(merge_output: str, base_output: str, merge_root: str = "", base_root: str = "") -> tuple[list, list]:
@@ -106,6 +127,13 @@ def added(merge_output: str, base_output: str, merge_root: str = "", base_root: 
     return compare(merge_output, base_output, merge_root, base_root)[0]
 
 
+def shares_deps(repo: Path, base: str, directory: str) -> bool:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    import web_lint_prepush  # noqa: PLC0415  (scripts/web_lint_prepush.py)
+
+    return web_lint_prepush.shares_deps(repo, base, directory)
+
+
 def generate_strings(webviews: Path) -> None:
     """A worktree's page strings (generated/strings.json, gitignored) that bun install's postinstall writes;
     a base sharing the merge's node_modules installs nothing, and the type check reads them."""
@@ -114,7 +142,9 @@ def generate_strings(webviews: Path) -> None:
 
 
 class BaseTree:
-    """A worktree of BASE whose webviews/node_modules is the merge's, made on first use."""
+    """A worktree of BASE, made on first use. Its webviews/node_modules is the merge's only when the two install
+    the same thing (web_lint_prepush.shares_deps: package.json, bun.lock, file: dependencies); otherwise it installs
+    its own, so a pull request that bumps a dependency is never compared with a base checked on that bump."""
 
     def __init__(self, repo: Path, base: str):
         self.repo, self.base, self.path = repo, base, None
@@ -130,8 +160,15 @@ class BaseTree:
                 self.path = False
                 return None
             modules = self.repo / "webviews" / "node_modules"
-            if modules.is_dir():
+            if modules.is_dir() and shares_deps(self.repo, self.base, "webviews"):
                 (holder / "base" / "webviews" / "node_modules").symlink_to(modules.resolve())
+            elif subprocess.run(["bun", "install", "--frozen-lockfile"], cwd=holder / "base" / "webviews").returncode:
+                print(f"webviews checks: bun install failed on the base {self.base}", flush=True)
+                subprocess.run(["git", "-C", str(self.repo), "worktree", "remove", "--force", str(holder / "base")],
+                               capture_output=True)
+                shutil.rmtree(holder, ignore_errors=True)
+                self.path = False
+                return None
             generate_strings(holder / "base" / "webviews")
             self.path = holder / "base"
         return self.path / "webviews" if self.path else None
@@ -168,7 +205,9 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             base_code, base_output = run_check(base_webviews, check)
             new, old = (compare(output, base_output, str(repo), str(base_webviews.parent)) if base_code != 0
-                        else ([shown for _, shown in findings(output, str(repo))] or ["(no output)"], []))
+                        else ([shown for _, shown in findings(output, str(repo))], []))
+            if not new and not old:
+                new = [f"{check} failed (exit {code}) and printed no finding to compare with the base"]
             if old:
                 print(f"::warning title=webviews {check} (base)::{len(old)} error(s) the base {args.base[:12]} "
                       "has too; not this change's", flush=True)

@@ -407,6 +407,7 @@ jobs:
       # The browser-lane suites (test/support/requireBrowserLane.ts) fail in CI
       # without these engines; before, they skipped themselves and passed.
       - name: Cache Playwright's apt packages
+        id: playwright-apt
         continue-on-error: true
         uses: ./.github/actions/playwright-apt-cache
         with:
@@ -447,6 +448,7 @@ jobs:
         env:
           SOURCE_BUILD: ${{ steps.source-build.outcome }}
           BUNDLES: ${{ steps.bundles.outcome }}
+          PLAYWRIGHT_APT: ${{ steps.playwright-apt.outcome }}
           ENGINES: ${{ steps.engines.outcome }}
           MERGE_DRIVER: ${{ steps.merge-driver.outcome }}
           POST_EDIT_FORMAT: ${{ steps.post-edit-format.outcome }}
@@ -463,6 +465,7 @@ jobs:
           for gate in \
             "SOURCE_BUILD|Verify webviews source checks" \
             "BUNDLES|Build the web bundles" \
+            "PLAYWRIGHT_APT|Cache Playwright's apt packages" \
             "ENGINES|Install headless engines" \
             "MERGE_DRIVER|Generated bundle merge driver" \
             "POST_EDIT_FORMAT|Post-edit formatting hook" \

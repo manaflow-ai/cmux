@@ -675,7 +675,8 @@ class WebviewsChecksGate(unittest.TestCase):
         self.assertIn("test/composer-row-layout.test.ts: typescript(TS2339): Property 'muted'", added)
         self.assertNotIn("src/a.ts", added)
         self.assertIn("::error title=webviews typecheck::", result.stdout)
-        self.assertRegex(result.stdout, r"::warning title=webviews typecheck \(base\)::.*1 error")
+        self.assertRegex(result.stdout, r"::warning title=webviews typecheck \(base\)::\d+ error")
+        self.assertIn("base: src/a.ts: typescript(TS2307)", result.stdout)
 
     def test_a_base_only_type_error_is_a_warning(self):
         red = type_error("TS2307", "Cannot find module './x.json'.", "src/a.ts:4:21")
