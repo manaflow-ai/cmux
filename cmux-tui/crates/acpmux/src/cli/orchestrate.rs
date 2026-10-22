@@ -16,6 +16,8 @@ use std::sync::Arc;
 
 pub(crate) const SKILL: &str = include_str!("../../skills/acpmux/SKILL.md");
 mod presets;
+#[cfg(test)]
+mod wait_tests;
 pub(crate) use presets::{defaults, preset};
 
 /// The guide text: the skill file without its frontmatter.

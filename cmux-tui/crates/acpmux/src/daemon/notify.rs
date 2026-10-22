@@ -77,3 +77,7 @@ pub(super) async fn notify_loop(hub: Arc<Hub>) {
             .spawn();
     }
 }
+
+#[cfg(test)]
+#[path = "notify_tests.rs"]
+mod tests;
