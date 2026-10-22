@@ -123,7 +123,7 @@ def privacy_module():
 
 # In GitHub Actions every pr-media write goes through this composite action. It
 # gives the check the pr-media environment's private-terms list and an OCR tool
-# (tesseract on Linux, Vision on macOS) and sets PUBLISH_GATE for its command.
+# (tesseract on Linux, Vision on macOS) and sets PUBLISH_GATE for its publisher.
 PUBLISH_ACTION = ".github/actions/pr-media-publish"
 PUBLISH_GATE = "PR_MEDIA_PUBLISH_GATE"
 
