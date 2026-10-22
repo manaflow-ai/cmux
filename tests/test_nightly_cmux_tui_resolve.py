@@ -80,15 +80,15 @@ exempt = {"decide", RESOLVE, "refresh-compilation-cache", "refresh-test-compilat
 # commit, or a recovered earlier build's own build commit.
 SELECTED_SHA = "${{ steps.source.outputs.build_sha }}"
 
-def tooling_checkout(body: str) -> "str | None":
+def tooling_checkout(body: str) -> "tuple[int, int] | None":
     """The publication-tooling checkout of a job: `ref: github.sha` into .publish-tooling whose
     whole sparse-checkout value names only paths under scripts/, nothing else (a `/*` line would
-    be the whole tree at the workflow's commit). The text to drop before the build-ref check."""
+    be the whole tree at the workflow's commit). Its span, the one stretch to drop before the build-ref check."""
     match = re.search(r"^( +)ref: \$\{\{ github\.sha \}\}\n\1path: \.publish-tooling\n\1sparse-checkout: (.*)\n", body, re.MULTILINE)
     if not match:
         return None
     indent, value = match.group(1), match.group(2).strip()
-    text, rest = match.group(0), body[match.end():]
+    rest = body[match.end():]
     # The value runs to the first non-blank line indented no deeper than its key; blank lines
     # inside it are part of it, so a later `/*` is still read. That holds for a `|` block and
     # for a plain scalar continued on deeper lines alike.
@@ -99,14 +99,13 @@ def tooling_checkout(body: str) -> "str | None":
     continuation = [line.strip() for line in lines[:end] if line.strip()]
     if value == "|":
         paths = continuation
-        text += "".join(lines[:end])
     elif continuation:
         return None
     else:
         paths = [value]
     if not paths or not all(re.fullmatch(r"scripts(/(?!\.+(/|$))[\w.-]+)*", path) for path in paths):
         return None
-    return text
+    return match.start(), match.end() + len("".join(lines[:end]))
 
 
 for bad in ("scripts/ci/x.py\n            /*", "/*", "scripts/../Sources"):
@@ -125,6 +124,11 @@ check(tooling_checkout("\n  ref: ${{ github.sha }}\n\n  path: .publish-tooling\n
 check(tooling_checkout("          ref: ${{ github.sha }}\n          path: .publish-tooling\n          sparse-checkout: scripts\n"
                        "          sparse-checkout-cone-mode: false\n") is not None,
       "a sibling key after the inline sparse value ends it")
+safe = "          ref: ${{ github.sha }}\n          path: .publish-tooling\n          sparse-checkout: |\n            scripts/ci/x.py\n"
+twice = safe + "      - uses: actions/checkout@v4\n        with:\n" + safe + "            /*\n"
+start, end = tooling_checkout(twice)
+check("${{ github.sha }}" in twice[:start] + twice[end:],
+      "dropping the tooling checkout must leave a second checkout that shares its text but adds `/*`")
 check(tooling_checkout("          ref: ${{ github.sha }}\n          path: .publish-tooling\n          sparse-checkout: scripts\n") is not None,
       "publish-nightly's `sparse-checkout: scripts` is the tooling checkout")
 
@@ -143,7 +147,7 @@ for name in shipping:
     if name == "publish-nightly":
         check(tooling is not None, "publish-nightly must check out its publication tooling at github.sha into .publish-tooling")
     if tooling:
-        body = body.replace(tooling, "")
+        body = body[:tooling[0]] + body[tooling[1]:]
     if name in {"build-nightly-app", "build-sign-notarize-nightly"}:
         # Unsigned recovery restores bytes instead of compiling them, using
         # this workflow's controls. Its separate source checkout stays pinned.
