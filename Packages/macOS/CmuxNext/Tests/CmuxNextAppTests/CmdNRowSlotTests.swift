@@ -81,9 +81,15 @@ struct CmdNRowSlotTests {
 /// current workspace, inside its group (the app's one move into the group lands under the pending row).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct CmdNInGroupRowSlotTests {
-    @Test func cmdNInAGroupDrawsTheNewRowOnlyBelowTheCurrentOne() async throws {
+    /// `instantPage`: a person's Cmd-N on a Mac that hosts the New Tab page, which shows a stand-in workspace at the
+    /// press (`WorkspaceSpawner.shown`); else the create waits for the daemon (a terminal).
+    @Test(arguments: [false, true]) func cmdNInAGroupDrawsTheNewRowOnlyBelowTheCurrentOne(instantPage: Bool) async throws {
         let launched = try await RapidWorkspaceCreateTests.launch(sessionEvents: true)
         let services = launched.services
+        if instantPage {
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-cmdn-group")
+            try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
+        }
         let url = launched.root.appendingPathComponent("cmux.json")
         try Data(#"{"workspaces":{"newPlacement":"top"}}"#.utf8).write(to: url)
         let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
@@ -166,7 +172,7 @@ struct CmdNInGroupRowSlotTests {
                 return "@\(frame.firstIndex(of: id) ?? -1)\(pending)\(provisional)\(item)\(placing)"
             }.joined(separator: ","))
         }
-        _ = services.registry.perform("newTab")
+        _ = services.registry.perform("newTab", invocation: ActionInvocation(origin: instantPage ? .user : .script))
         await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { settled(before.count + 1) && rows(list.displayed).count > before.count }
         // A late reorder (the item's arrival, a placement echo) would draw within this; test-only wait.
         try? await Task.sleep(for: .seconds(1))
@@ -175,7 +181,7 @@ struct CmdNInGroupRowSlotTests {
         await launched.stop()
 
         let created = try #require(after.first { !before.contains($0) }, "the new row: \(after)")
-        print("cmd-n-group: anchor @\(at), frames \(frames.count): \(tags.joined(separator: " | "))")
+        print("cmd-n-group instantPage=\(instantPage): anchor @\(at), frames \(frames.count): \(tags.joined(separator: " | "))")
         #expect(after == Array(before[...at]) + [created] + before[(at + 1)...], "rows \(before) became \(after)")
         let elsewhere = frames.filter { frame in frame.contains(created) && frame.firstIndex(of: created) != frame.firstIndex(of: anchor).map { $0 + 1 } }
         #expect(elsewhere.isEmpty, "frames that drew the new row away from its slot below \(anchor): \(elsewhere.count) of \(frames.count): \(tags)")
