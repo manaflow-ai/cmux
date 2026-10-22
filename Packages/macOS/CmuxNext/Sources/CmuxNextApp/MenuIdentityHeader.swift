@@ -9,7 +9,8 @@ import CmuxNextDesign
 ///
 /// The field renames when Return is pressed or the menu closes with a changed name (Chrome keeps
 /// what you typed too), through the rename action with a `name` argument. A swatch runs its color
-/// choice as the color row did.
+/// choice as the color row did; a color row that can remove the color (the workspace's) leads with
+/// a no-color swatch (u9783).
 @MainActor
 enum MenuIdentityHeader {
     /// Puts the header at the top of `menu`. `rename` is the menu's rename action: given a `name`, its
@@ -27,6 +28,8 @@ enum MenuIdentityHeader {
         }
         guard renameIndex != nil || colorIndex != nil else { return }
         let choices = colorIndex.map { menu.items[$0].submenu?.items.filter { color(of: $0) != nil } ?? [] } ?? []
+        // The color row's Remove Color (u9783): the strip's first swatch, ringed while there is no color.
+        let clear = colorIndex.flatMap { ActionRegistry.clearingChoice(in: menu.items[$0].submenu) }
         let colorTitle = colorIndex.map { menu.items[$0].title }
         for index in [renameIndex, colorIndex].compactMap({ $0 }).sorted(by: >) { menu.removeItem(at: index) }
         while menu.items.first?.isSeparatorItem == true { menu.removeItem(at: 0) }
@@ -39,7 +42,7 @@ enum MenuIdentityHeader {
         }
         // The group menu names its color (none for a custom `#RRGGBB` one); the workspace rows carry it as their state.
         let ringed = rename == "workspaceGroup.rename" ? current : choices.first { $0.state == .on }.flatMap(color(of:))
-        let strip = choices.isEmpty ? nil : MenuSwatchStrip(title: colorTitle ?? "", choices: choices, colors: choices.map(color(of:)), current: ringed)
+        let strip = choices.isEmpty ? nil : MenuSwatchStrip(title: colorTitle ?? "", choices: choices, colors: choices.map(color(of:)), current: ringed, clear: clear)
         let header = NSMenuItem()
         header.view = MenuIdentityHeaderView(field: field, strip: strip)
         if let colorTitle { header.setAccessibilityLabel(colorTitle) }
@@ -49,13 +52,7 @@ enum MenuIdentityHeader {
 
     /// The group color a menu row sets: a choices row's `color` argument (Set Workspace Color) or a
     /// group's per-color action (`workspaceGroup.color.<color>`).
-    static func color(of item: NSMenuItem) -> GroupColor? {
-        guard let run = ActionRegistry.menuRun(of: item) else { return nil }
-        if let raw = run.arguments["color"]?.stringValue { return GroupColor(rawValue: raw) }
-        let prefix = "workspaceGroup.color."
-        guard run.id.rawValue.hasPrefix(prefix) else { return nil }
-        return GroupColor(rawValue: String(run.id.rawValue.dropFirst(prefix.count)))
-    }
+    static func color(of item: NSMenuItem) -> GroupColor? { ActionRegistry.menuColorName(of: item).flatMap(GroupColor.init(rawValue:)) }
 
     /// The field's placeholder: the rename action's `name` argument ("Name"), else its title.
     private static func placeholder(for rename: ActionID, registry: ActionRegistry) -> String {

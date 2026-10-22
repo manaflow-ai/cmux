@@ -26,13 +26,7 @@ extension NSMenu {
     }
 
     fileprivate func themeRows(in scope: ThemeScope, session: ThemedMenuSession) {
-        // Arrow keys move the highlight without AppKit redrawing view rows: the relay does, and
-        // passes every call on to the delegate the menu had (a choices submenu's coordinator).
-        if !(delegate is ThemedMenuHighlightRelay) {
-            let relay = ThemedMenuHighlightRelay(forward: delegate, scope: scope, session: session)
-            session.keep(relay)
-            delegate = relay
-        }
+        relayHighlights(in: scope, session: session)
         // A section header ("Phones" in the device menu) stays AppKit's: it never highlights or runs.
         for item in items where !item.isSeparatorItem && !item.isSectionHeader {
             if let view = item.view as? any ThemedMenuItemView {
@@ -41,10 +35,23 @@ extension NSMenu {
                 item.view = ThemedMenuRowView(item: item, scope: scope, session: session)
             }
             if let submenu = item.submenu {
+                // Its rows are drawn when it opens (the relay's `menuNeedsUpdate`), not now: a right-click
+                // built a view for every row of every submenu before it showed (u9786, "right click
+                // workspace also feels laggy").
                 submenu.appearance = scope.appearance
-                submenu.themeRows(in: scope, session: session)
+                submenu.relayHighlights(in: scope, session: session)
             }
         }
+    }
+
+    /// Arrow keys move the highlight without AppKit redrawing view rows: the relay does, and passes
+    /// every call on to the delegate the menu had (a choices submenu's coordinator). The relay also
+    /// draws the menu's rows as it opens.
+    fileprivate func relayHighlights(in scope: ThemeScope, session: ThemedMenuSession) {
+        guard !(delegate is ThemedMenuHighlightRelay) else { return }
+        let relay = ThemedMenuHighlightRelay(forward: delegate, scope: scope, session: session)
+        session.keep(relay)
+        delegate = relay
     }
 }
 
@@ -210,7 +217,8 @@ final class ThemedMenuHighlightRelay: NSObject, NSMenuDelegate {
         // The root closed: a row chosen from the keyboard runs now (``ThemedMenuSession/runWhenClosed(_:)``).
         if menu.supermenu == nil { session?.closed() }
     }
-    /// A submenu filled as it opens (Open With ▸) themes the rows its delegate just added.
+    /// A submenu opening draws its rows: the ones it was built with and the ones its delegate just
+    /// added (Open With ▸).
     func menuNeedsUpdate(_ menu: NSMenu) {
         forward?.menuNeedsUpdate?(menu)
         themeRows(of: menu)

@@ -97,6 +97,8 @@ final class AppControl {
             .mainActor("debug.window_transition") { call in .value(DebugWindowTransition.shared.handle(call.params)) },
             // Sidebar work: rebuilds, row patches/configures, ffi calls (sidebar-rows-perf-live.py).
             .mainActor("debug.sidebar_perf") { call in .value(.object(SidebarView.perfCounters(reset: call.params["reset"]?.boolValue == true).mapValues { .number(Double($0)) })) },
+            // A workspace row's right-click menu built as a right-click builds it, unshown (perf-gate.py context_menu).
+            .mainActor("debug.context_menu") { [weak services] call in .value(.object((services?.windows.active?.sidebar.container.sidebarView.debugMeasureContextMenu(workspace: call.params["workspace"]?.stringValue ?? "", count: call.params["count"]?.intValue ?? 20) ?? [:]).mapValues { .number($0) })) },
             // Click by Hint labels (hint-mode-e2e.py).
             .mainActor("debug.hints") { [weak services] call in
                 guard let services else { return .value(.null) }

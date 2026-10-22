@@ -9824,10 +9824,39 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "\t",
+              "modifiers" : [
+                "ctrl",
+                "shift"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "[",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        }
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "\t",
+        "modifiers" : [
+          "ctrl",
+          "shift"
+        ]
+      },
       "id" : "home.previousConversation",
       "main_menu" : "view",
       "mcp" : "focusMove",
@@ -9852,10 +9881,37 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "\t",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "]",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        }
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "\t",
+        "modifiers" : [
+          "ctrl"
+        ]
+      },
       "id" : "home.nextConversation",
       "main_menu" : "view",
       "mcp" : "focusMove",
@@ -9870,6 +9926,138 @@
       "palette_suggested" : null,
       "title" : "Next Conversation",
       "title_key" : "action.home.nextConversation",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "focusMove",
+      "cli_name" : "action home-select-conversation-by-number",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "1",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "2",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "3",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "4",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "5",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "6",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "7",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "8",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "9",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "family" : "digits",
+        "key" : "1",
+        "modifiers" : [
+          "ctrl"
+        ]
+      },
+      "id" : "home.selectConversationByNumber",
+      "main_menu" : null,
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Select Conversation 1…9",
+      "title_key" : "action.home.selectConversationByNumber",
       "title_table" : "HomeActions"
     },
     {
@@ -43334,6 +43522,10 @@
           "choices" : {
             "argument" : "color",
             "more_opens_palette" : false,
+            "trailer" : {
+              "id" : "palette.resetWorkspaceColor",
+              "title_from" : "action"
+            },
             "values" : [
               {
                 "title" : "Grey",
@@ -43761,23 +43953,10 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.resetWorkspaceColor",
-              "kind" : "action",
-              "order" : 10,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
               "id" : "workspace.setIcon",
               "kind" : "action",
               "label" : "Set Icon…",
-              "order" : 11,
+              "order" : 10,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -43791,7 +43970,7 @@
               "id" : "workspace.clearIcon",
               "kind" : "action",
               "label" : "Remove Icon",
-              "order" : 12,
+              "order" : 11,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -43906,7 +44085,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspace.setTheme",
               "kind" : "choices",
-              "order" : 13,
+              "order" : 12,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -43919,7 +44098,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspace.clearTheme",
               "kind" : "action",
-              "order" : 14,
+              "order" : 13,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -43998,7 +44177,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspace.setTint",
               "kind" : "choices",
-              "order" : 15,
+              "order" : 14,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44009,7 +44188,7 @@
             },
             {
               "kind" : "separator",
-              "order" : 16
+              "order" : 15
             },
             {
               "children" : [
@@ -44329,20 +44508,20 @@
               ],
               "folder" : "options",
               "kind" : "folder",
-              "order" : 17,
+              "order" : 16,
               "title" : "Options",
               "title_key" : "menu.folder.options",
               "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 18
+              "order" : 17
             },
             {
               "enabled_when" : "can_perform",
               "id" : "workspace.copyPath",
               "kind" : "action",
-              "order" : 19,
+              "order" : 18,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44355,7 +44534,7 @@
               "enabled_when" : "can_perform",
               "id" : "palette.copyWorkspaceID",
               "kind" : "action",
-              "order" : 20,
+              "order" : 19,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44368,7 +44547,7 @@
               "enabled_when" : "can_perform",
               "id" : "palette.copyWorkspaceLink",
               "kind" : "action",
-              "order" : 21,
+              "order" : 20,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44381,7 +44560,7 @@
               "enabled_when" : "can_perform",
               "id" : "palette.copyWorkspaceIDAndRef",
               "kind" : "action",
-              "order" : 22,
+              "order" : 21,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44394,7 +44573,7 @@
               "enabled_when" : "can_perform",
               "id" : "copyWorkspaceSSHError",
               "kind" : "action",
-              "order" : 23,
+              "order" : 22,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44407,7 +44586,7 @@
               "enabled_when" : "can_perform",
               "id" : "agentChat.copyIdentifier",
               "kind" : "action",
-              "order" : 24,
+              "order" : 23,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44418,13 +44597,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 25
+              "order" : 24
             },
             {
               "enabled_when" : "can_perform",
               "id" : "workspace.showResources",
               "kind" : "action",
-              "order" : 26,
+              "order" : 25,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44437,7 +44616,7 @@
               "enabled_when" : "can_perform",
               "id" : "revealWorkspaceInFinder",
               "kind" : "action",
-              "order" : 27,
+              "order" : 26,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44450,7 +44629,7 @@
               "enabled_when" : "can_perform",
               "id" : "palette.openWorkspacePullRequests",
               "kind" : "action",
-              "order" : 28,
+              "order" : 27,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44461,13 +44640,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 29
+              "order" : 28
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.closeOtherWorkspaces",
               "kind" : "action",
-              "order" : 30,
+              "order" : 29,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44480,7 +44659,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspace.closeOthersInGroup",
               "kind" : "action",
-              "order" : 31,
+              "order" : 30,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44493,7 +44672,7 @@
               "enabled_when" : "can_perform",
               "id" : "palette.closeWorkspacesBelow",
               "kind" : "action",
-              "order" : 32,
+              "order" : 31,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44506,7 +44685,7 @@
               "enabled_when" : "can_perform",
               "id" : "palette.closeWorkspacesAbove",
               "kind" : "action",
-              "order" : 33,
+              "order" : 32,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44519,7 +44698,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspace.closeAll",
               "kind" : "action",
-              "order" : 34,
+              "order" : 33,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44532,7 +44711,7 @@
               "enabled_when" : "can_perform",
               "id" : "reopenClosedWorkspace",
               "kind" : "action",
-              "order" : 35,
+              "order" : 34,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44545,7 +44724,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspace.stash",
               "kind" : "action",
-              "order" : 36,
+              "order" : 35,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44558,7 +44737,7 @@
               "enabled_when" : "can_perform",
               "id" : "window.stash",
               "kind" : "action",
-              "order" : 37,
+              "order" : 36,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,

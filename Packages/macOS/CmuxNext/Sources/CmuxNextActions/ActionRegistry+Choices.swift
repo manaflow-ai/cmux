@@ -12,7 +12,7 @@ extension ActionRegistry {
               Self.isAvailable(descriptor, in: context), action.isEnabled(),
               let (argument, cases, current) = ActionTargetChoices.resolve(descriptor, target: target, in: self)
         else { return nil }
-        let trailer = choiceTrailer(for: descriptor.id, target: target, in: context)
+        let trailer = choiceTrailer(for: descriptor.id, target: target, in: context, current: current)
         guard !cases.isEmpty || trailer != nil else { return nil }
         let submenu = NSMenu(title: title)
         let coordinator = ActionChoicesMenuCoordinator(registry: self, action: descriptor.id, argument: argument.name, target: target)
@@ -52,13 +52,17 @@ extension ActionRegistry {
     /// The row a choices submenu always ends with, under its own title (Move Workspace to Group >
     /// Move Workspace to New Group, never confused with a group named "New Group"), run on the same
     /// target; nil when the choices have none or it is not bound and enabled here.
-    private func choiceTrailer(for id: ActionID, target: ActionTargetRef?, in context: ActionContext) -> NSMenuItem? {
+    private func choiceTrailer(for id: ActionID, target: ActionTargetRef?, in context: ActionContext, current: String?) -> NSMenuItem? {
         guard let trailerID = ContextMenuEssentials.choiceTrailers[id], let descriptor = descriptor(for: trailerID),
               Self.isAvailable(descriptor, in: context), action(for: trailerID)?.isEnabled() == true,
               let item = makeMenuItem(for: trailerID) else { return nil }
         item.keyEquivalent = ""
         item.keyEquivalentModifierMask = []
         item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: [:])
+        if ContextMenuEssentials.clearingTrailers.contains(trailerID) {
+            item.title = ObjectMenuLabels.removeColor
+            item.state = current == nil ? .on : .off
+        }
         return item
     }
 }
@@ -102,5 +106,22 @@ final class ActionChoicesMenuCoordinator: NSObject, NSMenuDelegate {
 
     func menuDidClose(_ menu: NSMenu) {
         registry?.choicePreview?(action, argument, nil, target)
+    }
+}
+
+extension ActionRegistry {
+    /// The color a menu row sets, by name: a choices row's `color` argument (Set Workspace Color) or
+    /// the last part of a per-color action (`workspaceGroup.color.<color>`); nil for any other row.
+    public static func menuColorName(of item: NSMenuItem) -> String? {
+        guard let run = menuRun(of: item) else { return nil }
+        if let raw = run.arguments["color"]?.stringValue { return raw }
+        let prefix = "workspaceGroup.color."
+        return run.id.rawValue.hasPrefix(prefix) ? String(run.id.rawValue.dropFirst(prefix.count)) : nil
+    }
+
+    /// The row of a color submenu that takes the color away (the workspace color row's Remove
+    /// Color, `ContextMenuEssentials.clearingTrailers`); its state is on while there is no color.
+    public static func clearingChoice(in menu: NSMenu?) -> NSMenuItem? {
+        menu?.items.first { menuRun(of: $0).map { ContextMenuEssentials.clearingTrailers.contains($0.id) } == true }
     }
 }
