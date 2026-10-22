@@ -363,13 +363,38 @@ fn workspace_groups_resolve_group_and_room_names() {
             state_name("room", Op::RoomList)
         ]
     );
-    let add = plan(&["workspace", "group", "Backend", "add", "--workspace", WS]);
-    assert_eq!(add.operation.name().unwrap(), "workspace.place");
-    assert_eq!(add.resolve, vec![state_name("group", Op::WorkspaceGroupList)]);
     assert_eq!(
         sent(&["workspace", "placement", "list"]),
         ("workspace.placement.list".into(), json!({}))
     );
+}
+
+/// Agents file workspaces "into the Agents group" from many processes: a
+/// create by name reuses the group of that name (`reuse_existing`), and
+/// only `--allow-duplicate` makes a second group of one name.
+#[test]
+fn workspace_group_create_reuses_a_group_of_that_name() {
+    assert_eq!(
+        sent(&["workspace", "group", "create", "--name", "Agents"]),
+        ("workspace_group.create".into(), json!({"name": "Agents", "reuse_existing": true}))
+    );
+    assert_eq!(
+        sent(&["workspace", "group", "create", "--name", "Agents", "--allow-duplicate"]),
+        ("workspace_group.create".into(), json!({"name": "Agents"}))
+    );
+}
+
+/// `workspace group <name> add` finds the group by name (any case) and
+/// makes it when no group has that name, so one command files a workspace
+/// without a separate list and create.
+#[test]
+fn workspace_group_add_finds_or_creates_the_group() {
+    let add = plan(&["workspace", "group", "Agents", "add", "--workspace", WS]);
+    assert_eq!(add.operation.name().unwrap(), "workspace.place");
+    assert_eq!(add.params["group"], "Agents");
+    assert_eq!(add.resolve, vec![Resolve::GroupOrCreate { field: "group" }]);
+    let by_id = plan(&["workspace", "group", "wgrp_1", "update", "--name", "B"]);
+    assert_eq!(by_id.resolve, vec![state_name("workspace_group", Op::WorkspaceGroupList)]);
 }
 
 #[test]

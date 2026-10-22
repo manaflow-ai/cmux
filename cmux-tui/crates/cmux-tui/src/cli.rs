@@ -77,6 +77,7 @@ mod surface;
 mod terminal_talk;
 mod topology_help;
 mod wire;
+mod workspace_where;
 use surface::MACHINE_CATALOG_HELP;
 pub(super) use surface::{BIN, Surface};
 
