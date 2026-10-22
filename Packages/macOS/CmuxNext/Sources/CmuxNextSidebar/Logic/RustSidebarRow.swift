@@ -39,6 +39,12 @@ nonisolated struct RustRowKey: Codable {
             id = nil
             section = RustSectionID(value)
             workspace = nil
+        case let .status(status):
+            // Never sent either: Group by Status's headers are labels and fold controls only.
+            kind = "status"
+            id = status.rawValue
+            section = nil
+            workspace = nil
         case let .doneFold(fold), let .showMore(fold):
             // Never sent: `RustRow.resolvable` leaves "Done (N)" and "Show N more" rows out.
             kind = "folder"
@@ -100,6 +106,7 @@ nonisolated struct RustRow: Codable {
     static func resolvable(_ rows: [SidebarRow]) -> [RustRow] {
         rows.compactMap { row in
             if case .folder = row.key { return nil }
+            if case .status = row.key { return nil }
             if case .doneFold = row.key { return nil }
             if case .showMore = row.key { return nil }
             if case .item = row.key { return nil }
