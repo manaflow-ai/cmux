@@ -1,6 +1,7 @@
-"""The defaults guard: a pull request that changes what everyone gets by default fails until an
-independent review receipt ships its head, or a call owner other than its author approves it
-(Leo 2026-10-13, 2026-10-21). A new setting that defaults to off passes on its own.
+"""The defaults guard: a pull request that changes what everyone gets by default fails until its
+body cites Leo's explicit order and an independent review receipt ships its head, or a call owner
+other than its author approves it (Leo 2026-10-13, 2026-10-21). A new setting that defaults to off
+passes on its own.
 
 Each test builds a small repository with the guard copied in (the trusted base checkout the
 workflow runs from), commits a base and a head, and runs `defaults_guard.py check` as the
@@ -41,6 +42,28 @@ KEYBINDS = '''nonisolated static let cmuxDefaultKeybindLines = [
 ]
 '''
 FLAGS = "enum PaneSplitCommand {\n    static let optimisticSplitEnabled = false\n}\n"
+ORDER = 'Leo\'s order: "ship it on by default" <https://github.com/manaflow-ai/cmux/issues/13742#issuecomment-1>'
+
+# #22826 (merged as 4e68eeb968ca) added this Debug Tunable defaulting to the breathing dot: agent work
+# stopped showing as the spinner for everyone, inside a 33-file pull request, and the guard never saw
+# it. Trimmed from that pull request's StatusWorkingLook.swift (blob 2015099e740d, from
+# `gh api repos/manaflow-ai/cmux/pulls/22826/files`) to the enum and its tunable.
+WORKING_LOOK = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/StatusWorkingLook.swift"
+PR_22826_WORKING_LOOK = '''public import Foundation
+
+public nonisolated enum StatusWorkingLook: String, Sendable, CaseIterable, TunableChoice {
+    case breathe
+    case shimmer
+    /// The turning arc (before 2026-10-21).
+    case spinner
+
+    /// The Debug Settings switch (section "Status Indicators").
+    public static let tunable = Tunable<StatusWorkingLook>.choice(
+        "status.working", .status, "Working look",
+        help: "How agent work shows on rows, tabs and transcript lines: a breathing accent dot (default), a still dot with the row's words shimmering (web pages), or the spinner.",
+        default: .breathe, code: "StatusWorkingLook.tunable")
+}
+'''
 
 
 class Repo:
@@ -96,8 +119,8 @@ class DefaultsGuardTests(unittest.TestCase):
         self.repo.git("checkout", "-q", self.base)  # the workflow runs the base's guard and owners
         return head
 
-    def check(self, head, reviews=(), author=AUTHOR, comments=()):
-        pull = {"author": {"login": author}, "headRefOid": head, "merged": False,
+    def check(self, head, reviews=(), author=AUTHOR, comments=(), body=ORDER):
+        pull = {"author": {"login": author}, "headRefOid": head, "merged": False, "body": body,
                 "reviews": {"nodes": [{"author": {"login": who}, "state": state, "commit": {"oid": oid}}
                                       for who, state, oid in reviews]},
                 "comments": {"nodes": [{"databaseId": n, "body": body, "createdAt": at,
@@ -233,7 +256,7 @@ class DefaultsGuardTests(unittest.TestCase):
         for name, sha in (("base", self.base), ("head", head)):
             dirs[name] = self.repo.root.parent / f"{self.repo.root.name}-{name}"
             self.repo.git("worktree", "add", "-q", "--detach", str(dirs[name]), sha)
-        pull = {"author": {"login": AUTHOR}, "headRefOid": head, "merged": False,
+        pull = {"author": {"login": AUTHOR}, "headRefOid": head, "merged": False, "body": ORDER,
                 "reviews": {"nodes": [{"author": {"login": "austinywang"}, "state": "APPROVED", "commit": {"oid": head}}]},
                 "comments": {"nodes": []}}
         path = self.repo.root.parent / f"{self.repo.root.name}-dir-pull.json"
@@ -317,7 +340,7 @@ class DefaultsGuardTests(unittest.TestCase):
 
     def test_a_ship_receipt_posted_as_a_review_body_passes(self):
         head = self.changed_head()
-        pull = {"author": {"login": AUTHOR}, "headRefOid": head, "merged": False, "comments": {"nodes": []},
+        pull = {"author": {"login": AUTHOR}, "headRefOid": head, "merged": False, "comments": {"nodes": []}, "body": ORDER,
                 "reviews": {"nodes": [{"author": {"login": AUTHOR, "__typename": "User"}, "authorAssociation": "MEMBER",
                                        "state": "COMMENTED", "submittedAt": "2026-10-21T10:00:00Z",
                                        "body": f"Review (subagent): SHIP at {head}", "commit": {"oid": head}}]}}
@@ -387,6 +410,71 @@ class DefaultsGuardTests(unittest.TestCase):
         result = self.check(self.head(settings=settings))
         self.assertEqual(result.returncode, 1)
         self.assertIn("1 default(s) changed", result.stdout)
+
+    # Every default change needs Leo's explicit order in the body (Leo 2026-10-21, after #22826).
+
+    def test_pr_22826_flipping_a_tunable_default_needs_leos_order(self):
+        result = self.check(self.head(extra={WORKING_LOOK: PR_22826_WORKING_LOOK}), body="")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn('DEFAULTS tunable.status.working: (none) -> "breathe"', result.stdout)
+        self.assertIn("::error title=Default changes need Leo's order::", result.stdout)
+        self.assertIn("Needs Leo's order", result.summary)
+
+    def test_editing_a_tunable_default_needs_leos_order(self):
+        self.repo.write(WORKING_LOOK, PR_22826_WORKING_LOOK.replace("default: .breathe", "default: .spinner"))
+        self.base = self.repo.commit("spinner")
+        head = self.head(extra={WORKING_LOOK: PR_22826_WORKING_LOOK})
+        result = self.check(head, comments=[self.receipt(f"Review (subagent): SHIP at {head}")], body="")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn('DEFAULTS tunable.status.working: "spinner" -> "breathe"', result.stdout)
+
+    def test_a_feature_flag_default_flip_needs_leos_order(self):
+        head = self.head(flags=FLAGS.replace("false", "true"))
+        result = self.check(head, comments=[self.receipt(f"Review (subagent): SHIP at {head}")], body="")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("Default changes need Leo's order", result.stdout)
+
+    def test_a_cited_order_with_a_ship_receipt_passes(self):
+        head = self.head(extra={WORKING_LOOK: PR_22826_WORKING_LOOK})
+        shipped = [self.receipt(f"Review (subagent): SHIP at {head}")]
+        for body in (f"Summary.\n\n{ORDER}\n", "**Leo's order:** “use the dot” https://example.com/x"):
+            result = self.check(head, comments=shipped, body=body)
+            self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("Leo's order: `use the dot`", result.summary)
+        # The order does not stand in for the review.
+        self.assertEqual(self.check(head, body=ORDER).returncode, 1)
+
+    def test_a_question_is_not_an_order(self):
+        head = self.head(extra={WORKING_LOOK: PR_22826_WORKING_LOOK})
+        shipped = [self.receipt(f"Review (subagent): SHIP at {head}")]
+        body = 'Leo\'s order: "isn\'t this mildly ugly?" <https://github.com/manaflow-ai/cmux/issues/13742>'
+        result = self.check(head, comments=shipped, body=body)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("is a question, not an order", result.stdout)
+
+    def test_an_order_without_a_link_is_refused(self):
+        head = self.head(extra={WORKING_LOOK: PR_22826_WORKING_LOOK})
+        shipped = [self.receipt(f"Review (subagent): SHIP at {head}")]
+        for body in ('Leo\'s order: "use the dot"', 'Leo\'s order: "use the dot" <http://example.com/x>'):
+            result = self.check(head, comments=shipped, body=body)
+            self.assertEqual(result.returncode, 1, body)
+            self.assertIn("has no https link", result.stdout)
+
+    def test_a_new_tunable_that_keeps_the_old_behavior_passes_without_an_order(self):
+        tunables = ('static let a = Tunable<Bool>.toggle("x.new", .status, "New", help: "h, (x)", default: false)\n'
+                    'static let b = Tunable<Look>.choice(\n    "x.look", .status, "Look", help: "h", default: .off)\n'
+                    'static let c = Tunable<Double>.number("x.size", .status, "Size", help: "h",\n'
+                    '    default: 0.72, range: 0.2...0.95, step: 0.01, unit: .fraction)\n')
+        result = self.check(self.head(extra={"Packages/macOS/CmuxNext/Sources/CmuxNextDesign/New.swift": tunables}), body="")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("DEFAULTS tunable.x.new: (none) -> false", result.stdout)
+        self.assertIn('DEFAULTS tunable.x.look: (none) -> "off"', result.stdout)
+        self.assertIn("DEFAULTS tunable.x.size: (none) -> 0.72", result.stdout)
+
+    def test_a_guard_change_needs_the_review_but_no_order(self):
+        head = self.head(extra={".github/defaults-call-owners.json": json.dumps({"cmux-next": ["lawrencecchen"]})})
+        result = self.check(head, comments=[self.receipt(f"Review (subagent): SHIP at {head}")], body="")
+        self.assertEqual(result.returncode, 0, result.stdout)
 
     def test_check_fresh_still_finds_a_stale_snapshot(self):
         """No CI check runs check-fresh any more (the snapshot is stale between a merge and the base
