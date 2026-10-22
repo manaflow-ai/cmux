@@ -91,7 +91,9 @@ await requireBrowserLane("new-tab-empty-one-line.test.ts", async () => {
         };
       });
       await page.close();
-      console.log(`new-tab-empty-one-line ${engine}: box ${sizes.box}px, row ${sizes.row}px, one line ${sizes.oneLine}px`);
+      console.log(
+        `new-tab-empty-one-line ${engine}: box ${sizes.box}px, row ${sizes.row}px, one line ${sizes.oneLine}px`,
+      );
       expect(sizes.value).toBe("");
       // The fixture is the split this checks: its chips are in the quiet row under the box.
       expect(sizes.split).toBe(true);
@@ -126,7 +128,9 @@ await requireBrowserLane("new-tab-empty-one-line.test.ts", async () => {
         const perKey = (performance.now() - started) / presses;
         const after = await length();
         await page.close();
-        console.log(`new-tab-delete-burst ${engine} ${surface.name}: ${perKey.toFixed(2)} ms/key, ${before - after}/${presses} deleted`);
+        console.log(
+          `new-tab-delete-burst ${engine} ${surface.name}: ${perKey.toFixed(2)} ms/key, ${before - after}/${presses} deleted`,
+        );
         expect(before).toBe(draft.length);
         expect(before - after).toBe(presses);
         // Generous for a loaded CI host; a field that re-renders the page per key misses it.
