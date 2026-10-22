@@ -9,7 +9,7 @@ import Testing
 /// person's value (cmux.json), and a value of this Chief's own shows as chosen. A change goes to the
 /// brain as one `chief.engine.set` field.
 @MainActor @Suite struct HomeChiefReactionRowsTests {
-    static var resolved: ChiefEngineReport.Engine {
+    nonisolated static var resolved: ChiefEngineReport.Engine {
         var engine = ChiefEngineReport.Engine(harness: "claude", model: "claude-opus-5-5", effort: "high")
         engine.classifierHarness = "claude"
         engine.classifierModel = "claude-haiku-5-5"
@@ -56,7 +56,8 @@ import Testing
         #expect(await received.next() == ["classifier_model": "claude-sonnet-5-5"])
         rows.prompt.stringValue = "  "
         rows.editedPrompt(rows.prompt)
-        #expect(await received.next() == ["classifier_prompt": .some(nil)], "an empty field clears this Chief's own value")
+        let cleared: [String: String?] = ["classifier_prompt": nil]
+        #expect(await received.next() == cleared, "an empty field clears this Chief's own value")
     }
 
     @Test func theSetForwardsTheClassifierFields() {
