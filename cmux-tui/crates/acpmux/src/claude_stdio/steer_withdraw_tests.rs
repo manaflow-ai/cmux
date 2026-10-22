@@ -115,3 +115,17 @@ async fn a_refused_drop_leaves_the_steer_waiting() {
     let read = t.inbound(&echo(&steer)).await;
     assert_eq!(result_of(&read, 2).unwrap().unwrap()["stopReason"], "steered", "{read:?}");
 }
+
+/// The steer's prompt was answered while the drop was on its way (its answers failed, the turn
+/// ended): it is not reported withdrawn, and gets no second answer.
+#[tokio::test]
+async fn a_steer_answered_meanwhile_is_not_reported_withdrawn() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    waiting_steer(&t).await;
+    let Outbound::Lines(asked) = t.outbound(&withdraw(9, "p-steer")).await else { panic!() };
+    let failed = t.fail_pending("the agent's answer was too large").await;
+    assert!(result_of(&failed, 2).unwrap().is_err(), "{failed:?}");
+    let msgs = t.inbound(&cancel_answer(&asked[0], true)).await;
+    assert_eq!(result_of(&msgs, 9).unwrap().unwrap()["withdrawn"], false, "{msgs:?}");
+    assert!(result_of(&msgs, 2).is_none(), "the steer answered twice: {msgs:?}");
+}

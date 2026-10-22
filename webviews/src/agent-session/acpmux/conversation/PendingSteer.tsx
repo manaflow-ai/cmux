@@ -75,9 +75,10 @@ export function PendingSteer({
 }
 
 /// Takes back steer `row` while the agent has not read it: acpmux drops it (`withdraw`), and its
-/// text and attachments go back into the composer to edit. Its attachments are read first: the
-/// row goes with acpmux's `steer_withdrawn` record. False, with nothing restored, once the agent
-/// read it.
+/// text and attachments go back into the composer to edit. Its attachments are read first (the
+/// row goes with acpmux's `steer_withdrawn` record), and one that cannot be read keeps the steer:
+/// the composer never gets the text without its images. False, with nothing restored, when the
+/// steer stays (read already, or its attachments unreadable).
 export async function takeBackSteer(
   row: AcpmuxRow,
   io: {
@@ -88,8 +89,10 @@ export async function takeBackSteer(
 ): Promise<boolean> {
   const promptId = row.steerPromptId;
   if (!promptId || row.steer !== "waiting") return false;
-  const attachments = await io.attachments(row.id).catch(() => []);
-  if (!(await io.withdraw(promptId))) return false;
+  const attachments = await io.attachments(row.id).catch(() => undefined);
+  // An image acpmux could not give back is left out of what it read: the steer stays then too.
+  const images = attachments?.filter((attachment) => attachment.kind === "image").length ?? 0;
+  if (!attachments || images < (row.images?.length ?? 0) || !(await io.withdraw(promptId))) return false;
   io.restore(row.resend ?? row.text ?? "", attachments);
   return true;
 }

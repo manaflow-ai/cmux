@@ -343,9 +343,10 @@ impl Hub {
         let (Some(child), Some(sid)) = (child, session.meta().agent_session_id) else {
             return Ok(false);
         };
+        // No timeout: the drop is already on its way, so only the agent's answer (or its end)
+        // says whether the steer was taken back.
         let params = json!({"sessionId": sid, "promptId": prompt_id});
-        let ask = child.request(method::MUX_STEER_WITHDRAW, params);
-        let answer = tokio::time::timeout(STEP_NOW_WAIT, ask).await;
-        Ok(matches!(&answer, Ok(Ok(v)) if v["withdrawn"] == true))
+        let answer = child.request(method::MUX_STEER_WITHDRAW, params).await;
+        Ok(matches!(&answer, Ok(v) if v["withdrawn"] == true))
     }
 }
