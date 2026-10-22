@@ -66,6 +66,13 @@ pub const FAMILIES: &[&str] = &[
     "credential",
 ];
 
+/// Families a script session reaches through the provider
+/// (`script_provider_call`): the app's actions, as a key or the palette runs
+/// them. Explicit like [`FAMILIES`]: a new family is a decision.
+pub const SCRIPT_FAMILIES: &[&str] = &["action"];
+/// The app id a script's provider calls carry (`script::prelude::APP_ID`).
+const SCRIPT_APP: &str = cmux_app_host::script::prelude::APP_ID;
+
 /// Ops that wait for the user (a file panel) get the long deadline.
 const WAITS_FOR_USER: &[&str] = &["fs.pick"];
 /// Largest params a routed call may carry (the provider's control queue is
@@ -81,6 +88,9 @@ pub(super) enum Target {
     /// An app server's `relay.op` or `relay.session` line (`relay.rs`),
     /// answered on that server process's input.
     Relay { app: String, generation: u64, id: Value, session: bool },
+    /// A script session's call (`script_provider_call`), answered on the
+    /// channel its op worker waits on.
+    Script { reply: std::sync::mpsc::Sender<(bool, Value)> },
 }
 
 pub(super) struct ProviderCall {
@@ -346,6 +356,86 @@ impl Supervisor {
         Ok(vec![Out::Provider(client, request_id, event)])
     }
 
+    /// A script session's call to an app op (`action.run`) as the local
+    /// user's script: actor app `cmux/script` on behalf of the user, origin
+    /// `script`, so the Mac app applies the rules of an app call without a
+    /// gesture. Only [`SCRIPT_FAMILIES`]; fails at once without a provider
+    /// (APP-R1). Blocks until the provider answers or the deadline passes.
+    pub fn script_provider_call(
+        &self,
+        op: &str,
+        params: Value,
+        idempotency_key: String,
+    ) -> Result<Value, Value> {
+        if !SCRIPT_FAMILIES.contains(&family_of(op)) {
+            return Err(
+                json!({ "code": "operation.unsupported", "message": format!("{op} is not available to scripts"), "details": { "op": op }, "retryable": false }),
+            );
+        }
+        if serde_json::to_vec(&params).map_or(usize::MAX, |b| b.len()) > MAX_PARAMS_BYTES {
+            return Err(
+                json!({ "code": "validation.invalid", "message": "params are larger than 64 KiB", "retryable": false }),
+            );
+        }
+        let (reply, answer) = std::sync::mpsc::channel();
+        let outs = {
+            let mut inner = self.inner.lock().unwrap();
+            let Some(&client) = inner.providers.get(family_of(op)) else {
+                return Err(unavailable(op));
+            };
+            if inner.provider_calls.values().filter(|c| c.client == client).count()
+                >= MAX_OUTSTANDING
+            {
+                return Err(
+                    json!({ "code": "app.limit", "message": "the cmux app has too many calls outstanding", "retryable": true }),
+                );
+            }
+            let deadline = self.config.provider_deadline;
+            inner.next_provider_request += 1;
+            let request_id = inner.next_provider_request;
+            let me = self.me.clone();
+            let timer = self.timers.schedule(deadline, move || {
+                if let Some(me) = me.upgrade() {
+                    me.provider_timeout(request_id);
+                }
+            });
+            inner.provider_calls.insert(
+                request_id,
+                ProviderCall {
+                    client,
+                    op: op.to_string(),
+                    target: Target::Script { reply },
+                    timer,
+                },
+            );
+            let event = json!({
+                "event": "apps-provider-request",
+                "request_id": request_id,
+                "app": SCRIPT_APP,
+                "actor": {
+                    "kind": "app",
+                    "id": SCRIPT_APP,
+                    "host": crate::machine_name::machine_name(),
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "on_behalf_of": { "kind": "user", "id": crate::conversation_store::LOCAL_USER },
+                },
+                "origin": Origin::Script,
+                "op": op,
+                "params": params,
+                "idempotency_key": idempotency_key,
+                "deadline_ms": deadline_ms(deadline),
+            });
+            vec![Out::Provider(client, request_id, event)]
+        };
+        self.emit(outs);
+        // The timer, a provider result or the provider leaving always answers.
+        match answer.recv() {
+            Ok((true, body)) => Ok(body),
+            Ok((false, body)) => Err(body),
+            Err(_) => Err(unavailable(op)),
+        }
+    }
+
     /// The provider's connection refused the event (closed or full).
     pub(super) fn provider_send_failed(&self, request_id: u64) {
         let outs = {
@@ -409,6 +499,17 @@ impl Supervisor {
                 };
                 answer_locked(inner, host, *generation, ToHost::Resolve { cb: *cb, ok, body });
                 self.idle_check_locked(inner, host)
+            }
+            Target::Script { reply } => {
+                let _ = reply.send(match ending {
+                    Ending::Answer { ok, body } => (ok, body),
+                    Ending::Timeout => (
+                        false,
+                        json!({ "code": "operation.failed", "message": "the cmux app did not answer in time", "details": { "reason": "timeout" }, "retryable": true }),
+                    ),
+                    Ending::Gone => (false, unavailable(&call.op)),
+                });
+                vec![]
             }
             Target::Relay { app, generation, id, session } => {
                 let reply = super::relay::relay_reply(id, *session, ending);

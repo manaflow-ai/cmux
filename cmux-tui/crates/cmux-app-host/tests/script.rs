@@ -338,7 +338,7 @@ mod script {
     }
 
     #[test]
-    fn wait_takes_a_filter_object_and_events_iterates() {
+    fn wait_takes_a_filter_object_and_stream_iterates() {
         let f = Arc::new(start());
         let waiter = run(
             &f,
@@ -355,7 +355,7 @@ mod script {
 
         let titles = run(
             &f,
-            "const got = []; const titles = cmux.events('terminal.title_changed'); await cmux.test.echo('listening'); for await (const ev of titles) { got.push(ev.title); if (got.length === 2) break }; got",
+            "const got = []; const titles = cmux.stream('terminal.title_changed'); await cmux.test.echo('listening'); for await (const ev of titles) { got.push(ev.title); if (got.length === 2) break }; got",
         );
         let deadline = Instant::now() + SHORT;
         while !f

@@ -7,8 +7,10 @@
 //! ops a script calls into this daemon's own `cmux.protocol/2` dispatcher with
 //! the rights of the calling CLI: the local user as actor, origin `agent`
 //! (the origin every connection without a verified app gets), and only ops
-//! this daemon owns. Provider ops (`action.run`), app host ops (`net.fetch`,
-//! `app.storage.*`) and connection-scoped ops answer `operation.unsupported`.
+//! this daemon owns, plus the app's actions (`action.run`, `action.list`),
+//! which go to the Mac app through the apps provider channel. Other provider
+//! ops, app host ops (`net.fetch`, `app.storage.*`) and connection-scoped ops
+//! answer `operation.unsupported`.
 //!
 //! Wire commands (`server/scripts.rs`): `script-run`, `script-repl-open`,
 //! `script-repl-eval`, `script-repl-close`; event `script-log`. Agent-bound

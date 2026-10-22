@@ -234,8 +234,9 @@ impl ScriptsSlot {
         }
     }
 
-    /// Runs `code` as one cell in a fresh session that ends with it.
-    /// Blocking: call it off the connection thread.
+    /// Runs `code` as one cell in a fresh session that ends with it (after
+    /// its `cmux.on` handlers, `Session::run`). Blocking: call it off the
+    /// connection thread.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn run(
         &self,
@@ -254,7 +255,8 @@ impl ScriptsSlot {
         let started = self.start(mux, &id, log);
         let session = self.go_live(&key, started, true)?;
         budget.reset();
-        let result = session.eval(code, args, timeout);
+        // A one-shot run lasts while the script holds `cmux.on` handlers.
+        let result = session.run(code, args, timeout);
         self.finish(&key, &session);
         session.cancel();
         result.map(|value| Answer { value, dropped_log_lines: budget.dropped() })
