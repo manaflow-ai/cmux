@@ -79,8 +79,49 @@ pub(crate) struct RegistryConnection {
 }
 
 thread_local! {
+    /// This thread's registry commits run with deferred durability (WAL
+    /// `synchronous=NORMAL`); a later fully synced commit makes them durable.
+    static THREAD_COMMITS_DEFERRED: Cell<bool> = const { Cell::new(false) };
     static IN_JOURNAL_WRITER_COMMIT: Cell<bool> = const { Cell::new(false) };
     static STATE_HOLDS: Cell<usize> = const { Cell::new(0) };
+}
+
+/// True while this thread's registry commits do not flush to disk on their
+/// own (see [`THREAD_COMMITS_DEFERRED`]).
+pub(crate) fn current_thread_commits_deferred() -> bool {
+    THREAD_COMMITS_DEFERRED.with(Cell::get)
+}
+
+/// Debug seam (`CMUX_TUI_DEBUG_SLOW_DURABLE_COMMIT_MS=N`, off by default):
+/// every registry commit that flushes to disk takes N ms longer, as on a
+/// busy disk, so a test can see which waits a create's first text and its
+/// reply pay for durable commits (new-terminal-100x).
+fn slow_durable_commit_delay() -> Option<std::time::Duration> {
+    static DELAY: std::sync::OnceLock<Option<std::time::Duration>> = std::sync::OnceLock::new();
+    *DELAY.get_or_init(|| {
+        std::env::var("CMUX_TUI_DEBUG_SLOW_DURABLE_COMMIT_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|ms| *ms > 0)
+            .map(std::time::Duration::from_millis)
+    })
+}
+
+/// Install the registry connection's commit hook: the debug span mark
+/// (`debug_spans::traced`) and, when set, the slow durable commit seam.
+pub(crate) fn hooked(connection: Connection) -> Connection {
+    let connection = crate::debug_spans::traced(connection);
+    if let Some(delay) = slow_durable_commit_delay() {
+        // Replaces the span hook, so it marks too (a no-op without spans).
+        let _ = connection.commit_hook(Some(move || {
+            crate::debug_spans::mark("sqlite.commit");
+            if !current_thread_commits_deferred() {
+                std::thread::sleep(delay);
+            }
+            false
+        }));
+    }
+    connection
 }
 
 /// Counts the mux state lock holds of the current thread (`StateMutex`).

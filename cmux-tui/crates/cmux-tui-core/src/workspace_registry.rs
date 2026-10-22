@@ -2391,7 +2391,7 @@ fn open_registry_database_with_flags(path: &Path, flags: OpenFlags) -> anyhow::R
 }
 
 pub(crate) fn open_registry_database(path: &Path) -> anyhow::Result<Connection> {
-    open_registry_database_with_flags(path, OpenFlags::default()).map(crate::debug_spans::traced)
+    open_registry_database_with_flags(path, OpenFlags::default()).map(registry_connection::hooked)
 }
 
 fn open_registry_database_read_only(path: &Path) -> anyhow::Result<Connection> {
