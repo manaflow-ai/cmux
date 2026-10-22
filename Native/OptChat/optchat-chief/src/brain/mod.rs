@@ -38,6 +38,8 @@ mod prewarm;
 pub mod reaction_wake;
 mod recover;
 mod replies;
+mod reply_ledger;
+pub use reply_ledger::{MAX_REPLY_TRIES, NO_REPLY_TAG, REPLY_RETRY_WAITS};
 mod send;
 mod side;
 mod spawns;
@@ -350,6 +352,16 @@ pub enum Input {
     /// Every few seconds while cloud VMs are set: pauses idle ones
     /// (`cloud.autoPauseIdleSeconds`).
     CloudTick,
+    /// Fleet job `job`, which cloud subagent `id` waits on, ended in `state`.
+    FleetJobFinished {
+        id: String,
+        job: String,
+        state: String,
+    },
+    /// The fleet poll of subagent `id`'s jobs ended.
+    FleetPolled {
+        id: String,
+    },
     /// The pool tool refused to pause `peer` (busy there): it is tried again.
     CloudPauseFailed {
         peer: String,
@@ -730,8 +742,14 @@ pub struct Brain {
     /// (paused) before it is deleted, since when each is done, and the
     /// deletes in flight.
     cloud_reap: std::time::Duration,
-    cloud_reap_since: std::collections::BTreeMap<String, u64>,
     cloud_reaping: std::collections::BTreeSet<String>,
+    /// The fleet controller cloud subagents' `fleet-wait` jobs are read
+    /// from (fleet_wait.rs), how often, when last, and the subagents whose
+    /// poll is running.
+    fleet: Option<std::sync::Arc<dyn crate::fleet_wait::FleetJobs>>,
+    fleet_every: std::time::Duration,
+    fleet_polled_ms: u64,
+    fleet_polling: std::collections::BTreeSet<String>,
     /// Revokes cloud subagents' sandbox keys (agent_keys.rs); since when each
     /// keyed subagent is done, and the revokes in flight.
     agent_keys: Option<std::sync::Arc<dyn crate::agent_keys::AgentKeys>>,
@@ -853,6 +871,8 @@ pub struct Brain {
     steer_deadline: Option<Duration>,
     /// When that deadline passes, and for which turn.
     steer_due: Option<(Instant, String)>,
+    /// The waits between reply checks (`reply_ledger::REPLY_RETRY_WAITS`).
+    reply_waits: Vec<Duration>,
 }
 
 impl Brain {
@@ -930,9 +950,14 @@ impl Brain {
             cloud_idle: std::time::Duration::from_secs(chief.cloud_auto_pause_idle_secs),
             cloud_paused: Default::default(),
             cloud_idle_since: Default::default(),
-            cloud_reap: crate::subagents::REAP_AFTER_DONE,
-            cloud_reap_since: Default::default(),
+            cloud_reap: std::time::Duration::from_secs(
+                chief.cloud_delete_after_paused_days * 86_400,
+            ),
             cloud_reaping: Default::default(),
+            fleet: None,
+            fleet_every: std::time::Duration::from_secs(30),
+            fleet_polled_ms: 0,
+            fleet_polling: Default::default(),
             agent_keys: None,
             agent_key_done_since: Default::default(),
             agent_key_revoking: Default::default(),
@@ -979,6 +1004,7 @@ impl Brain {
             handoff_wait: HANDOFF_DEADLINE,
             steer_deadline: None,
             steer_due: None,
+            reply_waits: reply_ledger::REPLY_RETRY_WAITS.to_vec(),
         };
         // Each cut turn runs again first, on the reference client's note;
         // its messages are in the log already and are not logged again.
@@ -996,6 +1022,7 @@ impl Brain {
                 logged: false,
             });
         }
+        brain.rearm_reply_checks();
         brain.save();
         // The compactor's first nodes take the turns' TTL too.
         brain.turn_cache_ttl();
@@ -1079,8 +1106,17 @@ impl Brain {
         self.cloud_idle = idle;
     }
 
-    /// How long a finished subagent's own VM is kept before it is deleted
-    /// (default [`REAP_AFTER_DONE`](crate::subagents::REAP_AFTER_DONE)).
+    /// How long a finished subagent's own VM is kept (paused) before it is
+    /// deleted (`cloud.deleteAfterPausedDays`, default 7 days).
+    pub fn set_fleet_jobs(
+        &mut self,
+        fleet: Option<std::sync::Arc<dyn crate::fleet_wait::FleetJobs>>,
+        every: std::time::Duration,
+    ) {
+        self.fleet = fleet;
+        self.fleet_every = every;
+    }
+
     pub fn set_cloud_reap(&mut self, after: std::time::Duration) {
         self.cloud_reap = after;
     }
@@ -1098,6 +1134,12 @@ impl Brain {
         }
         self.agent_keys = keys;
         self.agent_key_grace = grace;
+    }
+
+    /// How long a finished subagent's own VM stays paused before it is
+    /// deleted (`cloud.deleteAfterPausedDays`).
+    pub fn cloud_delete_after_paused(&self) -> std::time::Duration {
+        self.cloud_reap
     }
 
     /// `cloud.autoPauseIdleSeconds`: how long a cloud VM idles before it
@@ -1181,6 +1223,7 @@ impl Brain {
                 self.next_timer(),
                 self.next_wake(),
                 self.next_unanswered_due(),
+                self.next_reply_due(),
             ]
             .into_iter()
             .flatten()
@@ -1191,6 +1234,7 @@ impl Brain {
                     Err(RecvTimeoutError::Timeout) => {
                         self.on_timer();
                         self.fire_wakes_at(now_ms());
+                        self.fire_reply_checks_at(now_ms());
                         let now = (self.clock)();
                         self.deny_overdue_permissions_at(now);
                         continue;
@@ -1354,13 +1398,17 @@ impl Brain {
                 self.cloud_tick();
                 self.agent_key_tick();
                 self.cloud_reap_tick();
+                self.fleet_tick();
+            }
+            Input::FleetJobFinished { id, job, state } => {
+                self.fleet_job_finished(&id, &job, &state)
+            }
+            Input::FleetPolled { id } => {
+                self.fleet_polling.remove(&id);
             }
             Input::CloudPauseFailed { peer } => self.cloud_pause_failed(&peer),
             Input::CloudVmDeleted { peer } => self.cloud_vm_deleted(&peer),
-            Input::CloudVmDeleteFailed { peer } => {
-                self.cloud_reaping.remove(&peer);
-                self.cloud_reap_since.remove(&peer);
-            }
+            Input::CloudVmDeleteFailed { peer } => self.cloud_vm_delete_failed(&peer),
             Input::SubagentPlacedHere { id, why } => self.sub_placed_here(&id, &why),
             Input::SubTick => {
                 self.sub_tick();
@@ -1560,6 +1608,17 @@ impl Brain {
             CACHE_TTL, CLOUD_AUTO_PAUSE_IDLE_SECONDS, REPLY_THREADS, SHOW_AFTER_REPORT, parse_bool,
             parse_reply_threads, parse_ttl,
         };
+        if key == crate::chief_settings::CLOUD_DELETE_AFTER_PAUSED_DAYS {
+            let days = crate::chief_settings::parse_paused_days(value)?;
+            let mut next = self.chief;
+            next.cloud_delete_after_paused_days = days;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            self.cloud_reap = std::time::Duration::from_secs(days * 86_400);
+            (self.log)(&format!("setting {key} = {days}"));
+            return Ok(format!("{key} = {days}"));
+        }
         if key == CLOUD_AUTO_PAUSE_IDLE_SECONDS {
             let secs = crate::chief_settings::parse_idle_secs(value)?;
             let mut next = self.chief;

@@ -522,7 +522,7 @@ export function InspectorPanel({
         presence?.props.ref(node);
       }}
       inert={presence?.leaving}
-      className="ui-glass acpmux-chat-inspector"
+      className="ui-glass ui-glass-floats acpmux-chat-inspector"
       data-placement={placement}
       style={
         {
@@ -746,7 +746,7 @@ export function ChatInspector({
             </>
           }
         >
-          <ContextSection usage={usage} percent={percent} />
+          <ContextSection usage={usage} percent={percent} breakdown={summary?.contextBreakdown} />
         </InspectorSection>
       )}
       {mcp.length > 0 && (
