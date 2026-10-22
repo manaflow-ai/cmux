@@ -261,10 +261,20 @@ export function useStableImage(source: StableImageSource, meta?: { width?: numbe
         (held.current?.id === id ? held.current.entry : undefined));
   if (id !== undefined && entry && held.current?.entry !== entry) held.current = { id, entry };
   useEffect(() => {
-    if (id === undefined || !canRead || sentImageEntry(id)) return;
+    if (id === undefined || !canRead) return;
+    // Kept between this render and its effect (the pane's priming landed): draw it now.
+    const kept = sentImageEntry(id);
+    if (kept) {
+      if (held.current?.id !== id || held.current.entry !== kept) setLoaded({ id, entry: kept });
+      return;
+    }
     let live = true;
     // The image kept by anyone else first (the pane's priming, another bubble) draws at once.
-    const stop = watchSentImage(id, (found) => live && setLoaded({ id, entry: found }));
+    const stop = watchSentImage(id, (found) => {
+      if (!live) return;
+      setLoaded({ id, entry: found });
+      stop();
+    });
     void loadSentImage(id, (key) => reader.current?.(key) ?? Promise.resolve(undefined)).then(
       (found) => live && setLoaded((before) => (before?.id === id && before.entry ? before : { id, entry: found })),
       // A read can fail after a reconnect or a session switch: the slot goes, never a stale image.
