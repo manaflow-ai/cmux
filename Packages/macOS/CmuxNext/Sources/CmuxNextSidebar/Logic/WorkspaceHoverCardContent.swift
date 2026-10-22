@@ -139,10 +139,10 @@ struct WorkspaceHoverCardContent: Equatable {
         return card
     }
 
-    /// The facts the compact card keeps: why it waits or what it works on, where it runs, its
-    /// pull request, and the agent's last message.
-    static let compactKinds: Set<String> = ["needsInput", "task", "folder", "branch", "pullRequest", "ports", "machine",
-                                            "machineStatus", Fact.lastReplyKind]
+    /// The facts the compact card keeps: what its agents did since you looked, why it waits or what
+    /// it works on, where it runs, its pull request, and the agent's last message.
+    static let compactKinds: Set<String> = [WorkspaceHoverCardContent.sinceLookedKind, "needsInput", "task", "folder", "branch",
+                                            "pullRequest", "ports", "machine", "machineStatus", Fact.lastReplyKind]
 
     /// `markdown` as one paragraph of inline markdown: code fences, heading, quote and list marks
     /// dropped, its lines joined by a space, so a few lines of the card read as prose.

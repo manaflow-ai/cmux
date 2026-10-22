@@ -613,7 +613,9 @@ extension WorkspaceHoverCardView {
         for row in factViews { row.applyColors() }
         resourceRow.applyColors()
         performWithTheme {
-            unreadDot.layer?.backgroundColor = Palette.accent.cgColor
+            // The notification blue, as on the sidebar's own unread dots: the default theme's
+            // accent is a grey, and a grey dot read as missing (2026-10-21).
+            unreadDot.layer?.backgroundColor = Palette.notificationBlue.cgColor
             // The last message in its own styles (bold, italic, code), never its raw marks.
             for (index, row) in factViews.enumerated() where index < (content?.facts.count ?? 0) && !row.isHidden {
                 guard let markdown = content?.facts[index].markdown else { continue }
