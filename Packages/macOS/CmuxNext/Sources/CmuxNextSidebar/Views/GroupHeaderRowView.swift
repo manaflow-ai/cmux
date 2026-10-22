@@ -123,6 +123,7 @@ final class GroupHeaderRowView: SidebarRowView {
     override func prepareForReuse(key: SidebarRowKey) {
         super.prepareForReuse(key: key)
         springsNextJoin = false
+        joinedBar.reset()
         isDropTarget = false
         isKeyboardFocused = false
         isEditing = false

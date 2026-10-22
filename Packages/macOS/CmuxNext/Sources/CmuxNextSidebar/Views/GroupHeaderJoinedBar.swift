@@ -82,6 +82,13 @@ import QuartzCore
         CATransaction.commit()
     }
 
+    /// A header reused for another group: the old group's springs end, and a pending close's
+    /// completion no longer lays it out.
+    func reset() {
+        removeSprings()
+        springCount += 1
+    }
+
     private func removeSprings() {
         ["bounds", "position"].forEach(pill.removeAnimation(forKey:))
         ["bounds", "path"].forEach { pill.mask?.removeAnimation(forKey: $0) }

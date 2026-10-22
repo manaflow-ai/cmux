@@ -44,6 +44,9 @@ extension SidebarViewComponents {
         var foldsDone: Bool
         /// The row limit (`SidebarTunables.groupRowLimit`): changing it lays the list out again.
         var rowLimit: Int
+        /// The group header look (`sidebar.groupHeader`): only the band joins its members' line
+        /// (`joinsHeaders`), so changing it draws the list's lines again.
+        var groupHeaderStyle: SidebarGroupHeaderStyle
         init(_ model: SidebarModel, _ design: DesignSettings) {
             sectionsRevision = model.observedStructureRevision
             selection = model.selection
@@ -70,6 +73,7 @@ extension SidebarViewComponents {
             workspacesAsTabs = SidebarTunables.workspacesAsTabs.value
             foldsDone = SidebarTunables.doneFold.value
             rowLimit = SidebarTunables.rowLimit
+            groupHeaderStyle = SidebarGroupHeaderStyle.tunable.value
         }
     }
     func observe() {
@@ -105,7 +109,7 @@ extension SidebarViewComponents {
             || lastState?.pullRequests != state.pullRequests
             || lastState?.history != state.history
             || lastState?.workspacesAsTabs != state.workspacesAsTabs || lastState?.foldsDone != state.foldsDone
-            || lastState?.rowLimit != state.rowLimit
+            || lastState?.rowLimit != state.rowLimit || lastState?.groupHeaderStyle != state.groupHeaderStyle
         let listChanged = rowsChanged || selectionChanged
         // A selected session never hides in a fold (a notification, the palette or Cmd-number chose it).
         if selectionChanged { state.selection.forEach(SidebarSessionTree.shared.reveal) }
