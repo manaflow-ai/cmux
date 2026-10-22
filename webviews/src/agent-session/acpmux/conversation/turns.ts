@@ -437,11 +437,11 @@ function shapeTurn(
         durationMs:
           said && !later.length
             ? Math.max(0, said.at - from)
-          : !lastPart
-            ? Math.max(0, part.until! - from)
-            : part.opener === user
-              ? (summary.durationMs ?? Math.max(0, summary.at - user.at))
-              : Math.max(0, summary.at - from),
+            : !lastPart
+              ? Math.max(0, part.until! - from)
+              : part.opener === user
+                ? (summary.durationMs ?? Math.max(0, summary.at - user.at))
+                : Math.max(0, summary.at - from),
       });
       // Open, each run of its work folds into its summary line between the commentary, as in a
       // running turn (codexRuns).
