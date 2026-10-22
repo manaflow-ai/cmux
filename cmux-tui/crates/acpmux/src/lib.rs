@@ -55,6 +55,7 @@ pub mod login_env;
 pub mod mailbox;
 pub mod native;
 pub mod offer_mcp;
+pub(crate) mod opencode_ask;
 #[cfg(windows)]
 mod owner_only;
 pub mod pairing;

@@ -389,15 +389,17 @@ impl Hub {
             }
         }
 
+        let current = self.opencode_ask_now(session, profile).await;
+        let profile = current.as_ref().unwrap_or(profile);
         self.record_spawn_inputs(session, profile).await;
         let moves = super::processes::backgrounds_work(profile.kind);
         session.backgrounds_work.store(moves, Ordering::SeqCst);
         // A fresh agent: what acpmux set on the last one is replayed, not assumed.
-        self.fresh_agent(session, profile.preset_digest.clone());
+        self.fresh_agent(session, profile);
         session.closing.store(false, Ordering::SeqCst);
         // A pooled session claimed for this id (`pool/`): its host already
         // runs with the harness initialized and its session created.
-        if let Some(pooled) = self.pool_take_claimed(&session.id) {
+        if let Some(pooled) = self.pool_take_claimed_for(&session.id, profile) {
             match self.adopt_pooled(session, pooled).await {
                 // A harness whose own settings started it in full access: capped like a cold
                 // start, under the same budget. Its `session/set_mode` would otherwise wait

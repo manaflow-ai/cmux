@@ -595,7 +595,7 @@ export default agentPaneEntry({
           type: "image/png",
         });
         pasteFiles(ctx, [file]);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment:not([aria-busy])"));
         await new Promise((resolve) => setTimeout(resolve, 300));
       },
     },

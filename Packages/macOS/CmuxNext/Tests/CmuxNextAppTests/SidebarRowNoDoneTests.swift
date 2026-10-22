@@ -6,9 +6,11 @@ import CmuxNextAgentActivity
 import Foundation
 import Testing
 
-/// Leo 2026-10-21, on rows that said "Done" beside a blue dot again: "WHO BROUGHT BACK THE DONE AND
-/// THE TIMERS" (#23390 brought the Done back). A workspace row never says Done: a finished, unread
-/// chat keeps only its quiet unread dot. What asks for the user (needs you, failed) still reads.
+/// Leo 2026-10-21, on rows that said "Done" beside a blue dot and "10m" beside the working mark
+/// again: "WHO BROUGHT BACK THE DONE AND THE TIMERS" (#23390 brought the Done back, #22826 the
+/// timer). A workspace row never says Done and never shows how long its agent has worked: a
+/// finished, unread chat keeps only its quiet unread dot, a working one its spinner. What asks for
+/// the user (needs you, failed) still reads.
 @MainActor @Suite(.serialized)
 struct SidebarRowNoDoneTests {
     private func workspace(_ chip: SidebarPriorityEntry.State?) -> SidebarWorkspace {
@@ -63,6 +65,17 @@ struct SidebarRowNoDoneTests {
         for chip: SidebarPriorityEntry.State in [.needsYou, .failed, .lost, .ciFailing] {
             #expect(WorkspaceRowContent.rowChip(chip) == chip)
         }
+    }
+
+    @Test func aWorkingRowShowsNoRunningTime() {
+        var ws = SidebarWorkspace(id: WorkspaceID("ws"), title: "Fix the build", lastActivity: Date(), agentWorking: true,
+                                  activity: .working(progress: nil))
+        ws.detail.activitySince = Date().addingTimeInterval(-10 * 60)
+        let (view, window) = row(ws)
+        // "10m", "1h 3m", "2d": a number and a unit, the running time's shape.
+        let timers = shownText(view).filter { $0.range(of: #"^\d+\s?(s|m|h|d|min|hr)\b"#, options: .regularExpression) != nil }
+        #expect(timers.isEmpty, "the row draws \(shownText(view))")
+        window.close()
     }
 
     /// No status words at all (Leo 2026-10-21, on a blue dot beside "Needs you": "why ISN'T THIS

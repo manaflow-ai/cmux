@@ -536,6 +536,81 @@ const agentPaneActions: LatencyAction[] = [
       await quiet(page);
     },
   },
+  {
+    // Leo 2026-10-21: a pasted screenshot showed up in the composer late. The response is its chip
+    // in the strip, not the finished thumbnail: a full-screen Retina capture (3456×2234 PNG, a few
+    // MB of window chrome, text and photo-like noise), pasted on the prompt as WebKit delivers it.
+    name: "paste screenshot",
+    async prepare(page) {
+      const editor = ".acpmux-composer [contenteditable='true']";
+      await page.waitForSelector(editor);
+      await page.evaluate(async () => {
+        const w = window as unknown as { __pasteShot?: File };
+        if (w.__pasteShot) return;
+        const canvas = document.createElement("canvas");
+        canvas.width = 3456;
+        canvas.height = 2234;
+        const context = canvas.getContext("2d")!;
+        const gradient = context.createLinearGradient(0, 0, canvas.width, canvas.height);
+        gradient.addColorStop(0, "#1d2733");
+        gradient.addColorStop(1, "#6b4f7a");
+        context.fillStyle = gradient;
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        let seed = 7;
+        const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+        for (let block = 0; block < 900; block += 1) {
+          context.fillStyle = `hsl(${Math.floor(random() * 360)} 40% ${20 + Math.floor(random() * 60)}%)`;
+          context.fillRect(random() * canvas.width, random() * canvas.height, 20 + random() * 300, 8 + random() * 120);
+        }
+        context.font = "26px monospace";
+        for (let line = 0; line < 70; line += 1) {
+          context.fillStyle = line % 3 ? "#e6e6e6" : "#9fd3a5";
+          context.fillText(
+            `${line} const value = compute(${random().toString(36).slice(2)}) // ${"·".repeat(line % 40)}`,
+            60,
+            60 + line * 31,
+          );
+        }
+        const photo = context.getImageData(1800, 1100, 900, 700);
+        for (let at = 0; at < photo.data.length; at += 4) {
+          const grain = random() * 255;
+          photo.data[at] = grain;
+          photo.data[at + 1] = (grain * 0.8) % 255;
+          photo.data[at + 2] = 255 - grain;
+        }
+        context.putImageData(photo, 1800, 1100);
+        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((made) => resolve(made!), "image/png"));
+        w.__pasteShot = new File([blob], "image.png", { type: "image/png" });
+      });
+      await page.focus(editor);
+      return `document.querySelector(".acpmux-attachments .acpmux-attachment") !== null`;
+    },
+    async input(page) {
+      await page.evaluate(() => {
+        const file = (window as unknown as { __pasteShot: File }).__pasteShot;
+        const transfer = new DataTransfer();
+        transfer.items.add(file);
+        const event = new Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(event, "clipboardData", { value: transfer });
+        document.querySelector(".acpmux-composer [contenteditable='true']")!.dispatchEvent(event);
+      });
+    },
+    async settle(page) {
+      // The read chip, then none: the next run starts from an empty strip.
+      await page.waitForFunction(
+        () =>
+          !document.querySelector(".acpmux-attachment[aria-busy='true']") &&
+          !!document.querySelector(".acpmux-attachment-remove"),
+        undefined,
+        { timeout: 15_000 },
+      );
+      await page.evaluate(() => {
+        for (const remove of document.querySelectorAll<HTMLButtonElement>(".acpmux-attachment-remove")) remove.click();
+      });
+      await page.waitForFunction(() => document.querySelector(".acpmux-attachment") === null);
+      await quiet(page);
+    },
+  },
 ];
 
 export const AGENT_PANE_PAGE: LatencyPageSpec = {

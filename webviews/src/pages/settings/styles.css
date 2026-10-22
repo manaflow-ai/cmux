@@ -310,6 +310,16 @@ mark {
   max-width: 60%;
 }
 
+/* A row with a Reset slot (setting rows, the Theme rows, the spacer rows) holds one control and the
+   slot, on one line: the cap leaves the slot's 30 px (22 px slot, 8 px gap) beyond the control's
+   60 %. A wrapped slot left the control in the slot's column, 30 px right of the other rows'
+   controls and a line higher (live QA 7a: the three-choice New Tab Position, 330 px, in a 570 px
+   card). Editors with several parts (number, color, text, lists) wrap inside their own box. */
+.row-control:has(> .reset-slot) {
+  flex-wrap: nowrap;
+  max-width: calc(60% + 30px);
+}
+
 /* The row menu's host around the control (SettingRow): the control's own flex items stay in place. */
 .row-control-menu {
   display: contents;
@@ -754,7 +764,8 @@ mark {
     flex-wrap: wrap;
   }
 
-  .row-control {
+  .row-control,
+  .row-control:has(> .reset-slot) {
     max-width: 100%;
   }
 }
