@@ -1114,13 +1114,18 @@ class PublishWorkflowTests(unittest.TestCase):
     def may_read_terms(cls, text: str) -> bool:
         """text may read the terms secret: by name in any case, through toJSON(secrets), or through a secrets[...]
         index unless it is a literal (read by name above) or a format() whose fixed prefix rules the name out
-        (nightly.yml's `format('APPLE_{0}_...', ...)`). GitHub matches secret names without case."""
+        (nightly.yml's `format('APPLE_{0}_...', ...)`). GitHub matches contexts, functions and secret names
+        without case."""
         if cls.TERMS.lower() in text.lower() or re.search(r"tojson\(\s*secrets\s*\)", text, re.I):
             return True
-        for index in re.findall(r"secrets\s*\[([^\]]*)\]", text):
+        # The whole secrets object in an expression (not secrets.NAME or secrets[...]) can carry every secret.
+        for expression in re.findall(r"\$\{\{(.*?)\}\}", text, re.S):
+            if re.search(r"(?<![\w.])secrets(?!\w)(?!\s*[.\[])", expression, re.I):
+                return True
+        for index in re.findall(r"secrets\s*\[([^\]]*)\]", text, re.I):
             if re.fullmatch(r"\s*'[^']*'\s*", index):
                 continue
-            prefix = re.match(r"\s*format\(\s*'([^'{]*)", index)
+            prefix = re.match(r"\s*format\(\s*'([^'{]*)", index, re.I)
             if not prefix or cls.TERMS.startswith(prefix.group(1).upper()):
                 return True
         return False
@@ -1180,8 +1185,10 @@ class PublishWorkflowTests(unittest.TestCase):
                 "plain": {"environment": "ci-bot"},
                 "dyn": {"steps": [{"run": "echo ${{ secrets[format('PR_MEDIA_{0}', 'PRIVATE_TERMS')] }}"}]},
                 "open": {"steps": [{"env": {"X": "${{ secrets[format('{0}', vars.NAME)] }}"}}]},
+                "mixed": {"steps": [{"run": "echo ${{ Secrets[FORMAT('pr_media_{0}', 'PRIVATE_TERMS')] }}"}]},
                 "var": {"steps": [{"env": {"X": "${{ secrets[vars.NAME] }}"}}]},
                 "all": {"steps": [{"env": {"X": "${{ toJSON(secrets) }}"}}]},
+                "whole": {"steps": [{"with": {"x": "${{ fromJSON(format('{0}', Secrets)) }}"}}]},
                 "apple": {"steps": [{"env": {"X": "${{ secrets[format('APPLE_{0}_KEY', inputs.channel)] }}"}}]},
                 "lit": {"steps": [{"env": {"X": "${{ secrets['APPLE_KEY'] }}"}}]},
                 "away": {"uses": "someone/else/.github/workflows/x.yml@main", "secrets": "inherit"},
@@ -1200,8 +1207,8 @@ class PublishWorkflowTests(unittest.TestCase):
         ]
         found = sorted((w, j) for w, j, job in self.untrusted_event_jobs(workflows) if self.holds_pr_media(job))
         self.assertEqual(found, [(".github/workflows/b.yml", "post")] + [
-            (".github/workflows/d.yml", j) for j in ("all", "away", "case", "cond", "dyn", "fallback", "named", "open",
-                                                     "output", "secret", "var")] + [
+            (".github/workflows/d.yml", j) for j in ("all", "away", "case", "cond", "dyn", "fallback", "mixed", "named",
+                                                     "open", "output", "secret", "var", "whole")] + [
             (".github/workflows/f.yml", "inherits"),
             (".github/workflows/pr-media.yml", "extra"), (".github/workflows/pr-media.yml", "extra"),
             (".github/workflows/pr-media.yml", "publish")])
