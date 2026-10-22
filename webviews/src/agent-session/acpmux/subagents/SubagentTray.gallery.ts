@@ -316,6 +316,30 @@ export default agentPaneEntry({
         summary(9, { status: "completed", durationMs: 180_000 }),
       ]),
     },
+    "unnamed-line": {
+      note: 'A subagent the harness gave no name, task or description reads by a short form of its id ("Subagent finished: 01H9Jk66"), never its raw <session>/<tool call> id; the full ids are the line\'s tooltip. A named one beside it reads by its name.',
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-subagent-done").length === 2);
+        const texts = [...ctx.document.querySelectorAll(".cv-subagent-done")].map((line) => line.textContent ?? "");
+        if (texts.some((text) => text.includes("toolu_"))) throw new Error("a row never shows a raw tool-use id");
+      },
+      snapshot: chat([
+        user(prompt, 130),
+        group(
+          [
+            agent("01H9Jk66", 129, "completed", {
+              ran: 126,
+              id: "01a15779-206b-72b0-96af-bdbe4868e19c/toolu_01H9Jk66ek2xu2m2SaOS09M1",
+              unnamed: true,
+            }),
+            agent("Fix sr2 privacy gateway", 129, "completed", { ran: 6.5 }),
+          ],
+          129,
+        ),
+        assistant("Both are back: the gateway is fixed.", 2),
+        summary(2, { status: "completed", durationMs: 7_680_000 }),
+      ]),
+    },
     "restart-on-hover": {
       note: "Restart on a stopped subagent's line, shown on hover or keyboard focus (focused here): the hover row's compact button, its name and what it does on hover. It asks the chat to run the subagent again with its prompt.",
       play: async (ctx) => {
