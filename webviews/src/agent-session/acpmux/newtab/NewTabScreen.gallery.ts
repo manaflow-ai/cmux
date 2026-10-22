@@ -342,7 +342,8 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
         await ctx.contextMenu({ selector: ".nt-env" });
         await ctx.click({ role: "menuitem", name: "Edit New Tab" });
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-widget-frame .nt-widget-remove").length === 3);
+        // Four ✕: the greeting over the stage is a widget too, with its own frame.
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-widget-frame .nt-widget-remove").length === 4);
         await ctx.waitFor(() => ctx.document.querySelector(".nt-edit-bar") !== null);
       },
     },
