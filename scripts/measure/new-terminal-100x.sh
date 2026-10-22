@@ -7,7 +7,7 @@
 #     [--arg=rounds=N] [--arg=against=SHA] [--arg=max_p50_ms=X] [--arg=disk_load=N]
 # The binary is the commit's published cmux-tui tree, or a release build when unpublished.
 # against=SHA runs that commit's binary too, interleaved pass by pass. max_p50_ms=X fails the
-# step when any of this commit's exec p50 is above X ms. disk_load=N runs every pass again with N
+# step when any of this commit's first-text p50 is above X ms. disk_load=N runs every pass again with N
 # background writers that write and F_FULLFSYNC in a loop (labels *-load), as on a busy Mac.
 set -euo pipefail
 rounds=40
@@ -91,10 +91,10 @@ for label in ("against", "ref", "against-load", "ref-load"):
         s.sort()
         q = lambda p: s[min(len(s) - 1, int(p * len(s)))]
         print(f'CREATE-RESULT {label} op="{op}" n={len(s)} p50={q(0.5):.2f} p95={q(0.95):.2f} max={s[-1]:.2f}')
-        if label == "ref" and max_p50 and op.endswith(" exec") and q(0.5) > float(max_p50):
+        if label == "ref" and max_p50 and op.endswith(" first-text") and q(0.5) > float(max_p50):
             bad = True
 if bad:
-    print(f"CREATE-RESULT FAIL: an exec p50 is above {max_p50} ms")
+    print(f"CREATE-RESULT FAIL: a first-text p50 is above {max_p50} ms")
     sys.exit(1)
 PY
 echo "CREATE-LOAD after $(uptime | sed 's/.*load averages*: //')"

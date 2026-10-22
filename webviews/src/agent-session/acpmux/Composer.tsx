@@ -115,7 +115,6 @@ export const COMPOSER_LABELS = {
   send: "composer.send",
   stop: "composer.stop",
   escapeAgainToStop: "composer.escapeAgainToStop",
-  escapeKey: "composer.escapeKey",
   commands: "composer.commands",
   noCommands: "composer.noCommands",
   noMatchingCommands: "composer.noMatchingCommands",
@@ -1081,7 +1080,8 @@ export function Composer({
       }
     }
     // Esc on an empty prompt stops the turn, as Stop does: by default the second of two presses
-    // does (escapeStop.ts), and the first turns Stop into an Esc hint. Menus, pickers and the
+    // does (escapeStop.ts), and the first arms Stop: it keeps its glyph, takes the accent and is named
+    // "Press Esc again to stop". Menus, pickers and the
     // @ list take their Esc above, so one press still closes them.
     if (event.key === "Escape" && plain && !open && stop && !quick) {
       event.preventDefault();
@@ -1413,12 +1413,12 @@ export function Composer({
       className="acpmux-send acpmux-cancel"
       data-escape-armed={escapeStop.armed ? "" : undefined}
       aria-label={t(escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop)}
-      // tooltip-allow: names the icon-only Stop, and once armed says to press the Esc it shows again.
+      // tooltip-allow: names the icon-only Stop, and once armed says to press Esc again.
       title={t(escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop)}
       onClick={stopTurn}
     >
-      {/* The first Esc of the double press: Stop says which key stops the turn. */}
-      {escapeStop.armed ? <span className="acpmux-escape-key">{t(COMPOSER_LABELS.escapeKey)}</span> : <StopIcon />}
+      {/* The first Esc of the double press keeps the glyph; its color and name say Esc again stops. */}
+      <StopIcon />
     </button>
   ) : null;
   // Why a failed turn paused the queue: the paused note names it (queuePause.ts).
