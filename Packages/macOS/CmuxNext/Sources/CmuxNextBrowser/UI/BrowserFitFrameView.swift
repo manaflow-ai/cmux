@@ -44,7 +44,8 @@ public final class BrowserFitFrameView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         for field in [label, note] {
-            field.font = .systemFont(ofSize: TypeScale.caption)
+            // "Desktop 1280 × 800 at 75%" changes while the pane resizes: tabular digits keep it still.
+            field.font = Typography.system(.monospacedDigit, size: TypeScale.caption)
             field.lineBreakMode = .byTruncatingTail
         }
         label.themedToolTip = Strings.explain
