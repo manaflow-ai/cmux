@@ -1,7 +1,8 @@
 // l10n-allow-file: gallery fixtures (sample sessions, pull requests and commands), not shipped UI.
 // The Inspector (Debug Settings `agent.inspector`, on by default) as the real ChatInspector renders it
 // in its panel at the right of a chat: a full chat with every section, its Context and Connectors
-// open, its Changes with line breakdowns, failing checks and owners, its subagents' list open with
+// open, its Changes across repositories with line breakdowns, comments, failing checks and owners
+// (all of them after Show more), its subagents' list open with
 // the chats its agent started, its finished tasks open (a background Bash only the transcript knows
 // among them), a Cloud chat before its first usage report, and the panel over the chat (Overlay). Light and dark come from the gallery's theme switch.
 import type { ComponentProps } from "react";
@@ -14,7 +15,7 @@ import { sessionSummary } from "../summary/sessionSummary";
 import { ChatInspector, InspectorPanel, type InspectorPlacement } from "./ChatInspector";
 import { DEFAULT_SECTIONS } from "./inspectorState";
 
-type Props = ComponentProps<typeof ChatInspector> & { placement?: InspectorPlacement };
+type Props = ComponentProps<typeof ChatInspector> & { placement?: InspectorPlacement; transcript?: boolean };
 
 const edit = (path: string, oldText: string | undefined, newText: string) =>
   tool(`Edit ${path}`, "edit", "completed", { diffs: [{ path: `${CWD}/${path}`, oldText, newText }] });
@@ -31,9 +32,39 @@ const local = chat([
 ]);
 const made = sessionSummary(local.rows);
 
-function GalleryInspector({ placement = "overlay", ...props }: Props) {
+/// A busy transcript under the panel (prompts, replies, code), so its glass shows what it lies over.
+const TRANSCRIPT = [
+  "Make the Inspector glass, and its cards bordered with no fill.",
+  "The panel paints the chat's page color, so nothing behind it shows. I'll give it the shared glass and drop the cards' fill.",
+  '<aside className="ui-glass acpmux-chat-inspector">\n  {sections}\n</aside>',
+  "Check it over a long transcript in light and dark.",
+  "Over the transcript the text frosts under the panel and the cards keep only their hairline.",
+  "export const tries = 3;\nexport const backoff = 200;\nexport async function retry() {}",
+];
+function Transcript() {
+  return (
+    <div aria-hidden="true" style={{ position: "absolute", inset: 0, overflow: "hidden", padding: "16px 24px" }}>
+      {[0, 1, 2].flatMap((round) =>
+        TRANSCRIPT.map((line, index) =>
+          index % 3 === 0 ? (
+            <div key={`${round}-${index}`} className="acpmux-user" style={{ margin: "12px 0" }}>
+              <div className="acpmux-user-bubble">{line}</div>
+            </div>
+          ) : (
+            <div key={`${round}-${index}`} className="acpmux-markdown" style={{ margin: "12px 0" }}>
+              {index % 3 === 2 ? <pre>{line}</pre> : <p>{line}</p>}
+            </div>
+          ),
+        ),
+      )}
+    </div>
+  );
+}
+
+function GalleryInspector({ placement = "overlay", transcript = false, ...props }: Props) {
   return (
     <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%" }}>
+      {transcript ? <Transcript /> : null}
       <InspectorPanel width={320} placement={placement}>
         <ChatInspector {...props} />
       </InspectorPanel>
@@ -41,24 +72,28 @@ function GalleryInspector({ placement = "overlay", ...props }: Props) {
   );
 }
 
-/// Pull requests the chat opened or touched (oldest first, as sessionSummary reads them).
+/// Pull requests the chat opened or touched across repositories (oldest first, as sessionSummary
+/// reads them).
 const pullRequests: NonNullable<Props["made"]>["pullRequests"] = [
-  { n: 22217, title: "cmux NEXT: Cmd-W closes a pinned tab's split", opened: true },
+  { n: 22217, title: "cmux NEXT: Cmd-W closes a pinned tab's split", opened: true, state: "merged" },
+  { repo: "acme/billing", n: 7, title: "billing: retry webhooks on a 502", opened: false, state: "closed" },
   { n: 22227, title: "New Tab Now Playing: right-click menu and a setting to hide it", opened: false },
   { n: 22228, title: "cmux NEXT: the thread minimap feels like the Codex rail", opened: true },
-  { n: 22229, title: "cmux NEXT Home list: one-row sessions", opened: true },
+  { n: 22229, title: "cmux NEXT Home list: one-row sessions", opened: true, state: "merged" },
+  { repo: "acme/atlas-web", n: 412, title: "atlas: dark mode tokens for the settings page", opened: true },
   { n: 22231, title: "cmux NEXT New Tab: paste an image into the composer", opened: true },
   { n: 22240, title: "Inspector: the chat's right-hand panel", opened: true },
-].map(({ n, title, opened }) => ({
-  url: `https://github.com/manaflow-ai/cmux/pull/${n}`,
-  repo: "manaflow-ai/cmux",
+].map(({ repo = "manaflow-ai/cmux", n, title, opened, state = "open" }) => ({
+  url: `https://github.com/${repo}/pull/${n}`,
+  repo,
   number: n,
   title,
   opened,
-  state: n === 22229 ? ("merged" as const) : ("open" as const),
+  state: state as "open" | "merged" | "closed",
 }));
-const pr = (n: number) => `https://github.com/manaflow-ai/cmux/pull/${n}`;
-/// What the App read of them: line counts split by kind, failing checks against the base, owners.
+const pr = (n: number, repo = "manaflow-ai/cmux") => `https://github.com/${repo}/pull/${n}`;
+/// What the App read of them: line counts split by kind, comments, failing checks against the
+/// base, a draft, one with conflicts, owners.
 const statuses: NonNullable<Props["statuses"]> = {
   [pr(22240)]: {
     additions: 1_482,
@@ -69,14 +104,16 @@ const statuses: NonNullable<Props["statuses"]> = {
       generated: { additions: 150, deletions: 10 },
       docs: { additions: 20, deletions: 0 },
     },
+    comments: 13,
     checks: "failing",
     failing: 3,
     failingOnBase: 2,
     owner: "inspector",
   },
-  [pr(22231)]: { additions: 96, deletions: 12, checks: "passing", owner: "newtab" },
-  [pr(22228)]: { additions: 240, deletions: 88, checks: "pending" },
-  [pr(22227)]: { checks: "failing", failing: 1, owner: "teamleaderleo" },
+  [pr(22231)]: { additions: 96, deletions: 12, comments: 2, checks: "passing", owner: "newtab" },
+  [pr(412, "acme/atlas-web")]: { additions: 608, deletions: 8, checks: "passing" },
+  [pr(22228)]: { state: "draft", additions: 240, deletions: 88, checks: "pending" },
+  [pr(22227)]: { mergeable: "conflicting", checks: "failing", failing: 9, owner: "teamleaderleo" },
 };
 
 /// Background processes as acpmux's registry lists them: a dev server, a watcher, three finished.
@@ -162,6 +199,24 @@ const full: Props = {
   remoteControl: { on: false, set: () => undefined },
 };
 
+/// A chat in ~/Projects that worked across several projects, as Claude Code desktop lists them.
+const PROJECTS = "/Users/you/Projects";
+const touched = (path: string) =>
+  tool(`Read ${path}`, "read", "completed", { locations: [{ path: `${PROJECTS}/${path}` }] });
+const projectRows = [
+  activity(
+    [
+      touched("cmux/webviews/src/agent-session/acpmux/App.tsx"),
+      touched("cmux-app-screenshots/index.json"),
+      touched("agent-pane-reference/README.md"),
+      touched("cmuxterm-hq/build-fleet/FLEET-AND-CI.md"),
+      touched("leo-workspace/NOW.md"),
+      touched("glaeda/main.go"),
+    ],
+    6,
+  ),
+];
+
 const text = (ctx: Parameters<Play>[0]) => ctx.document.querySelector(".acpmux-chat-inspector")?.textContent ?? "";
 
 export default componentEntry<Props>({
@@ -173,8 +228,11 @@ export default componentEntry<Props>({
   widths: { narrow: 320, normal: 420 },
   covers: [
     "agent-session/acpmux/inspector/ChatInspector.tsx",
+    "agent-session/acpmux/inspector/chatFolders.ts",
     "agent-session/acpmux/inspector/ChildSessionRows.tsx",
     "agent-session/acpmux/inspector/ChangesSection.tsx",
+    "agent-session/acpmux/inspector/ContextSection.tsx",
+    "agent-session/acpmux/inspector/PullRequestGlyph.tsx",
     "agent-session/acpmux/inspector/EnvironmentSection.tsx",
     "agent-session/acpmux/inspector/InspectorSection.tsx",
     "agent-session/acpmux/inspector/OutputsSection.tsx",
@@ -185,8 +243,18 @@ export default componentEntry<Props>({
   load: async () => GalleryInspector,
   variants: {
     full: {
-      note: "A chat on this Mac with every section: its environment with Save and Remote Control, 47% of the context window, one connector to reconnect, six pull requests, a dev server on :5173, 43 subagents and three chats it started, background tasks (one only the transcript knows, without Stop) with four finished, and its outputs.",
+      note: "A chat on this Mac with every section: its environment with Save and Remote Control, 47% of the context window, one connector to reconnect, eight pull requests across three repositories (five shown, then Show more), a dev server on :5173, 43 subagents and three chats it started, background tasks (one only the transcript knows, without Stop) with four finished, and its outputs.",
       props: full,
+    },
+    "environment-folders": {
+      note: "Environment for a chat in ~/Projects that worked across six projects: the machine with Save, its folder with its parent, each project it touched (each opens in Files), the repository and the branch (each opens on GitHub).",
+      props: {
+        ...full,
+        summary: { ...summary, cwd: PROJECTS, branch: "leo/next-backgrounds-batch" },
+        rows: projectRows,
+        onOpenFolder: () => undefined,
+        remoteControl: undefined,
+      },
     },
     "context-connectors-open": {
       note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status.",
@@ -199,6 +267,14 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => /already on base/.test(text(ctx)));
         await ctx.hover({ selector: ".acpmux-chat-inspector-pr__counts" });
         await ctx.waitFor(() => /Generated/.test(ctx.document.body.textContent ?? ""));
+      },
+    },
+    "changes-all": {
+      note: "Changes after Show more: the open pull requests first (a draft in orange, one with conflicts in red), then the closed and merged ones by their glyphs, with no state word, and Show less.",
+      props: full,
+      play: async (ctx) => {
+        await ctx.click({ selector: "button.acpmux-chat-inspector-pr-fold" });
+        await ctx.waitFor(() => /Show less/.test(text(ctx)));
       },
     },
     "row-hover": {
@@ -239,8 +315,12 @@ export default componentEntry<Props>({
       },
     },
     push: {
-      note: "Settings > Agent Chat > Inspector set to Push: the panel sits beside the chat and narrows it, instead of lying over it with a shadow.",
+      note: "Settings > Agent Chat > Inspector set to Push: the panel sits beside the chat and narrows it, instead of lying over it with a shadow. It is glass there too, with its left hairline as its only edge.",
       props: { ...full, placement: "push" },
+    },
+    "glass-over-transcript": {
+      note: "The panel over a busy transcript: liquid glass, never opaque, so the prompts, replies and code under it frost through; its cards are hairline borders with no fill. Under Reduce Transparency the panel is the opaque theme surface.",
+      props: { ...full, transcript: true },
     },
   },
 });
