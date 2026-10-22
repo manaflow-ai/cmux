@@ -46,7 +46,7 @@ public actor LocalHostPressureSource: HostPressureSource {
     public func localVerdict() -> HostBudgetVerdict {
         let formula = formula
         let cores = sampler.cores(formula.cores)
-        let rate = sampler.swappedOutBytes().map { swap.feed(bytes: $0, seconds: ProcessInfo.processInfo.systemUptime) } ?? 0
+        let rate = sampler.swappedOutBytes().flatMap { swap.feed(bytes: $0, seconds: ProcessInfo.processInfo.systemUptime) }
         return HostBudgetVerdict(host: host, cores: cores, load1: sampler.load1(), loadLimit: formula.loadLimit(cores: cores),
                                  pressure: sampler.memoryPressure(), swapMBPerMin: rate, swapLimit: formula.swapGrowthMBPerMin)
     }

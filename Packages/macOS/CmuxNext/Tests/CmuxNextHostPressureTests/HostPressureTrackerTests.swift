@@ -24,7 +24,8 @@ struct HostPressureTrackerTests {
     @Test(arguments: [
         (12.0, HostMemoryPressure.normal, 0.0, HostPressureLevel.warning),
         (2, .warn, 0, .warning),
-        (2, .normal, 64, .warning),
+        (2, .normal, 65, .warning),
+        (2, .normal, 64, .normal),
         (2, .critical, 0, .critical),
         (146, .warn, 0, .critical),
         (2, .warn, 200, .critical),
@@ -69,11 +70,13 @@ struct HostPressureTrackerTests {
 
     @Test func theDispatchSourcesPressureReplacesTheSampledOne() {
         let sampled = verdict(load: 13, swap: 70)
-        #expect(sampled.over == ["cpu", "swap"])
+        #expect(sampled.over == ["load1 13.0 >= 12 (12 P-cores)", "swap +70 MB/min"])
         let newer = sampled.with(pressure: .warn)
-        #expect(newer.over == ["cpu", "memory", "swap"])
-        #expect(newer.with(pressure: .normal).over == ["cpu", "swap"])
+        #expect(newer.over == ["load1 13.0 >= 12 (12 P-cores)", "swap +70 MB/min", "memory pressure warn"])
+        #expect(newer.with(pressure: .critical).over.last == "memory pressure critical")
+        #expect(newer.with(pressure: .normal).over == sampled.over)
         #expect(!newer.ok)
+        #expect(verdict().with(pressure: .warn).with(pressure: .normal).ok)
     }
 }
 
@@ -107,12 +110,30 @@ struct HostBudgetFormulaTests {
         #expect(formula == HostBudgetFormula())
     }
 
+    /// acpmux's `host_pressure` as cmux-tui host_pressure.rs writes it.
     @Test func acpmuxsVerdictDecodes() throws {
-        let json = #"{"host":"gray","cores":12,"load1":146.2,"load_limit":12,"pressure":"warn","swap_mb_per_min":90,"over":["cpu","memory","swap"],"ok":false}"#
+        let json = #"{"host":"gray","cores":12,"cores_kind":"performance","load1":146.2,"load_limit":12,"pressure":"warn","#
+            + #""available_ram_fraction":0.04,"swap_mb_per_min":90,"over":["load1 146.2 >= 12 (12 P-cores)","memory pressure warn","#
+            + #""available RAM 4% < 10%","swap +90 MB/min"],"ok":false,"warning":"host-budget: gray over its CPU/RAM budget: ...","#
+            + #""enforce":false,"local_turns":39,"background_processes":1298,"#
+            + #""top":[{"session_id":"s1","name":"app-efficiency","turns":3,"processes":410}]}"#
         let verdict = try JSONDecoder().decode(HostBudgetVerdict.self, from: Data(json.utf8))
         #expect(verdict.loadLimit == 12)
         #expect(verdict.pressure == .warn)
+        #expect(verdict.localTurns == 39)
+        #expect(verdict.top?.first?.name == "app-efficiency")
         #expect(HostPressureTracker.level(for: verdict, holding: .normal) == .critical)
+    }
+
+    /// Before its second sample acpmux has no swap rate, and it may not read the load or pressure.
+    @Test func acpmuxsUnreadNumbersDecode() throws {
+        let json = #"{"host":"gray","cores":12,"load1":null,"load_limit":12,"pressure":"unknown","#
+            + #""swap_mb_per_min":null,"over":[],"ok":true}"#
+        let verdict = try JSONDecoder().decode(HostBudgetVerdict.self, from: Data(json.utf8))
+        #expect(verdict.load1 == nil)
+        #expect(verdict.swapMBPerMin == nil)
+        #expect(!verdict.pressure.isOver)
+        #expect(HostPressureTracker.level(for: verdict, holding: .normal) == .normal)
     }
 
     @Test func theVerdictComesFromDaemonStatus() {
@@ -132,9 +153,9 @@ struct HostBudgetFormulaTests {
 
     @Test func theSwapRateIsPerMinute() {
         var rate = SwapRate()
-        #expect(rate.feed(bytes: 0, seconds: 0) == 0)
+        #expect(rate.feed(bytes: 0, seconds: 0) == nil)
         #expect(rate.feed(bytes: 32 << 20, seconds: 15) == 128)
-        #expect(rate.feed(bytes: 0, seconds: 30) == 0)
+        #expect(rate.feed(bytes: 0, seconds: 30) == nil)
     }
 }
 

@@ -40,7 +40,7 @@ public struct HostPressureTracker: Sendable {
         if verdict.pressure == .critical || verdict.over.count >= 2 { return .critical }
         if !verdict.over.isEmpty { return .warning }
         let line = loadWarnFraction - (current > .normal ? loadReleaseFraction : 0)
-        return verdict.load1 >= verdict.loadLimit * line ? .warning : .normal
+        return (verdict.load1 ?? 0) >= verdict.loadLimit * line ? .warning : .normal
     }
 
     /// Feeds one verdict; returns the new level when it changed.

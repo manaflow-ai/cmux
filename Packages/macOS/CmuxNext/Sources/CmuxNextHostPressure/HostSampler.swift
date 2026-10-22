@@ -58,10 +58,11 @@ public struct SwapRate: Sendable {
 
     public init() {}
 
-    /// MB a minute since the previous read (0 on the first one or after the counter went back).
-    public mutating func feed(bytes: UInt64, seconds: Double) -> Double {
+    /// MB a minute since the previous read; nil on the first one or after the
+    /// counter went back (acpmux's `swap_mb_per_min` is null until two samples too).
+    public mutating func feed(bytes: UInt64, seconds: Double) -> Double? {
         defer { last = (bytes, seconds) }
-        guard let last, seconds > last.seconds, bytes >= last.bytes else { return 0 }
+        guard let last, seconds > last.seconds, bytes >= last.bytes else { return nil }
         return Double(bytes - last.bytes) / 1_048_576 / ((seconds - last.seconds) / 60)
     }
 }

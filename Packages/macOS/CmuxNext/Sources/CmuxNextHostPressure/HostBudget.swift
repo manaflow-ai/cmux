@@ -77,38 +77,53 @@ public struct HostBudgetFile: Decodable, Equatable, Sendable {
 
 /// The host's memory pressure as the budget reads it (macOS
 /// kern.memorystatus_vm_pressure_level 1, 2, 4; the dispatch source's events).
+/// acpmux reports `unknown` when it cannot read the level; it counts as normal.
 public enum HostMemoryPressure: String, Comparable, Sendable, Codable {
-    case normal, warn, critical
+    case normal, warn, critical, unknown
 
     public init(sysctlLevel: Int32) {
         self = sysctlLevel >= 4 ? .critical : sysctlLevel >= 2 ? .warn : .normal
     }
 
-    private var rank: Int { self == .normal ? 0 : self == .warn ? 1 : 2 }
+    private var rank: Int { self == .critical ? 2 : self == .warn ? 1 : 0 }
     public static func < (lhs: Self, rhs: Self) -> Bool { lhs.rank < rhs.rank }
+    /// Over the budget (its default `pressure: normal` allows only normal).
+    public var isOver: Bool { rank > 0 }
 }
 
-/// The contract's verdict, as `acpmux daemon status --json` reports it in
-/// `host_pressure` (and `host-budget --json`): what the host is at against
-/// its budget, and which parts are over.
+/// The contract's verdict, as acpmux reports it in `host_pressure` (in
+/// `_acpmux/status` and `acpmux daemon status --json`, cmux-tui
+/// `host_pressure.rs`): what the host is at against its budget and why it is
+/// over, one phrase per reason, in acpmux's words.
 public struct HostBudgetVerdict: Codable, Equatable, Sendable {
     public var host: String
     public var cores: Int
-    public var load1: Double
+    /// nil when the host could not read it.
+    public var load1: Double?
     public var loadLimit: Double
     public var pressure: HostMemoryPressure
-    public var swapMBPerMin: Double
+    /// nil until two samples.
+    public var swapMBPerMin: Double?
     public var over: [String]
     public var ok: Bool
+    /// What acpmux knows and the app does not (absent in a local verdict).
+    public var localTurns: Int?
+    public var backgroundProcesses: Int?
+    public var top: [HostBudgetSession]?
 
     enum CodingKeys: String, CodingKey {
-        case host, cores, load1, pressure, over, ok
+        case host, cores, load1, pressure, over, ok, top
         case loadLimit = "load_limit"
         case swapMBPerMin = "swap_mb_per_min"
+        case localTurns = "local_turns"
+        case backgroundProcesses = "background_processes"
     }
 
+    /// A verdict from this Mac's own numbers, with acpmux's reasons and tests:
+    /// load at or over its limit, memory pressure over normal, swap growing
+    /// faster than its limit.
     public init(host: String, cores: Int, load1: Double, loadLimit: Double, pressure: HostMemoryPressure,
-                swapMBPerMin: Double, swapLimit: Double) {
+                swapMBPerMin: Double?, swapLimit: Double) {
         self.host = host
         self.cores = cores
         self.load1 = load1
@@ -116,12 +131,15 @@ public struct HostBudgetVerdict: Codable, Equatable, Sendable {
         self.pressure = pressure
         self.swapMBPerMin = swapMBPerMin
         var over: [String] = []
-        if load1 >= loadLimit { over.append("cpu") }
-        if pressure != .normal { over.append("memory") }
-        if swapMBPerMin >= swapLimit { over.append("swap") }
+        if load1 >= loadLimit { over.append(String(format: "load1 %.1f >= %g", load1, loadLimit) + " (\(cores) P-cores)") }
+        if pressure.isOver { over.append(Self.memoryReason(pressure)) }
+        if let swapMBPerMin, swapMBPerMin > swapLimit { over.append(String(format: "swap +%.0f MB/min", swapMBPerMin)) }
         self.over = over
         ok = over.isEmpty
     }
+
+    private static let memoryPrefix = "memory pressure "
+    private static func memoryReason(_ pressure: HostMemoryPressure) -> String { memoryPrefix + pressure.rawValue }
 
     /// The same verdict with the newer memory pressure the dispatch source
     /// reported (the contract lets the app read it itself, for speed).
@@ -129,10 +147,23 @@ public struct HostBudgetVerdict: Codable, Equatable, Sendable {
         guard newer != pressure else { return self }
         var copy = self
         copy.pressure = newer
-        copy.over = [over.contains("cpu") ? "cpu" : nil, newer != .normal ? "memory" : nil, over.contains("swap") ? "swap" : nil]
-            .compactMap(\.self)
+        copy.over.removeAll { $0.hasPrefix(Self.memoryPrefix) }
+        if newer.isOver { copy.over.append(Self.memoryReason(newer)) }
         copy.ok = copy.over.isEmpty
         return copy
+    }
+}
+
+/// One of acpmux's sessions in `host_pressure.top` (most background processes first).
+public struct HostBudgetSession: Codable, Equatable, Sendable {
+    public var sessionId: String
+    public var name: String
+    public var turns: Int
+    public var processes: Int
+
+    enum CodingKeys: String, CodingKey {
+        case name, turns, processes
+        case sessionId = "session_id"
     }
 }
 
