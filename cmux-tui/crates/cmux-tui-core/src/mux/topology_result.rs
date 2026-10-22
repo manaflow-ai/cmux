@@ -3,6 +3,7 @@
 //! transaction.
 
 use super::*;
+use crate::panic_free::JsonField;
 
 pub(super) fn persist_public_topology_result(
     operation: &str,
@@ -22,9 +23,9 @@ pub(super) fn persist_public_topology_result(
         .iter()
         .rev()
         .find(|change| {
-            change["kind"] == "upsert"
-                && change["resource"] == resource
-                && change["id"].as_str() == Some(id)
+            change.field("kind") == "upsert"
+                && change.field("resource") == resource
+                && change.field("id").as_str() == Some(id)
         })
         .and_then(|change| change.get("value"))
         .cloned()

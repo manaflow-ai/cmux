@@ -5,6 +5,7 @@ use sha2::{Digest, Sha256};
 use std::fmt;
 
 use super::*;
+use crate::panic_free::JsonField;
 
 #[derive(Debug)]
 pub(crate) struct AgentCLIJobBusy;
@@ -57,7 +58,7 @@ impl Mux {
             Some(ResourceCreationPreparation::Blocked { .. }) => {
                 let resolved = registry.resolve_resource_creation(&correlation)?;
                 let state =
-                    if resolved["state"] == "pending" { "pending" } else { "indeterminate" };
+                    if resolved.field("state") == "pending" { "pending" } else { "indeterminate" };
                 json!({"state":state})
             }
         })
@@ -112,7 +113,7 @@ impl Mux {
                 // A changed installation cannot silently retarget a resume.
                 let argv = prepare()?;
                 anyhow::ensure!(
-                    intent["fields"]["argv"] == json!(argv),
+                    *intent.field("fields").field("argv") == json!(argv),
                     "agent update installation changed after preparation"
                 );
             }

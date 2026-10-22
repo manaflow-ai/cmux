@@ -1,6 +1,7 @@
 //! Workspace reordering: revision-checked moves and the mutation path.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     /// Reorder a workspace as `actor`. The active workspace follows the
@@ -13,7 +14,7 @@ impl Mux {
         expected_revision: Option<u64>,
     ) -> anyhow::Result<Option<(u64, bool)>> {
         {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             let Some(old_index) = state.workspace_index(workspace) else {
                 return Ok(None);
             };
@@ -60,12 +61,12 @@ impl Mux {
             "index": index,
         });
         let notifications = self.tree_decorations();
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             return workspace_mutation_result(&commit);
         }
         let (delta, result) = {
-            let mut state = self.lock_state_pinned(&registry).unwrap();
+            let mut state = self.lock_state_pinned(&registry).recover_poison();
             Self::require_workspace_revision(&state, expected_revision)?;
             let old_idx = resolve_workspace_index(&state, workspace, requested_key)?;
             let workspace_id = state.workspaces[old_idx].id;

@@ -2,6 +2,7 @@
 //! the shared `from_workspace_registry` bootstrap, and test constructors.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     pub fn new(session: impl Into<String>, surface_options: SurfaceOptions) -> Arc<Self> {
@@ -426,7 +427,7 @@ impl Mux {
         #[cfg(any(unix, windows))]
         mux.adopt_terminal_hosts()?;
         {
-            let mut state = mux.state.lock().unwrap();
+            let mut state = mux.state.lock().recover_poison();
             state.rebuild_resource_indexes();
             let mut names = mux.restored_tab_names.lock().unwrap_or_else(PoisonError::into_inner);
             for content in &contents {
@@ -469,7 +470,7 @@ impl Mux {
     }
 
     pub fn lock_initial_bootstrap(&self) -> MutexGuard<'_, ()> {
-        self.initial_bootstrap.lock().unwrap()
+        self.initial_bootstrap.lock().recover_poison()
     }
 
     #[cfg(test)]

@@ -1,6 +1,7 @@
 //! Closing tree targets: surface, pane, screen and workspace closes, including provider-managed and resource-effect paths.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     pub(crate) fn close_surface_for_resource_effect(
@@ -13,7 +14,7 @@ impl Mux {
     pub(super) fn remove_surface_after_registry(&self, target: SurfaceId) -> bool {
         let notifications = self.tree_decorations();
         let remove = || {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             let selection_before = active_tree_selection(&state);
             let changed_screen = surface_screen_id(&state, target);
             let delta = close_surface_delta(&state, &notifications, target);
@@ -39,7 +40,7 @@ impl Mux {
                 break remove();
             };
             let lifecycle = self.workspace_lifecycle(workspace);
-            let workspace_lifecycle = lifecycle.lock().unwrap();
+            let workspace_lifecycle = lifecycle.lock().recover_poison();
             if self.surface_workspace(target) != Some(workspace) {
                 drop(workspace_lifecycle);
                 continue;
@@ -80,7 +81,7 @@ impl Mux {
                 return Ok(false);
             };
             let lifecycle = self.workspace_lifecycle(workspace);
-            let workspace_lifecycle = lifecycle.lock().unwrap();
+            let workspace_lifecycle = lifecycle.lock().recover_poison();
             if self.with_state(|state| Self::workspace_for_tree_target_in_state(state, target))
                 != Some(workspace)
             {
@@ -88,7 +89,7 @@ impl Mux {
                 continue;
             }
             let result = (|| -> anyhow::Result<Option<_>> {
-                let mut state = self.state.lock().unwrap();
+                let mut state = self.state.lock().recover_poison();
                 let selection_before = active_tree_selection(&state);
                 let (tabs, delta) = match target {
                     TreeCloseTarget::Pane(target) => {
@@ -275,8 +276,8 @@ impl Mux {
         mutation: &WorkspaceMutation,
         if_empty: bool,
     ) -> anyhow::Result<WorkspaceMutationResult> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
-        let _creation_fence = self.resource_creation_execution.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.lock().recover_poison();
+        let _creation_fence = self.resource_creation_execution.lock().recover_poison();
         let authority = self.authorize_workspace_lifecycle_mutation(
             WorkspaceMutationAuthority::Ordinary,
             "close",
@@ -341,12 +342,12 @@ impl Mux {
         project_resource: bool,
     ) -> anyhow::Result<Option<(WorkspaceId, String, u64)>> {
         let _creation_handoff =
-            project_resource.then(|| self.resource_creation_handoff.lock().unwrap());
+            project_resource.then(|| self.resource_creation_handoff.lock().recover_poison());
         let _creation_fence =
-            project_resource.then(|| self.resource_creation_execution.lock().unwrap());
+            project_resource.then(|| self.resource_creation_execution.lock().recover_poison());
         let authority = self.authorize_workspace_lifecycle_mutation(authorization, "close")?;
         let resolved = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             Self::require_workspace_revision(&state, expected_revision)?;
             Self::resolve_workspace_selector(&state, id, key)?
         };
@@ -385,7 +386,7 @@ impl Mux {
             "key": requested_key,
         });
         {
-            let registry = self.workspace_registry.lock().unwrap();
+            let registry = self.workspace_registry.lock().recover_poison();
             if let Some(commit) = registry.replay(mutation, &fingerprint)? {
                 let result = workspace_mutation_result(&commit)?;
                 return Ok(result);
@@ -393,21 +394,21 @@ impl Mux {
         }
         loop {
             let resolved_target = {
-                let state = self.state.lock().unwrap();
+                let state = self.state.lock().recover_poison();
                 Self::require_workspace_revision(&state, expected_revision)?;
                 let index = resolve_workspace_index(&state, target, requested_key)?;
                 state.workspaces[index].id
             };
             #[cfg(test)]
             if let Some(hook) =
-                self.workspace_close_after_selector_resolution.lock().unwrap().clone()
+                self.workspace_close_after_selector_resolution.lock().recover_poison().clone()
             {
                 hook();
             }
             let lifecycle = self.workspace_lifecycle(resolved_target);
-            let workspace_lifecycle = lifecycle.lock().unwrap();
+            let workspace_lifecycle = lifecycle.lock().recover_poison();
             let current_target = {
-                let state = self.state.lock().unwrap();
+                let state = self.state.lock().recover_poison();
                 Self::require_workspace_revision(&state, expected_revision)?;
                 let index = resolve_workspace_index(&state, target, requested_key)?;
                 state.workspaces[index].id
@@ -446,13 +447,13 @@ impl Mux {
         if_empty: bool,
     ) -> anyhow::Result<WorkspaceMutationResult> {
         let notifications = self.tree_decorations();
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         if let Some(commit) = registry.replay(mutation, fingerprint)? {
             let result = workspace_mutation_result(&commit)?;
             return Ok(result);
         }
         let (removed, delta, empty_revision, selection_resync, result) = {
-            let mut state = self.lock_state_pinned(&registry).unwrap();
+            let mut state = self.lock_state_pinned(&registry).recover_poison();
             Self::require_workspace_revision(&state, expected_revision)?;
             let index = resolve_workspace_index(&state, target, requested_key)?;
             let workspace_id = state.workspaces[index].id;

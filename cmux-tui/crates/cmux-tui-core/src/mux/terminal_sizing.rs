@@ -1,6 +1,8 @@
 //! Shared terminal sizing: geometry claims, view participants and sub-views, size policies, the sizing engine entries, size state publication, and client size participation.
 
 use super::*;
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 
 mod grid_hold;
 pub(super) use grid_hold::AppliedSeat;
@@ -105,7 +107,7 @@ impl Mux {
 
     /// Push a client's changed identity into every engine it participates in.
     pub(crate) fn refresh_terminal_client_identity(&self, client: u64) {
-        let mut sizing = self.client_sizing.lock().unwrap();
+        let mut sizing = self.client_sizing.lock().recover_poison();
         let identity = self.client_sizing_identity(client);
         let runtimes = sizing.terminal_sizing.keys().copied().collect::<Vec<_>>();
         for runtime in runtimes {
@@ -237,7 +239,7 @@ impl Mux {
         &self,
         participant: &str,
     ) -> Option<(u64, SurfaceId, Option<String>)> {
-        let sizing = self.client_sizing.lock().unwrap();
+        let sizing = self.client_sizing.lock().recover_poison();
         sizing.terminal_sizing.values().find_map(|entry| {
             entry
                 .members
@@ -254,7 +256,7 @@ impl Mux {
         participant: &str,
     ) -> Option<(u64, SurfaceId, Option<String>)> {
         let runtime = self.surface(surface)?.terminal_runtime_id()?;
-        let sizing = self.client_sizing.lock().unwrap();
+        let sizing = self.client_sizing.lock().recover_poison();
         sizing
             .terminal_sizing
             .get(&runtime)?
@@ -382,7 +384,7 @@ impl Mux {
             self.with_state(|state| state.workspaces.iter().any(|w| w.id == workspace)),
             "unknown workspace {workspace}"
         );
-        let mut sizing = self.client_sizing.lock().unwrap();
+        let mut sizing = self.client_sizing.lock().recover_poison();
         match policy {
             Some(policy) => sizing.workspace_size_policies.insert(workspace, policy),
             None => sizing.workspace_size_policies.remove(&workspace),
@@ -420,7 +422,7 @@ impl Mux {
     /// The terminal's published size state, creating its engine on demand.
     pub fn terminal_size_state(&self, surface: SurfaceId) -> Option<TerminalSizingState> {
         let runtime = self.surface(surface)?.terminal_runtime_id()?;
-        let mut sizing = self.client_sizing.lock().unwrap();
+        let mut sizing = self.client_sizing.lock().recover_poison();
         Some(self.terminal_sizing_entry(&mut sizing, runtime, surface).engine.state().clone())
     }
 
@@ -597,7 +599,7 @@ impl Mux {
         runtime: SurfaceId,
         mutate: impl FnOnce(&Self, &mut ClientSizingState) -> R,
     ) -> R {
-        let mut sizing = self.client_sizing.lock().unwrap();
+        let mut sizing = self.client_sizing.lock().recover_poison();
         let owners_before = sizing.terminal_owner_clients(runtime);
         let result = mutate(self, &mut sizing);
         self.apply_terminal_grid(&sizing, runtime);
@@ -611,7 +613,8 @@ impl Mux {
     /// Deliver pending size states to subscribers and attach streams. Call
     /// only without the sizing lock held.
     pub(super) fn publish_size_states(&self) {
-        let publications = self.client_sizing.lock().unwrap().take_size_state_publications();
+        let publications =
+            self.client_sizing.lock().recover_poison().take_size_state_publications();
         for publication in publications {
             for placement in publication.placements {
                 if self.surface(placement).is_none() {
@@ -661,7 +664,7 @@ impl Mux {
                 let cleared = self
                     .client_sizing
                     .lock()
-                    .unwrap()
+                    .recover_poison()
                     .terminal_sizing
                     .get(&runtime)
                     .and_then(|entry| entry.engine.participant(&id))
@@ -700,7 +703,7 @@ impl Mux {
         }
         let _lifecycle = self.lock_client_sizing_lifecycle();
         self.surface(surface)?;
-        let mut sizing = self.client_sizing.lock().unwrap();
+        let mut sizing = self.client_sizing.lock().recover_poison();
         let attached_clients = self.control_clients.attached_client_ids_for_surface(surface);
         let mut known_clients = attached_clients.clone();
         if let Some(reporters) = sizing.surfaces.get(&surface) {
@@ -746,7 +749,7 @@ impl Mux {
         }
         let _lifecycle = self.lock_client_sizing_lifecycle();
         self.surface(surface)?;
-        let mut sizing = self.client_sizing.lock().unwrap();
+        let mut sizing = self.client_sizing.lock().recover_poison();
         let attached_clients = self.control_clients.attached_client_ids_for_surface(surface);
         let reporters = sizing.surfaces.get(&surface);
         let target_is_reporting = reporters.is_some_and(|viewers| viewers.contains_key(&target));
@@ -782,7 +785,7 @@ impl Mux {
         }
         let _lifecycle = self.lock_client_sizing_lifecycle();
         self.surface(surface)?;
-        let mut sizing = self.client_sizing.lock().unwrap();
+        let mut sizing = self.client_sizing.lock().recover_poison();
         let attached_clients = self.control_clients.attached_client_ids_for_surface(surface);
         let Some(_) = sizing.policies.remove(&surface) else {
             return Some(false);
@@ -804,10 +807,10 @@ impl Mux {
             return self
                 .client_sizing
                 .lock()
-                .unwrap()
+                .recover_poison()
                 .owns_terminal_geometry(runtime, surface, client);
         }
-        self.client_sizing.lock().unwrap().client_participates(surface, client)
+        self.client_sizing.lock().recover_poison().client_participates(surface, client)
     }
 
     pub fn control_clients_json(&self, requesting_client: u64) -> Value {
@@ -819,13 +822,15 @@ impl Mux {
                     for size in sizes {
                         let surface =
                             size.get("surface").and_then(Value::as_u64).unwrap_or_default();
-                        size["size_participating"] =
-                            serde_json::json!(self.client_size_participates(surface, id));
+                        size.set_field(
+                            "size_participating",
+                            serde_json::json!(self.client_size_participates(surface, id)),
+                        );
                     }
                 }
             }
         }
-        let sizing = self.client_sizing.lock().unwrap();
+        let sizing = self.client_sizing.lock().recover_poison();
         let local_sizes = sizing
             .surfaces
             .iter()

@@ -1,16 +1,17 @@
 //! Terminal defaults and direct resizes: default colors and their durable override, the resource terminal defaults update, and resize_surface*.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     pub fn default_colors(&self) -> DefaultColors {
-        *self.default_colors.lock().unwrap()
+        *self.default_colors.lock().recover_poison()
     }
 
     pub fn set_default_colors(&self, colors: DefaultColors) {
         let surfaces = {
-            let state = self.state.lock().unwrap();
-            let mut current = self.default_colors.lock().unwrap();
+            let state = self.state.lock().recover_poison();
+            let mut current = self.default_colors.lock().recover_poison();
             if *current == colors {
                 return;
             }
@@ -25,8 +26,8 @@ impl Mux {
 
     pub fn seed_default_colors_if_no_durable_override(&self, colors: DefaultColors) {
         let surfaces = {
-            let state = self.state.lock().unwrap();
-            let mut current = self.default_colors.lock().unwrap();
+            let state = self.state.lock().recover_poison();
+            let mut current = self.default_colors.lock().recover_poison();
             if self.durable_terminal_defaults.load(Ordering::Acquire) || *current == colors {
                 return;
             }
@@ -58,7 +59,7 @@ impl Mux {
             "selectors":selectors,
             "fields":intent_fields,
         });
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         if let Some(replay) = registry.replay_resource_patch(
             mutation,
             "session.terminal_defaults.update",
@@ -66,7 +67,7 @@ impl Mux {
         )? {
             return Ok(replay);
         }
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut state = self.lock_state_pinned(&registry).recover_poison();
         self.resolve_resource_path_in_state(
             &state,
             &registry,
@@ -87,7 +88,7 @@ impl Mux {
         )?;
         state.resource_revision = commit.revision;
         self.durable_terminal_defaults.store(true, Ordering::Release);
-        *self.default_colors.lock().unwrap() = colors;
+        *self.default_colors.lock().recover_poison() = colors;
         for surface in &surfaces {
             surface.set_default_colors(colors);
         }

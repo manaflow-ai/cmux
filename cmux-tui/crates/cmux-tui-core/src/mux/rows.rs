@@ -11,6 +11,7 @@
 use super::*;
 use crate::Actor;
 use crate::model::{LayoutMutationKey, LayoutResizeOwner, ROW_HEIGHT_PERMILLE};
+use crate::panic_free::RecoverPoison;
 use cmux_layout_reducer::{LayoutOp, LayoutOpKind, Reject};
 
 /// Internal journal operation name, reachable only through the JSON-lines
@@ -165,7 +166,7 @@ impl Mux {
         transaction: Option<String>,
     ) -> anyhow::Result<Arc<Surface>> {
         let height = checked_height(height)?;
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.lock().recover_poison();
         let selectors = self
             .ordinary_pane_selectors(target)
             .with_context(|| format!("unknown pane {target}"))?;

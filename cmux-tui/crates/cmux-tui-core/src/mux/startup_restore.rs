@@ -1,6 +1,7 @@
 //! Startup restore follow-ups: pending agent hook retries and materializing interrupted resource workspaces and restored browsers.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     pub(super) fn retry_pending_agent_hooks(&self) -> anyhow::Result<()> {
@@ -11,7 +12,7 @@ impl Mux {
             let (pending, next_cursor) = self
                 .workspace_registry
                 .lock()
-                .unwrap()
+                .recover_poison()
                 .pending_agent_hook_projections_page(cursor.clone())?;
             let Some(next_cursor) = next_cursor else { break };
             cursor = Some(next_cursor);
@@ -30,7 +31,7 @@ impl Mux {
             let pending = self
                 .workspace_registry
                 .lock()
-                .unwrap()
+                .recover_poison()
                 .pending_agent_hook_projections_for_terminal(terminal_id)?;
             if pending.is_empty() {
                 break;
@@ -54,7 +55,7 @@ impl Mux {
                     if self
                         .workspace_registry
                         .lock()
-                        .unwrap()
+                        .recover_poison()
                         .clear_agent_hook_pending(&producer_id, &origin, &key)
                         .is_ok()
                     {
@@ -67,7 +68,7 @@ impl Mux {
                     if self
                         .workspace_registry
                         .lock()
-                        .unwrap()
+                        .recover_poison()
                         .clear_agent_hook_pending(&producer_id, &origin, &key)
                         .is_ok()
                     {
@@ -80,7 +81,7 @@ impl Mux {
                     if self
                         .workspace_registry
                         .lock()
-                        .unwrap()
+                        .recover_poison()
                         .enqueue_agent_hook_pending(
                             &producer_id,
                             &origin,
@@ -109,7 +110,7 @@ impl Mux {
     /// returns.
     pub(super) fn materialize_interrupted_resource_workspaces(&self) -> anyhow::Result<()> {
         let (recoveries, staged) = {
-            let registry = self.workspace_registry.lock().unwrap();
+            let registry = self.workspace_registry.lock().recover_poison();
             (
                 registry.interrupted_resource_creation_recoveries()?,
                 registry.interrupted_resource_workspaces()?,
@@ -130,7 +131,7 @@ impl Mux {
             .last()
             .map(|(_, workspace)| workspace.id)
             .expect("non-empty staged workspace list");
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         for (position, workspace) in staged {
             anyhow::ensure!(
                 position <= state.workspaces.len(),
@@ -179,8 +180,8 @@ impl Mux {
         self: &Arc<Self>,
         contents: &[RestoredResourceContent],
     ) -> anyhow::Result<()> {
-        let opts = self.surface_options.lock().unwrap().clone();
-        let cell_pixels = *self.cell_pixels.lock().unwrap();
+        let opts = self.surface_options.lock().recover_poison().clone();
+        let cell_pixels = *self.cell_pixels.lock().recover_poison();
         let presentation = self.presentation_snapshot();
         for content in contents {
             let Some(browser) = content.browser.clone() else { continue };
@@ -200,7 +201,7 @@ impl Mux {
             if let (Some(record), Some(runtime)) = (frontend, surface.as_browser()) {
                 runtime.set_frontend_location(None, record.title.clone());
             }
-            insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone())?;
+            insert_surface_checked(&mut self.state.lock().recover_poison(), surface.clone())?;
             match browser.reconnect {
                 RegistryBrowserReconnect::Recreate => {
                     self.start_browser_bootstrap(

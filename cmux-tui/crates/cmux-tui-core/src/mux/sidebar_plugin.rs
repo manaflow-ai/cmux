@@ -1,11 +1,12 @@
 //! Sidebar plugin: configuration, ensure/reload of the plugin surface, its status, and the resource resize of the sidebar.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     pub fn configure_sidebar_plugin(&self, options: Option<SidebarPluginOptions>) {
         let old_surface = {
-            let mut runtime = self.sidebar_plugin.lock().unwrap();
+            let mut runtime = self.sidebar_plugin.lock().recover_poison();
             if runtime.options == options {
                 return;
             }
@@ -16,7 +17,7 @@ impl Mux {
             runtime.surface.take()
         };
         if let Some(surface) =
-            old_surface.and_then(|id| self.state.lock().unwrap().surfaces.remove(&id))
+            old_surface.and_then(|id| self.state.lock().recover_poison().surfaces.remove(&id))
         {
             surface.kill();
             self.emit(MuxEvent::SurfaceExited(surface.id, None));
@@ -32,7 +33,7 @@ impl Mux {
         let now = Instant::now();
         let size = (cols.max(1), rows.max(1));
         let spawn_options = {
-            let mut runtime = self.sidebar_plugin.lock().unwrap();
+            let mut runtime = self.sidebar_plugin.lock().recover_poison();
             let Some(options) = runtime.options.clone() else {
                 return SidebarPluginStatus { surface: None, error: None, retry_after: None };
             };
@@ -65,7 +66,7 @@ impl Mux {
             Ok(surface) => {
                 let surface_id = surface.id;
                 {
-                    let mut runtime = self.sidebar_plugin.lock().unwrap();
+                    let mut runtime = self.sidebar_plugin.lock().recover_poison();
                     runtime.surface = Some(surface_id);
                     runtime.last_error = None;
                     runtime.failures = 0;
@@ -75,7 +76,7 @@ impl Mux {
                 SidebarPluginStatus { surface: Some(surface_id), error: None, retry_after: None }
             }
             Err(err) => {
-                let mut runtime = self.sidebar_plugin.lock().unwrap();
+                let mut runtime = self.sidebar_plugin.lock().recover_poison();
                 runtime.surface = None;
                 runtime.failures = runtime.failures.saturating_add(1);
                 let delay = sidebar_retry_delay(runtime.failures);
@@ -93,7 +94,7 @@ impl Mux {
 
     #[cfg(test)]
     pub(crate) fn sidebar_plugin_status(&self) -> SidebarPluginStatus {
-        let runtime = self.sidebar_plugin.lock().unwrap();
+        let runtime = self.sidebar_plugin.lock().recover_poison();
         let now = Instant::now();
         let surface = runtime
             .surface
@@ -108,14 +109,14 @@ impl Mux {
     }
 
     pub(crate) fn sidebar_plugin_surface(&self) -> Option<Arc<Surface>> {
-        let surface = self.sidebar_plugin.lock().unwrap().surface?;
+        let surface = self.sidebar_plugin.lock().recover_poison().surface?;
         self.surface(surface)
     }
 
     pub(crate) fn sidebar_plugin_resource_status(
         &self,
     ) -> (SidebarPluginStatus, Option<(u16, u16)>, bool) {
-        let runtime = self.sidebar_plugin.lock().unwrap();
+        let runtime = self.sidebar_plugin.lock().recover_poison();
         let now = Instant::now();
         let surface = runtime
             .surface
@@ -139,7 +140,7 @@ impl Mux {
         rows: u16,
     ) -> SidebarPluginStatus {
         let old_surface = {
-            let mut runtime = self.sidebar_plugin.lock().unwrap();
+            let mut runtime = self.sidebar_plugin.lock().recover_poison();
             runtime.last_size = Some((cols.max(1), rows.max(1)));
             runtime.last_error = None;
             runtime.failures = 0;
@@ -147,7 +148,7 @@ impl Mux {
             runtime.surface.take()
         };
         if let Some(surface) =
-            old_surface.and_then(|id| self.state.lock().unwrap().surfaces.remove(&id))
+            old_surface.and_then(|id| self.state.lock().recover_poison().surfaces.remove(&id))
         {
             self.purge_surface_side_tables(surface.id);
             surface.kill();
@@ -174,11 +175,12 @@ impl Mux {
             "cols":cols,
             "rows":rows,
         });
-        if let Some(replay) = self.workspace_registry.lock().unwrap().replay_resource_patch(
-            mutation,
-            "sidebar_view.resize",
-            &fingerprint,
-        )? {
+        if let Some(replay) = self
+            .workspace_registry
+            .lock()
+            .recover_poison()
+            .replay_resource_patch(mutation, "sidebar_view.resize", &fingerprint)?
+        {
             return Ok(replay);
         }
         let raw = selectors.sidebar_view.as_deref().ok_or_else(|| {
@@ -196,13 +198,13 @@ impl Mux {
                 return Err(anyhow::Error::new(ResourceError::not_found("sidebar_view", raw)));
             }
         }
-        let mut runtime = self.sidebar_plugin.lock().unwrap();
+        let mut runtime = self.sidebar_plugin.lock().recover_poison();
         anyhow::ensure!(runtime.options.is_some(), "sidebar view is not configured");
         let surface_id = runtime.surface.context("sidebar view is not running")?;
         let surface = self
             .state
             .lock()
-            .unwrap()
+            .recover_poison()
             .surfaces
             .get(&surface_id)
             .cloned()

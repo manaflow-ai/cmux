@@ -1,13 +1,15 @@
 //! Layout undo: undo with confirmation tokens, including the resource-effect path.
 
 use super::*;
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     /// Forget the layout-undo history of `pane`'s screen: its layout was
     /// rebuilt for the user (a reopened screen), not changed by them, so
     /// undo must not fold those splits back.
     pub(crate) fn forget_layout_undo(&self, pane: PaneId) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if let Some((workspace, screen)) = state.screen_of(pane) {
             state.workspaces[workspace].screens[screen].invalidate_layout_undo();
         }
@@ -27,7 +29,7 @@ impl Mux {
         confirm_close: bool,
     ) -> anyhow::Result<LayoutUndoResult> {
         let (screen_id, current_revision, created_panes) = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             let Some((workspace_index, screen_index)) = state.screen_of(pane) else {
                 return Err(LayoutUndoError::Stale(
                     "layout undo target is no longer available".to_string(),
@@ -88,8 +90,8 @@ impl Mux {
         // is retried (bounded) with the same token: the commit re-checks the
         // token against the state it commits on.
         if !created_panes.is_empty() {
-            let registry = self.workspace_registry.lock().unwrap();
-            let state = self.lock_state_pinned(&registry).unwrap();
+            let registry = self.workspace_registry.lock().recover_poison();
+            let state = self.lock_state_pinned(&registry).recover_poison();
             let Some((workspace_index, screen_index)) = state.screen_of(pane) else {
                 return Err(LayoutUndoError::Stale(
                     "layout undo target disappeared before confirmation".to_string(),
@@ -98,7 +100,8 @@ impl Mux {
             };
             let details =
                 layout_undo_confirmation_details(&state, &registry, workspace_index, screen_index)?;
-            let token = details["confirmation_token"]
+            let token = details
+                .field("confirmation_token")
                 .as_str()
                 .context("layout undo confirmation omitted its token")?;
             fields.insert("confirmation_token".into(), Value::String(token.to_string()));
@@ -139,7 +142,7 @@ impl Mux {
         confirmation_token: Option<&str>,
     ) -> anyhow::Result<LayoutUndoResult> {
         let (workspace, screen_id, preview) = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             let Some((workspace_index, screen_index)) = state.screen_of(pane) else {
                 return Err(LayoutUndoError::Stale(
                     "layout undo target is no longer available".to_string(),
@@ -195,7 +198,7 @@ impl Mux {
         }
         if preview.created_panes.is_empty() {
             let revision = {
-                let mut state = self.state.lock().unwrap();
+                let mut state = self.state.lock().recover_poison();
                 let Some((workspace_index, screen_index)) = state.screen_of(pane) else {
                     return Err(LayoutUndoError::Stale(
                         "layout undo target disappeared before the change could commit".to_string(),
@@ -252,11 +255,11 @@ impl Mux {
         }
 
         let lifecycle = self.workspace_lifecycle(workspace);
-        let _workspace_lifecycle = lifecycle.lock().unwrap();
+        let _workspace_lifecycle = lifecycle.lock().recover_poison();
         let notifications = self.tree_decorations();
-        let registry = self.workspace_registry.lock().unwrap();
+        let registry = self.workspace_registry.lock().recover_poison();
         let (removed, deltas, selection_resync, revision) = {
-            let mut state = self.lock_state_pinned(&registry).unwrap();
+            let mut state = self.lock_state_pinned(&registry).recover_poison();
             let Some(workspace_index) = state.workspace_index(workspace) else {
                 return Err(LayoutUndoError::Stale(
                     "layout undo workspace is no longer available".to_string(),
@@ -319,7 +322,7 @@ impl Mux {
                     workspace_index,
                     screen_index,
                 )?;
-                if details["confirmation_token"].as_str() != Some(expected_token) {
+                if details.field("confirmation_token").as_str() != Some(expected_token) {
                     return Err(anyhow::Error::new(ResourceError::new(
                         "confirmation.required",
                         "layout undo confirmation is stale",

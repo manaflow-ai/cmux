@@ -1,6 +1,7 @@
 //! Journal maintenance: hook delivery dispatch, internal diagnostics, reconnect checkpoints, journal checkpoints and segments, the periodic maintenance worker, and their test hooks.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 const JOURNAL_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(30);
 const JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS: u64 = 4_096;
@@ -351,7 +352,7 @@ impl Mux {
         // frontend has a chance to install its reporter. Recheck under the
         // pending slot lock so a concurrent setter cannot leave this message
         // stranded between the initial lookup and the store.
-        let mut pending = self.pending_diagnostics.lock().unwrap();
+        let mut pending = self.pending_diagnostics.lock().recover_poison();
         if let Some(reporter) = self.diagnostic_reporter.get().cloned() {
             drop(pending);
             reporter(&message);
@@ -390,7 +391,7 @@ impl Mux {
         if self.diagnostic_reporter.set(reporter).is_err() {
             return false;
         }
-        let pending = std::mem::take(&mut *self.pending_diagnostics.lock().unwrap());
+        let pending = std::mem::take(&mut *self.pending_diagnostics.lock().recover_poison());
         for message in pending {
             pending_reporter(&message);
         }
@@ -471,7 +472,7 @@ impl Mux {
         let checkpoint = self
             .workspace_registry
             .lock()
-            .unwrap()
+            .recover_poison()
             .journal_checkpoint(selector)?
             .with_context(|| format!("journal checkpoint {selector:?} does not exist"))?;
         let mut reducer = crate::journal_checkpoint::RestoreReducer::new(&checkpoint)?;
@@ -532,7 +533,7 @@ impl Mux {
         let database_path = self
             .workspace_registry
             .lock()
-            .unwrap()
+            .recover_poison()
             .session_journal_database_path()
             .context("journal segment sealing requires a persistent session")?;
         let reader = crate::workspace_registry::SessionJournalReader::open(&database_path)?;
@@ -549,7 +550,7 @@ impl Mux {
                 crate::workspace_registry::JournalSegmentSealStart::Prepare(plan) => plan,
             };
             #[cfg(test)]
-            if let Some(hook) = self.journal_segment_prepare_hook.lock().unwrap().take() {
+            if let Some(hook) = self.journal_segment_prepare_hook.lock().recover_poison().take() {
                 hook();
             }
             let prepared = plan.prepare(&reader)?;
@@ -582,7 +583,7 @@ impl Mux {
         &self,
         hook: impl FnOnce() + Send + 'static,
     ) {
-        *self.journal_segment_prepare_hook.lock().unwrap() = Some(Box::new(hook));
+        *self.journal_segment_prepare_hook.lock().recover_poison() = Some(Box::new(hook));
     }
 
     #[cfg(test)]

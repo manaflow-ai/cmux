@@ -1,6 +1,7 @@
 //! Cell pixel size: the creation size, deferred and completed acks, the retry worker, and fanout of cell pixel size reports to surfaces.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     pub fn set_cell_pixel_size(self: &Arc<Self>, width_px: u16, height_px: u16) -> CellPixelUpdate {
@@ -8,14 +9,14 @@ impl Mux {
     }
 
     pub fn cell_pixel_size(&self) -> (u16, u16) {
-        *self.cell_pixels.lock().unwrap()
+        *self.cell_pixels.lock().recover_poison()
     }
 
     pub(crate) fn cell_pixel_creation_size(&self) -> (u16, u16) {
         if let Some(target) = self
             .pending_cell_pixels
             .lock()
-            .unwrap()
+            .recover_poison()
             .as_ref()
             .filter(|pending| pending.use_for_creation)
             .map(|pending| pending.target)
@@ -30,7 +31,7 @@ impl Mux {
         surface: &Arc<Surface>,
     ) -> anyhow::Result<MutexGuard<'a, ()>> {
         loop {
-            let lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+            let lifecycle = self.cell_pixel_lifecycle.lock().recover_poison();
             let target = self.cell_pixel_creation_size();
             if surface.cell_pixel_size() == target {
                 return Ok(lifecycle);
@@ -50,7 +51,7 @@ impl Mux {
     }
 
     pub(crate) fn reconcile_deferred_cell_pixel_ack(&self, surface: SurfaceId, target: (u16, u16)) {
-        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().recover_poison();
         self.reconcile_cell_pixel_ack_locked(surface, target);
     }
 
@@ -62,7 +63,7 @@ impl Mux {
     }
 
     pub(super) fn reconcile_cell_pixel_ack_locked(&self, surface: SurfaceId, target: (u16, u16)) {
-        let mut pending = self.pending_cell_pixels.lock().unwrap();
+        let mut pending = self.pending_cell_pixels.lock().recover_poison();
         let Some(update) = pending.as_mut().filter(|update| update.target == target) else {
             return;
         };
@@ -70,7 +71,7 @@ impl Mux {
         if !update.failures.is_empty() {
             return;
         }
-        *self.cell_pixels.lock().unwrap() = target;
+        *self.cell_pixels.lock().recover_poison() = target;
         *pending = None;
     }
 
@@ -80,7 +81,7 @@ impl Mux {
         generation: u64,
         target: (u16, u16),
     ) {
-        let mut pending = self.pending_cell_pixels.lock().unwrap();
+        let mut pending = self.pending_cell_pixels.lock().recover_poison();
         let Some(update) = pending
             .as_mut()
             .filter(|update| update.generation == generation && update.target == target)
@@ -91,7 +92,7 @@ impl Mux {
         if !update.failures.is_empty() {
             return;
         }
-        *self.cell_pixels.lock().unwrap() = target;
+        *self.cell_pixels.lock().recover_poison() = target;
         *pending = None;
     }
 
@@ -100,12 +101,12 @@ impl Mux {
         completion: &Arc<CellPixelCompletionTracker>,
         surface: SurfaceId,
     ) {
-        completion.completed.lock().unwrap().insert(surface);
+        completion.completed.lock().recover_poison().insert(surface);
         if completion.publishing.load(Ordering::Acquire) {
             return;
         }
-        let _lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
-        if completion.completed.lock().unwrap().remove(&surface) {
+        let _lifecycle = self.cell_pixel_lifecycle.lock().recover_poison();
+        if completion.completed.lock().recover_poison().remove(&surface) {
             self.reconcile_cell_pixel_completion_locked(
                 surface,
                 completion.generation,
@@ -118,7 +119,7 @@ impl Mux {
         self: &Arc<Self>,
         task: CellPixelRetryTask,
     ) -> std::io::Result<()> {
-        let mut retries = self.cell_pixel_retries.lock().unwrap();
+        let mut retries = self.cell_pixel_retries.lock().recover_poison();
         if retries.pending.as_ref().is_some_and(|pending| pending.generation > task.generation) {
             return Ok(());
         }
@@ -145,7 +146,7 @@ impl Mux {
         loop {
             let task = {
                 let Some(mux) = mux.upgrade() else { return };
-                let mut retries = mux.cell_pixel_retries.lock().unwrap();
+                let mut retries = mux.cell_pixel_retries.lock().recover_poison();
                 if mux.shutting_down.load(Ordering::Acquire) {
                     retries.pending = None;
                     retries.worker_running = false;
@@ -169,7 +170,7 @@ impl Mux {
                 }
                 std::thread::sleep(cell_pixel_retry_delay(task.attempts));
                 let Some(mux) = mux.upgrade() else { return };
-                let mut retries = mux.cell_pixel_retries.lock().unwrap();
+                let mut retries = mux.cell_pixel_retries.lock().recover_poison();
                 if retries.pending.is_none() {
                     retries.pending = Some(task);
                 }
@@ -179,8 +180,8 @@ impl Mux {
 
     pub(super) fn finish_cell_pixel_retries(&self, task: &CellPixelRetryTask) {
         let remaining = {
-            let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
-            let mut pending = self.pending_cell_pixels.lock().unwrap();
+            let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().recover_poison();
+            let mut pending = self.pending_cell_pixels.lock().recover_poison();
             let Some(pending) = pending.as_mut().filter(|pending| {
                 pending.generation == task.generation && pending.target == task.target
             }) else {
@@ -208,8 +209,8 @@ impl Mux {
                 continue;
             };
             let mux = mux.upgrade()?;
-            let _cell_pixel_lifecycle = mux.cell_pixel_lifecycle.lock().unwrap();
-            if !mux.pending_cell_pixels.lock().unwrap().as_ref().is_some_and(|update| {
+            let _cell_pixel_lifecycle = mux.cell_pixel_lifecycle.lock().recover_poison();
+            if !mux.pending_cell_pixels.lock().recover_poison().as_ref().is_some_and(|update| {
                 update.generation == task.generation && update.target == task.target
             }) {
                 return None;
@@ -232,8 +233,8 @@ impl Mux {
         for retry_wave in retry_candidates.chunks(CELL_PIXEL_FANOUT_MAX_WORKERS) {
             let mux = mux.upgrade()?;
             let active = {
-                let _cell_pixel_lifecycle = mux.cell_pixel_lifecycle.lock().unwrap();
-                let pending = mux.pending_cell_pixels.lock().unwrap();
+                let _cell_pixel_lifecycle = mux.cell_pixel_lifecycle.lock().recover_poison();
+                let pending = mux.pending_cell_pixels.lock().recover_poison();
                 let pending = pending.as_ref().filter(|pending| {
                     pending.generation == task.generation
                         && pending.target == task.target
@@ -275,8 +276,8 @@ impl Mux {
                     result
                 },
             );
-            let _cell_pixel_lifecycle = mux.cell_pixel_lifecycle.lock().unwrap();
-            if !mux.pending_cell_pixels.lock().unwrap().as_ref().is_some_and(|pending| {
+            let _cell_pixel_lifecycle = mux.cell_pixel_lifecycle.lock().recover_poison();
+            if !mux.pending_cell_pixels.lock().recover_poison().as_ref().is_some_and(|pending| {
                 pending.generation == task.generation && pending.target == task.target
             }) {
                 return None;
@@ -318,7 +319,7 @@ impl Mux {
                         if let Some(pending) = mux
                             .pending_cell_pixels
                             .lock()
-                            .unwrap()
+                            .recover_poison()
                             .as_mut()
                             .filter(|pending| {
                                 pending.generation == task.generation
@@ -362,7 +363,7 @@ impl Mux {
         height_px: u16,
         report: SurfaceResizeReporter,
     ) -> CellPixelUpdate {
-        let cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+        let cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().recover_poison();
         let generation = self.next_cell_pixel_generation.fetch_add(1, Ordering::Relaxed);
         let next = (width_px.max(1), height_px.max(1));
         let completion = Arc::new(CellPixelCompletionTracker {
@@ -371,19 +372,19 @@ impl Mux {
             publishing: AtomicBool::new(true),
             completed: Mutex::new(HashSet::new()),
         });
-        let mut surfaces = unique_surface_runtimes(&self.state.lock().unwrap());
+        let mut surfaces = unique_surface_runtimes(&self.state.lock().recover_poison());
         surfaces.sort_unstable_by_key(|surface| surface.id);
         #[cfg(test)]
         let timeout = self
             .cell_pixel_fanout_timeout
             .lock()
-            .unwrap()
+            .recover_poison()
             .unwrap_or(crate::terminal_host_runtime::CONTROL_RESPONSE_TIMEOUT);
         #[cfg(not(test))]
         let timeout = crate::terminal_host_runtime::CONTROL_RESPONSE_TIMEOUT;
         let deadline = Instant::now() + timeout;
         #[cfg(test)]
-        let operation_hook = self.cell_pixel_operation.lock().unwrap().clone();
+        let operation_hook = self.cell_pixel_operation.lock().recover_poison().clone();
         #[cfg(test)]
         let fanout_operation_hook = operation_hook.clone();
         let operation_report = report.clone();
@@ -463,7 +464,7 @@ impl Mux {
                 }
             }
         }
-        let completed = std::mem::take(&mut *completion.completed.lock().unwrap());
+        let completed = std::mem::take(&mut *completion.completed.lock().recover_poison());
         if !completed.is_empty() {
             update.failures.retain(|failure| !completed.contains(&failure.surface));
             retry_surfaces.retain(|surface| {
@@ -474,17 +475,17 @@ impl Mux {
             });
         }
         #[cfg(test)]
-        if let Some(hook) = self.cell_pixel_before_publish.lock().unwrap().clone() {
+        if let Some(hook) = self.cell_pixel_before_publish.lock().recover_poison().clone() {
             hook(self.cell_pixel_size());
         }
         // Keep the published value at the last fully converged metric. New
         // surfaces use the pending target, and late hosted acknowledgements
         // remove their exact failure before publishing it globally.
         if update.failures.is_empty() {
-            *self.cell_pixels.lock().unwrap() = next;
-            *self.pending_cell_pixels.lock().unwrap() = None;
+            *self.cell_pixels.lock().recover_poison() = next;
+            *self.pending_cell_pixels.lock().recover_poison() = None;
         } else {
-            *self.pending_cell_pixels.lock().unwrap() = Some(PendingCellPixelUpdate {
+            *self.pending_cell_pixels.lock().recover_poison() = Some(PendingCellPixelUpdate {
                 generation,
                 target: next,
                 failures: update.failures.iter().map(|failure| failure.surface).collect(),
@@ -492,7 +493,7 @@ impl Mux {
             });
         }
         completion.publishing.store(false, Ordering::Release);
-        let raced_completions = std::mem::take(&mut *completion.completed.lock().unwrap());
+        let raced_completions = std::mem::take(&mut *completion.completed.lock().recover_poison());
         for surface in &raced_completions {
             self.reconcile_cell_pixel_completion_locked(*surface, generation, next);
         }
@@ -542,7 +543,7 @@ impl Mux {
                     failure.error = format!("{}; could not schedule retry: {error}", failure.error);
                 }
             }
-            if let Some(pending) = self.pending_cell_pixels.lock().unwrap().as_mut() {
+            if let Some(pending) = self.pending_cell_pixels.lock().recover_poison().as_mut() {
                 pending.use_for_creation = update.failures.iter().all(|failure| failure.deferred);
             }
         }

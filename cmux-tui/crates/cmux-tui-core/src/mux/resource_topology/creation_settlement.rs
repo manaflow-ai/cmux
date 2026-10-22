@@ -1,6 +1,8 @@
 //! Resource creation settlement: correlated creation operations, live selector selection, settlement and rollback of interrupted creations, and creation evidence.
 
 use super::*;
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     #[allow(clippy::too_many_arguments)]
@@ -15,7 +17,7 @@ impl Mux {
     ) -> anyhow::Result<ResourcePatchCommit> {
         debug_assert!(is_created_path_operation(operation));
         crate::debug_spans::mark("creation.start");
-        let _execution = self.resource_creation_execution.lock().unwrap();
+        let _execution = self.resource_creation_execution.lock().recover_poison();
         crate::debug_spans::mark("creation.execution_locked");
         let operation_name = operation_name(operation);
         let correlation_key =
@@ -24,7 +26,7 @@ impl Mux {
         crate::debug_spans::mark("creation.reconciled");
         let effect_fields = semantic_creation_fields(&fields);
         let preparation = {
-            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut registry = self.workspace_registry.lock().recover_poison();
             crate::debug_spans::mark("creation.registry_locked");
             match registry.lookup_resource_creation(
                 correlation_key,
@@ -47,7 +49,7 @@ impl Mux {
                 Some(preparation) => preparation,
                 None => {
                     crate::debug_spans::mark("creation.looked_up");
-                    let mut state = self.lock_state_pinned(&registry).unwrap();
+                    let mut state = self.lock_state_pinned(&registry).recover_poison();
                     crate::debug_spans::mark("creation.state_locked");
                     let selectors = self.select_live_creation_selectors(
                         operation,
@@ -96,7 +98,7 @@ impl Mux {
                 let recovery = self
                     .workspace_registry
                     .lock()
-                    .unwrap()
+                    .recover_poison()
                     .resource_creation_recovery(correlation_key)?
                     .context("executing resource creation omitted its recovery record")?;
                 crate::debug_spans::mark("creation.executing_marked");
@@ -155,7 +157,7 @@ impl Mux {
         };
         let tab_id = TabPublicId::parse(tab_id.to_string()).map_err(anyhow::Error::new)?;
         let Some(surface_id) =
-            self.state.lock().unwrap().resource_indexes.tabs.get(&tab_id).copied()
+            self.state.lock().recover_poison().resource_indexes.tabs.get(&tab_id).copied()
         else {
             // A replay can outlive its detached terminal view. There is no
             // launch barrier to release in that case.
@@ -279,7 +281,8 @@ impl Mux {
             return Ok(());
         };
         let public_id = WorkspacePublicId::parse(
-            reservation["workspace_public_id"]
+            reservation
+                .field("workspace_public_id")
                 .as_str()
                 .context("stored workspace reservation omitted its public id")?
                 .to_string(),
@@ -287,7 +290,7 @@ impl Mux {
         if self
             .workspace_registry
             .lock()
-            .unwrap()
+            .recover_poison()
             .resource_topology_snapshot()?
             .active_screens
             .iter()
@@ -296,7 +299,7 @@ impl Mux {
             return Ok(());
         }
         let workspace =
-            self.state.lock().unwrap().resource_indexes.workspaces.get(&public_id).copied();
+            self.state.lock().recover_poison().resource_indexes.workspaces.get(&public_id).copied();
         if let Some(workspace) = workspace {
             anyhow::ensure!(
                 self.close_workspace_at_revision_for_resource_effect(&Actor::Daemon, workspace)?
@@ -311,13 +314,14 @@ impl Mux {
         &self,
         recovery: &ResourceCreationRecovery,
     ) -> anyhow::Result<Option<ResourceCreationSettlement>> {
-        let preparation = self.workspace_registry.lock().unwrap().lookup_resource_creation(
-            &recovery.correlation_key,
-            &recovery.idempotency_key,
-            &recovery.operation,
-            &recovery.fingerprint,
-            true,
-        )?;
+        let preparation =
+            self.workspace_registry.lock().recover_poison().lookup_resource_creation(
+                &recovery.correlation_key,
+                &recovery.idempotency_key,
+                &recovery.operation,
+                &recovery.fingerprint,
+                true,
+            )?;
         Ok(match preparation {
             Some(ResourceCreationPreparation::Created { created_path, revision, .. }) => {
                 Some(ResourceCreationSettlement::Created(ResourcePatchCommit {
@@ -340,7 +344,7 @@ impl Mux {
         let operation: ResourceOperation =
             serde_json::from_value(Value::String(recovery.operation.clone()))
                 .context("stored resource creation has an invalid operation")?;
-        let fields = recovery.intent["fields"].as_object().cloned().unwrap_or_default();
+        let fields = recovery.intent.field("fields").as_object().cloned().unwrap_or_default();
         match creation_identity_kind(operation, &fields) {
             Some(CreatedIdentityKind::Browser) => {
                 self.browser_creation_evidence(&recovery.intent, recovery.interrupted)
@@ -359,7 +363,7 @@ impl Mux {
     ) -> anyhow::Result<ResourceCreationEvidence> {
         let expected = self.effect_browser_reservation(intent)?;
         let surface = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             let mut matches = state
                 .surfaces
                 .values()
@@ -396,7 +400,9 @@ impl Mux {
         intent: &Value,
         interrupted: bool,
     ) -> anyhow::Result<ResourceCreationEvidence> {
-        let terminal_id = intent["terminal_reservation"]["terminal_id"]
+        let terminal_id = intent
+            .field("terminal_reservation")
+            .field("terminal_id")
             .as_str()
             .context("stored topology intent omitted its terminal reservation")?;
         let resolution = self.resolve_terminal(terminal_id)?;
@@ -437,9 +443,16 @@ impl Mux {
         let Some(reservation) = intent.get("workspace_reservation") else {
             return Ok(false);
         };
-        let key = reservation["workspace_key"]
+        let key = reservation
+            .field("workspace_key")
             .as_str()
             .context("stored workspace reservation omitted its key")?;
-        Ok(self.state.lock().unwrap().workspaces.iter().any(|workspace| workspace.key == key))
+        Ok(self
+            .state
+            .lock()
+            .recover_poison()
+            .workspaces
+            .iter()
+            .any(|workspace| workspace.key == key))
     }
 }

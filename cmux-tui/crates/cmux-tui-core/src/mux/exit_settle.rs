@@ -17,6 +17,7 @@ use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
 use super::Mux;
+use crate::panic_free::RecoverPoison;
 
 /// How often a failed deferred detach is retried before it is left to the
 /// next owner's startup reconciliation.
@@ -64,7 +65,7 @@ impl ExitSettleTimer {
     }
 
     fn take_due(&self, now_ms: u64) -> Vec<(String, u32)> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let due = state
             .deadlines
             .iter()
@@ -82,7 +83,7 @@ impl ExitSettleTimer {
     }
 
     fn stop_worker(&self) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         state.deadlines.clear();
         state.worker_running = false;
     }
@@ -90,7 +91,7 @@ impl ExitSettleTimer {
     fn run_worker(self: Arc<Self>, mux: Weak<Mux>) {
         loop {
             let next = {
-                let mut state = self.state.lock().unwrap();
+                let mut state = self.state.lock().recover_poison();
                 match Self::earliest(&state) {
                     Some(next) => next,
                     None => {
@@ -115,7 +116,7 @@ impl ExitSettleTimer {
             }
             // Hold no owner reference while waiting.
             drop(owner);
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             // An earlier deadline scheduled meanwhile restarts the loop.
             if Self::earliest(&state) == Some(next) {
                 let _ = self.changed.wait_timeout(state, Duration::from_millis(next - now_ms));
@@ -133,7 +134,7 @@ impl Mux {
 
     fn schedule_exit_settle_attempt(&self, terminal_id: &str, scheduled: Deadline) {
         let timer = &self.exit_settles;
-        let mut state = timer.state.lock().unwrap();
+        let mut state = timer.state.lock().recover_poison();
         let deadline = state.deadlines.entry(terminal_id.to_string()).or_insert(scheduled);
         deadline.until_ms = deadline.until_ms.min(scheduled.until_ms);
         deadline.failures = deadline.failures.max(scheduled.failures);
@@ -153,7 +154,7 @@ impl Mux {
             .name("terminal-exit-settle".to_string())
             .spawn(move || worker.run_worker(mux))
         {
-            timer.state.lock().unwrap().worker_running = false;
+            timer.state.lock().recover_poison().worker_running = false;
             eprintln!("cmux-tui: could not start the terminal exit settle worker: {error:#}");
         }
     }
@@ -164,7 +165,7 @@ impl Mux {
     /// dead meanwhile (the safe side of invariant 3). Nothing runs once the
     /// owner shuts down; the next owner settles the receipts.
     pub(super) fn run_due_exit_settles(&self) {
-        let _running = self.exit_settles.running.lock().unwrap();
+        let _running = self.exit_settles.running.lock().recover_poison();
         let now_ms = self.session_shutdown.now_ms();
         for (terminal_id, failures) in self.exit_settles.take_due(now_ms) {
             if self.shutting_down.load(Ordering::Acquire) {

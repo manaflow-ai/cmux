@@ -1,18 +1,21 @@
 //! Terminal creation in a workspace: host ids and run results for created terminals, replayed placements, the create implementation, and binding a running terminal to its canonical workspace.
 
 use super::*;
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     pub(super) fn created_terminal_host_id(&self, created_path: &Value) -> anyhow::Result<String> {
         let terminal_id = TerminalPublicId::parse(
-            created_path["terminal_id"]
+            created_path
+                .field("terminal_id")
                 .as_str()
                 .context("created terminal result omitted its public terminal id")?
                 .to_string(),
         )?;
         self.workspace_registry
             .lock()
-            .unwrap()
+            .recover_poison()
             .terminal_host_id(&terminal_id)?
             .context("created terminal result has no durable host id")
     }
@@ -124,7 +127,7 @@ impl Mux {
         let workspace_key = self
             .state
             .lock()
-            .unwrap()
+            .recover_poison()
             .workspace_by_id(workspace)
             .map(|workspace| workspace.key.clone())
             .ok_or_else(|| anyhow::anyhow!("unknown workspace {workspace}"))?;
@@ -141,13 +144,18 @@ impl Mux {
             on_exit,
         )?;
         crate::debug_spans::mark("create.fingerprinted");
-        let replay =
-            { self.workspace_registry.lock().unwrap().replay_terminal(mutation, &fingerprint)? };
+        let replay = {
+            self.workspace_registry
+                .lock()
+                .recover_poison()
+                .replay_terminal(mutation, &fingerprint)?
+        };
         crate::debug_spans::mark("create.replay_checked");
         if let Some(replay) = replay {
-            let terminal_id = replay.result["terminal_id"]
-                .as_str()
-                .ok_or_else(|| anyhow::anyhow!("stored terminal create result is missing id"))?;
+            let terminal_id =
+                replay.result.field("terminal_id").as_str().ok_or_else(|| {
+                    anyhow::anyhow!("stored terminal create result is missing id")
+                })?;
             return self.replayed_terminal_placement(terminal_id);
         }
         let terminal_id = match requested_terminal_id {
@@ -176,7 +184,8 @@ impl Mux {
         let identity = self
             .resource_terminal_host_identity(&surface)
             .ok_or_else(|| anyhow::anyhow!("created terminal has no host identity"))?;
-        let terminal_revision = self.workspace_registry.lock().unwrap().terminal_revision()?;
+        let terminal_revision =
+            self.workspace_registry.lock().recover_poison().terminal_revision()?;
         crate::debug_spans::mark("create.terminal_revision");
         Ok(TerminalPlacementResult {
             placement: Some(placement),
@@ -219,30 +228,32 @@ impl Mux {
         reservation: Option<TerminalReservationRequest>,
     ) -> anyhow::Result<(RunPlacement, Arc<Surface>, Value)> {
         {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             if state.workspace_by_id(workspace).is_none() {
                 anyhow::bail!("unknown workspace {workspace}");
             }
         }
         #[cfg(test)]
-        if let Some(hook) = self.terminal_create_after_empty_check.lock().unwrap().clone() {
+        if let Some(hook) = self.terminal_create_after_empty_check.lock().recover_poison().clone() {
             hook();
         }
         let lifecycle = self.workspace_lifecycle(workspace);
-        let workspace_lifecycle = lifecycle.lock().unwrap();
+        let workspace_lifecycle = lifecycle.lock().recover_poison();
         crate::debug_spans::mark("create.lifecycle_locked");
         #[cfg(test)]
-        if let Some(hook) = self.terminal_create_after_materialization_lock.lock().unwrap().clone()
+        if let Some(hook) =
+            self.terminal_create_after_materialization_lock.lock().recover_poison().clone()
         {
             hook();
         }
         #[cfg(test)]
-        if let Some(hook) = self.terminal_create_after_workspace_reservation.lock().unwrap().clone()
+        if let Some(hook) =
+            self.terminal_create_after_workspace_reservation.lock().recover_poison().clone()
         {
             hook();
         }
         let workspace_key = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             let Some(workspace) = state.workspace_by_id(workspace) else {
                 anyhow::bail!("unknown workspace {workspace}");
             };
@@ -261,7 +272,7 @@ impl Mux {
             None => self.spawn_surface_in_workspace(&workspace_key, cwd, size, argv)?,
         };
         crate::debug_spans::mark("create.surface_spawned");
-        self.pending_workspace_surfaces.lock().unwrap().insert(surface.id, workspace);
+        self.pending_workspace_surfaces.lock().recover_poison().insert(surface.id, workspace);
         let pending_surface = self.pending_workspace_surface(surface.id);
         if let Some(name) = name {
             surface.set_name(Some(name));
@@ -299,7 +310,7 @@ impl Mux {
         let active_at = self.next_active_at();
         let mut rollback_removed = Vec::new();
         let attached = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             let result = (|| -> anyhow::Result<_> {
                 anyhow::ensure!(
                     state.surfaces.contains_key(&surface.id),
@@ -440,7 +451,7 @@ impl Mux {
         let identity = surface
             .terminal_host_identity()
             .ok_or_else(|| anyhow::anyhow!("created terminal has no host identity"))?;
-        let registry = self.workspace_registry.lock().unwrap();
+        let registry = self.workspace_registry.lock().recover_poison();
         let terminal = registry
             .terminal_record(&identity.terminal_id)?
             .ok_or_else(|| anyhow::anyhow!("created terminal has no registry row"))?;
@@ -450,7 +461,7 @@ impl Mux {
                 terminal_lifecycle_name(terminal.lifecycle)
             );
         }
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut state = self.lock_state_pinned(&registry).recover_poison();
         if !state.surfaces.contains_key(&surface.id) {
             anyhow::bail!("terminal closed while its topology binding was being created");
         }

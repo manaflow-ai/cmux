@@ -1,4 +1,5 @@
 use super::*;
+use crate::panic_free::RecoverPoison;
 use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonical_order};
 
 impl Mux {
@@ -11,8 +12,8 @@ impl Mux {
         directory: Option<String>,
     ) -> anyhow::Result<bool> {
         let Some(id) = source.terminal_public_id() else { return Ok(true) };
-        let mut registry = self.workspace_registry.lock().unwrap();
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
+        let mut state = self.lock_state_pinned(&registry).recover_poison();
         let Some(current) = state.terminal_catalog.get(id).cloned() else { return Ok(false) };
         if current.terminal_runtime_id() != source.terminal_runtime_id() {
             return Ok(true);
@@ -92,8 +93,14 @@ impl Mux {
 
     /// Close the startup race where the first prompt preceded runtime registration.
     pub(crate) fn publish_pending_terminal_directories(&self) {
-        let terminals =
-            self.state.lock().unwrap().terminal_catalog.values().cloned().collect::<Vec<_>>();
+        let terminals = self
+            .state
+            .lock()
+            .recover_poison()
+            .terminal_catalog
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
         for surface in terminals {
             surface.publish_pending_directory();
         }

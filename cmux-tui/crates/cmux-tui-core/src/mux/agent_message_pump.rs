@@ -35,6 +35,7 @@ use rusqlite::{Connection, params};
 use serde_json::{Value, json};
 
 use super::Mux;
+use crate::panic_free::JsonField;
 use crate::state::agent_message_store as messages;
 use crate::state::agent_message_unsend::clip;
 use crate::state::commit::StateEffects;
@@ -218,11 +219,9 @@ impl Mux {
             messages::snapshot(connection, session_id, id, now)
         })?;
         Ok(message.filter(|message| {
-            message["deliveries"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .any(|delivery| delivery["recipient"] == recipient && delivery["state"] == "queued")
+            message.field("deliveries").as_array().into_iter().flatten().any(|delivery| {
+                delivery.field("recipient") == recipient && delivery.field("state") == "queued"
+            })
         }))
     }
 

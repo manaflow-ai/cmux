@@ -20,6 +20,8 @@
 use super::tab_drag::{TabDragDestination, TabDragIds, apply_tab_drag};
 use super::tab_strip::{StripRequest, StripResult, group_archive};
 use super::*;
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 use crate::workspace_registry::{
     DEFAULT_PROFILE_ID, PresentationSnapshot, SavedTabGroupRecord, SavedTabMember, TabGroupRecord,
     TabGroupState, new_saved_tab_group_id, new_tab_group_id, validate_tab_group_color,
@@ -834,7 +836,7 @@ impl Mux {
         let public = self
             .workspace_registry
             .lock()
-            .unwrap()
+            .recover_poison()
             .terminal_resource_id(terminal_id)?
             .context("terminal has no public identity")?;
         let destination =
@@ -928,7 +930,7 @@ impl Mux {
     ) -> anyhow::Result<String> {
         let commit =
             self.tab_group_save(StripRequest::local(actor, "tab.group.save"), group, None)?;
-        commit.result["id"].as_str().map(str::to_string).context("saved group has no id")
+        commit.result.field("id").as_str().map(str::to_string).context("saved group has no id")
     }
 
     /// Save a live group into `room` (default: its existing room, else
@@ -985,7 +987,7 @@ impl Mux {
             saved_id,
             true,
         )?;
-        Ok(commit.result["deleted"].as_bool().unwrap_or(false))
+        Ok(commit.result.field("deleted").as_bool().unwrap_or(false))
     }
 
     pub fn saved_tab_groups(&self) -> Vec<SavedTabGroupRecord> {

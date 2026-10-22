@@ -15,6 +15,8 @@ use super::dock_columns::reduce_column_dock;
 use super::*;
 use crate::layout::DEFAULT_VIEWPORT_PANE_WIDTH;
 use crate::model::{ColumnDock, DockEdge, LayoutColumn, LayoutUndoTabRestore};
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 use cmux_layout_reducer::{Edge, LayoutOpKind, NewTab, TabContent};
 
 /// The fresh tab a split of a pane's only tab leaves there (`respawn`,
@@ -187,7 +189,7 @@ impl TabDragDestination {
                 });
                 // Only when set, so keys recorded before the field stay equal.
                 if keep_focus {
-                    fingerprint["keep_focus"] = Value::Bool(true);
+                    fingerprint.set_field("keep_focus", Value::Bool(true));
                 }
                 fingerprint
             }
@@ -200,7 +202,7 @@ impl TabDragDestination {
                     "dock": dock,
                 });
                 if keep_focus {
-                    fingerprint["keep_focus"] = Value::Bool(true);
+                    fingerprint.set_field("keep_focus", Value::Bool(true));
                 }
                 fingerprint
             }
@@ -283,7 +285,7 @@ impl Mux {
     ) -> anyhow::Result<TabDragOutcome> {
         validate_split_ratio(ratio)?;
         let model = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             anyhow::ensure!(
                 state.panes.get(&pane).is_some_and(|candidate| candidate.tabs == [surface]),
                 "bad request: respawn applies only to a split of the pane's only tab"
@@ -516,7 +518,7 @@ impl Mux {
         }
         let mut undoable = false;
         if let Some((origin_pane, origin_index)) = origin {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             // A non-structural move leaves the layout unchanged, so the
             // current layout is the one undo restores.
             if state.pane_of(surface) == Some(pane)
@@ -554,7 +556,7 @@ impl Mux {
         {
             hook();
         }
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         let presentation = self.presentation.lock().unwrap_or_else(|e| e.into_inner());
         decorations.presentation = Arc::clone(&presentation);
         let delta = presentation::tab_changed_delta(&state, &decorations, surface);

@@ -1,6 +1,8 @@
 //! Frontend projections and registry reads: terminal registry snapshots and pages, workspace registry events, frontend projection get/put, and workspace selector resolution.
 
 use super::*;
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     /// The terminal registry revision without reading every terminal row:
@@ -39,7 +41,7 @@ impl Mux {
         Ok(self
             .workspace_registry
             .lock()
-            .unwrap()
+            .recover_poison()
             .events_after(revision - 1)?
             .into_iter()
             .find(|event| event.revision == revision))
@@ -118,7 +120,7 @@ impl Mux {
             .context("frontend projection revision exhausted")?;
         let mut session_selectors = selectors;
         session_selectors.frontend_projection = None;
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut state = self.lock_state_pinned(&registry).recover_poison();
         let resolved = self
             .resolve_resource_path_in_state(
                 &state,
@@ -132,10 +134,10 @@ impl Mux {
         let value = serde_json::json!({
             "id":projection_id,
             "session_id":session_id,
-            "frontend_id":projection["frontend_id"],
-            "window_id":projection["window_id"],
-            "generation":projection["generation"],
-            "projection":projection["projection"],
+            "frontend_id":projection.field("frontend_id"),
+            "window_id":projection.field("window_id"),
+            "generation":projection.field("generation"),
+            "projection":projection.field("projection"),
             "projection_revision":projection_revision.to_string(),
         });
         let deltas = serde_json::json!([{

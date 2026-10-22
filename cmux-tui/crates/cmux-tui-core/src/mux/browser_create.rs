@@ -1,6 +1,7 @@
 //! Browser surface creation in a workspace: target adoption and attaching the surface to a pane (or killing it).
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     pub(super) fn create_browser_surface_in_workspace(
@@ -12,8 +13,8 @@ impl Mux {
         mut transaction: Option<Arc<str>>,
     ) -> anyhow::Result<Arc<Surface>> {
         let lifecycle = self.workspace_lifecycle(workspace);
-        let workspace_lifecycle = lifecycle.lock().unwrap();
-        if self.state.lock().unwrap().workspace_by_id(workspace).is_none() {
+        let workspace_lifecycle = lifecycle.lock().recover_poison();
+        if self.state.lock().recover_poison().workspace_by_id(workspace).is_none() {
             anyhow::bail!("unknown workspace {workspace}");
         }
         let surface = self.spawn_browser_surface_with_resource_identity(
@@ -26,7 +27,7 @@ impl Mux {
         let notifications = self.tree_decorations();
         let active_at = self.next_active_at();
         let (delta, selection_resync) = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             let Some(wi) = state.workspace_index(workspace) else {
                 state.surfaces.remove(&surface.id);
                 surface.kill();
@@ -133,9 +134,9 @@ impl Mux {
         url: String,
         runtime: Arc<BrowserRuntime>,
     ) -> anyhow::Result<bool> {
-        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().recover_poison();
         let (pane_id, size) = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             let Some(pane_id) = state.pane_of(opener_surface) else {
                 return Ok(false);
             };
@@ -143,7 +144,7 @@ impl Mux {
             (pane_id, size)
         };
         let id = self.next_id();
-        let opts = self.surface_options.lock().unwrap().clone();
+        let opts = self.surface_options.lock().recover_poison().clone();
         let size = size.unwrap_or((opts.cols, opts.rows));
         let cell_pixels = self.cell_pixel_creation_size();
         let surface =
@@ -198,7 +199,7 @@ impl Mux {
     ) -> BrowserSurfaceAttach {
         let notifications = self.tree_decorations();
         let attached = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             match state.panes.get_mut(&pane_id) {
                 Some(pane) => {
                     pane.tabs.push(surface.id);

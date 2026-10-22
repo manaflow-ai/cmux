@@ -1,6 +1,7 @@
 //! Kitty image budget reservation for a new terminal.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 /// How long creating a terminal waits for existing terminals to shrink their
 /// Kitty quota before the new terminal starts with graphics disabled (the
@@ -17,7 +18,7 @@ impl Mux {
         surface: SurfaceId,
     ) -> anyhow::Result<KittyImageBudgetReservation> {
         {
-            let mut budget = self.kitty_image_budget.lock().unwrap();
+            let mut budget = self.kitty_image_budget.lock().recover_poison();
             Self::prune_dead_kitty_image_surfaces(&mut budget);
             anyhow::ensure!(
                 !budget.entries.contains_key(&surface),
@@ -41,63 +42,65 @@ impl Mux {
         }
         self.start_kitty_image_budget_worker();
         let deadline = Instant::now() + KITTY_RESERVATION_WAIT;
-        let initial_limits =
-            loop {
-                let mut budget = self.kitty_image_budget.lock().unwrap();
-                if !budget.blocked_surfaces.is_empty() {
-                    let entry = budget.entries.get_mut(&surface).ok_or_else(|| {
-                        anyhow::anyhow!("Kitty image budget reservation disappeared")
-                    })?;
-                    entry.owns_quota = false;
-                    entry.applied = KittyGraphicsLimits::disabled();
-                    Self::rebalance_kitty_image_budget_owners(&mut budget);
-                    break KittyGraphicsLimits::disabled();
-                }
-                let owns_quota = budget
+        let initial_limits = loop {
+            let mut budget = self.kitty_image_budget.lock().recover_poison();
+            if !budget.blocked_surfaces.is_empty() {
+                let entry = budget
                     .entries
-                    .get(&surface)
-                    .ok_or_else(|| anyhow::anyhow!("Kitty image budget reservation disappeared"))?
-                    .owns_quota;
-                if !owns_quota {
-                    break KittyGraphicsLimits::disabled();
-                }
-                let target = kitty_image_limits_for_capacity(budget.capacity);
-                if !budget.expansion_in_flight
-                    && kitty_image_limits_enabled(target)
-                    && budget.entries.iter().all(|(&id, entry)| {
-                        id == surface || kitty_image_limits_within(entry.applied, target)
-                    })
-                {
-                    let entry = budget.entries.get_mut(&surface).ok_or_else(|| {
-                        anyhow::anyhow!("Kitty image budget reservation disappeared")
-                    })?;
-                    entry.applied = target;
-                    break target;
-                }
-                if self.shutting_down.load(Ordering::Acquire) {
-                    drop(budget);
-                    self.cancel_kitty_image_surface_reservation(surface);
-                    anyhow::bail!("multiplexer shut down while reserving Kitty image quota");
-                }
-                let remaining = deadline.saturating_duration_since(Instant::now());
-                if remaining.is_zero() {
-                    // Kitty graphics are optional. Keep the terminal admission
-                    // alive when an existing host does not acknowledge its
-                    // quota update in time. The worker can apply the target
-                    // limits after the outstanding update recovers.
-                    let entry = budget.entries.get_mut(&surface).ok_or_else(|| {
-                        anyhow::anyhow!("Kitty image budget reservation disappeared")
-                    })?;
-                    entry.owns_quota = false;
-                    entry.applied = KittyGraphicsLimits::disabled();
-                    Self::rebalance_kitty_image_budget_owners(&mut budget);
-                    self.kitty_image_budget_changed.notify_all();
-                    break KittyGraphicsLimits::disabled();
-                }
-                let (next, _) =
-                    self.kitty_image_budget_changed.wait_timeout(budget, remaining).unwrap();
-                drop(next);
-            };
+                    .get_mut(&surface)
+                    .ok_or_else(|| anyhow::anyhow!("Kitty image budget reservation disappeared"))?;
+                entry.owns_quota = false;
+                entry.applied = KittyGraphicsLimits::disabled();
+                Self::rebalance_kitty_image_budget_owners(&mut budget);
+                break KittyGraphicsLimits::disabled();
+            }
+            let owns_quota = budget
+                .entries
+                .get(&surface)
+                .ok_or_else(|| anyhow::anyhow!("Kitty image budget reservation disappeared"))?
+                .owns_quota;
+            if !owns_quota {
+                break KittyGraphicsLimits::disabled();
+            }
+            let target = kitty_image_limits_for_capacity(budget.capacity);
+            if !budget.expansion_in_flight
+                && kitty_image_limits_enabled(target)
+                && budget.entries.iter().all(|(&id, entry)| {
+                    id == surface || kitty_image_limits_within(entry.applied, target)
+                })
+            {
+                let entry = budget
+                    .entries
+                    .get_mut(&surface)
+                    .ok_or_else(|| anyhow::anyhow!("Kitty image budget reservation disappeared"))?;
+                entry.applied = target;
+                break target;
+            }
+            if self.shutting_down.load(Ordering::Acquire) {
+                drop(budget);
+                self.cancel_kitty_image_surface_reservation(surface);
+                anyhow::bail!("multiplexer shut down while reserving Kitty image quota");
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                // Kitty graphics are optional. Keep the terminal admission
+                // alive when an existing host does not acknowledge its
+                // quota update in time. The worker can apply the target
+                // limits after the outstanding update recovers.
+                let entry = budget
+                    .entries
+                    .get_mut(&surface)
+                    .ok_or_else(|| anyhow::anyhow!("Kitty image budget reservation disappeared"))?;
+                entry.owns_quota = false;
+                entry.applied = KittyGraphicsLimits::disabled();
+                Self::rebalance_kitty_image_budget_owners(&mut budget);
+                self.kitty_image_budget_changed.notify_all();
+                break KittyGraphicsLimits::disabled();
+            }
+            let (next, _) =
+                self.kitty_image_budget_changed.wait_timeout(budget, remaining).recover_poison();
+            drop(next);
+        };
         Ok(KittyImageBudgetReservation {
             mux: Arc::downgrade(self),
             surface,

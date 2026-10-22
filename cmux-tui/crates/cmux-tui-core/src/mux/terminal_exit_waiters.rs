@@ -1,6 +1,7 @@
 //! Terminal exit waiter state: detach trackers and leases, exit waiter subscriptions, and the exit state query guard.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 #[derive(Default)]
 pub(super) struct TerminalExitDetachTracker {
@@ -13,14 +14,14 @@ impl TerminalExitDetachTracker {
         self: &Arc<Self>,
         terminal_id: String,
     ) -> Option<TerminalExitDetachLease> {
-        if !self.active.lock().unwrap().insert(terminal_id.clone()) {
+        if !self.active.lock().recover_poison().insert(terminal_id.clone()) {
             return None;
         }
         Some(TerminalExitDetachLease { tracker: self.clone(), terminal_id })
     }
 
     pub(super) fn finish(&self, terminal_id: &str) {
-        let mut active = self.active.lock().unwrap();
+        let mut active = self.active.lock().recover_poison();
         if active.remove(terminal_id) {
             self.changed.notify_all();
         }
@@ -28,17 +29,17 @@ impl TerminalExitDetachTracker {
 
     #[cfg(test)]
     pub(super) fn contains(&self, terminal_id: &str) -> bool {
-        self.active.lock().unwrap().contains(terminal_id)
+        self.active.lock().recover_poison().contains(terminal_id)
     }
 
     #[cfg(test)]
     pub(super) fn wait_until_finished(&self, terminal_id: &str, deadline: Instant) -> bool {
-        let mut active = self.active.lock().unwrap();
+        let mut active = self.active.lock().recover_poison();
         while active.contains(terminal_id) {
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                 return false;
             };
-            let (next, timeout) = self.changed.wait_timeout(active, remaining).unwrap();
+            let (next, timeout) = self.changed.wait_timeout(active, remaining).recover_poison();
             active = next;
             if timeout.timed_out() && active.contains(terminal_id) {
                 return false;
@@ -78,7 +79,7 @@ impl TerminalExitWaiters {
         let wake = Arc::new(ResourceWaitWake::default());
         self.waiters
             .lock()
-            .unwrap()
+            .recover_poison()
             .entry(terminal_id.clone())
             .or_default()
             .insert(waiter_id, Arc::downgrade(&wake));
@@ -86,7 +87,7 @@ impl TerminalExitWaiters {
     }
 
     pub(super) fn notify(&self, terminal_id: &TerminalPublicId) {
-        let waiters = self.waiters.lock().unwrap().remove(terminal_id).unwrap_or_default();
+        let waiters = self.waiters.lock().recover_poison().remove(terminal_id).unwrap_or_default();
         for waiter in waiters.into_values().filter_map(|waiter| waiter.upgrade()) {
             waiter.notify();
         }
@@ -94,7 +95,7 @@ impl TerminalExitWaiters {
 
     #[cfg(test)]
     pub(super) fn waiter_count(&self, terminal_id: &TerminalPublicId) -> usize {
-        self.waiters.lock().unwrap().get(terminal_id).map(HashMap::len).unwrap_or_default()
+        self.waiters.lock().recover_poison().get(terminal_id).map(HashMap::len).unwrap_or_default()
     }
 }
 
@@ -110,7 +111,7 @@ impl TerminalExitSubscription<'_> {
 
 impl Drop for TerminalExitSubscription<'_> {
     fn drop(&mut self) {
-        let mut waiters = self.owner.waiters.lock().unwrap();
+        let mut waiters = self.owner.waiters.lock().recover_poison();
         let remove_terminal = waiters.get_mut(&self.terminal_id).is_some_and(|terminal_waiters| {
             terminal_waiters.remove(&self.waiter_id);
             terminal_waiters.is_empty()

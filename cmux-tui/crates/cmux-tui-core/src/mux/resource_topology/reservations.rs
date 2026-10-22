@@ -7,6 +7,7 @@ use anyhow::Context;
 use serde_json::{Map, Value};
 
 use super::*;
+use crate::panic_free::JsonField;
 use crate::resource::{TabPublicId, WorkspacePublicId};
 
 /// The mutation a reservation was minted with (`id`, `origin`, `actor`); a
@@ -29,15 +30,18 @@ impl Mux {
         &self,
         intent: &Value,
     ) -> anyhow::Result<(String, WorkspacePublicId, WorkspaceMutation)> {
-        let reservation = intent["workspace_reservation"]
+        let reservation = intent
+            .field("workspace_reservation")
             .as_object()
             .context("stored topology intent omitted its workspace reservation")?;
-        let key = reservation["workspace_key"]
+        let key = reservation
+            .field("workspace_key")
             .as_str()
             .context("stored workspace reservation omitted its key")?
             .to_string();
         let public_id = WorkspacePublicId::parse(
-            reservation["workspace_public_id"]
+            reservation
+                .field("workspace_public_id")
                 .as_str()
                 .context("stored workspace reservation omitted its public id")?
                 .to_string(),
@@ -57,10 +61,12 @@ impl Mux {
         size: Option<(u16, u16)>,
         on_exit: Option<TerminalOnExit>,
     ) -> anyhow::Result<TerminalReservationRequest> {
-        let stored = intent["terminal_reservation"]
+        let stored = intent
+            .field("terminal_reservation")
             .as_object()
             .context("stored topology intent omitted its terminal reservation")?;
-        let terminal_hex = stored["terminal_id"]
+        let terminal_hex = stored
+            .field("terminal_id")
             .as_str()
             .context("stored terminal reservation omitted its terminal id")?;
         let terminal_id = TerminalId::from_hex(terminal_hex)
@@ -90,7 +96,7 @@ impl Mux {
             expected_revision: None,
             on_exit: on_exit.unwrap_or_default(),
             tab_id,
-            env: terminal_env_field(&intent["fields"]),
+            env: terminal_env_field(intent.field("fields")),
         })
     }
 }

@@ -3,6 +3,7 @@
 //! checks used by mutations.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     pub(super) fn next_id(&self) -> u64 {
@@ -80,7 +81,7 @@ impl Mux {
     }
 
     pub(super) fn workspace_lifecycle(&self, workspace: WorkspaceId) -> Arc<Mutex<()>> {
-        let mut lifecycles = self.workspace_lifecycles.lock().unwrap();
+        let mut lifecycles = self.workspace_lifecycles.lock().recover_poison();
         lifecycles.retain(|_, lifecycle| lifecycle.strong_count() > 0);
         if let Some(lifecycle) = lifecycles.get(&workspace).and_then(Weak::upgrade) {
             return lifecycle;
@@ -94,16 +95,16 @@ impl Mux {
     /// provider for this mux generation. The transition is intentionally
     /// one-way so a stale frontend cannot reopen ordinary mutation paths.
     pub fn mark_workspaces_provider_managed_internal(&self) {
-        self.provider_workspace.lock().unwrap().managed = true;
+        self.provider_workspace.lock().recover_poison().managed = true;
         self.provider_managed.store(true, Ordering::Release);
     }
 
     pub fn workspaces_are_provider_managed(&self) -> bool {
-        self.provider_workspace.lock().unwrap().managed
+        self.provider_workspace.lock().recover_poison().managed
     }
 
     pub fn provider_workspace_authority_status(&self) -> ProviderWorkspaceAuthorityStatus {
-        self.provider_workspace.lock().unwrap().status()
+        self.provider_workspace.lock().recover_poison().status()
     }
 
     pub fn install_or_rotate_provider_workspace_authority(
@@ -113,7 +114,7 @@ impl Mux {
         authority_generation: u64,
         authority: ProviderWorkspaceAuthority,
     ) -> Result<ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError> {
-        let mut state = self.provider_workspace.lock().unwrap();
+        let mut state = self.provider_workspace.lock().recover_poison();
         if !state.managed || state.mux_generation.is_none() {
             return Err(ProviderWorkspaceAuthorityUpdateError::Unmanaged);
         }
@@ -156,7 +157,7 @@ impl Mux {
         let authorized = self
             .provider_workspace
             .lock()
-            .unwrap()
+            .recover_poison()
             .authority
             .as_ref()
             .is_some_and(|expected| constant_time_eq(provided.as_bytes(), expected.expose()));
@@ -171,7 +172,7 @@ impl Mux {
         authorization: WorkspaceMutationAuthority<'_>,
         operation: &str,
     ) -> anyhow::Result<MutexGuard<'_, ProviderWorkspaceState>> {
-        let authority = self.provider_workspace.lock().unwrap();
+        let authority = self.provider_workspace.lock().recover_poison();
         if authority.managed && matches!(authorization, WorkspaceMutationAuthority::Ordinary) {
             anyhow::bail!(
                 "cannot {operation} a provider-managed workspace directly; use the managed workspace lifecycle controls"
@@ -228,10 +229,12 @@ impl Mux {
     }
 
     pub(super) fn surface_workspace(&self, surface: SurfaceId) -> Option<WorkspaceId> {
-        self.pending_workspace_surfaces.lock().unwrap().get(&surface).copied().or_else(|| {
-            let state = self.state.lock().unwrap();
-            Self::workspace_for_surface_in_state(&state, surface)
-        })
+        self.pending_workspace_surfaces.lock().recover_poison().get(&surface).copied().or_else(
+            || {
+                let state = self.state.lock().recover_poison();
+                Self::workspace_for_surface_in_state(&state, surface)
+            },
+        )
     }
 
     /// The key of the workspace `surface` is in, when it is a canonical

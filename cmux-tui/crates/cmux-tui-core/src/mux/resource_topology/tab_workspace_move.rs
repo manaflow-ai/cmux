@@ -1,6 +1,7 @@
 //! Moving a tab to another workspace or to a new workspace, with explicit placement.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     /// Move a live placement without spawning replacement content. New/empty
@@ -572,7 +573,7 @@ impl Mux {
             },
         )?;
         if group.is_some() {
-            let registry = self.workspace_registry.lock().unwrap();
+            let registry = self.workspace_registry.lock().recover_poison();
             self.reload_presentation(&registry)?;
         }
         if let Some(surface_handle) = self.surface(surface) {

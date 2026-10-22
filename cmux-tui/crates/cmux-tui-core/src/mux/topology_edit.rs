@@ -3,6 +3,8 @@
 //! landing 3a): each names the actor it acts as.
 
 use super::*;
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     /// Close a pane and every tab in it.
@@ -86,7 +88,9 @@ impl Mux {
             Map::from_iter([("direction".into(), Value::String(direction.into()))]),
         )?;
         let public_id = PanePublicId::parse(
-            commit.result["pane"]
+            commit
+                .result
+                .field("pane")
                 .as_str()
                 .context("pane focus result omitted its pane id")?
                 .to_string(),
@@ -252,7 +256,7 @@ impl Mux {
         }
         let notifications = self.tree_decorations();
         let renamed = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             let Some(wi) = state
                 .workspaces
                 .iter()
@@ -315,7 +319,7 @@ impl Mux {
         // entry still carries the renamed tab.
         let notifications = self.tree_decorations();
         let delta = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             (|| {
                 let pane = state.pane_of(target)?;
                 let (wi, si) = state.screen_of(pane)?;
@@ -353,7 +357,7 @@ impl Mux {
         delta: Option<isize>,
     ) {
         let screen = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             let active = state.active_workspace;
             let Some(ws) = state.workspaces.get(active) else { return };
             let len = ws.screens.len();
@@ -392,7 +396,7 @@ impl Mux {
         delta: Option<isize>,
     ) {
         let workspace = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             let len = state.workspaces.len();
             if len == 0 {
                 return;

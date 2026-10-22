@@ -1,6 +1,8 @@
 //! Empty workspace creation through the registry, ordinary and resource-effect paths.
 
 use super::*;
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     /// Add an ordered workspace-registry entry without creating a PTY,
@@ -117,7 +119,7 @@ impl Mux {
         // creation's delta must show it (`app-screens-v1`).
         let reloads_presentation =
             matches!(mark, crate::state::home_store::EmptyWorkspaceMark::App(_));
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         let mut fingerprint = serde_json::json!({
             "op": "create-workspace",
             "name": requested_name,
@@ -127,14 +129,20 @@ impl Mux {
             fingerprint[field] = value;
         }
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
-            let workspace = commit.result["workspace"]
+            let workspace = commit
+                .result
+                .field("workspace")
                 .as_u64()
                 .ok_or_else(|| anyhow::anyhow!("stored create result is missing workspace"))?;
-            let key = commit.result["key"]
+            let key = commit
+                .result
+                .field("key")
                 .as_str()
                 .ok_or_else(|| anyhow::anyhow!("stored create result is missing key"))?
                 .to_string();
-            let index = commit.result["index"]
+            let index = commit
+                .result
+                .field("index")
                 .as_u64()
                 .and_then(|value| usize::try_from(value).ok())
                 .ok_or_else(|| anyhow::anyhow!("stored create result is missing index"))?;
@@ -149,7 +157,7 @@ impl Mux {
         let workspace_public_id =
             requested_public_id.map(Ok).unwrap_or_else(WorkspacePublicId::random)?;
         let (placement, delta, selection_resync) = {
-            let mut state = self.lock_state_pinned(&registry).unwrap();
+            let mut state = self.lock_state_pinned(&registry).recover_poison();
             if state.workspaces.len() >= WORKSPACE_REGISTRY_LIMIT {
                 anyhow::bail!("workspace limit reached ({WORKSPACE_REGISTRY_LIMIT})");
             }
@@ -218,14 +226,20 @@ impl Mux {
                     ),
                 )?
             };
-            let committed_workspace = commit.result["workspace"]
+            let committed_workspace = commit
+                .result
+                .field("workspace")
                 .as_u64()
                 .ok_or_else(|| anyhow::anyhow!("stored create result is missing workspace"))?;
-            let committed_key = commit.result["key"]
+            let committed_key = commit
+                .result
+                .field("key")
                 .as_str()
                 .ok_or_else(|| anyhow::anyhow!("stored create result is missing key"))?
                 .to_string();
-            let committed_index = commit.result["index"]
+            let committed_index = commit
+                .result
+                .field("index")
                 .as_u64()
                 .and_then(|value| usize::try_from(value).ok())
                 .ok_or_else(|| anyhow::anyhow!("stored create result is missing index"))?;

@@ -6,6 +6,8 @@ use std::collections::{HashMap, HashSet};
 use super::{Mux, ResourceMutationMetrics, ResourceMutationPlan};
 use crate::browser::{BrowserSource, BrowserStatus};
 use crate::model::{Node, State};
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 use crate::resource::{
     ContentPublicId, PanePublicId, SplitPublicId, TabPublicId, TabResourceIdentity,
     TerminalPublicId,
@@ -586,7 +588,7 @@ impl Mux {
                     source_pane_id == target_pane_id,
                 )?);
                 for (sequence, delta) in deltas.iter_mut().enumerate() {
-                    delta["sequence"] = json!(sequence);
+                    delta.set_field("sequence", json!(sequence));
                 }
 
                 let source_old_index = state
@@ -672,13 +674,13 @@ impl Mux {
         )?;
 
         if !commit.replayed
-            && let Some(tab_id) = commit.result["tab"].as_str()
+            && let Some(tab_id) = commit.result.field("tab").as_str()
             && let Ok(tab_id) = TabPublicId::parse(tab_id)
             && let Some(surface_id) =
                 self.with_state(|state| state.resource_indexes.tabs.get(&tab_id).copied())
         {
             let path = {
-                let state = self.state.lock().unwrap();
+                let state = self.state.lock().recover_poison();
                 state.resource_indexes.tab_pane.get(&surface_id).copied().and_then(|target_pane| {
                     let (workspace_index, screen_index) = state.screen_of(target_pane)?;
                     Some((
@@ -754,16 +756,16 @@ impl ResourceEffectProjection {
             .context("terminal close topology changes are not an array")?;
         anyhow::ensure!(
             !changes.iter().any(|change| {
-                change["kind"] == "upsert"
-                    && change["resource"] == "terminal"
-                    && change["id"].as_str() == Some(terminal_id.as_str())
+                change.field("kind") == "upsert"
+                    && change.field("resource") == "terminal"
+                    && change.field("id").as_str() == Some(terminal_id.as_str())
             }),
             "terminal close public projection retained {terminal_id}"
         );
         if !changes.iter().any(|change| {
-            change["kind"] == "delete"
-                && change["resource"] == "terminal"
-                && change["id"].as_str() == Some(terminal_id.as_str())
+            change.field("kind") == "delete"
+                && change.field("resource") == "terminal"
+                && change.field("id").as_str() == Some(terminal_id.as_str())
         }) {
             push_delete_delta(changes, "terminal", terminal_id.as_str());
         }

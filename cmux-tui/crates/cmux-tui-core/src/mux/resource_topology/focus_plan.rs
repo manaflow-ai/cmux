@@ -1,6 +1,7 @@
 //! Focus plans for resource topology: focus deltas, pane focus plans, applying a focus path, and tab position reindexing.
 
 use super::*;
+use crate::panic_free::JsonField;
 
 pub(super) fn focus_deltas(
     state: &State,
@@ -86,11 +87,12 @@ pub(in crate::mux) fn focus_change_deltas(
     let previous = before.active_workspace.clone();
     let focus = focus_deltas(state, &before, after, previous, after.active_workspace.clone())?;
     let focus = focus.as_array().cloned().unwrap_or_default();
-    let of =
-        |resource: &'static str| focus.iter().filter(move |delta| delta["resource"] == resource);
+    let of = |resource: &'static str| {
+        focus.iter().filter(move |delta| delta.field("resource") == resource)
+    };
     let mut deltas = of("workspace").chain(of("screen")).cloned().collect::<Vec<_>>();
     for id in restate {
-        if of("screen").any(|delta| delta["id"] == id.as_str()) {
+        if of("screen").any(|delta| delta.field("id") == id.as_str()) {
             continue;
         }
         let screen = topology_screen(after, id)?;
@@ -101,8 +103,8 @@ pub(in crate::mux) fn focus_change_deltas(
     let live_pane = |id: &Value| after.panes.iter().any(|pane| id == pane.public_id.as_str());
     deltas.extend(
         of("pane")
-            .filter(|delta| live_pane(&delta["id"]))
-            .filter(|delta| !skip.iter().any(|pane| delta["id"] == pane.as_str()))
+            .filter(|delta| live_pane(delta.field("id")))
+            .filter(|delta| !skip.iter().any(|pane| delta.field("id") == pane.as_str()))
             .cloned(),
     );
     Ok(deltas)

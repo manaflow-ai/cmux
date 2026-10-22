@@ -1,6 +1,7 @@
 //! Surface spawning: terminal surfaces in a workspace, sidebar plugin surfaces, and browser surfaces with a resource identity.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     pub(super) fn spawn_surface_in_workspace(
@@ -62,7 +63,9 @@ impl Mux {
         let (opts, cell_pixels) = self.terminal_spawn_options(cwd, command, size, reservation_env);
         crate::debug_spans::mark("spawn.options");
         #[cfg(test)]
-        if let Some(hook) = self.terminal_spawn_after_cell_pixel_snapshot.lock().unwrap().clone() {
+        if let Some(hook) =
+            self.terminal_spawn_after_cell_pixel_snapshot.lock().recover_poison().clone()
+        {
             let unlocked = match self.cell_pixel_lifecycle.try_lock() {
                 Ok(lifecycle) => {
                     drop(lifecycle);
@@ -105,7 +108,7 @@ impl Mux {
                     .unwrap_or_default(),
             };
             let reserve_replayed = {
-                let mut registry = self.workspace_registry.lock().unwrap();
+                let mut registry = self.workspace_registry.lock().recover_poison();
                 let (replayed, revision) = if let Some(reservation) = reservation.as_ref() {
                     let commit = registry.commit_terminal(
                         &reservation.mutation,
@@ -199,7 +202,7 @@ impl Mux {
                 anyhow::bail!("terminal host changed registry-reserved identity");
             }
             {
-                let mut registry = self.workspace_registry.lock().unwrap();
+                let mut registry = self.workspace_registry.lock().recover_poison();
                 let ready = commit_terminal_lifecycle(
                     &mut registry,
                     "terminal-ready",
@@ -264,7 +267,7 @@ impl Mux {
                 on_exit: reservation.on_exit,
             };
             {
-                let mut registry = self.workspace_registry.lock().unwrap();
+                let mut registry = self.workspace_registry.lock().recover_poison();
                 let commit = registry.commit_terminal(
                     &reservation.mutation,
                     &reservation.fingerprint,
@@ -286,7 +289,7 @@ impl Mux {
             self.record_terminal_relaunch(&terminal_hex, &opts);
             #[cfg(test)]
             if let Some(hook) =
-                self.terminal_create_after_terminal_reservation.lock().unwrap().clone()
+                self.terminal_create_after_terminal_reservation.lock().recover_poison().clone()
             {
                 hook(&terminal_hex);
             }
@@ -338,7 +341,7 @@ impl Mux {
                 incarnation: incarnation.clone(),
             };
             {
-                let mut registry = self.workspace_registry.lock().unwrap();
+                let mut registry = self.workspace_registry.lock().recover_poison();
                 let (_, revision) = match commit_terminal_lifecycle(
                     &mut registry,
                     "terminal-ready",
@@ -358,7 +361,7 @@ impl Mux {
             }
             #[cfg(test)]
             if let Some(hook) =
-                self.terminal_spawn_before_cell_pixel_reconcile.lock().unwrap().clone()
+                self.terminal_spawn_before_cell_pixel_reconcile.lock().recover_poison().clone()
             {
                 hook(&surface);
             }
@@ -387,7 +390,7 @@ impl Mux {
                 surface.kill();
                 return Err(error);
             }
-            self.reserved_in_process_terminals.lock().unwrap().insert(surface.id, identity);
+            self.reserved_in_process_terminals.lock().recover_poison().insert(surface.id, identity);
             return Ok(surface);
         }
         #[cfg(test)]
@@ -402,23 +405,23 @@ impl Mux {
         let surface = match surface_result {
             Ok(surface) => surface,
             Err(error) => {
-                self.pending_workspace_surfaces.lock().unwrap().remove(&id);
+                self.pending_workspace_surfaces.lock().recover_poison().remove(&id);
                 return Err(error);
             }
         };
         let cell_pixel_lifecycle = match self.reconcile_surface_cell_pixels_for_publish(&surface) {
             Ok(lifecycle) => lifecycle,
             Err(error) => {
-                self.pending_workspace_surfaces.lock().unwrap().remove(&id);
+                self.pending_workspace_surfaces.lock().recover_poison().remove(&id);
                 surface.kill();
                 return Err(error);
             }
         };
         let insert_result =
-            insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone());
+            insert_surface_checked(&mut self.state.lock().recover_poison(), surface.clone());
         drop(cell_pixel_lifecycle);
         if let Err(error) = insert_result {
-            self.pending_workspace_surfaces.lock().unwrap().remove(&id);
+            self.pending_workspace_surfaces.lock().recover_poison().remove(&id);
             surface.kill();
             return Err(error);
         }
@@ -434,14 +437,14 @@ impl Mux {
             anyhow::bail!("sidebar plugin command is empty");
         }
         let id = self.next_id();
-        let mut opts = self.surface_options.lock().unwrap().clone();
+        let mut opts = self.surface_options.lock().recover_poison().clone();
         opts.command = Some(options.command.clone());
         opts.cwd = options.cwd.clone();
         opts.cols = size.0.max(1);
         opts.rows = size.1.max(1);
         opts.extra_env.push(("CMUX_SIDEBAR".to_string(), "1".to_string()));
         let cell_pixels = {
-            let cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+            let cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().recover_poison();
             let cell_pixels = self.cell_pixel_creation_size();
             drop(cell_pixel_lifecycle);
             cell_pixels
@@ -468,7 +471,7 @@ impl Mux {
             }
         };
         let insert_result =
-            insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone());
+            insert_surface_checked(&mut self.state.lock().recover_poison(), surface.clone());
         drop(cell_pixel_lifecycle);
         if let Err(error) = insert_result {
             surface.kill();
@@ -484,12 +487,12 @@ impl Mux {
         pending_workspace: Option<WorkspaceId>,
         resource_identity: Option<TabResourceIdentity>,
     ) -> anyhow::Result<Arc<Surface>> {
-        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().recover_poison();
         let id = self.next_id();
         if let Some(workspace) = pending_workspace {
-            self.pending_workspace_surfaces.lock().unwrap().insert(id, workspace);
+            self.pending_workspace_surfaces.lock().recover_poison().insert(id, workspace);
         }
-        let opts = self.surface_options.lock().unwrap().clone();
+        let opts = self.surface_options.lock().recover_poison().clone();
         let size = self.resolve_client_size(size, (opts.cols, opts.rows));
         let cell_pixels = self.cell_pixel_creation_size();
         let surface = match resource_identity {
@@ -511,7 +514,7 @@ impl Mux {
                 Arc::downgrade(self),
             )?,
         };
-        insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone())?;
+        insert_surface_checked(&mut self.state.lock().recover_poison(), surface.clone())?;
         let tab_id = surface
             .resource_identity()
             .context("browser surface omitted its public tab identity")?

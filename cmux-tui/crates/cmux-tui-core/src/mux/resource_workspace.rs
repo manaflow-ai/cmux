@@ -3,6 +3,8 @@
 //! workspaces.
 
 use super::*;
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     pub(crate) fn registry_projection(&self, state: &State) -> Vec<RegistryWorkspace> {
@@ -130,7 +132,9 @@ impl Mux {
         commit: &ResourcePatchCommit,
     ) -> anyhow::Result<Arc<Surface>> {
         let tab_id = TabPublicId::parse(
-            commit.result["tab_id"]
+            commit
+                .result
+                .field("tab_id")
                 .as_str()
                 .context("created resource result omitted its tab id")?
                 .to_string(),
@@ -153,12 +157,12 @@ impl Mux {
         expected_revision: Option<u64>,
         prepare: impl FnOnce(&mut State, &WorkspaceRegistry) -> anyhow::Result<ResourceMutationPlan>,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         if let Some(replay) = registry.replay_resource_patch(mutation, operation, fingerprint)? {
             return Ok(replay);
         }
 
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut state = self.lock_state_pinned(&registry).recover_poison();
         // Prepare and stage run before the durable commit, so subscribers
         // see a tab's new session path only once that commit succeeds.
         let (prepared, session_paths) = crate::event_bus::defer_session_paths(|| {
@@ -172,7 +176,7 @@ impl Mux {
             .and_then(|()| {
                 #[cfg(test)]
                 {
-                    *self.resource_mutation_metrics.lock().unwrap() = Some(plan.metrics);
+                    *self.resource_mutation_metrics.lock().recover_poison() = Some(plan.metrics);
                 }
                 registry.commit_resource_patch_with_workspace_ledger(
                     mutation,
@@ -449,7 +453,7 @@ impl Mux {
             "name": name,
         });
         if let Some(name_authority) = authority.fingerprint() {
-            fingerprint["name_authority"] = name_authority;
+            fingerprint.set_field("name_authority", name_authority);
         }
         self.commit_resource_mutation_plan(
             mutation,
@@ -477,7 +481,7 @@ impl Mux {
                     .with_context(|| format!("workspace {target} has no live slot"))?;
                 #[cfg(test)]
                 if let Some(hook) =
-                    self.resource_rename_after_selector_resolution.lock().unwrap().clone()
+                    self.resource_rename_after_selector_resolution.lock().recover_poison().clone()
                 {
                     hook(&target);
                 }

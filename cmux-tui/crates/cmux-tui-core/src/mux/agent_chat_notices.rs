@@ -39,6 +39,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::{Mux, NotificationLevel, NotificationSource};
+use crate::panic_free::JsonField;
 use crate::resource::ContentPublicId;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 use crate::{Actor, SurfaceId};
@@ -188,10 +189,12 @@ fn follow(
         }
         let Ok(message) = serde_json::from_slice::<Value>(&line) else { continue };
         let Some(mux) = mux.upgrade() else { return Ok(()) };
-        if message["id"] == 2 {
+        if message.field("id") == 2 {
             // What the watch knew before this connection: the page is a change from it.
             let mut before = std::mem::take(chats);
-            for summary in message["result"]["sessions"].as_array().into_iter().flatten() {
+            for summary in
+                message.field("result").field("sessions").as_array().into_iter().flatten()
+            {
                 let Some(next) = Chat::of(summary) else { continue };
                 let known = before.remove(&next.session);
                 if known.is_none() && next.needs_nobody() {
@@ -201,10 +204,10 @@ fn follow(
                 apply(&mux, known.as_ref(), next, chats);
             }
             watching = true;
-        } else if watching && message["method"] == "_acpmux/session_changed" {
-            changed(&mux, &message["params"], chats);
-        } else if watching && message["method"] == "_acpmux/permission_pending" {
-            asked(&mux, &message["params"], chats);
+        } else if watching && message.field("method") == "_acpmux/session_changed" {
+            changed(&mux, message.field("params"), chats);
+        } else if watching && message.field("method") == "_acpmux/permission_pending" {
+            asked(&mux, message.field("params"), chats);
         }
     }
 }
@@ -212,10 +215,11 @@ fn follow(
 /// A new ask of a chat the watch follows: it comes right after the change that recorded it.
 fn asked(mux: &Mux, ask: &Value, chats: &mut HashMap<String, Chat>) {
     // A peer's session is not this machine's chat.
-    if !ask["peer"].is_null() {
+    if !ask.field("peer").is_null() {
         return;
     }
-    let Some(chat) = ask["sessionId"].as_str().and_then(|session| chats.get_mut(session)) else {
+    let Some(chat) = ask.field("sessionId").as_str().and_then(|session| chats.get_mut(session))
+    else {
         return;
     };
     if let Some(notice) = chat.asked(ask)
@@ -227,15 +231,15 @@ fn asked(mux: &Mux, ask: &Value, chats: &mut HashMap<String, Chat>) {
 
 fn changed(mux: &Mux, params: &Value, chats: &mut HashMap<String, Chat>) {
     // A peer's session is not this machine's chat.
-    if !params["peer"].is_null() {
+    if !params.field("peer").is_null() {
         return;
     }
-    let Some(session) = params["sessionId"].as_str() else { return };
-    if params["kind"] == "purged" {
+    let Some(session) = params.field("sessionId").as_str() else { return };
+    if params.field("kind") == "purged" {
         chats.remove(session);
         return;
     }
-    let Some(next) = Chat::of(&params["session"]) else { return };
+    let Some(next) = Chat::of(params.field("session")) else { return };
     let before = chats.remove(&next.session);
     apply(mux, before.as_ref(), next, chats);
 }
@@ -292,15 +296,15 @@ struct Notice {
 impl Chat {
     /// A summary of this machine's acpmux; nil for a peer's session.
     fn of(summary: &Value) -> Option<Self> {
-        if !summary["peer"].is_null() {
+        if !summary.field("peer").is_null() {
             return None;
         }
-        let session = summary["sessionId"].as_str()?.to_owned();
+        let session = summary.field("sessionId").as_str()?.to_owned();
         let text = |key: &str| summary[key].as_str().filter(|text| !text.trim().is_empty());
         let name =
             text("title").or_else(|| text("name")).or_else(|| text("harness")).unwrap_or("Agent");
         let name = short(name, MAX_NAME_CHARS);
-        let last_turn = summary["lastTurn"].as_object().map(|turn| {
+        let last_turn = summary.field("lastTurn").as_object().map(|turn| {
             let id = turn.get("turnId").and_then(Value::as_str).map(str::to_owned);
             let ended = turn.get("endedAt").map(Value::to_string).unwrap_or_default();
             let status = turn.get("status").and_then(Value::as_str).unwrap_or_default();
@@ -309,14 +313,19 @@ impl Chat {
         Some(Self {
             session,
             name,
-            indicator: summary["indicator"].as_str().unwrap_or_default().to_owned(),
-            unread: summary["unread"].as_bool() == Some(true),
-            shown: summary["shown"].as_bool() == Some(true),
-            muted: summary["tags"][MUTE_TAG] == MUTED,
+            indicator: summary.field("indicator").as_str().unwrap_or_default().to_owned(),
+            unread: summary.field("unread").as_bool() == Some(true),
+            shown: summary.field("shown").as_bool() == Some(true),
+            muted: summary.field("tags").field(MUTE_TAG) == MUTED,
             last_turn,
             notified_turn: None,
-            last_message: summary["lastMessage"]["text"].as_str().unwrap_or_default().to_owned(),
-            last_seq: summary["lastSeq"].as_u64().unwrap_or(0),
+            last_message: summary
+                .field("lastMessage")
+                .field("text")
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+            last_seq: summary.field("lastSeq").as_u64().unwrap_or(0),
             asks: HashSet::new(),
         })
     }
@@ -339,13 +348,13 @@ impl Chat {
         if self.indicator != "input" || ask.get("turnId").is_none() {
             return None;
         }
-        let key = ask["groupId"].as_str().or_else(|| ask["permissionId"].as_str())?;
+        let key = ask.field("groupId").as_str().or_else(|| ask.field("permissionId").as_str())?;
         let first = self.asks.is_empty();
         if !self.asks.insert(key.to_owned()) || first {
             return None;
         }
         Some(Notice {
-            key: format!("input-{}", ask["seq"].as_u64().unwrap_or(self.last_seq)),
+            key: format!("input-{}", ask.field("seq").as_u64().unwrap_or(self.last_seq)),
             title: format!("{} needs input", self.name),
             body: short(&self.last_message, MAX_BODY_CHARS),
             level: NotificationLevel::Warning,

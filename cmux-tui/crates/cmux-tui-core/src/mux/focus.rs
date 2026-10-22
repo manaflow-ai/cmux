@@ -1,6 +1,7 @@
 //! Focus and navigation: directional pane neighbors, tab selection, and per-client and per-session focus memory.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     pub(super) fn pane_navigation_layout(
@@ -92,7 +93,7 @@ impl Mux {
         delta: Option<isize>,
     ) {
         let surface = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             let Some(target) = pane.or_else(|| state.active_pane()) else { return };
             let Some(pane) = state.panes.get(&target) else { return };
             let len = pane.tabs.len();
@@ -118,7 +119,7 @@ impl Mux {
     /// Remember one client's reported focus for its own later reconnection.
     /// Most-recent-first eviction keeps the memory bounded.
     pub fn remember_client_focus(&self, client_id: String, pane: PaneId, tab: Option<usize>) {
-        let mut memory = self.client_focus_memory.lock().unwrap();
+        let mut memory = self.client_focus_memory.lock().recover_poison();
         memory.retain(|record| record.client_id != client_id);
         memory.push(ClientFocusRecord { client_id, pane, tab });
         if memory.len() > CLIENT_FOCUS_MEMORY_LIMIT {
@@ -130,7 +131,7 @@ impl Mux {
     /// The remembered focus for one client, if its pane is still alive.
     pub fn client_focus(&self, client_id: &str) -> Option<(PaneId, Option<usize>)> {
         let record = {
-            let memory = self.client_focus_memory.lock().unwrap();
+            let memory = self.client_focus_memory.lock().recover_poison();
             memory.iter().find(|record| record.client_id == client_id).cloned()?
         };
         self.with_state(|state| state.panes.contains_key(&record.pane))
@@ -141,12 +142,12 @@ impl Mux {
     /// adoption default for a later attach without per-client memory.
     /// Never moves the live shared focus.
     pub fn record_session_focus(&self, pane: PaneId, tab: Option<usize>) {
-        *self.last_reported_focus.lock().unwrap() = Some((pane, tab));
+        *self.last_reported_focus.lock().recover_poison() = Some((pane, tab));
     }
 
     /// The session's last reported focus, if its pane is still alive.
     pub fn session_focus(&self) -> Option<(PaneId, Option<usize>)> {
-        let record = (*self.last_reported_focus.lock().unwrap())?;
+        let record = (*self.last_reported_focus.lock().recover_poison())?;
         self.with_state(|state| state.panes.contains_key(&record.0)).then_some(record)
     }
 }

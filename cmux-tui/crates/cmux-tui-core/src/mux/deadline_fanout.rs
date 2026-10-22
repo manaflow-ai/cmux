@@ -3,6 +3,7 @@
 //! unscheduled results in input order. Cell pixel and kitty budget updates use
 //! it so one slow surface cannot stall the rest.
 
+use crate::panic_free::RecoverPoison;
 use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
@@ -143,11 +144,11 @@ pub(super) struct DeadlineCompletion<R> {
 
 impl<R> DeadlinePending<R> {
     pub(super) fn try_take(&self) -> Option<R> {
-        self.result.lock().unwrap().take().map(|completion| completion.value)
+        self.result.lock().recover_poison().take().map(|completion| completion.value)
     }
 
     pub(super) fn try_take_before(&self, deadline: Instant) -> Option<R> {
-        let mut result = self.result.lock().unwrap();
+        let mut result = self.result.lock().recover_poison();
         if result.as_ref().is_some_and(|completion| completion.completed_at <= deadline) {
             result.take().map(|completion| completion.value)
         } else {
@@ -193,7 +194,7 @@ where
         let job_result = result.clone();
         let job = Box::new(move || {
             let value = operation(&item, deadline);
-            *job_result.lock().unwrap() =
+            *job_result.lock().recover_poison() =
                 Some(DeadlineCompletion { completed_at: Instant::now(), value });
             let _ = sender.send(index);
         });

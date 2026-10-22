@@ -1,6 +1,7 @@
 //! The effectful resource topology operation path: idempotent effects that create, close or reshape topology.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     #[allow(clippy::too_many_arguments)]
@@ -24,18 +25,18 @@ impl Mux {
             );
         }
         let _creation_handoff = is_resource_close_operation(operation)
-            .then(|| self.resource_creation_handoff.lock().unwrap());
+            .then(|| self.resource_creation_handoff.lock().recover_poison());
         let _creation_fence = is_resource_close_operation(operation)
-            .then(|| self.resource_creation_execution.lock().unwrap());
+            .then(|| self.resource_creation_execution.lock().recover_poison());
         let operation_name = operation_name(operation);
         let preparation = {
-            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut registry = self.workspace_registry.lock().recover_poison();
             if let Some(preparation) =
                 registry.lookup_resource_effect(&mutation.id, &operation_name, fingerprint)?
             {
                 preparation
             } else {
-                let mut state = self.lock_state_pinned(&registry).unwrap();
+                let mut state = self.lock_state_pinned(&registry).recover_poison();
                 let intent = self.resource_topology_effect_intent(
                     operation,
                     &selectors,
@@ -181,7 +182,7 @@ impl Mux {
                         let actual = match self
                             .workspace_registry
                             .lock()
-                            .unwrap()
+                            .recover_poison()
                             .resource_topology_snapshot()
                         {
                             Ok(snapshot) => snapshot.revision,

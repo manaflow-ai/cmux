@@ -5,6 +5,8 @@
 
 use super::*;
 use crate::conversation_store::ConversationStore;
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 use crate::remote_relay_state::{RelayLock, RelayStateError, lock_checked};
 
 /// The binding of a connection whose agent token was replaced.
@@ -28,7 +30,7 @@ impl Mux {
         &self,
         operation: impl FnOnce(&mut ConversationStore) -> anyhow::Result<T>,
     ) -> anyhow::Result<T> {
-        let mut store = self.conversations.store.lock().unwrap();
+        let mut store = self.conversations.store.lock().recover_poison();
         if store.is_none() {
             let directory = self.session_state_directory();
             *store = Some(ConversationStore::open(directory.as_deref())?);
@@ -56,7 +58,7 @@ impl Mux {
         write: impl FnOnce(&mut ConversationStore) -> anyhow::Result<T>,
         publish: impl FnOnce(&T) -> Vec<MuxEvent>,
     ) -> anyhow::Result<T> {
-        let _order = self.conversations.publish.lock().unwrap();
+        let _order = self.conversations.publish.lock().recover_poison();
         let value = self.with_conversations(write)?;
         for event in publish(&value) {
             // A participant's posted message ends its typing (every client
@@ -68,8 +70,8 @@ impl Mux {
                     change,
                     ..
                 } = change.as_ref()
-                && change["kind"] == "message"
-                && let Some(author) = change["message"]["author"].as_str()
+                && change.field("kind") == "message"
+                && let Some(author) = change.field("message").field("author").as_str()
             {
                 self.set_conversation_typing(conversation, author, false);
             }

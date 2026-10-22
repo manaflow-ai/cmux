@@ -1,6 +1,7 @@
 //! In-state tree edits: focus identity, focus stamps, auto-layout append, pane and surface removal, tab moves, close deltas, and layout undo confirmation details.
 
 use super::*;
+use crate::panic_free::JsonField;
 
 pub(super) type FocusIdentity = (WorkspaceId, ScreenId, PaneId);
 
@@ -210,17 +211,21 @@ pub(super) fn resolve_workspace_index(
 pub(super) fn workspace_mutation_result(
     commit: &RegistryCommit,
 ) -> anyhow::Result<WorkspaceMutationResult> {
-    let workspace = commit.result["workspace"].as_u64();
-    let key = commit.result["key"]
+    let workspace = commit.result.field("workspace").as_u64();
+    let key = commit
+        .result
+        .field("key")
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("stored workspace mutation result is missing key"))?
         .to_string();
-    let index = commit.result["index"]
+    let index = commit
+        .result
+        .field("index")
         .as_u64()
         .map(usize::try_from)
         .transpose()
         .context("stored workspace mutation index is invalid")?;
-    let changed = commit.result["changed"].as_bool().unwrap_or(true);
+    let changed = commit.result.field("changed").as_bool().unwrap_or(true);
     Ok(WorkspaceMutationResult {
         workspace,
         key,

@@ -1,6 +1,7 @@
 //! Resource rename, focus and tab selection: workspaces, screens, panes and tabs, including directional pane focus.
 
 use super::*;
+use crate::panic_free::JsonField;
 
 impl Mux {
     pub(super) fn resource_focus_workspace(
@@ -207,7 +208,7 @@ impl Mux {
                 ))
             },
         )?;
-        self.reload_kept_tab_name(commit.result["tab"].as_str())?;
+        self.reload_kept_tab_name(commit.result.field("tab").as_str())?;
         Ok(commit)
     }
 

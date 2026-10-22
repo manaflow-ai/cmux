@@ -24,6 +24,7 @@
 //! when the close stopped a program, one dim line that names it.
 
 use super::*;
+use crate::panic_free::JsonField;
 use crate::workspace_registry::relaunch_store::RelaunchKind;
 use crate::workspace_registry::terminal_archive_store::{
     ARCHIVE_BLOB_BUDGET_BYTES, ARCHIVE_MAX_SCREEN_BYTES, ArchiveRow,
@@ -221,14 +222,14 @@ impl Mux {
         let mut size = None;
         #[cfg(any(unix, windows))]
         if let Some(seed) =
-            tab["terminal_id"].as_str().and_then(|id| self.archived_terminal_seed(id))
+            tab.field("terminal_id").as_str().and_then(|id| self.archived_terminal_seed(id))
             && let Ok(reserved) = TerminalId::random()
         {
             let reserved = reserved.to_hex();
             self.terminal_respawns.stash_seed(&reserved, seed);
             spawn.terminal_id = Some(reserved.clone());
             guard.terminal_id = Some(reserved);
-            size = tab["terminal_id"].as_str().and_then(|id| self.archived_terminal_size(id));
+            size = tab.field("terminal_id").as_str().and_then(|id| self.archived_terminal_size(id));
         }
         (spawn, guard, size)
     }

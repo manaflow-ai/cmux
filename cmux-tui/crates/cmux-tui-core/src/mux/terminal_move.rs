@@ -1,6 +1,8 @@
 //! Terminal moves between workspaces and their projection into the destination workspace state.
 
 use super::*;
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     #[allow(clippy::too_many_arguments)]
@@ -24,20 +26,22 @@ impl Mux {
             "incarnation":expected_incarnation,
         });
         let (terminal, terminal_revision, replayed, changed, placement, topology_changed) = {
-            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut registry = self.workspace_registry.lock().recover_poison();
             // Registry -> state is the global writer order. Holding both from
             // canonical commit through projection prevents move B / move C
             // from projecting C and then stale B, and serializes moves with a
             // concurrent workspace close.
-            let mut state = self.lock_state_pinned(&registry).unwrap();
+            let mut state = self.lock_state_pinned(&registry).recover_poison();
             if let Some(replay) = registry.replay_terminal(mutation, &fingerprint)? {
                 let terminal = registry
                     .terminal_record(terminal_id)?
                     .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
                 let current_revision = registry.terminal_revision()?;
-                let changed = replay.result["changed"].as_bool().unwrap_or(true);
+                let changed = replay.result.field("changed").as_bool().unwrap_or(true);
                 #[cfg(test)]
-                if let Some(hook) = self.terminal_move_before_projection.lock().unwrap().clone() {
+                if let Some(hook) =
+                    self.terminal_move_before_projection.lock().recover_poison().clone()
+                {
                     hook();
                 }
                 let (placement, topology_changed) =
@@ -91,7 +95,9 @@ impl Mux {
                 )?;
                 self.emit_terminal_registry_changed(&registry, commit.revision);
                 #[cfg(test)]
-                if let Some(hook) = self.terminal_move_before_projection.lock().unwrap().clone() {
+                if let Some(hook) =
+                    self.terminal_move_before_projection.lock().recover_poison().clone()
+                {
                     hook();
                 }
                 let (placement, topology_changed) = self.project_terminal_to_workspace_in_state(

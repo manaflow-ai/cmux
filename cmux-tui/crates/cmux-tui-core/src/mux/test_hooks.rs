@@ -1,11 +1,13 @@
 //! Test-only hooks and seeding: resize/rollback/move interception points, mutation metrics, and seeded launching or running terminals.
 
 use super::*;
+#[cfg(test)]
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     #[cfg(test)]
     pub(super) fn set_client_resize_before_apply(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
-        *self.client_resize_before_apply.lock().unwrap() = hook;
+        *self.client_resize_before_apply.lock().recover_poison() = hook;
     }
 
     #[cfg(test)]
@@ -13,7 +15,7 @@ impl Mux {
         &self,
         hook: Option<Arc<dyn Fn() + Send + Sync>>,
     ) {
-        *self.client_rollback_before_wait.lock().unwrap() = hook;
+        *self.client_rollback_before_wait.lock().recover_poison() = hook;
     }
 
     #[cfg(test)]
@@ -21,7 +23,7 @@ impl Mux {
         &self,
         hook: Option<Arc<dyn Fn() + Send + Sync>>,
     ) {
-        *self.terminal_move_before_projection.lock().unwrap() = hook;
+        *self.terminal_move_before_projection.lock().recover_poison() = hook;
     }
 
     /// Runs in `emit_tab_changed` after the tree decorations are read (their
@@ -38,7 +40,7 @@ impl Mux {
     pub(super) fn last_resource_mutation_metrics(&self) -> ResourceMutationMetrics {
         self.resource_mutation_metrics
             .lock()
-            .unwrap()
+            .recover_poison()
             .expect("resource mutation did not record metrics")
     }
 
@@ -48,7 +50,7 @@ impl Mux {
         terminal_id: &str,
         workspace_key: &str,
     ) -> anyhow::Result<()> {
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         commit_terminal_transition(
             &mut registry,
             "terminal-reserved",
@@ -89,7 +91,7 @@ impl Mux {
         workspace_key: &str,
         on_exit: TerminalOnExit,
     ) -> anyhow::Result<SurfaceId> {
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         commit_terminal_transition(
             &mut registry,
             "terminal-reserved",
@@ -115,14 +117,14 @@ impl Mux {
         )?;
         let surface = Surface::exited_terminal_placeholder(
             self.next_id(),
-            self.surface_options.lock().unwrap().clone(),
+            self.surface_options.lock().recover_poison().clone(),
             Arc::downgrade(self),
             TerminalHostIdentity {
                 terminal_id: terminal_id.to_string(),
                 incarnation: incarnation.to_string(),
             },
         )?;
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         insert_surface_checked(&mut state, surface.clone())?;
         let (placement, changed) =
             self.project_terminal_to_workspace_in_state(&mut state, terminal_id, workspace_key)?;
@@ -143,6 +145,6 @@ impl Mux {
 
     #[cfg(test)]
     pub(crate) fn set_terminal_close_failure_for_test(&self, enabled: bool) -> anyhow::Result<()> {
-        self.workspace_registry.lock().unwrap().set_terminal_close_failure(enabled)
+        self.workspace_registry.lock().recover_poison().set_terminal_close_failure(enabled)
     }
 }

@@ -49,6 +49,7 @@ use crate::terminal_host_protocol::TerminalExit;
 #[cfg(any(unix, windows))]
 use crate::terminal_loss_log::Prefilled;
 
+use crate::panic_free::JsonField;
 pub(crate) use supervisor::RespawnGuard;
 
 /// Disables respawn for a daemon (tests that exercise dead tabs).
@@ -282,7 +283,7 @@ impl Mux {
         end: &TerminalEnd,
     ) -> Option<(String, String)> {
         let TerminalEnd::HostLost(_) = end else { return None };
-        let cause = end.wire_json()["reason"].as_str()?.to_string();
+        let cause = end.wire_json().field("reason").as_str()?.to_string();
         if !RESPAWN_REASONS.contains(&cause.as_str()) || !self.respawn_enabled() {
             return None;
         }

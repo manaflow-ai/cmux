@@ -3,6 +3,7 @@
 //! reservation its environment and caller-chosen id).
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     pub(super) fn effect_add_screen(
@@ -53,7 +54,7 @@ impl Mux {
             }
         };
         let created = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             let Some(workspace_index) = state.workspace_index(workspace) else {
                 drop(state);
                 self.fail_hosted_terminal_attachment(

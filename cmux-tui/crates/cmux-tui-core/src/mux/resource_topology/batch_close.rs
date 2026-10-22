@@ -14,6 +14,8 @@
 //! for a kept one), exactly as a plain close leaves it.
 
 use super::*;
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 use crate::workspace_registry::TopologyCloseCommit;
 
 /// What one batch close removes.
@@ -101,18 +103,26 @@ pub(crate) struct BatchCloseOutcome {
 
 impl BatchCloseOutcome {
     pub(crate) fn closed(&self) -> Vec<SurfaceId> {
-        self.result["closed"].as_array().into_iter().flatten().filter_map(Value::as_u64).collect()
+        self.result
+            .field("closed")
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_u64)
+            .collect()
     }
 
     pub(crate) fn terminals(&self) -> Vec<EndedTerminal> {
-        self.result["terminals"]
+        self.result
+            .field("terminals")
             .as_array()
             .into_iter()
             .flatten()
             .filter_map(|terminal| {
                 Some(EndedTerminal {
-                    terminal_id: terminal["terminal_id"].as_str()?.to_string(),
-                    terminal_incarnation: terminal["terminal_incarnation"]
+                    terminal_id: terminal.field("terminal_id").as_str()?.to_string(),
+                    terminal_incarnation: terminal
+                        .field("terminal_incarnation")
                         .as_str()
                         .map(str::to_string),
                 })
@@ -128,8 +138,8 @@ impl Mux {
         &self,
         request: BatchCloseRequest<'_>,
     ) -> anyhow::Result<BatchCloseOutcome> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
-        let _creation_fence = self.resource_creation_execution.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.lock().recover_poison();
+        let _creation_fence = self.resource_creation_execution.lock().recover_poison();
         let _authority = request
             .authorize_workspace
             .then(|| {
@@ -141,11 +151,12 @@ impl Mux {
             .transpose()?;
         // A retry of a committed close replays before its targets resolve:
         // they are gone by then.
-        if let Some(replay) = self.workspace_registry.lock().unwrap().replay_resource_patch(
-            request.mutation,
-            request.operation,
-            request.fingerprint,
-        )? {
+        if let Some(replay) = self
+            .workspace_registry
+            .lock()
+            .recover_poison()
+            .replay_resource_patch(request.mutation, request.operation, request.fingerprint)?
+        {
             return Ok(BatchCloseOutcome {
                 result: replay.result,
                 resource_revision: replay.revision,
@@ -177,10 +188,11 @@ impl Mux {
             anyhow::bail!("close target disappeared");
         }
         let lifecycle = workspace.map(|workspace| self.workspace_lifecycle(workspace));
-        let workspace_lifecycle = lifecycle.as_ref().map(|lifecycle| lifecycle.lock().unwrap());
+        let workspace_lifecycle =
+            lifecycle.as_ref().map(|lifecycle| lifecycle.lock().recover_poison());
         let notifications = self.tree_decorations();
-        let mut registry = self.workspace_registry.lock().unwrap();
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
+        let mut state = self.lock_state_pinned(&registry).recover_poison();
         if let BatchCloseTarget::Workspace(workspace) = &request.target {
             let index = state.workspace_index(*workspace).context("close target disappeared")?;
             Self::require_empty_workspace_for_close(&state, index, request.if_empty)?;
@@ -483,7 +495,7 @@ impl Mux {
             "end_terminals": end_terminals,
         });
         if let Some(reason) = reason {
-            fingerprint["reason"] = json!(reason.as_str());
+            fingerprint.set_field("reason", json!(reason.as_str()));
         }
         self.commit_batch_close(BatchCloseRequest {
             target: BatchCloseTarget::Tabs(surfaces),
@@ -655,11 +667,11 @@ impl Mux {
             "end_terminals": true,
         });
         if let Some(reason) = reason {
-            fingerprint["reason"] = json!(reason.as_str());
+            fingerprint.set_field("reason", json!(reason.as_str()));
         }
         // A retry of a committed close replays before the selector resolves.
         {
-            let registry = self.workspace_registry.lock().unwrap();
+            let registry = self.workspace_registry.lock().recover_poison();
             if let Some(commit) = registry.replay(mutation, &fingerprint)? {
                 let result = workspace_mutation_result(&commit)?;
                 let resource = registry
@@ -677,7 +689,7 @@ impl Mux {
             }
         }
         let resolved = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             Self::require_workspace_revision(&state, expected_revision)?;
             let index = resolve_workspace_index(&state, target, requested_key)?;
             state.workspaces[index].id
@@ -702,19 +714,25 @@ impl Mux {
             None => {
                 self.workspace_registry
                     .lock()
-                    .unwrap()
+                    .recover_poison()
                     .replay(mutation, &fingerprint)?
                     .context("replayed workspace close has no workspace receipt")?
                     .revision
             }
         };
         let result = WorkspaceMutationResult {
-            workspace: outcome.result["workspace"].as_u64().or(Some(resolved)),
-            key: outcome.result["key"]
+            workspace: outcome.result.field("workspace").as_u64().or(Some(resolved)),
+            key: outcome
+                .result
+                .field("key")
                 .as_str()
                 .context("workspace close result is missing its key")?
                 .to_string(),
-            index: outcome.result["index"].as_u64().and_then(|index| usize::try_from(index).ok()),
+            index: outcome
+                .result
+                .field("index")
+                .as_u64()
+                .and_then(|index| usize::try_from(index).ok()),
             revision,
             replayed: outcome.replayed,
             changed: true,

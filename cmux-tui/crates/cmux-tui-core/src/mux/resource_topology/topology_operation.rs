@@ -1,6 +1,8 @@
 //! Resource topology operation entry: creation resolution, interrupted creation reconcile, empty workspace creation, pane neighbors, the operation dispatcher, receipted creation, the commit path, and legacy event emission.
 
 use super::*;
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     pub(crate) fn resource_creation_resolution(
@@ -8,12 +10,15 @@ impl Mux {
         correlation_key: &str,
     ) -> anyhow::Result<Value> {
         self.reconcile_interrupted_resource_creation(correlation_key)?;
-        self.workspace_registry.lock().unwrap().resolve_resource_creation(correlation_key)
+        self.workspace_registry.lock().recover_poison().resolve_resource_creation(correlation_key)
     }
 
     pub(in crate::mux) fn reconcile_interrupted_resource_creations(&self) -> anyhow::Result<bool> {
-        let recoveries =
-            self.workspace_registry.lock().unwrap().interrupted_resource_creation_recoveries()?;
+        let recoveries = self
+            .workspace_registry
+            .lock()
+            .recover_poison()
+            .interrupted_resource_creation_recoveries()?;
         let mut pending = false;
         for recovery in recoveries {
             pending |= matches!(
@@ -28,8 +33,11 @@ impl Mux {
         &self,
         correlation_key: &str,
     ) -> anyhow::Result<()> {
-        let recovery =
-            self.workspace_registry.lock().unwrap().resource_creation_recovery(correlation_key)?;
+        let recovery = self
+            .workspace_registry
+            .lock()
+            .recover_poison()
+            .resource_creation_recovery(correlation_key)?;
         if let Some(recovery) = recovery.filter(|recovery| recovery.interrupted) {
             let _ = self.settle_resource_creation(recovery, None)?;
         }
@@ -55,19 +63,21 @@ impl Mux {
                 "name":&name,
             },
         });
-        if let Some((field, value)) = mark.fingerprint_field() {
-            fingerprint["fields"][field] = value;
-        }
-        if focus {
-            fingerprint["fields"][WORKSPACE_CREATE_FOCUS_FIELD] = Value::Bool(true);
+        if let Some(fields) = fingerprint.get_mut("fields") {
+            if let Some((field, value)) = mark.fingerprint_field() {
+                fields.set_field(field, value);
+            }
+            if focus {
+                fields.set_field(WORKSPACE_CREATE_FOCUS_FIELD, Value::Bool(true));
+            }
         }
         if let Some(name) = name.as_deref() {
             Self::validate_workspace_name(name)?;
         }
         // Read before the state lock: `surface_notifications` locks state.
         let notifications = self.tree_decorations();
-        let mut registry = self.workspace_registry.lock().unwrap();
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
+        let mut state = self.lock_state_pinned(&registry).recover_poison();
         self.resolve_resource_path_in_state(&state, &registry, ResourceTarget::Session, &selectors)
             .map_err(anyhow::Error::new)?;
         // A retry carries the same fields (the fingerprint), so the same source.
@@ -90,7 +100,8 @@ impl Mux {
         )?;
         let intent = match preparation {
             ResourceCreationPreparation::Created { created_path, revision, .. } => {
-                let workspace = created_path["workspace_id"]
+                let workspace = created_path
+                    .field("workspace_id")
                     .as_str()
                     .context("stored workspace creation omitted its workspace id")?;
                 return Ok(ResourcePatchCommit {
@@ -116,17 +127,20 @@ impl Mux {
         );
         let workspace_slot = self.next_id();
         let public_id = WorkspacePublicId::parse(
-            intent["workspace_public_id"]
+            intent
+                .field("workspace_public_id")
                 .as_str()
                 .context("stored workspace creation omitted its public id")?
                 .to_string(),
         )?;
-        let key = intent["workspace_key"]
+        let key = intent
+            .field("workspace_key")
             .as_str()
             .context("stored workspace creation omitted its key")?
             .to_string();
         let marked_key = key.clone();
-        let name = intent["name"]
+        let name = intent
+            .field("name")
             .as_str()
             .context("stored workspace creation omitted its name")?
             .to_string();
@@ -233,7 +247,7 @@ impl Mux {
         });
         #[cfg(test)]
         {
-            *self.resource_mutation_metrics.lock().unwrap() = Some(plan.metrics);
+            *self.resource_mutation_metrics.lock().recover_poison() = Some(plan.metrics);
         }
         let marked = public_id.as_str().to_string();
         let writes = mark.writes();
@@ -290,8 +304,8 @@ impl Mux {
         direction: &str,
     ) -> anyhow::Result<Option<PanePublicId>> {
         let direction = parse_direction(direction)?;
-        let registry = self.workspace_registry.lock().unwrap();
-        let state = self.lock_state_pinned(&registry).unwrap();
+        let registry = self.workspace_registry.lock().recover_poison();
+        let state = self.lock_state_pinned(&registry).recover_poison();
         let resolved = self
             .resolve_resource_path_in_state(&state, &registry, ResourceTarget::Pane, selectors)
             .map_err(anyhow::Error::new)?;
@@ -374,7 +388,7 @@ impl Mux {
             "fields": fingerprint_fields,
         });
         if selector_candidates.len() > 1 {
-            fingerprint["selector_fallbacks"] = json!(&selector_candidates[1..]);
+            fingerprint.set_field("selector_fallbacks", json!(&selector_candidates[1..]));
         }
         let commit = self.resource_correlated_creation_operation(
             operation,

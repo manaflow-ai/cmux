@@ -9,6 +9,7 @@
 
 use super::*;
 use crate::Actor;
+use crate::panic_free::JsonField;
 
 /// Daemon-internal `pane.split` field: the new pane holds a browser at this
 /// URL instead of a terminal.
@@ -165,7 +166,7 @@ impl Mux {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<SpawnedPaneSurface<'_>> {
         let fields =
-            intent["fields"].as_object().context("stored topology intent omitted fields")?;
+            intent.field("fields").as_object().context("stored topology intent omitted fields")?;
         if let Some(url) = pane_browser_url(ResourceOperation::PaneSplit, fields)? {
             let identity = self.effect_browser_reservation(intent)?;
             let workspace = self

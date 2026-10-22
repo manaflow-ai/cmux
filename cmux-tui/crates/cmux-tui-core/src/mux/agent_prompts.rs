@@ -12,6 +12,7 @@
 //! same time neither shows it nor drops it.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 /// The agent texts a terminal keeps in memory only.
 #[derive(Default)]
@@ -39,7 +40,13 @@ impl Mux {
     ) -> Option<Option<Arc<str>>> {
         let prompt = crate::agent_hooks::live_prompt_text(prompt)?;
         self.resource_surface_for_terminal(terminal)?;
-        Some(self.agent_prompts.lock().unwrap().prompts.insert(terminal.clone(), Arc::from(prompt)))
+        Some(
+            self.agent_prompts
+                .lock()
+                .recover_poison()
+                .prompts
+                .insert(terminal.clone(), Arc::from(prompt)),
+        )
     }
 
     /// Puts back what `note_agent_prompt` replaced.
@@ -48,7 +55,7 @@ impl Mux {
         terminal: &TerminalPublicId,
         previous: Option<Arc<str>>,
     ) {
-        let prompts = &mut self.agent_prompts.lock().unwrap().prompts;
+        let prompts = &mut self.agent_prompts.lock().recover_poison().prompts;
         match previous {
             Some(previous) => prompts.insert(terminal.clone(), previous),
             None => prompts.remove(terminal),
@@ -57,11 +64,11 @@ impl Mux {
 
     /// `terminal`'s last prompt, if its agent sent one since it started.
     pub(crate) fn agent_prompt(&self, terminal: &TerminalPublicId) -> Option<Arc<str>> {
-        self.agent_prompts.lock().unwrap().prompts.get(terminal).cloned()
+        self.agent_prompts.lock().recover_poison().prompts.get(terminal).cloned()
     }
 
     pub(super) fn forget_agent_prompt(&self, terminal: &TerminalPublicId) {
-        self.agent_prompts.lock().unwrap().prompts.remove(terminal);
+        self.agent_prompts.lock().recover_poison().prompts.remove(terminal);
     }
 
     /// Keeps `reply` (cut to `LIVE_PROMPT_CHARS`) for `terminal`'s next agent notification.

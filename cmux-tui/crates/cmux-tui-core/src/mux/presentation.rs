@@ -8,6 +8,8 @@
 
 use super::*;
 use crate::Actor;
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 use crate::resource::BrowserPublicId;
 use crate::workspace_registry::{
     FrontendBrowserRecord, PresentationSnapshot, WorkspaceGroupRecord, WorkspacePresentationUpdate,
@@ -231,14 +233,14 @@ pub struct WorkspaceGroupChange {
 
 impl Mux {
     pub fn presentation_snapshot(&self) -> Arc<PresentationSnapshot> {
-        self.presentation.lock().unwrap().clone()
+        self.presentation.lock().recover_poison().clone()
     }
 
     /// Reload the presentation snapshot from the registry. The caller holds
     /// the registry lock, so no other commit can interleave.
     pub(crate) fn reload_presentation(&self, registry: &WorkspaceRegistry) -> anyhow::Result<()> {
         let snapshot = registry.presentation_snapshot()?;
-        *self.presentation.lock().unwrap() = Arc::new(snapshot);
+        *self.presentation.lock().recover_poison() = Arc::new(snapshot);
         Ok(())
     }
 
@@ -247,7 +249,7 @@ impl Mux {
     pub fn tree_decorations(&self) -> TreeDecorations {
         let presentation = self.presentation_snapshot();
         let (notifications, directories) = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             (self.surface_notifications_in_state(&state), surface_directories_in_state(&state))
         };
         let directories = self.resolve_tab_directories(directories, true);
@@ -313,7 +315,7 @@ impl Mux {
 
     fn git_head(&self, cwd: &str, now: Instant, refresh: bool) -> Option<GitHead> {
         {
-            let cache = self.git_heads.lock().unwrap();
+            let cache = self.git_heads.lock().recover_poison();
             if let Some((checked, head)) = cache.get(cwd)
                 && (!refresh || now.saturating_duration_since(*checked) < GIT_HEAD_TTL)
             {
@@ -324,7 +326,7 @@ impl Mux {
             return None;
         }
         let head = read_git_head(Path::new(cwd));
-        let mut cache = self.git_heads.lock().unwrap();
+        let mut cache = self.git_heads.lock().recover_poison();
         if cache.len() >= GIT_HEAD_CACHE_LIMIT {
             cache.clear();
         }
@@ -366,7 +368,7 @@ impl Mux {
         }
         let decorations = self.tree_decorations();
         let deltas = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             placements
                 .iter()
                 .filter_map(|surface| tab_changed_delta(&state, &decorations, *surface))
@@ -458,7 +460,7 @@ impl Mux {
         index: Option<usize>,
     ) -> anyhow::Result<WorkspaceGroupChange> {
         let id = id.unwrap_or_else(new_workspace_group_id);
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         let (group, changed) =
             registry.create_workspace_group(&id, &name, color.as_deref(), collapsed, index)?;
         self.reload_presentation(&registry)?;
@@ -474,7 +476,7 @@ impl Mux {
         color: Option<Option<String>>,
         collapsed: Option<bool>,
     ) -> anyhow::Result<WorkspaceGroupChange> {
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         let before = self.presentation_snapshot().group(id).cloned();
         let group = registry.update_workspace_group(
             id,
@@ -491,7 +493,7 @@ impl Mux {
     /// Delete a group. Its workspaces keep their registry order and become
     /// ungrouped. Returns the keys of the ungrouped workspaces.
     pub fn delete_workspace_group(&self, id: &str) -> anyhow::Result<Vec<String>> {
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         let ungrouped = registry.delete_workspace_group(id)?;
         self.reload_presentation(&registry)?;
         drop(registry);
@@ -507,7 +509,7 @@ impl Mux {
         id: &str,
         index: usize,
     ) -> anyhow::Result<WorkspaceGroupChange> {
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         let before = self.presentation_snapshot().group_index(id);
         registry.move_workspace_group(id, index)?;
         self.reload_presentation(&registry)?;
@@ -569,12 +571,12 @@ impl Mux {
             "group": group,
             "index": index,
         });
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             return workspace_mutation_result(&commit);
         }
         let (delta, result) = {
-            let mut state = self.lock_state_pinned(&registry).unwrap();
+            let mut state = self.lock_state_pinned(&registry).recover_poison();
             Self::require_workspace_revision(&state, expected_revision)?;
             let old_idx = resolve_workspace_index(&state, workspace, requested_key)?;
             let workspace_id = state.workspaces[old_idx].id;
@@ -710,17 +712,17 @@ impl Mux {
         // Only a pin request carries the key, so a retry first sent to a
         // daemon without workspace-pin-v1 still replays.
         if let Some(pinned) = update.pinned {
-            fingerprint["pinned"] = pinned.into();
+            fingerprint.set_field("pinned", pinned.into());
         }
         if let Some(marked_unread) = update.marked_unread {
-            fingerprint["marked_unread"] = marked_unread.into();
+            fingerprint.set_field("marked_unread", marked_unread.into());
         }
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             return workspace_mutation_result(&commit);
         }
         let (delta, result) = {
-            let mut state = self.lock_state_pinned(&registry).unwrap();
+            let mut state = self.lock_state_pinned(&registry).recover_poison();
             Self::require_workspace_revision(&state, expected_revision)?;
             let index = resolve_workspace_index(&state, workspace, requested_key)?;
             let workspace_id = state.workspaces[index].id;
@@ -854,7 +856,7 @@ impl Mux {
         record.validate()?;
         let browser_id = BrowserPublicId::random()?;
         {
-            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut registry = self.workspace_registry.lock().recover_poison();
             registry.put_frontend_browser(browser_id.as_str(), &record, None)?;
             self.reload_presentation(&registry)?;
         }
@@ -870,7 +872,7 @@ impl Mux {
                 Ok(surface)
             }
             Err(error) => {
-                let mut registry = self.workspace_registry.lock().unwrap();
+                let mut registry = self.workspace_registry.lock().recover_poison();
                 if registry.delete_frontend_browser(browser_id.as_str()).is_ok() {
                     let _ = self.reload_presentation(&registry);
                 }
@@ -902,7 +904,7 @@ impl Mux {
         surface: SurfaceId,
     ) -> anyhow::Result<TabNotificationAck> {
         let (terminal, placements) = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             let runtime = state
                 .surfaces
                 .get(&surface)
@@ -937,7 +939,7 @@ impl Mux {
         let ids = self
             .notification_ledger
             .lock()
-            .unwrap()
+            .recover_poison()
             .iter()
             .filter(|entry| match terminal {
                 Some(terminal) => entry.terminal_id.as_ref() == Some(terminal),
@@ -967,7 +969,7 @@ impl Mux {
         limit: usize,
     ) -> anyhow::Result<Vec<(ResourceNotification, bool)>> {
         let rows = self.resource_notifications(limit);
-        let acked = self.workspace_registry.lock().unwrap().acked_notification_ids()?;
+        let acked = self.workspace_registry.lock().recover_poison().acked_notification_ids()?;
         Ok(rows
             .into_iter()
             .map(|row| {

@@ -3,6 +3,7 @@
 //! publishes a terminal upsert whenever the parsed state changes.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonical_order};
 
 impl Mux {
@@ -15,8 +16,8 @@ impl Mux {
         mutation: &'static str,
     ) -> anyhow::Result<()> {
         let Some(id) = source.terminal_public_id() else { return Ok(()) };
-        let mut registry = self.workspace_registry.lock().unwrap();
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
+        let mut state = self.lock_state_pinned(&registry).recover_poison();
         let Some(current) = state.terminal_catalog.get(id).cloned() else { return Ok(()) };
         if current.terminal_runtime_id() != source.terminal_runtime_id() {
             return Ok(());

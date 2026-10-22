@@ -1,6 +1,8 @@
 //! Resource close effects: surface and terminal close effects, legacy terminal closes, terminal exit detach projection, and the close plan and commit.
 
 use super::*;
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     #[allow(clippy::too_many_arguments)]
@@ -13,7 +15,7 @@ impl Mux {
         fingerprint: &Value,
     ) -> anyhow::Result<CommittedResourceClose> {
         debug_assert!(is_resource_close_operation(operation));
-        let path: ResolvedResourcePath = serde_json::from_value(intent["path"].clone())
+        let path: ResolvedResourcePath = serde_json::from_value(intent.field("path").clone())
             .context("stored topology close intent has an invalid path")?;
         let workspace = self
             .effect_slots(&path)?
@@ -36,8 +38,8 @@ impl Mux {
         operation_name: &str,
         fingerprint: &Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
-        let _creation_fence = self.resource_creation_execution.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.lock().recover_poison();
+        let _creation_fence = self.resource_creation_execution.lock().recover_poison();
         let workspace =
             self.surface_workspace(surface).context("content close target has no workspace")?;
         let committed = self.commit_resource_close_with(
@@ -72,8 +74,8 @@ impl Mux {
         operation_name: &str,
         fingerprint: &Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
-        let _creation_fence = self.resource_creation_execution.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.lock().recover_poison();
+        let _creation_fence = self.resource_creation_execution.lock().recover_poison();
         let terminal_id = terminal_id.clone();
         let committed = self.commit_resource_close_with(
             ResourceOperation::TerminalClose,
@@ -109,18 +111,22 @@ impl Mux {
         mutation: &WorkspaceMutation,
         guard: TerminalCloseGuard,
     ) -> anyhow::Result<Option<TerminalCloseResult>> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
-        let _creation_fence = self.resource_creation_execution.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.lock().recover_poison();
+        let _creation_fence = self.resource_creation_execution.lock().recover_poison();
         let notifications = self.tree_decorations();
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         if let Some(terminal) =
             registry.replay_terminal_close(mutation, terminal_id, expected_incarnation)?
         {
             let result = TerminalCloseResult {
                 surface: None,
                 terminal_id: terminal_id.to_string(),
-                terminal_incarnation: terminal.result["incarnation"].as_str().map(str::to_string),
-                already_closed: terminal.result["already_closed"].as_bool().unwrap_or(false),
+                terminal_incarnation: terminal
+                    .result
+                    .field("incarnation")
+                    .as_str()
+                    .map(str::to_string),
+                already_closed: terminal.result.field("already_closed").as_bool().unwrap_or(false),
                 terminal_revision: terminal.revision,
             };
             drop(registry);
@@ -131,7 +137,7 @@ impl Mux {
         let Some(public_id) = registry.terminal_resource_id(terminal_id)? else {
             return Ok(None);
         };
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut state = self.lock_state_pinned(&registry).recover_poison();
         if guard == TerminalCloseGuard::UnplacedAndNotKept {
             // The registry lock serializes placement commits and the creation
             // fence excludes a creation between runtime and placement, so
@@ -252,7 +258,7 @@ impl Mux {
             }));
         }
         #[cfg(test)]
-        if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
+        if let Some(hook) = self.resource_projection_before_commit.lock().recover_poison().clone() {
             hook();
         }
         let committed = registry.close_terminal_with_resource_patch(
@@ -272,10 +278,16 @@ impl Mux {
                 let result = TerminalCloseResult {
                     surface: None,
                     terminal_id: terminal_id.to_string(),
-                    terminal_incarnation: terminal.result["incarnation"]
+                    terminal_incarnation: terminal
+                        .result
+                        .field("incarnation")
                         .as_str()
                         .map(str::to_string),
-                    already_closed: terminal.result["already_closed"].as_bool().unwrap_or(false),
+                    already_closed: terminal
+                        .result
+                        .field("already_closed")
+                        .as_bool()
+                        .unwrap_or(false),
                     terminal_revision: terminal.revision,
                 };
                 drop(state);
@@ -289,10 +301,16 @@ impl Mux {
                 let result = TerminalCloseResult {
                     surface: None,
                     terminal_id: terminal_id.to_string(),
-                    terminal_incarnation: terminal.result["incarnation"]
+                    terminal_incarnation: terminal
+                        .result
+                        .field("incarnation")
                         .as_str()
                         .map(str::to_string),
-                    already_closed: terminal.result["already_closed"].as_bool().unwrap_or(false),
+                    already_closed: terminal
+                        .result
+                        .field("already_closed")
+                        .as_bool()
+                        .unwrap_or(false),
                     terminal_revision: terminal.revision,
                 };
                 drop(state);
@@ -306,10 +324,11 @@ impl Mux {
             }
         };
         #[cfg(test)]
-        if let Some(hook) = self.resource_close_after_commit.lock().unwrap().clone() {
+        if let Some(hook) = self.resource_close_after_commit.lock().recover_poison().clone() {
             hook();
         }
-        if !terminal.replayed && !terminal.result["already_closed"].as_bool().unwrap_or(false) {
+        if !terminal.replayed && !terminal.result.field("already_closed").as_bool().unwrap_or(false)
+        {
             self.emit_terminal_registry_changed(&registry, terminal.revision);
         }
         let mut effects = plan.install(&mut state, resource.revision, workspace_revision);
@@ -324,8 +343,8 @@ impl Mux {
         Ok(Some(TerminalCloseResult {
             surface: target,
             terminal_id: terminal_id.to_string(),
-            terminal_incarnation: terminal.result["incarnation"].as_str().map(str::to_string),
-            already_closed: terminal.result["already_closed"].as_bool().unwrap_or(false),
+            terminal_incarnation: terminal.result.field("incarnation").as_str().map(str::to_string),
+            already_closed: terminal.result.field("already_closed").as_bool().unwrap_or(false),
             terminal_revision: terminal.revision,
         }))
     }
@@ -431,12 +450,12 @@ impl Mux {
             .as_array_mut()
             .context("terminal exit topology changes are not an array")?;
         public_changes.retain(|change| {
-            !(change["kind"] == "delete"
-                && change["resource"] == "terminal"
-                && change["id"].as_str() == Some(terminal_public_id.as_str()))
+            !(change.field("kind") == "delete"
+                && change.field("resource") == "terminal"
+                && change.field("id").as_str() == Some(terminal_public_id.as_str()))
         });
         for (sequence, change) in public_changes.iter_mut().enumerate() {
-            change["sequence"] = json!(sequence);
+            change.set_field("sequence", json!(sequence));
         }
 
         Ok(Some(TerminalExitDetachProjection {
@@ -486,10 +505,11 @@ impl Mux {
         resolve_slots: impl FnOnce(&State) -> anyhow::Result<EffectSlots>,
     ) -> anyhow::Result<CommittedResourceClose> {
         let lifecycle = workspace.map(|workspace| self.workspace_lifecycle(workspace));
-        let workspace_lifecycle = lifecycle.as_ref().map(|lifecycle| lifecycle.lock().unwrap());
+        let workspace_lifecycle =
+            lifecycle.as_ref().map(|lifecycle| lifecycle.lock().recover_poison());
         let notifications = self.tree_decorations();
-        let mut registry = self.workspace_registry.lock().unwrap();
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
+        let mut state = self.lock_state_pinned(&registry).recover_poison();
         let slots = resolve_slots(&state)?;
         if let Some(workspace) = workspace {
             anyhow::ensure!(
@@ -516,7 +536,7 @@ impl Mux {
             projection.ensure_terminal_close(terminal_id, expected_incarnation)?;
         }
         #[cfg(test)]
-        if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
+        if let Some(hook) = self.resource_projection_before_commit.lock().recover_poison().clone() {
             hook();
         }
         let close = registry.commit_resource_close_patch(
@@ -530,7 +550,7 @@ impl Mux {
             plan.workspace_close.as_ref(),
         )?;
         #[cfg(test)]
-        if let Some(hook) = self.resource_close_after_commit.lock().unwrap().clone() {
+        if let Some(hook) = self.resource_close_after_commit.lock().recover_poison().clone() {
             hook();
         }
         let mut effects =
@@ -555,7 +575,7 @@ impl Mux {
         }
 
         #[cfg(test)]
-        if let Some(hook) = self.resource_close_cleanup.lock().unwrap().clone() {
+        if let Some(hook) = self.resource_close_cleanup.lock().recover_poison().clone() {
             hook();
         }
         self.publish_resource_event();

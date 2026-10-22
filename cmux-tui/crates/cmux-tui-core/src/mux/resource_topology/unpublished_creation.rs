@@ -11,6 +11,7 @@
 use std::sync::PoisonError;
 
 use super::*;
+use crate::panic_free::JsonField;
 
 impl Mux {
     pub(super) fn settle_unpublished_creation(
@@ -33,11 +34,12 @@ impl Mux {
         // the receipt's evidence is a closed terminal, whose settlement
         // already rolls the workspace back. A rollback that fails leaves the
         // effect indeterminate, as before.
-        let rolled_back = match recovery.intent["terminal_reservation"]["terminal_id"].as_str() {
-            Some(terminal_id) => self.close_unpublished_terminal(terminal_id),
-            None => Ok(()),
-        }
-        .and_then(|()| self.rollback_interrupted_workspace_creation(&recovery.intent));
+        let rolled_back =
+            match recovery.intent.field("terminal_reservation").field("terminal_id").as_str() {
+                Some(terminal_id) => self.close_unpublished_terminal(terminal_id),
+                None => Ok(()),
+            }
+            .and_then(|()| self.rollback_interrupted_workspace_creation(&recovery.intent));
         if let Err(error) = rolled_back {
             eprintln!("cmux-tui: a failed creation could not be rolled back: {error:#}");
             self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;

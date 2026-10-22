@@ -1,6 +1,7 @@
 //! Terminal host link: lifecycle transitions, pending host registration and callback matching, and host connection loss and reconnect.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     pub(super) fn transition_terminal_lifecycle(
@@ -15,7 +16,7 @@ impl Mux {
             lifecycle != TerminalLifecycle::Exited,
             "terminal exits must use the durable public exit latch"
         );
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         let result = commit_terminal_lifecycle(
             &mut registry,
             event_kind,
@@ -35,7 +36,7 @@ impl Mux {
         surface_id: SurfaceId,
         identity: TerminalHostIdentity,
     ) -> anyhow::Result<PendingTerminalHostBinding> {
-        let registry = self.workspace_registry.lock().unwrap();
+        let registry = self.workspace_registry.lock().recover_poison();
         let terminal = registry
             .terminal_record(&identity.terminal_id)?
             .ok_or_else(|| anyhow::anyhow!("pending terminal host is not registered"))?;
@@ -52,7 +53,7 @@ impl Mux {
         }
         drop(registry);
 
-        let mut pending = self.pending_terminal_hosts.lock().unwrap();
+        let mut pending = self.pending_terminal_hosts.lock().recover_poison();
         anyhow::ensure!(
             !pending.contains_key(&surface_id),
             "surface already has a pending terminal host"
@@ -73,7 +74,8 @@ impl Mux {
         terminal: &RegistryTerminal,
         identity: &TerminalHostIdentity,
     ) -> bool {
-        let expected = self.pending_terminal_hosts.lock().unwrap().get(&surface_id).cloned();
+        let expected =
+            self.pending_terminal_hosts.lock().recover_poison().get(&surface_id).cloned();
         let Some(expected) = expected else { return false };
         !surface_registered
             && expected == *identity
@@ -109,11 +111,11 @@ impl Mux {
         if self.shutting_down.load(Ordering::Acquire) {
             return false;
         }
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         let Ok(Some(terminal)) = registry.terminal_record(&identity.terminal_id) else {
             return false;
         };
-        let state = self.lock_state_pinned(&registry).unwrap();
+        let state = self.lock_state_pinned(&registry).recover_poison();
         let surface =
             state.surfaces.get(&surface_id).or_else(|| state.terminal_runtime_by_id(surface_id));
         let identity_matches = surface
@@ -176,11 +178,11 @@ impl Mux {
         if self.shutting_down.load(Ordering::Acquire) {
             return false;
         }
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         let Ok(Some(terminal)) = registry.terminal_record(&identity.terminal_id) else {
             return false;
         };
-        let state = self.lock_state_pinned(&registry).unwrap();
+        let state = self.lock_state_pinned(&registry).recover_poison();
         let surface = state
             .surfaces
             .get(&surface_id)
@@ -277,7 +279,7 @@ impl Mux {
     }
 
     pub(crate) fn lock_client_sizing_lifecycle(&self) -> MutexGuard<'_, ()> {
-        self.client_sizing_lifecycle.lock().unwrap()
+        self.client_sizing_lifecycle.lock().recover_poison()
     }
 
     #[cfg(debug_assertions)]

@@ -7,6 +7,8 @@ use std::time::Instant;
 use super::scoped_projection::{LiveTreeInput, check_scope_containment, tab_row_unchanged};
 use super::*;
 use crate::diagnostics::ProjectionSpans;
+#[cfg(test)]
+use crate::panic_free::RecoverPoison;
 use crate::workspace_registry::RegistryTerminal;
 
 impl Mux {
@@ -580,8 +582,8 @@ impl Mux {
 
     #[cfg(test)]
     pub(crate) fn resource_effect_projection(&self) -> anyhow::Result<ResourceEffectProjection> {
-        let registry = self.workspace_registry.lock().unwrap();
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let registry = self.workspace_registry.lock().recover_poison();
+        let mut state = self.lock_state_pinned(&registry).recover_poison();
         self.resource_effect_projection_locked(&registry, &mut state, json!({}))
     }
 }

@@ -1,6 +1,7 @@
 //! Layout resizes: split ratio and viewport pane width commands, with checked, transaction and in-process transaction variants.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     /// Set the deepest split ratio in `dir` on the path to `pane`.
@@ -113,7 +114,7 @@ impl Mux {
     ) -> Result<(), LayoutRatioError> {
         let ratio = clamp_split_ratio(ratio);
         let target = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             let Some((workspace_index, screen_index, owner)) =
                 state.split_screens.get(&split).copied()
             else {
@@ -303,7 +304,7 @@ impl Mux {
             return Err(ViewportWidthError::OutOfRange { width });
         }
         {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             let Some((workspace_index, screen_index)) = state.screen_of(pane) else {
                 return Err(ViewportWidthError::PaneNotResizable { pane });
             };

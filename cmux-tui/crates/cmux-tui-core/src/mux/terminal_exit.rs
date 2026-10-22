@@ -7,6 +7,8 @@ use anyhow::Context;
 use serde_json::{Value, json};
 
 use super::*;
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 use crate::terminal_end::TerminalEnd;
 
 impl Mux {
@@ -17,7 +19,7 @@ impl Mux {
         exit: &TerminalExit,
     ) -> anyhow::Result<bool> {
         let (host_id, incarnation) = {
-            let registry = self.workspace_registry.lock().unwrap();
+            let registry = self.workspace_registry.lock().recover_poison();
             let host_id = registry
                 .live_terminal_host_id(terminal_id)?
                 .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
@@ -81,8 +83,8 @@ impl Mux {
             self.emit(MuxEvent::SurfaceExited(id, None));
             return;
         }
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
-        let _creation_fence = self.resource_creation_execution.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.lock().recover_poison();
+        let _creation_fence = self.resource_creation_execution.lock().recover_poison();
         if let Some(surface) = self.surface(id)
             && let Some(identity) = self.resource_terminal_host_identity(&surface)
         {
@@ -208,7 +210,7 @@ impl Mux {
         // restart (the dead tab's cause comes back from the log).
         #[cfg(any(unix, windows))]
         let host_loss =
-            self.surface_options.lock().unwrap().terminal_host_root.clone().map(|root| {
+            self.surface_options.lock().recover_poison().terminal_host_root.clone().map(|root| {
                 let mut loss = crate::terminal_loss_log::HostLoss::read(
                     &root.join(format!("{terminal_id}.json")),
                     terminal_id,
@@ -222,7 +224,7 @@ impl Mux {
         #[cfg(any(unix, windows))]
         let respawn_candidate =
             settle_until_ms.is_none().then(|| self.respawn_candidate(incarnation, end)).flatten();
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         let terminal = registry
             .terminal_record(terminal_id)?
             .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
@@ -250,7 +252,7 @@ impl Mux {
             self.emit_terminal_registry_changed(&registry, terminal_revision);
             return Ok(true);
         }
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut state = self.lock_state_pinned(&registry).recover_poison();
         let terminal_snapshot = if matches!(
             terminal.lifecycle,
             TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
@@ -306,8 +308,8 @@ impl Mux {
             // this revision derives `tab_id: null, tab_ids: []` from topology;
             // a delta that disagrees leaves clients with a graph that no
             // snapshot at the same cursor can confirm.
-            terminal_snapshot["tab_id"] = Value::Null;
-            terminal_snapshot["tab_ids"] = serde_json::json!([]);
+            terminal_snapshot.set_field("tab_id", Value::Null);
+            terminal_snapshot.set_field("tab_ids", serde_json::json!([]));
         }
         let topology = detach_projection.as_ref().map(|projection| {
             (&projection.patch, &projection.changes, projection.workspace_close.as_ref())
@@ -379,7 +381,7 @@ impl Mux {
                 // Best-effort: a snapshot store failure must not disturb the
                 // exit latch that already committed above.
                 if let Err(error) =
-                    self.workspace_registry.lock().unwrap().put_terminal_exit_snapshot(
+                    self.workspace_registry.lock().recover_poison().put_terminal_exit_snapshot(
                         snapshot_terminal_id.as_str(),
                         &generation,
                         covered_through,
@@ -461,7 +463,7 @@ impl Mux {
     }
 
     fn detach_exited_terminal_topology_only(&self, terminal_id: &str) -> anyhow::Result<bool> {
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         let terminal = registry
             .terminal_record(terminal_id)?
             .with_context(|| format!("unknown terminal {terminal_id}"))?;
@@ -492,7 +494,7 @@ impl Mux {
             // owner that no longer knows this shutdown window agrees. Best
             // effort: on failure the tab stays dead now and a later owner
             // that still knows the window settles it again.
-            let mut state = self.lock_state_pinned(&registry).unwrap();
+            let mut state = self.lock_state_pinned(&registry).recover_poison();
             let settled = terminal_exit_snapshot_in_state(&registry, &state, terminal_id).and_then(
                 |snapshot| registry.settle_terminal_exit(terminal_id, recorded, lost, snapshot),
             );
@@ -518,7 +520,7 @@ impl Mux {
         let Some(terminal_public_id) = registry.terminal_resource_id(terminal_id)? else {
             return Ok(false);
         };
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut state = self.lock_state_pinned(&registry).recover_poison();
         // Tabs the workspace store keeps (`kept_tabs`, keep-layout) survive
         // the terminal's exit and owner restarts; a frontend relaunches them.
         if Self::terminal_tabs_kept_locked(&registry, &state, &terminal_public_id)? {

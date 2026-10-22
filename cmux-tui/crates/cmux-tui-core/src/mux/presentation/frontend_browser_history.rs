@@ -5,6 +5,7 @@
 //! the tree.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     /// Record the URL, title, or favicon a frontend-rendered browser
@@ -73,7 +74,7 @@ impl Mux {
             crate::state::window_record_store::validate_key("owner", owner)?;
         }
         let (mut record, mut changed) = {
-            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut registry = self.workspace_registry.lock().recover_poison();
             let result = registry.update_frontend_browser(
                 browser_id.as_str(),
                 url.as_deref(),
@@ -128,14 +129,14 @@ impl Mux {
         history: Option<String>,
     ) -> anyhow::Result<()> {
         let browser_id = self.require_frontend_browser_id(surface)?;
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         registry.set_frontend_browser_history(browser_id.as_str(), history.as_deref())
     }
 
     /// The session history last stored for a frontend-rendered browser.
     pub fn frontend_browser_history(&self, surface: SurfaceId) -> anyhow::Result<Option<String>> {
         let browser_id = self.require_frontend_browser_id(surface)?;
-        let registry = self.workspace_registry.lock().unwrap();
+        let registry = self.workspace_registry.lock().recover_poison();
         registry.frontend_browser_history(browser_id.as_str())
     }
 }

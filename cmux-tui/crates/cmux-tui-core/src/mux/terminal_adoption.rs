@@ -2,6 +2,7 @@
 //! terminal hosts, template terminals, and scheduling adoption work.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     #[cfg(any(unix, windows))]
@@ -9,12 +10,12 @@ impl Mux {
         &self,
         terminal_id: &str,
     ) -> anyhow::Result<Option<RestoredTerminalBinding>> {
-        let registry = self.workspace_registry.lock().unwrap();
+        let registry = self.workspace_registry.lock().recover_poison();
         let Some(public_id) = registry.terminal_resource_id(terminal_id)? else {
             return detached_terminals::detached_adoption_binding(&registry, terminal_id);
         };
         drop(registry);
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         let content_id = ContentPublicId::Terminal(public_id.clone());
         let placements = state
             .placements_of_content(&content_id)
@@ -74,7 +75,7 @@ impl Mux {
 
     #[cfg(any(unix, windows))]
     pub(super) fn adopt_terminal_hosts(self: &Arc<Self>) -> anyhow::Result<()> {
-        let options = self.surface_options.lock().unwrap().clone();
+        let options = self.surface_options.lock().recover_poison().clone();
         let exit_records = match options.terminal_host_root.as_deref() {
             Some(root) => crate::terminal_host_runtime::load_terminal_host_exit_records(root)?,
             None => Vec::new(),
@@ -108,8 +109,11 @@ impl Mux {
         // them before live discovery records so a daemon crash after host
         // completion cannot collapse the exact status into "host missing".
         for (exit_path, record) in exit_records {
-            let Some(terminal) =
-                self.workspace_registry.lock().unwrap().terminal_record(&record.terminal_id)?
+            let Some(terminal) = self
+                .workspace_registry
+                .lock()
+                .recover_poison()
+                .terminal_record(&record.terminal_id)?
             else {
                 continue;
             };
@@ -176,7 +180,7 @@ impl Mux {
                 && !template_claimed
                 && options.adopt_template_terminal
                 && detached_terminals::names_a_workspace(&record.workspace_key)
-                && self.state.lock().unwrap().workspaces.is_empty()
+                && self.state.lock().recover_poison().workspaces.is_empty()
                 && terminal_host_record_liveness(&record_path, &record)
                     == TerminalHostLiveness::Live
             {
@@ -189,7 +193,12 @@ impl Mux {
                 // became placement authority. Never trust the JSON hint when
                 // its workspace no longer exists.
                 let workspace_exists = !record.workspace_key.is_empty()
-                    && self.state.lock().unwrap().workspace_by_key(&record.workspace_key).is_some();
+                    && self
+                        .state
+                        .lock()
+                        .recover_poison()
+                        .workspace_by_key(&record.workspace_key)
+                        .is_some();
                 if workspace_exists {
                     let imported = RegistryTerminal {
                         terminal_id: terminal_id.clone(),
@@ -200,7 +209,7 @@ impl Mux {
                         exit: None,
                         on_exit: TerminalOnExit::Close,
                     };
-                    let mut registry = self.workspace_registry.lock().unwrap();
+                    let mut registry = self.workspace_registry.lock().recover_poison();
                     let revision = commit_terminal_transition(
                         &mut registry,
                         "terminal-imported",
@@ -275,8 +284,11 @@ impl Mux {
         for ((record, record_path, public_id), marked) in candidates.into_iter().zip(marked) {
             let terminal_id = record.terminal_id.clone();
             if let Err(error) = marked {
-                let current =
-                    self.workspace_registry.lock().unwrap().terminal_record(&terminal_id)?;
+                let current = self
+                    .workspace_registry
+                    .lock()
+                    .recover_poison()
+                    .terminal_record(&terminal_id)?;
                 if current.as_ref().is_some_and(|terminal| {
                     matches!(
                         terminal.lifecycle,
@@ -362,7 +374,7 @@ impl Mux {
         // No launcher survives a daemon restart. A durable lifecycle row
         // without a host-owned record therefore represents a closed crash
         // window, not permission to spawn a replacement shell.
-        let snapshot = self.workspace_registry.lock().unwrap().terminal_snapshot()?;
+        let snapshot = self.workspace_registry.lock().recover_poison().terminal_snapshot()?;
         for terminal in snapshot.terminals {
             if terminal.lifecycle == TerminalLifecycle::Tombstoned
                 || handled_terminals.contains(&terminal.terminal_id)
@@ -460,7 +472,8 @@ impl Mux {
     /// appears includes the terminal it names.
     #[cfg(any(unix, windows))]
     pub(super) fn complete_template_adoption(&self, terminal_id: &str) -> anyhow::Result<()> {
-        let terminal = self.workspace_registry.lock().unwrap().terminal_record(terminal_id)?;
+        let terminal =
+            self.workspace_registry.lock().recover_poison().terminal_record(terminal_id)?;
         // A recovered terminal (cx-0tgl LC) is placed the same way; only a
         // Cloud template gets the identity binding below.
         let Some(terminal) = terminal.filter(orphan_hosts::placed_on_adoption) else {
@@ -475,7 +488,7 @@ impl Mux {
             "terminal.adopt-template",
             serde_json::json!({}),
         )?;
-        let bound_file = self.surface_options.lock().unwrap().template_bound_file.clone();
+        let bound_file = self.surface_options.lock().recover_poison().template_bound_file.clone();
         if let Some(path) = bound_file.filter(|_| is_template_terminal(&terminal)) {
             self.publish_template_binding(terminal_id, &path)?;
         }
@@ -508,7 +521,7 @@ impl Mux {
             exit: None,
             on_exit: TerminalOnExit::Close,
         };
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         let revision = commit_terminal_transition(
             &mut registry,
             "terminal-template-claimed",
@@ -533,7 +546,7 @@ impl Mux {
     ) -> anyhow::Result<()> {
         let session_id = self.session_public_id();
         let terminal_public_id = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             state
                 .surfaces
                 .iter()
@@ -581,7 +594,8 @@ impl Mux {
         if self.terminal_is_respawning(terminal_id) {
             return Ok(());
         }
-        let terminal = self.workspace_registry.lock().unwrap().terminal_record(terminal_id)?;
+        let terminal =
+            self.workspace_registry.lock().recover_poison().terminal_record(terminal_id)?;
         let Some(terminal) = terminal else { return Ok(()) };
         if terminal.lifecycle == TerminalLifecycle::Tombstoned {
             return Ok(());
@@ -641,8 +655,8 @@ impl Mux {
             self.persist_terminal_exit(terminal_id, Some(incarnation), &end)?;
             anyhow::bail!("terminal host exited during adoption");
         }
-        let mut registry = self.workspace_registry.lock().unwrap();
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
+        let mut state = self.lock_state_pinned(&registry).recover_poison();
         let terminal = registry
             .terminal_record(terminal_id)?
             .ok_or_else(|| anyhow::anyhow!("terminal disappeared during adoption"))?;
@@ -825,7 +839,7 @@ impl Mux {
         first_delay: Duration,
     ) {
         let terminal_id = record.terminal_id.clone();
-        if !self.terminal_adoptions.lock().unwrap().insert(terminal_id.clone()) {
+        if !self.terminal_adoptions.lock().recover_poison().insert(terminal_id.clone()) {
             return;
         }
         let cleanup_id = terminal_id.clone();
@@ -860,8 +874,11 @@ impl Mux {
                         break;
                     }
                     // A failed read proves nothing about the host: retry.
-                    let Ok(terminal) =
-                        mux.workspace_registry.lock().unwrap().terminal_record(&terminal_id)
+                    let Ok(terminal) = mux
+                        .workspace_registry
+                        .lock()
+                        .recover_poison()
+                        .terminal_record(&terminal_id)
                     else {
                         delay = (delay * 2).min(Duration::from_secs(5));
                         continue;
@@ -1054,10 +1071,10 @@ impl Mux {
                     delay = (delay * 2).min(Duration::from_secs(5));
                 }
                 mux.clear_adopting_marker(&terminal_id);
-                mux.terminal_adoptions.lock().unwrap().remove(&terminal_id);
+                mux.terminal_adoptions.lock().recover_poison().remove(&terminal_id);
             });
         if spawn_result.is_err() {
-            self.terminal_adoptions.lock().unwrap().remove(&cleanup_id);
+            self.terminal_adoptions.lock().recover_poison().remove(&cleanup_id);
             self.clear_pending_terminal(&cleanup_id);
         }
     }

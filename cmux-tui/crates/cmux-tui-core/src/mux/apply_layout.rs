@@ -1,6 +1,7 @@
 //! Applying layouts: apply_layout, layout instantiation, and discarding spawned surfaces on failure.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     pub fn apply_layout_as(
@@ -12,7 +13,7 @@ impl Mux {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<AppliedLayout> {
         let target_workspace = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             if let Some(id) = workspace
                 && !state.workspaces.iter().any(|ws| ws.id == id)
             {
@@ -35,16 +36,18 @@ impl Mux {
             ),
         };
         let workspace_lifecycle = self.workspace_lifecycle(target_workspace);
-        let workspace_lifecycle_guard = workspace_lifecycle.lock().unwrap();
+        let workspace_lifecycle_guard = workspace_lifecycle.lock().recover_poison();
         let workspace_key = self
             .state
             .lock()
-            .unwrap()
+            .recover_poison()
             .workspace_by_id(target_workspace)
             .map(|workspace| workspace.key.clone())
             .ok_or_else(|| anyhow::anyhow!("layout workspace disappeared"))?;
         #[cfg(test)]
-        if let Some(hook) = self.layout_apply_after_workspace_reservation.lock().unwrap().clone() {
+        if let Some(hook) =
+            self.layout_apply_after_workspace_reservation.lock().recover_poison().clone()
+        {
             hook();
         }
 
@@ -84,7 +87,7 @@ impl Mux {
         let screen_id = self.next_id();
         let notifications = self.tree_decorations();
         let delta = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             let Some(workspace_index) = state.workspace_index(target_workspace) else {
                 drop(state);
                 self.discard_spawned(actor, spawned);
@@ -281,7 +284,7 @@ impl Mux {
             .filter_map(|surface| self.resource_terminal_host_identity(surface))
             .map(|identity| (identity.terminal_id, Some(identity.incarnation)))
             .collect::<Vec<_>>();
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         let close = Self::terminal_public_ids_for_hosted(&registry, &hosted).and_then(
             |closed_public_ids| {
                 registry
@@ -302,7 +305,7 @@ impl Mux {
                 let mut topology_changed = false;
                 let mut projection_errors = Vec::new();
                 {
-                    let mut state = self.lock_state_pinned(&registry).unwrap();
+                    let mut state = self.lock_state_pinned(&registry).recover_poison();
                     for (terminal_id, _) in &hosted {
                         let terminal = match registry.terminal_record(terminal_id) {
                             Ok(Some(terminal))
@@ -346,7 +349,7 @@ impl Mux {
             }
         };
         let removed = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             let mut removed = Vec::new();
             for surface in &spawned {
                 removed.extend(remove_terminal_runtime_from_state(self, &mut state, surface).0);

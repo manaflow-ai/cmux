@@ -1,6 +1,8 @@
 //! Workspace rename: revision-checked, provider-managed and selector paths.
 
 use super::*;
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     pub fn rename_workspace_at_revision_as(
@@ -124,7 +126,7 @@ impl Mux {
     ) -> anyhow::Result<Option<(WorkspaceId, String, u64)>> {
         let authority = self.authorize_workspace_lifecycle_mutation(authorization, "rename")?;
         let resolved = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             Self::require_workspace_revision(&state, expected_revision)?;
             Self::resolve_workspace_selector(&state, id, key)?
         };
@@ -165,15 +167,15 @@ impl Mux {
             "name": name,
         });
         if let Some(name_fingerprint) = name_authority.fingerprint() {
-            fingerprint["name_authority"] = name_fingerprint;
+            fingerprint.set_field("name_authority", name_fingerprint);
         }
         let notifications = self.tree_decorations();
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             return workspace_mutation_result(&commit);
         }
         let (renamed, result) = {
-            let mut state = self.lock_state_pinned(&registry).unwrap();
+            let mut state = self.lock_state_pinned(&registry).recover_poison();
             Self::require_workspace_revision(&state, expected_revision)?;
             let index = resolve_workspace_index(&state, target, requested_key)?;
             let workspace_id = state.workspaces[index].id;

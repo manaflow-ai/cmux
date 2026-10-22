@@ -13,6 +13,7 @@ use super::insert_surface_checked;
 use super::remove_terminal_runtime_from_state;
 use super::{Mux, commit_terminal_lifecycle};
 use crate::model::State;
+use crate::panic_free::RecoverPoison;
 use crate::resource::TerminalPublicId;
 use crate::surface::Surface;
 #[cfg(unix)]
@@ -44,7 +45,7 @@ impl FirstView {
         let mut changes = Vec::with_capacity(4);
         if let Some((identity, terminal)) = first {
             changes.push(ResourceChange::UpsertTerminal { public_id: public_id.clone(), terminal });
-            *self.0.lock().unwrap() = Some((surface, identity));
+            *self.0.lock().recover_poison() = Some((surface, identity));
         }
         changes
     }
@@ -69,9 +70,9 @@ impl Mux {
     ) -> anyhow::Result<BackendTerminal> {
         let id = self.next_id();
         let terminal_id = TerminalPublicId::random()?;
-        let opts = self.surface_options.lock().unwrap().clone();
+        let opts = self.surface_options.lock().recover_poison().clone();
         let cell_pixels = {
-            let cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+            let cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().recover_poison();
             let cell_pixels = self.cell_pixel_creation_size();
             drop(cell_pixel_lifecycle);
             cell_pixels
@@ -92,21 +93,21 @@ impl Mux {
             }
         };
         let insert_result =
-            insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone());
+            insert_surface_checked(&mut self.state.lock().recover_poison(), surface.clone());
         drop(cell_pixel_lifecycle);
         if let Err(error) = insert_result {
             surface.kill();
             return Err(error);
         }
-        self.app_terminals.lock().unwrap().insert(id);
+        self.app_terminals.lock().recover_poison().insert(id);
         Ok(BackendTerminal { surface: id, terminal_id })
     }
 
     /// True when `surface` is an app backend terminal that has no durable
     /// record yet (it was never projected).
     pub(crate) fn is_unregistered_app_terminal(&self, surface: SurfaceId) -> bool {
-        self.app_terminals.lock().unwrap().contains(&surface)
-            && !self.reserved_in_process_terminals.lock().unwrap().contains_key(&surface)
+        self.app_terminals.lock().recover_poison().contains(&surface)
+            && !self.reserved_in_process_terminals.lock().recover_poison().contains_key(&surface)
     }
 
     /// For the first view of an app terminal (no durable record yet): a new
@@ -142,11 +143,13 @@ impl Mux {
     /// After a committed first view: the terminal keeps its identity and its
     /// record becomes running with that incarnation.
     pub(crate) fn finish_app_terminal_first_view(&self, first: &FirstView) -> anyhow::Result<()> {
-        let Some((surface, identity)) = first.0.lock().unwrap().take() else { return Ok(()) };
+        let Some((surface, identity)) = first.0.lock().recover_poison().take() else {
+            return Ok(());
+        };
         let (terminal_id, incarnation) =
             (identity.terminal_id.clone(), identity.incarnation.clone());
-        self.reserved_in_process_terminals.lock().unwrap().insert(surface, identity);
-        let mut registry = self.workspace_registry.lock().unwrap();
+        self.reserved_in_process_terminals.lock().recover_poison().insert(surface, identity);
+        let mut registry = self.workspace_registry.lock().recover_poison();
         let (_, revision) = commit_terminal_lifecycle(
             &mut registry,
             "terminal-ready",
@@ -164,7 +167,7 @@ impl Mux {
     /// durable record).
     #[cfg_attr(not(unix), allow(dead_code))]
     pub(crate) fn backend_terminal_viewed(&self, surface: SurfaceId) -> bool {
-        self.reserved_in_process_terminals.lock().unwrap().contains_key(&surface)
+        self.reserved_in_process_terminals.lock().recover_poison().contains_key(&surface)
     }
 
     /// Removes and stops a never-viewed backend terminal (its killer closes
@@ -175,9 +178,9 @@ impl Mux {
         if !self.is_unregistered_app_terminal(id) {
             return;
         }
-        self.app_terminals.lock().unwrap().remove(&id);
+        self.app_terminals.lock().recover_poison().remove(&id);
         let removed = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             let Some(surface) = state.surfaces.get(&id).cloned() else { return };
             let (mut removed, _) = remove_terminal_runtime_from_state(self, &mut state, &surface);
             if let Some(runtime) = state.surfaces.remove(&id) {

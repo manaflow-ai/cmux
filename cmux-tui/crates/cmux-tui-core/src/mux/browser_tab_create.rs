@@ -9,6 +9,7 @@
 
 use super::tab_strip::StripRequest;
 use super::*;
+use crate::panic_free::RecoverPoison;
 use crate::resource::BrowserPublicId;
 
 /// Advertised by `identify` once `new-frontend-browser-tab` takes `activate`.
@@ -178,7 +179,7 @@ impl Mux {
     ) -> anyhow::Result<Arc<Surface>> {
         let FrontendTabPlacement { activate, after, index: strip_index } = placement;
         let (target, empty_workspace) = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             let target = match pane {
                 Some(id) => {
                     if !state.panes.contains_key(&id) {
@@ -222,7 +223,7 @@ impl Mux {
             let notifications = self.tree_decorations();
             if let Some(workspace_id) = empty_workspace {
                 let delta = {
-                    let mut state = self.state.lock().unwrap();
+                    let mut state = self.state.lock().recover_poison();
                     let Some(workspace_index) =
                         state.workspaces.iter().position(|workspace| workspace.id == workspace_id)
                     else {
@@ -275,9 +276,9 @@ impl Mux {
             }
             let mutation = WorkspaceMutation::daemon_local("cmux-tui");
             let workspace_public_id = WorkspacePublicId::random()?;
-            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut registry = self.workspace_registry.lock().recover_poison();
             let delta = {
-                let mut state = self.lock_state_pinned(&registry).unwrap();
+                let mut state = self.lock_state_pinned(&registry).recover_poison();
                 let name = self.default_workspace_name(&state);
                 let index = state.workspaces.len();
                 let mut desired = self.registry_projection(&state);
@@ -382,7 +383,7 @@ impl Mux {
         let mut active_index_moved = false;
         let joins;
         let attached = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             // `pinned-dock-v1`: the column may have become pinned meanwhile.
             let operation = ResourceOperation::TabCreateBrowser.wire_name();
             if let Err(error) = ensure_pane_takes_tabs(operation, &state, target) {

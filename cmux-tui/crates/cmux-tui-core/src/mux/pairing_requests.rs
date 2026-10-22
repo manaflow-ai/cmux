@@ -1,6 +1,7 @@
 //! Pairing requests: begin, respond, resolve via the resource API, cancel, authenticate, and list pending pairings.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     pub fn begin_pairing(
@@ -34,7 +35,7 @@ impl Mux {
             "pairing_request_id":pairing_id,
             "decision":decision,
         });
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         if let Some(replay) =
             registry.replay_resource_patch(mutation, "pairing_request.resolve", &fingerprint)?
         {
@@ -62,7 +63,7 @@ impl Mux {
 
         let mut session_selectors = selectors;
         session_selectors.pairing_request = None;
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut state = self.lock_state_pinned(&registry).recover_poison();
         let resolved = self
             .resolve_resource_path_in_state(
                 &state,

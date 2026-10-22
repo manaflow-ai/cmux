@@ -1,6 +1,7 @@
 //! Resource effect field parsing and operation classification: required and optional fields, terminal options, effect targets, and which operations are effectful or create paths.
 
 use super::*;
+use crate::panic_free::JsonField;
 
 pub(super) fn resource_effect_indeterminate(
     idempotency_key: &str,
@@ -124,7 +125,7 @@ pub(super) fn validate_effect_fields(
             let _ = effect_cell_size(fields)?;
         }
         ResourceOperation::WorkspaceLayoutApply => {
-            anyhow::ensure!(fields["layout"].is_object(), "layout must be an object");
+            anyhow::ensure!(fields.field("layout").is_object(), "layout must be an object");
         }
         ResourceOperation::PaneCreate
         | ResourceOperation::TabCreateTerminal

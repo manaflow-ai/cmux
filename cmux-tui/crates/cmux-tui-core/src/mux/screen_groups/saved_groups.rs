@@ -2,6 +2,7 @@
 //! and members that outlive their screens; save, unsave, delete and reopen.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     pub(super) fn saved_members(&self, members: &[ScreenId]) -> Vec<SavedScreenMember> {
@@ -53,7 +54,7 @@ impl Mux {
             updated_at_ms: crate::workspace_registry::unix_epoch_ms()?,
             icon: record.icon,
         };
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         registry.put_saved_screen_group(&saved)?;
         self.reload_presentation(&registry)
     }
@@ -89,7 +90,7 @@ impl Mux {
 
     pub fn delete_saved_screen_group(&self, saved: &str) -> anyhow::Result<bool> {
         let removed = {
-            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut registry = self.workspace_registry.lock().recover_poison();
             let removed = registry.delete_saved_screen_group(saved)?;
             self.reload_presentation(&registry)?;
             removed

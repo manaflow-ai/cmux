@@ -3,6 +3,7 @@
 //! each would publish, after the fields a live surface changes on its own.
 
 use super::*;
+use crate::panic_free::JsonField;
 
 /// `None` when `scoped` commits what `full` would (the same rows after
 /// unchanged-row pruning, the same public values for what it restates, and
@@ -31,9 +32,9 @@ pub(super) fn projection_difference(
     }
     let key = |change: &Value| {
         (
-            change["kind"].as_str().unwrap_or_default().to_string(),
-            change["resource"].as_str().unwrap_or_default().to_string(),
-            change["id"].as_str().unwrap_or_default().to_string(),
+            change.field("kind").as_str().unwrap_or_default().to_string(),
+            change.field("resource").as_str().unwrap_or_default().to_string(),
+            change.field("id").as_str().unwrap_or_default().to_string(),
         )
     };
     let empty = Vec::new();
@@ -93,8 +94,8 @@ pub(super) fn projection_difference(
 /// own threads (output revision, title, size, directory, status): two walks
 /// a moment apart may read different ones.
 fn stable_value(change: &Value) -> Value {
-    let mut value = change["value"].clone();
-    let volatile: &[&str] = match change["resource"].as_str() {
+    let mut value = change.field("value").clone();
+    let volatile: &[&str] = match change.field("resource").as_str() {
         Some("terminal") => &["stream_revision", "title", "cols", "rows", "cwd", "extra"],
         Some("browser") => &["title", "loading", "status", "error", "frames_stalled", "size"],
         _ => &[],

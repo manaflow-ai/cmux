@@ -1,6 +1,8 @@
 //! Terminal exit state and waits: exit snapshots, output reads, exit replay, and exit waiter subscription and notification.
 
 use super::*;
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     /// Read only public terminal completion state. The host UUID and
@@ -12,7 +14,7 @@ impl Mux {
     ) -> anyhow::Result<Value> {
         #[cfg(test)]
         let _query = TerminalExitStateQueryGuard(&self.terminal_exit_state_queries);
-        let registry = self.workspace_registry.lock().unwrap();
+        let registry = self.workspace_registry.lock().recover_poison();
         let host_id = registry
             .terminal_host_id(terminal_id)?
             .ok_or_else(|| anyhow::anyhow!("terminal {terminal_id} is not live"))?;
@@ -83,7 +85,7 @@ impl Mux {
             .filter(|surface| surface.kind() == SurfaceKind::Pty);
         let stream = self.output_store.stream_end(terminal_id);
         let (snapshot, spec_geometry) = {
-            let registry = self.workspace_registry.lock().unwrap();
+            let registry = self.workspace_registry.lock().recover_poison();
             let snapshot = registry.terminal_exit_snapshot(terminal_id.as_str())?;
             let spec_geometry = registry
                 .terminal_host_id(terminal_id)?
@@ -92,8 +94,8 @@ impl Mux {
                 .flatten()
                 .and_then(|terminal| {
                     Some((
-                        u16::try_from(terminal.launch_spec["cols"].as_u64()?).ok()?,
-                        u16::try_from(terminal.launch_spec["rows"].as_u64()?).ok()?,
+                        u16::try_from(terminal.launch_spec.field("cols").as_u64()?).ok()?,
+                        u16::try_from(terminal.launch_spec.field("rows").as_u64()?).ok()?,
                     ))
                 });
             (snapshot, spec_geometry)
@@ -160,8 +162,12 @@ impl Mux {
         if self.output_store.memory_only() {
             return None;
         }
-        let public_terminal_id =
-            self.workspace_registry.lock().unwrap().terminal_resource_id(terminal_id).ok()??;
+        let public_terminal_id = self
+            .workspace_registry
+            .lock()
+            .recover_poison()
+            .terminal_resource_id(terminal_id)
+            .ok()??;
         let surface = self.terminal_resource_surface(&public_terminal_id)?;
         if surface.kind() != SurfaceKind::Pty {
             return None;
@@ -234,7 +240,7 @@ impl Mux {
         // appears in that query or wakes this exact terminal subscription.
         let subscription = self.subscribe_terminal_exit(terminal_id);
         let state = self.terminal_exit_state(terminal_id)?;
-        if state["state"] == "exited" || timeout == Some(Duration::ZERO) {
+        if state.field("state") == "exited" || timeout == Some(Duration::ZERO) {
             return Ok(state);
         }
         let _explicit_wake = subscription.wait_until(deadline);

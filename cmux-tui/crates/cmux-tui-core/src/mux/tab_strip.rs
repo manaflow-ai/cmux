@@ -17,6 +17,8 @@ use std::collections::BTreeSet;
 use super::tab_drag;
 use super::tab_groups::{pane_by_public_id, prune_tab_groups};
 use super::*;
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 use crate::state::store::{state_delete, state_upsert};
 use crate::state::tab_state_store::{
     TabStateUpdate, put_saved_tab_group, saved_tab_group_snapshot, set_tab_pinned,
@@ -182,7 +184,7 @@ impl Mux {
         )?;
         if !commit.replayed {
             {
-                let registry = self.workspace_registry.lock().unwrap();
+                let registry = self.workspace_registry.lock().recover_poison();
                 self.reload_presentation(&registry)?;
             }
             for (surface, _, key) in retarget {
@@ -263,8 +265,8 @@ fn strip_state_write(
         // so restate their group.
         let moved_tabs = changes
             .iter()
-            .filter(|change| change["kind"] == "upsert" && change["resource"] == "tab")
-            .filter_map(|change| change["id"].as_str().map(str::to_string))
+            .filter(|change| change.field("kind") == "upsert" && change.field("resource") == "tab")
+            .filter_map(|change| change.field("id").as_str().map(str::to_string))
             .collect::<BTreeSet<_>>();
         let mut group_ids = changed_groups.clone();
         for (tab, group) in &groups.members {

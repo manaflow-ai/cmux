@@ -19,6 +19,7 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread::JoinHandle;
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 /// Kept for API compatibility: the reaper no longer ticks. It wakes at the
 /// next policy deadline or when a policy or an attachment changes.
@@ -107,7 +108,7 @@ impl Mux {
         idle_close_seconds: Option<u64>,
     ) -> anyhow::Result<()> {
         let result = {
-            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut registry = self.workspace_registry.lock().recover_poison();
             registry.set_terminal_idle_policy(terminal_id, idle_close_seconds)
         };
         self.wake_idle_close_reaper();
@@ -116,7 +117,7 @@ impl Mux {
 
     /// The stored idle-close policy of one hosted terminal.
     pub fn terminal_idle_policy(&self, terminal_id: &str) -> anyhow::Result<Option<u64>> {
-        self.workspace_registry.lock().unwrap().terminal_idle_policy(terminal_id)
+        self.workspace_registry.lock().recover_poison().terminal_idle_policy(terminal_id)
     }
 
     /// One reaper tick at `now`: close every policy-bearing terminal that has
@@ -133,7 +134,7 @@ impl Mux {
         now: Instant,
     ) -> (Vec<String>, Option<Instant>) {
         let (pruned, policies) = {
-            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut registry = self.workspace_registry.lock().recover_poison();
             (registry.prune_terminal_idle_policies(), registry.live_terminal_idle_policies())
         };
         if let Err(error) = pruned {
@@ -148,7 +149,7 @@ impl Mux {
             }
         };
         if policies.is_empty() {
-            self.idle_close.lock().unwrap().due(now, &[]);
+            self.idle_close.lock().recover_poison().due(now, &[]);
             return (Vec::new(), None);
         }
         let placements = self.terminal_placements_by_host();
@@ -165,14 +166,14 @@ impl Mux {
                 }
             })
             .collect();
-        let due = self.idle_close.lock().unwrap().due(now, &candidates);
+        let due = self.idle_close.lock().recover_poison().due(now, &candidates);
         let any_due = !due.is_empty();
         let mut closed = Vec::with_capacity(due.len());
         for terminal_id in due {
             // Whatever happens next, this terminal's idle period is over: a
             // late attach resets it, and a failed close is retried after
             // another full period instead of on every tick.
-            self.idle_close.lock().unwrap().forget(&terminal_id);
+            self.idle_close.lock().recover_poison().forget(&terminal_id);
             if self.control_clients.attach_observation(views(&placements, &terminal_id)).0 {
                 continue;
             }
@@ -195,7 +196,7 @@ impl Mux {
         }
         // A closed or forgotten terminal is re-tracked from `now` on the
         // next pass, so the deadline below covers only live periods.
-        let next = self.idle_close.lock().unwrap().next_deadline(&candidates);
+        let next = self.idle_close.lock().recover_poison().next_deadline(&candidates);
         // A due terminal was forgotten even when its close failed or a view
         // attached at the recheck; without a pass now it would never be
         // re-tracked and the reaper would block with no deadline.
@@ -211,7 +212,7 @@ impl Mux {
 
     /// Wakes the idle-close reaper (a policy or an attachment changed).
     pub(crate) fn wake_idle_close_reaper(&self) {
-        if let Some(waker) = self.idle_close_waker.lock().unwrap().as_ref() {
+        if let Some(waker) = self.idle_close_waker.lock().recover_poison().as_ref() {
             let _ = waker.send(ReaperMessage::Wake);
         }
     }
@@ -220,7 +221,7 @@ impl Mux {
     /// stable host id it presents: placed views plus the catalog runtime,
     /// which resource clients attach to even when the terminal is unplaced.
     fn terminal_placements_by_host(&self) -> HashMap<String, Vec<SurfaceId>> {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         let mut placements: HashMap<String, Vec<SurfaceId>> = HashMap::new();
         let surfaces = state.surfaces.values().chain(state.terminal_catalog.values());
         for surface in surfaces {
@@ -285,7 +286,7 @@ pub fn start_idle_terminal_reaper(
 ) -> std::io::Result<IdleTerminalReaper> {
     let (stop, messages) = mpsc::channel::<ReaperMessage>();
     if let Some(owner) = mux.upgrade() {
-        *owner.idle_close_waker.lock().unwrap() = Some(stop.clone());
+        *owner.idle_close_waker.lock().recover_poison() = Some(stop.clone());
         let waker = stop.clone();
         owner.control_clients.set_detach_waker(move || {
             let _ = waker.send(ReaperMessage::Wake);

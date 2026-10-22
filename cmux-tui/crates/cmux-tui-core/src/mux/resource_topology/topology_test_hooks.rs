@@ -1,6 +1,7 @@
 //! Test hooks for resource topology: reservation, patch failure and close interception points, and lifecycle probes.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     #[cfg(test)]
@@ -8,17 +9,24 @@ impl Mux {
         &self,
         hook: Option<TerminalReservationHook>,
     ) {
-        *self.terminal_create_after_terminal_reservation.lock().unwrap() = hook;
+        *self.terminal_create_after_terminal_reservation.lock().recover_poison() = hook;
     }
 
     #[cfg(test)]
     pub(crate) fn set_resource_patch_failure_for_test(&self, enabled: bool) {
-        self.workspace_registry.lock().unwrap().set_resource_patch_failure(enabled).unwrap();
+        self.workspace_registry
+            .lock()
+            .recover_poison()
+            .set_resource_patch_failure(enabled)
+            .unwrap();
     }
 
     #[cfg(test)]
     pub(crate) fn set_resource_patch_failures_remaining_for_test(&self, failures: u64) {
-        self.workspace_registry.lock().unwrap().set_resource_patch_failures_remaining(failures);
+        self.workspace_registry
+            .lock()
+            .recover_poison()
+            .set_resource_patch_failures_remaining(failures);
     }
 
     #[cfg(test)]
@@ -26,7 +34,7 @@ impl Mux {
         &self,
         hook: Option<Arc<dyn Fn() + Send + Sync>>,
     ) {
-        *self.resource_close_after_commit.lock().unwrap() = hook;
+        *self.resource_close_after_commit.lock().recover_poison() = hook;
     }
 
     #[cfg(test)]
@@ -34,7 +42,7 @@ impl Mux {
         &self,
         hook: Option<Arc<dyn Fn() + Send + Sync>>,
     ) {
-        *self.resource_close_cleanup.lock().unwrap() = hook;
+        *self.resource_close_cleanup.lock().recover_poison() = hook;
     }
 
     #[cfg(test)]
@@ -42,8 +50,10 @@ impl Mux {
         &self,
         terminal_id: &str,
     ) -> anyhow::Result<Option<(String, Option<String>)>> {
-        Ok(self.workspace_registry.lock().unwrap().terminal_record(terminal_id)?.map(|terminal| {
-            (terminal_lifecycle_name(terminal.lifecycle).to_string(), terminal.incarnation)
-        }))
+        Ok(self.workspace_registry.lock().recover_poison().terminal_record(terminal_id)?.map(
+            |terminal| {
+                (terminal_lifecycle_name(terminal.lifecycle).to_string(), terminal.incarnation)
+            },
+        ))
     }
 }

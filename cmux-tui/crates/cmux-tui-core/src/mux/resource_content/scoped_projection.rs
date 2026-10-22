@@ -18,6 +18,7 @@ use std::time::Instant;
 use super::projection_crosscheck::projection_difference;
 use super::*;
 use crate::diagnostics::ProjectionSpans;
+use crate::panic_free::JsonField;
 use crate::resource::{BrowserPublicId, WorkspacePublicId};
 use crate::workspace_registry::{RegistryTerminal, ResourceTopologySnapshot};
 
@@ -295,12 +296,12 @@ pub(super) fn check_scope_containment(
 /// The workspace of a created terminal or browser view (an effect's created
 /// path), the one workspace its projection changes.
 pub(crate) fn created_view_workspace(result: &Value) -> Option<WorkspacePublicId> {
-    if !matches!(result["kind"].as_str(), Some("terminal" | "browser"))
-        || !result["tab_id"].is_string()
+    if !matches!(result.field("kind").as_str(), Some("terminal" | "browser"))
+        || !result.field("tab_id").is_string()
     {
         return None;
     }
-    WorkspacePublicId::parse(result["workspace_id"].as_str()?.to_string()).ok()
+    WorkspacePublicId::parse(result.field("workspace_id").as_str()?.to_string()).ok()
 }
 
 /// A scoped walk's test for a tab it need not restate: the stored row equals

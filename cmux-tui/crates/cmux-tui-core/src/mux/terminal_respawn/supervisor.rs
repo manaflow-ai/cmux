@@ -18,6 +18,7 @@
 use std::collections::VecDeque;
 
 use super::*;
+use crate::panic_free::JsonField;
 
 /// The delay before attempt N (0-based) of one terminal in the window. Its
 /// length is the number of attempts per window.
@@ -252,7 +253,9 @@ impl Mux {
             }
             let end = TerminalEnd::from_receipt(terminal.exit.as_ref());
             let respawnable = matches!(end, TerminalEnd::HostLost(_))
-                && end.wire_json()["reason"]
+                && end
+                    .wire_json()
+                    .field("reason")
                     .as_str()
                     .is_some_and(|reason| RESPAWN_REASONS.contains(&reason));
             if respawnable {

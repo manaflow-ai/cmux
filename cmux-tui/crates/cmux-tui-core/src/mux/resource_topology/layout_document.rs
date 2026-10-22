@@ -1,6 +1,7 @@
 //! Resource layout documents: validating, parsing and applying a layout document to a screen.
 
 use super::*;
+use crate::panic_free::JsonField;
 
 #[derive(Debug)]
 pub(super) struct ParsedResourceLayout {
@@ -25,9 +26,9 @@ pub(super) fn parse_resource_layout_document(
     document: &Value,
 ) -> anyhow::Result<ParsedResourceLayout> {
     let object = document.as_object().context("layout document must be an object")?;
-    anyhow::ensure!(object["version"].as_u64() == Some(1), "unsupported layout version");
+    anyhow::ensure!(object.field("version").as_u64() == Some(1), "unsupported layout version");
     let screen_id = ScreenPublicId::parse(
-        object["screen_id"].as_str().context("layout omitted screen_id")?.to_string(),
+        object.field("screen_id").as_str().context("layout omitted screen_id")?.to_string(),
     )
     .map_err(anyhow::Error::new)?;
     let screen_slot = state
@@ -43,7 +44,7 @@ pub(super) fn parse_resource_layout_document(
         "layout screen belongs to another workspace"
     );
     let current = &state.workspaces[workspace_index].screens[screen_index];
-    let active_pane = parse_layout_pane(state, screen_slot, &object["active_pane_id"])?;
+    let active_pane = parse_layout_pane(state, screen_slot, object.field("active_pane_id"))?;
     let zoomed_pane = match object.get("zoomed_pane_id") {
         Some(Value::Null) | None => None,
         Some(value) => Some(parse_layout_pane(state, screen_slot, value)?),
@@ -56,26 +57,27 @@ pub(super) fn parse_resource_layout_document(
     // normalized result below.
     let mut kept_rows: Vec<(SplitId, usize)> = Vec::new();
     let root_value = object.get("root").context("layout omitted root")?;
-    let (root, layout_columns, viewport_base_width) = if root_value["kind"].as_str()
+    let (root, layout_columns, viewport_base_width) = if root_value.field("kind").as_str()
         == Some("viewport")
     {
         let base_width =
-            root_value["base_width"].as_f64().context("viewport omitted base_width")? as f32;
+            root_value.field("base_width").as_f64().context("viewport omitted base_width")? as f32;
         anyhow::ensure!(
             base_width.is_finite()
                 && (MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&base_width),
             "invalid viewport base width"
         );
-        let columns = root_value["columns"]
+        let columns = root_value
+            .field("columns")
             .as_array()
             .filter(|columns| !columns.is_empty())
             .context("viewport columns must be non-empty")?;
         let mut parsed = Vec::with_capacity(columns.len());
         let mut changed_dock = false;
         for column in columns {
-            let id = parse_layout_split(state, screen_slot, &column["column_id"])?;
+            let id = parse_layout_split(state, screen_slot, column.field("column_id"))?;
             anyhow::ensure!(seen_splits.insert(id), "layout split appears more than once");
-            let width = column["width"].as_f64().context("column omitted width")? as f32;
+            let width = column.field("width").as_f64().context("column omitted width")? as f32;
             anyhow::ensure!(
                 width.is_finite()
                     && (MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width),
@@ -84,7 +86,7 @@ pub(super) fn parse_resource_layout_document(
             let root = parse_resource_layout_node(
                 state,
                 screen_slot,
-                &column["root"],
+                column.field("root"),
                 &mut seen_panes,
                 &mut seen_splits,
                 &mut seen_tabs,
@@ -294,11 +296,12 @@ pub(super) fn parse_resource_layout_node(
     seen_tabs: &mut HashSet<SurfaceId>,
     tab_orders: &mut Vec<(PaneId, Vec<SurfaceId>, usize)>,
 ) -> anyhow::Result<Node> {
-    Ok(match value["kind"].as_str().context("layout node omitted kind")? {
+    Ok(match value.field("kind").as_str().context("layout node omitted kind")? {
         "leaf" => {
-            let pane = parse_layout_pane(state, screen, &value["pane_id"])?;
+            let pane = parse_layout_pane(state, screen, value.field("pane_id"))?;
             anyhow::ensure!(seen_panes.insert(pane), "pane appears more than once in layout");
-            let tab_values = value["tab_ids"]
+            let tab_values = value
+                .field("tab_ids")
                 .as_array()
                 .filter(|tabs| !tabs.is_empty())
                 .context("leaf tab_ids must be non-empty")?;
@@ -321,11 +324,11 @@ pub(super) fn parse_resource_layout_node(
             Node::Leaf(pane)
         }
         "split" => {
-            let split = parse_layout_split(state, screen, &value["split_id"])?;
+            let split = parse_layout_split(state, screen, value.field("split_id"))?;
             anyhow::ensure!(seen_splits.insert(split), "split appears more than once in layout");
-            let ratio = value["ratio"].as_f64().context("split omitted ratio")? as f32;
+            let ratio = value.field("ratio").as_f64().context("split omitted ratio")? as f32;
             anyhow::ensure!(ratio.is_finite() && 0.0 < ratio && ratio < 1.0, "invalid split ratio");
-            let direction = match value["direction"].as_str() {
+            let direction = match value.field("direction").as_str() {
                 Some("horizontal") => SplitDir::Right,
                 Some("vertical") => SplitDir::Down,
                 _ => anyhow::bail!("invalid layout split direction"),
@@ -337,7 +340,7 @@ pub(super) fn parse_resource_layout_node(
                 a: Box::new(parse_resource_layout_node(
                     state,
                     screen,
-                    &value["first"],
+                    value.field("first"),
                     seen_panes,
                     seen_splits,
                     seen_tabs,
@@ -346,7 +349,7 @@ pub(super) fn parse_resource_layout_node(
                 b: Box::new(parse_resource_layout_node(
                     state,
                     screen,
-                    &value["second"],
+                    value.field("second"),
                     seen_panes,
                     seen_splits,
                     seen_tabs,
@@ -355,7 +358,8 @@ pub(super) fn parse_resource_layout_node(
             }
         }
         "stack" => {
-            let panes = value["pane_ids"]
+            let panes = value
+                .field("pane_ids")
                 .as_array()
                 .filter(|panes| !panes.is_empty())
                 .context("stack pane_ids must be non-empty")?
@@ -377,7 +381,7 @@ pub(super) fn parse_resource_layout_node(
                     record.active_tab.min(record.tabs.len().saturating_sub(1)),
                 ));
             }
-            let expanded = parse_layout_pane(state, screen, &value["expanded_pane_id"])?;
+            let expanded = parse_layout_pane(state, screen, value.field("expanded_pane_id"))?;
             Node::stack_with_expanded(panes, expanded)
                 .context("expanded pane is absent from stack")?
         }

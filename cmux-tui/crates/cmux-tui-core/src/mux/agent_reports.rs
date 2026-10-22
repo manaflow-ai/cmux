@@ -1,6 +1,8 @@
 //! Agent reports: raw socket and resource agent reports, the sequence-locked commit, and the agent list.
 
 use super::*;
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     pub fn report_agent(
@@ -135,8 +137,8 @@ impl Mux {
         // projection commits. Other report sources acquire it before the
         // registry/state locks, so all paths use one lock order.
         let mut sequence_guard =
-            (!sequence_lock_held).then(|| self.agent_hook_fences.lock().unwrap());
-        let mut registry = self.workspace_registry.lock().unwrap();
+            (!sequence_lock_held).then(|| self.agent_hook_fences.lock().recover_poison());
+        let mut registry = self.workspace_registry.lock().recover_poison();
         if let Some(replay) =
             registry.replay_resource_patch(mutation, "agent.report", fingerprint)?
         {
@@ -147,7 +149,7 @@ impl Mux {
             }
             return Ok((replay, None));
         }
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut state = self.lock_state_pinned(&registry).recover_poison();
         let (surface, terminal_id) = match target {
             AgentReportTarget::Surface(surface) => {
                 let runtime = state
@@ -240,7 +242,7 @@ impl Mux {
             !value.starts_with("cmux-hook-sequence:") && !value.starts_with("cmux-hook-ended:")
         });
         let now = now_ms();
-        let mut records = self.agent_records.lock().unwrap();
+        let mut records = self.agent_records.lock().recover_poison();
         // Hook and plugin observations are stronger agent truth than a direct
         // socket report. Check the durable projection as well as the
         // in-memory cache so arbitration survives a restart.
@@ -351,7 +353,7 @@ impl Mux {
             "extra":extra,
         });
         let mut public_value = value.clone();
-        public_value["source_session"] = serde_json::json!(record.session.as_deref());
+        public_value.set_field("source_session", serde_json::json!(record.session.as_deref()));
         let deltas = if effective_hook_state.is_some_and(|state| state.ended) {
             serde_json::json!([{
                 "kind":"delete",
@@ -451,7 +453,7 @@ impl Mux {
         surface: Option<SurfaceId>,
         state: Option<AgentState>,
     ) -> Vec<AgentRecord> {
-        let entries = self.agent_roster.lock().unwrap().roster.entries.clone();
+        let entries = self.agent_roster.lock().recover_poison().roster.entries.clone();
         let agent_session_ids = self
             .agent_records
             .lock()
@@ -461,8 +463,8 @@ impl Mux {
                 Some((terminal_id.clone(), record.agent_session_id.clone()?))
             })
             .collect::<HashMap<_, _>>();
-        let prompts = self.agent_prompts.lock().unwrap().prompts.clone();
-        let state_snapshot = self.state.lock().unwrap();
+        let prompts = self.agent_prompts.lock().recover_poison().prompts.clone();
+        let state_snapshot = self.state.lock().recover_poison();
         let requested_terminal = surface.and_then(|surface| {
             state_snapshot
                 .surfaces
