@@ -50,7 +50,12 @@ import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
-import { incomingPrompt, renderedReply, type IncomingMessage } from "./conversation/incomingMessage";
+import {
+  incomingPrompt,
+  renderedReply,
+  type IncomingContext,
+  type IncomingMessage,
+} from "./conversation/incomingMessage";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
@@ -336,9 +341,9 @@ function queuedEntry(
 /// (conversation/incomingMessage.ts), else as acpmux's `fromAgent` names it (`acpmux send --from`),
 /// its text without a leading "[name]" or "From name:" that only repeats the sender. Undefined for
 /// the person's own prompt.
-export function queuedMessage(msg: any): IncomingMessage | undefined {
+export function queuedMessage(msg: any, context?: IncomingContext): IncomingMessage | undefined {
   const text = String(msg?.text ?? "");
-  const incoming = incomingPrompt(text, msg);
+  const incoming = incomingPrompt(text, msg, context);
   if (incoming?.kind === "message") return incoming.message;
   const name = typeof msg?.fromAgent === "string" ? msg.fromAgent.trim() : "";
   if (!name) return undefined;
@@ -2299,6 +2304,20 @@ export class AcpmuxDirectClient {
     });
   }
 
+  /// This chat's names and the listed chats', which tell an agent's message addressed
+  /// `sender -> receiver: …` from the person's words (conversation/incomingMessage.ts).
+  private incomingContext(): IncomingContext {
+    return {
+      names: [this.summary?.name, this.summary?.shortName],
+      // A chat on another machine is listed as `<peer>/<name>` and signs with its bare name.
+      isChat: (name) =>
+        this.sessions.some((session) => {
+          const listed = session.name?.trim();
+          return listed === name || session.shortName?.trim() === name || (!!session.peer && listed === `${session.peer}/${name}`);
+        }),
+    };
+  }
+
   private rebuild(): void {
     const previous = new Map(this.rows);
     // A prompt still in flight keeps its optimistic row until an event settles it; a failed one stays to show it was not sent.
@@ -2404,7 +2423,7 @@ export class AcpmuxDirectClient {
         const images = named.length ? named : this.queue.find((entry) => entry.id === id)?.images;
         this.queue = [
           ...this.queue.filter((entry) => entry.id !== id),
-          queuedEntry(id, String(msg.text ?? ""), false, false, images, queuedMessage(msg)),
+          queuedEntry(id, String(msg.text ?? ""), false, false, images, queuedMessage(msg, this.incomingContext())),
         ];
       }
       // acpmux took a prompt that waits behind the turn: its queue row shows it now, and the
@@ -2712,7 +2731,7 @@ export class AcpmuxDirectClient {
         // `fit`, keeps only `_meta`), or a steer that carried none. It stays a turn's start, as
         // bookkeeping does. A prompt of images alone keeps its row: the images are what it says.
         const blank = !received && !raw.trim() && promptImages(msg.images).length === 0;
-        const incoming = received ? undefined : blank ? ({ kind: "hidden" } as const) : incomingPrompt(raw, msg);
+        const incoming = received ? undefined : blank ? ({ kind: "hidden" } as const) : incomingPrompt(raw, msg, this.incomingContext());
         const shown =
           incoming?.kind === "message"
             ? { text: incoming.message.text, incoming, resend: raw }
