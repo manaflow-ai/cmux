@@ -472,8 +472,10 @@ function shapeTurn(
   for (const part of turnParts(user, body)) {
     if (part.opener !== user) shaped.push(part.opener);
     const lastPart = part.until === undefined;
-    const segments = foldSegments(part.opener, part.rows);
-    for (const [at, segment] of segments.entries()) {
+    // The last "Worked for" of the turn's last part ended as the turn did ("You stopped after"),
+    // whichever stretch it folds (a stretch with no work draws none).
+    let lastWorked: AcpmuxRow | undefined;
+    for (const segment of foldSegments(part.opener, part.rows)) {
       const said = segment.takeaway;
       const before = segment.rows;
       const after = segment.after ?? [];
@@ -488,14 +490,11 @@ function shapeTurn(
         const id = `${WORKED}-${segment.anchor.id}`;
         const open = expanded.has(id);
         const from = segment.anchor.at;
-        // Only the turn's last stretch of work ended as the turn did (a Stop stopped that one).
-        const lastWork = lastPart && at === segments.length - 1;
-        shaped.push({
+        const worked: AcpmuxRow = {
           id,
           version: version * 2 + (open ? 1 : 0),
           at: from,
           kind: WORKED,
-          ...(lastWork && { status: summary.status }),
           toolCount: summary.toolCount,
           durationMs:
             said && !later.length
@@ -505,7 +504,9 @@ function shapeTurn(
                 : segment.anchor === user
                   ? (summary.durationMs ?? Math.max(0, summary.at - user.at))
                   : Math.max(0, summary.at - from),
-        });
+        };
+        shaped.push(worked);
+        if (lastPart) lastWorked = worked;
         // Open, each run of its work folds into its summary line between the commentary, as in a
         // running turn (codexRuns).
         if (open)
@@ -525,6 +526,7 @@ function shapeTurn(
       if (said) shaped.push(said);
       shaped.push(...after.filter((row) => !isEdit(row) && !later.includes(row)).map(endedPlan));
     }
+    if (lastWorked) lastWorked.status = summary.status;
   }
   shaped.push(...editsCard(edits));
   const preview = turnPreviewCardsOn() ? turnPreviewUrl(user, turn) : undefined;
@@ -1020,8 +1022,13 @@ export function turnFoldFor(rows: readonly AcpmuxRow[], index: number): string |
 /// in (foldSegments), or the part's first fold.
 function partFoldFor(rows: readonly AcpmuxRow[], opener: number, index: number): string {
   let end = opener + 1;
-  while (end < rows.length && !opensTurn(rows[end]!) && !continuesTurn(rows[end]!) && rows[end]!.kind !== "turnSummary")
-    end += 1;
+  // The part ends where shapeTurn's does (turnParts): at the next accepted prompt, a drawn steer or
+  // the turn's summary. A prompt not yet sent or refused, and a steer that draws nothing, sit in it.
+  const endsPart = (row: AcpmuxRow) =>
+    (opensTurn(row) && !isUnsent(row)) ||
+    (continuesTurn(row) && row.incoming?.kind !== "hidden") ||
+    row.kind === "turnSummary";
+  while (end < rows.length && !endsPart(rows[end]!)) end += 1;
   const target = rows[index];
   const part = rows.slice(opener + 1, end).filter((row) => row.kind !== "user");
   const segment = foldSegments(rows[opener]!, part).find(

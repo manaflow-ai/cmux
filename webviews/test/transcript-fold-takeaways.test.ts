@@ -162,3 +162,47 @@ test("what reads as a takeaway: long prose, a question, a list or a link; not sh
   expect(isTakeaway(say("f", "word ".repeat(60)))).toBe(true);
   expect(isTakeaway(say("g", "one\ntwo\nthree\nfour"))).toBe(true);
 });
+
+test("Find opens the right fold past a prompt that failed to send mid-turn", () => {
+  const rows = [
+    row("u", "user"),
+    ran("tool1"),
+    answer("longA"),
+    row("p", "user", { text: "also this", failed: true }),
+    ran("tool2"),
+    answer("longB"),
+    summary(),
+  ];
+  expect(drawn(rows).filter((entry) => entry.startsWith("worked:"))).toEqual([
+    "worked:worked-u",
+    "worked:worked-longA",
+  ]);
+  expect(
+    turnFoldFor(
+      rows,
+      rows.findIndex((entry) => entry.id === "tool2"),
+    ),
+  ).toBe("worked-longA");
+  expect(
+    turnFoldFor(
+      rows,
+      rows.findIndex((entry) => entry.id === "tool1"),
+    ),
+  ).toBe("worked-u");
+});
+
+test("a stopped turn says so on its last Worked for, also when its last stretch has no work", () => {
+  const stopped = (rows: AcpmuxRow[]) =>
+    turnView([...rows, row("end", "turnSummary", { status: "cancelled", durationMs: 9_000 })], new Set())
+      .filter((shaped) => shaped.kind === "worked")
+      .map((shaped) => `${shaped.id}:${shaped.status ?? ""}`);
+  // The last stretch folds the work after the first answer.
+  expect(stopped([row("u", "user"), ran("a"), answer("first"), ran("b")])).toEqual([
+    "worked-u:",
+    "worked-first:cancelled",
+  ]);
+  // The last stretch is only the answer: the fold before it carries the stop.
+  expect(stopped([row("u", "user"), ran("a"), answer("first"), say("tail", "Stopping here.")])).toEqual([
+    "worked-u:cancelled",
+  ]);
+});
