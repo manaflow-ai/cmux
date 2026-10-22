@@ -747,6 +747,15 @@ def prompt_on_screen(text):
 MENU_ROW = re.compile(r"^\s*[›❯]\s*\d+\.\s", re.M)
 
 
+def selected_row(text):
+    """The number of the selected option of a numbered menu on screen, or None."""
+    rows = MENU_ROW.findall("\n".join([l for l in (text or "").splitlines() if l.strip()][-12:]))
+    if not rows:
+        return None
+    m = re.search(r"\d+", rows[-1])
+    return int(m.group(0)) if m else None
+
+
 def blocking_prompt(text):
     """A prompt/menu in the bottom lines of the screen (where a live one sits)."""
     tail = "\n".join([l for l in (text or "").splitlines() if l.strip()][-12:])
@@ -837,9 +846,25 @@ def cmd_choose(a):
         return None
 
     how, text = poll_screen(rec, check, a.timeout)
-    out = {"chose": a.option, "agent": rec["name"], "verified": how, "screen": screen_tail(text)}
+    method = "digit"
+    if not how and selected_row(text):
+        # Some menus ignore digits (Codex): move the selection with arrows, checking
+        # each step on screen, then Enter.
+        method = "arrows"
+        for _ in range(12):
+            cur = selected_row(text)
+            if cur is None or cur == a.option:
+                break
+            write_bytes(rec, b"\x1b[B" if cur < a.option else b"\x1b[A")
+            moved, text = poll_screen(rec, lambda t, c=cur: selected_row(t) != c, a.timeout)
+            if not moved:
+                break
+        if selected_row(text) == a.option:
+            write_bytes(rec, b"\r")
+            how, text = poll_screen(rec, check, a.timeout)
+    out = {"chose": a.option, "agent": rec["name"], "verified": how, "method": method, "screen": screen_tail(text)}
     if not how:
-        out.update(stage="menu_unchanged", error=f"typed {a.option}; the same menu is still on screen after {a.timeout:g}s")
+        out.update(stage="menu_unchanged", error=f"tried option {a.option} ({method}); the same menu is still on screen after {a.timeout:g}s")
         fail_json(out)
     print(json.dumps(out, indent=2, ensure_ascii=False))
 
