@@ -220,6 +220,8 @@ extension SettingsSchema {
         // box types only what the person writes.
         "home.chiefPetEnabled",
         "home.chiefPetMascot",
+        // Needs you in the agent chat header (an App Store item): a display the person can hide again.
+        "agentPane.needsYou.enabled",
         "updates.notify",
         "updates.showWhatsNew",
         "announcements.enabled",

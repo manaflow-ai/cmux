@@ -71,7 +71,7 @@ import Testing
         let expected: [String: AppFeature.Category] = [
             "appearance.ultraCompact": .appearance, "appearance.calm": .appearance,
             "appearance.brailleStatus": .appearance, "appearance.runningCommands": .appearance,
-            "chief.suggestedTasks": .chief, "chief.githubFeed": .chief,
+            "chief.suggestedTasks": .chief, "chief.githubFeed": .chief, "chat.needsYou": .chief,
             "editor.splitDiff": .editor, "editor.minimap": .editor,
             "devices.phoneAccess": .devices, "devices.globalHotKey": .devices,
         ]
