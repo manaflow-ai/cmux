@@ -17,12 +17,19 @@ extension UpdaterService {
     /// "Simulate pending update" (DEV and NIGHTLY; elsewhere it stays off).
     func attach(sheet: UpdateSheetController, services: AppServices, simulating: @escaping @MainActor @Sendable () -> Bool) {
         presentUpdateUI = { [weak services] in sheet.present(in: services?.windows.active?.window) }
-        willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
         relaunchBlockers = { [weak self, weak services, activity = UpdateAgentActivity(environment: QuitAgents.environment(services))] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
-        // The click: the windows leave the screen at once (S1); a failed
-        // install brings them back.
+        // The windows leave the screen when Sparkle commits to the relaunch
+        // (`updaterWillRelaunchApplication`, right before its installer
+        // finishes and quits the app), not at the click (S1). A click whose
+        // install never reaches the installer (Sparkle gives up after 7 s:
+        // "An error occurred while starting the installer") kept every window
+        // transparent for those seconds, and the app looked frozen
+        // (slow quit, 2026-10-20). A failed install brings them back.
         let handoff = UpdateWindowHandoff()
-        willInstallStaged = { _ = handoff.hide() }
+        willRelaunch = { [weak services] in
+            services?.quit.origins.record(.explicit(.keep))
+            _ = handoff.hide()
+        }
         installAbandoned = { handoff.restore() }
         isSheetPresented = { sheet.isPresented }
         // The check's progress and result show on the sidebar's notice card; with the
