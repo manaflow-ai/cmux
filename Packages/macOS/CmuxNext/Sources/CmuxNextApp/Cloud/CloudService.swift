@@ -382,8 +382,8 @@ final class CloudService {
     /// Creates a machine and connects to it. Returns its session.
     /// `creation` moves to its `creating` stage when the request is sent.
     /// `startedByPerson`: the person's own gesture in this app; any other
-    /// create asks the person first, on either path (``CloudMachineCreateFlow``); `askedBy` names the agent chat that asked.
-    func createMachine(name: String?, creation: CloudMachineCreation? = nil, startedByPerson: Bool, askedBy: String? = nil) async throws -> CloudMachineSession {
+    /// create asks the person first, on either path (``CloudMachineCreateFlow``); `askedBy` names the agent chat or terminal that asked.
+    func createMachine(name: String?, creation: CloudMachineCreation? = nil, startedByPerson: Bool, askedBy: CloudMachineCreateFlow.Asker? = nil) async throws -> CloudMachineSession {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         guard auth.isSignedIn else { throw ActionFailure(message: CloudStrings.signInFirst) }
         creating += 1

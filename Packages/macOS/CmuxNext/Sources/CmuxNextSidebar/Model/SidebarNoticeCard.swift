@@ -34,6 +34,24 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
         }
     }
 
+    /// Who asked a question the card waits on, and where (``SidebarAsks``): one line under the
+    /// title, "Asked by a412 · cloud groups in Home & chat". With an action it is a button
+    /// that sends `noticeAction` with that id (open the chat or terminal that asked).
+    public struct Requester: Hashable, Sendable {
+        /// The line as shown, localized.
+        public var text: String
+        /// The button's tooltip and VoiceOver label ("Show the agent chat that asked"); nil: the text.
+        public var help: String?
+        /// The action a click sends; nil draws plain text (nothing to open).
+        public var action: String?
+
+        public init(text: String, help: String? = nil, action: String? = nil) {
+            self.text = text
+            self.help = help
+            self.action = action
+        }
+    }
+
     public var id: String
     /// An SF Symbol beside the title, nil for none.
     public var symbol: String?
@@ -70,6 +88,8 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
     /// Something waits on the person's answer (``SidebarAsks``): the card
     /// takes the slot from every other card, the staged update card too.
     public var awaitsAnswer = false
+    /// Who asked and where, under the title; nil shows no line.
+    public var requester: Requester?
 
     public init(id: String, symbol: String? = nil, eyebrow: String? = nil, title: String, detail: String? = nil,
                 lines: [String] = [], progress: Progress? = nil, actions: [Action] = [], shortcut: String? = nil, dismissLabel: String? = nil,

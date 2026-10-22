@@ -20,7 +20,7 @@ final class SidebarCardTextButton: NSView {
         wantsLayer = true
         focusRingType = .none
         layer?.cornerCurve = .continuous
-        label.lineBreakMode = .byClipping
+        label.lineBreakMode = .byTruncatingTail
         label.maximumNumberOfLines = 1
         // VoiceOver reads the button, not its text twice.
         label.setAccessibilityElement(false)

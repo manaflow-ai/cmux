@@ -29,6 +29,9 @@ final class CookieImportConsentPanel {
     /// Reveals the requester's tab (the person's click; nil when the requester has none).
     private let onShowRequester: (() -> Void)?
 
+    /// The panel as built, unshown (the request card gallery draws its content).
+    var builtPanel: NSPanel { panel }
+
     init(request: CookieImportRequest, onShowRequester: (() -> Void)?) {
         self.request = request
         self.onShowRequester = onShowRequester

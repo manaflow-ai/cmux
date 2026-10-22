@@ -32,19 +32,7 @@ enum OnboardingHandlers {
         // Cookies of one browser profile, for the CLI and agents: an agent's run asks the person first.
         let cef = services.cache.cef
         let cookieImports = CookieImportService(host: CookieImportHost(
-            requester: { invocation in
-                let agentTabs = services.agentTabs
-                let tabs = services.daemon.store.workspaces.flatMap { workspace in
-                    workspace.screens.flatMap(\.panes).flatMap(\.tabs).map { tab in
-                        CookieImportCandidate(tabID: tab.id, title: tab.displayTitle, workspace: workspace.displayName,
-                                              agentSession: agentTabs.sessions[agentTabs.resolve(tab.id)] ?? tab.agentSession?.session,
-                                              terminalIDs: [tab.terminalID?.rawValue, tab.terminalResourceID?.rawValue].compactMap(\.self))
-                    }
-                }
-                return CookieImportRequester(invocation, among: tabs) { session in
-                    services.chatsFeed?.chats.first { $0.sessionID == session }.map { ($0.title, $0.preview) }
-                }
-            },
+            requester: { invocation in services.requester(of: invocation) },
             target: { invocation in
                 let id = BookmarkResolver(services: services).profile(invocation)
                 return (id, services.browserProfiles.record(id)?.name ?? id)
