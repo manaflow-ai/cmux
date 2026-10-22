@@ -815,8 +815,11 @@ impl Spawner {
                 // the memory keeps the plain id, not a 70-character URL per mention.
                 let mut note = format!("workspace \"{name}\" in group \"{group}\" in {place}");
                 if let Some(r) = &located {
+                    // The checked link to write (Lawrence 2026-10-22: a reply named a workspace
+                    // id no session had): copy it, never an id from memory.
                     note.push_str(&format!(
-                        " (id {}; `{}` moves it to the top)",
+                        " (link [{}](cmux://workspace/{}); `{}` moves it to the top)",
+                        name.replace(['[', ']'], ""),
                         r.id,
                         r.move_to_top()
                     ));

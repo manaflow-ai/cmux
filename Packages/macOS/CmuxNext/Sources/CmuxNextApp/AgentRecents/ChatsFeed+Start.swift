@@ -3,6 +3,8 @@ import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextHomeEngine
 import CmuxNextDaemon
+import MessagesLabHome
+import Observation
 
 extension ChatsFeed {
     /// The app's Chats feed, and with it the acpmux turn-state watch for the
@@ -42,6 +44,18 @@ extension ChatsFeed {
                                       mirroring: ChiefHomeAcpmux.host(muxHome: home.muxHome))
         chiefTurnStates = feed
         feed.start(localHost: nil)
+        publishChiefSubagentLinks()
+    }
+
+    /// Home links every bare mention of a Chief subagent (`a459`) in any Chief's reply to its chat
+    /// (Lawrence 2026-10-22): the ids come from the Chief home's lanes, kept current as they change.
+    static func publishChiefSubagentLinks() {
+        let store = AgentLaneStore.chief
+        withObservationTracking {
+            HomeSubagentLinks.shared.set(ChiefSubagentLinks.links(lanes: store.lanes.values))
+        } onChange: {
+            Task { @MainActor in publishChiefSubagentLinks() }
+        }
     }
 
     /// The Chief home's watch, once started.

@@ -278,6 +278,7 @@ impl Brain {
             ));
         }
         let text = self.link_subagents(text);
+        let missing = self.missing_workspaces(&text);
         let mut entry = super::reply_entry(message.conversation.clone(), &key, &text);
         if let Op::MessageSend {
             reply_to,
@@ -295,8 +296,9 @@ impl Brain {
         self.state.outbox.push(entry);
         self.save();
         self.flush_outbox();
-        Ok(format!(
-            "outcome: done. replied in the thread of message {view_id}"
+        Ok(super::send::with_workspace_check(
+            format!("outcome: done. replied in the thread of message {view_id}"),
+            &missing,
         ))
     }
 }
