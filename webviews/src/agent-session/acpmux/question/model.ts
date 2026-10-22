@@ -118,6 +118,10 @@ export type QuestionReply = {
   optionId?: string;
   /// The harness-shaped answers acpmux puts into the tool's input.
   answers?: Record<string, unknown>;
+  /// Claude Code's AskUserQuestion `annotations`, keyed by question text: the chosen option's
+  /// preview, so the agent reads which mockup the person picked. acpmux checks the preview
+  /// against the question's options and hands the agent its own text.
+  annotations?: Record<string, { preview?: string; notes?: string }>;
 };
 
 // MARK: JSON reading (AgentQuestionJSON)
@@ -409,7 +413,15 @@ export function reply(question: AgentQuestion, answer: Answer): QuestionReply {
       // comma-separated string.
       const answers: Record<string, string> = {};
       for (const item of question.items) answers[item.prompt] = labels(item, answer.selections[item.id]).join(", ");
-      return { session, permissionId: permission, optionId: answerOption ?? "allow_once", answers };
+      const sent: QuestionReply = {
+        session,
+        permissionId: permission,
+        optionId: answerOption ?? "allow_once",
+        answers,
+      };
+      // Only Claude Code reads annotations; the Chief's answers stay as they were.
+      const annotations = harness === "claude" ? chosenPreviews(question, answer) : undefined;
+      return annotations ? { ...sent, annotations } : sent;
     }
     case "codex": {
       // Codex reads `{id: {answers: [String]}}`.
@@ -418,6 +430,19 @@ export function reply(question: AgentQuestion, answer: Answer): QuestionReply {
       return { session, permissionId: permission, optionId: answerOption ?? "allow_once", answers };
     }
   }
+}
+
+/// The preview of each single-select item's chosen option, keyed by question text, or undefined
+/// when no chosen option has one. Claude Code shows previews only for single-select questions.
+function chosenPreviews(question: AgentQuestion, answer: Answer): QuestionReply["annotations"] {
+  const previews: NonNullable<QuestionReply["annotations"]> = {};
+  for (const item of question.items) {
+    const chosen = answer.selections[item.id];
+    if (item.multiSelect || !chosen || chosen.other) continue;
+    const preview = item.options.find((option) => option.id === chosen.optionIDs[0])?.preview?.text;
+    if (preview !== undefined) previews[item.prompt] = { preview };
+  }
+  return Object.keys(previews).length > 0 ? previews : undefined;
 }
 
 /// The reply that declines the question: the harness's reject option, else a cancel. Never an allow.
@@ -434,6 +459,7 @@ export function replyParams(sent: QuestionReply): Record<string, unknown> {
     permissionId: sent.permissionId,
     optionId: sent.optionId,
     answers: sent.answers,
+    annotations: sent.annotations,
   });
 }
 

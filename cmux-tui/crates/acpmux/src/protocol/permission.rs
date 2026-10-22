@@ -58,6 +58,9 @@ pub struct PermissionRespondParams {
     /// A question's answers, by question.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub answers: Option<Value>,
+    /// Claude Code AskUserQuestion annotations beside the answers, by question text: `{preview?, notes?}`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub annotations: Option<Value>,
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<RequestMeta>,
 }
