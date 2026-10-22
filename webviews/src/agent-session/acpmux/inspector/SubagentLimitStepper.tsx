@@ -5,13 +5,17 @@
 // `_acpmux/subsession/limits`; the number moves at once and acpmux's answer, or its `limits`
 // record, then says what holds. Reset drops the chat's own limit for the one it inherits. Shown
 // whenever acpmux names the limit, before any chat starts too, so a cap can be set up front; an
-// acpmux without it draws nothing.
-import { useRef, useState } from "react";
+// acpmux without it draws nothing. A refused change says so for a few seconds. Without `onSet` (a
+// chat on another machine, or a connection acpmux does not take it from) the limit only reads.
+import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
 import type { SubsessionLimits } from "../model";
 import type { StartedSession } from "../started/startedSessions";
 import { clampRunning, MAX_RUNNING, slotCounts } from "../subsessionLimits";
 import "./SubagentLimitStepper.css";
+
+/// How long a refused change says so.
+const REFUSAL_MS = 4_000;
 
 /// The glyphs of action.add's 24-unit grid (icons/cmuxIcons.json), drawn as a pair.
 const MINUS = "M5 12L19 12";
@@ -26,10 +30,13 @@ function Glyph({ d }: { d: string }) {
 }
 
 export function SubagentLimitStepper({
+  chatId,
   limits,
   sessions = [],
   onSet,
 }: {
+  /// The chat whose limit this is: a value asked for another chat never shows here.
+  chatId?: string;
   limits?: SubsessionLimits;
   /// The chats its agent started, for the live counts.
   sessions?: readonly StartedSession[];
@@ -37,24 +44,37 @@ export function SubagentLimitStepper({
   onSet?: (maxRunning: number | null) => Promise<unknown>;
 }) {
   const t = useT();
-  // The value a click asked for, until acpmux's answer: kept with the limit it was asked over, so a
-  // new limit from acpmux (the reply, a record, another client) replaces it.
-  const [asked, setAsked] = useState<{ over: number; value: number }>();
+  // The value a click asked for, until acpmux's answer: kept with the chat and the limit it was
+  // asked over, so another chat, or a new limit from acpmux (the reply, a record, another client),
+  // replaces it.
+  const [asked, setAsked] = useState<{ chat?: string; over: number; value: number }>();
+  const [refused, setRefused] = useState<{ chat?: string; at: number }>();
   // Clicks acpmux has not answered yet: the asked value stands until the last one is answered.
   const inFlight = useRef(0);
+  useEffect(() => {
+    if (!refused) return;
+    const timer = setTimeout(() => setRefused(undefined), REFUSAL_MS);
+    return () => clearTimeout(timer);
+  }, [refused]);
   if (!limits) return null;
-  const max = asked && asked.over === limits.maxRunning ? asked.value : limits.maxRunning;
+  const pending = asked && asked.chat === chatId && asked.over === limits.maxRunning ? asked.value : undefined;
+  const max = pending ?? limits.maxRunning;
+  const failed = refused !== undefined && refused.chat === chatId;
   const { running, queued } = slotCounts(limits, sessions);
   const set = (value: number | null) => {
     if (!onSet) return;
-    const over = limits.maxRunning;
-    if (value !== null) setAsked({ over, value });
+    const chat = chatId;
+    setRefused(undefined);
+    if (value !== null) setAsked({ chat, over: limits.maxRunning, value });
     inFlight.current += 1;
     const answered = () => {
       inFlight.current -= 1;
       if (inFlight.current === 0) setAsked(undefined);
     };
-    onSet(value).then(answered, answered);
+    onSet(value).then(answered, () => {
+      answered();
+      setRefused({ chat, at: Date.now() });
+    });
   };
   const step = (by: number) => set(clampRunning(max + by));
   const own = limits.maxRunningSource === "session";
@@ -68,6 +88,9 @@ export function SubagentLimitStepper({
             {t("chatInspector.subagents.limit.queued", { n: queued })}
           </span>
         )}
+      </span>
+      <span className="acpmux-subagent-limit__refused" role="status">
+        {failed ? t("chatInspector.subagents.limit.refused") : ""}
       </span>
       {onSet && (
         <span className="acpmux-subagent-limit__controls">

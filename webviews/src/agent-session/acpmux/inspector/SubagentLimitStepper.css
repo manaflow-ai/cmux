@@ -41,3 +41,10 @@
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
 }
+.acpmux-subagent-limit__refused {
+  flex: none;
+  color: var(--agent-danger);
+}
+.acpmux-subagent-limit__refused:empty {
+  display: none;
+}

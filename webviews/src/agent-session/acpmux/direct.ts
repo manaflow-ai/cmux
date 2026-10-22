@@ -231,6 +231,9 @@ const OFFER_RESULT_PROMPT = "offer-result-";
 /// `prompt_refused`: acpmux refused a prompt sent now at dispatch (hub/web_control.rs), after it left the
 /// queue; it is not a transcript record, so the pane asks for it by name.
 const QUEUE_KINDS = ["queue_order", "queue_updated", "prompt_refused"];
+/// acpmux's sub-session records (hub/subsessions.rs `RECORD_KIND`): a child started or ended, and
+/// the chat's `limits` changing.
+const SUBSESSION_KIND = "subsession";
 /// acpmux's refusals of an answer to a card it no longer has (hub/secrets.rs): a restart lost it,
 /// or the agent stopped waiting.
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
@@ -2034,6 +2037,8 @@ export class AcpmuxDirectClient {
         CONFIG_KIND,
         BOOKMARKS_KIND,
         ...SECRET_KINDS,
+        // The chat's sub-session records: its running limit's `limits` changes (the eighth kind).
+        SUBSESSION_KIND,
         ...(this.localOrigin ? QUEUE_KINDS : []),
       ],
       eventStream: true,
@@ -2429,7 +2434,7 @@ export class AcpmuxDirectClient {
       void this.permissions.refresh().catch(() => {});
     else if (event.kind === "status") this.summary = { ...this.summary, status: msg.status };
     // The chat's sub-session limits changed (acpmux hub/subsessions.rs: the person, or an ancestor).
-    else if (event.kind === "subsession" && msg.event === "limits" && msg.limits && typeof msg.limits === "object") {
+    else if (event.kind === SUBSESSION_KIND && msg.event === "limits" && msg.limits && typeof msg.limits === "object") {
       if (event.seq && event.seq <= this.limitsSeq) return;
       this.summary = { ...this.summary, subsessionLimits: msg.limits };
       if (event.seq) this.limitsSeq = event.seq;

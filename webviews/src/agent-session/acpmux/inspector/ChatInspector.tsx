@@ -515,8 +515,12 @@ export function ChatInspector({
   // Subagents shows the running limit even before the agent starts a chat, so it can be set up front.
   const limits = summary?.subsessionLimits;
   const chatId = summary?.sessionId;
+  // A chat on another machine: its sub-sessions live on that machine's acpmux, which takes the
+  // limit only from its own person, so the line only reads.
   const setRunningLimit =
-    onSetRunningLimit && chatId ? (maxRunning: number | null) => onSetRunningLimit(chatId, maxRunning) : undefined;
+    onSetRunningLimit && chatId && !summary?.peer
+      ? (maxRunning: number | null) => onSetRunningLimit(chatId, maxRunning)
+      : undefined;
   const value = (text: string) => <span className="acpmux-chat-inspector-section__value">{text}</span>;
   return (
     <div ref={body} className="acpmux-chat-inspector__body">
@@ -628,7 +632,7 @@ export function ChatInspector({
           onOpenChange={fold("subagents")}
           meta={value(subagentCounts(t, agents, waiting, sessions))}
         >
-          <SubagentLimitStepper limits={limits} sessions={sessions} onSet={setRunningLimit} />
+          <SubagentLimitStepper chatId={chatId} limits={limits} sessions={sessions} onSet={setRunningLimit} />
           {agents.length + sessions.length > 0 && (
             <SubagentsSection
               agents={agents}
