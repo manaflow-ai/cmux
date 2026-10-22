@@ -100,6 +100,9 @@ pub enum Command {
     /// Print the agent guide: how a script or another agent drives acpmux. Also `guide`, `--guide`, `--skill`.
     #[command(alias = "guide")]
     Skill,
+    /// Print the protocol capability ids this build serves, one per line (`--json`: an object).
+    /// Needs no daemon: the app bundle records them for the web agent pane.
+    Capabilities,
     /// Show or set session defaults per model family or alias: `defaults`, `defaults claude`,
     /// `defaults claude model=claude-opus-5 effort=high policy=approve-edits prefer=claude-cr,claude`,
     /// `defaults deepseek prefer=opencode,pi models.opencode=opencode-go/deepseek-v4-pro models.pi=openrouter/deepseek/deepseek-v4`.
@@ -852,7 +855,7 @@ pub enum PeerCmd {
         #[arg(long, value_name = "DIR")]
         binary_dir: Option<PathBuf>,
         /// Leave a peer alone while one of its sessions runs a turn or waits
-        /// on a permission.
+        /// on a permission (but the session this command runs in).
         #[arg(long)]
         if_idle: bool,
     },

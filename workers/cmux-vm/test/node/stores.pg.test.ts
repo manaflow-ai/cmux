@@ -1,3 +1,5 @@
+import clientSessionIndex from "../../migrations/0017_cmux_vm_client_session_index.sql?raw";
+import agentKeys from "../../migrations/0016_cmux_vm_agent_keys.sql?raw";
 import creationReceiptIndex from "../../migrations/0011_cmux_vm_creation_receipt_index.sql?raw";
 /**
  * The SQL stores against the real migration on an in-process Postgres
@@ -18,7 +20,7 @@ import { newApiKeyId, newSnapshotId, newVmId, TenantId, UpstreamId } from "../..
 let pg: PGlite;
 let layer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditStore>;
 
-const migrations = [migration1, migration2, creationReceipts, creationReceiptIndex, uncommittedCreations];
+const migrations = [migration1, migration2, creationReceipts, creationReceiptIndex, uncommittedCreations, agentKeys, clientSessionIndex];
 
 const run = <A, E>(effect: Effect.Effect<A, E, OwnershipStore | ApiKeyStore | AuditStore>) => Effect.runPromise(Effect.provide(effect, layer));
 
@@ -45,7 +47,7 @@ describe("migration", () => {
       `SELECT table_schema || '.' || table_name AS name FROM information_schema.tables
         WHERE table_schema NOT IN ('pg_catalog', 'information_schema') ORDER BY name`,
     );
-    expect(tables.rows.map((row) => row.name)).toEqual(["cmux_vm.api_keys", "cmux_vm.audit_log", "cmux_vm.resources"]);
+    expect(tables.rows.map((row) => row.name)).toEqual(["cmux_vm.api_keys", "cmux_vm.audit_log", "cmux_vm.resources", "cmux_vm.vm_client_sessions"]);
     const indexes = await pg.query<{ name: string }>(
       `SELECT schemaname || '.' || indexname AS name FROM pg_indexes
         WHERE schemaname NOT IN ('pg_catalog', 'information_schema') ORDER BY name`,
@@ -60,6 +62,9 @@ describe("migration", () => {
       "cmux_vm.resources_kind_upstream_key",
       "cmux_vm.resources_pkey",
       "cmux_vm.resources_tenant_kind_created_idx",
+      "cmux_vm.vm_client_sessions_pkey",
+      "cmux_vm.vm_client_sessions_upstream_identity_id_key",
+      "cmux_vm.vm_client_sessions_vm_idx",
     ]);
   });
 
@@ -143,7 +148,7 @@ describe("api key store", () => {
     const { id, hash } = await insertKey({ scopes: ["vm:read", "vm:exec"], allowlist: [vmId] });
     const found = await run(Effect.flatMap(ApiKeyStore, (store) => store.findActiveByHash(hash, now)));
     expect(found).toEqual(
-      Option.some({ id, tenantId: "team_a", scopes: ["vm:read", "vm:exec"], resourceAllowlist: [vmId], expiresAt: null }),
+      Option.some({ id, tenantId: "team_a", scopes: ["vm:read", "vm:exec"], resourceAllowlist: [vmId], expiresAt: null, agent: null }),
     );
   });
 

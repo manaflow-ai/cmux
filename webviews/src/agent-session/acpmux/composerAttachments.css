@@ -150,6 +150,21 @@
   line-height: 1.2;
   letter-spacing: var(--text-caption--letter-spacing);
 }
+/* A pasted or dropped file still being read (composer/attachmentIntake.tsx PendingChip): there in
+   the paste's frame, an image as a thumbnail-sized tile with a dimmed picture glyph, so the strip
+   does not jump when the thumbnail replaces it. */
+.acpmux-attachment-pending {
+  color: var(--agent-muted);
+}
+.acpmux-attachment-image.acpmux-attachment-pending {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 104px;
+}
+.acpmux-attachment-file.acpmux-attachment-pending {
+  padding-right: 10px;
+}
 .acpmux-attachment-file {
   display: flex;
   align-items: center;

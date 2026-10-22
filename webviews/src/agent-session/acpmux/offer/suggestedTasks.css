@@ -227,7 +227,7 @@
   background: var(--agent-accent);
 }
 .acpmux-task-started[data-state="waiting"] .acpmux-task-dot {
-  background: var(--acpmux-warning);
+  background: var(--acpmux-needs-you-mark);
 }
 .acpmux-task-started[data-state="failed"] .acpmux-task-dot {
   background: var(--agent-danger);

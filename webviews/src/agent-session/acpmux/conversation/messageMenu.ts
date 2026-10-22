@@ -29,26 +29,37 @@ export type MessageMenuTarget = {
 /// transcript text when the pointer is inside it (Quote in Reply, Search the Web...).
 export type MessageMenuReport = Partial<MessageMenuTarget> & { selection?: string; openImage?: true; part?: MenuPart };
 
-/// Whether a turn can be forked now: acpmux serves forks, the pane is connected, no turn is
-/// running and the chat is on this computer (acpmux refuses the rest). The turn footer's Fork
-/// shows on the same rule.
-export const canFork = (snapshot: AcpmuxSnapshot) =>
+/// Whether acpmux can fork the chat at all here: it serves forks, the pane is connected and the
+/// chat is on this computer (acpmux refuses the rest).
+const forkServed = (snapshot: AcpmuxSnapshot) =>
   Boolean(snapshot.canFork) &&
-  !snapshot.isWorking &&
   !snapshot.summary?.peer &&
   snapshot.connection !== "disconnected" &&
   !snapshot.connection.startsWith("connecting");
 
+/// Whether a turn can be forked now: acpmux serves the fork (`forkServed`) and no turn is running.
+/// The turn footer's Fork shows on the same rule. The whole chat forks while it works too
+/// (`forkToTarget`).
+export const canFork = (snapshot: AcpmuxSnapshot) => forkServed(snapshot) && !snapshot.isWorking;
+
 /// Why Fork Conversation from the app (the palette's step, the chat's right-click menu, its
-/// shortcut: `chat.forkTo`) cannot fork the chat now, or undefined when it can: "busy" while a turn
-/// runs, "unavailable" when acpmux, the connection or the chat's machine does not serve the fork,
-/// "nothingYet" before the chat's first finished turn (a Claude chat with none has no
-/// conversation to copy).
-export function forkRefusal(snapshot: AcpmuxSnapshot): "busy" | "unavailable" | "nothingYet" | undefined {
-  if (snapshot.isWorking) return "busy";
-  if (!canFork(snapshot)) return "unavailable";
-  if (latestForkSeq(snapshot.rows) === undefined) return "nothingYet";
+/// shortcut: `chat.forkTo`) cannot fork the chat now, or undefined when it can: "unavailable" when
+/// acpmux, the connection or the chat's machine does not serve the fork, "nothingYet" before the
+/// chat's first turn (a Claude chat with none has no conversation to copy). A working chat forks
+/// now, as it is: the person never waits for its turn to end (2026-10-21).
+export function forkRefusal(snapshot: AcpmuxSnapshot): "unavailable" | "nothingYet" | undefined {
+  if (!forkServed(snapshot)) return "unavailable";
+  if (!snapshot.isWorking && latestForkSeq(snapshot.rows) === undefined) return "nothingYet";
   return undefined;
+}
+
+/// What Fork Conversation forks: a working chat as it is now (`live`: acpmux copies its running
+/// turn cut off there and leaves the chat's turn running), else the chat through its latest
+/// finished turn. Undefined when there is nothing to fork yet.
+export function forkToTarget(snapshot: AcpmuxSnapshot): { live: true } | { throughSeq: number } | undefined {
+  if (snapshot.isWorking) return { live: true };
+  const throughSeq = latestForkSeq(snapshot.rows);
+  return throughSeq === undefined ? undefined : { throughSeq };
 }
 
 /// Whether every completed turn can be forked: acpmux forks a Claude or Codex chat through any of
