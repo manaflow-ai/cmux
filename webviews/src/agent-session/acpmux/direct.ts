@@ -4996,9 +4996,10 @@ export class AcpmuxDirectClient {
     // already says how it ended found nothing open in the held events, so it ends the latest
     // compaction still open, however long after: the end goes on that row, where the compaction
     // started, and the held row goes, so a page further back takes nothing more for it.
-    const opensRunning = (row: AcpmuxRow) => {
+    // How a held compaction's first record says it stands; undefined when that record is not held.
+    const openedAs = (row: AcpmuxRow) => {
       const opening = this.events.find((event) => event.seq === row.seq);
-      return opening !== undefined && compactionOf(sessionUpdate(opening))?.state === "running";
+      return opening ? compactionOf(sessionUpdate(opening))?.state : undefined;
     };
     const openRows = () =>
       [...this.rows.values()].filter(
@@ -5011,12 +5012,33 @@ export class AcpmuxDirectClient {
     for (const next of [...held.values()]
       .filter((row) => row.kind === "compaction")
       .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))) {
-      if (opensRunning(next)) {
+      const opened = openedAs(next);
+      if (opened === undefined) continue;
+      if (opened === "running") {
         if (continued) continue;
         continued = true;
-        for (const row of openRows()) {
-          const heard = this.compactionHeardAt.get(row.id);
-          if (heard !== undefined && next.at - heard <= COMPACTION_REPEAT_WINDOW) this.rows.delete(row.id);
+        const onTime = openRows()
+          .filter((row) => next.at - (this.compactionHeardAt.get(row.id) ?? -Infinity) <= COMPACTION_REPEAT_WINDOW)
+          .sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0));
+        const [into, ...rest] = onTime;
+        for (const row of rest) this.rows.delete(row.id);
+        // It goes on where that compaction started, as the whole record draws it, so a page
+        // further back still finds the earliest note it was heard at.
+        if (into?.compaction && next.compaction) {
+          const joined: AcpmuxRow = {
+            ...into,
+            version: Math.max(into.version, next.version) + 1,
+            compaction:
+              next.compaction.state === "running" ? stillRunning(into.compaction, next.compaction) : next.compaction,
+          };
+          const heard = live.compactionHeardAt.get(next.id);
+          live.compactionHeardAt.delete(next.id);
+          if (heard !== undefined) live.compactionHeardAt.set(into.id, heard);
+          held.delete(next.id);
+          this.rows.delete(next.id);
+          // The held events' row now: what they said of it stands.
+          held.set(into.id, joined);
+          this.rows.set(into.id, joined);
         }
         continue;
       }
