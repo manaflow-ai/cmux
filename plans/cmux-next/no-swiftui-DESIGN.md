@@ -1,6 +1,8 @@
 # No SwiftUI in the macOS app (design)
 
-Status: wave 0 (lint and plan) landed; wave 1 (hot paths) in progress.
+Status: wave 0 (lint and plan) landed; wave 1 (hot paths) in progress:
+right sidebar Dock and Machines, AgentActivity, update sheet, Sleepy Mode
+scene and Home group info sheet ported (see "Progress").
 Owner: Chief subagent "Remove SwiftUI from macOS", 2026-10-21.
 
 ## Why
@@ -70,7 +72,7 @@ graph there costs frames. "Cold" means a page or window opened on demand.
 | `CmuxNextChiefMemory` | 3 | 259 | 3 | 0 | cold | Chief memory inspector | AppKit |
 | `CmuxNextAccounts/Views` | 4 | 358 | 6 | 0 | cold | Accounts palette and section | AppKit |
 | `CmuxNextAppPermissions/UI` | 3 | 106 | 1 | 0 | cold | App permissions | AppKit |
-| `CmuxNextApps/Store` (+`/Views`) | 15 | 1,577 | 26 | 1 | cold | App store | Chromium web view (it is a catalog page) |
+| `CmuxNextApps/Store` (+`/Views`) | 15 | 1,577 | 26 | 1 | cold | App store | Chromium web view: owned by a491 (`plans/cmux-next/extensibility-DESIGN.md`); `AppSectionFrame` and `AppIconView` move to `Apps/Section` and stay on the allowlist until the renderer port |
 | `CmuxNextApps/Render` | 11 | 756 | 13 | 1 | hot via Section | Declarative app scene renderer (`AppSceneView`) | AppKit renderer of the same scene tree |
 | `CmuxNextSettingsWindow` (+Debug, Views) | 8 | 628 | 9 | 2 | cold (DEBUG) | Debug settings window | AppKit form |
 | `CmuxNextDesign` (bridges) | 12 | ~560 | 1 | 0 | n/a | SwiftUI adapters of AppKit design pieces: `ThemedSpinner` (wraps `StatusIndicatorView`), glass button style, themed field and picker, thin scrollers, toast, overlay, tooltip, dialog button, unresolved tokens | delete when the last consumer is gone |
@@ -120,8 +122,10 @@ Wave 1, hot paths (each its own slice, red test then port):
 4. `CmuxNextApp/SleepyMode` overlay as `CALayer`s.
 5. `CmuxNextHome/Conversations` group info sheet.
 6. `CmuxNextApp/Handlers` downloads popover.
-7. `CmuxNextApps/Section` + `CmuxNextApps/Render`: an AppKit renderer for
-   the scene tree, sections first.
+7. `CmuxNextApps/Section` + `CmuxNextApps/Render` (with `AppSectionFrame`
+   and `AppIconView`): an AppKit renderer for the scene tree, sections
+   first. Owned here (a500, extensibility design); the store page itself
+   goes to a web view under a491.
 8. `CmuxNextFeed`.
 9. `CmuxNextDesign/Motion` spring engine (bench-gated, see above).
 
@@ -136,6 +140,19 @@ Wave 4: delete the `CmuxNextDesign` SwiftUI adapters, `CmuxNextIcons`
 SwiftUI views and their tests as their consumer counts reach zero; then
 remove SwiftUI from the package's linked frameworks and delete the
 allowlist and lint exception.
+
+## Progress
+
+| Slice | Red test | Files off the allowlist |
+|---|---|---|
+| Right sidebar Dock + Machines | `RightSidebarTests` (two new tests) | 4 |
+| AgentActivity SwiftUI half | none (dead code) | 2 |
+| Update sheet | `UpdateSheetAppKitTests` | 2 |
+| Sleepy Mode scene (layers; no more 10 fps Canvas redraw) | `SleepyModeTests.theSceneIsAppKitAndItsButtonLocks` | 2 |
+| Home group info sheet | `HomeGroupInfoSheetTests` | 6 |
+
+The lint accepts a file moved with `git mv` under its new path (a491's
+store split), and still fails any entry that is new.
 
 ## Verification per slice
 
