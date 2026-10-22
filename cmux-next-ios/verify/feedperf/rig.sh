@@ -5,17 +5,24 @@
 #
 #   rig.sh sync              xcodegen here, rsync sources + CmuxMobileLinkFFI.xcframework to $HOST:$DIR
 #   rig.sh build             Demo simulator build on the mini (arm64 only)
-#   rig.sh sim               create + boot the rig's own simulator ($SIM_NAME)
+#   rig.sh ship              copy the built app from $HOST to $RUN_HOST (a quieter mini for timing)
+#   rig.sh sim               create + boot the rig's own simulator ($SIM_NAME, a $SIM_DEVICE) on $RUN_HOST
 #   rig.sh run LABEL [K=V..] install, launch on the Feed with CMUX_MOBILE_FRAMELOG=1 and the
 #                            given CMUX_MOBILE_* settings, wait for the app to exit after the autoscroll,
 #                            copy framelog.jsonl to verify/evidence/feedperf/LABEL.jsonl
+#   rig.sh trace LABEL TEMPLATE [K=V..]
+#                            as run, with `xctrace record --template TEMPLATE --attach` on the app for
+#                            the whole run; the trace lands in verify/evidence/feedperf/LABEL.trace
 #
-# Environment: HOST (default mini-cmux11s-mac-mini), DIR (default feedperf),
-# SIM_NAME (default cmux-mobile-feedperf-1), XCF (CmuxMobileLinkFFI.xcframework to ship).
+# Environment: HOST (build mini, default mini-cmux11s-mac-mini), RUN_HOST (simulator mini,
+# default HOST), DIR (default feedperf), SIM_NAME (default cmux-mobile-feedperf-1),
+# SIM_DEVICE (default iPhone 17 Pro), XCF (CmuxMobileLinkFFI.xcframework to ship).
 set -euo pipefail
 HOST=${HOST:-mini-cmux11s-mac-mini}
 DIR=${DIR:-feedperf}
 SIM_NAME=${SIM_NAME:-cmux-mobile-feedperf-1}
+SIM_DEVICE=${SIM_DEVICE:-iPhone 17 Pro}
+RUN_HOST=${RUN_HOST:-$HOST}
 here=$(cd "$(dirname "$0")" && pwd)
 mobile=$(cd "$here/../.." && pwd)
 repo=$(cd "$mobile/.." && pwd)
@@ -48,25 +55,45 @@ case "${1:-}" in
       'SWIFT_ACTIVE_COMPILATION_CONDITIONS=\$(inherited) DEBUG CMUX_MOBILE_DEMO' build > build-demo.log 2>&1; rc=\$?; \
       grep -E 'error:|BUILD (SUCCEEDED|FAILED)' build-demo.log | sort -u | head -30; exit \$rc"
     ;;
+  ship)
+    [[ "$RUN_HOST" == "$HOST" ]] && exit 0
+    ssh "$RUN_HOST" "mkdir -p $DIR/cmux-next-ios/build/demo/Build/Products"
+    ssh "$HOST" "cd $DIR/cmux-next-ios/build/demo/Build/Products && tar cf - Demo-iphonesimulator/*.app" \
+      | ssh "$RUN_HOST" "cd $DIR/cmux-next-ios/build/demo/Build/Products && rm -rf Demo-iphonesimulator && tar xf -"
+    ;;
   sim)
-    ssh "$HOST" "$remote_env udid=\$(xcrun simctl list devices | grep '$SIM_NAME (' | head -1 | grep -oE '[0-9A-F-]{36}'); \
-      if [[ -z \$udid ]]; then udid=\$(xcrun simctl create '$SIM_NAME' 'iPhone 17 Pro' com.apple.CoreSimulator.SimRuntime.iOS-26-5); fi; \
+    ssh "$RUN_HOST" "$remote_env udid=\$(xcrun simctl list devices | grep '$SIM_NAME (' | head -1 | grep -oE '[0-9A-F-]{36}'); \
+      if [[ -z \$udid ]]; then udid=\$(xcrun simctl create '$SIM_NAME' '$SIM_DEVICE' com.apple.CoreSimulator.SimRuntime.iOS-26-5); fi; \
       xcrun simctl boot \$udid 2>/dev/null; xcrun simctl bootstatus \$udid -b >/dev/null; echo \$udid"
     ;;
-  run)
-    label=${2:?label}; shift 2
+  run|trace)
+    mode=$1 label=${2:?label}; shift 2
+    template=""
+    if [[ $mode == trace ]]; then template=${1:?template}; shift; fi
     envs="SIMCTL_CHILD_CMUX_MOBILE_FRAMELOG=1 SIMCTL_CHILD_CMUX_MOBILE_MOCK_AUTH=${MOCK:-1}"
     for kv in "$@"; do envs+=" SIMCTL_CHILD_$kv"; done
     out="$mobile/verify/evidence/feedperf"; mkdir -p "$out"
-    ssh "$HOST" "$remote_env udid=\$(xcrun simctl list devices | grep '$SIM_NAME (' | head -1 | grep -oE '[0-9A-F-]{36}'); \
+    launch="SIMCTL_CHILD_CMUX_MOBILE_FEED_EXIT_WHEN_DONE=1 $envs perl -e 'alarm shift; exec @ARGV' ${WAIT:-300} \
+        xcrun simctl launch --console-pty --terminate-running-process \$udid \$bid -cmux-mobile-tab feed -cmuxMobile.setupComplete YES -cmux-mobile-no-restore >/dev/null 2>&1"
+    if [[ $mode == trace ]]; then
+      # simctl launch without a console returns "<bundle>: <pid>" at once; xctrace attaches to that
+      # pid and records until the app exits after its autoscroll.
+      launch="rm -rf $DIR/$label.trace; pid=\$(SIMCTL_CHILD_CMUX_MOBILE_FEED_EXIT_WHEN_DONE=1 $envs xcrun simctl launch --terminate-running-process \$udid \$bid \
+          -cmux-mobile-tab feed -cmuxMobile.setupComplete YES -cmux-mobile-no-restore | awk '{print \$NF}'); \
+          xcrun xctrace record --template '$template' --attach \$pid --time-limit ${WAIT:-300}s --output $DIR/$label.trace >$DIR/$label.xctrace.log 2>&1"
+    fi
+    ssh "$RUN_HOST" "$remote_env udid=\$(xcrun simctl list devices | grep '$SIM_NAME (' | head -1 | grep -oE '[0-9A-F-]{36}'); \
       app=\$(ls -d $DIR/cmux-next-ios/build/demo/Build/Products/Demo-iphonesimulator/*.app | head -1); \
       bid=\$(plutil -extract CFBundleIdentifier raw \$app/Info.plist); \
       xcrun simctl terminate \$udid \$bid 2>/dev/null; xcrun simctl install \$udid \$app; \
       caches=\$(xcrun simctl get_app_container \$udid \$bid data)/Library/Caches; rm -f \$caches/framelog.jsonl; \
-      SIMCTL_CHILD_CMUX_MOBILE_FEED_EXIT_WHEN_DONE=1 $envs perl -e 'alarm shift; exec @ARGV' ${WAIT:-300} \
-        xcrun simctl launch --console-pty --terminate-running-process \$udid \$bid -cmux-mobile-tab feed -cmuxMobile.setupComplete YES -cmux-mobile-no-restore >/dev/null 2>&1; \
+      $launch; \
       cat \$caches/framelog.jsonl" > "$out/$label.jsonl"
+    if [[ $mode == trace ]]; then
+      rm -rf "$out/$label.trace"
+      rsync -a "$RUN_HOST:$DIR/$label.trace" "$out/" && echo "trace: $out/$label.trace"
+    fi
     python3 "$here/summarize.py" "$out/$label.jsonl"
     ;;
-  *) sed -n '2,17p' "$0"; exit 2 ;;
+  *) sed -n '2,23p' "$0"; exit 2 ;;
 esac
