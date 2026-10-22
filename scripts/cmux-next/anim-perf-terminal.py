@@ -22,7 +22,7 @@ layout so a single table compares builds:
 
 Per animation (median over --rounds): display frame intervals p50/p95/max, dropped frames (an interval over 1.5
 refresh periods), frames over 8.33 ms (a 120 Hz frame), main-thread CPU per frame p95/max and in total
-(`debug.frames`), and hangs (`debug.hangs`). The budgets (scripts/perf-bench/budgets.json `animations`) are a 120 Hz
+(`debug.frames`, `debug.main_cpu`), and hangs (`debug.hangs`). The budgets (scripts/perf-bench/budgets.json `animations`) are a 120 Hz
 frame: no dropped frame, no frame and no main-thread slice over 8.33 ms. Each starts advisory; --gate fails on the
 enforced ones.
 
@@ -259,10 +259,14 @@ def anims():
 def measure(name, perform):
     rpc("debug.hangs", {"clear": True})
     rpc("debug.frames", {"action": "start"})
+    rpc("debug.main_cpu", {"action": "start"})
     time.sleep(0.1)  # test harness: frames at rest before the gesture, so the first interval is a real one
     error = perform()
     time.sleep(1.0)  # test harness: the springs land (rest is under 0.6 s)
+    cpu = rpc("debug.main_cpu", {"action": "stop"}) or {}
     frames = rpc("debug.frames", {"action": "stop"}) or {}
+    if isinstance(cpu, dict) and not cpu.get("error"):
+        frames = {**frames, **{k: v for k, v in cpu.items() if k != "frames"}}
     hangs = rpc("debug.hangs") or {}
     hang_list = hangs.get("hangs") if isinstance(hangs, dict) else None
     result = {"anim": name, "error": error, "frames": frames.get("frames"), "refresh_ms": frames.get("refresh_ms"),
