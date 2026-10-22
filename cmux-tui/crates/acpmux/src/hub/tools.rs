@@ -166,7 +166,83 @@ impl Hub {
             "applied": applied,
         }))
     }
+
+    /// `_acpmux/mcp/reconnect`: Claude Code's `mcp_reconnect` for one of the
+    /// chat's MCP servers (a failed or disconnected one), on the running
+    /// process; it never starts one, as the next start connects every server.
+    /// Once Claude Code reconnected it, its row reads connected until the next
+    /// system/init says otherwise. Anything but Claude Code is refused.
+    pub async fn reconnect_mcp(
+        &self,
+        session: &Arc<Session>,
+        params: &Value,
+    ) -> Result<Value, RpcError> {
+        let server = params
+            .get("server")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| RpcError::invalid_params("server is required"))?;
+        // From the harness alone, as `set_tools`: an idle chat is not started to be refused.
+        let meta = session.meta();
+        let kind = {
+            let cfg = self.config.read().await;
+            super::resolve::session_profile(&cfg, &meta.harness, &meta.cwd, meta.remote_origin)
+                .map_err(RpcError::invalid_params)?
+                .kind
+        };
+        if kind != crate::config::HarnessKind::ClaudeStdio {
+            return Err(RpcError::new(-32000, "only Claude Code reconnects an MCP server")
+                .with_data(json!({"reason": MCP_UNSUPPORTED})));
+        }
+        let id = format!("mcp:{server}");
+        if !meta.tools.rows.iter().any(|r| r.id == id) {
+            return Err(RpcError::not_found(format!("this chat has no MCP server {server:?}")));
+        }
+        let child = session.child.lock().await.clone();
+        let alive = match &child {
+            Some(child) => child.is_alive().await,
+            None => false,
+        };
+        let Some(child) = child.filter(|_| alive) else {
+            return Err(RpcError::invalid_params(
+                "this chat's Claude Code is not running: its MCP servers connect when it starts",
+            ));
+        };
+        let params = json!({"sessionId": meta.agent_session_id, "server": server});
+        let asked = child.request(crate::claude_stdio::MCP_RECONNECT, params);
+        match tokio::time::timeout(RECONNECT_TIMEOUT, asked).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => return Err(e),
+            Err(_) => {
+                return Err(RpcError::internal("Claude Code did not answer mcp_reconnect in time"));
+            }
+        }
+        let changed = {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            match m.tools.rows.iter_mut().find(|r| r.id == id) {
+                Some(row) if row.status.as_deref() != Some("connected") => {
+                    row.status = Some("connected".to_owned());
+                    true
+                }
+                _ => false,
+            }
+        };
+        // Watchers hear it as `_acpmux/session_changed` kind `tools` (`mcpServers`).
+        if changed {
+            self.append(session, "mux", "tools", json!({"reconnected": server}));
+            self.save_meta(session);
+        }
+        Ok(json!({}))
+    }
 }
+
+/// `data.reason` of an MCP reconnect on a chat whose harness is not Claude
+/// Code (`_acpmux/mcp/reconnect`).
+pub const MCP_UNSUPPORTED: &str = "mcp.unsupported";
+
+/// How long `_acpmux/mcp/reconnect` waits for Claude Code: a server is
+/// started (or dialed) again, which a slow one takes a while to do.
+const RECONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// The prefix of an off row that names a Claude Code built-in tool the chat
 /// was started without (`NewRequest::disallowed_tools`), not an MCP server.

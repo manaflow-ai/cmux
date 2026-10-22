@@ -184,6 +184,8 @@ pub fn models() -> &'static [(String, String)] {
 
 #[cfg(test)]
 mod background_output_tests;
+#[cfg(test)]
+mod context_usage_tests;
 mod early_calls;
 #[cfg(test)]
 mod early_calls_tests;
@@ -198,9 +200,13 @@ mod subagent_route;
 mod subagent_tests;
 #[cfg(test)]
 mod tests;
+mod usage_limits;
+#[cfg(test)]
+mod usage_limits_tests;
 #[cfg(test)]
 mod workflow_tests;
 mod workflows;
+pub use usage_limits::merge_usage_limits;
 
 /// The internal ACP request that stops one of Claude Code's background
 /// tasks (`hub/processes.rs`), `{sessionId, taskId}`: Claude Code's
@@ -215,6 +221,17 @@ pub const STOP_TASK: &str = "_acpmux/claude/stop_task";
 /// `{backgrounded}`; the shells it moved arrive as their own events, with
 /// origin `user_backgrounded`.
 pub const BACKGROUND_TASKS: &str = "_acpmux/claude/background_tasks";
+
+/// The internal ACP request that reconnects one of the chat's MCP servers
+/// (`hub/tools.rs`), `{sessionId, server}`: Claude Code's `mcp_reconnect`
+/// control request. The answer is `{}` once Claude Code connected it again,
+/// or Claude Code's error.
+pub const MCP_RECONNECT: &str = "_acpmux/claude/mcp_reconnect";
+
+/// The most memory files, MCP tools and skills a context breakdown names
+/// (`context_breakdown`), the largest first: a chat with hundreds of MCP
+/// tools would otherwise log every one at each turn's end.
+const BREAKDOWN_ROWS: usize = 50;
 
 /// The refusal of a steered prompt when no turn is running (the turn ended
 /// between the hub's check and the adapter).
@@ -401,6 +418,9 @@ pub struct Translator {
     /// and those in the background (`run_in_background`, or moved there) until
     /// their `task_notification` or Claude's exit ends them.
     background_shells: Mutex<HashMap<String, BackgroundShell>>,
+    /// The plan usage limit windows Claude Code reported, newest each, by id
+    /// (`usage_limits.rs`).
+    usage_limits: Mutex<std::collections::BTreeMap<&'static str, Value>>,
 }
 
 /// A running shell: the session its Bash call ran in, its command, Claude's
@@ -437,6 +457,8 @@ enum Pending {
     /// `end_background_asks` unmarks them when nothing moved, at that
     /// deadline, or when the turn ends.
     Background(Vec<String>, Option<std::time::Instant>),
+    /// An `mcp_reconnect` (`MCP_RECONNECT`), answered when claude did it.
+    McpReconnect,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -484,6 +506,7 @@ impl Translator {
             streamed_subagents: Mutex::new(HashSet::new()),
             edits: Mutex::new(HashMap::new()),
             announced: Mutex::new(HashMap::new()),
+            usage_limits: Mutex::new(Default::default()),
         })
     }
 
@@ -766,6 +789,68 @@ fn tool_title(name: &str, input: &Value) -> String {
         "ExitPlanMode" => "Approve plan".into(),
         _ => name.to_owned(),
     }
+}
+
+/// Whether a raw Claude line answers the `get_context_usage` a turn's result
+/// asked (`ctx-*`); its trimmed breakdown is what acpmux keeps.
+pub fn is_context_answer(line: &Value) -> bool {
+    line.pointer("/response/request_id")
+        .and_then(Value::as_str)
+        .is_some_and(|id| id.starts_with("ctx-"))
+}
+
+/// Claude Code's answer to `get_context_usage` (its `/context`), trimmed to
+/// what a client draws: each category's tokens and kind, the memory files,
+/// MCP tools and skills by size (at most `BREAKDOWN_ROWS` of each, the
+/// largest), and the totals; no grid or colors. None without categories: a
+/// Claude Code too old to answer, or one that answered something else.
+pub(super) fn context_breakdown(usage: &Value) -> Option<Value> {
+    let categories = usage.get("categories")?.as_array()?;
+    let count = |v: &Value, key: &str| v.get(key).and_then(Value::as_u64).unwrap_or(0);
+    let tokens = |v: &Value| count(v, "tokens");
+    let rows = |list: Option<&Value>, fields: &[&str]| -> Vec<Value> {
+        let mut rows: Vec<Value> = list
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|row| {
+                let mut kept = serde_json::Map::new();
+                for field in fields {
+                    if let Some(v) = row.get(*field).filter(|v| v.is_string()) {
+                        kept.insert((*field).into(), v.clone());
+                    }
+                }
+                kept.insert("tokens".into(), json!(tokens(row)));
+                Value::Object(kept)
+            })
+            .collect();
+        rows.sort_by_key(|row| std::cmp::Reverse(tokens(row)));
+        rows.truncate(BREAKDOWN_ROWS);
+        rows
+    };
+    let categories: Vec<Value> = categories
+        .iter()
+        .map(|c| {
+            let mut kept =
+                json!({"name": c.get("name"), "tokens": tokens(c), "kind": c.get("kind")});
+            if let Some(id) = c.get("id").filter(|id| id.is_string()) {
+                kept["id"] = id.clone();
+            }
+            kept
+        })
+        .collect();
+    let mut breakdown = json!({
+        "categories": categories,
+        "memoryFiles": rows(usage.get("memoryFiles"), &["path", "type"]),
+        "mcpTools": rows(usage.get("mcpTools"), &["name", "serverName"]),
+        "totalTokens": count(usage, "totalTokens"),
+        "maxTokens": count(usage, "maxTokens"),
+    });
+    // Claude Code names its skills only when they take context.
+    if let Some(skills) = usage.pointer("/skills/skillFrontmatter").filter(|s| s.is_array()) {
+        breakdown["skills"] = json!(rows(Some(skills), &["name"]));
+    }
+    Some(breakdown)
 }
 
 /// Claude's permission suggestions as session-only permission updates: each
