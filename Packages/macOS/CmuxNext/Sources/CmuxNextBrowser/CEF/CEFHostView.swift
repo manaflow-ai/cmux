@@ -119,10 +119,28 @@ final class CEFHostView: NSView {
     /// Geometry updates asked of the fork, and those skipped (a hidden host).
     private(set) var geometryPosts = 0
     private(set) var skippedGeometryPosts = 0
+    /// The last clip built and the inputs it was built from. The inputs are
+    /// in this view's coordinates, so a pane that moves or scrolls without a
+    /// resize keeps its clip.
+    private var clipCache: (key: ClipKey, path: CGPath?)?
+
+    private struct ClipKey: Equatable {
+        var bounds: CGRect
+        var clips: [CEFClipShape.RoundedRect]
+        var cutouts: [CGRect]
+    }
+
     /// The pane's rounded clip, the column strip's clip and the window's corners, in this view.
+    /// Built again only when its inputs change: the fork reads it on every
+    /// geometry update, which an ancestor's frame change sends once per
+    /// observed ancestor (several times a frame during a pane drag).
     var pageClip: CGPath? {
+        let key = ClipKey(bounds: bounds, clips: CEFClipShape.clips(around: self), cutouts: CEFClipShape.cutouts(around: self))
+        if let clipCache, clipCache.key == key { return clipCache.path }
         clipShapeBuilds += 1
-        return CEFClipShape.path(bounds: bounds, clips: CEFClipShape.clips(around: self), cutouts: CEFClipShape.cutouts(around: self))
+        let path = CEFClipShape.path(bounds: key.bounds, clips: key.clips, cutouts: key.cutouts)
+        clipCache = (key, path)
+        return path
     }
 
     /// The chrome's rects plus the window's interactive overlays over this
@@ -161,8 +179,16 @@ final class CEFHostView: NSView {
     }
 
     /// Tells the tracker about moves AppKit does not report (layer
-    /// transforms, manual frame animation in an ancestor).
+    /// transforms, manual frame animation in an ancestor). A hidden host or
+    /// one outside a window shows no page: the fork hides the page through
+    /// its probe when the view hides or leaves (`viewDidHide`,
+    /// `viewDidMoveToWindow`) and places it again when it shows, so a
+    /// window-wide page update costs such a host nothing.
     func postGeometryChange() {
+        guard window != nil, !isHiddenOrHasHiddenAncestor else {
+            skippedGeometryPosts += 1
+            return
+        }
         geometryPosts += 1
         NotificationCenter.default.post(name: CEFHostView.geometryDidChange, object: self)
     }
