@@ -43,14 +43,18 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
     /// The file an overlay install writes last.
     public static let manifestName = "manifest.json"
 
-    /// Whether `web-dev.json` is read at all: a Debug compile, or a nightly bundle (tagged or
-    /// not). The rule of `DevTools.isAvailable` (CmuxNextActions, which this module does not use).
+    /// Whether `web-dev.json` is read at all: a Debug compile, a nightly bundle (tagged or not), or
+    /// cmux NEXT DEV, the daily dogfood build (a Release compile with its own id). The rule of
+    /// `DevTools.isAvailable` (CmuxNextActions, which this module does not use), plus that build.
     public static func isAvailable(bundleID: String?, isDebugBuild: Bool) -> Bool {
         if isDebugBuild { return true }
         guard let bundle = bundleID?.trimmingCharacters(in: .whitespaces) else { return false }
         let nightly = "com.cmuxterm.app.nightly"
-        return bundle == nightly || bundle.hasPrefix(nightly + ".")
+        return bundle == nightly || bundle.hasPrefix(nightly + ".") || bundle == nextDevBundleID
     }
+
+    /// cmux NEXT DEV's bundle id (docs/cmux-next/dev-daily.md).
+    static let nextDevBundleID = "com.cmuxterm.app.debug.next"
 
     /// This process: decided once from its own bundle.
     public static let isEnabled: Bool = {
