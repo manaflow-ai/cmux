@@ -45,7 +45,7 @@ HARNESS = r"""
 // environment variable (E2BIG).
 const scenario = JSON.parse((await import('node:fs')).readFileSync(process.env.SCENARIO_FILE, 'utf8'));
 const guard = await import(process.env.GUARD);
-const calls = { runs: 0, jobs: 0, activityPages: 0, moves: 0, comparePages: 0, trees: 0 };
+const calls = { runs: 0, jobs: 0, activityPages: 0, moves: 0, comparePages: 0, trees: 0, commitReads: 0, commitInFlight: 0, commitMaxInFlight: 0 };
 const pullsListCommits = Symbol('listCommits');
 const notices = [];
 const actions = {
@@ -85,7 +85,9 @@ const github = {
       // Git trees: each commit's tree is its first parent's tree plus its own
       // files (blob = the commit that wrote it), unless the scenario gives an
       // explicit tree (a merge that resolves a conflict).
-      getCommit: async ({ commit_sha }) => ({ data: { sha: commit_sha, tree: { sha: `T|${commit_sha}|` } } }),
+      // A train commit's message and parents (readTrainCommit()) come from
+      // scenario.gitCommits; any other commit has neither, so it is no train.
+      getCommit: async ({ commit_sha }) => ({ data: { sha: commit_sha, tree: { sha: `T|${commit_sha}|` }, ...((scenario.gitCommits || {})[commit_sha] || {}) } }),
       getTree: async ({ tree_sha, recursive }) => {
         const [, commitSha, dir] = tree_sha.split('|');
         calls.trees += 1;
@@ -137,9 +139,16 @@ const github = {
         calls.comparePages += 1;
         return { data: { status, total_commits: scenario.totalCommitsOverride ?? inRange.length, commits: pageCommits, files: files.slice(0, cap) } };
       },
+      // Each read takes a little time, as on GitHub, so the test sees how
+      // many the guard keeps in flight at once.
       getCommit: async ({ ref, per_page = 300, page = 1 }) => {
         const c = commits[ref];
         if (!c) throw new Error(`unexpected commit ${ref}`);
+        calls.commitReads += 1;
+        calls.commitInFlight += 1;
+        calls.commitMaxInFlight = Math.max(calls.commitMaxInFlight, calls.commitInFlight);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        calls.commitInFlight -= 1;
         const all = c.files || [];
         return { data: { ...c, files: all.slice((page - 1) * per_page, page * per_page) } };
       },
@@ -168,7 +177,13 @@ const github = {
     },
   }),
   request: async (route, params) => {
-    if (route === 'GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls') return { data: scenario.commitPulls[params.commit_sha] || [] };
+    if (route === 'GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls') {
+      // GitHub answers 500 now and then (run 39413299148): the first
+      // `pullsErrors` reads of this list fail with a server error.
+      calls.pullsReads = (calls.pullsReads || 0) + 1;
+      if (calls.pullsReads <= (scenario.pullsErrors || 0)) throw Object.assign(new Error('Server Error'), { status: scenario.pullsErrorStatus || 500 });
+      return { data: scenario.commitPulls[params.commit_sha] || [] };
+    }
     if (route === 'GET /repos/{owner}/{repo}/actions/runs/{run_id}/approvals') return { data: scenario.approvals };
     throw new Error(`unexpected request ${route}`);
   },
@@ -183,6 +198,11 @@ const decision = scenario.newest
   : await guard.decide({
       github, core, owner: 'manaflow-ai', repo: 'cmux', sha: scenario.sha,
       surfaceText: scenario.surface, sleep: async () => {},
+      // G1' tree check: scenario.trainVerify is its answer, 'throw' a crash.
+      verifyTrain: scenario.trainVerify === undefined ? null : async () => {
+        if (scenario.trainVerify === 'throw') throw new Error('merge-tree crashed');
+        return scenario.trainVerify;
+      },
     });
 const approvers = await guard.approvedBy({ github, owner: 'manaflow-ai', repo: 'cmux', runId: 1 });
 let policy = { require_non_lander_approver: true };
@@ -536,6 +556,45 @@ def test_a_surface_change_on_a_late_page_of_a_long_range_still_asks_for_an_ack()
     assert "austinywang" in out["decision"]["landers"], out["decision"]
 
 
+def test_a_long_surface_range_reads_its_commits_in_parallel_within_a_bound() -> None:
+    # Run 39410930509: read one by one, 1782 commits ran the decide job past
+    # its 10-minute limit. Reads overlap, but never more than 16 at once.
+    out = run(merged_long_range(232, 1549, surface_at_side=5))
+    assert out["decision"]["action"] == "needs-ack", out["decision"]
+    assert out["calls"]["commitReads"] >= 1782, out["calls"]
+    assert 8 <= out["calls"]["commitMaxInFlight"] <= 16, out["calls"]
+
+
+def test_a_transient_github_server_error_is_retried() -> None:
+    case = scenario(rangeFiles=[{"filename": ".github/workflows/nightly.yml"}], pullsErrors=2)
+    case["commits"][0]["files"] = [{"filename": ".github/workflows/nightly.yml"}]
+    out = run(case)
+    assert out["decision"]["action"] == "needs-ack", out["decision"]
+    assert "teamleaderleo" in out["decision"]["landers"], out["decision"]
+
+
+def test_a_lasting_github_server_error_still_fails() -> None:
+    case = scenario(rangeFiles=[{"filename": ".github/workflows/nightly.yml"}], pullsErrors=99)
+    case["commits"][0]["files"] = [{"filename": ".github/workflows/nightly.yml"}]
+    try:
+        out = run(case)
+    except RuntimeError as error:
+        assert "Server Error" in str(error), error
+    else:
+        raise AssertionError(f"a lasting 500 must not decide: {out['decision']}")
+
+
+def test_a_client_error_is_not_retried() -> None:
+    case = scenario(rangeFiles=[{"filename": ".github/workflows/nightly.yml"}], pullsErrors=1, pullsErrorStatus=404)
+    case["commits"][0]["files"] = [{"filename": ".github/workflows/nightly.yml"}]
+    try:
+        out = run(case)
+    except RuntimeError as error:
+        assert "Server Error" in str(error), error
+    else:
+        raise AssertionError(f"a 404 must not be retried: {out['decision']}")
+
+
 def test_a_long_range_the_compare_api_lists_short_is_refused() -> None:
     # total_commits says more than the pages hold: fail closed.
     case = merged_long_range(232, 1549)
@@ -808,6 +867,110 @@ def test_only_the_wait_for_the_approval_is_cancellable() -> None:
     assert move["needs"] == ["promote-nightly-next", "await-release-surface-ack"]
     assert move["environment"] == "nightly-next-promote"
     assert "requireNonLander: policy.require_non_lander_approver" in WORKFLOW
+
+
+# ------------------------------------------------------------ train commits (G1'/G2')
+
+TRAIN = "e" * 40
+TRAIN_GATE = [{"name": "nightly-next train Release compile", "status": "completed", "conclusion": "success"}]
+
+
+def train_run(**overrides) -> dict:
+    run = {
+        "id": 9, "head_sha": TRAIN, "head_branch": "nightly-train/123/1", "event": "workflow_dispatch",
+        "path": ".github/workflows/nightly-next-train.yml", "head_repository": {"full_name": "manaflow-ai/cmux"},
+    }
+    run.update(overrides)
+    return run
+
+
+def train_case(**overrides) -> dict:
+    """TRAIN = nightly-next train commit: parents CURRENT (nightly-next) and
+    SHA (a feat-cmux-next commit), trailer `Nightly-Train: v1`."""
+    case = scenario(sha=TRAIN, runs=[train_run()], jobs={"9": TRAIN_GATE},
+                    trainVerify={"ok": True, "reason": "tree is the tip minus 0 revert(s)"})
+    case["commits"].insert(0, {"sha": TRAIN, "parents": [{"sha": CURRENT}, {"sha": SHA}],
+                               "author": {"login": "github-actions[bot]"}, "committer": {"login": "github-actions[bot]"},
+                               "files": []})
+    case["gitCommits"] = {TRAIN: {"message": "nightly-next train: x\n\nNightly-Train: v1\n",
+                                  "parents": [{"sha": CURRENT}, {"sha": SHA}]}}
+    case.update(overrides)
+    case["jobs"] = {str(k): v for k, v in case["jobs"].items()}
+    return case
+
+
+def test_a_verified_green_train_commit_promotes() -> None:
+    decision = run(train_case())["decision"]
+    assert decision["action"] == "promote", decision
+
+
+def test_a_train_commit_without_a_tree_verifier_is_refused() -> None:
+    case = train_case()
+    del case["trainVerify"]
+    decision = run(case)["decision"]
+    assert decision["action"] == "refuse" and "no train tree verifier" in decision["reason"], decision
+
+
+def test_a_train_commit_whose_tree_is_not_its_reverts_is_refused() -> None:
+    decision = run(train_case(trainVerify={"ok": False, "reason": "the tree is not the tip minus its reverts"}))["decision"]
+    assert decision["action"] == "refuse" and "minus its reverts" in decision["reason"], decision
+
+
+def test_a_crashed_tree_check_is_refused() -> None:
+    decision = run(train_case(trainVerify="throw"))["decision"]
+    assert decision["action"] == "refuse" and "failed to run" in decision["reason"], decision
+
+
+def test_a_train_commit_needs_its_own_train_gate_run() -> None:
+    # The cmux-next.yml push run of its second parent is not the train's gate.
+    decision = run(train_case(runs=[gate_run(head_sha=TRAIN)], jobs={"7": GREEN}))["decision"]
+    assert decision["action"] == "refuse" and "nightly-next-train.yml" in decision["reason"], decision
+    decision = run(train_case(runs=[train_run(head_branch="feat-cmux-next")]))["decision"]
+    assert decision["action"] == "refuse", decision
+    decision = run(train_case(jobs={"9": [{**TRAIN_GATE[0], "conclusion": "failure"}]}))["decision"]
+    assert decision["action"] == "refuse", decision
+
+
+def test_a_train_commit_on_an_old_nightly_head_is_refused() -> None:
+    case = train_case()
+    case["gitCommits"][TRAIN]["parents"] = [{"sha": MID}, {"sha": SHA}]
+    decision = run(case)["decision"]
+    assert decision["action"] == "refuse" and "was made on" in decision["reason"], decision
+
+
+def test_a_train_commit_whose_tip_is_not_on_the_source_is_refused() -> None:
+    # SHA is not reachable from the feat-cmux-next head MID ("behind").
+    decision = run(train_case(sourceHead=MID))["decision"]
+    assert decision["action"] == "refuse" and "second parent" in decision["reason"], decision
+
+
+def test_a_plain_commit_still_takes_g1_and_g2() -> None:
+    # No trailer: the train path is not taken even with a verifier present.
+    case = scenario(trainVerify={"ok": True, "reason": "unused"})
+    assert run(case)["decision"]["action"] == "promote"
+
+
+def test_the_train_verifier_reads_the_script_verdict() -> None:
+    script = r"""
+const guard = await import(process.env.GUARD);
+const answer = (status, stdout, stderr = '') => () => ({ status, stdout, stderr });
+const ok = await guard.trainVerifier('x.py', { spawn: answer(0, 'log\n{"ok": true, "reason": "fine"}\n') })('a'.repeat(40));
+const bad = await guard.trainVerifier('x.py', { spawn: answer(1, '{"ok": false, "reason": "differs"}') })('a'.repeat(40));
+let crashed = null;
+try { await guard.trainVerifier('x.py', { spawn: answer(1, '', 'Traceback') })('a'.repeat(40)); } catch (e) { crashed = e.message; }
+console.log(JSON.stringify({ ok, bad, crashed }));
+"""
+    out = subprocess.run(["node", "--input-type=module", "-e", script], cwd=ROOT, capture_output=True, text=True,
+                         env={**os.environ, "GUARD": str(GUARD)}, check=True)
+    result = json.loads(out.stdout)
+    assert result["ok"] == {"ok": True, "reason": "fine"}
+    assert result["bad"] == {"ok": False, "reason": "differs"}
+    assert result["crashed"] and "Traceback" in result["crashed"]
+
+
+def test_both_promote_decisions_pass_the_train_verifier() -> None:
+    assert WORKFLOW.count("verifyTrain: guard.trainVerifier(") == 2
+    assert WORKFLOW.count("scripts/ci/nightly_next_train.py\n") >= 2
 
 
 def main() -> None:

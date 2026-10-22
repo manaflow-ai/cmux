@@ -10,6 +10,7 @@ import { normalizeRunSpec } from "./spec";
 import { parseSourceVerificationReceipt, sourceVerificationCommand } from "./sourceVerification";
 import { storeRunArtifact } from "./repository";
 import { withVariantExecution } from "./agentCommand";
+import { labelRunStage, runFailureDetail } from "./failureStage";
 
 const LEASE_MS = 90_000;
 const quote = (text: string) => `'${text.replace(/'/g, `'"'"'`)}'`;
@@ -44,11 +45,11 @@ async function executeClaim(attempt: ClaimedRunAttempt, client: RunCloudClient) 
   const spec = normalizeRunSpec(attempt.spec);
   let providerVmId = typeof attempt.checkpoint?.providerVmId === "string" ? attempt.checkpoint.providerVmId : undefined;
   if (!providerVmId) {
-    const vm = await client("POST", "/api/vm", { provider: "freestyle", displayName: `run-${attempt.runId.slice(0, 8)}-${attempt.ordinal}` }, `run:${attempt.runId}:attempt:${attempt.attemptId}`);
+    const vm = await labelRunStage("vm-create", () => client("POST", "/api/vm", { provider: "freestyle", displayName: `run-${attempt.runId.slice(0, 8)}-${attempt.ordinal}` }, `run:${attempt.runId}:attempt:${attempt.attemptId}`));
     if (typeof vm.id !== "string") throw new RunPending("VM provisioning has not returned an identity");
     providerVmId = vm.id;
     try {
-      await checkpoint(attempt, { providerVmId, provider: "freestyle", imageVersion: vm.imageVersion }, providerVmId);
+      await labelRunStage("checkpoint", () => checkpoint(attempt, { providerVmId, provider: "freestyle", imageVersion: vm.imageVersion }, providerVmId));
     } catch (error) {
       // A cancellation or lease loss can fence the checkpoint immediately
       // after create returns. Remove that just-created VM while its identity
@@ -65,13 +66,17 @@ async function executeClaim(attempt: ClaimedRunAttempt, client: RunCloudClient) 
   // before its final receipt; no deployment token is passed to guest commands.
   const script = withVariantExecution(source, instruction, attempt.attemptId);
   const command = replaySafeGuestCommand(attempt.attemptId, script);
-  const response = await client("POST", `/api/vm/${encodeURIComponent(providerVmId)}/exec`, { command, timeoutMs: spec.resources.wallTimeoutMs });
+  const response = await labelRunStage("guest-command", () => client("POST", `/api/vm/${encodeURIComponent(providerVmId)}/exec`, { command, timeoutMs: spec.resources.wallTimeoutMs }));
   if (response.exitCode === 75) throw new RunPending("Guest command remains active");
-  if (response.exitCode !== 0 || typeof response.stdout !== "string") throw new Error("Guest source/setup or recipe failed");
-  const sourceReceipt = parseSourceVerificationReceipt(response.stdout, spec);
-  if (!response.stdout.includes(`cmux-run:${marker}`)) throw new Error("Run completion marker missing");
+  if (response.exitCode !== 0 || typeof response.stdout !== "string") {
+    // Exit 0 without stdout is still a failure; only a nonzero code is named.
+    throw Object.assign(new Error("Guest source/setup or recipe failed"), { runStage: "guest-command", ...(response.exitCode !== 0 ? { exitCode: response.exitCode } : {}) });
+  }
+  const stdout = response.stdout;
+  const sourceReceipt = await labelRunStage("source-receipt", async () => parseSourceVerificationReceipt(stdout, spec));
+  if (!stdout.includes(`cmux-run:${marker}`)) throw Object.assign(new Error("Run completion marker missing"), { runStage: "completion-marker" });
   const result = { sourceReceipt, commandReceipt: { commandDigest: `sha256:${createHash("sha256").update(command).digest("hex")}`, stdout: `cmux-run:${marker}\n` } };
-  await storeRunArtifact({ runId: attempt.runId, attemptId: attempt.attemptId, name: "execution-receipt", payload: result });
+  await labelRunStage("artifact", () => storeRunArtifact({ runId: attempt.runId, attemptId: attempt.attemptId, name: "execution-receipt", payload: result }));
   return { providerVmId, result, retainMs: spec.resources.retainMs };
 }
 
@@ -119,7 +124,7 @@ async function processClaim(attempt: ClaimedRunAttempt): Promise<string> {
       return await failClaim(attempt, `Cloud VM create did not finish within ${RUN_CLOUD_CREATE_PENDING_LIMIT_MS / 60_000} minutes`);
     }
     if (error instanceof RunPending) return "pending";
-    return await failClaim(attempt, "Run source/setup, recipe, or Cloud operation failed");
+    return await failClaim(attempt, `Run source/setup, recipe, or Cloud operation failed${runFailureDetail(error)}`);
   } finally {
     clearInterval(timer);
   }

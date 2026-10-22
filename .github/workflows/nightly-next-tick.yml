@@ -30,6 +30,11 @@ on:
 
 permissions: {}
 
+env:
+  # `workflows:` spells display names; these are the files behind them
+  # (tests/test_ci_workflow_run_sources.py).
+  SOURCE_WORKFLOW_PATHS: .github/workflows/cmux-next.yml .github/workflows/cmux-tui-artifacts.yml
+
 concurrency:
   group: nightly-next-tick
   cancel-in-progress: false
@@ -51,7 +56,23 @@ jobs:
           ref: ${{ inputs.sha != '' && inputs.sha || 'refs/heads/feat-cmux-next' }}
           fetch-depth: 150
 
+      # The release train (nightly-next-train.yml, docs/ci/nightly-next-train.md).
+      # Unset or dry-run: the train plans from the last good build and its run
+      # summary is the plan; the promotion below still goes ahead. on: the
+      # train replaces it (a train commit is not on feat-cmux-next, so a plain
+      # promotion after one is refused). off: nothing.
+      - name: Start the nightly-next train
+        if: vars.NIGHTLY_NEXT_TRAIN != 'off'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ vars.NIGHTLY_NEXT_TRAIN == 'on' && 'drive' || 'plan' }}
+        run: |
+          set -euo pipefail
+          gh workflow run nightly-next-train.yml -R "$GITHUB_REPOSITORY" --ref feat-cmux-next -f mode="$MODE" \
+            || echo "::warning::could not start the nightly-next train ($MODE); is nightly-next-train.yml on feat-cmux-next and main?"
+
       - name: Request nightly-next promotion on main
+        if: vars.NIGHTLY_NEXT_TRAIN != 'on'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -59,12 +80,23 @@ jobs:
           # The tip's cmux-tui tree is often still publishing, so walk back
           # first-parent commits until one has a published, daemon-tested tree; the script
           # then picks the newest green Release compile with that tree.
+          refusals="$RUNNER_TEMP/refusals.txt"
+          : > "$refusals"
           for sha in $(git rev-list --first-parent -n 120 HEAD); do
             git checkout -q --detach "$sha"
             out="$(scripts/cmux-next/request-nightly-next.sh --tree-ready "$sha" --repo "$GITHUB_REPOSITORY" 2>&1)" || { printf '%s\n' "$out"; exit 1; }
             printf '%s\n' "$out"
             # Stop once a promotion is requested or nightly-next already has
             # it; pass over commits with no published or daemon-tested tree.
-            ! grep -qE '^requested nightly-next promotion|already on nightly-next' <<<"$out" || exit 0
+            ! grep -q '^requested nightly-next promotion' <<<"$out" || exit 0
+            grep -E '^not promoting' <<<"$out" >> "$refusals" || true
+            ! grep -q 'already on nightly-next' <<<"$out" || break
           done
-          echo "::warning::none of the 120 newest feat-cmux-next commits has a published cmux-tui tree"
+          # Nothing requested. nightly-next-feed-watch.yml quotes this
+          # annotation (title "nightly-next tick") when the feed falls behind,
+          # so its alarm names why every newer commit was refused.
+          if [[ -s "$refusals" ]]; then
+            tally="$(sed -E 's/^not promoting( [0-9a-f]{12})?: //; s/[0-9a-f]{12,40}/<sha>/g' "$refusals" | sort | uniq -c | sort -rn | head -3 \
+              | awk '{n=$1; $1=""; printf "%s%dx%s", (NR>1 ? "; " : ""), n, $0}')"
+            echo "::warning title=nightly-next tick::no newer feat-cmux-next commit is promotable ($(wc -l < "$refusals" | tr -d ' ') refused): $tally"
+          fi
