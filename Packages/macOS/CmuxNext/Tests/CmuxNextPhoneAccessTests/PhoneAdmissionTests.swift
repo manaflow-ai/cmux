@@ -200,6 +200,32 @@ struct PhoneAdmissionTests {
         #expect(admission.phones.current == nil)
     }
 
+    /// A question asked for one user and answered after another signed in (or after a sign-out)
+    /// lists the phone for nobody and lets it in nowhere; the new user's phone is asked afresh.
+    @Test func anAnswerFromBeforeASwitchSavesNothing() async {
+        let (admission, directory, _) = Self.admission()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var asked = 0
+        var release: CheckedContinuation<Void, Never>?
+        admission.ask = { _ in
+            asked += 1
+            await withCheckedContinuation { release = $0 }
+            return true
+        }
+        let old = Task { await admission.decide(Self.phone) }
+        while release == nil { await Task.yield() }
+        admission.setUser("user-2")
+        release?.resume()
+        #expect(!(await old.value))
+        #expect(Self.listed(admission).isEmpty)
+        admission.setUser("user-1")
+        #expect(Self.listed(admission).isEmpty)
+        admission.setUser("user-2")
+        admission.ask = { _ in asked += 1; return true }
+        #expect(await admission.decide(Self.phone))
+        #expect(asked == 2)
+    }
+
     /// Escape denies, and Allow has no key: a Return typed as the question opens lets no phone in.
     @Test func theQuestionDeniesOnEscapeAndAllowHasNoKey() {
         let spec = PhoneAccessStrings.allowSpec(name: "Leo’s iPhone")
