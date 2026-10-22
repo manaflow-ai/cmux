@@ -61,6 +61,11 @@ export type ModelPickerProps = {
   /// or Add harness…; the compact menu draws no rail either. A New Tab or a chat with no message
   /// yet leaves it unset and keeps the whole rail.
   harnessFixed?: boolean;
+  /// With `harnessFixed`, the started chat can fork to another harness (Leo 2026-10-22: "need to be
+  /// able to switch to different harnesses, can expose as fork"): the compact menu keeps the whole
+  /// rail, and another harness's tab, or another account of the chat's own, offers Fork to it.
+  /// `to` gets the acpmux profile id; `ready` false (a turn running, a queued prompt) disables it.
+  fork?: { to(harness: string): void; ready: boolean };
   /// A short note per harness in place of "New chat" (a harness that failed to start).
   harnessNotes?: Readonly<Record<string, string>>;
   /// The harnesses this Mac's acpmux found signed out, by acpmux id, with each one's login
