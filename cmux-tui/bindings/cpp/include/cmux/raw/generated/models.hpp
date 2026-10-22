@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "22526ef27362464ad1798ceadf7ab3b0225cd784acc1dcc13419362378a066bc";
+inline constexpr std::string_view kProtocolIrSha256 = "655baaa1d0f11bd63754ffcda70267c4b8f07a2d8d415bf0c302c2ccab838a96";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -211,6 +211,8 @@ struct TerminalKeyInput;
 enum class TerminalLifecycle;
 struct TerminalModifiers;
 struct TerminalPlacement;
+struct TerminalPortsListener;
+struct TerminalPortsResult;
 struct TerminalReadRangeResult;
 struct TerminalRecord;
 struct TerminalRegistryEvent;
@@ -525,6 +527,7 @@ struct TerminalClipboardReplyRequest;
 struct TerminalClipboardSubscribeRequest;
 struct TerminalEventsRequest;
 struct TerminalHistoryRequest;
+struct TerminalPortsRequest;
 struct TerminalReadRangeRequest;
 struct TerminalResourcesRequest;
 struct TerminalResumeCommandRequest;
@@ -5475,6 +5478,26 @@ struct TerminalPlacement {
     friend bool operator==(const TerminalPlacement&, const TerminalPlacement&) = default;
 };
 
+struct TerminalPortsListener {
+    std::string bound{};
+    std::string host{};
+    std::uint16_t port{};
+    std::string url{};
+    friend bool operator==(const TerminalPortsListener&, const TerminalPortsListener&) = default;
+};
+
+struct TerminalPortsRequest {
+    Id surface{};
+    friend bool operator==(const TerminalPortsRequest&, const TerminalPortsRequest&) = default;
+};
+
+struct TerminalPortsResult {
+    std::vector<std::uint16_t> closed{};
+    std::vector<TerminalPortsListener> listeners{};
+    Id surface{};
+    friend bool operator==(const TerminalPortsResult&, const TerminalPortsResult&) = default;
+};
+
 struct TerminalReadRangeRequest {
     Field<std::string> format{};
     RowMarkerPoint from{};
@@ -7067,6 +7090,18 @@ template <>
 struct Codec<TerminalPlacement> {
     static Result<Json> encode(const TerminalPlacement& value);
     static Result<TerminalPlacement> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalPortsListener> {
+    static Result<Json> encode(const TerminalPortsListener& value);
+    static Result<TerminalPortsListener> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalPortsResult> {
+    static Result<Json> encode(const TerminalPortsResult& value);
+    static Result<TerminalPortsResult> decode(const Json& value);
 };
 
 template <>
@@ -8951,6 +8986,12 @@ template <>
 struct Codec<TerminalHistoryRequest> {
     static Result<Json> encode(const TerminalHistoryRequest& value);
     static Result<TerminalHistoryRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalPortsRequest> {
+    static Result<Json> encode(const TerminalPortsRequest& value);
+    static Result<TerminalPortsRequest> decode(const Json& value);
 };
 
 template <>
