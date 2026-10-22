@@ -162,6 +162,11 @@ public struct PushPayload: Codable, Sendable, Equatable {
         }
         self.kind = kind
         v = (try? c.decodeIfPresent(Int.self, forKey: .v)) ?? 1
+        // A sealed push the service extension could not open (v3) carries no
+        // content to act on: none of its buttons may reach the Mac.
+        guard v < 3 else {
+            throw DecodingError.dataCorruptedError(forKey: .v, in: c, debugDescription: "an unopened sealed push")
+        }
         mac = text(.mac)
         macName = text(.macName)
         eventId = text(.eventId)

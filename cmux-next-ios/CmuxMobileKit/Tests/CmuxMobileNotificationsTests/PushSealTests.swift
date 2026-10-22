@@ -140,6 +140,8 @@ struct SealVectors: Decodable {
         var moved = try #require(SealedPush(userInfo: try Self.sealedPush(macKey: macKey, pushKey: pushKey, payload: Self.question)))
         moved.eventId = "p-2"
         #expect(throws: SealedPush.Failure.badSignature) { try moved.open(trust: keys.trust(), keys: keys) }
+        // Unopened, it is no payload: none of its buttons can act.
+        #expect(PushPayload(userInfo: try Self.sealedPush(macKey: macKey, pushKey: pushKey, payload: Self.question)) == nil)
         // A Mac this phone never paired, or no trust at all.
         keys.forget(mac: Self.mac)
         let push = try #require(SealedPush(userInfo: try Self.sealedPush(macKey: macKey, pushKey: pushKey, payload: Self.question)))
