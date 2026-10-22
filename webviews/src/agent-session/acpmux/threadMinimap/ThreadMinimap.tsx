@@ -26,13 +26,13 @@ import {
   JUMP_CURVE,
   jumpDuration,
   LANDING_OFFSET,
-  MIN_GUTTER,
   MIN_PROMPTS,
   minimapTurns,
-  RAIL_LEFT,
+  NARROW_TICK,
   railFade,
   railFades,
   railHeight,
+  railPlacement,
   railScrollTop,
   railTop as railTopAt,
   ROW_PITCH,
@@ -171,8 +171,10 @@ export function ThreadMinimap({
   const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight);
   /// Never shorter than the prompts on screen, so the band always draws whole (model.ts railHeight).
   const height = railHeight(turns.length, windowHeight, viewportHeight, foot, onScreen.last - onScreen.first + 1);
-  // A view with no room for a single row (the transcript is at least 96 px tall) draws no rail.
-  const shown = arm === "compact" && turns.length >= MIN_PROMPTS && gutter(width) >= MIN_GUTTER && height >= ROW_PITCH;
+  // A view with no room for a single row (the transcript is at least 96 px tall) draws no rail. A
+  // narrow pane draws it too, minimal until the pointer or focus is on it (model.ts railPlacement).
+  const shown = arm === "compact" && turns.length >= MIN_PROMPTS && height >= ROW_PITCH;
+  const placement = railPlacement(gutter(width));
   const overflow = turns.length * ROW_PITCH > height;
 
   /// What the handlers below read: the turns and layout as of the last commit.
@@ -527,6 +529,13 @@ export function ThreadMinimap({
   const fades = railFades(onScreen, turns.length, height, listTop);
   // The previewed prompt stays lit while the pointer is on its card, as ChatGPT's rail does.
   const active = hovered ?? focused ?? (showCard ? cardRow : undefined);
+  // A narrow rail draws the full wave while the pointer, a scrub, keyboard focus or its card is on
+  // it, and rests minimal otherwise: shorter ticks in a strip that stops short of the text, so it
+  // takes no pointer from the chat. The change is one frame (width, tick length); the ticks' own
+  // spring and the backdrop's fade are CSS transitions that end at their target, and neither runs
+  // under Reduce Motion (threadMinimap.css).
+  const expanded = hovered !== undefined || focused !== undefined || scrubbing || showCard;
+  const minimal = placement.narrow && !expanded;
   const cardMarked = cardTurn ? marks.has(cardTurn) : false;
   const cardTop =
     cardRow === undefined
@@ -538,7 +547,9 @@ export function ThreadMinimap({
         ref={rail}
         className="acpmux-minimap__rail"
         aria-label={t("minimap.label")}
-        style={{ left: RAIL_LEFT, top: railTop, width: ROW_WIDTH, height }}
+        style={{ left: placement.left, top: railTop, width: minimal ? placement.restWidth : ROW_WIDTH, height }}
+        data-narrow={placement.narrow || undefined}
+        data-expanded={(placement.narrow && expanded) || undefined}
         data-hovering={hovered !== undefined || undefined}
         data-scrubbing={scrubbing || undefined}
         data-reduce={reduce || undefined}
@@ -612,6 +623,7 @@ export function ThreadMinimap({
               index={index}
               last={turns.length - 1}
               progress={hovered !== undefined ? tickProgress(index - hovered) : index === focused ? 1 : 0}
+              minimal={minimal}
               active={index === active}
               current={index >= onScreen.first && index <= onScreen.last}
               marked={marks.has(turn)}
@@ -630,7 +642,7 @@ export function ThreadMinimap({
         <PreviewCard
           ref={card}
           id={cardId}
-          x={RAIL_LEFT + ROW_WIDTH}
+          x={placement.left + ROW_WIDTH}
           y={cardTop}
           prompt={cardTurn.prompt}
           reply={cardTurn.reply}
@@ -667,6 +679,7 @@ const Tick = memo(function Tick({
   index,
   last,
   progress,
+  minimal,
   active,
   current,
   marked,
@@ -677,6 +690,8 @@ const Tick = memo(function Tick({
   index: number;
   last: number;
   progress: number;
+  /// A resting narrow rail: the short tick (model.ts NARROW_TICK).
+  minimal: boolean;
   active: boolean;
   current: boolean;
   marked: boolean;
@@ -684,7 +699,7 @@ const Tick = memo(function Tick({
   label: string;
   actions: TickActions;
 }) {
-  const length = tickLength(progress);
+  const length = minimal ? NARROW_TICK : tickLength(progress);
   return (
     <MinimapTick
       type="button"

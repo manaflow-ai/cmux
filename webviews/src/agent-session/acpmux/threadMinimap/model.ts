@@ -24,10 +24,27 @@ export type MinimapTurn = {
 /// rail (lane notes: minimap-ref/SPEC.md). CSS px and ms; the drawn sizes live in threadMinimap.css.
 /// The rail shows from this many prompts...
 export const MIN_PROMPTS = 4;
-/// ...and only when the transcript column starts this far right of the scroller's left edge.
+/// With the transcript column starting this far right of the scroller's left edge or more, the rail
+/// draws in full (16 px in, 36 px rows); with less (every pane under about 816 px) it draws narrow.
 export const MIN_GUTTER = 48;
 /// The rail's left edge, in from the scroller's.
 export const RAIL_LEFT = 16;
+/// A narrow rail (Leo 2026-10-22: "when the horizontal space shrinks too far it disapperas... idk i
+/// dont like that... we can maybe have a more minimal looking thing when not hovered"): it rests
+/// inside the page edge, left of the text, with shorter ticks, and draws the full wave over the
+/// text while the pointer or keyboard focus is on it.
+export const NARROW_RAIL_LEFT = 4;
+/// Space kept between the resting narrow rail (its ticks and its hit area) and the chat column.
+const NARROW_CLEAR = 2;
+/// A resting narrow rail's tick, in px (the full rail's rest is 6 px).
+export const NARROW_TICK = 4;
+/// Where the rail sits for a chat column `gutter` px in: the full rail, or the narrow one, whose
+/// resting width stops NARROW_CLEAR short of the column.
+export function railPlacement(gutter: number): { narrow: boolean; left: number; restWidth: number } {
+  if (gutter >= MIN_GUTTER) return { narrow: false, left: RAIL_LEFT, restWidth: ROW_WIDTH };
+  const left = Math.min(NARROW_RAIL_LEFT, Math.max(0, gutter - NARROW_TICK - NARROW_CLEAR));
+  return { narrow: true, left, restWidth: Math.max(NARROW_TICK, Math.floor(gutter - left - NARROW_CLEAR)) };
+}
 /// One row per prompt: a fixed 10 px pitch (not proportional to the thread), 36 px wide to hit.
 export const ROW_PITCH = 10;
 export const ROW_WIDTH = 36;
