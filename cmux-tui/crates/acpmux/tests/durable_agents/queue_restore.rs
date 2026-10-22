@@ -6,6 +6,11 @@ use super::*;
 /// the daemon's startup, and so the run of every prompt it restored (`resume_queues`), waits
 /// for the test. A check a killed daemon left behind ends once the test removes its home.
 fn hold_startup(daemon: &Daemon) {
+    hold_startup_of(daemon, json!(["python3", FAKE]));
+}
+
+/// `hold_startup` with the fake agent run as `argv`.
+fn hold_startup_of(daemon: &Daemon, argv: Value) {
     let script = daemon.home.join("hold-startup.sh");
     let go = daemon.home.join("go");
     std::fs::write(
@@ -20,7 +25,7 @@ fn hold_startup(daemon: &Daemon) {
     std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
     std::fs::write(
         daemon.home.join("config.json"),
-        json!({"harnesses": {"fake": {"argv": ["python3", FAKE]}, "slow": {"argv": [script, "claude", "proxy"]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+        json!({"harnesses": {"fake": {"argv": argv}, "slow": {"argv": [script, "claude", "proxy"]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
     )
     .unwrap();
 }
@@ -208,4 +213,113 @@ async fn a_queued_prompt_sent_again_after_a_failed_log_load_runs_once() {
     let events = daemon.events(&session);
     let runs: Vec<&Value> = events.iter().filter(|e| run_of(e)).collect();
     assert_eq!(runs.len(), 1, "q-once did not run exactly once: {runs:#?}");
+}
+
+/// Leo, 2026-10-22: a daemon update does not wait for idle; it restarts, and "IT RESUMES
+/// WHATEVER IT INTERRUPTED". A restart that also ended the agent (agent hosts off, as a reboot
+/// or a killed host leaves it) cut a turn that had taken a steer, with a message queued behind
+/// it. The new daemon goes on with the cut turn by itself, first: one continuation that quotes
+/// the turn's prompt and its steer. The queued message runs after it. A crash before the
+/// continuation ran does not send it twice, and nothing runs twice.
+#[tokio::test]
+async fn a_turn_a_restart_cut_off_resumes_first_and_its_steer_and_queue_deliver_once() {
+    let steering = json!(["/usr/bin/env", "FAKE_CLAUDE_STEER=1", "python3", FAKE]);
+    let mut daemon = Daemon::with_env("rresume", "approve-all", &[("ACPMUX_AGENT_HOSTS", "0")]);
+    daemon.sigterm();
+    std::fs::write(
+        daemon.home.join("config.json"),
+        json!({"harnesses": {"fake": {"argv": steering}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+    )
+    .unwrap();
+    daemon.start();
+    let session = new_session(&daemon).await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("gate: {} <the cut task>", gate.display())}], "_meta": {"acpmux": {"promptId": "cut-1"}}}),
+        )
+        .await;
+    daemon.wait_event(&session, "before-gate chunk", |e| chunk(e, "before-gate"));
+    let mut steerer = daemon.rpc().await;
+    let steered = steerer
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "a tell mid-turn"}], "_meta": {"acpmux": {"promptId": "steer-1", "steer": true}}}),
+        )
+        .await;
+    assert_eq!(steered["stopReason"], "steered", "{steered}");
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "queued after the turn"}], "_meta": {"acpmux": {"promptId": "q-1"}}}),
+        )
+        .await;
+    daemon.wait_event(&session, "queued record", |e| {
+        e["kind"] == "queued" && e["msg"]["promptId"] == "q-1"
+    });
+
+    // The restart ends the agent with the daemon. The next daemon's startup waits, so what it
+    // restored waits in the queue; it crashes there, before anything ran.
+    daemon.sigkill();
+    drop((client, steerer));
+    hold_startup_of(&daemon, steering.clone());
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    let ids = |attached: &Value| -> Vec<String> {
+        let queue = attached["session"]["queue"].as_array().expect("queue in the attach reply");
+        queue.iter().filter_map(|q| q["promptId"].as_str().map(str::to_owned)).collect()
+    };
+    assert_eq!(
+        ids(&attached),
+        ["cut-1~resume-1", "q-1"],
+        "the cut turn's continuation is not first in the queue: {attached:#}"
+    );
+    daemon.sigkill();
+    drop(rpc);
+
+    std::fs::write(daemon.home.join("go"), b"").unwrap();
+    daemon.start();
+    daemon.wait_event(&session, "the queued message's answer", |e| {
+        chunk(e, "echo: queued after the turn")
+    });
+    let events = daemon.events(&session);
+    let scheduled: Vec<&Value> = events
+        .iter()
+        .filter(|e| {
+            e["kind"] == "auto_resume_scheduled" && e["msg"]["reason"] == "daemon_restart"
+        })
+        .collect();
+    assert_eq!(scheduled.len(), 1, "no single record that a restart resumed the turn: {events:#?}");
+    assert_eq!(scheduled[0]["msg"]["promptId"], "cut-1", "{:#}", scheduled[0]);
+    let prompts: Vec<(&str, &str)> = events
+        .iter()
+        .filter(|e| e["kind"] == "user_message")
+        .filter_map(|e| Some((e["msg"]["promptId"].as_str()?, e["msg"]["text"].as_str()?)))
+        .collect();
+    let order: Vec<&str> = prompts.iter().map(|(id, _)| *id).collect();
+    assert_eq!(
+        order,
+        ["cut-1", "steer-1", "cut-1~resume-1", "q-1"],
+        "the continuation did not run once, before the queued message: {prompts:#?}"
+    );
+    let resumed = prompts[2].1;
+    assert!(
+        resumed.contains("the cut task") && resumed.contains("a tell mid-turn"),
+        "the continuation does not quote the cut turn's prompt and steer: {resumed}"
+    );
+    let provenance = events
+        .iter()
+        .find(|e| e["kind"] == "user_message" && e["msg"]["promptId"] == "cut-1~resume-1")
+        .map(|e| e["msg"]["_meta"]["provenance"].clone());
+    assert_eq!(
+        provenance.as_ref().map(|p| (p["kind"].clone(), p["reason"].clone())),
+        Some((json!("auto_resume"), json!("daemon_restart"))),
+        "the continuation is not marked as acpmux's: {provenance:?}"
+    );
+    let echoed = |text: &str| events.iter().filter(|e| chunk(e, text)).count();
+    assert_eq!(echoed("echo: queued after the turn"), 1, "the queued message ran twice");
 }
