@@ -30,6 +30,14 @@ import Testing
         let errorsOff = defaults()
         errorsOff.set(false, forKey: "cmuxMobile.settings.notifyErrors")
         #expect(SettingsStore(defaults: errorsOff).notifyLevel == .neededAndFinished)
+        // Questions off (review low): asks always push now; finished still decides the level.
+        let questionsOff = defaults()
+        questionsOff.set(false, forKey: "cmuxMobile.settings.notifyQuestions")
+        #expect(SettingsStore(defaults: questionsOff).notifyLevel == .neededAndFinished)
+        let onlyErrors = defaults()
+        onlyErrors.set(false, forKey: "cmuxMobile.settings.notifyQuestions")
+        onlyErrors.set(false, forKey: "cmuxMobile.settings.notifyFinished")
+        #expect(SettingsStore(defaults: onlyErrors).notifyLevel == .everything)
     }
 
     @Test func choicesPersist() {
