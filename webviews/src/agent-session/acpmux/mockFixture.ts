@@ -562,6 +562,15 @@ export const workedTurn: SeedStep[] = [
   },
   { ago: START, mux: "turn_started" },
   { ago: START - 2_000, update: text("I'll find where artifacts are uploaded first.") },
+  // Claude Code loading a deferred tool's schema first: plumbing the transcript never draws
+  // (hiddenTools.ts), so the turn still lists only its search, reads, edits and commands.
+  {
+    ago: START - 3_000,
+    update: tool("w-toolsearch", "other", "ToolSearch", {
+      rawInput: { query: "select:Grep", max_results: 1 },
+      _meta: { claude: { tool: "ToolSearch" } },
+    }),
+  },
   {
     ago: START - 4_000,
     update: tool(

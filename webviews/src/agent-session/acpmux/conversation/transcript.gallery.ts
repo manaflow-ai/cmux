@@ -805,6 +805,16 @@ export default agentPaneEntry({
           throw new Error("harness health went to the host bridge");
       },
     },
+    "toolsearch-hidden": {
+      note: "Play: the mock daemon's worked turn, opened. Claude Code's ToolSearch (it only loads deferred tools' schemas) draws no row and counts toward no summary; the fold lists the search, reads, edits and commands.",
+      ready: { transport: "mock" },
+      snapshot: chat([user(prompt, 2), assistant("Done.", 1), summary(0.9, { status: "completed" })]),
+      checks: mockDaemonFrames,
+      play: async (ctx) => {
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-worked")));
+        await openWorked(ctx);
+      },
+    },
     "side-chat-acpmux": {
       note: "Play: New side chat (the chat menu's chat.side action) forks the chat, has acpmux tag the fork the chat's side chat on the pane's own connection (cx-jlzsf), then asks the app only to open it beside the chat.",
       ready: { transport: "mock" },
