@@ -79,8 +79,16 @@ extension LayoutRootView {
         for view in plane.subviews where view is PaneOverlayView && !shown.contains(ObjectIdentifier(view)) {
             view.removeFromSuperview()
         }
-        reportInteractiveRects()
+        // While a layout spring moves, the divider areas and lines change on every frame, and each
+        // report moves the window's catcher panels and re-places every Chromium page: the window
+        // hears them once the panes land (that frame syncs here too). A drag reports live.
+        if !layoutSpringsMove { reportInteractiveRects() }
         notifyOverlaySync()
+    }
+
+    /// A split, close, zoom or scroll spring still moves panes on a shown screen (not a drag).
+    var layoutSpringsMove: Bool {
+        screenViews.values.contains { !$0.isHidden && $0.activeDrag == nil && $0.hasMotion }
     }
 
     /// Rects (this view's coordinates) where native overlays in the root
