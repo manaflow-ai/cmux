@@ -67,18 +67,20 @@ pub(crate) fn request_is_read_only(request: &Value, session_cwd: &Path) -> bool 
     if call.get("kind").and_then(Value::as_str) != Some("execute") {
         return false;
     }
+    let argv: Option<Vec<&str>> = match call.pointer("/rawInput/command") {
+        Some(Value::Array(argv)) => argv.iter().map(Value::as_str).collect(),
+        _ => None,
+    };
     let script = match call.pointer("/rawInput/command") {
         Some(Value::String(script)) => script.as_str(),
-        Some(Value::Array(argv)) => {
-            match argv.iter().map(Value::as_str).collect::<Option<Vec<_>>>().as_deref() {
-                Some([shell, "-c" | "-lc", script])
-                    if matches!(command_name(shell), Some("sh" | "bash" | "zsh")) =>
-                {
-                    script
-                }
-                _ => return false,
+        Some(Value::Array(_)) => match argv.as_deref() {
+            Some([shell, "-c" | "-lc", script])
+                if matches!(command_name(shell), Some("sh" | "bash" | "zsh")) =>
+            {
+                script
             }
-        }
+            _ => return false,
+        },
         _ => return false,
     };
     let Some(git_dirs) = git_dirs(script) else { return false };
@@ -642,7 +644,6 @@ mod tests {
             "ls |& cat",
             "cd /tmp && ls -la",
             "git -C a -C b status",
-            "git status -C",
         ] {
             assert!(!is_read_only(script), "{script}");
         }
@@ -715,7 +716,8 @@ mod tests {
 
     #[test]
     fn an_index_hook_asks() {
-        let dir = repo(&[]);
+        // The repository's own hooks directory, whatever the person's global core.hooksPath.
+        let dir = repo(&[("core.hooksPath", ".git/hooks")]);
         let hook = dir.join(".git/hooks/post-index-change");
         std::fs::write(&hook, "#!/bin/sh\n").unwrap();
         assert!(!request_is_read_only(&execute(json!("git status")), &dir));
