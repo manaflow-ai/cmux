@@ -221,12 +221,22 @@ fn a_chief_home_of_purged_leftovers_and_chats_stays_within_the_memory_budget() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// CPU time the process `pid` has used, in ms (`/proc/<pid>/stat` utime + stime).
+/// CPU time the process `pid` has used, in ms: `/proc/<pid>/stat` on Linux, `ps` elsewhere.
 fn cpu_ms(pid: u32) -> u64 {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
-    let fields: Vec<&str> = stat.rsplit(')').next().unwrap().split_whitespace().collect();
-    let ticks: u64 = fields[11].parse::<u64>().unwrap() + fields[12].parse::<u64>().unwrap();
-    ticks * 1000 / 100
+    if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+        let fields: Vec<&str> = stat.rsplit(')').next().unwrap().split_whitespace().collect();
+        let ticks: u64 = fields[11].parse::<u64>().unwrap() + fields[12].parse::<u64>().unwrap();
+        return ticks * 1000 / 100;
+    }
+    // macOS: `[[dd-]hh:]mm:ss.cc`.
+    let out = std::process::Command::new("ps")
+        .args(["-o", "time=", "-p", &pid.to_string()])
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    let (days, clock) = text.trim().split_once('-').unwrap_or(("0", text.trim()));
+    let secs = clock.split(':').fold(0.0, |acc, part| acc * 60.0 + part.parse::<f64>().unwrap());
+    ((days.parse::<f64>().unwrap() * 86_400.0 + secs) * 1000.0) as u64
 }
 
 /// What the daemon spends while records land on one chat for `secs`, with `waiters`
@@ -270,7 +280,6 @@ fn under_waiters(daemon: &Daemon, chat: &str, waiting_on: &[String], secs: u64) 
 /// the waits used 6 to 8 cores between them and the daemon grew about 65 MB a minute
 /// to 4.5 GB in 66 minutes, when acpmux-rss-guard restarted it. A wait now reads only
 /// the chats it waits on: the records cost about what they cost with no wait open.
-#[cfg(target_os = "linux")]
 #[test]
 fn waits_on_some_chats_cost_nothing_extra_while_other_chats_log_records() {
     // At least the 13 chats waited on plus the one that logs, and a second of records.
