@@ -331,6 +331,12 @@ export interface Env {
   readonly CHIEF_CC_TURN_FILES?: string
   /** Secret: the GitHub token the agent user's gh and git use on each turn machine (fine-grained, the Chief's repos only). */
   readonly CHIEF_CC_GITHUB_TOKEN?: string
+  /** The Freestyle plan of CHIEF_CC_FREESTYLE_API_KEY's account (free, hobby or pro; default pro): its per-VM maximums bound the Chief's sandbox sizes. */
+  readonly CHIEF_CC_FREESTYLE_PLAN?: string
+  /** How many live sandbox VMs each Chief may keep (default 2, at most 10). */
+  readonly CHIEF_CC_SANDBOX_CAP?: string
+  /** Per-Chief caps over CHIEF_CC_SANDBOX_CAP: "agent_id=N,agent_id=N". */
+  readonly CHIEF_CC_SANDBOX_CAPS?: string
   /** The host model gateway's Anthropic Messages base URL for O brains (default: O's own stub route). */
   readonly CHIEF_OPENCODE_GATEWAY_URL?: string
   /** One AddressDO per invited address (HMAC id): suppression, limits, provider sends. */
