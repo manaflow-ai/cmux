@@ -13,8 +13,19 @@ impl Hub {
     ) {
         while let Some(item) = rx.recv().await {
             match item {
-                Inbound::Notification { method: m, params } => {
+                Inbound::Notification { method: m, params, pid } => {
                     if m == method::SESSION_UPDATE {
+                        // A /context breakdown from a process that was replaced (a failover's
+                        // dying primary answering late) is not the chat's context now.
+                        let breakdown = params
+                            .as_ref()
+                            .and_then(|p| p.pointer("/update/_meta/acpmux/contextBreakdown"))
+                            .is_some();
+                        if breakdown
+                            && !session.child.lock().await.as_ref().is_some_and(|c| c.pid == pid)
+                        {
+                            continue;
+                        }
                         self.on_update(&session, params.as_ref());
                     }
                 }

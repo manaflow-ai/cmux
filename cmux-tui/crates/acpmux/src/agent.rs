@@ -38,9 +38,12 @@ pub enum Inbound {
         method: String,
         params: Option<Value>,
     },
+    /// `pid` is the agent process it came from, as in `Exited`: the hub drops what a process
+    /// already replaced still had in flight where it would stand for the new one.
     Notification {
         method: String,
         params: Option<Value>,
+        pid: Option<u32>,
     },
     /// One stderr line; `host_seq` names the agent host entry it came from.
     Stderr(String, Option<u64>),
@@ -435,8 +438,13 @@ impl ChildAgent {
                                 let _ = inbound.send(Inbound::Request { id, method, params }).await;
                             }
                             Message::Notification { method, params } => {
-                                let _ =
-                                    inbound.send(Inbound::Notification { method, params }).await;
+                                let _ = inbound
+                                    .send(Inbound::Notification {
+                                        method,
+                                        params,
+                                        pid: agent_for_exit.pid,
+                                    })
+                                    .await;
                             }
                         }
                     }
@@ -446,7 +454,13 @@ impl ChildAgent {
                     for m in tr.end_background_shells().await {
                         tap(Direction::In, &m, None);
                         if let Message::Notification { method, params } = m {
-                            let _ = inbound.send(Inbound::Notification { method, params }).await;
+                            let _ = inbound
+                                .send(Inbound::Notification {
+                                    method,
+                                    params,
+                                    pid: agent_for_exit.pid,
+                                })
+                                .await;
                         }
                     }
                 }
@@ -685,7 +699,10 @@ impl ChildAgent {
                     let _ = cx.inbound.send(Inbound::Request { id, method, params }).await;
                 }
                 Message::Notification { method, params } => {
-                    let _ = cx.inbound.send(Inbound::Notification { method, params }).await;
+                    let _ = cx
+                        .inbound
+                        .send(Inbound::Notification { method, params, pid: self.pid })
+                        .await;
                 }
             }
         }
@@ -739,7 +756,8 @@ impl ChildAgent {
         }
         match tokio::time::timeout(limit, rx).await {
             Ok(answer) => Some(
-                answer.unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped"))),
+                answer
+                    .unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped"))),
             ),
             Err(_) => {
                 self.pending.lock().await.map.remove(&key(&Value::from(id)));
@@ -1047,7 +1065,9 @@ impl ChildAgent {
                         let _ = inbound.send(Inbound::Request { id, method, params }).await;
                     }
                     Message::Notification { method, params } => {
-                        let _ = inbound.send(Inbound::Notification { method, params }).await;
+                        let _ = inbound
+                            .send(Inbound::Notification { method, params, pid: self.pid })
+                            .await;
                     }
                 }
                 true
