@@ -50,9 +50,25 @@ import Testing
         try body()
     }
 
-    @Test func aWorkingRowKnowsWhatItsAgentDoesByDefault() throws {
+<<<<<<< HEAD
+    /// Off by default (Lawrence 2026-10-21): no row reads a lane's step unless the toggle is on.
+    @Test func noRowSaysItsStepByDefault() throws {
         let fixture = try Fixture()
-        try Self.withNowLine(nil) {
+        Self.withNowLine(nil) { #expect(fixture.rows()["working"]?.agentStep == nil) }
+    }
+
+    @Test func aWorkingRowKnowsWhatItsAgentDoes() throws {
+=======
+    /// Off by default since Lawrence 2026-10-21 (minimal rows).
+    @Test func offByDefault() throws {
+        let fixture = try Fixture()
+        Self.withNowLine(nil) { #expect(fixture.rows().values.allSatisfy { $0.agentStep == nil }) }
+    }
+
+    @Test func aWorkingRowKnowsWhatItsAgentDoesWhenOn() throws {
+>>>>>>> ec640373976 (cmux-next sidebar: minimal by default: no status words or log line, no Now line; one title x; no Update available on headers)
+        let fixture = try Fixture()
+        try Self.withNowLine(true) {
             let rows = fixture.rows()
             #expect(rows["working"]?.agentStep == "Running the test suite")
             #expect(rows["idle"]?.agentStep == nil, "an idle chat's last step is not what it does now")
@@ -61,7 +77,7 @@ import Testing
 
     @Test func aRowWithASecondLineSaysItThere() throws {
         let fixture = try Fixture()
-        try Self.withNowLine(nil) {
+        try Self.withNowLine(true) {
             var working = try #require(fixture.rows()["working"])
             working.lastMessage = "Earlier reply"
             var options = SidebarLayoutOptions()
@@ -74,7 +90,7 @@ import Testing
 
     @Test func aOneLineRowStaysOneLine() throws {
         let fixture = try Fixture()
-        try Self.withNowLine(nil) {
+        try Self.withNowLine(true) {
             let content = SidebarLayoutOptions().rowContent(try #require(fixture.rows()["working"]), machine: nil)
             #expect(content.now == nil)
             #expect(content.detail == nil)

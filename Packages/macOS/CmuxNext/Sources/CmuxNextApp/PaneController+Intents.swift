@@ -107,7 +107,9 @@ extension PaneController {
         let handle = pane.handle
         // From an agent tab, the agent's cwd (#16620), asked when the tab is made.
         let agent = cwd == nil && fromSelectedTab && !daemonResolvesCwd ? selectedAgentView : nil
-        let cwd = daemonResolvesCwd ? cwd : cwd ?? selectedTab?.cwd
+        // A selected agent chat's exact folder at once (NewTerminalStart.folder); the page's own
+        // answer above still wins when it comes.
+        let cwd = daemonResolvesCwd ? cwd : cwd ?? (fromSelectedTab ? NewTerminalStart.folder(of: selectedTab, services: services) : nil) ?? selectedTab?.cwd
         // From another machine's terminal (an SSH tab in a mixed pane), a terminal on that machine (cx-2s5t).
         if fromSelectedTab, text == nil, page == nil,
            services.remoteTerminals.openTerminal(besides: selectedTab, in: pane, home: daemon, cwd: cwd) { return }
@@ -335,7 +337,7 @@ extension PaneController {
         guard let tab, tab.kind == .browser else {
             // Hibernation discards a page; a terminal has none (Restart only once its shell ended).
             // Reload, Mute and Picture in Picture are a page's rows (Chrome's Reload, Mute Site).
-            let pageRows: Set<ActionID> = ["hibernateTab", "wakeTab", "toggleTabAudioMute", "reloadTab", PictureInPictureHandlers.actionID]
+            let pageRows: Set<ActionID> = ["hibernateTab", "wakeTab", "neverHibernateSite", "toggleTabAudioMute", "reloadTab", PictureInPictureHandlers.actionID]
             let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(pageRows).union(TabRestart.hiddenMenuItems(tab)).union(CloudMove.hiddenMenuItems(tab)))
             return registry.makeContextMenu(for: .tab, target: target, entries: entries, arguments: arguments)
         }

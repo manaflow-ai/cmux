@@ -230,3 +230,39 @@ async fn a_failed_compact_ends_its_prompt() {
     assert_eq!(states, [json!("running"), json!("failed")]);
     assert_eq!(errors, [None, Some(json!("Prompt is too long"))]);
 }
+
+/// The mode menu shows Claude Code's own modes, as Claude Code shows them:
+/// its labels, its one-line descriptions and its order (Auto, Manual, Accept
+/// edits, Plan, Bypass permissions). acpmux invents none ("Normal", "Full
+/// access"); the ids stay Claude Code's `--permission-mode` values.
+#[tokio::test]
+async fn modes_are_claude_codes_own_labels_descriptions_and_order() {
+    let t = Translator::new("acp-1".into(), "bypassPermissions", "haiku", "default");
+    let modes = t.modes_value().await;
+    assert_eq!(modes["currentModeId"], "bypassPermissions");
+    let listed: Vec<(String, String, String)> = modes["availableModes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| {
+            let s = |k: &str| m[k].as_str().unwrap_or("").to_owned();
+            (s("id"), s("name"), s("description"))
+        })
+        .collect();
+    let want = [
+        ("auto", "Auto", "Claude handles permission decisions"),
+        ("default", "Manual", "Always ask before making changes"),
+        ("acceptEdits", "Accept edits", "Automatically accept all file edits"),
+        ("plan", "Plan", "Create a plan before making changes"),
+        ("bypassPermissions", "Bypass permissions", "Accepts all permissions"),
+    ];
+    let want: Vec<(String, String, String)> =
+        want.iter().map(|(i, n, d)| (i.to_string(), n.to_string(), d.to_string())).collect();
+    assert_eq!(listed, want);
+    // The config option offers the same list, in the same order.
+    let options = t.config_options_value().await;
+    let mode = options.as_array().unwrap().iter().find(|o| o["id"] == "mode").unwrap();
+    let values: Vec<&str> =
+        mode["options"].as_array().unwrap().iter().filter_map(|o| o["value"].as_str()).collect();
+    assert_eq!(values, ["auto", "default", "acceptEdits", "plan", "bypassPermissions"]);
+}

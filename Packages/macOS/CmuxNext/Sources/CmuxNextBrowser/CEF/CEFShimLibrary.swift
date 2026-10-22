@@ -38,6 +38,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setChromePolicyID: @convention(c) (UnsafePointer<CChar>?) -> Void
     let setBackgroundColor: @convention(c) (UInt32) -> Void
     let browserSetBackgroundColor: @convention(c) (Int32, UInt32) -> Int32
+    /// A see-through page (fork API 17, `CEFTab.pageSeeThrough`); 0 when the fork lacks it.
+    let tabSetTransparentBackground: @convention(c) (Int32, Int32) -> Int32
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
@@ -61,6 +63,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let stop: @convention(c) (Int32) -> Void
     let setFocus: @convention(c) (Int32, Int32) -> Void
     let setZoomLevel: @convention(c) (Int32, Double) -> Void
+    /// Chromium's page accessibility on (1) or off (0) (`CEFAccessibility`).
+    let setAccessibility: @convention(c) (Int32, Int32) -> Void
     /// Chromium's print preview over the page; 0 when the browser is gone.
     let printPage: @convention(c) (Int32) -> Int32
     let find: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, Int32, Int32, Int32) -> Void
@@ -277,6 +281,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         setChromePolicyID = try r("cmux_shim_set_chrome_policy_id")
         setBackgroundColor = try r("cmux_shim_set_background_color")
         browserSetBackgroundColor = try r("cmux_shim_browser_set_background_color")
+        tabSetTransparentBackground = try r("cmux_shim_tab_set_transparent_background")
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         createWindow = try r("cmux_shim_create_window")
@@ -293,6 +298,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         stop = try r("cmux_shim_stop")
         setFocus = try r("cmux_shim_set_focus")
         setZoomLevel = try r("cmux_shim_set_zoom_level")
+        setAccessibility = try r("cmux_shim_set_accessibility")
         printPage = try r("cmux_shim_print")
         find = try r("cmux_shim_find")
         stopFinding = try r("cmux_shim_stop_finding")

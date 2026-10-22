@@ -65,11 +65,14 @@ extension SidebarListViewComponents {
         var o = model.listOptions()
         o.showsSoleMachineHeader = true
         o.pullRequests = SidebarSessionTree.shared.pullRequests
-        if let tree = SidebarSessionTree.shared.state {
+        if let tree = SidebarSessionTree.shared.drawn {
             (o.sessionTree, o.keycaps) = (tree, model.workspaceKeycaps(DesignSettings.shared.sidebarSections.navigation))
             o.chatHistory = SidebarChatHistory.shared.state
         }
         o.excludedWorkspaces.formUnion(leaving)
+        (o.openDoneFolds, o.openShowMore) = (openDoneFolds, openShowMore)
+        // A drop resolves by the drawn rows' model indexes: while a drag runs, every row shows in its place.
+        if shownDrag != nil || external != nil { (o.foldsDone, o.rowLimit) = (false, 0) }
         if includeGap, case let .newWorkspace(section, group, index)? = external?.proposal {
             o.gap = DropPosition(section: section, group: group, index: index)
             o.gapHeight = metrics.rowHeight
@@ -97,16 +100,12 @@ extension SidebarListViewComponents {
         return o
     }
     func frame(for row: SidebarRow) -> NSRect {
-        // Group members start right of their group's line (`SidebarStyle.groupGutter`).
         // A block's region draws its own insets, as the band did.
         if case .block = row.key { return NSRect(x: 0, y: row.y, width: bounds.width, height: row.height) }
-        // One gutter per group level (`SidebarRow.depth`): a nested group's header and members move in
-        // with it (remote-groups-DESIGN.md slice 2).
-        let gutter: CGFloat = switch row.key {
-        case .workspace, .tab, .item: row.group == nil ? 0 : SidebarStyle.groupGutter * CGFloat(max(1, row.depth))
-        case .group: SidebarStyle.groupGutter * CGFloat(row.depth)
-        default: 0
-        }
+        // A top-level group's rows keep the ungrouped rows' left edge; its line sits in the inset
+        // beside them (`SidebarStyle.groupLineX`). A nested group's header and members step in one
+        // gutter per level below the top (`SidebarRow.groupGutter`, remote-groups-DESIGN.md slice 2).
+        let gutter = row.groupGutter
         // Rows end `rowTrailingTrim` short of the list's right inset, so a row's pill never runs to
         // the sidebar's edge (Leo 2026-10-20, Chrome's vertical tabs).
         return NSRect(x: inset + gutter, y: row.y, width: max(0, bounds.width - inset * 2 - gutter - SidebarStyle.rowTrailingTrim),
@@ -272,6 +271,8 @@ extension SidebarListViewComponents {
             view.configure(section, row: row)
         case let (.emptySection(id), view as EmptySectionRowView): view.configure(pinned: id == .pinned || id == .custom(SidebarDocStore.pinnedSection))
         case let (.folder(_, folder), view as FolderHeaderRowView): view.configure(folder: folder)
+        case let (.status, view as StatusHeaderRowView): view.configure(row)
+        case (.doneFold, let view as SidebarDoneFoldRowView), (.showMore, let view as SidebarDoneFoldRowView): view.configure(row)
         default:
             break
         }
