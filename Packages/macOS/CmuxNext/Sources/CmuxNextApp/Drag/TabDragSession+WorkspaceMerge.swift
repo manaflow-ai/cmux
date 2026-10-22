@@ -19,6 +19,8 @@ enum WorkspaceMerge {
         guard let source = services.workspace(id: workspaceID), let outcome = outcome(kind) else { return }
         let tabs = source.screens.flatMap(\.panes).flatMap(\.tabs)
         guard let first = tabs.first, let daemon = services.machines.daemon(forWorkspace: workspaceID) else { return }
+        // Into a workspace shown beside the focused one (`sidebar.multiView`): it is focused first, as a press does.
+        if !drag.filesAway { window.focusDropTarget(outcome, atScreen: drag.point) }
         session.claimClosing(source)
         let transaction = ClientTransactionID.generate()
         session.executeTab(outcome, tab: first, dropWindow: window, drag: drag, transaction: transaction) { [weak session] ok in
@@ -36,17 +38,17 @@ enum WorkspaceMerge {
     /// drag that may merge there, and the layout adapter showing it.
     static func hit(_ point: CGPoint, ids: [String], group: String?, window: WindowController,
                     layout: LayoutTabDropTarget, services: AppServices) -> TabDropProposal? {
-        guard let id = ids.first, allowed(ids, group: group, into: window, services: services),
+        guard let id = ids.first, allowed(ids, group: group, into: window.content(atScreen: point)?.workspace, services: services),
               let proposal = layout.workspaceHitTest(screenPoint: point, workspaceID: id), outcome(proposal.kind) != nil else { return nil }
         return proposal
     }
 
-    /// Whether `ids` may merge into `window`'s shown workspace: one
+    /// Whether `ids` may merge into `shown`, a workspace on screen: one
     /// workspace (any number of tabs, even one), not a fixed one, not the
     /// shown one, on the same machine.
-    static func allowed(_ ids: [String], group: String?, into window: WindowController, services: AppServices) -> Bool {
+    static func allowed(_ ids: [String], group: String?, into shown: WorkspaceModel?, services: AppServices) -> Bool {
         guard group == nil, ids.count == 1, let id = ids.first, let source = services.workspace(id: id),
-              !staysPut(kind: source.kind), let shown = window.content?.workspace, shown.id != id else { return false }
+              !staysPut(kind: source.kind), let shown, shown.id != id else { return false }
         return services.machines.daemon(forWorkspace: id) === services.machines.daemon(forWorkspace: shown.id)
     }
 

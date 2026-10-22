@@ -194,9 +194,11 @@ struct SidebarMultiViewWindowTests {
     static func withMultiView<T>(_ on: Bool = true, _ body: () async throws -> T) async rethrows -> T {
         TunableStore.shared.register(SidebarTunables.all)
         TunableStore.shared.activate(file: nil)
+        // Puts back what it found, so a test of the other multi-view suite that runs in this one's await keeps its value.
+        let before = TunableStore.shared.override(SidebarTunables.multiView.key)
         TunableStore.shared.set(SidebarTunables.multiView.key, on ? .bool(true) : nil)
         precondition(SidebarTunables.multiView.value == on, "the sidebar.multiView override did not take")
-        defer { TunableStore.shared.set(SidebarTunables.multiView.key, nil) }
+        defer { TunableStore.shared.set(SidebarTunables.multiView.key, before) }
         return try await body()
     }
 

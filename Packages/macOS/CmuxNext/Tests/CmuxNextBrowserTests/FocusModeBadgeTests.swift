@@ -45,9 +45,15 @@ import Testing
         #expect(presses == 1)
     }
 
-    @Test func reduceMotionShowsBadgeAtOnce() {
-        Motion.reduceMotionOverride = true
-        defer { Motion.reduceMotionOverride = nil }
+    /// With fades off (`ui.animations.feedback`, or the master switch) the badge appears in the
+    /// same frame. Reduce Motion alone keeps fades (shortened to a crossfade, `MotionPolicy`), so
+    /// pinning it left this to the host: where the window has an awake screen the fade ran and
+    /// alpha read 0 (aws-m4pro-8 and -9 every run).
+    @Test func fadesOffShowBadgeAtOnce() {
+        let design = DesignSettings.shared
+        let saved = design.disabledAnimationCategories
+        design.disabledAnimationCategories.insert(.feedback)
+        defer { design.disabledAnimationCategories = saved }
         let (chrome, window) = chrome()
         defer { window.close() }
         chrome.showsFocusModeIndicator = true
