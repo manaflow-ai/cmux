@@ -25,10 +25,6 @@ public final class WebUpdater {
         case failed(String)
     }
 
-    /// A roll back asked for while a check runs: the check saves its own state when it ends and
-    /// would undo it.
-    nonisolated public struct Busy: Error, Sendable {}
-
     /// What the running app's own web bundles are.
     nonisolated public struct App: Sendable {
         /// `pages/web-abi.json` of the bundled pages.
@@ -65,12 +61,9 @@ public final class WebUpdater {
     public private(set) var lastCheck: Date?
     /// Why the newest pointer was not taken (an app too old for it, an older commit), nil when it was.
     public private(set) var lastRefusal: WebUpdateRefusal?
-    /// The update the launch check kept (nil: the bundled web), set with its tree.
-    public private(set) var launchVersion: WebUpdatePointer?
 
-    /// The app serves `tree`, the kept tree of `pointer` (both nil: the bundled web), from its next
-    /// safe point.
-    @ObservationIgnored public var onReady: (_ tree: URL?, _ pointer: WebUpdatePointer?) -> Void = { _, _ in }
+    /// The app serves `tree` (nil: the bundled web) from its next safe point.
+    @ObservationIgnored public var onReady: (URL?) -> Void = { _ in }
     /// Whether downloads may use Low Data Mode and expensive links (`updates.meteredNetwork`).
     @ObservationIgnored public var allowsConstrained = false
     @ObservationIgnored public var allowsExpensive = true
@@ -93,9 +86,6 @@ public final class WebUpdater {
     /// The launch check of the kept update; every check and channel change waits for it, so none
     /// sees the empty state before `state.json` is read.
     @ObservationIgnored private var launch: Task<URL?, Never>?
-    /// The last state write queued (a check keeping its update, a roll back, a channel's return to
-    /// the bundled web): each waits for the one before, so none saves over another.
-    @ObservationIgnored private var writing: Task<Void, Never>?
     /// Whether `updates.web` was read yet (before it, `channel` is only the off default).
     @ObservationIgnored private var followed = false
 
@@ -125,7 +115,6 @@ public final class WebUpdater {
         let task = Task { @MainActor [weak self] () -> URL? in
             let (tree, state) = await Self.launchCheck(store: store, app: app, channel: channel)
             self?.state = state
-            self?.launchVersion = tree == nil ? nil : state.active
             return tree
         }
         launch = task
@@ -157,12 +146,12 @@ public final class WebUpdater {
         self.channel = channel
         etag = nil
         nextCheck.cancel()
-        // The launch check, then at most one state write, after the writes queued before it.
-        _ = enqueue { [weak self] in
+        // task-owner: the launch check, then at most one state write; it ends by itself
+        Task { [weak self] in
             _ = await self?.launchTree()
             guard let self, self.channel == channel, let active = state.active,
                   channel == .off || active.channel != channel.rawValue else { return }
-            try await serve(nil, refusingActive: false)
+            try? await serve(nil, refusingActive: false)
         }
         guard channel != .off else { return }
         nextCheck.schedule(after: .zero) { @MainActor [weak self] in await self?.check() }
@@ -178,7 +167,6 @@ public final class WebUpdater {
 
     /// Reads the channel's pointer and takes a new update.
     public func check() async {
-        await writing?.value
         guard channel != .off, phase != .checking, phase != .downloading else { return }
         phase = .checking
         _ = await launchTree()
@@ -224,32 +212,29 @@ public final class WebUpdater {
                 if let refusal = error as? WebUpdateRefusal, Self.isLasting(refusal), self.channel == channel { etag = tag }
                 throw error
             }
-            // Kept after the state writes queued during the download (a channel change).
-            try await enqueue { [self] in
-                guard self.channel == channel else {
-                    // The channel changed during the download: drop the tree.
-                    try? await Self.save(state, store: store, served: served())
-                    phase = .idle
-                    return
-                }
-                var next = state
-                next.previous = state.active
-                next.active = pointer
-                next.floor = max(next.floor, pointer.committedAt)
-                try await Self.save(next, store: store, served: served())
-                guard self.channel == channel else {
-                    // The channel changed during the save: put the state back (and drop the
-                    // tree); the next check serves the right channel.
-                    try? await Self.save(state, store: store, served: served())
-                    phase = .idle
-                    return
-                }
-                state = next
-                etag = tag
-                lastRefusal = nil
+            guard self.channel == channel else {
+                // The channel changed during the download: drop the tree.
+                try? await Self.save(state, store: store, served: served())
                 phase = .idle
-                onReady(tree, pointer)
-            }.value
+                return
+            }
+            var next = state
+            next.previous = state.active
+            next.active = pointer
+            next.floor = max(next.floor, pointer.committedAt)
+            try await Self.save(next, store: store, served: served())
+            guard self.channel == channel else {
+                // The channel changed during the save: put the state back (and drop the tree);
+                // the next check serves the right channel.
+                try? await Self.save(state, store: store, served: served())
+                phase = .idle
+                return
+            }
+            state = next
+            etag = tag
+            lastRefusal = nil
+            phase = .idle
+            onReady(tree)
         } catch let refusal as WebUpdateRefusal {
             lastRefusal = refusal
             phase = refusal == .notNewer || Self.isAppTooOld(refusal) ? .idle : .failed(String(describing: refusal))
@@ -293,27 +278,10 @@ public final class WebUpdater {
     }
 
     /// Serves the update before the active one (the bundled web when there is none) from the next
-    /// safe point. A rolled-back update is not taken again; the next newer one is. Refused
-    /// (``Busy``) while a check runs; a check started meanwhile waits for it.
+    /// safe point. A rolled-back update is not taken again; the next newer one is.
     public func rollBack() async throws {
-        try await enqueue { [self] in
-            guard state.active != nil else { return }
-            guard phase != .checking, phase != .downloading else { throw Busy() }
-            try await serve(state.previous, refusingActive: true)
-        }.value
-    }
-
-    /// Runs `body` once the state write queued before it ends.
-    private func enqueue(_ body: @escaping @MainActor () async throws -> Void) -> Task<Void, any Error> {
-        let before = writing
-        // task-owner: one state write; it ends by itself
-        let task = Task { @MainActor in
-            await before?.value
-            try await body()
-        }
-        // task-owner: the queue's handle on that write; it ends with it
-        writing = Task { _ = try? await task.value }
-        return task
+        guard state.active != nil else { return }
+        try await serve(state.previous, refusingActive: true)
     }
 
     /// Serves `pointer`'s kept update (nil: the bundled web) from the next safe point; with
@@ -325,7 +293,7 @@ public final class WebUpdater {
         if refusingActive, let active = state.active { next.floor = max(next.floor, active.committedAt) }
         try await Self.save(next, store: store, served: served())
         state = next
-        onReady(pointer.map { store.tree(for: $0.key).root }, pointer)
+        onReady(pointer.map { store.tree(for: $0.key).root })
     }
 
     @concurrent nonisolated static func save(_ state: WebUpdateState, store: WebUpdateStore, served: URL? = nil) async throws {

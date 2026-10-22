@@ -7,10 +7,12 @@ import Foundation
 public nonisolated struct WorkspaceHoverCardOptions: Sendable, Hashable {
     /// The card's design.
     public enum Layout: String, Sendable, Hashable, CaseIterable {
-        /// The default: the title, status and a stats line, the workspace's facts, then the
-        /// scrollable history (prompts, starts, waits, finished turns), newest first.
+        /// The title, status and a stats line, the workspace's facts, then the scrollable history
+        /// (prompts, starts, waits, finished turns), newest first (u3320).
         case timeline
-        /// The facts card with the last three moments under it, no scrolling.
+        /// The default (Leo 2026-10-20: "more useful, no scroll, crisp"): the title with its age
+        /// and unread dot, the status, where it runs and its pull request, the agent's last
+        /// message rendered, then the last three moments, one line each. It never scrolls.
         case compact
         /// The history alone, taller and wider, each prompt up to three lines.
         case log
@@ -20,7 +22,7 @@ public nonisolated struct WorkspaceHoverCardOptions: Sendable, Hashable {
         case minimal
     }
 
-    public var layout: Layout = .timeline
+    public var layout: Layout = .compact
     /// Running times: the status's and a command's elapsed time, and the stats line.
     public var showsTimings = true
     /// Prompts the person sent, and starts of work, in the history.
