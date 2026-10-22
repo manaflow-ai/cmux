@@ -108,7 +108,6 @@ Apri il file `.dmg` e trascina cmux nella cartella Applicazioni. cmux si aggiorn
 ### Homebrew
 
 ```bash
-brew tap manaflow-ai/cmux
 brew install --cask cmux
 ```
 
