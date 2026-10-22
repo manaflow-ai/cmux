@@ -471,10 +471,10 @@ let package = Package(
         // The agent question card (plans/cmux-next/agent-questions.md): one
         // AppKit view and layout for Home rows, agent panes and the UI Gallery.
         // The launch window's connecting and failure screen with Retry Now and
-        // Restart cmux-tui, and the App Store banner's recovery actions (cx-jniyz.1).
+        // Restart cmux-tui (cx-jniyz.1).
         .target(
             name: "CmuxNextDaemonRecovery",
-            dependencies: ["CmuxNextApps", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextDesign", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextDesign", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
