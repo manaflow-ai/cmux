@@ -54,9 +54,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The agent picked on the new tab screen, to remember for the next
     /// new tab (`newTab.remember`).
     case rememberNewTab(AgentPaneRememberedPick)
-    /// The new tab page's style switch (`newTab.setTemplate`): the template to
-    /// save as `tabs.newTabTemplate` (the App checks the value).
-    case setNewTabTemplate(String)
+    /// The new tab page's style switch (`newTab.setTemplate`) or edit mode (`newTab.editWidgets`):
+    /// ``AgentPaneNewTabEdit``.
+    case editNewTab(AgentPaneNewTabEdit)
     /// The New Tab page player's control (`nowPlaying.command {command, seconds}`).
     case nowPlaying(AgentPaneNowPlaying.Command)
     /// An import card's button on the New Tab page (`importCards.act {id, action}`).

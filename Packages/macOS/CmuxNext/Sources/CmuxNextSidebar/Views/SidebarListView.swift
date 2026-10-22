@@ -95,6 +95,8 @@ final class SidebarListView: NSView {
     var leaving: Set<WorkspaceID> = []
     /// The "Done (N)" rows the person opened (`SidebarLayout+DoneFold`): view state, kept for this list only.
     var openDoneFolds: Set<SidebarDoneFoldID> = []
+    /// The lists whose "Show N more" row the person opened: view state, kept for this list only.
+    var openShowMore: Set<SidebarDoneFoldID> = []
     /// Inline rename of a workspace row (a group's name is edited in `groupEditor`).
     let inlineRename = SidebarInlineRename()
     /// The group editor bubble (SidebarListView+GroupEditor) and its App-filled rows.
@@ -194,6 +196,7 @@ final class SidebarListView: NSView {
             if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
             if let faviconObserver { NotificationCenter.default.removeObserver(faviconObserver) }
             for observer in settleObservers + focusObservers { NotificationCenter.default.removeObserver(observer) }
+            if let pointerMonitor { NSEvent.removeMonitor(pointerMonitor) }
         }
     }
     // MARK: - Window occlusion
@@ -202,6 +205,10 @@ final class SidebarListView: NSView {
     private var faviconObserver: (any NSObjectProtocol)?
     private var settleObservers: [any NSObjectProtocol] = []
     private var focusObservers: [any NSObjectProtocol] = []
+    /// The app's left presses and releases while this list is in a window (`observePointerEnds`).
+    private var pointerMonitor: Any?
+    /// Whether the left button is held now (`pointerWindowLostKey`). Tests inject an answer.
+    var leftButtonIsDown: @MainActor () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         // Off screen a card's landing never completes: it ends now (its held rows show, the reloads stop adopting).
@@ -221,6 +228,10 @@ final class SidebarListView: NSView {
         // a drag ends in place (`abandonDrag`, its rows shown again).
         for observer in focusObservers { center.removeObserver(observer) }
         focusObservers = window == nil ? [] : observeFocusLoss(of: window)
+        // A press whose release never came here ends at the app's next press, or after a release that went to
+        // another window (`pointerEventSeen`).
+        if let pointerMonitor { NSEvent.removeMonitor(pointerMonitor) }
+        pointerMonitor = window == nil ? nil : observePointerEnds()
         if window == nil {
             if let drag { abandonDrag(drag) }
             press = nil

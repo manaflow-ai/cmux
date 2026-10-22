@@ -30,7 +30,8 @@ extension SidebarListViewComponents {
         switch row.key {
         case let .workspace(id):
             SidebarGroupKeys(list: self).setFocus(nil)
-            guard !model.isPlaceholder(id) else {
+            // A control-click is a right-click: its menu (`menu(for:)`) neither selects nor switches.
+            guard !model.isPlaceholder(id), !flags.contains(.control) else {
                 self.press = nil
                 return
             }
@@ -48,12 +49,11 @@ extension SidebarListViewComponents {
                 // Keep the multi-selection so it can be dragged; collapse it
                 // on mouse-up if no drag happens.
                 press.deferredClick = id
-            } else if SidebarTunables.multiView.value {
-                // Multi-view (Leo, item D): a press selects nothing; the release on this row navigates, a drag
-                // moves the row and leaves the shown workspace where it is.
-                press.clickOnRelease = id
             } else {
-                model.click(id)
+                // Leo 2026-10-21: "MOUSE DOWN DRAGGING ON A WORKSPACE SHOULDN'T BE IMMEDIATELY FOCUSING". A press
+                // selects nothing; the release on this row navigates, a drag moves the row and leaves the shown
+                // workspace where it is (as `sidebar.multiView` did first, #23437).
+                press.clickOnRelease = id
             }
             // The fill moves now, on the two rows (a switch drew it already, `SidebarSameTurn`).
             if !patchSelection(from: oldItem, oldSelection: oldSelection) { reload(animated: true) }
@@ -73,7 +73,7 @@ extension SidebarListViewComponents {
                 press.activatedOnPress = true
                 model.send(.activateItem(id, opensWorkspace: event.modifierFlags.contains(.option)))
             }
-        case .section, .emptySection, .folder, .block, .doneFold:
+        case .section, .emptySection, .folder, .block, .doneFold, .showMore:
             break
         }
         self.press = press
@@ -143,6 +143,8 @@ extension SidebarListViewComponents {
             model.send(.activateItem(LayoutItemID(item), opensWorkspace: event.modifierFlags.contains(.option)))
         case let .doneFold(fold):
             if openDoneFolds.remove(fold) == nil { openDoneFolds.insert(fold) }
+        case let .showMore(list):
+            if openShowMore.remove(list) == nil { openShowMore.insert(list) }
         case .emptySection, .folder, .block:
             break
         }
