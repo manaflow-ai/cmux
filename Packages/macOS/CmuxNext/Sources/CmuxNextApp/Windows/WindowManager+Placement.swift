@@ -28,8 +28,6 @@ extension WindowManager {
         // A stand-in Cmd-N shows waits: a placement moves a workspace the daemon has.
         for (id, pending) in pendingPlacements where live.contains(id) && services.machines.workspace(id: id)?.0.isProvisional != true {
             pendingPlacements[id] = nil
-            // After the move (or none): its own row lists from the pass that follows, at the slot its pending row held.
-            defer { PendingWorkspaceRows.shared.placed(id) }
             guard let window = pending.window ?? registry.value.owner(of: id), let bridge = controller(for: window)?.sidebar,
                   let daemon = services.machines.daemon(forWorkspace: id) else { continue }
             let sections = SidebarRowSection.withoutPlaceholders(bridge.model.sections)

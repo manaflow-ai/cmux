@@ -97,7 +97,6 @@ enum NewWorkspacePlacements {
                        then: (@MainActor @Sendable (String, SidebarBridge) -> Void)? = nil, windows: WindowManager) {
         guard slot != nil || byDefault != nil || then != nil else { return }
         windows.pendingPlacements[id] = PendingPlacement(window: windowID, slot: slot, byDefault: byDefault, then: then)
-        PendingWorkspaceRows.shared.owesPlacement(id)
         if windows.services.machines.workspace(id: id) != nil { windows.applyPendingPlacements(live: [id]) }
     }
 
