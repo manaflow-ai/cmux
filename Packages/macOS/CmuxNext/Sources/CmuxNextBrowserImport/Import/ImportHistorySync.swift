@@ -26,6 +26,8 @@ public actor ImportHistorySync {
     private var timers: [String: DemandTimer] = [:]
     /// Each watched database's files (size and change time) at its last read.
     private var lastRead: [String: [Int64]] = [:]
+    /// `browser.import.enabled` off: nothing is watched or read again; the saved pages stay.
+    public private(set) var isPaused = false
 
     /// `grants`: the folder grants reads need (nil: folders are read directly).
     public init(store: ImportedDataStore, grants: BrowserFolderGrants?, delay: Duration = .seconds(20),
@@ -43,7 +45,10 @@ public actor ImportHistorySync {
     /// Watches every synced source of the store: new ones start (and read
     /// once), ones no longer synced stop.
     public func reconcile() async {
+        guard !isPaused else { return endAll() }
         let records = await store.syncedSources()
+        // Paused while the store answered: watch nothing.
+        guard !isPaused else { return endAll() }
         let keys = Set(records.map(\.sourceKey))
         for key in watches.keys where !keys.contains(key) { end(key) }
         for record in records {
@@ -56,6 +61,13 @@ public actor ImportHistorySync {
             }
             changed(key)
         }
+    }
+
+    /// Stops every watch while `paused` (browser import is off) and starts them again after.
+    public func setPaused(_ paused: Bool) async {
+        guard paused != isPaused else { return }
+        isPaused = paused
+        await reconcile()
     }
 
     /// At launch: hands every profile's saved pages to `deliver` (the omnibar
@@ -129,6 +141,10 @@ public actor ImportHistorySync {
     /// Stops every watch (the app is quitting, or the store went away).
     public func stop() {
         for key in watches.keys { end(key) }
+    }
+
+    private func endAll() {
+        for key in Array(watches.keys) { end(key) }
     }
 
     private func end(_ key: String) {

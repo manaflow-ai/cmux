@@ -58,8 +58,14 @@ public final class ImportSuggestionsCenter {
             .appending(path: "import-jobs.json")
     }
 
-    /// Debug Settings `browserImport.suggestionCards` (on by default).
-    public var isEnabled: Bool { BrowserImportTunables.suggestionCards.value }
+    /// `browser.import.enabled` (on by default): off, no card shows and nothing scans or resumes.
+    /// Turned on again, the cards scan this Mac.
+    public var importEnabled = true {
+        didSet { if importEnabled, !oldValue { scan() } }
+    }
+
+    /// `browser.import.enabled` and Debug Settings `browserImport.suggestionCards` (both on by default).
+    public var isEnabled: Bool { importEnabled && BrowserImportTunables.suggestionCards.value }
 
     /// Starts the cards once: the jobs a quit cut off, the first scan and the rescans.
     public func start(host: ImportCardsHost, registry: ActionRegistry) {
@@ -73,7 +79,7 @@ public final class ImportSuggestionsCenter {
         saveLedger()
         state.expire(now: now())
         AgentPaneImportCards.shared.onAction = { [weak self] id, action in
-            guard let action = ImportCardAction(rawValue: action) else { return }
+            guard let action = ImportCardAction(rawValue: action), self?.isEnabled == true else { return }
             // A New Tab page's button: a first-party control, never the person's own gesture, so a
             // start asks natively first and a cookie request still gets its consent panel.
             try? self?.perform(id, action, caller: ActionInvocation(arguments: [:], origin: .page))

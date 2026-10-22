@@ -46,7 +46,9 @@ final class BrowserImportOfferService {
     }
 
     private var enabled: Bool {
-        enabledOverride ?? (ProcessInfo.processInfo.environment[Self.forceKey] == "1" || services?.environment.noActivate == false)
+        // `browser.import.enabled` off: no offer, whatever the launch.
+        guard services?.browserImportEnabled != false else { return false }
+        return enabledOverride ?? (ProcessInfo.processInfo.environment[Self.forceKey] == "1" || services?.environment.noActivate == false)
     }
 
     /// Wires a new browser page's chrome (`TabContentCache.onBrowserEntryCreated`).

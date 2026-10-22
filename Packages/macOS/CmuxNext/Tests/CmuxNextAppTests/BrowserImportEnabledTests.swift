@@ -24,6 +24,8 @@ import Testing
 
         func tearDown() {
             services.onboarding.controller?.window?.close()
+            // The cards are app-wide: the next test starts with them on.
+            ImportSuggestionsCenter.shared.importEnabled = true
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
         }
 

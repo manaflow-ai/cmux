@@ -904,6 +904,21 @@ server (`optchat-chief agent-memory mcp`) with `memory_search`, `memory_get` and
 acpmux reads `enabled` at each spawn and the Mac app at each Agent Memory search; the server
 reads the other keys at each call, so a change applies to the next session or call.
 
+## `browser.import.enabled`
+
+Whether cmux offers to bring data over from other browsers.
+
+```json
+{
+  "browser": { "import": { "enabled": false } }
+}
+```
+
+- `true` (default): Import from Browser, Import Bookmarks from Browser, Import from Another Browser and Import Cookies from Browser are in the File menu, the palette and the browser's context menus, a browser tab offers an import once, and Home, New Tab and Settings > Import show import suggestion cards.
+- `false`: those entry points are hidden, the `cmux import`, `cmux browser import-cookies` and `cmux bookmark import-from-browser` commands are refused, and nothing imports by itself: Keep in Sync stops re-reading the other browser's history and a paused import card does not resume.
+
+Data already imported stays; **Remove Imported Browser Data** still removes it. Change it in **Settings > Browser > Import** or with `cmux settings set browser.import.enabled false`. An agent cannot change it.
+
 ## `browser.searchEngine`, `browser.customSearchEngine` and `browser.omnibar.*`
 
 The address bar's search engine and suggestions. Settings > Browser > Address Bar
