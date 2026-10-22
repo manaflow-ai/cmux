@@ -163,6 +163,19 @@ import Testing
         #expect(launched.collapsed == [b, d, WorkspaceID("e")])
     }
 
+    /// Revealing a selected session opens only the folds above it. At launch the feed's first
+    /// passes may not know every parent yet, so a reveal never drops another saved fold.
+    @Test func aRevealOpensOnlyTheFoldsAboveItAndKeepsTheRest() {
+        let defaults = UserDefaults(suiteName: "SidebarDeepTreeTests.\(UUID().uuidString)") ?? .standard
+        let a = WorkspaceID("a"), b = WorkspaceID("b"), d = WorkspaceID("d"), c = WorkspaceID("c")
+        defaults.set(["a", "b", "d"], forKey: SidebarSessionTree.collapsedKey)
+        let tree = SidebarSessionTree(defaults: defaults)
+        tree.state = SidebarSessionTreeState(parents: [b: a, c: b]) // d's lane hasn't loaded yet
+        tree.reveal(c)
+        #expect(tree.collapsed == [d])
+        #expect(defaults.stringArray(forKey: SidebarSessionTree.collapsedKey) == ["d"])
+    }
+
     /// A fixed fifty-workspace spawn tree: `w0`...`w4` are coordinators; `w<n>` for n >= 5 was
     /// started by an earlier workspace, chosen so the tree is four levels deep. Model order is the
     /// ids' order shuffled by a fixed stride, so drawn order cannot follow model order by chance.

@@ -189,14 +189,16 @@ public final class SidebarSessionTree {
         }
         guard opened != collapsed else { return }
         collapsed = opened
-        save()
+        save(pruning: false)
     }
 
     /// Saves the folds, dropping each one that is no longer a parent in the live tree (a closed
     /// workspace, or one whose sub-sessions ended), so the saved list never outgrows the tree. It
-    /// prunes only while the tree has parents: before the first pass every fold is kept.
-    private func save() {
-        if let parents = state?.parents, !parents.isEmpty {
+    /// prunes only on the user's own fold while the tree has parents: before the first pass every
+    /// fold is kept, and `reveal` (which runs for the restored selection at launch, while the lanes
+    /// may still be loading) never prunes.
+    private func save(pruning: Bool = true) {
+        if pruning, let parents = state?.parents, !parents.isEmpty {
             let live = Set(parents.values)
             collapsed = collapsed.filter(live.contains)
         }
