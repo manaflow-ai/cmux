@@ -460,6 +460,33 @@ const footerActionsPlacement = (placement: "left" | "right") => async (ctx: Play
     throw new Error(`turn footer actions are not ${placement}-aligned`);
 };
 
+/// The live line at the bottom of a running turn stands clear of the row over it, never flush
+/// under it (Leo, 2026-10-21: "THE RUNNING A COMMAND IS WAY TOO CLOSE"); its words shimmer, and
+/// its "⌃B to run in background" waits for the pointer.
+const liveLineClear = async (ctx: PlayContext) => {
+  const doc = ctx.document;
+  await ctx.waitFor(() => doc.querySelector(".cv-worked.is-below .cv-thinking"));
+  const words = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-thinking")!.getBoundingClientRect();
+  const over = [...doc.querySelectorAll(".cv-tool, .cv-md")]
+    .map((node) => node.getBoundingClientRect().bottom)
+    .filter((bottom) => bottom <= words.top + 1);
+  if (!over.length) throw new Error("no tool row or reply draws over the live line");
+  const gap = words.top - Math.max(...over);
+  if (!(gap >= 14)) throw new Error(`the live line sits ${gap.toFixed(1)}px under the row over it, not 14px or more`);
+  const hint = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-command__bg");
+  if (hint && getComputedStyle(hint).opacity !== "0")
+    throw new Error("the ⌃B hint shows before the pointer is on the line");
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    const shimmer = doc
+      .querySelector(".cv-worked.is-below .cv-thinking")!
+      .getAnimations()
+      .some((animation) => (animation as CSSAnimation).animationName === "cmux-shimmer");
+    if (!shimmer) throw new Error("the live line's words do not shimmer");
+  }
+  await ctx.hover({ selector: ".cv-worked.is-below" });
+  if (hint) await ctx.waitFor(() => getComputedStyle(hint).opacity === "1");
+};
+
 /// The running line ("Thinking", "Working for") holds still: no mark blinks before its words and
 /// nothing on it loops (Leo, 2026-10-20, "the blinking ascii").
 /// The running line starts with its words, with no mark before them. Only the word Thinking may
@@ -505,6 +532,19 @@ const envShell = (command: string) =>
     startedAt: minutesAgo(1.9),
     endedAt: minutesAgo(1.88),
   });
+
+/// A quiet turn under a second with no answer, a sub-second answer, then a 5s one (sub-second-turns).
+const subSecondTurns = () =>
+  chat([
+    user("Note for later: the deploy key rotates Friday.", 9),
+    summary(9, { status: "completed", durationMs: 300 }),
+    user("Is CI green?", 6),
+    assistant("Yes, all checks passed.", 6),
+    summary(6, { status: "completed", durationMs: 800 }),
+    user("Summarize the failing test", 3),
+    assistant("The retry test times out: the mock server never answers the second request.", 2.9),
+    summary(2.9, { status: "completed", durationMs: 5_000 }),
+  ]);
 
 /// Opens the turn's Worked for, then its one run's folded line.
 const openGroupedRun = async (ctx: PlayContext) => {
@@ -591,6 +631,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/StreamingCode.tsx",
     "agent-session/acpmux/conversation/Math.tsx",
     "agent-session/acpmux/conversation/ToolRow.tsx",
+    "agent-session/acpmux/conversation/BlockParts.tsx",
     "agent-session/acpmux/chips/ReplyMedia.tsx",
     "agent-session/acpmux/conversation/icons.tsx#Expand",
     "agent-session/acpmux/conversation/ToolRun.tsx",
@@ -611,6 +652,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/DateLine.tsx",
     "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryFailure",
     "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryMark",
+    "agent-session/acpmux/conversation/PromptDelivery.tsx#FailedSendsContext",
     "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/conversation/icons.tsx#DoubleCheck",
     "agent-session/acpmux/PermissionCard.tsx",
@@ -876,6 +918,48 @@ export default agentPaneEntry({
         if (ctx.document.body.textContent?.includes("I am here")) throw new Error("a quiet thought shows its text");
       },
     },
+    "thought-streaming-short": {
+      note: 'A short thought still streaming (Debug toggle agentPane.debug.codexToolRuns off, where the live thought draws in the run) reads "Thinking" on its own line with the text under it, never "Thought I am here" as one sentence (Leo 2026-10-21).',
+      theme: { codexToolRuns: false },
+      snapshot: chat(
+        [
+          user(prompt, 2),
+          activity(
+            [thought("I am here, reading the retry helper before changing it.", { startedAt: 0, endedAt: 2_000 })],
+            1.5,
+          ),
+        ],
+        { isWorking: true },
+      ),
+      play: async (ctx) => {
+        const label = () => ctx.document.querySelector<HTMLElement>(".cv-thought__label");
+        await ctx.waitFor(() => label()?.textContent === "Thinking");
+        if (!ctx.document.querySelector(".cv-thought.is-full"))
+          throw new Error("the live thought's text is not under its label");
+      },
+    },
+    "thought-codex-headings": {
+      note: 'Play: a Codex reasoning summary opened: "Thought for 12s", then each **Heading** as a muted title of its own over its text, never with its marks and never after "Thought".',
+      checks: {
+        layoutShiftMax: {
+          value: 0.01,
+          reason: "Opening the thought pushes the rows below it down by its text, on purpose.",
+        },
+      },
+      snapshot: thoughtChat([
+        thought(
+          "**Planning the retry fix**\n\nThe retry wrapper in src/net/client.ts swallows the status code, so a 429 looks like a network failure.\n\n**Checking the callers**\n\nTwo call sites pass their own timeout; both keep working with a capped backoff.",
+          { startedAt: 0, endedAt: 12_000 },
+        ),
+      ]),
+      play: async (ctx) => {
+        await ctx.click({ selector: "button.cv-thought" });
+        const titles = () => [...ctx.document.querySelectorAll(".cv-thought__title")].map((node) => node.textContent);
+        await ctx.waitFor(() => titles().length === 2);
+        if (ctx.document.querySelector(".cv-thought__body")?.textContent?.includes("**"))
+          throw new Error("a heading shows its ** marks");
+      },
+    },
     "long-thought-streaming": {
       note: "A long thought still streaming holds a seven-line viewport with its newest line in view (Debug toggle agentPane.debug.liveThoughtViewport) and folds once done; with agentPane.debug.foldLongThoughts off, it shows in full.",
       snapshot: chat([user(prompt, 2), activity([thought(LONG_THOUGHT)], 1.5)], {
@@ -1034,8 +1118,34 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "steer-ended": {
+      note: "A turn Leo steered, once it ended: each part folds its own work, as Codex draws it. The call before the steer folds under Worked for over the prompt's part, the call after it under its own Worked for below the steer, timed from the steer, then the answer. Nothing moves above the steer it came after. Play: the steer's fold opens on its own call.",
+      snapshot: chat([
+        user("Fix the flaky login test", 3),
+        activity(
+          [
+            thought("The login test fails one run in five; check how the retry waits for the session."),
+            tool("bun test src/auth/login", "execute", "completed", { command: "bun test src/auth/login" }),
+          ],
+          2.8,
+        ),
+        assistant("The retry races the session refresh: it reads the old token before the refresh lands.", 2.4),
+        user("Also check the logout path, it uses the same retry", 2.2, { id: "steer-ended-steer", continues: true }),
+        activity(
+          [tool("bun test src/auth/logout", "execute", "completed", { command: "bun test src/auth/logout" })],
+          1.8,
+        ),
+        assistant("Both paths now wait for the refresh before they retry, and both tests pass.", 1.2),
+        summary(1.2, { status: "completed", toolCount: 2, durationMs: 108_000 }),
+      ]),
+      play: async (ctx: PlayContext) => {
+        const fold = '[data-row-id="worked-steer-ended-steer"] .cv-worked';
+        await ctx.click({ selector: fold });
+        await ctx.waitFor(() => ctx.find({ selector: fold }).getAttribute("aria-expanded") === "true");
+      },
+    },
     "working-tokens": {
-      note: "A live Claude turn says its tokens so far after its time, as Claude desktop does: Working for 5m 54s · 2.1M tokens, with no blinking dots before it. A harness that does not report each call shows the time alone. Play: the line holds still.",
+      note: "A live Claude turn says its tokens so far after its time, as Claude desktop does, on its one live line at the bottom: Thinking 5m 54s · 2.1M tokens, with no blinking dots before it and no Working for over the turn. A harness that does not report each call shows the time alone. Play: the line holds still.",
       snapshot: chat(
         [
           user(prompt, 5.9),
@@ -1053,7 +1163,7 @@ export default agentPaneEntry({
         ],
         { isWorking: true, turnTokens: 2_140_000 },
       ),
-      play: runningLineStill(/^Working for/),
+      play: runningLineStill(/^Thinking/, true),
     },
     "working-counts": {
       note: "A live turn with background work: the line counts the two agents still running and the dev server still up, not the agent that finished. A count opens what it counts.",
@@ -1173,7 +1283,7 @@ export default agentPaneEntry({
       play: openWorked,
     },
     "codex-turn-live": {
-      note: "A running turn as the Codex app draws it: Working for over the turn, each finished run one summary line between the paragraphs (Read files, ran commands; Ran 3 commands), commands named by what they do, and the call in flight named on the live line instead of a growing stack.",
+      note: "A running turn as the Codex app draws it: one live block at the bottom and nothing over the turn, each finished run one summary line between the paragraphs (Read files, ran commands; Ran 3 commands), commands named by what they do, and the call in flight named on the live line instead of a growing stack.",
       snapshot: chat(
         [
           user("Check the retry regression and the macOS verification run.", 11.5),
@@ -1213,7 +1323,7 @@ export default agentPaneEntry({
       ),
     },
     "codex-turn-raw-commands": {
-      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots.",
+      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, 16px clear of the run over it; ⌃B to run in background shows on hover. Play: hover the line.",
       snapshot: chat(
         [
           user("What did the lanes decide? Relay it and answer.", 2),
@@ -1249,6 +1359,7 @@ export default agentPaneEntry({
         ],
         { isWorking: true },
       ),
+      play: liveLineClear,
     },
     "codex-turn-run-open": {
       note: "The same turn ended: opened, Worked for shows the commentary between the runs' summary lines; a click opens Ran 3 commands to its calls. Play: open the turn, then the second run.",
@@ -1551,6 +1662,17 @@ export default agentPaneEntry({
         summary(14, { status: "completed", toolCount: 3 }),
       ]),
     },
+    "sub-second-turns": {
+      note: "Turns under a second: no Worked for 0s, and a turn with nothing to copy takes no footer line, only the turn gap (Leo, 2026-10-21).",
+      snapshot: subSecondTurns(),
+    },
+    "sub-second-turns-pointed": {
+      note: "The same turns, the pointer on the quiet turn's footer: its age (and Pin, where the chat pins) shows over the turn gap, and nothing below moves.",
+      snapshot: subSecondTurns(),
+      play: async (ctx) => {
+        await ctx.hover({ selector: ".acpmux-turnSummary" });
+      },
+    },
     "prompt-delivery": {
       note: "Each sent prompt's way to the agent: the read check once it started, unread once acpmux took it, a clock and Still sending while it waits, and one that failed with Retry, Edit, Remove and Details.",
       snapshot: chat([
@@ -1581,6 +1703,63 @@ export default agentPaneEntry({
           },
         }),
       ]),
+    },
+    "failed-sends-grouped": {
+      note: "Three prompts acpmux held behind the folder's trust question (Leo 2026-10-21): one card under the last of them, one plain sentence with Trust folder, and Retry, Edit, Remove and Details once for the three; the raw code only under Details.",
+      snapshot: chat([
+        user(prompt, 6),
+        assistant("Added retries with backoff.", 5.5),
+        summary(5.5, { status: "completed" }),
+        user("Add a test for the backoff", 3, {
+          failed: true,
+          error: "Not sent until you trust this folder.",
+          delivery: {
+            state: "failed",
+            promptId: "p1",
+            sessionId: "s",
+            sentAt: 0,
+            failedAt: 40,
+            hop: "acpmux",
+            reason: "trust.pending",
+            error: "trust.pending: answer the trust question for the folder first",
+          },
+        }),
+        user("Then open a PR", 2, {
+          failed: true,
+          error: "Not sent until you trust this folder.",
+          delivery: {
+            state: "failed",
+            promptId: "p2",
+            sessionId: "s",
+            sentAt: 0,
+            failedAt: 40,
+            hop: "acpmux",
+            reason: "trust.pending",
+            error: "trust.pending: answer the trust question for the folder first",
+          },
+        }),
+        user("And ping me when CI is green", 1, {
+          failed: true,
+          error: "Not sent until you trust this folder.",
+          delivery: {
+            state: "failed",
+            promptId: "p3",
+            sessionId: "s",
+            sentAt: 0,
+            failedAt: 40,
+            hop: "acpmux",
+            reason: "trust.pending",
+            error: "trust.pending: answer the trust question for the folder first",
+          },
+        }),
+      ]),
+      play: async (ctx) => {
+        await ctx.waitFor(() =>
+          ctx.document.querySelectorAll(".cv-user__status--failed").length === 1
+            ? ctx.document.querySelector('[data-failure-cause="trust-pending"][data-failed-count="3"]')
+            : null,
+        );
+      },
     },
     "edited-files": {
       note: "A turn that edited three files: the edited-files card with Undo.",

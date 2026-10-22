@@ -16722,7 +16722,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Developer Tools: Start or Stop Performance Recording",
+      "title" : "Developer Tools: Start\/Stop Performance Recording",
       "title_key" : "action.devtools.togglePerformanceRecording",
       "title_table" : "DevToolsActions"
     },
@@ -22348,6 +22348,34 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action chief-toggle-memory-inspector",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "chief.toggleMemoryInspector",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Chief: Toggle Memory Inspector",
+      "title_key" : "action.chief.toggleMemoryInspector",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "familyMember",
       "cli_name" : "action chief-move-to",
       "context_menu" : "noObject",
@@ -26736,6 +26764,34 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "devOnly",
+      "cli_name" : "action appearance-glass-lens-toggle",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "appearance.glass.lens.toggle",
+      "main_menu" : "debug",
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Toggle Liquid Glass Lens",
+      "title_key" : "action.appearance.glass.lens.toggle",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "settings customize-appearance",
       "context_menu" : "noObject",
@@ -30596,7 +30652,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Pin or Unpin Chat",
+      "title" : "Pin\/Unpin Chat",
       "title_key" : "action.sidebar.chat.togglePin",
       "title_table" : "SidebarSectionActions"
     },
@@ -31758,7 +31814,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Mark Chat as Read",
+      "title" : "Mark Chat as Read…",
       "title_key" : "action.sidebar.priority.markRead",
       "title_table" : "SidebarSectionActions"
     },
@@ -31786,7 +31842,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Pin or Unpin Chat in Priority",
+      "title" : "Pin\/Unpin Chat in Priority…",
       "title_key" : "action.sidebar.priority.togglePin",
       "title_table" : "SidebarSectionActions"
     },
@@ -31814,7 +31870,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Snooze Chat for 1 Hour",
+      "title" : "Snooze Chat for 1 Hour…",
       "title_key" : "action.sidebar.priority.snooze",
       "title_table" : "SidebarSectionActions"
     },
@@ -33635,7 +33691,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Palette: Show or Hide Actions",
+      "title" : "Palette: Show\/Hide Actions",
       "title_key" : "action.paletteKey.toggleActions",
       "title_table" : "ActionCatalog"
     },
@@ -37557,6 +37613,7 @@
           "enabled_when" : "can_perform",
           "id" : "sidebar.priority.markRead",
           "kind" : "action",
+          "label" : "Mark as Read",
           "order" : 0,
           "visible_when" : {
             "debug_only" : false,
@@ -37583,6 +37640,7 @@
           "enabled_when" : "can_perform",
           "id" : "sidebar.priority.snooze",
           "kind" : "action",
+          "label" : "Snooze for 1 Hour",
           "order" : 2,
           "visible_when" : {
             "debug_only" : false,

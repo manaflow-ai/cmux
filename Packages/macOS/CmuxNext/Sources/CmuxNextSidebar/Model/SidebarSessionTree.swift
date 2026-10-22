@@ -130,6 +130,8 @@ public final class SidebarSessionTree {
     public static let shared = SidebarSessionTree()
 
     public var state: SidebarSessionTreeState?
+    /// Every row's pull request badge (`sidebar.pullRequestBadges`), with the tree on or off.
+    public var pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]
 
     public init() {}
 }

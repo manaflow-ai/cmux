@@ -26,6 +26,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { PNG } from "pngjs";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -563,8 +564,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
   // Focus draws no ring (Leo 2026-10-19): a focused footer control leaves the strip's rim at rest.
   test("focusing a footer control changes neither the strip rim nor its geometry", async () => {
     const page = await open("agent-pane.composer-strip", "project", 420);
+    await installPaintedFrames(page);
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-    await page.waitForTimeout(20);
+    await page.evaluate(() => window.cmuxPaintFrame());
     const before = await page.evaluate(() => {
       const strip = document.querySelector<HTMLElement>(".acpmux-composer-strip")!;
       const rect = strip.getBoundingClientRect();
@@ -574,6 +576,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       };
     });
     await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-composer-strip button")!.focus());
+    await page.evaluate(() => window.cmuxPaintFrame());
     const after = await page.evaluate(() => {
       const strip = document.querySelector<HTMLElement>(".acpmux-composer-strip")!;
       const rect = strip.getBoundingClientRect();

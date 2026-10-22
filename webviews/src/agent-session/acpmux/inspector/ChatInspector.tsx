@@ -32,6 +32,7 @@ import {
 } from "react";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
+import { PanelToggle } from "../header/PanelToggle";
 import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
 import { useT } from "../i18n";
@@ -46,6 +47,7 @@ import { waitingSubagents } from "../summary/SubagentStatusList";
 import type { TurnFile } from "../diff";
 import type { StartedSession } from "../started/startedSessions";
 import { ChangesSection, headerStatus, type InspectorPullRequestStatus } from "./ChangesSection";
+import { ContextSection } from "./ContextSection";
 import { EnvironmentSection } from "./EnvironmentSection";
 import { InspectorSection } from "./InspectorSection";
 import {
@@ -94,6 +96,9 @@ function usePaneWidth(shell: HTMLElement | null | undefined, live: boolean): num
   return width;
 }
 
+/// How long a revealed section stays lit.
+const REVEAL_LIT_MS = 1200;
+
 /// The header's toggle and the Inspector for the chat's pane. `on` is Debug Settings
 /// `agent.inspector`: off, there is neither, and the App shows its summary card instead.
 export function useChatInspector({
@@ -108,6 +113,8 @@ export function useChatInspector({
   onStopProcess,
   subagents,
   sessions,
+  onOpenFolder,
+  onSaveEnvironment,
 }: {
   snapshot: AcpmuxSnapshot;
   /// This Mac's name from the handshake, for a local chat.
@@ -134,6 +141,10 @@ export function useChatInspector({
   };
   /// The chats the chat's agent started (App.tsx `childSessions`), and how one opens.
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  /// Opens one of the chat's folders in the Files tree beside the chat (a chat on this Mac).
+  onOpenFolder?: (path: string) => void;
+  /// Saves the chat's machine and folder as an environment (`environment.save`).
+  onSaveEnvironment?: () => Promise<unknown>;
 }): {
   on: boolean;
   button?: ReactNode;
@@ -185,18 +196,7 @@ export function useChatInspector({
   return {
     on: true,
     reveal,
-    button: (
-      <button
-        type="button"
-        className="acpmux-header-tool acpmux-chat-inspector-toggle"
-        aria-label={label}
-        aria-pressed={shown}
-        title={label}
-        onClick={toggle}
-      >
-        <Icon name="pane.split.right" size={15} />
-      </button>
-    ),
+    button: <PanelToggle className="acpmux-chat-inspector-toggle" label={label} shown={shown} onToggle={toggle} />,
     panel: (
       <InspectorPresence
         shown={shown}
@@ -216,6 +216,8 @@ export function useChatInspector({
         onOpenOutput={openOutput}
         onOpenUrl={onOpenUrl}
         onOpenImage={onOpenImage}
+        onOpenFolder={onOpenFolder}
+        onSaveEnvironment={onSaveEnvironment}
       />
     ),
   };
@@ -243,6 +245,8 @@ function InspectorPresence({
   onOpenOutput,
   onOpenUrl,
   onOpenImage,
+  onOpenFolder,
+  onSaveEnvironment,
 }: {
   shown: boolean;
   snapshot: AcpmuxSnapshot;
@@ -268,6 +272,8 @@ function InspectorPresence({
   onOpenOutput?: (path: string) => void;
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
+  onOpenFolder?: (path: string) => void;
+  onSaveEnvironment?: () => Promise<unknown>;
 }) {
   const { width, sections } = useInspectorState();
   const placement = useChatDisplay().inspector;
@@ -305,7 +311,7 @@ function InspectorPresence({
       placement={push ? "push" : "overlay"}
       // Over the chat it starts under the chat header (styles.css --acpmux-header-height; in the
       // pane's tab row, the row's height), so the header's tools, its own toggle among them, stay in reach.
-      under={tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height)"}
+      under={tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 44px)"}
       presence={presence}
     >
       {/* Another chat's sections start drawn with what that chat has: none of its rows drops in. */}
@@ -336,6 +342,8 @@ function InspectorPresence({
         onOpenOutput={onOpenOutput}
         onOpenUrl={onOpenUrl}
         onOpenImage={onOpenImage}
+        onOpenFolder={onOpenFolder}
+        onSaveEnvironment={onSaveEnvironment}
       />
     </InspectorPanel>
   );
@@ -369,7 +377,7 @@ export function InspectorPanel({
         presence?.props.ref(node);
       }}
       inert={presence?.leaving}
-      className="acpmux-chat-inspector"
+      className="ui-glass acpmux-chat-inspector"
       data-placement={placement}
       style={under ? ({ width, "--acpmux-inspector-top": under } as CSSProperties) : { width }}
       aria-label={t("chatInspector.title")}
@@ -433,6 +441,7 @@ export function ChatInspector({
   onOpenImage,
   remoteControl,
   onSaveEnvironment,
+  onOpenFolder,
 }: {
   summary?: Summary;
   machineName?: string;
@@ -472,7 +481,9 @@ export function ChatInspector({
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
-  onSaveEnvironment?: () => void;
+  onSaveEnvironment?: () => Promise<unknown> | void;
+  /// Opens one of the chat's folders in the Files tree beside the chat.
+  onOpenFolder?: (path: string) => void;
 }) {
   const t = useT();
   const stored = useInspectorState().sections;
@@ -483,17 +494,30 @@ export function ChatInspector({
   const known = usage !== undefined && usage.size > 0;
   // As the composer's context ring reads it (ComposerPickers ContextRing).
   const percent = known ? Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) : 0;
-  const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
   const { servers, tasks: commands } = inspectorLists(processes, transcriptTasks, listed);
   const body = useRef<HTMLDivElement>(null);
   // Once: then it is done, so the palette or another pane opening the Inspector again does not jump
   // back to this section.
+  // The section lights for a moment (inspector.css `[data-revealed]`), so a reveal of a section already
+  // in view still shows it answered (the header's Environment line, Leo 2026-10-21: no dead clicks).
+  // Not the reveal effect's cleanup: `onRevealed` clears the reveal at once, which would put it out.
+  const lit = useRef<{ section: HTMLElement; timer: number }>(undefined);
+  const unlight = () => {
+    if (!lit.current) return;
+    window.clearTimeout(lit.current.timer);
+    delete lit.current.section.dataset.revealed;
+    lit.current = undefined;
+  };
+  useEffect(() => unlight, []);
   useEffect(() => {
     if (!revealed) return;
-    body.current
-      ?.querySelector<HTMLElement>(`[data-section="${revealed.section}"]`)
-      ?.scrollIntoView?.({ block: "nearest" });
+    const section = body.current?.querySelector<HTMLElement>(`[data-section="${revealed.section}"]`);
+    section?.scrollIntoView?.({ block: "nearest" });
     onRevealed?.();
+    if (!section) return;
+    unlight();
+    section.dataset.revealed = "";
+    lit.current = { section, timer: window.setTimeout(unlight, REVEAL_LIT_MS) };
   }, [revealed, onRevealed]);
   const scheduled = made?.scheduled ?? [];
   const pullRequests = made?.pullRequests ?? [];
@@ -515,8 +539,10 @@ export function ChatInspector({
           machineName={machineName}
           peerKinds={peerKinds}
           repository={repository}
+          rows={rows}
           remoteControl={remoteControl}
           onSave={onSaveEnvironment}
+          onOpenFolder={onOpenFolder}
         />
       </InspectorSection>
       {known && (
@@ -534,20 +560,7 @@ export function ChatInspector({
             </>
           }
         >
-          <ul className="acpmux-chat-inspector-list">
-            <li className="acpmux-chat-inspector-row">
-              <span className="acpmux-chat-inspector-row__name">{t("chatInspector.context.used")}</span>
-              <span className="acpmux-chat-inspector-row__end">
-                {t("context.tokens", { used: tokens.format(usage.used), size: tokens.format(usage.size) })}
-              </span>
-            </li>
-            <li className="acpmux-chat-inspector-row">
-              <span className="acpmux-chat-inspector-row__name">{t("chatInspector.context.left")}</span>
-              <span className="acpmux-chat-inspector-row__end">
-                {tokens.format(Math.max(0, usage.size - usage.used))}
-              </span>
-            </li>
-          </ul>
+          <ContextSection usage={usage} percent={percent} />
         </InspectorSection>
       )}
       {mcp.length > 0 && (
@@ -556,13 +569,11 @@ export function ChatInspector({
           title={t("rail.connectors")}
           open={state.connectors}
           onOpenChange={fold("connectors")}
+          // As Claude Code desktop's: the servers to reconnect when any failed, else the connected ones.
           meta={value(
-            [
-              t("rail.connected", { count: mcp.filter((server) => server.status === "connected").length }),
-              reconnect > 0 && t("chatInspector.connectors.reconnect", { count: reconnect }),
-            ]
-              .filter(Boolean)
-              .join(" · "),
+            reconnect > 0
+              ? t("chatInspector.connectors.reconnect", { count: reconnect })
+              : t("rail.connected", { count: mcp.filter((server) => server.status === "connected").length }),
           )}
         >
           <ul className="acpmux-chat-inspector-list">
@@ -570,13 +581,15 @@ export function ChatInspector({
               <li key={server.name} className="acpmux-chat-inspector-row">
                 <Icon name="extension" size={12} row />
                 <span className="acpmux-chat-inspector-row__name">{server.name}</span>
-                {server.status !== "connected" && (
-                  <span className="acpmux-chat-inspector-row__end" data-state={server.status}>
-                    {t(
-                      server.status === "failed" ? "chatInspector.connectors.needsReconnect" : "rail.connectorPending",
-                    )}
-                  </span>
-                )}
+                <span className="acpmux-chat-inspector-row__end" data-state={server.status}>
+                  {t(
+                    server.status === "failed"
+                      ? "chatInspector.connectors.needsReconnect"
+                      : server.status === "pending"
+                        ? "rail.connectorPending"
+                        : "composer.envConnected",
+                  )}
+                </span>
               </li>
             ))}
           </ul>

@@ -15,10 +15,11 @@ extension AgentPriorityChats {
     }
 }
 
-/// A Priority row's actions on its chat (an `agent-chat:` target): Mark Chat as Read, Pin or Unpin
-/// Chat in Priority, Snooze Chat for 1 Hour, and Archive Chat. The row's hover buttons, its
-/// right-click menu (`ActionMenuContext.priorityRow`), the palette and a user's shortcut all run
-/// them through the registry, and they write the marks through `AgentPriorityChats`.
+/// A Priority row's actions on its chat (an `agent-chat:` target): Mark Chat as Read…, Pin/Unpin
+/// Chat in Priority…, Snooze Chat for 1 Hour… (the palette asks which chat), and Archive Chat. The
+/// row's hover buttons, its right-click menu (`ActionMenuContext.priorityRow`), the palette and a
+/// user's shortcut all run them through the registry, and they write the marks through
+/// `AgentPriorityChats`.
 @MainActor
 struct SidebarPriorityRowActions {
     static let markRead: ActionID = "sidebar.priority.markRead"
@@ -30,6 +31,15 @@ struct SidebarPriorityRowActions {
     let chats: AgentPriorityChats
     /// Why the row actions cannot run now (the view is off); nil while they can.
     var unavailable: @MainActor () -> String? = { nil }
+
+    /// Why the row actions cannot run in the app: the Priority view is off (`SidebarPriorityFeed`
+    /// binds the other three with the same check).
+    static func viewOff(_ context: AppActionContext) -> @MainActor () -> String? {
+        {
+            let preferences = context.services.settings?.snapshot.sidebarSections ?? .defaults
+            return preferences.priorityViewEnabled ? nil : SidebarPriorityPanel.unavailableReason
+        }
+    }
 
     /// The target a hover button and the row's menu pass.
     static func target(_ chat: String) -> ActionTargetRef { ActionTargetRef(kind: .agentChat, id: chat) }
@@ -72,14 +82,18 @@ struct SidebarPriorityRowActions {
         }
     }
 
-    /// Binds Archive Chat: a row's chat archives here (hidden at once, then archived in its acpmux);
-    /// any other run is the focused chat's own Archive (`otherwise`).
+    /// Binds Archive Chat: a row's chat archives here (hidden at once, then archived in its acpmux)
+    /// and, like the other row actions, not while `unavailable` gives a reason; any other run is the
+    /// focused chat's own Archive (`otherwise`), which the Priority view's setting does not touch.
     func bindArchive(into registry: ActionRegistry, otherwise: @escaping @MainActor (ActionInvocation) throws -> Void) {
-        let chats = chats
+        let chats = chats, unavailable = unavailable
         registry.bind(Self.archive, run: { invocation in
             guard invocation.target?.kind == .agentChat else { return try otherwise(invocation) }
             try Self.run(chats.archive, invocation)
         })
+        ActionTargetReasons.set(Self.archive, in: registry) { invocation in
+            invocation.target?.kind == .agentChat ? unavailable() : nil
+        }
     }
 
     private static func run(_ change: (String) -> Bool, _ invocation: ActionInvocation) throws {

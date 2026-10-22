@@ -59,12 +59,13 @@ struct AgentPaneHiddenPacingTests {
         // Idle: the first frames go at once.
         rig.arrive()
         #expect(rig.calls == 1)
-        // The page ran it; more frames come 50 ms later and wait out the interval.
-        rig.clock += 0.05
+        // The page ran it; more frames come 62.5 ms later and wait out the interval. 1/16 s and the
+        // 0.25 s interval are exact in binary, so the wait is exactly 187.5 ms on the fake clock.
+        rig.clock += 0.0625
         rig.pacer.delivered()
         rig.arrive()
         #expect(rig.calls == 1, "a hidden pane got a second call within its interval")
-        #expect(rig.deadline.delay.map { $0 > .milliseconds(199) && $0 <= .milliseconds(201) } == true)
+        #expect(rig.deadline.delay == .nanoseconds(187_500_000))
         rig.clock += 0.2
         rig.deadline.fire()
         #expect(rig.calls == 2)

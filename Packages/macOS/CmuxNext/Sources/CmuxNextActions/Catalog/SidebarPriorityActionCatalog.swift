@@ -15,24 +15,27 @@ nonisolated enum SidebarPriorityActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
-            // A row's actions: from the palette they ask which chat (the Priority view's rows).
+            // A row's actions: from the palette they ask which chat (the Priority view's rows), so their
+            // titles end in "…"; the row's menu names its chat and drops the "…" and the noun.
             ActionDescriptor(
-                id: "sidebar.priority.markRead", title: t("action.sidebar.priority.markRead", "Mark Chat as Read"),
+                id: "sidebar.priority.markRead", title: t("action.sidebar.priority.markRead", "Mark Chat as Read…"),
                 keywords: ["sidebar", "priority", "chat", "agent", "read", "seen", "done", "clear"],
                 category: .sidebar, symbol: "checkmark.circle", surfaces: [.palette, .keyboard, .contextMenu],
-                arguments: [chatArgument], targets: chat, surfacePlan: rowPlan(.identity, 0)
+                arguments: [chatArgument], targets: chat,
+                surfacePlan: rowPlan(.identity, 0, label: t("menu.sidebar.priority.markRead", "Mark as Read"))
             ),
             ActionDescriptor(
-                id: "sidebar.priority.togglePin", title: t("action.sidebar.priority.togglePin", "Pin or Unpin Chat in Priority"),
+                id: "sidebar.priority.togglePin", title: t("action.sidebar.priority.togglePin", "Pin/Unpin Chat in Priority…"),
                 keywords: ["sidebar", "priority", "chat", "agent", "pin", "unpin", "keep", "top"],
                 category: .sidebar, symbol: "pin", surfaces: [.palette, .keyboard, .contextMenu],
                 arguments: [chatArgument], targets: chat, surfacePlan: rowPlan(.identity, 10)
             ),
             ActionDescriptor(
-                id: "sidebar.priority.snooze", title: t("action.sidebar.priority.snooze", "Snooze Chat for 1 Hour"),
+                id: "sidebar.priority.snooze", title: t("action.sidebar.priority.snooze", "Snooze Chat for 1 Hour…"),
                 keywords: ["sidebar", "priority", "chat", "agent", "snooze", "later", "hide", "mute"],
                 category: .sidebar, symbol: "moon.zzz", surfaces: [.palette, .keyboard, .contextMenu],
-                arguments: [chatArgument], targets: chat, surfacePlan: rowPlan(.identity, 20)
+                arguments: [chatArgument], targets: chat,
+                surfacePlan: rowPlan(.identity, 20, label: t("menu.sidebar.priority.snooze", "Snooze for 1 Hour"))
             ),
         ]
     }
@@ -42,8 +45,10 @@ nonisolated enum SidebarPriorityActionCatalog: ActionCatalogGroup {
         ActionArgument(name: "chat", title: t("argument.sidebar.priority.chat", "Chat"), kind: .target(.agentChat)).suppliedByTarget
     }
 
-    private static func rowPlan(_ group: MenuGroup, _ rank: Int) -> ActionSurfacePlan {
-        ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenus: [ContextMenuPlacement(.priorityRow, group, rank)])
+    /// A row menu placement; `label` is the row's shorter title there (Pin/Unpin takes the chat's
+    /// Pin or Unpin from `ActionTargetTitles`).
+    private static func rowPlan(_ group: MenuGroup, _ rank: Int, label: String? = nil) -> ActionSurfacePlan {
+        ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenus: [ContextMenuPlacement(.priorityRow, group, rank, label: label)])
     }
 
     private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {

@@ -87,6 +87,11 @@ public enum CloudStrings {
     public static var handoffTitle: String { String(localized: "cloud.result.handoffTitle", defaultValue: "Machine Handoff", table: "Cloud", bundle: .module) }
     public static var noPorts: String { String(localized: "cloud.result.noPorts", defaultValue: "No TCP ports are listening on this machine.", table: "Cloud", bundle: .module) }
     public static var diagnosticsTitle: String { String(localized: "cloud.result.diagnosticsTitle", defaultValue: "Cloud Diagnostics", table: "Cloud", bundle: .module) }
+    public static var copyDetails: String { String(localized: "cloud.button.copyDetails", defaultValue: "Copy details", table: "Cloud", bundle: .module) }
+    /// The Cloud diagnostics summary when nothing needs the person (the account's email).
+    public static func diagnosticsAllWell(_ account: String) -> String {
+        String(format: String(localized: "cloud.result.diagnosticsAllWell", defaultValue: "Signed in as %@. No Cloud problems found.", table: "Cloud", bundle: .module), account)
+    }
     public static var snapshotTitle: String { String(localized: "cloud.result.snapshotTitle", defaultValue: "Snapshot Created", table: "Cloud", bundle: .module) }
     public static var templateTitle: String { String(localized: "cloud.result.templateTitle", defaultValue: "Template Created", table: "Cloud", bundle: .module) }
     public static var failedTitle: String { String(localized: "cloud.result.failedTitle", defaultValue: "Cloud Action Failed", table: "Cloud", bundle: .module) }

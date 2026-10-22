@@ -24,7 +24,11 @@
 //!   child;
 //! - the person turned `agents.subsessions.answerQuestions` on (off by
 //!   default: it loosens the rule that only the person answers). Off, every
-//!   question is the person's (`subsessions.answers_off`).
+//!   question is the person's (`subsessions.answers_off`);
+//! - the child asks no less than the caller (`Hub::receiver_check`), as for
+//!   `send`: an answer is text its agent acts on. A caller or child a remote
+//!   device drove answers under the remote floor (`Control::Web`), as a
+//!   family prompt runs (`Hub::send_family_prompt`).
 //!
 //! The answers are checked as a person's are (`questions::check_answers`)
 //! and go through `Hub::respond_permission`, whose rule under the prompt's
@@ -180,6 +184,12 @@ impl Hub {
             };
             (option, harness_answers(question, answers))
         };
+        self.receiver_check(caller, target).await?;
+        let control = if Self::web_turn(caller) || Self::web_turn(target) {
+            Control::Web
+        } else {
+            Control::Local
+        };
         let answered_by = json!({"session": caller.id, "name": caller.meta().name});
         let answerer = super::person::Answerer { ancestor: Some(&caller.id), ..Default::default() };
         self.respond_permission(
@@ -189,7 +199,7 @@ impl Hub {
             Some(answers),
             Some(answered_by),
             answerer,
-            Control::Local,
+            control,
         )
         .await?;
         Ok(json!({"answered": true, "sessionId": target.id, "permissionId": permission_id}))

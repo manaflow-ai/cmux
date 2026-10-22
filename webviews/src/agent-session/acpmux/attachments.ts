@@ -6,6 +6,8 @@
 import { liftInlineImages } from "./inlineImages";
 import { pastedTextBlocks } from "./pastedText";
 
+import type { StringKey } from "./i18n";
+
 export type ComposerAttachment = {
   id: string;
   /** `pasted`: a large paste kept as a chip (pastedText.ts), its `text` sent as a text block of its own. */
@@ -61,6 +63,14 @@ const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp
 /// can decode: they go as PNG or JPEG. One it cannot decode goes as a file instead.
 const CONVERTIBLE_TYPES = new Set(["image/heic", "image/heif", "image/tiff", "image/bmp", "image/avif"]);
 const CONVERTIBLE_NAME = /\.(heic|heif|tiff?|bmp|avif)$/i;
+
+/// Whether `file` is a picture the composer attaches as an image (as it is, or converted), by its
+/// type or name alone: what its chip looks like before its bytes are read.
+export function isImageFile(file: File): boolean {
+  return (
+    IMAGE_TYPES.has(file.type) || CONVERTIBLE_TYPES.has(file.type) || (!file.type && CONVERTIBLE_NAME.test(file.name))
+  );
+}
 
 function isPdf(file: File): boolean {
   return file.type === "application/pdf" || /\.pdf$/i.test(file.name);
@@ -419,6 +429,13 @@ export function audioAttachment(
     size,
     data: audio.data,
   };
+}
+
+/// The notice for a recording that goes no further than its transcript: the host left it out
+/// (`DictationUpdate.audioOmitted`), or `audioAttachment` refused it past `MAX_AUDIO_BYTES`
+/// (`tooLarge`). The byte cap only backs up the host's two-minute stop, so both read the same.
+export function recordingLeftOutNotice(reason: "tooLong" | "tooLarge" | "narrowband"): StringKey {
+  return reason === "narrowband" ? "dictation.recordingNarrowband" : "dictation.recordingTooLong";
 }
 
 /** Counts PDF page objects without parsing or rendering the document. */
