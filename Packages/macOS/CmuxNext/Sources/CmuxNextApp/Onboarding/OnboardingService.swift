@@ -5,6 +5,7 @@ import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextDesign
 import CmuxNextOnboarding
+import CmuxNextSettings
 import os
 
 /// Owns the tool window (Import from Browser, Computer Use setup), the
