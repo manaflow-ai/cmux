@@ -5,6 +5,7 @@ public import CmuxNextSettings
 public import CmuxNextUpdater
 import CmuxNextWakeups
 public import Foundation
+import Observation
 
 /// Web updates in the app (plans/cmux-next/web-ota.md). On a NIGHTLY bundle it names where each
 /// bundled web output sits in an update, starts the launch check of the kept update before a
@@ -14,6 +15,8 @@ public import Foundation
 /// and agent pane in place. Until then
 /// open pages keep the files they started with, so a page never mixes two builds' chunks.
 /// The App calls ``follow(_:bundle:)`` with each `updates.*` read; the first call starts it.
+/// Observable, so the Settings card (``pageJSON``) follows the updater and the pending swap.
+@Observable
 public final class WebUpdates {
     public static let shared = WebUpdates()
 
@@ -21,9 +24,9 @@ public final class WebUpdates {
     /// The folder to serve from the next safe point (`.some(nil)`: the bundled web).
     public private(set) var pending: URL??
     /// The wait in the background before an update swaps in.
-    private let safePoint = DemandTimer(owner: "web-updates.safe-point")
-    private var observers: [Task<Void, Never>] = []
-    private var started = false
+    @ObservationIgnored private let safePoint = DemandTimer(owner: "web-updates.safe-point")
+    @ObservationIgnored private var observers: [Task<Void, Never>] = []
+    @ObservationIgnored private var started = false
     /// How long cmux stays in the background before an update swaps in.
     let grace: Duration = .seconds(3)
 
