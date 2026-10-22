@@ -9,6 +9,8 @@
 // follows `agentPane.images.remote` like a web image: a placeholder with its site and Load
 // (click, the default), its link only (never), or at once (always). The host fetches it under
 // its network rules and plays a checked copy.
+// While the host doesn't yet know where the chat runs, `media.load` answers pending: the file keeps
+// showing as its name and asks again on the `locality` event (locality.ts).
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Dialog } from "../../../ui/Dialog";
 import { keyedIconProps } from "../../../ui/DialogButton";
@@ -16,6 +18,7 @@ import { useT } from "../i18n";
 import { Close, Expand } from "../conversation/icons";
 import { callChipHost } from "./host";
 import { usePathInfo, useReplyPolicy } from "./linkStore";
+import { isPending, localityGeneration, onLocalityChange, useLocalityGeneration } from "./locality";
 import { useNearViewport } from "../useNearViewport";
 import { isDeniedPath, linkPath, pathName } from "./paths";
 
@@ -47,39 +50,86 @@ export function isRemoteMedia(src: string): boolean {
 
 /// The host's answer per source, so a re-render or a second mention plays the same URL.
 const granted = new Map<string, string>();
+/// Sources the host answered pending, with the locality it answered under and whether the reader
+/// asked with Load: kept outside the players, so one that scrolls away and back waits.
+type Pending = { generation: number; byClick: boolean };
+const waiting = new Map<string, Pending>();
+/// A new locality forgets the local files granted under the old one: the host decides them again.
+onLocalityChange(() => {
+  for (const source of granted.keys()) if (!webURL(source)) granted.delete(source);
+});
 
 /// Asks the host for the URL `source` plays by: at once when `auto`, else on `load()`.
 function useMediaLoad(source: string, auto: boolean) {
-  const [src, setSrc] = useState(() => granted.get(source));
+  const generation = useLocalityGeneration();
+  const [grant, setGrant] = useState(() => {
+    const url = granted.get(source);
+    return url ? { url, generation: localityGeneration() } : undefined;
+  });
   const [state, setState] = useState<"idle" | "loading" | "failed">("idle");
-  const load = useCallback(() => {
-    setState("loading");
-    void callChipHost("media.load", { src: source }).then((reply) => {
-      const url = (reply as { src?: unknown } | undefined)?.src;
-      // The gallery's fixture answers a data URL; the pane's CSP plays only its own media URLs.
-      if (typeof url === "string" && /^(cmux-agent:\/\/pane\/__media\/|data:(video|audio)\/)/.test(url)) {
-        granted.set(source, url);
-        setSrc(url);
-        setState("idle");
-      } else setState("failed");
-    });
-  }, [source]);
+  const [pending, setPending] = useState(() => waiting.get(source));
+  /// The locality a failure came under: under a new one the file may be asked for again.
+  const [failedAt, setFailedAt] = useState<number>();
+  const ask = useCallback(
+    (byClick: boolean) => {
+      setState("loading");
+      const asked = localityGeneration();
+      void callChipHost("media.load", { src: source }).then((reply) => {
+        const url = (reply as { src?: unknown } | undefined)?.src;
+        // Pending, or any answer about a locality that has changed since (a grant, a refusal, web
+        // or local): nothing is kept, and it is asked again under the new one.
+        if (isPending(reply) || asked !== localityGeneration()) {
+          const next = { generation: asked, byClick };
+          waiting.set(source, next);
+          setPending(next);
+          setState("idle");
+          return;
+        }
+        waiting.delete(source);
+        setPending(undefined);
+        // The gallery's fixture answers a data URL; the pane's CSP plays only its own media URLs.
+        if (typeof url === "string" && /^(cmux-agent:\/\/pane\/__media\/|data:(video|audio)\/)/.test(url)) {
+          granted.set(source, url);
+          setGrant({ url, generation: asked });
+          setState("idle");
+        } else {
+          setFailedAt(asked);
+          setState("failed");
+        }
+      });
+    },
+    [source],
+  );
+  // A local file granted under another locality is the host's to decide again.
+  const stale = grant !== undefined && !webURL(source) && grant.generation !== generation;
+  const src = stale ? undefined : grant?.url;
+  const refail = state === "failed" && failedAt !== generation;
   useEffect(() => {
-    if (auto && !src && state === "idle") load();
-  }, [auto, src, state, load]);
+    if (stale) setGrant(undefined);
+    if (refail) setState("idle");
+  }, [stale, refail]);
+  // A pending answer waits for a new locality, then is asked again: on its own, or because the
+  // reader asked with Load.
+  const waits = pending !== undefined && pending.generation === generation;
+  const byClick = pending?.byClick === true;
+  useEffect(() => {
+    if (!src && state === "idle" && !waits && (auto || byClick)) ask(byClick);
+  }, [auto, src, state, ask, waits, byClick]);
+  const load = useCallback(() => ask(true), [ask]);
   const fail = useCallback(() => {
     granted.delete(source);
-    setSrc(undefined);
+    setGrant(undefined);
+    setFailedAt(localityGeneration());
     setState("failed");
   }, [source]);
-  return { src, state, load, fail };
+  return { src, state: refail ? "idle" : state, waits, load, fail };
 }
 
 /// `path` is a local file (absolute or from the session's folder); `fallback` is how it draws when
 /// the pane will not play it.
 export function ReplyMedia({ path, alt, fallback }: { path: string; alt: string; fallback?: ReactNode }) {
   const kind = mediaKind(path) ?? "video";
-  const { info, answered } = usePathInfo(path);
+  const { info, answered, pending } = usePathInfo(path);
   const place = info?.place;
   const loadable = answered && !isDeniedPath(path) && place !== "denied" && place !== "outside" && place !== "missing";
   const [frame, setFrame] = useState<HTMLSpanElement | null>(null);
@@ -87,7 +137,8 @@ export function ReplyMedia({ path, alt, fallback }: { path: string; alt: string;
   const { src, state, fail } = useMediaLoad(path, near && loadable);
   const name = alt || pathName(path);
   if (src) return <MediaPlayer src={src} kind={kind} name={name} path={path} onError={fail} />;
-  if (state === "failed" && fallback) return <>{fallback}</>;
+  // A pending answer wins over an old failure: the file waits as its name.
+  if (state === "failed" && fallback && !pending) return <>{fallback}</>;
   return (
     <span ref={setFrame} className={`cv-media is-${kind}`}>
       <span className="cv-media__name">{name}</span>
@@ -102,7 +153,7 @@ export function RemoteMedia({ url, alt, fallback }: { url: string; alt: string; 
   const kind = mediaKind(webURL(url)?.pathname ?? "") ?? "video";
   const [frame, setFrame] = useState<HTMLSpanElement | null>(null);
   const near = useNearViewport(frame);
-  const { src, state, load, fail } = useMediaLoad(url, near && policy.remoteImages === "always");
+  const { src, state, waits, load, fail } = useMediaLoad(url, near && policy.remoteImages === "always");
   const name = alt || webURL(url)?.pathname.split("/").pop() || url;
   if (src) return <MediaPlayer src={src} kind={kind} name={name} onError={fail} />;
   if (policy.remoteImages === "never" || (state === "failed" && fallback)) return <>{fallback}</>;
@@ -112,7 +163,12 @@ export function RemoteMedia({ url, alt, fallback }: { url: string; alt: string; 
       {state === "failed" ? (
         <span className="cv-image-placeholder__note">{t("image.unavailable")}</span>
       ) : (
-        <button type="button" className="cv-image-placeholder__load" disabled={state === "loading"} onClick={load}>
+        <button
+          type="button"
+          className="cv-image-placeholder__load"
+          disabled={state === "loading" || waits}
+          onClick={load}
+        >
           {kind === "audio" ? t("media.loadAudio") : t("media.loadVideo")}
         </button>
       )}

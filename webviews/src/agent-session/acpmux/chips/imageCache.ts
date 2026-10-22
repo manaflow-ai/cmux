@@ -34,6 +34,16 @@ export class DataUrlCache {
     return data;
   }
 
+  /// Forgets every source `test` picks.
+  forget(test: (src: string) => boolean): void {
+    for (const [src, data] of this.entries) {
+      if (!test(src)) continue;
+      this.entries.delete(src);
+      this.chars -= data.length;
+      this.onEvict(src);
+    }
+  }
+
   set(src: string, data: string): void {
     const before = this.entries.get(src);
     if (before !== undefined) {

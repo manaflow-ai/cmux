@@ -296,7 +296,7 @@ import { copyText, copyTextResult } from "./conversation/clipboard";
 import { lastCodeBlock } from "./conversation/lastCodeBlock";
 import { hasTranscriptCopyText, transcriptRangeText } from "./conversation/transcriptCopy";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
-import { chatImages, type ChatImage } from "./conversation/chatImages";
+import { useImageView } from "./conversation/useImageView";
 import { ImageViewer } from "./conversation/ImageViewer";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
@@ -4765,15 +4765,10 @@ function AcpmuxPane() {
   // recorded on its summary, diffed on the session host.
   const turnRowsRef = useRef(snapshot.rows);
   turnRowsRef.current = snapshot.rows;
-  // The image viewer holds the chat's images from when it opened; another chat closes it.
-  const [imageView, setImageView] = useState<{ images: ChatImage[]; index: number } | undefined>();
-  const openImage = useCallback((src: string, alt: string, path?: string) => {
-    const images = chatImages(turnRowsRef.current);
-    const index = images.findIndex((image) => image.src === src);
-    if (index < 0) setImageView({ images: [{ src, alt, path }], index: 0 });
-    else setImageView({ images: images.map((image, i) => (i === index && path ? { ...image, path } : image)), index });
-  }, []);
-  useEffect(() => setImageView(undefined), [snapshot.sessionId]);
+  // The image viewer holds the chat's images from when it opened; another chat, or the chat leaving
+  // this Mac, closes it.
+  const readTurnRows = useCallback(() => turnRowsRef.current, []);
+  const { imageView, setImageView, openImage } = useImageView(readTurnRows, snapshot.sessionId);
   // A queued prompt's image, read from acpmux by its id (ComposerQueue's thumbnails).
   const readQueuedImage = useCallback(
     (id: string) => directClient.current?.promptImage(id) ?? Promise.resolve(undefined),

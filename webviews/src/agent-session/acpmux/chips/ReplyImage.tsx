@@ -9,7 +9,9 @@
 // A reply's own images (`thumb`) draw in a glass thumbnail of a fixed shape whatever their state
 // (waiting, Load image, unavailable, shown), so an image that loads never moves the reply; a click
 // opens it whole in the image viewer.
-import { useContext, useState, type ReactNode } from "react";
+// While the host doesn't yet know where the chat runs, `image.load` answers pending: the image
+// keeps its waiting look and asks again on the `locality` event (locality.ts).
+import { useContext, useEffect, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { ImageIcon, Lock } from "../conversation/icons";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
@@ -18,10 +20,19 @@ import { DataUrlCache, IMAGE_CACHE_MAX_CHARS, IMAGE_CACHE_MAX_ENTRIES } from "./
 import { ElsewhereChip } from "./LinkChips";
 import { useMessageScope } from "./messageScope";
 import { usePathInfo, useReplyPolicy } from "./linkStore";
+import { isPending, localityGeneration, onLocalityChange, useLocalityGeneration } from "./locality";
 import { isRemoteMedia, mediaKind, RemoteMedia, ReplyMedia } from "./ReplyMedia";
 import { isDeniedPath, linkPath, pathName } from "./paths";
 
-type State = { kind: "idle" } | { kind: "loading" } | { kind: "shown"; src: string } | { kind: "failed" };
+/// `generation` is the locality an answer came under (locality.ts): a pending one, or a file this
+/// Mac read, is asked again under a new one. `byClick`: the reader started it with Load image.
+type Pending = { generation: number; byClick: boolean };
+type State =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | ({ kind: "pending" } & Pending)
+  | { kind: "shown"; src: string; generation: number }
+  | { kind: "failed"; generation: number };
 
 /// A local image: an absolute path, a `file://` URL or a relative path (from the session's folder).
 export function localImageSource(src: string): string | undefined {
@@ -50,31 +61,67 @@ const loaded = new DataUrlCache(IMAGE_CACHE_MAX_ENTRIES, IMAGE_CACHE_MAX_CHARS, 
 /// Images the reader loaded with "Load image". They stay: loading one again would need another
 /// click (the host spends a gesture on each), so forgetting it would leave its placeholder.
 const clicked = new Map<string, string>();
+/// Sources the host answered pending, kept outside the components so one that scrolls out of the
+/// virtual transcript and back waits instead of asking again.
+const waiting = new Map<string, Pending>();
+/// A new locality forgets the local files read under the old one: the host decides them again.
+onLocalityChange(() => {
+  loaded.forget((src) => localImageSource(src) !== undefined);
+});
+
+function initialState(src: string): State {
+  const known = clicked.get(src) ?? loaded.get(src);
+  if (known) return { kind: "shown", src: known, generation: localityGeneration() };
+  const pending = waiting.get(src);
+  return pending ? { kind: "pending", ...pending } : { kind: "idle" };
+}
 
 function useImageLoad(src: string, auto: boolean) {
-  const [state, setState] = useState<State>(() => {
-    const known = clicked.get(src) ?? loaded.get(src);
-    return known ? { kind: "shown", src: known } : { kind: "idle" };
-  });
+  const generation = useLocalityGeneration();
+  const [state, setState] = useState<State>(() => initialState(src));
   const load = (byClick: boolean) => {
     setState({ kind: "loading" });
+    const asked = localityGeneration();
     void callChipHost("image.load", { src }).then((reply) => {
       const data = (reply as { src?: unknown } | undefined)?.src;
+      started.delete(src);
+      // Pending, or any answer about a locality that has changed since (an image, a refusal, web
+      // or local): nothing is kept, and it is asked again under the new one.
+      if (isPending(reply) || asked !== localityGeneration()) {
+        const pending = { generation: asked, byClick };
+        waiting.set(src, pending);
+        setState({ kind: "pending", ...pending });
+        return;
+      }
+      waiting.delete(src);
       if (typeof data === "string" && data.startsWith("data:image/")) {
         if (byClick) clicked.set(src, data);
         else loaded.set(src, data);
-        setState({ kind: "shown", src: data });
-      } else {
-        started.delete(src);
-        setState({ kind: "failed" });
-      }
+        setState({ kind: "shown", src: data, generation: asked });
+      } else setState({ kind: "failed", generation: asked });
     });
   };
   if (auto && state.kind === "idle" && !started.has(src)) {
     started.add(src);
     queueMicrotask(() => load(false));
   }
-  return { state, load: () => load(true) };
+  // Under a new locality, a failure and a file read on this Mac are the host's to decide again, and
+  // a pending answer is asked again: on its own, or because the reader asked with Load image.
+  const reread =
+    (state.kind === "failed" && state.generation !== generation) ||
+    (state.kind === "shown" &&
+      state.generation !== generation &&
+      !clicked.has(src) &&
+      localImageSource(src) !== undefined);
+  const retry = state.kind === "pending" && state.generation !== generation && (state.byClick || auto);
+  const byClick = state.kind === "pending" && state.byClick;
+  useEffect(() => {
+    if (retry) load(byClick);
+    else if (reread) setState({ kind: "idle" });
+    // `load` is this render's; the flags decide when it runs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [retry, reread, byClick]);
+  return { state: reread ? ({ kind: "idle" } as State) : state, load: () => load(true) };
 }
 
 /// A shown image: a click opens it in the image viewer where the pane has one. `path` is the file
@@ -173,7 +220,7 @@ function LocalImage({
   thumb: boolean;
 }) {
   const t = useT();
-  const { info, answered, policy } = usePathInfo(path);
+  const { info, answered, pending, policy } = usePathInfo(path);
   const place = info?.place;
   const denied = place === "denied" || isDeniedPath(path);
   // The host refuses a file outside the folders, so the page asks only for one it may show.
@@ -182,8 +229,11 @@ function LocalImage({
   if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} path={path} thumb={thumb} />;
   if (denied) return <span className="cv-chip-plain">{alt || pathName(path)}</span>;
   const outside = place === "outside";
-  if (!outside && place !== "missing" && state.kind !== "failed")
-    return thumb ? (
+  // While the host can't yet say where the chat runs, every image waits in its frame, a tool's
+  // image too: its file name alone would read as an image that will not show.
+  const waits = pending || state.kind === "pending";
+  if (!outside && place !== "missing" && (state.kind !== "failed" || waits))
+    return thumb || waits ? (
       <ThumbFrame state="waiting">
         <ImageIcon size={18} className="cv-chip__icon" />
         <span className="cv-thumb__name">{alt || pathName(path)}</span>
@@ -238,7 +288,12 @@ function RemoteImage({
       {state.kind === "failed" ? (
         <span className="cv-image-placeholder__note">{t("image.unavailable")}</span>
       ) : (
-        <button type="button" className="cv-image-placeholder__load" disabled={state.kind === "loading"} onClick={load}>
+        <button
+          type="button"
+          className="cv-image-placeholder__load"
+          disabled={state.kind === "loading" || state.kind === "pending"}
+          onClick={load}
+        >
           {t("image.load")}
         </button>
       )}
