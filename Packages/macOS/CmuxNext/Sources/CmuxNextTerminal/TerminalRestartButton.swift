@@ -5,7 +5,7 @@ import CmuxNextDesign
 /// has ended (`tab.restart`). Shown only when the App gave an action (a
 /// daemon with `tab-restart-v1`). The theme's secondary text on its selection
 /// fill, no accent, like the banner.
-final class TerminalRestartButton: NSButton {
+final class TerminalRestartButton: ClickableButton {
     var onRestart: (@MainActor () -> Void)? {
         didSet { refresh() }
     }

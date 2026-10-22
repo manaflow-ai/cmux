@@ -55,6 +55,12 @@ final class NewTabButtonView: NSView {
     nonisolated override var wantsUpdateLayer: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    /// The pointing hand over the plus, as over every clickable chrome control (`ClickableButton`).
+    /// A cursor rect works with no hit testing; AppKit drops it while the plus is hidden.
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
+
     override func setAccessibilityFocused(_ accessibilityFocused: Bool) {
         super.setAccessibilityFocused(accessibilityFocused)
         onAccessibilityFocus?(accessibilityFocused)
