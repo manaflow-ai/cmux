@@ -76,13 +76,17 @@ public nonisolated struct TooltipSurface: Hashable, Sendable {
     }
 
     /// The least alpha from `minimumTintAlpha` to `maximumTintAlpha` (in 1% steps) at which `ink`
-    /// keeps 4.5:1 over `fill` laid on black and on white; nil when none does.
+    /// keeps 4.5:1 over `fill` laid on black and on white, as the native panel draws them and as
+    /// pages get them (`WebTheme.cssRounded`: 8-bit channels; Codex review of #23970, Solarized
+    /// light read 4.500:1 native but 4.485:1 once rounded for pages); nil when none does.
     public static func tintAlpha(fill: ThemeRGB, ink: ThemeRGB) -> Double? {
         let least = Int((minimumTintAlpha * 100).rounded())
         let most = Int((maximumTintAlpha * 100).rounded())
+        let pageInk = WebTheme.cssRounded(ink)
         for percent in least...most {
-            let alpha = Double(percent) / 100
-            if worstContrast(ink: ink, tint: fill.withAlpha(alpha)) >= ThemeTokens.minimumTextContrast { return alpha }
+            let tint = fill.withAlpha(Double(percent) / 100)
+            if min(worstContrast(ink: ink, tint: tint), worstContrast(ink: pageInk, tint: WebTheme.cssRounded(tint)))
+                >= ThemeTokens.minimumTextContrast { return tint.alpha }
         }
         return nil
     }

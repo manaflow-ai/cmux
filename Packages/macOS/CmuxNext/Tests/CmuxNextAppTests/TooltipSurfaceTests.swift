@@ -38,9 +38,17 @@ import Testing
             #expect(surface.ink == tokens.textPrimary.withAlpha(1), "\(name): the ink moved off the theme's text")
             #expect(surface.tint.alpha >= TooltipSurface.minimumTintAlpha
                 && surface.tint.alpha <= TooltipSurface.maximumTintAlpha, "\(name): the tint is \(surface.tint.alpha)")
+            // Native, and as pages get them (`--cmux-tooltip-ink` and `-tint`, 8-bit channels): Codex
+            // review of #23970, Solarized light read 4.500:1 native but 4.485:1 once rounded.
+            let variables = WebTheme(tokens, surface: .internalPage, backgrounds: .none).variables
+            #expect(variables["--cmux-tooltip-ink"] == WebTheme.css(WebTheme.cssRounded(surface.ink)), "\(name)")
+            #expect(variables["--cmux-tooltip-tint"] == WebTheme.css(WebTheme.cssRounded(surface.tint)), "\(name)")
+            let page = (ink: WebTheme.cssRounded(surface.ink), tint: WebTheme.cssRounded(surface.tint))
             for backdrop in [black, white] {
                 let glass = surface.ink.contrast(with: surface.tint.composited(over: backdrop))
                 #expect(glass >= ThemeTokens.minimumTextContrast, "\(name) over \(backdrop): \(glass)")
+                let pageGlass = page.ink.contrast(with: page.tint.composited(over: backdrop))
+                #expect(pageGlass >= ThemeTokens.minimumTextContrast, "\(name) page over \(backdrop): \(pageGlass)")
             }
             // Reduce Transparency: the opaque popup surface.
             #expect(surface.fill.alpha == 1)

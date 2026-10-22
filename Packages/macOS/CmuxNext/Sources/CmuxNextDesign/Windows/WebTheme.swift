@@ -362,4 +362,11 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         let alpha = (color.alpha * 1000).rounded() / 1000
         return "rgba(\(channel(color.red)), \(channel(color.green)), \(channel(color.blue)), \(alpha))"
     }
+
+    /// `color` as pages read it from `css`: each channel rounded to 8 bits, the alpha to 3 decimals.
+    public static func cssRounded(_ color: ThemeRGB) -> ThemeRGB {
+        func channel(_ value: Double) -> Double { (value * 255).rounded() / 255 }
+        return ThemeRGB(red: channel(color.red), green: channel(color.green), blue: channel(color.blue),
+                        alpha: (color.alpha * 1000).rounded() / 1000)
+    }
 }
