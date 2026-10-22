@@ -1060,6 +1060,61 @@ class FeatWorkflowTests(unittest.TestCase):
                     self.assertTrue(any(self.runs_a_writer(command, script) for command in commands),
                                     f"{workflow} {job_id} no longer publishes {script} through the action")
 
+    @staticmethod
+    def triggers(loaded: dict) -> set[str]:
+        """The events a workflow runs on (YAML 1.1 reads the `on:` key as True)."""
+        on = loaded.get("on", loaded.get(True))
+        if isinstance(on, str):
+            return {on}
+        return set(on or ())
+
+    @staticmethod
+    def environment(job: dict) -> str | None:
+        env = job.get("environment")
+        return env.get("name") if isinstance(env, dict) else env
+
+    def holds_pr_media(self, job: dict) -> bool:
+        """The job enters the pr-media environment, reads its terms secret or publishes through the action."""
+        return (self.environment(job) == "pr-media" or "secrets.PR_MEDIA_PRIVATE_TERMS" in yaml.dump(job)
+                or any(str(step.get("uses", "")).startswith(self.ACTION_USE) for step in job.get("steps") or []))
+
+    def pull_request_target_jobs(self, workflows) -> list[tuple[str, str, dict]]:
+        """(workflow, job, job) for every job a pull_request_target event runs, including the jobs of the local
+        reusable workflows it calls: those run in the caller's event, on the base branch's ref."""
+        loaded = dict(workflows)
+        out, seen = [], set()
+        todo = [w for w, doc in loaded.items() if "pull_request_target" in self.triggers(doc)]
+        while todo:
+            workflow = todo.pop()
+            if workflow in seen:
+                continue
+            seen.add(workflow)
+            for job_id, job in (loaded.get(workflow, {}).get("jobs") or {}).items():
+                called = str(job.get("uses", ""))
+                if called.startswith("./.github/workflows/"):
+                    todo.append(called[2:].split("@")[0])
+                out.append((workflow, job_id, job))
+        return out
+
+    def test_the_pull_request_target_scan_finds_called_workflows(self) -> None:
+        workflows = [
+            (".github/workflows/a.yml", {True: {"pull_request_target": {"types": ["opened"]}},
+                                         "jobs": {"call": {"uses": "./.github/workflows/b.yml"}}}),
+            (".github/workflows/b.yml", {"on": "workflow_call",
+                                         "jobs": {"post": {"environment": {"name": "pr-media"}, "steps": []}}}),
+            (".github/workflows/c.yml", {True: ["push"], "jobs": {"post": {"environment": "pr-media"}}}),
+        ]
+        found = [(w, j) for w, j, job in self.pull_request_target_jobs(workflows) if self.holds_pr_media(job)]
+        self.assertEqual(found, [(".github/workflows/b.yml", "post")])
+
+    def test_no_pull_request_target_job_holds_the_pr_media_environment_or_its_secret(self) -> None:
+        # A deployment branch policy matches GITHUB_REF, and a pull_request_target run's ref is the base branch,
+        # which the environment admits: the environment alone would hand the terms list to a run a PR triggered.
+        for workflow, job_id, job in self.pull_request_target_jobs(self.workflows()):
+            with self.subTest(workflow=workflow, job=job_id):
+                self.assertFalse(self.holds_pr_media(job),
+                                 "a pull_request_target job runs in the pr-media environment or reads its terms")
+
     def test_only_the_action_in_the_pr_media_environment_reads_the_terms_secret(self) -> None:
         for workflow, loaded in self.workflows():
             for job_id, job in (loaded.get("jobs") or {}).items():
