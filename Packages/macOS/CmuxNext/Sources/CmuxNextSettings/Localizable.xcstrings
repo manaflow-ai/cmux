@@ -1,6 +1,399 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.group.machineColors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine Colors"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ألوان الأجهزة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boje računara"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinfarver"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechnerfarben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colores de los equipos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleurs des machines"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colori delle macchine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンの色"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌ម៉ាស៊ីន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 색상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinfarger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolory maszyn"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cores das máquinas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвета компьютеров"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีของเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Makine Renkleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кольори комп’ютерів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Màu của máy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器顏色"
+          }
+        }
+      }
+    },
+    "settings.machines.colors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine Color"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون الجهاز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boja računara"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinfarve"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechnerfarbe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color del equipo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur de la machine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colore della macchina"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンの色"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌ម៉ាស៊ីន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 색상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinfarge"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolor maszyny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cor da máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвет компьютера"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีของเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Makine Rengi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Колір комп’ютера"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Màu của máy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器顏色"
+          }
+        }
+      }
+    },
+    "settings.machines.colors.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The color of each machine's sidebar rows and tab badges, by machine name: \"#RRGGBB\", or an accent name (red, green, yellow, purple, cyan, orange, pink, blue) that follows the theme. A machine without one gets a color from its name."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون صفوف كل جهاز في الشريط الجانبي وشاراته على علامات التبويب، حسب اسم الجهاز: \"#RRGGBB\"، أو اسم لون مميز (red وgreen وyellow وpurple وcyan وorange وpink وblue) يتبع السمة. الجهاز الذي ليس له لون يأخذ لونًا من اسمه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boja redova svakog računara u bočnoj traci i oznaka na karticama, po imenu računara: \"#RRGGBB\" ili naziv akcentne boje (red, green, yellow, purple, cyan, orange, pink, blue) koja prati temu. Računar bez boje dobija boju iz svog imena."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farven på hver maskines rækker i sidepanelet og mærker på faner, efter maskinens navn: \"#RRGGBB\" eller navnet på en accentfarve (red, green, yellow, purple, cyan, orange, pink, blue), som følger temaet. En maskine uden farve får en farve ud fra sit navn."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Farbe der Seitenleistenzeilen und Tab-Markierungen jedes Rechners, nach Rechnername: \"#RRGGBB\" oder der Name einer Akzentfarbe (red, green, yellow, purple, cyan, orange, pink, blue), die dem Theme folgt. Ein Rechner ohne Farbe erhält eine Farbe aus seinem Namen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El color de las filas de la barra lateral y de las insignias de pestaña de cada equipo, por nombre de equipo: \"#RRGGBB\" o el nombre de un color de acento (red, green, yellow, purple, cyan, orange, pink, blue) que sigue el tema. Un equipo sin color recibe uno a partir de su nombre."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La couleur des lignes de la barre latérale et des badges d’onglet de chaque machine, par nom de machine : \"#RRGGBB\" ou le nom d’une couleur d’accent (red, green, yellow, purple, cyan, orange, pink, blue) qui suit le thème. Une machine sans couleur en reçoit une d’après son nom."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il colore delle righe nella barra laterale e dei badge delle schede di ogni macchina, per nome della macchina: \"#RRGGBB\" oppure il nome di un colore d’accento (red, green, yellow, purple, cyan, orange, pink, blue) che segue il tema. Una macchina senza colore ne riceve uno dal suo nome."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各マシンのサイドバーの行とタブのバッジの色を、マシン名ごとに指定します。\"#RRGGBB\"、またはテーマに従うアクセント名（red、green、yellow、purple、cyan、orange、pink、blue）を使えます。指定のないマシンには名前から色が決まります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌នៃជួរដេករបស់ម៉ាស៊ីននីមួយៗនៅរបារចំហៀង និងស្លាកនៅលើផ្ទាំង តាមឈ្មោះម៉ាស៊ីន៖ \"#RRGGBB\" ឬឈ្មោះពណ៌សង្កត់ (red, green, yellow, purple, cyan, orange, pink, blue) ដែលធ្វើតាមរូបរាង។ ម៉ាស៊ីនដែលគ្មានពណ៌ ទទួលបានពណ៌ពីឈ្មោះរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 이름별로 각 기기의 사이드바 행과 탭 배지 색상을 지정합니다. \"#RRGGBB\" 또는 테마를 따르는 강조 색상 이름(red, green, yellow, purple, cyan, orange, pink, blue)을 사용할 수 있습니다. 색상이 없는 기기는 이름에서 색상을 받습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fargen på hver maskins rader i sidepanelet og merker på faner, etter maskinnavn: \"#RRGGBB\" eller navnet på en aksentfarge (red, green, yellow, purple, cyan, orange, pink, blue) som følger temaet. En maskin uten farge får en farge ut fra navnet sitt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolor wierszy każdej maszyny na pasku bocznym i jej plakietek na kartach, według nazwy maszyny: \"#RRGGBB\" albo nazwa koloru akcentu (red, green, yellow, purple, cyan, orange, pink, blue), który podąża za motywem. Maszyna bez koloru dostaje kolor na podstawie swojej nazwy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A cor das linhas da barra lateral e dos selos de aba de cada máquina, pelo nome da máquina: \"#RRGGBB\" ou o nome de uma cor de destaque (red, green, yellow, purple, cyan, orange, pink, blue) que segue o tema. Uma máquina sem cor recebe uma a partir do nome."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвет строк каждого компьютера на боковой панели и его меток на вкладках, по имени компьютера: \"#RRGGBB\" или название акцентного цвета (red, green, yellow, purple, cyan, orange, pink, blue), который следует теме. Компьютер без цвета получает цвет по своему имени."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีของแถวในแถบด้านข้างและป้ายบนแท็บของแต่ละเครื่อง ตามชื่อเครื่อง: \"#RRGGBB\" หรือชื่อสีเน้น (red, green, yellow, purple, cyan, orange, pink, blue) ที่เปลี่ยนตามธีม เครื่องที่ไม่มีสีจะได้สีจากชื่อของมัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her makinenin kenar çubuğu satırlarının ve sekme rozetlerinin rengi, makine adına göre: \"#RRGGBB\" veya temayı izleyen bir vurgu rengi adı (red, green, yellow, purple, cyan, orange, pink, blue). Rengi olmayan bir makine, rengini adından alır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Колір рядків кожного комп’ютера на бічній панелі та його позначок на вкладках, за назвою комп’ютера: \"#RRGGBB\" або назва акцентного кольору (red, green, yellow, purple, cyan, orange, pink, blue), що слідує за темою. Комп’ютер без кольору отримує колір за своєю назвою."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Màu của các hàng trên thanh bên và huy hiệu trên thẻ của từng máy, theo tên máy: \"#RRGGBB\" hoặc tên một màu nhấn (red, green, yellow, purple, cyan, orange, pink, blue) theo chủ đề. Máy không có màu sẽ nhận màu từ tên của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按机器名称设置每台机器的侧边栏行和标签页徽标颜色：\"#RRGGBB\"，或跟随主题的强调色名称（red、green、yellow、purple、cyan、orange、pink、blue）。未设置的机器按名称获得颜色。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依機器名稱設定每台機器的側邊欄列與分頁徽章顏色：\"#RRGGBB\"，或跟隨主題的強調色名稱（red、green、yellow、purple、cyan、orange、pink、blue）。未設定的機器會依名稱取得顏色。"
+          }
+        }
+      }
+    },
     "settings.sidebar.style": {
       "extractionState": "manual",
       "localizations": {
@@ -158762,6 +159155,666 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "30 分鐘後"
+          }
+        }
+      }
+    },
+    "settings.terminal.linkOpener.default": {
+      "comment": "Settings row in Terminal > Opening Links: where a URL a terminal program opens goes.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Program Links In"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح روابط البرامج في"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvaraj linkove programa u"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn programlinks i"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Programmlinks öffnen in"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir enlaces de programas en"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir les liens des programmes dans"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri i link dei programmi in"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プログラムのリンクを開く場所"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកតំណរបស់កម្មវិធីក្នុង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프로그램 링크 열기 위치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne programlenker i"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwieraj linki programów w"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir links de programas em"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открывать ссылки программ в"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดลิงก์ของโปรแกรมใน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program bağlantılarını şurada aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкривати посилання програм у"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở liên kết của chương trình trong"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "程序链接打开位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "程式連結開啟位置"
+          }
+        }
+      }
+    },
+    "settings.terminal.linkOpener.default.help": {
+      "comment": "Help for Terminal > Open Program Links In. Keep the literal values (cmux, system, chrome, app:<name>, command:<command>, BROWSER) untranslated.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where a URL goes when a program in a terminal opens a browser, such as aws login or gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, a profile after @ (chrome@Profile 1), or command:<command> to let your script decide. A BROWSER you set yourself wins."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المكان الذي يذهب إليه الرابط عندما يفتح برنامج في الطرفية متصفحًا، مثل aws login أو gh auth login: cmux أو system أو chrome أو safari أو arc أو firefox أو edge أو brave أو app:<name>، أو ملف تعريف بعد @ (chrome@Profile 1)، أو command:<command> ليقرر البرنامج النصي الخاص بك. متغير BROWSER الذي تضبطه بنفسك له الأولوية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdje ide URL kada program u terminalu otvori preglednik, npr. aws login ili gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, profil nakon @ (chrome@Profile 1) ili command:<command> da vaša skripta odluči. BROWSER koji sami postavite ima prednost."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor en URL går hen, når et program i en terminal åbner en browser, fx aws login eller gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, en profil efter @ (chrome@Profile 1) eller command:<command>, så dit script bestemmer. En BROWSER, du selv sætter, vinder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wohin eine URL geht, wenn ein Programm im Terminal einen Browser öffnet, etwa aws login oder gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, ein Profil nach @ (chrome@Profile 1) oder command:<command>, damit dein Skript entscheidet. Ein selbst gesetztes BROWSER hat Vorrang."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adónde va una URL cuando un programa en una terminal abre un navegador, como aws login o gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, un perfil tras @ (chrome@Profile 1) o command:<command> para que decida tu script. Un BROWSER que definas tú tiene prioridad."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Où va une URL quand un programme du terminal ouvre un navigateur, comme aws login ou gh auth login : cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, un profil après @ (chrome@Profile 1) ou command:<command> pour laisser votre script décider. Un BROWSER que vous définissez vous-même l’emporte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dove va un URL quando un programma nel terminale apre un browser, come aws login o gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, un profilo dopo @ (chrome@Profile 1) o command:<command> per far decidere il tuo script. Un BROWSER impostato da te ha la precedenza."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ターミナルのプログラムがブラウザを開くとき (aws login や gh auth login など) の URL の行き先: cmux、system、chrome、safari、arc、firefox、edge、brave、app:<name>、@ の後にプロファイル (chrome@Profile 1)、またはスクリプトに任せる command:<command>。自分で設定した BROWSER が優先されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងដែល URL ទៅ នៅពេលកម្មវិធីក្នុងទែមីណាល់បើកកម្មវិធីរុករក ដូចជា aws login ឬ gh auth login៖ cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, ប្រវត្តិរូបបន្ទាប់ពី @ (chrome@Profile 1) ឬ command:<command> ដើម្បីឲ្យស្គ្រីបរបស់អ្នកសម្រេច។ BROWSER ដែលអ្នកកំណត់ខ្លួនឯងមានអាទិភាព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "터미널의 프로그램이 브라우저를 열 때(예: aws login, gh auth login) URL이 가는 곳: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, @ 뒤의 프로필(chrome@Profile 1), 또는 스크립트가 정하게 하는 command:<command>. 직접 설정한 BROWSER가 우선합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor en URL går når et program i en terminal åpner en nettleser, for eksempel aws login eller gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, en profil etter @ (chrome@Profile 1), eller command:<command> for å la skriptet ditt bestemme. En BROWSER du setter selv, vinner."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dokąd trafia URL, gdy program w terminalu otwiera przeglądarkę, np. aws login lub gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, profil po @ (chrome@Profile 1) albo command:<command>, aby zdecydował Twój skrypt. Ustawiona przez Ciebie zmienna BROWSER ma pierwszeństwo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Para onde vai uma URL quando um programa no terminal abre um navegador, como aws login ou gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, um perfil após @ (chrome@Profile 1) ou command:<command> para seu script decidir. Um BROWSER definido por você tem prioridade."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Куда идёт URL, когда программа в терминале открывает браузер, например aws login или gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, профиль после @ (chrome@Profile 1) или command:<command>, чтобы решал ваш скрипт. Заданная вами переменная BROWSER имеет приоритет."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ที่ที่ URL ไปเมื่อโปรแกรมในเทอร์มินัลเปิดเบราว์เซอร์ เช่น aws login หรือ gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, โปรไฟล์หลัง @ (chrome@Profile 1) หรือ command:<command> เพื่อให้สคริปต์ของคุณตัดสินใจ BROWSER ที่คุณตั้งเองจะมีผลก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminaldeki bir program tarayıcı açtığında (aws login veya gh auth login gibi) URL'nin gittiği yer: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, @ sonrasında bir profil (chrome@Profile 1) veya betiğinizin karar vermesi için command:<command>. Kendi ayarladığınız BROWSER önceliklidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Куди йде URL, коли програма в терміналі відкриває браузер, наприклад aws login або gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, профіль після @ (chrome@Profile 1) або command:<command>, щоб вирішував ваш скрипт. Встановлена вами змінна BROWSER має пріоритет."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nơi URL được mở khi một chương trình trong terminal mở trình duyệt, như aws login hoặc gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, một hồ sơ sau @ (chrome@Profile 1), hoặc command:<command> để script của bạn quyết định. BROWSER do bạn tự đặt sẽ được ưu tiên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "终端中的程序打开浏览器时（例如 aws login 或 gh auth login）URL 的去向：cmux、system、chrome、safari、arc、firefox、edge、brave、app:<name>、@ 后接配置文件（chrome@Profile 1），或用 command:<command> 让你的脚本决定。你自己设置的 BROWSER 优先。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "終端機中的程式開啟瀏覽器時（例如 aws login 或 gh auth login）URL 的去向：cmux、system、chrome、safari、arc、firefox、edge、brave、app:<name>、@ 後接設定檔（chrome@Profile 1），或用 command:<command> 讓你的指令碼決定。你自己設定的 BROWSER 優先。"
+          }
+        }
+      }
+    },
+    "settings.terminal.linkOpener.rules": {
+      "comment": "Settings row in Terminal > Opening Links: ordered rules for program links.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Program Link Rules"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "قواعد روابط البرامج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pravila za linkove programa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regler for programlinks"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regeln für Programmlinks"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reglas de enlaces de programas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Règles des liens des programmes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regole per i link dei programmi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プログラムのリンクのルール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ច្បាប់តំណរបស់កម្មវិធី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프로그램 링크 규칙"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regler for programlenker"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reguły linków programów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regras de links de programas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Правила для ссылок программ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กฎลิงก์ของโปรแกรม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program bağlantısı kuralları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Правила для посилань програм"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quy tắc liên kết của chương trình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "程序链接规则"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "程式連結規則"
+          }
+        }
+      }
+    },
+    "settings.terminal.linkOpener.rules.help": {
+      "comment": "Help for Terminal > Program Link Rules. Keep the rule syntax (<match> -> <target>, caller:aws, re:, the example) untranslated.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checked in order before the default; the first match wins. Write <match> -> <target>: caller:aws matches the program that opened the URL, and text, * wildcards or re: match the URL. Example: caller:gh github.com -> safari"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تُفحص بالترتيب قبل الافتراضي، وأول تطابق يفوز. اكتب <match> -> <target>: يطابق caller:aws البرنامج الذي فتح الرابط، ويطابق النص أو أحرف * البديلة أو re: الرابط. مثال: caller:gh github.com -> safari"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Provjeravaju se redom prije zadanog; prvo poklapanje pobjeđuje. Pišite <match> -> <target>: caller:aws odgovara programu koji je otvorio URL, a tekst, * zamjenski znakovi ili re: odgovaraju URL-u. Primjer: caller:gh github.com -> safari"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kontrolleres i rækkefølge før standarden; første match vinder. Skriv <match> -> <target>: caller:aws matcher programmet, der åbnede URL'en, og tekst, *-jokertegn eller re: matcher URL'en. Eksempel: caller:gh github.com -> safari"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Werden der Reihe nach vor dem Standard geprüft; der erste Treffer gewinnt. Schreibe <match> -> <target>: caller:aws passt auf das Programm, das die URL geöffnet hat, und Text, *-Platzhalter oder re: passen auf die URL. Beispiel: caller:gh github.com -> safari"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se comprueban en orden antes del valor predeterminado; gana la primera coincidencia. Escribe <match> -> <target>: caller:aws coincide con el programa que abrió la URL, y texto, comodines * o re: coinciden con la URL. Ejemplo: caller:gh github.com -> safari"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vérifiées dans l’ordre avant la valeur par défaut ; la première correspondance l’emporte. Écrivez <match> -> <target> : caller:aws correspond au programme qui a ouvert l’URL, et du texte, des jokers * ou re: correspondent à l’URL. Exemple : caller:gh github.com -> safari"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Controllate in ordine prima del predefinito; vince la prima corrispondenza. Scrivi <match> -> <target>: caller:aws corrisponde al programma che ha aperto l'URL, e testo, caratteri jolly * o re: corrispondono all'URL. Esempio: caller:gh github.com -> safari"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "デフォルトより先に上から順に確認し、最初に一致したものが使われます。<match> -> <target> と書きます。caller:aws は URL を開いたプログラムに、テキスト、* ワイルドカード、re: は URL に一致します。例: caller:gh github.com -> safari"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពិនិត្យតាមលំដាប់មុនលំនាំដើម ការផ្គូផ្គងដំបូងឈ្នះ។ សរសេរ <match> -> <target>៖ caller:aws ផ្គូផ្គងកម្មវិធីដែលបានបើក URL ហើយអត្ថបទ តួអក្សរជំនួស * ឬ re: ផ្គូផ្គង URL។ ឧទាហរណ៍៖ caller:gh github.com -> safari"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "기본값보다 먼저 순서대로 확인하며 처음 일치한 규칙이 적용됩니다. <match> -> <target> 형식으로 쓰세요. caller:aws는 URL을 연 프로그램과, 텍스트, * 와일드카드, re:는 URL과 일치합니다. 예: caller:gh github.com -> safari"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sjekkes i rekkefølge før standarden; første treff vinner. Skriv <match> -> <target>: caller:aws treffer programmet som åpnet URL-en, og tekst, *-jokertegn eller re: treffer URL-en. Eksempel: caller:gh github.com -> safari"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sprawdzane po kolei przed wartością domyślną; wygrywa pierwsze dopasowanie. Pisz <match> -> <target>: caller:aws pasuje do programu, który otworzył URL, a tekst, symbole wieloznaczne * lub re: pasują do URL. Przykład: caller:gh github.com -> safari"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verificadas em ordem antes do padrão; a primeira correspondência vence. Escreva <match> -> <target>: caller:aws corresponde ao programa que abriu a URL, e texto, curingas * ou re: correspondem à URL. Exemplo: caller:gh github.com -> safari"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Проверяются по порядку до значения по умолчанию; побеждает первое совпадение. Пишите <match> -> <target>: caller:aws совпадает с программой, открывшей URL, а текст, подстановочные знаки * или re: — с URL. Пример: caller:gh github.com -> safari"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตรวจตามลำดับก่อนค่าเริ่มต้น กฎแรกที่ตรงจะถูกใช้ เขียน <match> -> <target>: caller:aws ตรงกับโปรแกรมที่เปิด URL ส่วนข้อความ ไวลด์การ์ด * หรือ re: ตรงกับ URL ตัวอย่าง: caller:gh github.com -> safari"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Varsayılandan önce sırayla denetlenir; ilk eşleşme kazanır. <match> -> <target> yazın: caller:aws URL'yi açan programla, metin, * joker karakterleri veya re: URL ile eşleşir. Örnek: caller:gh github.com -> safari"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перевіряються по черзі до значення за замовчуванням; перемагає перший збіг. Пишіть <match> -> <target>: caller:aws збігається з програмою, що відкрила URL, а текст, символи * або re: — з URL. Приклад: caller:gh github.com -> safari"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Được kiểm tra theo thứ tự trước giá trị mặc định; quy tắc khớp đầu tiên được dùng. Viết <match> -> <target>: caller:aws khớp với chương trình đã mở URL, còn văn bản, ký tự đại diện * hoặc re: khớp với URL. Ví dụ: caller:gh github.com -> safari"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在默认值之前按顺序检查，第一个匹配的规则生效。写法为 <match> -> <target>：caller:aws 匹配打开 URL 的程序，文本、* 通配符或 re: 匹配 URL。示例：caller:gh github.com -> safari"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在預設值之前依序檢查，第一個符合的規則生效。寫法為 <match> -> <target>：caller:aws 符合開啟 URL 的程式，文字、* 萬用字元或 re: 符合 URL。範例：caller:gh github.com -> safari"
+          }
+        }
+      }
+    },
+    "settings.terminal.linkOpener.rules.summary": {
+      "comment": "Summary under Terminal > Program Link Rules.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rules for program links"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "قواعد لروابط البرامج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pravila za linkove programa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regler for programlinks"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regeln für Programmlinks"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reglas para enlaces de programas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Règles pour les liens des programmes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regole per i link dei programmi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プログラムのリンクのルール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ច្បាប់សម្រាប់តំណកម្មវិធី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프로그램 링크 규칙"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regler for programlenker"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reguły dla linków programów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regras para links de programas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Правила для ссылок программ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กฎสำหรับลิงก์ของโปรแกรม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Program bağlantıları için kurallar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Правила для посилань програм"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quy tắc cho liên kết của chương trình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "程序链接的规则"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "程式連結的規則"
           }
         }
       }
