@@ -71,6 +71,9 @@ enum DestructiveConfirmation {
             guard let group = try? context.group(invocation) else { return nil }
             return await WorkspaceBulkClose.prompt(WorkspaceGroupClose.members(of: group, context), warn: warn,
                                                    title: ConfirmationStrings.closeGroupWorkspacesTitle(group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name))
+        case let id where StashHandlers.workspaceActions.contains(id):
+            // Save and Close of workspaces asks as their close does: only while a program runs.
+            return await StashHandlers.prompt(id, invocation, context, warn: warn)
         case let id where WorkspaceBulkClose.ids.contains(id):
             return await WorkspaceBulkClose.prompt(id, invocation, context, warn: warn)
         case "browserProfile.delete":

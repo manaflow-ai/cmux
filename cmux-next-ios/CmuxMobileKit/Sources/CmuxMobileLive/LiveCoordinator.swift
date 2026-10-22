@@ -216,6 +216,7 @@ public final class LiveCoordinator {
         feedStore.actions = feedActions
         feedStore.syncState = .connecting
         store.workspaces = []
+        store.resetGroupEdits()
         store.tracksMacData = true
         store.macData = [:]
         store.macConnection = [:]

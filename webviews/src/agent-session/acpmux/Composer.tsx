@@ -77,6 +77,7 @@ import {
 import { type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
+import { DropOverlay } from "./composer/DropOverlay";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
 import { useHeaderState } from "./header/headerState";
@@ -115,7 +116,6 @@ export const COMPOSER_LABELS = {
   send: "composer.send",
   stop: "composer.stop",
   escapeAgainToStop: "composer.escapeAgainToStop",
-  escapeKey: "composer.escapeKey",
   commands: "composer.commands",
   noCommands: "composer.noCommands",
   noMatchingCommands: "composer.noMatchingCommands",
@@ -445,31 +445,41 @@ export function Composer({
   openInWindow.current = onOpenInWindow;
   const allowImages = snapshot.summary?.promptCapabilities?.image !== false;
   // A paste on the prompt or the shell field, and a file drop anywhere (composer/attachmentIntake.tsx).
-  const { attachments, setAttachments, pending, attachError, setAttachError, dropping, attach } = useAttachmentIntake({
-    allowImages,
-    // A file pasted in shell mode is kept for the next prompt and uploads nothing; the mode stays.
-    pasteTarget: (target) =>
-      shellField.current?.contains(target)
-        ? { uploads: false }
-        : field.current?.element()?.contains(target)
-          ? { uploads: true }
-          : undefined,
-    ...(upload ? { upload } : {}),
-    ...(localPaths ? { localPaths } : {}),
-    // A screenshot still being read when the composer moves to another chat stays the chat's it was
-    // pasted in: its chip joins that chat's kept chips (keptAttachments.ts), unless a switch carries
-    // the prompt to its new session.
-    scope: sessionId,
-    elsewhere: (chat, chips) => {
-      if (!keptAttachments) return;
-      void keptAttachments
-        .read(chat)
-        .catch(() => [])
-        .then((kept) => keptAttachments.write(chat, appendAttachments(kept, chips).slice(0, MAX_ATTACHMENTS)))
-        .catch(() => {});
-    },
-    carries: () => carryPrompt.current || Boolean(switching),
-  });
+  // The composer's card, and the chat column around it that a file drag covers (composer/DropOverlay.tsx).
+  const composerBox = useRef<HTMLDivElement | null>(null);
+  const [dropHost, setDropHost] = useState<Element | null>(null);
+  const setComposerBox = useCallback((element: HTMLDivElement | null) => {
+    composerBox.current = element;
+    setDropHost(element ? (element.closest(".acpmux-main") ?? element.ownerDocument.body) : null);
+  }, []);
+  const landingTarget = useCallback(() => composerBox.current, []);
+  const { attachments, setAttachments, pending, attachError, setAttachError, drop, dropLanded, attach } =
+    useAttachmentIntake({
+      allowImages,
+      dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
+      // A file pasted in shell mode is kept for the next prompt and uploads nothing; the mode stays.
+      pasteTarget: (target) =>
+        shellField.current?.contains(target)
+          ? { uploads: false }
+          : field.current?.element()?.contains(target)
+            ? { uploads: true }
+            : undefined,
+      ...(upload ? { upload } : {}),
+      ...(localPaths ? { localPaths } : {}),
+      // A screenshot still being read when the composer moves to another chat stays the chat's it was
+      // pasted in: its chip joins that chat's kept chips (keptAttachments.ts), unless a switch carries
+      // the prompt to its new session.
+      scope: sessionId,
+      elsewhere: (chat, chips) => {
+        if (!keptAttachments) return;
+        void keptAttachments
+          .read(chat)
+          .catch(() => [])
+          .then((kept) => keptAttachments.write(chat, appendAttachments(kept, chips).slice(0, MAX_ATTACHMENTS)))
+          .catch(() => {});
+      },
+      carries: () => carryPrompt.current || Boolean(switching),
+    });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
@@ -1081,7 +1091,8 @@ export function Composer({
       }
     }
     // Esc on an empty prompt stops the turn, as Stop does: by default the second of two presses
-    // does (escapeStop.ts), and the first turns Stop into an Esc hint. Menus, pickers and the
+    // does (escapeStop.ts), and the first arms Stop: it keeps its glyph, takes the accent and is named
+    // "Press Esc again to stop". Menus, pickers and the
     // @ list take their Esc above, so one press still closes them.
     if (event.key === "Escape" && plain && !open && stop && !quick) {
       event.preventDefault();
@@ -1413,12 +1424,12 @@ export function Composer({
       className="acpmux-send acpmux-cancel"
       data-escape-armed={escapeStop.armed ? "" : undefined}
       aria-label={t(escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop)}
-      // tooltip-allow: names the icon-only Stop, and once armed says to press the Esc it shows again.
+      // tooltip-allow: names the icon-only Stop, and once armed says to press Esc again.
       title={t(escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop)}
       onClick={stopTurn}
     >
-      {/* The first Esc of the double press: Stop says which key stops the turn. */}
-      {escapeStop.armed ? <span className="acpmux-escape-key">{t(COMPOSER_LABELS.escapeKey)}</span> : <StopIcon />}
+      {/* The first Esc of the double press keeps the glyph; its color and name say Esc again stops. */}
+      <StopIcon />
     </button>
   ) : null;
   // Why a failed turn paused the queue: the paused note names it (queuePause.ts).
@@ -1481,8 +1492,11 @@ export function Composer({
         onLeave={() => field.current?.focus()}
       />
       {context}
+      {dropHost && (
+        <DropOverlay state={drop} onLanded={dropLanded} container={dropHost} landingTarget={landingTarget} />
+      )}
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the prompt inside is the control and takes the keyboard itself. */}
-      <div className="ui-glass acpmux-composer-box" onMouseDown={focusFromCard}>
+      <div ref={setComposerBox} className="ui-glass acpmux-composer-box" onMouseDown={focusFromCard}>
         <input
           ref={importInput}
           className="acpmux-import-input"
@@ -1520,7 +1534,6 @@ export function Composer({
           attachments={attachments}
           pending={pending}
           {...(attachError ? { error: attachError } : {})}
-          dropping={dropping}
           codex={snapshot.summary?.family === "codex" || snapshot.summary?.harness === "codex"}
           onRemove={(id) => {
             setAttachments((current) => current.filter((item) => item.id !== id));
