@@ -37,11 +37,6 @@ struct RemoteAcpmuxWireAnswerTests {
         func prompt(id: String, text: String) async throws -> Data { Data("{}".utf8) }
         func cancel() async throws {}
 
-        /// The verb as it was before answers rode along: an answer arrives without them.
-        func permission(id: String, option: String, decisionNonce: String?, personDecision: String?) async throws {
-            record(Answer(option: option, answers: nil, nonce: decisionNonce, proof: personDecision))
-        }
-
         func permission(id: String, option: String, answers: Data?, decisionNonce: String?, personDecision: String?) async throws {
             record(Answer(option: option, answers: answers, nonce: decisionNonce, proof: personDecision))
         }
