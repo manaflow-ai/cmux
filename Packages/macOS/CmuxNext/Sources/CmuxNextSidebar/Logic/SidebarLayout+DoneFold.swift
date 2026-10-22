@@ -63,6 +63,15 @@ nonisolated extension SidebarLayout {
         return kept.count == shown.count ? shown : kept + [(showMoreIndex, shown.count - kept.count)]
     }
 
+    /// Whether an open fold would draw `dragged` apart: some marked Done (drawn below the fold) and some in their place.
+    /// A drag's rows slide as one slot (`displayLayout`), so such a drag unfolds every list, as before the drag kept them.
+    /// A closed fold hides its rows (the rest stay one slot), and rows that all fold draw together below an open one.
+    static func foldSplits(_ dragged: [SidebarWorkspace], options o: SidebarLayoutOptions) -> Bool {
+        guard o.foldsDone, !o.openDoneFolds.isEmpty, o.filterMatches == nil, o.sessionTree == nil else { return false }
+        let folds = dragged.map { $0.taskStatus == .done && $0.id != o.activeWorkspaceID }
+        return folds.contains(true) && folds.contains(false)
+    }
+
     /// The `drawn` entry a drop gap opens before in a list that draws a fold (a drag keeps the folds): the first row
     /// drawn before the fold whose model index is at or past the gap's, else the fold row. That is where the dropped
     /// row (never Done) will show: a hidden index between two drawn rows, the list's end, and, with the fold open, an
