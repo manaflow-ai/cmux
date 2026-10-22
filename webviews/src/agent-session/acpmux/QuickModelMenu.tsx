@@ -119,11 +119,26 @@ export function tabExtent(
   return { rows, separators };
 }
 
+/// One row of any tab, for the width probe: its label, its secondary value, and whether it opens a
+/// submenu (a chevron) or shows a number key.
+export type ProbeRow = { label: string; value?: string; sub?: boolean; shortcut?: boolean };
+
 /// The tallest tab's rows and separators, unseen in the list's grid cell under the real rows, so
-/// switching tabs or typing never changes the menu's height while it is open.
-function QuickMenuSpacer({ rows, separators }: TabExtent) {
+/// switching tabs or typing never changes the menu's height while it is open. `widths` is every
+/// tab's rows at no height: the cell is as wide as the widest tab, so its width holds too.
+function QuickMenuSpacer({ rows, separators, widths }: TabExtent & { widths: ProbeRow[] }) {
   return (
     <div className="acpmux-quick-spacer" aria-hidden="true" inert>
+      <div className="acpmux-quick-probe">
+        {widths.map((row, index) => (
+          <div key={index} className={`ui-menu-item acpmux-quick-item${row.sub ? " acpmux-quick-sub" : ""}`}>
+            <span className="acpmux-menu-label">{row.label}</span>
+            {row.value && <span className="acpmux-quick-value">{row.value}</span>}
+            {row.sub && <span className="ui-submenu-chevron" />}
+            {row.shortcut && <span className="ui-menu-shortcut">9</span>}
+          </div>
+        ))}
+      </div>
       <div className="ui-menu-group-label">{"\u00a0"}</div>
       {/* A separator after each of the first rows: back to back, their margins would collapse. */}
       {Array.from({ length: rows }, (_, index) => (
@@ -225,6 +240,11 @@ export function QuickModelMenu({
     } else if (!(row.family === families.current && row.id === current)) families.onPick(row);
   };
   const activeAccount = accounts.list?.accounts.find((choice) => choice.id === accounts.list?.active);
+  const accountValue = accounts.switchFailed
+    ? t("picker.accountSwitchFailed")
+    : accounts.list
+      ? (activeAccount?.name ?? t("picker.harnessLogin"))
+      : undefined;
   const keyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return;
     // Only the menu's own keys, not a submenu's (React carries those up through the portal).
@@ -290,6 +310,21 @@ export function QuickModelMenu({
       separators: 0,
     },
   );
+  // Every tab's unfiltered rows, for the width the menu holds while open.
+  const widths: ProbeRow[] = families
+    ? [
+        ...families.list.flatMap((family): ProbeRow[] => [
+          ...family.models.slice(0, FILTER_ROWS).map((model) => ({ label: model.name, shortcut: true })),
+          ...(family.note && family.models.length === 0 ? [{ label: family.note }] : []),
+          ...(family.note && family.logIn ? [{ label: t("harness.logIn") }] : []),
+        ]),
+        ...(effort && levels.length > 1 ? [{ label: t("effort.title"), value: level?.name, sub: true }] : []),
+        { label: t("picker.moreModels"), sub: true },
+        ...(account ? [{ label: t("picker.account"), value: accountValue, sub: true }] : []),
+        ...(fast ? [{ label: t("picker.fastMode") }] : []),
+        ...(menu.update ? [{ label: menu.update.text, value: t("harness.update") }] : []),
+      ]
+    : [];
   const currentValue = families ? rowValue({ family: families.current ?? "", id: current ?? "" }) : (current ?? "");
   const list = (
     <>
@@ -395,18 +430,7 @@ export function QuickModelMenu({
         <Submenu
           className="acpmux-quick-item acpmux-quick-sub"
           popupClassName="acpmux-quick-menu"
-          label={
-            <QuickRowLabel
-              label={t("picker.account")}
-              value={
-                accounts.switchFailed
-                  ? t("picker.accountSwitchFailed")
-                  : accounts.list
-                    ? (activeAccount?.name ?? t("picker.harnessLogin"))
-                    : undefined
-              }
-            />
-          }
+          label={<QuickRowLabel label={t("picker.account")} value={accountValue} />}
         >
           <AccountRows
             list={accounts.list}
@@ -448,7 +472,7 @@ export function QuickModelMenu({
         {children}
       </MenuButton>
       <MenuPopup
-        side="top"
+        side="bottom"
         align="start"
         label={t("picker.model")}
         className={families ? "acpmux-quick-menu acpmux-quick-railed" : "acpmux-quick-menu"}
@@ -491,7 +515,7 @@ export function QuickModelMenu({
             </fieldset>
             <div className="acpmux-quick-body" ref={body}>
               <div className="acpmux-quick-list">{list}</div>
-              <QuickMenuSpacer {...tallest} />
+              <QuickMenuSpacer {...tallest} widths={widths} />
             </div>
           </div>
         ) : (

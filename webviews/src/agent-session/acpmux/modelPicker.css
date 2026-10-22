@@ -217,6 +217,8 @@
 .acpmux-quick-list,
 .acpmux-quick-spacer { grid-area: 1 / 1; min-width: 0; }
 .acpmux-quick-spacer { visibility: hidden; pointer-events: none; }
+/* Every tab's rows at no height: they give the cell the widest tab's width. */
+.acpmux-quick-probe { height: 0; overflow: hidden; }
 /* A filtered row names its harness in secondary text. */
 .acpmux-quick-item:not(.acpmux-quick-sub) .acpmux-quick-value {
   padding-inline-start: 12px;
