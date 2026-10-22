@@ -557,6 +557,13 @@ impl Hub {
     }
 
     pub(super) fn load_from_store(self: &Arc<Self>, deferred: bool) {
+        // Lawrence 2026-10-20: the purged sessions' records that late saves wrote back
+        // are deleted (7,885 in the Chief's home). `Store::purge` stops new ones.
+        match self.store.sweep_purged_leftovers() {
+            Ok(0) => {}
+            Ok(n) => tracing::info!("removed {n} records of purged sessions (closed, no log)"),
+            Err(e) => tracing::warn!("purged leftovers sweep failed: {e}"),
+        }
         let metas = match self.store.list() {
             Ok(m) => m,
             Err(e) => {
@@ -1111,7 +1118,7 @@ impl Hub {
         }
         // The purge ran between the check and the save: delete it again.
         if session.purged.load(Ordering::SeqCst)
-            && let Err(e) = self.store.delete(&session.id)
+            && let Err(e) = self.store.purge(&session.id)
         {
             tracing::warn!(session = %session.id, "delete of a purged session failed: {e}");
         }
