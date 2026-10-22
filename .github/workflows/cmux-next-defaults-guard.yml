@@ -1,13 +1,17 @@
 name: cmux-next defaults guard
 
 # Fails a feat-cmux-next pull request that changes a default (an action's
-# default keys, a setting's default, a Ghostty keybind cmux writes, a compiled
-# feature flag) until its head is signed off: an independent review receipt
-# `Review (<reviewer>): SHIP at <full head sha>` from a member, or an approving
-# review from a call owner other than its author (scripts/ci/defaults_guard.py;
-# owners in .github/defaults-call-owners.json). A new setting that defaults to
-# off passes on its own. Leo 2026-10-13: defaults changed without a call
-# (#15382, #15398, #19788); 2026-10-21: a SHIP receipt is enough.
+# default keys, a setting's default, a Debug Tunable's default, a Ghostty
+# keybind cmux writes, a compiled feature flag) until its body cites Leo's
+# explicit order on its own line, `Leo's order: "<his words>" <https link>`
+# (a question is not an order), and its head is signed off: an independent
+# review receipt `Review (<reviewer>): SHIP at <full head sha>` from a member,
+# or an approving review from a call owner other than its author
+# (scripts/ci/defaults_guard.py; owners in .github/defaults-call-owners.json).
+# A new setting that defaults to off passes on its own. Leo 2026-10-13:
+# defaults changed without a call (#15382, #15398, #19788); 2026-10-21: a SHIP
+# receipt is enough, then (#22826 flipped a Tunable default unseen) every
+# default change needs his order. Editing the body re-runs this check.
 #
 # Fast: no build. It sparse-checks-out only the guard's files of the merge base
 # and the head (about 40 MiB of a 340 MiB tree) and reports within a minute.
@@ -26,7 +30,7 @@ name: cmux-next defaults guard
 # a maintainer re-runs the check, or the next push does.
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review, closed]
+    types: [opened, synchronize, reopened, ready_for_review, edited, closed]
     branches: [feat-cmux-next]
 
 permissions: {}

@@ -2,17 +2,21 @@
 """Guard against unannounced default changes (Leo 2026-10-13).
 
 A default is what someone gets without configuring anything: an action's
-default keys, a setting's default value, a Ghostty keybind cmux writes (an
-unbind takes a chord from Ghostty), a feature flag compiled on or off. Changing
-one changes what everyone gets, so it needs a call.
+default keys, a setting's default value, a Debug Tunable's `default:`, a
+Ghostty keybind cmux writes (an unbind takes a chord from Ghostty), a feature
+flag compiled on or off. Changing one changes what everyone gets, so it needs
+Leo's call (#22826 flipped `status.working` from the spinner to a breathing dot
+inside a 33-file pull request, and nothing stopped it).
 
 schemas/defaults/<app>.json is the golden snapshot of every default, made from
 the sources of truth with no hand list:
 - cmux NEXT: plans/cmux-next/action-surfaces.json (each action's default
   shortcut, chord and aliases, exported from the catalog by Swift) and
   schemas/settings/settings-schema.json (each setting's default), both kept
-  current by the generated-files check; the Ghostty `keybind = ...` lines and
-  the `static let ...Enabled = true|false` flags in the app's Swift sources.
+  current by the generated-files check; the Ghostty `keybind = ...` lines,
+  the `static let ...Enabled = true|false` flags and each
+  `Tunable<T>.choice|toggle|number|color|spring("key", ..., default: ...)` in
+  the app's Swift sources.
 
   python3 scripts/ci/defaults_guard.py snapshot           # regenerate it
   python3 scripts/ci/defaults_guard.py check-fresh        # it matches the sources
@@ -32,10 +36,16 @@ data; nothing from the head runs). The snapshot is bot-only (#21946): the base
 autofix rewrites it after a merge, no pull request commits it, and `check`
 never reads it, so a hand-edited copy hides nothing.
 
-A setting the pull request adds whose default is off (false, null, "off",
-"never", "none", "disabled" or empty) keeps the behavior from before it
-existed (new things ship off), so it passes on its own (Leo 2026-10-21); it
-stays listed. Any other change passes with an independent review receipt on
+A setting or tunable the pull request adds whose default is off (false, null,
+"off", "never", "none", "disabled" or empty) keeps the behavior from before it
+existed (new things ship off), so it passes on its own (Leo 2026-10-21), and so
+does a new number tunable (a knob over a value the code already had); it stays
+listed. Any other default change needs both:
+- Leo's explicit order, cited on its own line of the pull request body:
+    Leo's order: "<his words>" <https link to where he said them>
+  A question is not an order: a quote that ends with `?` is refused, and so is
+  a line without an https link (Leo 2026-10-21, after #22826).
+- an independent review receipt on
 the head: a comment or review whose first line is
 `Review (<reviewer>): SHIP at <full head sha>` from a member (OWNER, MEMBER or
 COLLABORATOR, a user, not a bot), not a self-review, the grammar
@@ -43,9 +53,10 @@ scripts/ci/risk_tier.py reads. The newest verdict naming the head decides, so
 a later BLOCK beats an earlier SHIP, and a push needs a new receipt. An
 approving review of the head from a call owner in
 .github/defaults-call-owners.json other than the author still passes too. The
-`needs a call` label alone never passes. The workflow (pull_request_target
-only) runs this script and reads the owners file from the base branch, so a
-pull request cannot approve itself by editing either.
+`needs a call` label alone never passes. A change to the guard's own files
+needs the review only. The workflow (pull_request_target only, re-run when the
+body is edited) runs this script and reads the owners file from the base
+branch, so a pull request cannot approve itself by editing either.
 """
 
 from __future__ import annotations
@@ -107,6 +118,14 @@ MODIFIER_ORDER = ("ctrl", "opt", "shift", "cmd")
 KEYBIND_RE = re.compile(r'"keybind\s*=\s*([^"=]+?)\s*=\s*([^"]*)"')
 YIELDS_RE = re.compile(r"static\s+let\s+(yieldsTo\w+)\s*:\s*Set<ActionID>\s*=\s*\[(.*?)\]", re.S)
 FLAG_RE = re.compile(r"\bstatic\s+(?:let|var)\s+(\w*Enabled)\s*(?::\s*Bool\s*)?=\s*(true|false)\b")
+# A Debug Tunable with a constant default (CmuxNextDesign/Tunables/Tunable.swift); an interpolated key is
+# built at run time and skipped.
+TUNABLE_RE = re.compile(r'\bTunable<[\w.?]+>\s*\.(choice|toggle|number|color|spring)\(\s*"([^"\\]+)"')
+# Leo's explicit order for a default change, on its own line of the pull request body:
+#   Leo's order: "<his words>" <https link>
+ORDER_FORMAT = 'Leo\'s order: "<his words>" <https link>'
+ORDER_LINE = re.compile(r"^[^\w\n]*leo['\u2019]s +order *:(.*)$", re.I | re.M)
+ORDER_PARTS = re.compile(r'^\s*["\u201c](.+)["\u201d]\s*<?(https://[^\s<>]+?)>?\s*$')
 # An independent review's verdict on the exact head, on a comment's or review's first line:
 # "Review (subagent, correctness first): SHIP at <full head sha>". Same grammar as
 # scripts/ci/risk_tier.py RECEIPT (and next_autoland, merge_audit).
@@ -298,6 +317,10 @@ def defaults(tree: Tree) -> dict[str, object]:
                 found[f"ghostty.{trigger.strip()}"] = action.strip()
     for name, block in YIELDS_RE.findall(tree.read(KEY_BINDING_DEFAULTS) or ""):
         found[f"steps-aside.{name}"] = sorted(re.findall(r'"([^"]+)"', block))
+    sources = sorted({name for name, _ in tree.grep(r"Tunable<", SWIFT_SOURCES)})
+    for text in tree.read_bytes(sources).values():
+        for key, value in tunables(text.decode("utf-8")):
+            found[f"tunable.{key}"] = value
     for name, line in tree.grep(r"static +(let|var) +[A-Za-z0-9_]*Enabled *(: *Bool *)?= *(true|false)", SWIFT_SOURCES):
         for flag, value in FLAG_RE.findall(line):
             # The file's path under the sources keeps two `isEnabled` flags apart; a second one in
@@ -308,6 +331,54 @@ def defaults(tree: Tree) -> dict[str, object]:
                 key, n = f"{base}#{n}", n + 1
             found[key] = value == "true"
     return dict(sorted(found.items()))
+
+
+def call_arguments(text: str, start: int) -> list[str]:
+    """The top-level arguments of the Swift call whose arguments start at `start`, up to its `)`."""
+    args, depth, current, i = [], 0, [], start
+    while i < len(text):
+        char = text[i]
+        if char == '"':  # a string literal: its commas and parentheses are text
+            end = i + 1
+            while end < len(text) and text[end] not in '"\n':
+                end += 2 if text[end] == "\\" else 1
+            current.append(text[i:end + 1])
+            i = end + 1
+            continue
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            if depth == 0:
+                break
+            depth -= 1
+        elif char == "," and depth == 0:
+            args.append("".join(current))
+            current = []
+            i += 1
+            continue
+        current.append(char)
+        i += 1
+    return [" ".join(a.split()) for a in [*args, "".join(current)]]
+
+
+def tunables(text: str) -> list[tuple[str, object]]:
+    """(key, default) of each Tunable declared in a Swift file. A toggle's default is a bool, a
+    number's a float when it is a literal, a choice's its case without the dot, anything else the code."""
+    found = []
+    for match in TUNABLE_RE.finditer(text):
+        kind, key = match.groups()
+        value = next((a.removeprefix("default:").strip() for a in call_arguments(text, match.end())
+                      if a.startswith("default:")), None)
+        if value is None:
+            continue
+        if kind == "toggle" and value in ("true", "false"):
+            found.append((key, value == "true"))
+            continue
+        try:
+            found.append((key, float(value) if kind == "number" else value.removeprefix(".")))
+        except ValueError:
+            found.append((key, value))
+    return found
 
 
 def render_snapshot(values: Mapping[str, object]) -> str:
@@ -386,8 +457,34 @@ def is_off(value: object) -> bool:
 
 
 def exempt(found: list[Change], before: Mapping[str, object]) -> list[Change]:
-    """The settings the head adds with an off default: what everyone got before the setting existed."""
-    return [c for c in found if c.id.startswith("setting.") and c.id not in before and is_off(c.new)]
+    """The settings and tunables the head adds with an off default (what everyone got before they
+    existed), and new number tunables (a knob over a value the code already had)."""
+    def new_off(c: Change) -> bool:
+        number = isinstance(c.new, float) and c.id.startswith("tunable.")
+        return c.id.startswith(("setting.", "tunable.")) and c.id not in before and (is_off(c.new) or number)
+    return [c for c in found if new_off(c)]
+
+
+def needs_order(change: Change) -> bool:
+    """Every default change needs Leo's order; a change to the guard's own files needs the review only."""
+    return not change.id.startswith("guard.")
+
+
+def leo_order(body: str) -> tuple[tuple[str, str] | None, list[str]]:
+    """(quote, link) of the first valid `Leo's order: "<his words>" <https link>` line of the body, and
+    why each other such line is refused (no quote, no https link, or a question)."""
+    refused = []
+    for match in ORDER_LINE.finditer(body):
+        rest = match.group(1).strip().lstrip("*_ ")  # `**Leo's order:**` reads the same
+        parts = ORDER_PARTS.match(rest)
+        if not parts:
+            why = "has no https link" if "https://" not in rest else "has no quoted words before the link"
+            refused.append(f"{code(rest)} {why}")
+        elif re.search(r"\?[\s.!)\]]*$", parts.group(1)):
+            refused.append(f"{code(parts.group(1))} is a question, not an order")
+        else:
+            return (parts.group(1).strip(), parts.group(2)), refused
+    return None, refused
 
 
 def guard_changes(base: Tree, head: Tree) -> list[Change]:
@@ -480,7 +577,7 @@ PULL_QUERY = """
 query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
-      author { login } headRefOid merged mergeCommit { oid }
+      author { login } headRefOid merged mergeCommit { oid } body
       reviews(last: 100) { nodes { author { login __typename } authorAssociation state body submittedAt commit { oid } } }
       comments(last: 100) { nodes { databaseId body createdAt authorAssociation author { login __typename } } }
     }
@@ -511,8 +608,16 @@ def signed(verdict: Approval) -> str:
     return ", ".join(who)
 
 
+def order_lines(order: tuple[str, str] | None, refused: list[str]) -> list[str]:
+    if order:
+        return [f"Leo's order: {code(order[0])} ({code(order[1])})."]
+    return ["**Needs Leo's order.** A default change needs his explicit order, cited on its own line of the "
+            f"pull request body: `{ORDER_FORMAT}`. A question is not an order (a quote ending in `?` is "
+            "refused). Editing the body re-runs this check.", *[f"- Refused: {r}" for r in refused]]
+
+
 def comment_body(found: list[Change], verdict: Approval | None, head: str, merged: str | None = None,
-                 free: list[Change] | None = None) -> str:
+                 free: list[Change] | None = None, order: tuple[tuple[str, str] | None, list[str]] | None = None) -> str:
     lines = [MARKER, "## Default changes"]
     if not found:
         lines.append(f"No defaults change at `{head[:12]}`.")
@@ -521,12 +626,15 @@ def comment_body(found: list[Change], verdict: Approval | None, head: str, merge
                  "(what everyone gets without configuring anything):")
     lines.append("")
     free = free or []
-    lines += [f"- {code(c.id)}: {code(c.detail)}" + (" (a new setting, off by default: passes on its own)" if c in free else "")
+    lines += [f"- {code(c.id)}: {code(c.detail)}" + (" (new, keeps the behavior from before it: passes on its own)"
+                                                     if c in free else "")
               for c in found]
     lines.append("")
     if all(c in free for c in found):
-        lines.append("Every change is a new setting that defaults to off, the behavior from before it existed.")
-    elif verdict is not None:
+        lines.append("Every change is a new setting or tunable that keeps the behavior from before it existed.")
+    elif order is not None:
+        lines += [*order_lines(*order), ""]
+    if verdict is not None and not all(c in free for c in found):
         if verdict.approved:
             lines.append(f"Signed off on this commit by {signed(verdict)}.")
         else:
@@ -544,7 +652,8 @@ def comment_body(found: list[Change], verdict: Approval | None, head: str, merge
     if merged:
         lines += ["", f"**Merge receipt:** merged as `{merged[:12]}` with these defaults changed"
                   + (f", signed off by {signed(verdict)}." if verdict and verdict.approved
-                     else ", WITHOUT a SHIP receipt or an approving call owner review on its head.")]
+                     else ", WITHOUT a SHIP receipt or an approving call owner review on its head.")
+                  + (" WITHOUT Leo's order in its body." if order is not None and order[0] is None else "")]
     lines += ["", f"Regenerate the snapshot with `{REGENERATE}`."]
     return "\n".join(lines) + "\n"
 
@@ -722,7 +831,10 @@ def command_check(args: argparse.Namespace) -> int:
     if pull is not None and verdict is not None and verdict.head != head_sha:
         problems.append(f"DEFAULTS head: the pull request's head is {verdict.head[:12]}, not {head_sha[:12]}; re-run on the new head")
     merged = str((pull.get("mergeCommit") or {}).get("oid") or "") if pull and pull.get("merged") else None
-    body = comment_body(found, verdict, head_sha, merged, free)
+    needed = [c for c in found if c not in free]
+    ordered = [c for c in needed if needs_order(c)]
+    order = leo_order(str((pull or {}).get("body") or "")) if ordered else None
+    body = comment_body(found, verdict, head_sha, merged, free, order)
     annotate(found)
     for problem in problems:
         print(f"::error title=Defaults snapshot::{command_text(problem)}" if not problem.startswith("  ") else plain(problem))
@@ -736,14 +848,19 @@ def command_check(args: argparse.Namespace) -> int:
             print(f"::warning title=Defaults comment not posted::{error}")
     if problems:
         return 1
-    needed = [c for c in found if c not in free]
+    refused = False
+    if order is not None and order[0] is None:
+        message = (f"{len(ordered)} default(s) changed; the pull request body needs Leo's explicit order on its own "
+                   f"line, {ORDER_FORMAT} (a question is not an order)" + "".join(f"; refused {r}" for r in order[1]))
+        print(f"::error title=Default changes need Leo's order::{command_text(message)}")
+        refused = True
     if needed and not (verdict and verdict.approved):
         who = " or ".join(verdict.eligible) if verdict else "a call owner"
         print(f"::error title=Default changes need a review::{len(needed)} default(s) changed; needs a comment or review "
               f"whose first line is `Review (<reviewer>): SHIP at {head_sha}` from a member (not a self-review), "
               f"or an approving review on {head_sha[:12]} from {who}")
-        return 1
-    return 0
+        refused = True
+    return 1 if refused else 0
 
 
 def main(argv: list[str]) -> int:

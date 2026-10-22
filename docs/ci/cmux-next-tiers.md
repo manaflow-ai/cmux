@@ -174,13 +174,26 @@ exports lag the same way, so the defaults-snapshot job passes `--base` (the
 event's parent commit): a stale export of a source the event changed fails, and
 one already stale on the base is a warning. The base autofix
 rewrites it after each merge. The defaults guard judges a pull request by the defaults its
-exports and sources produce, never by a committed snapshot. A changed default passes
-with an independent review receipt on the head (a comment or review whose first line is
+exports and sources produce, never by a committed snapshot. Those include every Debug
+Tunable's `default:` (`Tunable<T>.choice|toggle|number|color|spring`), since #22826 flipped
+`status.working` from the spinner to a breathing dot inside a 33-file pull request unseen.
+A changed default needs Leo's explicit order, cited on its own line of the pull request body:
+
+```
+Leo's order: "<his words>" <https link to where he said them>
+```
+
+A question is not an order: a quote that ends with `?` is refused, and so is a line
+without an https link. Editing the body re-runs the check. A change to the guard's own
+files needs the review below but no order. A changed default also needs
+an independent review receipt on the head (a comment or review whose first line is
 `Review (<reviewer>): SHIP at <full head sha>`, from a member, not a self-review; the
 newest verdict naming the head decides, so a later BLOCK beats an earlier SHIP) or an
 approving review from a call owner in `.github/defaults-call-owners.json` other than the
-author. A new setting whose default is off (false, null, `off`, `never`, `none`,
-`disabled` or empty) keeps what everyone had before it existed and passes on its own.
+author. A new setting or tunable whose default is off (false, null, `off`, `never`, `none`,
+`disabled` or empty) keeps what everyone had before it existed and passes on its own, with
+no order and no review, and so does a new number tunable (a knob over a value the code
+already had).
 
 ## Measurements
 
