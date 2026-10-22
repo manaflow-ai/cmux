@@ -3546,6 +3546,9 @@ export function AcpmuxApp() {
   );
 }
 
+/// No projects known (a stable value, so memos keyed on it hold).
+const NO_PROJECTS: Project[] = [];
+
 function AcpmuxPane() {
   // Debug measurement (acpmuxPerf): the pane's own render, before its children.
   const paneRenderStart = acpmuxPerf.enabled ? performance.now() : 0;
@@ -6850,7 +6853,15 @@ function AcpmuxPane() {
       }),
     [],
   );
-  const [directProjects, setDirectProjects] = useState<Project[]>([]);
+  /// The daemon's list, with the New Tab page it was asked for (`newTabGeneration`): the list is
+  /// that page's machine's, so a later page (another machine's, or this Mac's after one) never
+  /// reads it, from its first render, while its own is pending or if it fails (Codex review of
+  /// #24274).
+  const [loadedProjects, setDirectProjects] = useState<{ page: number; projects: Project[] }>({
+    page: 0,
+    projects: [],
+  });
+  const directProjects = loadedProjects.page === newTabGeneration ? loadedProjects.projects : NO_PROJECTS;
   const onNewTab = Boolean(newTab);
   useEffect(() => {
     // Start Agent's folder picker lists them too (cx-hkat), and so does the New Tab page: the
@@ -6859,7 +6870,7 @@ function AcpmuxPane() {
     let active = true;
     void loadNewTabProjects()
       .then((projects) => {
-        if (active) setDirectProjects(projects);
+        if (active) setDirectProjects({ page: newTabGeneration, projects });
       })
       .catch(() => undefined);
     return () => {
