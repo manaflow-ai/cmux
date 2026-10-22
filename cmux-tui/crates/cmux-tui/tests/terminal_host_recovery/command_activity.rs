@@ -684,12 +684,35 @@ fn a_feed_reply_reaches_only_the_waiting_agent_session() {
         std::thread::sleep(Duration::from_millis(50));
     };
     assert!(!screen.contains("wrong_session_reply"), "{screen}");
-    // The agent went back to work (or is asking): refused.
-    request(&harness.socket, serde_json::json!({"id": 7, "cmd": "report-agent", "surface": surface, "state": "working", "source": "hook"}));
+    // The agent went back to work, then asks for approval (its own hooks, from another shell):
+    // refused both times.
+    // The terminal's public id, as the finished turn's ledger row names it.
+    let terminal_id = request(&harness.socket, serde_json::json!({"id": 7, "cmd": "list-notifications"}))
+        ["notifications"][0]["terminal_id"]
+        .as_str()
+        .expect("the agent's public terminal id")
+        .to_string();
+    let hook = |event: &str, payload: serde_json::Value| {
+        let path = payload_dir.join(format!("{event}.json"));
+        fs::write(&path, payload.to_string()).unwrap();
+        let output = Command::new(helper)
+            .args(["__agent-hook", "claude", event])
+            .env("CMUX_TUI_SOCKET", &harness.socket)
+            .env("CMUX_TUI_TERMINAL_ID", &terminal_id)
+            .stdin(fs::File::open(&path).unwrap())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{event} hook failed ({terminal_id}): {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    hook("UserPromptSubmit", serde_json::json!({"session_id":"reply-s1","hook_event_name":"UserPromptSubmit","cwd":"/tmp","prompt":"again"}));
     wait_for_agent_state(&harness, "working");
     let busy = reply(8, "busy_reply", "reply-s1");
     assert_eq!(busy["ok"], false, "{busy}");
-    request(&harness.socket, serde_json::json!({"id": 9, "cmd": "report-agent", "surface": surface, "state": "blocked", "source": "hook"}));
+    hook("PermissionRequest", serde_json::json!({"session_id":"reply-s1","hook_event_name":"PermissionRequest","cwd":"/tmp","tool_name":"Bash"}));
     wait_for_agent_state(&harness, "blocked");
     let asking = reply(10, "asking_reply", "reply-s1");
     assert_eq!(asking["ok"], false, "{asking}");
