@@ -55,7 +55,7 @@ final class TailnetNodeService {
 
     /// The card in the Settings host lists, null while Labs is off. Reading it while enabled starts
     /// following the node (once per daemon connection; the follow ends with the connection).
-    func pageJSON(enabled: Bool) -> JSONValue {
+    func pageJSON(enabled: Bool) -> CmuxNextSettings.JSONValue {
         guard enabled else { return .null }
         startFollowing()
         return TailnetNodePage.json(model: model, qr: { [qr] in qr.pngDataURL(for: $0) })
