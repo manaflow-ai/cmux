@@ -42,17 +42,22 @@ public final class HangEpisodeRecorder: Sendable {
     private let symbolQueue = DispatchQueue(label: "cmux-next.hang-episodes.symbols", qos: .utility)
     private let state = Mutex(State())
 
-    /// An episode whose file may still change: still blocked, or not yet symbolicated.
+    /// An episode whose file may still change: still blocked, or not yet symbolicated. At most
+    /// ``maxFiles`` are kept, so the raw stacks waiting for symbolication stay bounded.
     private struct Episode {
         var beat: UInt64
         var entry: Entry
         var stacks: String
-        var symbolicated = false
+        /// The addresses still to symbolicate; nil once done.
+        var raw: (main: [UInt], others: [ThreadSample])?
+        var symbolicated: Bool { raw == nil }
     }
 
     private struct State {
         var entries: [Entry] = []
         var episodes: [Episode] = []
+        /// One symbolication at a time: a job stuck on the loader lock holds only itself.
+        var symbolicating = false
     }
 
     static let filePrefix = "hang-"
@@ -127,24 +132,14 @@ public final class HangEpisodeRecorder: Sendable {
             let entry = Entry(url: directory.appending(path: Self.fileName(started)), started: started, duration: elapsed,
                               ongoing: true, topFrames: Array(main.prefix(Self.topFrameCount).map(Self.hex)))
             state.withLock { state in
-                state.episodes.append(Episode(beat: beat, entry: entry, stacks: raw))
+                state.episodes.append(Episode(beat: beat, entry: entry, stacks: raw, raw: (main: main, others: others)))
                 // A symbolicator that never finishes leaves its episodes here; keep a bounded few.
                 if state.episodes.count > maxFiles { state.episodes.removeFirst(state.episodes.count - maxFiles) }
             }
             write(entry, stacks: raw)
             prune()
             publish(entry)
-            symbolQueue.async { [self] in
-                let mainFrames = symbolicate(main)
-                let stacks = Self.render(main: mainFrames, others: others.map { (name: $0.name, frames: symbolicate($0.addresses)) })
-                queue.async { [self] in
-                    change(beat: beat) { episode in
-                        episode.stacks = stacks
-                        episode.entry.topFrames = Array(mainFrames.prefix(Self.topFrameCount))
-                        episode.symbolicated = true
-                    }
-                }
-            }
+            symbolicateNext()
         }
     }
 
@@ -162,11 +157,39 @@ public final class HangEpisodeRecorder: Sendable {
     func drain(symbols: Bool = true) {
         queue.sync {}
         guard symbols else { return }
-        symbolQueue.sync {}
-        queue.sync {}
+        while queue.sync(execute: { state.withLock { $0.symbolicating } }) { symbolQueue.sync {} }
     }
 
+    /// Episodes still held for their files (tests: bounded by ``maxFiles``).
+    var pendingEpisodeCount: Int { state.withLock { $0.episodes.count } }
+
     // MARK: Recorder queue
+
+    /// Starts symbolicating the oldest kept episode that still has raw addresses, unless a job
+    /// runs. Its result enriches that episode's file; then the next one starts. Episodes dropped
+    /// meanwhile are never symbolicated.
+    private func symbolicateNext() {
+        let next: (beat: UInt64, main: [UInt], others: [ThreadSample])? = state.withLock { state in
+            guard !state.symbolicating, let episode = state.episodes.first(where: { !$0.symbolicated }),
+                  let raw = episode.raw else { return nil }
+            state.symbolicating = true
+            return (beat: episode.beat, main: raw.main, others: raw.others)
+        }
+        guard let next else { return }
+        symbolQueue.async { [self] in
+            let mainFrames = symbolicate(next.main)
+            let stacks = Self.render(main: mainFrames, others: next.others.map { (name: $0.name, frames: symbolicate($0.addresses)) })
+            queue.async { [self] in
+                state.withLock { $0.symbolicating = false }
+                change(beat: next.beat) { episode in
+                    episode.stacks = stacks
+                    episode.entry.topFrames = Array(mainFrames.prefix(Self.topFrameCount))
+                    episode.raw = nil
+                }
+                symbolicateNext()
+            }
+        }
+    }
 
     /// Applies `body` to the episode of `beat` and rewrites its file; an episode that ended and
     /// is symbolicated is done and leaves the list.

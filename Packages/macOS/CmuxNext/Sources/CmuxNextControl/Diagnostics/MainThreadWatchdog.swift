@@ -98,10 +98,8 @@ public final class MainThreadWatchdog: Sendable {
     }
     private let stallSink = Mutex<(@Sendable (HangRecord) -> Void)?>(nil)
     let episodeSink = Mutex<HangEpisodeRecorder?>(nil) // ``episodes``
-    /// The open hang episode's beat (`.max`: none), and its stall's exact length once it ended,
-    /// written only by that stall (MainThreadWatchdog+Episodes.swift).
-    let episodeBeat = Atomic<UInt64>(.max)
-    let episodeEnd = Mutex<(beat: UInt64, nanos: UInt64)?>(nil)
+    /// Finished stalls of a hang's length by beat, the newest few, until their file takes one (+Episodes).
+    let hangEnds = Mutex<[(beat: UInt64, nanos: UInt64)]>([])
     private let hangNanos: UInt64
     let hangIntervalNanos: UInt64
     private let hangAssertNanos: UInt64?
@@ -136,7 +134,7 @@ public final class MainThreadWatchdog: Sendable {
     /// A decided quit is ending (``endHangAssertions()``).
     private let assertionsEnded = Atomic<Bool>(false)
     private let watchdogParked = Atomic<Bool>(false)
-    private let running = Atomic<Bool>(false)
+    let running = Atomic<Bool>(false)
     // concurrency-allow: only the watchdog thread waits on it; the main thread only signals.
     private let wake = DispatchSemaphore(value: 0)
     /// The stall sample, published by the watchdog thread while the main
@@ -284,16 +282,17 @@ public final class MainThreadWatchdog: Sendable {
             // No symbolication here (main thread); `debug.hangs` resolves the stack.
             logger.error("main thread stalled \(record.duration.fractionalMilliseconds, format: .fixed(precision: 1)) ms (hang \(record.sequence), \(addresses.count) frames; see debug.hangs)")
         }
-        if episodeBeat.load(ordering: .acquiring) == beat { episodeEnd.withLock { $0 = (beat, nanos) } }
+        if nanos >= hangNanos { hangEnds.withLock { $0.append((beat, nanos)); if $0.count > 4 { $0.removeFirst() } } }
         stallSink.withLock { $0 }?(record)
     }
 
     // MARK: - Watchdog thread
 
-    private func watch(sampler: ThreadStackSampler?) {
+    func watch(sampler: ThreadStackSampler?) {
         var sampledBeat: UInt64 = .max
         var hang = HangState(episodes: HangEpisodeTracker(hangNanos: hangNanos))
         while running.load(ordering: .acquiring) {
+            closeRecoveredEpisode(&hang.episodes) // the beat moved while busy (also before the early waits)
             if mainAsleep.load(ordering: .acquiring) {
                 closeRecoveredEpisode(&hang.episodes) // seen asleep: an open hang ended; before parking
                 watchdogParked.store(true, ordering: .releasing)

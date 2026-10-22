@@ -182,6 +182,38 @@ struct HangEpisodeTrackerTests {
         #expect(recorder.text(of: target) == nil, "outside the folder")
     }
 
+    /// A symbolicator stuck on the loader lock holds one job; later hangs still write their raw
+    /// files and finalize, and the work waiting for symbols stays bounded by the files kept.
+    @Test func aStuckSymbolicatorKeepsPendingWorkBounded() {
+        let directory = scratch()
+        let release = DispatchSemaphore(value: 0)
+        let calls = CallCount()
+        let recorder = HangEpisodeRecorder(directory: directory, maxFiles: 3, symbolicate: { addresses in
+            calls.value.add(1, ordering: .relaxed)
+            // concurrency-allow: the recorder's symbol queue in a test, never the main thread; released below.
+            release.wait()
+            release.signal()
+            return addresses.map { String($0) }
+        })
+        defer {
+            release.signal()
+            recorder.drain()
+            try? FileManager.default.removeItem(at: directory)
+        }
+        for beat in 0..<8 {
+            recorder.begin(beat: UInt64(beat), elapsed: .seconds(10 * (10 - beat)), main: [0x10, 0x20], others: [])
+            recorder.update(beat: UInt64(beat), duration: .seconds(5), ongoing: false)
+        }
+        recorder.drain(symbols: false)
+        let deadline = ContinuousClock.now + .seconds(10)
+        while calls.value.load(ordering: .relaxed) == 0, ContinuousClock.now < deadline { usleep(1_000) }
+        usleep(50_000) // a second job, if one were queued, would have started by now
+        #expect(calls.value.load(ordering: .relaxed) == 1, "one symbolication in flight")
+        #expect(recorder.pendingEpisodeCount <= 3)
+        #expect(files(in: directory).count == 3)
+        #expect(recorder.entries.allSatisfy { !$0.ongoing })
+    }
+
     @Test func writesNothingWhileTurnedOff() {
         let directory = scratch()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -194,7 +226,8 @@ struct HangEpisodeTrackerTests {
     }
 }
 
-/// The open episode's exact stall length: written only by that stall, kept until consumed.
+/// The exact length of a hang's stall: recorded by the main thread when it ends, kept until
+/// its file takes it.
 struct HangEpisodeCompletionTests {
     @MainActor
     @Test func aLaterShortStallDoesNotOverwriteTheEpisodesLength() {
@@ -202,7 +235,6 @@ struct HangEpisodeCompletionTests {
         let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false), uptime: clock.read)
         watchdog.heartbeat(.afterWaiting)
         let beat = watchdog.beatSequence.load(ordering: .acquiring)
-        watchdog.openEpisode(beat: beat)
         clock.advance(by: .seconds(3))
         watchdog.heartbeat(.beforeWaiting) // the hang ends after 3 s
         watchdog.heartbeat(.afterWaiting)
@@ -212,16 +244,56 @@ struct HangEpisodeCompletionTests {
         #expect(watchdog.closeEpisode(beat: beat, lastElapsedNanos: 2_000_000_000) == 2_000_000_000, "consumed once")
     }
 
-    /// A stall that ended before the episode was published leaves the last length seen.
+    /// The stall can end between the watchdog deciding it is a hang and opening its episode;
+    /// its file still gets the measured length, not the last one the watchdog saw.
     @MainActor
-    @Test func aStallEndingBeforeTheEpisodeOpenedFallsBackToTheLastLengthSeen() {
+    @Test func aHangThatEndsBeforeItsEpisodeOpensKeepsItsMeasuredLength() {
         let clock = ManualUptime()
         let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false), uptime: clock.read)
         watchdog.heartbeat(.afterWaiting)
         let beat = watchdog.beatSequence.load(ordering: .acquiring)
         clock.advance(by: .seconds(3))
         watchdog.heartbeat(.beforeWaiting)
-        watchdog.openEpisode(beat: beat)
-        #expect(watchdog.closeEpisode(beat: beat, lastElapsedNanos: 2_100_000_000) == 2_100_000_000)
+        #expect(watchdog.closeEpisode(beat: beat, lastElapsedNanos: 2_100_000_000) == 3_000_000_000)
     }
+
+    /// The watch loop itself: after a hang, a main thread that stays busy (heartbeats closer
+    /// together than the sampling delay, never sleeping) still finalizes the file.
+    @MainActor
+    @Test func aBusyRecoveryFinalizesTheFile() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "hang-episode-tests-\(UUID().uuidString)")
+        let recorder = HangEpisodeRecorder(directory: directory, symbolicate: { $0.map { String($0) } })
+        defer {
+            recorder.drain()
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let clock = ManualUptime()
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), sampleStacks: false, logStalls: false,
+                                                               hangAssertThreshold: nil), uptime: clock.read)
+        watchdog.episodes = recorder
+        watchdog.heartbeat(.afterWaiting)
+        watchdog.running.store(true, ordering: .releasing)
+        let thread = Thread { watchdog.watch(sampler: nil) }
+        thread.start()
+        defer { watchdog.stop() }
+        clock.advance(by: .seconds(3))
+        var deadline = ContinuousClock.now + .seconds(10)
+        while recorder.entries.first?.ongoing != true, ContinuousClock.now < deadline { usleep(5_000) }
+        #expect(recorder.entries.first?.ongoing == true, "the hang file was not opened")
+        // Recovered, and busy: a heartbeat every 10 ms of the watchdog's clock, never before-waiting.
+        deadline = ContinuousClock.now + .seconds(10)
+        while recorder.entries.first?.ongoing != false, ContinuousClock.now < deadline {
+            watchdog.heartbeat(.beforeSources)
+            clock.advance(by: .milliseconds(10))
+            usleep(2_000)
+        }
+        let entry = try #require(recorder.entries.first)
+        #expect(!entry.ongoing, "a busy recovery left the file marked blocked")
+        #expect(entry.duration == .seconds(3))
+    }
+}
+
+/// Symbolicator calls (a class: an `Atomic` cannot be captured).
+final class CallCount: Sendable {
+    let value = Atomic(0)
 }
