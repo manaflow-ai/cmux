@@ -41,8 +41,7 @@ struct DeepLinkNavigator {
             guard let pane = services.pane(id: id) else { throw Self.gone }
             try reveal(pane, intent)
         case .workspace(let id):
-            let workspace = services.machines.allWorkspaces.map(\.0).first { $0.resourceID?.rawValue == id }
-            guard let workspace else { throw Self.gone }
+            guard let workspace = services.workspace(linkID: id) else { throw Self.gone }
             try reveal(workspace: workspace.id, intent)
         case .session(let id, let turn):
             try openSession(id, turn: turn, intent)

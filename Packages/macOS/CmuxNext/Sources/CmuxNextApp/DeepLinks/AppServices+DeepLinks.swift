@@ -15,6 +15,13 @@ extension AppServices {
     func linkText(_ link: DeepLink) -> String? {
         link.url(scheme: linkScheme)?.absoluteString
     }
+
+    /// The workspace a `cmux://workspace/<id>` link names, on any connected machine or session:
+    /// by its `ws_` resource id, else by the key that id carries (`DeepLink.workspace(_:in:resourceID:key:)`,
+    /// the form a Chief writes from a subagent workspace's key).
+    func workspace(linkID id: String) -> WorkspaceModel? {
+        DeepLink.workspace(id, in: machines.allWorkspaces.lazy.map(\.0), resourceID: { $0.resourceID?.rawValue }, key: \.id)
+    }
 }
 
 extension AppServices {

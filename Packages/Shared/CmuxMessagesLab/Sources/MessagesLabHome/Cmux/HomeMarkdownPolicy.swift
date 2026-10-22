@@ -61,7 +61,7 @@ extension URL {
 
 /// cmux: every app link Home renders and a click hands to the host's `onAppLink` (the app's
 /// `link.open`), never to the system: a Chief subagent's link (``isChiefSubagentLink``), or
-/// `cmux://workspace/ws_<32 hex>`, `pane/pane_<32 hex>`, `tab/tab_<32 hex>`, `session/<id>`
+/// `cmux://workspace/ws_<32 hex>` (or `workspace/<key uuid>`), `pane/pane_<32 hex>`, `tab/tab_<32 hex>`, `session/<id>`
 /// (optional `#turn-<id>`) in the `cmux` scheme or a build's `cmux-…` one, with no user, port or
 /// query other than the app's `machine=machine_…` hint. The app parses it again (DeepLink.parse).
 extension URL {
@@ -86,7 +86,9 @@ extension URL {
             return hex.count == 32 && hex.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
         }
         switch host {
-        case "workspace": return resource("ws_")
+        // Or by its key (a dashed UUID), what `chief peers` showed for a subagent's workspace:
+        // the app finds the workspace by that key (DeepLink `legacyWorkspace`).
+        case "workspace": return resource("ws_") || (c.fragment == nil && UUID(uuidString: id) != nil && id.utf8.count == 36)
         case "pane": return resource("pane_")
         case "tab": return resource("tab_")
         case "session":

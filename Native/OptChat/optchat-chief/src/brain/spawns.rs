@@ -564,11 +564,17 @@ impl Brain {
         &mut self,
         id: &str,
         key: String,
-        _ws: Option<String>,
+        ws: Option<String>,
         name: String,
     ) {
         let mut shown_session = None;
         let done = if let Some(sub) = self.state.sub_mut(id) {
+            if sub.workspace.as_deref() != Some(key.as_str()) {
+                sub.workspace_id = None;
+            }
+            if ws.is_some() {
+                sub.workspace_id = ws;
+            }
             sub.workspace = Some(key);
             sub.title = name;
             shown_session = sub.session_id.clone().filter(|_| sub.peer.is_none());
@@ -1280,6 +1286,7 @@ impl Brain {
         };
         if let Some(sub) = self.state.sub_mut(id) {
             sub.workspace = None;
+            sub.workspace_id = None;
         }
         self.save();
         let (log, id) = (self.log.clone(), id.to_owned());
@@ -1515,10 +1522,13 @@ impl Brain {
                 .filter(|(id, _)| *id == sub.id)
                 .map_or(sub.title.as_str(), |(_, t)| t);
             let you = if sub.id == caller { " (you)" } else { "" };
+            // The link that opens its workspace, by its `ws_` id; never the key, which a reader
+            // turned into a `ws_<key hex>` link that named no workspace (a489, 2026-10-22).
             let workspace = sub
-                .workspace
+                .workspace_id
                 .as_deref()
-                .map(|w| format!(", workspace {w}"))
+                .filter(|_| sub.workspace.is_some())
+                .map(|w| format!(", workspace cmux://workspace/{w}"))
                 .unwrap_or_default();
             lines.push(format!("- {}{you}: {title} ({state}{workspace})", sub.id));
         }

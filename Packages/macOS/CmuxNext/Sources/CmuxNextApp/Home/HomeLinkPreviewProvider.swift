@@ -31,14 +31,11 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
         }
         switch link.target {
         case .workspace(let id):
-            guard let workspace = services.machines.allWorkspaces.map(\.0).first(where: { $0.resourceID?.rawValue == id }) else {
-                return closed(kind, id)
-            }
-            let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-            let titles = TabTitleResolver(services: services)
-            return HomeLinkPreview(kind: .workspace, title: workspace.displayName, place: HomeLinkPreviewStrings.tabCount(tabs.count),
-                                   status: HomeLinkPreviewStrings.open, statusTone: .success,
-                                   lines: tabs.prefix(Self.maxLines).map { titles.title($0) })
+            guard let workspace = services.workspace(linkID: id) else { return closed(kind, id) }
+            return workspacePreview(workspace, services: services)
+        case .legacyWorkspace(let key, _): // a workspace by its key (CmuxAppLinks)
+            guard let workspace = services.workspace(id: key.uuidString.lowercased()) else { return closed(kind, url.lastPathComponent) }
+            return workspacePreview(workspace, services: services)
         case .pane(let id):
             guard let pane = services.pane(id: id), let tab = pane.tabs.first else { return closed(kind, id) }
             return tabPreview(tab, pane: pane, services: services)
@@ -56,7 +53,7 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
             let shown = DeepLink.agentTabs(harness: harness, session: session, adopted: services.agentTabs.tab(resuming: AgentPaneAdopt(harness: harness, agentSessionId: session)), harnessSessions: services.machines.daemons.flatMap(\.store.reachableAgentHarnessSessions))
             guard let (tab, pane) = shown.lazy.compactMap({ services.locateTab($0) }).first else { return closed(.session, session) }
             return tabPreview(tab, pane: pane, services: services, kind: .session)
-        case .legacyWorkspace, .legacyPane, .legacySurface: return closed(kind, url.lastPathComponent)
+        case .legacyPane, .legacySurface: return closed(kind, url.lastPathComponent)
         }
     }
 
@@ -166,5 +163,16 @@ enum HomeLinkPreviewStrings {
     static var closed: String { String(localized: "home.linkPreview.closed", defaultValue: "Closed", bundle: .module) }
     static func tabCount(_ count: Int) -> String {
         String(format: String(localized: "home.linkPreview.tabCount", defaultValue: "Tabs: %lld", bundle: .module), count)
+    }
+}
+
+extension HomeLinkPreviewProvider {
+    /// A workspace link's card: its name, tab count and first tab titles.
+    func workspacePreview(_ workspace: WorkspaceModel, services: AppServices) -> HomeLinkPreview {
+        let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+        let titles = TabTitleResolver(services: services)
+        return HomeLinkPreview(kind: .workspace, title: workspace.displayName, place: HomeLinkPreviewStrings.tabCount(tabs.count),
+                               status: HomeLinkPreviewStrings.open, statusTone: .success,
+                               lines: tabs.prefix(Self.maxLines).map { titles.title($0) })
     }
 }

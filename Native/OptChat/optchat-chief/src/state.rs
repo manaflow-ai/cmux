@@ -310,9 +310,13 @@ pub struct SubRecord {
     /// Its acpmux session, once created.
     #[serde(default)]
     pub session_id: Option<String>,
-    /// Its cmux workspace, once created.
+    /// Its cmux workspace's key, once created.
     #[serde(default)]
     pub workspace: Option<String>,
+    /// That workspace's public resource id (`ws_…`), when the session daemon named it: what a
+    /// `cmux://workspace/` link needs. The key is no such id (a489, 2026-10-22).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
     /// The acpmux peer (a cloud VM) it runs on; None: this machine. Only
     /// local subagents count against the live cap.
     #[serde(default, skip_serializing_if = "Option::is_none")]
