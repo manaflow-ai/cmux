@@ -234,6 +234,8 @@ def profile_splits(out):
         r = result[name]
         print(f"PERF-PROFILE-SPLIT {name} framework {r.get('framework_pct')} % ours {r.get('ours_pct')} % "
               f"{json.dumps(r.get('busy_pct'))}", flush=True)
+        for bucket, frames in (r.get("top_frames") or {}).items():
+            print(f"PERF-PROFILE-TOP {name} {bucket}: " + "; ".join(f"{n} x{c}" for n, c in frames[:4]), flush=True)
     return result
 
 

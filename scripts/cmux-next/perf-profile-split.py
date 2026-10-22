@@ -165,16 +165,31 @@ def stacks_from_trace(trace):
         yield 1, stack
 
 
+def deciding_frame(stack):
+    """The frame `classify` decided on (the first owned frame from the leaf), for the report's top lists."""
+    for sym, mod in stack:
+        if OUR_MODULE.search(mod or "") and not ENTRY.match(sym or ""):
+            return f"{sym} ({mod})"
+        if any(p.search(mod or "") for _, p in FRAMEWORK):
+            return f"{sym} ({mod})"
+    return f"{stack[0][0]} ({stack[0][1]})" if stack else "?"
+
+
 def split(path):
     if path.endswith(".trace") or os.path.isdir(path):
         stacks = stacks_from_trace(path)
     else:
         stacks = stacks_from_sample(open(path, errors="replace").read())
-    buckets = {}
+    buckets, tops = {}, {}
     for count, stack in stacks:
         b = classify(stack)
         buckets[b] = buckets.get(b, 0) + count
-    return summarize(buckets)
+        if b != "idle":
+            key = deciding_frame(stack)[:140]
+            tops.setdefault(b, {})[key] = tops.setdefault(b, {}).get(key, 0) + count
+    result = summarize(buckets)
+    result["top_frames"] = {b: sorted(t.items(), key=lambda kv: -kv[1])[:6] for b, t in tops.items()}
+    return result
 
 
 def summarize(buckets):
