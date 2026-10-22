@@ -732,12 +732,7 @@ fn a_feed_reply_reaches_only_the_waiting_agent_session() {
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis()
-        .try_into()
-        .unwrap()
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis().try_into().unwrap()
 }
 
 #[test]

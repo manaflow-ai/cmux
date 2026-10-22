@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR f6bbc502577a56ee8cdbb4ac603a0673bf3e899d4cec854b162321626e575278. */
+/* cmux-tui mux protocol 12, IR d3937e91d77494dd723249520f8f0083b62455acba407243fa4eaf1ee9ed2e49. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1432,6 +1432,23 @@ export type TerminalPlacement = {
   "terminal_resource_id"?: string;
   "terminal_revision": bigint;
   "workspace": (Id) | null;
+};
+
+export type TerminalPortsListener = {
+  /** The loopback address that accepted the daemon's connect: 127.0.0.1 or ::1. */
+  "bound": string;
+  /** The host as the terminal printed it: localhost, 127.0.0.1, 0.0.0.0, [::1], ... */
+  "host": string;
+  "port": number;
+  /** The printed URL, or http://HOST:PORT/ when the text had no scheme. */
+  "url": string;
+};
+
+export type TerminalPortsResult = {
+  /** Ports the text names that refused the connect. */
+  "closed": Array<number>;
+  "listeners": Array<TerminalPortsListener>;
+  "surface": Id;
 };
 
 export type TerminalReadRangeResult = {

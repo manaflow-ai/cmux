@@ -162,12 +162,12 @@ export function SummaryCard({
   // A started chat waiting on the person is counted with the waiting subagents.
   const waitingCount = count("waiting") + children.filter((child) => child.state === "waiting").length;
   const runningCommands = commands.filter((command) => command.state === "running").length;
-  const runningSessions = children.filter((child) => child.state === "running").length;
+  // A started chat whose turn runs is a running subagent too: one word, as the tray says.
+  const runningCount = count("running") + children.filter((child) => child.state === "running").length;
   const counts = [
     waitingCount > 0 && t("summary.subagents.waiting", { n: waitingCount }),
-    count("running") > 0 && t("summary.subagents.running", { n: count("running") }),
+    runningCount > 0 && t("summary.subagents.running", { n: runningCount }),
     runningCommands > 0 && t("turn.working.commands", { n: runningCommands }),
-    runningSessions > 0 && t("turn.working.sessions", { n: runningSessions }),
     count("failed") > 0 && t("summary.subagents.failed", { n: count("failed") }),
     count("stopped") > 0 && t("summary.subagents.stopped", { n: count("stopped") }),
     count("done") > 0 && t("summary.subagents.done", { n: count("done") }),

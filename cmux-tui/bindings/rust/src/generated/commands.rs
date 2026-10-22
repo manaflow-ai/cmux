@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR f6bbc502577a56ee8cdbb4ac603a0673bf3e899d4cec854b162321626e575278.
+// cmux-tui mux protocol 12, IR d3937e91d77494dd723249520f8f0083b62455acba407243fa4eaf1ee9ed2e49.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3726,6 +3726,12 @@ pub type TerminalHistoryResult = T::TerminalHistoryPagesResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalPortsRequest {
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalReadRangeRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub format: Optional<String>,
@@ -5574,6 +5580,10 @@ impl CmuxClient {
 
     pub fn terminal_history(&mut self, request: TerminalHistoryRequest) -> Result<TerminalHistoryResult> {
         self.execute(&TERMINAL_HISTORY_METADATA, &request)
+    }
+
+    pub fn terminal_ports(&mut self, request: TerminalPortsRequest) -> Result<T::TerminalPortsResult> {
+        self.execute(&TERMINAL_PORTS_METADATA, &request)
     }
 
     pub fn terminal_read_range(&mut self, request: TerminalReadRangeRequest) -> Result<T::TerminalReadRangeResult> {

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR f6bbc502577a56ee8cdbb4ac603a0673bf3e899d4cec854b162321626e575278. */
+/* cmux-tui mux protocol 12, IR d3937e91d77494dd723249520f8f0083b62455acba407243fa4eaf1ee9ed2e49. */
 
 
 import type * as T from "./types.js";
@@ -2605,6 +2605,12 @@ export interface TerminalHistoryRequest extends CmuxRequestBase {
 export type TerminalHistoryResult = T.TerminalHistoryPagesResult;
 
 /** Protocol v12; authority: control. */
+export interface TerminalPortsRequest extends CmuxRequestBase {
+  cmd: "terminal-ports";
+  "surface": T.Id;
+}
+
+/** Protocol v12; authority: control. */
 export interface TerminalReadRangeRequest extends CmuxRequestBase {
   cmd: "terminal-read-range";
   "format"?: (string) | null;
@@ -3110,6 +3116,7 @@ export type CmuxRequest =
   | TerminalClipboardSubscribeRequest
   | TerminalEventsRequest
   | TerminalHistoryRequest
+  | TerminalPortsRequest
   | TerminalReadRangeRequest
   | TerminalResourcesRequest
   | TerminalResumeCommandRequest
@@ -5178,6 +5185,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "terminal-snapshot-v1";
+    stream: null;
+  };
+  "terminal-ports": {
+    request: TerminalPortsRequest;
+    result: T.TerminalPortsResult;
+    authority: "control";
+    since: 12;
+    capability: "terminal-ports-v1";
     stream: null;
   };
   "terminal-read-range": {

@@ -1958,6 +1958,23 @@ class TerminalPlacement:
 
 
 @dataclass(frozen=True)
+class TerminalPortsListener:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalPortsListener'
+    bound: str
+    host: str
+    port: int
+    url: str
+
+
+@dataclass(frozen=True)
+class TerminalPortsResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalPortsResult'
+    surface: Id
+    closed: List[int]
+    listeners: List[TerminalPortsListener]
+
+
+@dataclass(frozen=True)
 class TerminalReadRangeResult:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalReadRangeResult'
     surface: Id
@@ -4668,6 +4685,12 @@ class TerminalHistoryRequest:
 
 
 @dataclass(frozen=True)
+class TerminalPortsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/terminal-ports/request'
+    surface: Id
+
+
+@dataclass(frozen=True)
 class TerminalReadRangeRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/terminal-read-range/request'
     surface: Id
@@ -6075,6 +6098,8 @@ __all__ = [
     'TerminalKeyInput',
     'TerminalModifiers',
     'TerminalPlacement',
+    'TerminalPortsListener',
+    'TerminalPortsResult',
     'TerminalReadRangeResult',
     'TerminalRecord',
     'TerminalRegistryEvent',
@@ -6393,6 +6418,7 @@ __all__ = [
     'TerminalClipboardSubscribeRequest',
     'TerminalEventsRequest',
     'TerminalHistoryRequest',
+    'TerminalPortsRequest',
     'TerminalReadRangeRequest',
     'TerminalResourcesRequest',
     'TerminalResumeCommandRequest',
