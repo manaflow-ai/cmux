@@ -28,7 +28,9 @@
 /* Either place, the card: inset from the pane's right edge (ChatInspector.tsx FLOAT_MARGIN), as tall
    as its sections up to a ceiling. A busy chat's sections are taller than any pane: the card still stops
    at the ceiling, never at the pane's foot (claude-sr2 for Leo, 2026-10-22: "again a full-height
-   column"). */
+   column"). The ceiling is only a maximum: with little to show, the card ends right after its last
+   section, with no fixed or minimum height (Leo, 2026-10-22: "the card should just end when there's no
+   more content to show"; chat-inspector-overlay-toggle.test.ts). */
 .acpmux-chat-inspector[data-placement] {
   max-height: min(
     var(--acpmux-inspector-max-height),

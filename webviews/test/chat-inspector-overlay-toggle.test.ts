@@ -221,6 +221,67 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
         }
     });
 
+  // Leo, 2026-10-22: "the card should just end when there's no more content to show". The ceiling
+  // (560px, 80% of the room under the header) is only a maximum: below it the card's height is its
+  // content's, the same in a tall pane as in a short one, floating or pushing, with nothing under its
+  // last section but the body's own padding, and its body does not scroll.
+  for (const name of browsers.keys())
+    test(`${name}: floating or pushing, a card with little to show ends right after its last section, in any pane`, async () => {
+      current = browsers.get(name)!;
+      for (const [width, placement] of [
+        [1600, "overlay"],
+        [700, "push"],
+      ] as const) {
+        const cards: { height: number; top: number; card: number; empty: number; padding: number; scrolls: boolean }[] =
+          [];
+        for (const height of [1400, 800, 520]) {
+          const page = await pane!.open({ width, height });
+          try {
+            const { panel } = await openInspector(page, 0, placement);
+            cards.push({
+              height,
+              ...(await panel.evaluate((node) => {
+                const box = node.getBoundingClientRect();
+                const body = node.querySelector(".acpmux-chat-inspector__body")!;
+                const sections = [...node.querySelectorAll("[data-section]")];
+                const last = sections[sections.length - 1]!.getBoundingClientRect();
+                return {
+                  top: box.top,
+                  card: box.height,
+                  empty: box.bottom - last.bottom,
+                  padding: parseFloat(getComputedStyle(body).paddingBottom),
+                  scrolls: body.scrollHeight > body.clientHeight + 1,
+                };
+              })),
+            });
+          } finally {
+            await page.close();
+          }
+        }
+        // The harness's sections are about 160px tall: well under the ceiling in every one of these panes.
+        const [first] = cards;
+        expect(
+          cards.map(({ height, top, card, empty, padding, scrolls }) => ({
+            placement,
+            height,
+            belowCeiling: card < Math.min(560, (height - top) * 0.8),
+            sameAsTallestPane: Math.abs(card - first!.card) < 0.5,
+            endsAtContent: Math.abs(empty - padding) < 0.5,
+            scrolls,
+          })),
+        ).toEqual(
+          cards.map(({ height }) => ({
+            placement,
+            height,
+            belowCeiling: true,
+            sameAsTallestPane: true,
+            endsAtContent: true,
+            scrolls: false,
+          })),
+        );
+      }
+    });
+
   // Leo, 2026-10-22: "WHY DOES IT STAY ON IN THESE RANDOM SITUATIONS WITHOUT BEING CLOSABLE!?" Over a
   // diff in place the chat header (with the toggle) is hidden, so the panel carries its own close
   // button, and Esc closes it from anywhere but a text field (the composer keeps its own Esc).
