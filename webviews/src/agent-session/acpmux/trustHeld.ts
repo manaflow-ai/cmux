@@ -116,7 +116,7 @@ export function useTrustHeldPrompts({
   /// Reserves the current gesture for prompt `promptId` (`transport.gesture`).
   reserve(promptId: string): Promise<string | undefined>;
   /// A held prompt acpmux refused for another reason goes back into the composer.
-  putBack(entry: TrustHeldPrompt): void;
+  putBack(entries: TrustHeldPrompt[]): void;
   /// Whether a refusal is acpmux's trust gate: the prompt waits again.
   refusedForTrust(error: unknown): boolean;
 }) {
@@ -171,7 +171,7 @@ export function useTrustHeldPrompts({
                 ? list.map((item) => (ours(item) ? { ...item, chat: started } : item))
                 : list.filter((item) => !ours(item)),
             );
-            if (!started) for (const item of rest) latest.current.putBack(item);
+            if (!started && rest.length) latest.current.putBack(rest);
           }
         } catch (error) {
           going.current = undefined;
@@ -187,7 +187,7 @@ export function useTrustHeldPrompts({
           // Refused: its ticket is spent, so it goes back into the composer, unless a harness
           // switch already handed it back there (harnessSwitch.ts). A trust refusal (acpmux holds
           // the folder again) leaves the rest waiting for the next answer.
-          if ((error as { handedBack?: unknown } | null)?.handedBack !== true) latest.current.putBack(entry);
+          if ((error as { handedBack?: unknown } | null)?.handedBack !== true) latest.current.putBack([entry]);
           if (latest.current.refusedForTrust(error)) break;
         } finally {
           if (chat === undefined) starting.current = false;

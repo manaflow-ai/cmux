@@ -628,11 +628,18 @@ const heldGoesAfterTrust = () => undefined;
 type SentFrom = { chat: string | undefined; cwd: string | undefined };
 
 /// A held prompt's id and ticket as `chat.send` takes them (in-page only).
-function heldPromptParams(value: unknown): { promptId: string; ticket?: string } | undefined {
-  const held = value as { promptId?: unknown; ticket?: unknown } | null | undefined;
+function heldPromptParams(value: unknown): HeldSend | undefined {
+  const held = value as { promptId?: unknown; ticket?: unknown; chat?: unknown } | null | undefined;
   if (typeof held?.promptId !== "string") return undefined;
-  return { promptId: held.promptId, ...(typeof held.ticket === "string" ? { ticket: held.ticket } : {}) };
+  return {
+    promptId: held.promptId,
+    ...(typeof held.ticket === "string" ? { ticket: held.ticket } : {}),
+    ...(typeof held.chat === "string" ? { chat: held.chat } : {}),
+  };
 }
+/// A send of a prompt the folder's trust held: its id and ticket, and the chat it was sent in
+/// (none for a new chat), which it goes only to (`movedOn`).
+type HeldSend = { promptId: string; ticket?: string; chat?: string };
 
 /// Withdraws a queued prompt before its turn starts; false when it already started.
 const removeQueued = (promptId: string) =>
@@ -650,7 +657,12 @@ const editQueued = (promptId: string, edit: QueueEdit) =>
 /// The width the header's tools take in the pane's tab row, so the App narrows the tabs (header/tabRow.ts).
 const reportTabRowTools = (width: number) => void callNative("pane.tabRowTools", { width }).catch(() => undefined);
 /// Hands the host a new chat's typed text, kept with its tab across a relaunch (cx-z5vd).
-const postUnsentDraft = (text: string) => void callNative("chat.unsentDraft", { text }).catch(() => undefined);
+const postUnsentDraft = (text: string) => {
+  lastUnsentDraft = text;
+  void callNative("chat.unsentDraft", { text }).catch(() => undefined);
+};
+/// The new chat's text the host keeps last, so prompts held for a trust answer join it (`giveBackTrustHeld`).
+let lastUnsentDraft = "";
 /// Each chat's unsent chips, kept by the host so reopening or restoring the chat brings them back
 /// (AgentPaneDraftAttachments.swift). A host without the store (the gallery, an older app) keeps none.
 const keptAttachments: KeptAttachments = {
@@ -4043,7 +4055,7 @@ function AcpmuxPane() {
     holds: trustHolds,
     send: (entry) => sendTrustHeld.current(entry),
     reserve: reserveHeldPrompt,
-    putBack: (entry) => void giveBackTrustHeld.current([entry]),
+    putBack: (entries) => void giveBackTrustHeld.current(entries),
     refusedForTrust: isTrustRefusal,
   });
   holdRefused.current = (text, attachments, error, sentFrom) => {
@@ -4053,17 +4065,22 @@ function AcpmuxPane() {
   shownFrom.current = () => ({ chat: snapshot.sessionId, cwd: trustHeldCwd });
   /// Puts prompts the hold gives back where they were typed (trustHeld.ts `whereHeldGoes`): a
   /// refused one, or every one when the page quits.
-  const giveBackTrustHeld = useRef(async (_entries: readonly TrustHeldPrompt[]) => {});
+  /// A new chat's prompts with no composer showing go into the host's draft of that chat's tab
+  /// (`chat.unsentDraft`), and their chips are answered (for the wake state, which carries them).
+  const giveBackTrustHeld = useRef(async (_entries: readonly TrustHeldPrompt[]): Promise<ComposerAttachment[]> => []);
   giveBackTrustHeld.current = async (entries) => {
     const composer = composerHandle.current;
     const where = whereHeldGoes(entries, snapshot.sessionId, Boolean(composer));
     // `restore` puts what comes back first: the last one goes in first, so they read in order.
     for (const entry of [...where.composer].reverse()) composer?.restore(entry.text, entry.attachments);
-    if (where.later.length)
+    if (where.later.length) {
       heldBack.current = [
         ...(heldBack.current ?? []),
         ...where.later.map((entry) => ({ text: entry.text, attachments: entry.attachments })),
       ];
+      const text = where.later.map((entry) => entry.text).filter((part) => part.trim());
+      postUnsentDraft([...text, lastUnsentDraft].filter((part) => part.trim()).join("\n\n"));
+    }
     await Promise.all(
       [...where.drafts].map(async ([chat, entries]) => {
         const text = entries.map((entry) => entry.text).filter((part) => part.trim());
@@ -4076,14 +4093,15 @@ function AcpmuxPane() {
           .catch(() => undefined);
       }),
     );
+    return keptChips(where.later.flatMap((entry) => entry.attachments));
   };
-  /// Puts every prompt the folder's trust held back where it was typed, for a page that quits. True
-  /// when there were any.
-  const releaseTrustHeld = useRef(async () => false);
+  /// Puts every prompt the folder's trust held back where it was typed, for a page that quits:
+  /// whether there were any, and the chips of a new chat's that no composer took.
+  const releaseTrustHeld = useRef(async () => ({ any: false, chips: [] as ComposerAttachment[] }));
   releaseTrustHeld.current = async () => {
     const all = trustHeld.release();
-    await giveBackTrustHeld.current(all);
-    return all.length > 0;
+    const chips = await giveBackTrustHeld.current(all);
+    return { any: all.length > 0, chips };
   };
   const individualPermission =
     snapshot.permission?.pending && !(snapshot.permissionGroups?.supported && snapshot.permission.groupId)
@@ -5992,7 +6010,7 @@ function AcpmuxPane() {
           accepted?: (sessionId?: string) => void,
           steer = false,
           promptId?: string,
-          fromTrust?: { promptId: string; ticket?: string },
+          fromTrust?: HeldSend,
         ) => {
           // The chat it is sent in; once a start made the chat's session, that session.
           let sentFrom = shownFrom.current();
@@ -6045,15 +6063,20 @@ function AcpmuxPane() {
           // hands it back to the composer when the switch fails.
           // A prompt the folder's trust held keeps its id and its send's ticket there too.
           if (fromTrust?.ticket) trustTickets.set(fromTrust.promptId, fromTrust.ticket);
+          // A held prompt is taken once the switch wrote it, in the session the switch started: the
+          // hold's other prompts of that new chat follow it there (trustHeld.ts).
           const held = harnessSwitch.send(
             text,
             attachments,
-            () => promptLanded.current(),
+            () => {
+              promptLanded.current();
+              if (fromTrust) accepted?.(client.shownSession()?.sessionId);
+            },
             promptId ?? fromTrust?.promptId,
           );
           if (!held && fromTrust) trustTickets.delete(fromTrust.promptId);
           if (held) {
-            accepted?.();
+            if (!fromTrust) accepted?.();
             return held.catch((error: unknown) =>
               refused(error, (error as { handedBack?: unknown }).handedBack === true),
             );
@@ -6071,6 +6094,15 @@ function AcpmuxPane() {
           });
           await persistSession(sessionId);
           if (sessionId) sentFrom = { ...sentFrom, chat: sessionId };
+          // A held prompt goes only to its own chat, checked as it goes: another chat shown meanwhile
+          // (the selection moved during the start or the persist) keeps it unsent and its ticket
+          // unspent, to wait again (trustHeld.ts). A new chat's goes only to the empty session its
+          // start made.
+          if (fromTrust) {
+            const shown = client.shownSession();
+            const own = fromTrust.chat !== undefined ? fromTrust.chat === shown?.sessionId : shown?.empty === true;
+            if (!shown || shown.sessionId !== sessionId || !own) throw movedOn();
+          }
           const turn = client
             .send(text, attachments, kept?.promptId, accepted && (() => accepted(sessionId)), kept?.ticket, steer)
             .catch((error: unknown) => refused(error, Boolean(accepted)));
@@ -6441,12 +6473,16 @@ function AcpmuxPane() {
             // `holdsPrompts`): their tickets live with it. Quitting puts them back into drafts; the
             // composer saves its draft once the text settles (UNSENT_DRAFT_SETTLE_MS for a new chat),
             // within the host's wait.
+            // A new chat's prompts that no composer took give their chips to the wake state.
             if (quitting !== true && trustHeld.holdsAny()) return { holdsPrompts: true };
-            if (quitting === true && (await releaseTrustHeld.current()))
-              await new Promise((settled) => setTimeout(settled, 400));
+            const back = quitting === true ? await releaseTrustHeld.current() : undefined;
+            if (back?.any) await new Promise((settled) => setTimeout(settled, 400));
             const anchor = transcriptAnchor.current?.();
+            const composer = composerHandle.current?.wakeState();
+            const attachments = [...(back?.chips ?? []), ...(composer?.attachments ?? [])];
             return {
-              ...composerHandle.current?.wakeState(),
+              ...composer,
+              ...(attachments.length ? { attachments } : {}),
               ...(anchor ? { scrollAnchor: anchor } : anchor === null ? { atLatest: true } : {}),
             };
           },
@@ -7412,7 +7448,7 @@ function AcpmuxPane() {
     text: string,
     attachments: ComposerAttachment[],
     steer = false,
-    fromTrust?: { promptId: string; ticket?: string },
+    fromTrust?: HeldSend,
   ): boolean | Promise<unknown> => {
     if (!snapshot.sessionId) claimShellRuns.current = true;
     // A started chat never holds the prompt (plans/cmux-next/composer-delivery-DESIGN.md):
@@ -7508,7 +7544,11 @@ function AcpmuxPane() {
     // Not connected: the prompt goes back into the composer (the hold puts back what fails).
     // l10n-allow: never shown; the hold reads only that it failed.
     if (!window.cmuxAcpmuxActions?.["chat.send"]) throw new Error("not connected");
-    const sent = await sendFromComposer(entry.text, entry.attachments, false, { promptId: entry.id, ticket });
+    const sent = await sendFromComposer(entry.text, entry.attachments, false, {
+      promptId: entry.id,
+      ...(ticket ? { ticket } : {}),
+      ...(entry.chat !== undefined ? { chat: entry.chat } : {}),
+    });
     return typeof sent === "string" ? sent : undefined;
   };
   // A subagent's own pane is a tab on the chat's session: the chat's composer, queue and pull

@@ -45,13 +45,19 @@ function standIn() {
   /// `take(session)`: acpmux took it, in `session` (a new chat's, once its start made it).
   const sent: { entry: Entry; take(session?: string): void; refuse(error: unknown): void }[] = [];
   const putBack: string[] = [];
+  /// Each give-back, as one list: the pane restores a list in its order (App.tsx `giveBackTrustHeld`).
+  const givenBack: string[][] = [];
   return {
     sent,
     putBack,
+    givenBack,
     send: (entry: Entry) =>
       new Promise<string | undefined>((take, refuse) => sent.push({ entry, take: (session) => take(session), refuse })),
     reserve: async (promptId: string) => `ticket-${promptId}`,
-    put: (entry: Entry) => void putBack.push(entry.text),
+    put: (entries: Entry[]) => {
+      givenBack.push(entries.map((entry) => entry.text));
+      putBack.push(...entries.map((entry) => entry.text));
+    },
   };
 }
 const trustRefusal = Object.assign(new Error("trust"), { reason: "trust.pending" });
@@ -175,12 +181,14 @@ test("a start that names no session puts the new chat's other prompts back, neve
   await act(async () => root.render(<Probe key="h" acpmux={acpmux} holds chat={undefined} />));
   await act(async () => shown!.hold("start it", []));
   await act(async () => shown!.hold("and this", []));
+  await act(async () => shown!.hold("and that", []));
   await act(async () => root.render(<Probe key="h" acpmux={acpmux} holds={false} chat={undefined} />));
   await settle();
   acpmux.sent[0]!.take(undefined);
   await settle();
   expect(acpmux.sent).toHaveLength(1);
-  expect(acpmux.putBack).toEqual(["and this"]);
+  // Given back together, in the order they were sent.
+  expect(acpmux.givenBack).toEqual([["and this", "and that"]]);
   expect(shown!.holdsAny()).toBe(false);
 });
 
