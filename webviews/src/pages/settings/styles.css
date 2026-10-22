@@ -177,10 +177,10 @@ mark {
   background: transparent;
   text-align: left;
   /* A router link (it preloads its section on hover) that looks and acts like the list's
-     buttons: no underline, no link color, the pointing hand as they show, never dragged out
-     as a URL. */
+     buttons: no underline, no link color, no pointing hand, never dragged out as a URL. */
   color: inherit;
   text-decoration: none;
+  cursor: default;
   -webkit-user-drag: none;
 }
 
@@ -523,6 +523,7 @@ mark {
   padding: 1px 10px;
   border-radius: 5px;
   background: transparent;
+  cursor: default;
 }
 
 .segment input {
@@ -1248,6 +1249,7 @@ mark {
   color: inherit;
   font: inherit;
   text-align: start;
+  cursor: default;
 }
 .chiefs-row:hover {
   background: var(--input-bg);

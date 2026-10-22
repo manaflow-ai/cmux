@@ -67,6 +67,7 @@
   color: var(--page-text-2);
   padding: 3px 10px;
   border-radius: 6px;
+  cursor: default;
 }
 
 .keys-toggle:hover {
@@ -153,12 +154,6 @@
   overflow: hidden;
 }
 
-/* A click selects the row, so it shows the pointing hand; the shared rule cannot see a <tr>'s
-   handler (clickable-cursor-gallery.test.ts). */
-.keys-row {
-  cursor: pointer;
-}
-
 .keys-row td:first-child {
   border-radius: 6px 0 0 6px;
 }
@@ -237,6 +232,7 @@
   font-size: 11px;
   padding: 1px 4px;
   border-radius: 4px;
+  cursor: default;
 }
 
 /* A system-wide key another app holds: a quiet mark beside the keys, its reason in the tooltip. */
@@ -314,6 +310,7 @@
   background: transparent;
   color: var(--page-text-2);
   border-radius: 5px;
+  cursor: default;
 }
 
 .keys-icon-button:hover,

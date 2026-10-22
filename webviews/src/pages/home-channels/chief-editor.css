@@ -151,6 +151,7 @@
   font: inherit;
   font-size: var(--text-detail);
   font-weight: 600;
+  cursor: default;
 }
 .ce-button:not(.primary):hover:not(:disabled) {
   background: var(--ce-hover);

@@ -88,6 +88,7 @@ nav input:focus {
   border-radius: 5px;
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
+  cursor: default;
 }
 
 .segment input {
@@ -149,6 +150,7 @@ section h3 {
   gap: 8px;
   text-align: left;
   padding: 4px 12px;
+  cursor: default;
 }
 
 .session.selected {
@@ -233,6 +235,7 @@ section h3 {
   padding: 0 8px;
   background: transparent;
   font-size: var(--text-control);
+  cursor: default;
 }
 
 .preview {
@@ -246,6 +249,7 @@ section h3 {
 .frame {
   border: 0;
   background: transparent;
+  cursor: default;
   padding: 4px;
   min-width: 24px;
   min-height: 24px;
@@ -273,6 +277,7 @@ section h3 {
 .scrub button {
   border:0;
   background:transparent;
+  cursor: default;
   padding:3px 8px;
 }
 
@@ -344,6 +349,7 @@ section h3 {
   border-radius: 8px;
   background: transparent;
   padding: 8px;
+  cursor: default;
 }
 
 .tile .frame {

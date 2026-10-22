@@ -243,6 +243,7 @@
   padding: 0;
   background: var(--icon-tile);
   color: var(--page-text);
+  cursor: default;
 }
 
 .icon-cell:hover {
