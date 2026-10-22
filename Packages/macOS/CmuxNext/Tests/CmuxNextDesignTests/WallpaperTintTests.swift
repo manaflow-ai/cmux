@@ -131,21 +131,23 @@ import Testing
     @Test func aStaleSampleNeverWins() async throws {
         let folder = try Self.folder()
         let slow = folder.appendingPathComponent("slow.png"), fast = folder.appendingPathComponent("fast.png")
+        // The slow sample returns only once the newer one is under way, and ignores its cancellation.
+        let (newerStarted, starting) = AsyncStream<Void>.makeStream()
         var shown = slow
         let watch = DesktopWallpaperWatch(read: { Self.reading(shown, folder: folder) }, sample: { reading in
-            if reading.picture.reportedURL == slow {
-                try? await Task.sleep(for: .seconds(5))
-                return Self.red
+            guard reading.picture.reportedURL == slow else {
+                starting.finish()
+                return Self.blue
             }
-            return Self.blue
+            await Task.detached { for await _ in newerStarted {} }.value
+            return Self.red
         })
         watch.refresh()
         shown = fast
         watch.refresh()
         await watch.settled()
-        #expect(watch.tint == Self.blue)
-        try await Task.sleep(for: .milliseconds(50))
-        #expect(watch.tint == Self.blue)
+        #expect(watch.sampleCount == 2)
+        #expect(watch.tint == Self.blue, "the left picture's sample returned and did not land")
     }
 
     /// A registered window material re-applies with each new color: its tint follows the picture.

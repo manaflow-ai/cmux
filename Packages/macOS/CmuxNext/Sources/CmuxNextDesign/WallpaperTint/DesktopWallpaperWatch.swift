@@ -60,7 +60,10 @@ public final class DesktopWallpaperWatch {
     private var current: Reading?
     /// Colors already sampled, by reading: a Space switch back never decodes again.
     private var colors: [Reading: WallpaperTint?] = [:]
-    private var sampling: Task<Void, Never>?
+    /// Samples under way, by start order: the newest one is the current reading's; older ones are
+    /// cancelled and drop out when they return, so `settled()` can wait for them too.
+    private var samples: [Int: Task<Void, Never>] = [:]
+    private var samplesStarted = 0
     private let storeSettle = DemandTimer(owner: "desktop-wallpaper-store")
     private var observers: [(NotificationCenter, any NSObjectProtocol)] = []
     private var storeSource: (any DispatchSourceFileSystemObject)?
@@ -123,25 +126,26 @@ public final class DesktopWallpaperWatch {
         guard let reading = read(), reading != current else { return }
         if current != nil { generation += 1 }
         current = reading
-        sampling?.cancel()
-        sampling = nil
+        for task in samples.values { task.cancel() }
         if let known = colors[reading] { return publish(known) }
         sampleCount += 1
-        let sample = self.sample
+        let sample = self.sample, id = samplesStarted
+        samplesStarted += 1
         // task-owner: one sample per new reading; a newer reading cancels it (refresh above)
-        sampling = Task { [weak self] in
+        samples[id] = Task { [weak self] in
             let color = await sample(reading)
-            guard !Task.isCancelled, let self, self.current == reading else { return }
+            guard let self else { return }
+            self.samples[id] = nil
+            guard !Task.isCancelled, self.current == reading else { return }
             if self.colors.count >= 32 { self.colors.removeAll() }
             self.colors[reading] = color
-            self.sampling = nil
             self.publish(color)
         }
     }
 
-    /// Waits for a sample under way (tests).
+    /// Waits for every sample under way, cancelled ones too (tests).
     func settled() async {
-        await sampling?.value
+        while let task = samples.values.first { await task.value }
     }
 
     private func publish(_ color: WallpaperTint?) {
