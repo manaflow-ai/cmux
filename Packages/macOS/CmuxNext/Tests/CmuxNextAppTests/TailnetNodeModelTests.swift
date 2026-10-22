@@ -4,8 +4,8 @@ import Testing
 
 /// This Mac on Your Tailnet (Labs): the card walks signed out, sign-in started with its link,
 /// signed in with an address, signed out again; "Limit access to your Tailscale account" starts on
-/// (`allow_tailnet_members` false); a Pair link carries the address and a #23297 ticket and reads
-/// back the same.
+/// (`allow_tailnet_members` false) and is read only until the node reads it; Pair shows the
+/// `cmux host join` line for a #23297 ticket; the state read stops when Labs turns off.
 @MainActor @Suite struct TailnetNodeModelTests {
     final class Fake {
         var loginAnswers: [TailnetNodeState] = []
@@ -13,7 +13,6 @@ import Testing
         var opened: [String] = []
         var minted: [String] = []
         var stored: TailnetAccess?
-        var saved: [TailnetAccess] = []
         var mintError: (any Error)?
 
         func services() -> TailnetNodeServices {
@@ -26,8 +25,7 @@ import Testing
                     self.minted.append(address)
                     return Self.ticket
                 },
-                loadAccess: { self.stored },
-                saveAccess: { self.saved.append($0) })
+                loadAccess: { self.stored })
         }
 
         static let ticket = "cmxt1.eyJ2IjoxLCJ1Ijoid3NzOi8vbWFjLWNtdXgudGFpbDEudHMubmV0In0"
@@ -92,11 +90,9 @@ import Testing
         #expect(decoded.limitedToAccount)
         let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(TailnetAccess())) as? [String: Any]
         #expect(encoded?["allow_tailnet_members"] as? Bool == false, "the node's field name")
-
-        model.setLimitedToAccount(false)
-        #expect(fake.saved.last?.allowTailnetMembers == true)
-        model.setLimitedToAccount(true)
-        #expect(fake.saved.last?.allowTailnetMembers == false)
+        // A stored choice is only read (the node does not read it yet; nothing writes it).
+        fake.stored = TailnetAccess(allowTailnetMembers: true)
+        #expect(!TailnetNodeModel(services: fake.services()).access.limitedToAccount)
     }
 
     @Test func pairMintsATicketForTheAddressAndSigningOutDropsIt() async {
@@ -108,9 +104,9 @@ import Testing
         model.apply(Self.running)
         await model.pair()
         #expect(fake.minted == ["https://mac-cmux.tail1.ts.net"])
-        #expect(model.pairLink?.ticket == Fake.ticket)
+        #expect(model.pairCode?.ticket == Fake.ticket)
         await model.signOut()
-        #expect(model.pairLink == nil)
+        #expect(model.pairCode == nil)
     }
 
     @Test func pairFailureShowsItsWords() async {
@@ -120,33 +116,56 @@ import Testing
         let model = TailnetNodeModel(services: fake.services())
         model.apply(Self.running)
         await model.pair()
-        #expect(model.pairLink == nil)
+        #expect(model.pairCode == nil)
         #expect(model.actionError == "no listener")
     }
 
-    @Test func pairLinkRoundTrip() throws {
-        let link = try #require(TailnetPairLink(address: "mac-cmux.tail1.ts.net", ticket: Fake.ticket))
-        #expect(link.address == "https://mac-cmux.tail1.ts.net")
-        #expect(link.url.hasPrefix("cmux://pair?"))
-        let read = try #require(TailnetPairLink(link: "  " + link.url + "\n"))
-        #expect(read == link)
+    @Test func pairShowsTheJoinCommandForTheTicket() throws {
+        let code = try #require(TailnetPairCode(address: "mac-cmux.tail1.ts.net", ticket: Fake.ticket))
+        #expect(code.address == "https://mac-cmux.tail1.ts.net")
+        #expect(code.joinCommand == "cmux host join '\(Fake.ticket)'", "the line #23297's cmux host join takes")
+        #expect(TailnetPairCode(address: "mac.ts.net", ticket: "cmxt2.abc") == nil)
+        #expect(TailnetPairCode(address: "mac.ts.net", ticket: "cmxt1.a b") == nil)
+        #expect(TailnetPairCode(address: "mac.ts.net", ticket: "cmxt1.a'b") == nil, "nothing that could leave the quotes")
+        #expect(TailnetPairCode(address: "mac.ts.net", ticket: "cmxt1." + String(repeating: "a", count: 2048)) == nil)
+        #expect(TailnetPairCode(address: "http://mac.ts.net", ticket: Fake.ticket) == nil)
     }
 
-    @Test func pairLinkRefusesWhatIsNotOne() {
-        #expect(TailnetPairLink(link: "https://pair?address=x&ticket=cmxt1.a") == nil)
-        #expect(TailnetPairLink(link: "cmux://pair?address=mac.ts.net") == nil)
-        #expect(TailnetPairLink(address: "mac.ts.net", ticket: "cmxt2.abc") == nil)
-        #expect(TailnetPairLink(address: "mac.ts.net", ticket: "cmxt1.a b") == nil)
-        #expect(TailnetPairLink(address: "mac.ts.net", ticket: "cmxt1." + String(repeating: "a", count: 2048)) == nil)
+    @Test func labsOffStopsTheStateRead() async {
+        let model = TailnetNodeModel(services: Fake().services())
+        let follower = TailnetStateFollower(model: model)
+        let (states, feed) = AsyncStream<TailnetNodeState>.makeStream()
+        let ended = Flag(), opens = Counter()
+        feed.onTermination = { _ in ended.set() }
+        let key = ObjectIdentifier(model)
+        follower.follow(key: key) { opens.count += 1; return states }
+        follower.follow(key: key) { opens.count += 1; return states }
+        feed.yield(Self.running)
+        for _ in 0..<50 where model.phase == .unavailable { await Task.yield() }
+        #expect(model.phase == .signedIn(address: "https://mac-cmux.tail1.ts.net", login: "me@example.com"))
+        #expect(opens.count == 1, "one read per connection")
+        follower.stop()
+        #expect(!follower.isFollowing)
+        for _ in 0..<50 where !ended.isSet { await Task.yield() }
+        #expect(ended.isSet, "stopping cancels the stream, which sends stream.cancel")
     }
 
     @Test func addressesAreCanonical() {
-        #expect(TailnetPairLink.canonicalAddress("Mac-CMUX.tail1.ts.net.") == "https://mac-cmux.tail1.ts.net")
-        #expect(TailnetPairLink.canonicalAddress("https://mac.tail1.ts.net/") == "https://mac.tail1.ts.net")
-        #expect(TailnetPairLink.canonicalAddress("http://mac.tail1.ts.net") == nil)
-        #expect(TailnetPairLink.canonicalAddress("https://mac.tail1.ts.net:8443") == nil)
-        #expect(TailnetPairLink.canonicalAddress("https://u@mac.tail1.ts.net") == nil)
-        #expect(TailnetPairLink.canonicalAddress("https://mac.tail1.ts.net/x") == nil)
-        #expect(TailnetPairLink.canonicalAddress("") == nil)
+        #expect(TailnetAddress.canonicalAddress("Mac-CMUX.tail1.ts.net.") == "https://mac-cmux.tail1.ts.net")
+        #expect(TailnetAddress.canonicalAddress("https://mac.tail1.ts.net/") == "https://mac.tail1.ts.net")
+        #expect(TailnetAddress.canonicalAddress("http://mac.tail1.ts.net") == nil)
+        #expect(TailnetAddress.canonicalAddress("https://mac.tail1.ts.net:8443") == nil)
+        #expect(TailnetAddress.canonicalAddress("https://u@mac.tail1.ts.net") == nil)
+        #expect(TailnetAddress.canonicalAddress("https://mac.tail1.ts.net/x") == nil)
+        #expect(TailnetAddress.canonicalAddress("") == nil)
     }
+}
+
+@MainActor private final class Counter { var count = 0 }
+
+private final class Flag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    func set() { lock.withLock { value = true } }
+    var isSet: Bool { lock.withLock { value } }
 }

@@ -1,8 +1,9 @@
 // Settings > Accounts > This Mac on Your Tailnet (Labs): the daemon's own tailnet node, reachable
 // from the person's other devices as one more machine (Packages/macOS/CmuxNext TailnetNodeService).
 // Sign in the way Tailscale's apps do (the host opens the sign-in link in the browser), then the
-// address with Copy and Pair (a QR code and a link carrying a single-use pairing ticket), and who
-// may connect. Every text comes localized from the host; `tailnet` is null while Labs is off.
+// address with Copy and Pair (a QR code and the `cmux host join` line with a single-use pairing
+// ticket), and who may connect (owner-only for now: the switch is disabled until the node reads
+// it). Every text comes localized from the host; `tailnet` is null while Labs is off.
 import { useId } from "react";
 import { useSettingsState, useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
@@ -68,9 +69,9 @@ export function TailnetCard() {
                     style={{ imageRendering: "pixelated", borderRadius: 8 }}
                   />
                 )}
-                <div className="row-help selectable" data-tailnet-pair-link="">
-                  {state.pair.link}
-                </div>
+                <code className="row-help selectable" data-tailnet-pair-command="">
+                  {state.pair.command}
+                </code>
                 <div className="row-help">{state.pair.help}</div>
               </div>
               <div className="row-control action-row-control">
@@ -92,9 +93,9 @@ export function TailnetCard() {
               <div className="row-control">
                 <Switch
                   checked={state.limited}
-                  disabled={state.busy}
+                  disabled={!state.limit_editable || state.busy}
                   labelId={limitId}
-                  onToggle={(next) => void store.tailnet({ limit: next })}
+                  onToggle={() => undefined}
                 />
                 <ResetSpacer />
               </div>

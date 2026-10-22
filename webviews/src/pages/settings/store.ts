@@ -468,12 +468,9 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
-  /** Settings > Accounts > This Mac on Your Tailnet: one button or the Limit switch, then re-read the host lists. */
-  async tailnet(
-    action: "sign_in" | "cancel" | "sign_out" | "pair" | "close_pair" | "copy_address" | { limit: boolean },
-  ): Promise<void> {
-    if (typeof action === "object") await this.request("cmux.settings.tailnet.limit", { on: action.limit });
-    else await this.request(`cmux.settings.tailnet.${action}` as const, {});
+  /** Settings > Accounts > This Mac on Your Tailnet: one button, then re-read the host lists. */
+  async tailnet(action: "sign_in" | "cancel" | "sign_out" | "pair" | "close_pair" | "copy_address"): Promise<void> {
+    await this.request(`cmux.settings.tailnet.${action}` as const, {});
     await this.refreshHost();
   }
 

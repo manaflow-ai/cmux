@@ -13,6 +13,8 @@ enum TailnetNodePage {
             "title": .string(S.title), "status_title": .string(S.statusTitle),
             "busy": .bool(model.busy), "error": model.actionError.map(JSONValue.string) ?? .null,
             "limit_title": .string(S.limitTitle), "limit_help": .string(S.limitHelp), "limited": .bool(model.access.limitedToAccount),
+            // The node reads no access choice yet: the switch shows its owner-only default, disabled.
+            "limit_editable": false,
             "sign_in_title": .string(S.signIn), "reopen_title": .string(S.reopen), "cancel_title": .string(S.cancel),
             "sign_out_title": .string(S.signOut), "address_title": .string(S.addressTitle), "copy_title": .string(S.copy),
             "pair_title": .string(S.pair), "done_title": .string(S.done),
@@ -30,14 +32,14 @@ enum TailnetNodePage {
             card["status"] = .string(login.map(S.signedIn(as:)) ?? S.signedInNoLogin)
             card["address"] = .string(address)
         }
-        if let link = model.pairLink {
-            card["pair"] = ["qr": qr(link.url).map(JSONValue.string) ?? .null, "link": .string(link.url), "help": .string(S.pairHelp)]
+        if let code = model.pairCode {
+            card["pair"] = ["qr": qr(code.joinCommand).map(JSONValue.string) ?? .null, "command": .string(code.joinCommand), "help": .string(S.pairHelp)]
         }
         return .object(card)
     }
 }
 
-/// `cmux.settings.tailnet.*`: sign_in (also Reopen), cancel, sign_out, limit {on}, pair, close_pair, copy_address.
+/// `cmux.settings.tailnet.*`: sign_in (also Reopen), cancel, sign_out, pair, close_pair, copy_address.
 @MainActor
 final class TailnetNodePageRoute: PageProvider {
     nonisolated static let prefix = "cmux.settings.tailnet."
@@ -62,9 +64,6 @@ final class TailnetNodePageRoute: PageProvider {
         case "sign_in": await model.signIn()
         case "cancel": model.cancelSignIn()
         case "sign_out": await model.signOut()
-        case "limit":
-            guard case .bool(let on)? = params["on"] else { throw PageError.invalidParams("on is required") }
-            model.setLimitedToAccount(on)
         case "pair": await model.pair()
         case "close_pair": model.closePair()
         case "copy_address":

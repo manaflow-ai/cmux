@@ -74,49 +74,36 @@ public nonisolated struct TailnetAccess: Codable, Equatable, Sendable {
     }
 }
 
-/// What a Pair code carries: this Mac's tailnet address and a single-use pairing ticket
-/// (`cmux host ticket new`, `cmxt1.…`) for it. The other Mac reads it from the QR code or a
-/// pasted link and redeems the ticket (`cmux host join`); only the ticket's secret proves anything.
-///
-/// Link: `cmux://pair?address=https%3A%2F%2Fname.tail1234.ts.net&ticket=cmxt1.…`.
-public nonisolated struct TailnetPairLink: Equatable, Sendable {
+/// What Pair shows: a single-use pairing ticket (`cmux host ticket new`, `cmxt1.…`) for this
+/// Mac's tailnet address, as the line another Mac runs to pair (`cmux host join`, #23297), in
+/// text and as a QR code. Only the ticket's secret proves anything. (A `cmux://` link the other
+/// Mac's app opens comes with that receiver, in the client PR.)
+public nonisolated struct TailnetPairCode: Equatable, Sendable {
     /// `https://name.tail1234.ts.net`: https and a host only.
     public var address: String
     public var ticket: String
 
-    static let scheme = "cmux"
-    static let host = "pair"
     static let ticketPrefix = "cmxt1."
     /// A ticket is about 300 bytes (`MAX_TICKET_BYTES` on the minter is 2048).
     static let maxTicketBytes = 2048
 
     public init?(address: String, ticket: String) {
-        guard let address = Self.canonicalAddress(address), Self.isTicket(ticket) else { return nil }
+        guard let address = TailnetAddress.canonicalAddress(address), Self.isTicket(ticket) else { return nil }
         self.address = address
         self.ticket = ticket
     }
 
-    /// The link the QR code encodes.
-    public var url: String {
-        var components = URLComponents()
-        components.scheme = Self.scheme
-        components.host = Self.host
-        components.queryItems = [URLQueryItem(name: "address", value: address), URLQueryItem(name: "ticket", value: ticket)]
-        // `+` would read as a space in some decoders; tickets are URL-safe base64 without it.
-        return components.string ?? ""
-    }
+    /// The line the other Mac runs: the ticket is URL-safe base64, quoted for any shell anyway.
+    public var joinCommand: String { "cmux host join '\(ticket)'" }
 
-    /// Reads a pair link (surrounding whitespace ignored); nil for anything else.
-    public init?(link: String) {
-        let text = link.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let components = URLComponents(string: text), components.scheme?.lowercased() == Self.scheme,
-              components.host?.lowercased() == Self.host else { return nil }
-        let items = components.queryItems ?? []
-        guard let address = items.first(where: { $0.name == "address" })?.value,
-              let ticket = items.first(where: { $0.name == "ticket" })?.value else { return nil }
-        self.init(address: address, ticket: ticket)
+    static func isTicket(_ text: String) -> Bool {
+        guard text.hasPrefix(ticketPrefix), text.utf8.count <= maxTicketBytes, text.count > ticketPrefix.count else { return false }
+        return text.dropFirst(ticketPrefix.count).allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
     }
+}
 
+/// Tailnet addresses as the card shows and dials them.
+public nonisolated enum TailnetAddress {
     /// `https://<host>` for a typed address (`name.tail1234.ts.net`, with or without https://, a
     /// trailing dot or slash); nil for another scheme, a path, a user, a port or no host.
     public static func canonicalAddress(_ text: String) -> String? {
@@ -131,10 +118,5 @@ public nonisolated struct TailnetPairLink: Equatable, Sendable {
         guard !label.contains(where: \.isEmpty),
               host.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "." }) else { return nil }
         return "https://" + host
-    }
-
-    static func isTicket(_ text: String) -> Bool {
-        guard text.hasPrefix(ticketPrefix), text.utf8.count <= maxTicketBytes, text.count > ticketPrefix.count else { return false }
-        return text.dropFirst(ticketPrefix.count).allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
     }
 }

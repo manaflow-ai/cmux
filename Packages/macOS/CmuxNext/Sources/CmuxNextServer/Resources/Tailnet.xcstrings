@@ -2365,127 +2365,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Off: anyone on this tailnet can connect"
+            "value": "Only your Tailscale account can connect for now"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عند الإيقاف: يمكن لأي شخص في tailnet الاتصال"
+            "value": "حاليًا يمكن لحساب Tailscale الخاص بك فقط الاتصال"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Isključeno: svako na ovom tailnetu se može povezati"
+            "value": "Za sada se može povezati samo vaš Tailscale račun"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fra: alle på dette tailnet kan oprette forbindelse"
+            "value": "Indtil videre kan kun din Tailscale-konto forbinde"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aus: Alle in diesem Tailnet können sich verbinden"
+            "value": "Vorerst kann sich nur dein Tailscale-Konto verbinden"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Desactivado: cualquiera en este tailnet puede conectarse"
+            "value": "Por ahora solo tu cuenta de Tailscale puede conectarse"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Désactivé : tout membre du tailnet peut se connecter"
+            "value": "Pour l’instant, seul votre compte Tailscale se connecte"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disattivato: chiunque nella tailnet può connettersi"
+            "value": "Per ora può connettersi solo il tuo account Tailscale"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "オフ:このtailnetの誰でも接続できます"
+            "value": "現在は自分のTailscaleアカウントのみ接続できます"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បិទ៖ អ្នកណាក៏ដោយនៅលើ tailnet នេះអាចភ្ជាប់បាន"
+            "value": "បច្ចុប្បន្ន មានតែគណនី Tailscale របស់អ្នកទេដែលអាចភ្ជាប់បាន"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "끄면: 이 tailnet의 누구나 연결 가능"
+            "value": "현재는 내 Tailscale 계정만 연결할 수 있습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Av: alle på dette tailnetet kan koble til"
+            "value": "Foreløpig kan bare Tailscale-kontoen din koble til"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wyłączone: każdy w tym tailnecie może się połączyć"
+            "value": "Na razie połączyć się może tylko Twoje konto Tailscale"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Desativado: qualquer pessoa na tailnet pode se conectar"
+            "value": "Por enquanto, só sua conta Tailscale pode se conectar"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Выкл.: подключиться может любой в этой tailnet"
+            "value": "Пока подключаться может только ваш аккаунт Tailscale"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ปิด: ทุกคนใน tailnet นี้เชื่อมต่อได้"
+            "value": "ตอนนี้เชื่อมต่อได้เฉพาะบัญชี Tailscale ของคุณ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kapalı: bu tailnet’teki herkes bağlanabilir"
+            "value": "Şimdilik yalnızca Tailscale hesabınız bağlanabilir"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вимк.: під’єднатися може будь-хто в цій tailnet"
+            "value": "Поки під’єднатися може лише ваш обліковий запис Tailscale"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tắt: mọi người trên tailnet này đều kết nối được"
+            "value": "Hiện chỉ tài khoản Tailscale của bạn kết nối được"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "关闭时：此 tailnet 中的任何人都能连接"
+            "value": "目前只有你的 Tailscale 账户可以连接"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "關閉時：此 tailnet 中的任何人都能連線"
+            "value": "目前只有你的 Tailscale 帳號可以連線"
           }
         }
       }
@@ -2496,127 +2496,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open on your other Mac. Works once, for 15 min"
+            "value": "Run on your other Mac. Works once, for 15 min"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "افتحه على جهاز Mac الآخر. يعمل مرة واحدة لمدة 15 دقيقة"
+            "value": "شغّله على جهاز Mac الآخر. يعمل مرة واحدة لمدة 15 دقيقة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Otvorite na drugom Macu. Radi jednom, 15 min"
+            "value": "Pokrenite na drugom Macu. Radi jednom, 15 min"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Åbn på din anden Mac. Virker én gang i 15 min"
+            "value": "Kør på din anden Mac. Virker én gang i 15 min"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Auf deinem anderen Mac öffnen. Einmalig, 15 Min. gültig"
+            "value": "Auf deinem anderen Mac ausführen. Einmalig, 15 Min. gültig"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ábrelo en tu otro Mac. Sirve una vez, 15 min"
+            "value": "Ejecútalo en tu otro Mac. Sirve una vez, 15 min"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ouvrez sur votre autre Mac. Une fois, pendant 15 min"
+            "value": "Exécutez sur votre autre Mac. Une fois, pendant 15 min"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aprilo sull’altro Mac. Vale una volta, per 15 min"
+            "value": "Eseguilo sull’altro Mac. Vale una volta, per 15 min"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "別のMacで開いてください。1回限り、15分間有効"
+            "value": "別のMacで実行してください。1回限り、15分間有効"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បើកនៅលើ Mac ផ្សេងទៀត។ ប្រើបានម្ដង រយៈពេល 15 នាទី"
+            "value": "ដំណើរការលើ Mac ផ្សេងទៀត។ ប្រើបានម្ដង រយៈពេល 15 នាទី"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다른 Mac에서 여세요. 15분 동안 한 번 사용 가능"
+            "value": "다른 Mac에서 실행하세요. 15분 동안 한 번 사용 가능"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Åpne på den andre Mac-en. Virker én gang i 15 min"
+            "value": "Kjør på den andre Mac-en. Virker én gang i 15 min"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Otwórz na drugim Macu. Działa raz, przez 15 min"
+            "value": "Uruchom na drugim Macu. Działa raz, przez 15 min"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abra no seu outro Mac. Vale uma vez, por 15 min"
+            "value": "Execute no seu outro Mac. Vale uma vez, por 15 min"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Откройте на другом Mac. Один раз, в течение 15 мин"
+            "value": "Запустите на другом Mac. Один раз, в течение 15 мин"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เปิดบน Mac อีกเครื่อง ใช้ได้ครั้งเดียว ภายใน 15 นาที"
+            "value": "รันบน Mac อีกเครื่อง ใช้ได้ครั้งเดียว ภายใน 15 นาที"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diğer Mac’inizde açın. Bir kez, 15 dk geçerli"
+            "value": "Diğer Mac’inizde çalıştırın. Bir kez, 15 dk geçerli"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Відкрийте на іншому Mac. Один раз, протягом 15 хв"
+            "value": "Запустіть на іншому Mac. Один раз, протягом 15 хв"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mở trên máy Mac khác. Dùng một lần, trong 15 phút"
+            "value": "Chạy trên máy Mac khác. Dùng một lần, trong 15 phút"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在你的另一台 Mac 上打开。仅限一次，15 分钟内有效"
+            "value": "在你的另一台 Mac 上运行。仅限一次，15 分钟内有效"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在你的另一台 Mac 上開啟。僅限一次，15 分鐘內有效"
+            "value": "在你的另一台 Mac 上執行。僅限一次，15 分鐘內有效"
           }
         }
       }

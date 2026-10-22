@@ -7,8 +7,13 @@ extension DaemonConnection {
     /// Opens `operation` as a stream: each `stream_item`'s `item` decoded as `T` on the reader thread
     /// (an item that is not one is skipped), until `stream_end`, the connection closing, or the
     /// reader stopping (which sends `stream.cancel`).
+    ///
+    /// Waits out a quiet handoff first, then registers, opens and cancels on that one transport, so
+    /// a handoff in between never leaves the stream on one transport and its reader on another: the
+    /// old transport's close ends the stream, and the caller opens it again on the new one.
     public func resourceStream<T: Decodable & Sendable>(operation: String, params: [String: JSONValue],
                                                          as type: T.Type) async throws -> AsyncStream<T> {
+        await waitOutHandoff()
         guard let transport = ready?.transport else { throw DaemonError.notConnected }
         let id = SessionEventsWire.newStreamID()
         let (items, continuation) = AsyncStream<T>.makeStream(bufferingPolicy: .bufferingNewest(64))
@@ -19,30 +24,30 @@ extension DaemonConnection {
         }) else { throw DaemonError.notConnected }
         var opening = params
         opening["stream_id"] = .string(id)
-        let request = opening
         do {
-            _ = try await resourceRequest({ requestID in
-                ResourceRequestEnvelope(id: requestID, operation: operation, params: request, idempotencyKey: nil)
-            }, as: SessionEventsWire.Opened.self)
+            try await Self.send(operation, params: opening, on: transport, timeout: configuration.requestTimeout)
         } catch {
             transport.unrouteStream(id)
             continuation.finish()
             throw error
         }
-        continuation.onTermination = { [weak self] _ in
+        let timeout = configuration.requestTimeout
+        continuation.onTermination = { _ in
             transport.unrouteStream(id)
-            // task-owner: one best-effort cancel of a stream the reader dropped
-            Task { await self?.cancelResourceStream(id) }
+            guard !transport.isClosed else { return }
+            // task-owner: one best-effort cancel on the transport that opened the stream
+            Task { try? await Self.send("stream.cancel", params: ["stream_id": .string(id)], on: transport, timeout: timeout) }
         }
         return items
     }
 
-    /// `stream.cancel` for a stream this connection opened; a closed connection needs none.
-    private func cancelResourceStream(_ id: String) async {
-        guard isReady else { return }
-        _ = try? await resourceRequest({ requestID in
-            ResourceRequestEnvelope(id: requestID, operation: "stream.cancel", params: ["stream_id": .string(id)], idempotencyKey: nil)
-        }, as: JSONValue.self)
+    /// One resource request on `transport` itself (never whichever transport is current).
+    private nonisolated static func send(_ operation: String, params: [String: JSONValue], on transport: LineTransport,
+                                         timeout: Duration) async throws {
+        let response = try await transport.request(cmd: operation, timeout: timeout) { id in
+            try ResourceRequestEnvelope(id: id, operation: operation, params: params, idempotencyKey: nil).line()
+        }
+        _ = try ResourceRequestEnvelope.decodeResult(JSONValue.self, from: response.line)
     }
 }
 

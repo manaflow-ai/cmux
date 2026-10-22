@@ -28,8 +28,8 @@ public nonisolated enum TailnetNodeStrings {
     public static var signedInNoLogin: String { t("tailnet.signedInNoLogin", "Signed in") }
     public static var signOut: String { t("tailnet.signOut", "Sign Out") }
     public static var limitTitle: String { t("tailnet.limit", "Limit access to your Tailscale account") }
-    public static var limitHelp: String { t("tailnet.limitHelp", "Off: anyone on this tailnet can connect") }
-    public static var pairHelp: String { t("tailnet.pairHelp", "Open on your other Mac. Works once, for 15 min") }
+    public static var limitHelp: String { t("tailnet.limitHelp", "Only your Tailscale account can connect for now") }
+    public static var pairHelp: String { t("tailnet.pairHelp", "Run on your other Mac. Works once, for 15 min") }
     public static var done: String { t("tailnet.done", "Done") }
     public static var pairFailed: String { t("tailnet.pairFailed", "Couldn't make a pairing code. Try again.") }
 }

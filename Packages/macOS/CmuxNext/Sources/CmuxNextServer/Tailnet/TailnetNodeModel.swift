@@ -22,10 +22,11 @@ public final class TailnetNodeModel {
     }
 
     public private(set) var phase: Phase = .unavailable
-    /// Who may connect; changed only by the person (``setLimitedToAccount(_:)``).
+    /// Who may connect. Read only for now: the node does not read the app's choice yet, so it stays
+    /// owner-only (the switch is shown on and disabled until it does).
     public private(set) var access: TailnetAccess
     /// The Pair code shown after Pair: this Mac's address and a fresh ticket.
-    public private(set) var pairLink: TailnetPairLink?
+    public private(set) var pairCode: TailnetPairCode?
     /// The failure of the last button, shown under the card until the next one.
     public private(set) var actionError: String?
     /// True while a button's request runs (buttons are off meanwhile).
@@ -44,7 +45,7 @@ public final class TailnetNodeModel {
     /// The node's state changed (a `tailnet.state` item or a button's answer).
     public func apply(_ state: TailnetNodeState) {
         set(Self.phase(of: state, signInRequested: signInRequested))
-        if case .signedIn = phase { signInRequested = false } else if pairLink != nil { pairLink = nil }
+        if case .signedIn = phase { signInRequested = false } else if pairCode != nil { pairCode = nil }
     }
 
     /// The daemon has no node, or the connection to it ended. Changes nothing when already so, so
@@ -52,7 +53,7 @@ public final class TailnetNodeModel {
     public func markUnavailable() {
         signInRequested = false
         set(.unavailable)
-        if pairLink != nil { pairLink = nil }
+        if pairCode != nil { pairCode = nil }
     }
 
     /// Writes `phase` only when it changes (Observation wakes readers on every write).
@@ -81,21 +82,15 @@ public final class TailnetNodeModel {
         apply(state)
     }
 
-    /// "Limit access to your Tailscale account".
-    public func setLimitedToAccount(_ limited: Bool) {
-        access.allowTailnetMembers = !limited
-        services.saveAccess(access)
-    }
-
     /// Pair: a single-use client ticket for this Mac's address, shown as a QR code and a link.
     public func pair() async {
         guard case .signedIn(let address, _) = phase else { return }
         guard let ticket = await run({ try await self.services.mintTicket(address) }) else { return }
-        pairLink = TailnetPairLink(address: address, ticket: ticket)
-        if pairLink == nil { actionError = TailnetNodeStrings.pairFailed }
+        pairCode = TailnetPairCode(address: address, ticket: ticket)
+        if pairCode == nil { actionError = TailnetNodeStrings.pairFailed }
     }
 
-    public func closePair() { pairLink = nil }
+    public func closePair() { pairCode = nil }
 
     private func run<T>(_ body: () async throws -> T) async -> T? {
         busy = true
@@ -113,7 +108,7 @@ public final class TailnetNodeModel {
     nonisolated static func phase(of state: TailnetNodeState, signInRequested: Bool) -> Phase {
         switch state.state {
         case "running":
-            guard let address = state.dnsName.flatMap(TailnetPairLink.canonicalAddress) else { return .starting }
+            guard let address = state.dnsName.flatMap(TailnetAddress.canonicalAddress) else { return .starting }
             return .signedIn(address: address, login: state.owner?.loginName)
         case "needs_login":
             guard signInRequested, let url = state.browseToURL, url.hasPrefix("https://") else { return .signedOut }
@@ -135,16 +130,14 @@ public struct TailnetNodeServices {
     /// Mints a single-use `client` ticket that redeems at `address` (`cmux host ticket new`).
     public var mintTicket: (_ address: String) async throws -> String
     public var loadAccess: () -> TailnetAccess?
-    public var saveAccess: (TailnetAccess) -> Void
 
     public init(loginStart: @escaping () async throws -> TailnetNodeState, logout: @escaping () async throws -> TailnetNodeState,
                 openURL: @escaping (String) -> Void, mintTicket: @escaping (String) async throws -> String,
-                loadAccess: @escaping () -> TailnetAccess?, saveAccess: @escaping (TailnetAccess) -> Void) {
+                loadAccess: @escaping () -> TailnetAccess?) {
         self.loginStart = loginStart
         self.logout = logout
         self.openURL = openURL
         self.mintTicket = mintTicket
         self.loadAccess = loadAccess
-        self.saveAccess = saveAccess
     }
 }

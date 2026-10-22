@@ -153,6 +153,8 @@ export type TailnetState = {
   error: string | null;
   /** "Limit access to your Tailscale account": on unless every tailnet member may connect. */
   limited: boolean;
+  /** False until the node reads the choice: the switch shows the owner-only default, disabled. */
+  limit_editable: boolean;
   limit_title: string;
   limit_help: string;
   sign_in_title: string;
@@ -165,8 +167,8 @@ export type TailnetState = {
   done_title: string;
   /** `https://<name>.<tailnet>.ts.net` once signed in. */
   address?: string;
-  /** After Pair: the QR code (a PNG data URL) and the link it encodes. */
-  pair?: { qr: string | null; link: string; help: string };
+  /** After Pair: the QR code (a PNG data URL) and the `cmux host join` line it encodes. */
+  pair?: { qr: string | null; command: string; help: string };
 };
 
 export type IPhoneHostState = {
@@ -531,7 +533,6 @@ export type SettingsOps = {
   "cmux.settings.tailnet.sign_in": [Record<string, never>, Record<string, never>];
   "cmux.settings.tailnet.cancel": [Record<string, never>, Record<string, never>];
   "cmux.settings.tailnet.sign_out": [Record<string, never>, Record<string, never>];
-  "cmux.settings.tailnet.limit": [{ on: boolean }, Record<string, never>];
   "cmux.settings.tailnet.pair": [Record<string, never>, Record<string, never>];
   "cmux.settings.tailnet.close_pair": [Record<string, never>, Record<string, never>];
   "cmux.settings.tailnet.copy_address": [Record<string, never>, Record<string, never>];
