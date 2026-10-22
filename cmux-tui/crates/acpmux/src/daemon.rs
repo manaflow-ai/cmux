@@ -8,7 +8,6 @@ use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
-
 mod lock;
 use lock::{LockHeld, acquire_lock, wait_for_lock_release};
 mod router_owner;
