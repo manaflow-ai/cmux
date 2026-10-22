@@ -225,6 +225,7 @@ final class AcpmuxPermissionFeedBridge {
     /// The feed.post body for one prompt: what the person must see to decide.
     /// `host`: this Mac's install id (`context.host`), the install the phone's proof names.
     nonisolated static func postBody(session: String, permission: String, request: [String: Any], host: String) -> [String: Any] {
+        if request.acpmuxIsQuestion { return questionBody(session: session, permission: permission, request: request, host: host) }
         let call = request["toolCall"] as? [String: Any] ?? [:]
         let rawTitle = call["title"] as? String ?? ""
         let title = rawTitle.secretsScrubbed.acpmuxVisible
@@ -261,6 +262,32 @@ final class AcpmuxPermissionFeedBridge {
             "poster": ["label": String(localized: "feed.bridge.poster", defaultValue: "Agent", bundle: .module)],
         ]
         if let command, !command.isEmpty { params["body"] = command.acpmuxCut(4096) }
+        return ["op": "feed.post", "params": params, "idempotency_key": String(key.prefix(200)), "origin": "script"]
+    }
+
+    /// A question an agent asks (`acpmuxIsQuestion`) is never a permission (Leo 2026-10-21): it
+    /// posts as a notice that names the agent and its question and opens the chat that asks,
+    /// with no Allow or Deny. The person answers it in the chat.
+    nonisolated static func questionBody(session: String, permission: String, request: [String: Any], host: String) -> [String: Any] {
+        let call = request["toolCall"] as? [String: Any] ?? [:]
+        let normalized = request.acpmuxQuestion
+        let firstItem = (normalized?["items"] as? [[String: Any]])?.first
+        let asked = ((call["rawInput"] as? [String: Any])?["questions"] as? [[String: Any]])?.first
+        let text = (firstItem?["prompt"] as? String ?? asked?["question"] as? String ?? call["title"] as? String ?? "")
+            .secretsScrubbed.acpmuxVisible.acpmuxCut(160)
+        let agent = (normalized?["agent"] as? String).map { $0.acpmuxVisible.acpmuxCut(60) }.flatMap { $0.isEmpty ? nil : $0 }
+            ?? String(localized: "feed.bridge.question.agent", defaultValue: "An agent", bundle: .module)
+        let key = "acpmux:\(permission)"
+        let heading = String(localized: "feed.bridge.question.title", defaultValue: "\(agent) asks: \(text)", bundle: .module)
+        let params: [String: Any] = [
+            "type": "notice",
+            "kind": "notice",
+            "title": heading.acpmuxCut(200),
+            "context": ["host": String(host.prefix(128)), "acp_session": String(session.prefix(128))],
+            "dedupe_key": String(key.prefix(200)),
+            "thread": String("acpmux:\(session)".prefix(200)),
+            "poster": ["label": String(localized: "feed.bridge.poster", defaultValue: "Agent", bundle: .module)],
+        ]
         return ["op": "feed.post", "params": params, "idempotency_key": String(key.prefix(200)), "origin": "script"]
     }
 
