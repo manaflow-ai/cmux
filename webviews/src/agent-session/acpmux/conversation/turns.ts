@@ -70,6 +70,11 @@ export function workedLabel(t: Translate, row: AcpmuxRow): string {
   return row.status === "cancelled" ? t("turn.stopped", { time }) : t("turn.worked", { time });
 }
 
+/// A turn summary for a turn that was stopped (Stop, Esc, or an interruption) and did not go on
+/// under a prompt sent now (`continued`).
+export const isStopped = (row: AcpmuxRow) =>
+  row.kind === "turnSummary" && (row.status === "cancelled" || row.status === "interrupted") && !row.continued;
+
 /// What a turn's footer says before its buttons, or nothing: a turn whose work folds under "Worked
 /// for" says it there, and a turn under a second says nothing, since "Worked for 0s" is no news
 /// (Leo, 2026-10-21: "IF WE 0 SECONDS THEN IT DOESNT NEED TO TAKE UP SPACE"). A stopped turn still
@@ -482,11 +487,14 @@ function shapeTurn(
   const preview = turnPreviewCardsOn() ? turnPreviewUrl(user, turn) : undefined;
   if (preview) shaped.push({ id: `${PREVIEW}-${user.id}`, version, at: summary.at, kind: PREVIEW, text: preview });
   // The footer copies the answer, so it carries the answer's text; the last turn's also retries
-  // its prompt, and stops offering to once a later prompt goes (or waits to).
+  // its prompt, and stops offering to once a later prompt goes (or waits to). A last turn the
+  // reader stopped also offers Continue, as Codex does, until a prompt follows it or it runs again.
+  const resumable = retryable && !live && isStopped(summary);
   shaped.push({
     ...summary,
     folded,
     text: answer?.text ?? summary.text,
+    ...(resumable && { resumable }),
     // Retry sends the prompt as the agent got it: an incoming message with its sender. A
     // notification is the harness's, not a prompt to send again (incomingMessage.ts).
     ...(retryable &&
@@ -496,7 +504,7 @@ function shapeTurn(
         retryRowId: user.id,
         retryAttachments: user.retryAttachments,
       }),
-    version: version * 2 + (retryable ? 1 : 0),
+    version: version * 4 + (retryable ? 1 : 0) + (resumable ? 2 : 0),
   });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)
   // draws as it came.

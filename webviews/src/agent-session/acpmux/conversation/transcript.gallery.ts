@@ -1544,6 +1544,32 @@ export default agentPaneEntry({
         summary(11.5, { status: "completed", toolCount: 1 }),
       ]),
     },
+    "turn-stopped": {
+      note: 'The last turn, stopped by the reader: its footer says "You stopped after 40s" at rest and offers Continue, as Codex does. Continue sends a continue prompt through the composer\'s send; the button goes once that prompt shows (Leo, 2026-10-22: "and we should add a continue button if things were stopped, just like codex").',
+      snapshot: chat([
+        user(prompt, 3),
+        activity(
+          [
+            thought("Find where the fetch helper gives up on a failed request."),
+            tool("Read src/net/client.ts", "read", "completed"),
+          ],
+          2.8,
+        ),
+        assistant("The helper throws on the first failure. I'll wrap it in a retry loop with backoff next.", 2.5),
+        summary(2.33, { status: "cancelled", durationMs: 40_000, toolCount: 1 }),
+      ]),
+    },
+    "turn-stopped-then-continued": {
+      note: "A stopped turn that a prompt followed: only the last turn can offer Continue, so the earlier stopped turn offers none, and neither does the completed last turn.",
+      snapshot: chat([
+        user(prompt, 6),
+        assistant("The helper throws on the first failure. I'll wrap it in a retry loop with backoff next.", 5.5),
+        summary(5.33, { status: "cancelled", durationMs: 40_000 }),
+        user("Continue", 4),
+        assistant("Retries now back off from 200 ms, doubling up to three tries.", 3),
+        summary(3, { status: "completed", durationMs: 60_000 }),
+      ]),
+    },
     "turn-error": {
       note: "A turn the agent ended with an error.",
       snapshot: chat([

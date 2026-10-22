@@ -17,7 +17,7 @@ import { toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
-import { ChevronRight, Retry } from "./icons";
+import { ArrowRight, ChevronRight, Retry } from "./icons";
 import { ForkButton, MessageCopy, MessageTime, PinButton, ReadAloudButton, ROW_ICON } from "./MessageActions";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { useT } from "../i18n";
@@ -156,7 +156,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 /// count here first.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
-  const { fork, forkSeq, forkAny, retry, retryWith, reauthenticate, route, switchModel } =
+  const { fork, forkSeq, forkAny, retry, retryWith, reauthenticate, resume, route, switchModel } =
     useContext(TurnActionsContext);
   const text = row.text;
   const prompt = row.prompt;
@@ -166,6 +166,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // Only the CLI's own login (or an unexplained 401 on a direct route) asks to sign in (cx-w10a).
   const authenticationFailed = kind === "subscription-login" || kind === "auth";
   const label = footerLabel(t, row);
+  // The last turn, stopped and not yet followed by a prompt, offers Continue (Codex's): it sends the
+  // continue prompt as the composer would, and the button goes once that prompt shows (turns.ts).
+  const resumable = row.resumable === true && resume !== undefined;
   // A failure reads as the turn's answer does: its own block above the footer row, never squeezed
   // into it (Codex, Claude desktop). The row is one quiet line under the answer's left edge; it
   // shows on hover or keyboard focus, and always for a failed turn (VirtualTranscript marks the
@@ -177,12 +180,20 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         className={
           failed
             ? "cv-turn-actions cv-turn-actions--failed"
-            : isEmptyFooter(row)
-              ? "cv-turn-actions cv-turn-actions--empty"
-              : "cv-turn-actions"
+            : resumable
+              ? "cv-turn-actions cv-turn-actions--resumable"
+              : isEmptyFooter(row)
+                ? "cv-turn-actions cv-turn-actions--empty"
+                : "cv-turn-actions"
         }
       >
         {label && <span className="cv-turn-summary">{label}</span>}
+        {resumable && (
+          <button type="button" className="cv-iconbtn cv-turn-continue" onClick={resume}>
+            {t("turn.continue")}
+            <ArrowRight size={ROW_ICON} aria-hidden="true" />
+          </button>
+        )}
         <span className="cv-turn-action-group">
           {text && <MessageCopy text={text} />}
           {failed && retry && prompt && (

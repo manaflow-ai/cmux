@@ -218,7 +218,7 @@ import {
   type SessionEdits,
 } from "./turnChanges/sessionRows";
 import { repositoryRoot, viewChangesBeside } from "./turnChanges/viewChanges";
-import { TurnActionsContext, chatLoginCommand, type TurnActions } from "./conversation/turnActions";
+import { TurnActionsContext, chatLoginCommand, resumeThrough, type TurnActions } from "./conversation/turnActions";
 import {
   RunInBackgroundContext,
   backgroundsWork,
@@ -4597,6 +4597,7 @@ function AcpmuxPane() {
     ),
   );
   const stableBranches = useMemo(() => branchesFromKey(versionsKey), [versionsKey]);
+  const watching = Boolean(snapshot.summary?.watching);
   const turnActions = useMemo<TurnActions>(
     () => ({
       ...(stableBranches.size > 0 && {
@@ -4630,6 +4631,10 @@ function AcpmuxPane() {
               attachments: (await directClient.current?.promptAttachments(rowId)) ?? [],
             }))().catch(() => undefined),
       }),
+      // Continue after a stop (Codex's) sends its prompt as the composer would: it shows as the
+      // reader's prompt and starts the next turn, or queues behind one already sent. A View Only
+      // chat offers none: replying to it takes it over, which the composer asks about first.
+      ...(connected && !watching && { resume: resumeThrough(callNative) }),
       ...(connected &&
         retryModels.length > 1 && {
           retryWith: {
@@ -4667,6 +4672,7 @@ function AcpmuxPane() {
       stablePromptSeqs,
       stableEditSeqs,
       connected,
+      watching,
       hunkReview,
       loginCommand,
       snapshot.summary?.hostKind,
