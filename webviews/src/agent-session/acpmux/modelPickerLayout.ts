@@ -56,6 +56,9 @@ export type ModelPickerProps = {
   onHarnessEnable?(folder: string, id: string): void;
   /// Add harness…, the menu's last row: the pane's Harnesses page, in place (cx-uj5g8).
   onAddAgent?(): void;
+  /// Set while the picker is mounted to a call that opens its menu (the compact one when `quick`
+  /// is set), whose rail switches harness: the footer's harness item opens it (ComposerHarness.tsx).
+  opener?: { current: (() => void) | undefined };
   /// The chat has started, so its harness is fixed, as in Claude Code (Leo 2026-10-19): the menu
   /// lists `harness`'s models alone, with search and More models, and no harness rail, Starred tab
   /// or Add harness…; the compact menu draws no rail either. A New Tab or a chat with no message
@@ -76,9 +79,6 @@ export type ModelPickerProps = {
   quick?: QuickMenuExtras;
   /// The effort's short name ("Med") the compact chip shows in a narrow row (composerRowFit.ts).
   detailShort?: string;
-  /// Set while the picker is mounted to a call that opens its menu (the compact one when `quick`
-  /// is set), whose rail switches harness: the footer's harness item opens it (ComposerHarness.tsx).
-  opener?: { current: (() => void) | undefined };
   /// The room, in px, left of the open menu for its submenus (`menuRoom`). Tests pass a
   /// number in place of real layout.
   measureRoom?(menu: HTMLElement): number;
