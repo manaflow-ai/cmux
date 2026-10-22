@@ -19,6 +19,7 @@
 //                                          ones (galleryLive.ts)
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Plugin } from "vite-plus";
@@ -117,22 +118,28 @@ export function readWebThemeBootstrap(file = WEB_THEME_SWIFT): string {
 }
 
 /**
- * The pane's stylesheets in shipped order: desktop.css, the shared stylesheet without its Tailwind
- * @import lines, then every `$SRC/...css` file the build script concatenates. (KaTeX's stylesheet
- * loads beside it; the shipped copy only inlines its fonts.)
+ * The pane's stylesheets in shipped order, the files build-agent-pane-web.sh writes its page's
+ * styles from (`--sheets`: the sheets its modules import, in import order, and the ones it names),
+ * acpmux/tailwind.css last. Read once per build script: a change to it clears the list. (KaTeX's
+ * stylesheet loads beside it; the shipped copy only inlines its fonts.)
  */
 export function agentPaneStylesheets(script = PANE_BUILD_SCRIPT): string[] {
-  const text = fs.readFileSync(script, "utf8");
-  // `$SRC/...` (the session sources) and `$ROOT/webviews/src/...` (shared ui/ files such as
-  // ui/popupSurface.css), in the script's order, so the gallery pane matches the shipped one.
-  const files = [...text.matchAll(/"\$(SRC|ROOT\/webviews\/src)\/([^"$]+\.css)"/g)].map((match) =>
-    match[1] === "SRC" ? path.join(SESSION, match[2]!) : path.join(webviewsRoot, "src", match[2]!),
-  );
-  if (!files.some((file) => file.endsWith("shared/styles.css")))
-    throw new Error("gallery: build-agent-pane-web.sh no longer names shared/styles.css; update agentPaneStylesheets");
-  const desktop = path.join(webviewsRoot, "src/pages/shared/desktop.css");
-  return [desktop, ...files.filter((file) => file !== desktop)];
+  const cached = paneSheets.get(script);
+  if (cached) return cached;
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), "gallery-pane-sheets-"));
+  try {
+    const list = path.join(work, "sheets.txt");
+    execFileSync("sh", [script, "--sheets", list], { stdio: ["ignore", "ignore", "inherit"] });
+    const files = fs.readFileSync(list, "utf8").split("\n").filter(Boolean);
+    if (!files.some((file) => file.endsWith("agent-session/shared/styles.css")))
+      throw new Error("gallery: build-agent-pane-web.sh --sheets no longer lists shared/styles.css");
+    paneSheets.set(script, files);
+    return files;
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true });
+  }
 }
+const paneSheets = new Map<string, string[]>();
 
 export type Revision = { sha: string; subject: string; committedAt: number; branch: string };
 
@@ -160,34 +167,18 @@ export function readRevision(root = repoRoot): Revision {
 }
 
 function agentPaneCSS(): string {
-  const inlineRelativeImports = (file: string, css: string, seen = new Set<string>()): string =>
-    css.replace(/^@import\s+["']([^"']+)["'];\s*$/gm, (statement, specifier: string) => {
-      if (!specifier.startsWith(".")) return statement;
-      const imported = path.resolve(path.dirname(file), specifier);
-      if (seen.has(imported)) return "";
-      seen.add(imported);
-      if (!fs.existsSync(imported)) return statement;
-      return inlineRelativeImports(imported, fs.readFileSync(imported, "utf8"), seen);
-    });
-
+  // The list carries what each sheet @imports (just before it), so no sheet's @import is followed.
   return agentPaneStylesheets()
     .map((file) => {
       const css = fs.readFileSync(file, "utf8");
-      const body = file.endsWith("shared/styles.css")
-        ? css.replace(/^@import .*$/gm, "")
-        : file.endsWith("acpmux/tailwind.css")
-          ? `${css}\n${tailwindSources()}`
-          : inlineRelativeImports(file, css);
+      const body = file.endsWith("acpmux/tailwind.css")
+        ? `${css}\n${tailwindSources()}`
+        : css.replace(/^@import .*$/gm, "");
       return `/* ${path.relative(webviewsRoot, file)} */\n${body}`;
     })
     .join("\n");
 }
 
-/**
- * The pane's Tailwind entry scans nothing by itself (`source(none)`): the combined stylesheet sits
- * under the gallery, so it names the pane's sources by absolute path, as
- * scripts/agent-pane/tailwind-css.mjs does for the app build.
- */
 function tailwindSources(): string {
   return [path.join(SESSION, "acpmux"), path.join(webviewsRoot, "src/ui")]
     .map((dir) => `@source "${dir}/**/*.{ts,tsx}";`)
@@ -242,6 +233,7 @@ export function galleryModules(): Plugin {
         ...roots,
       ]);
       server.watcher.on("all", (_event, file) => {
+        if (file === PANE_BUILD_SCRIPT) paneSheets.clear();
         const fixture = file === FIXTURE_INDEX || roots.some((root) => file.startsWith(`${root}/`));
         const id = fixture
           ? `\0${FIXTURES_ID}`

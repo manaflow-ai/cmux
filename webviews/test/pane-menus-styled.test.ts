@@ -10,18 +10,15 @@ import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
+import { agentPaneStylesheets } from "../dev-server/galleryHost";
 
 const webviews = path.resolve(import.meta.dir, "..");
 const pane = path.join(webviews, "src/agent-session");
 
 /** The bundled pane's stylesheet: every sheet build-agent-pane-web.sh writes into the page. */
-const shippedCss = (() => {
-  const script = fs.readFileSync(path.join(webviews, "../scripts/cmux-next/build-agent-pane-web.sh"), "utf8");
-  const sheets = [...script.matchAll(/"\$(SRC|ROOT\/webviews)\/([^"$]+\.css)"/g)].map(([, root, sheet]) =>
-    path.join(root === "SRC" ? pane : webviews, sheet!),
-  );
-  return sheets.map((sheet) => fs.readFileSync(sheet, "utf8")).join("\n");
-})();
+const shippedCss = agentPaneStylesheets()
+  .map((sheet) => fs.readFileSync(sheet, "utf8"))
+  .join("\n");
 const styled = (name: string) => new RegExp(`\\.${name}(?![\\w-])`).test(shippedCss);
 
 const sources = (dir: string): string[] =>

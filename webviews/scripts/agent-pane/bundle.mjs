@@ -7,7 +7,8 @@
 // <outfile>, so the page's first script is only what its first frame runs.
 //
 // --css-inputs <file> lists, one per line relative to webviews/, every stylesheet the bundle
-// imports. The bundle drops CSS, so the page build checks each one ships in the page.
+// imports, in the order the modules load them (cascadeOrder below). The bundle drops CSS, so the
+// page build writes the page's styles from this list.
 // --css-inputs-only writes just that list: no React Compiler, no minify, nothing written to
 // <outfile>, so a test can ask for it in about a second.
 //
@@ -18,6 +19,7 @@
 // esbuild bundles and minifies as before. Components the compiler skips or bails out on are
 // listed on stderr, and as JSON with --report, so a bailout is visible in review.
 import { build } from "esbuild";
+import { realpathSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -80,11 +82,44 @@ const result = await build({
 });
 if (cssInputsFile) {
   const webviewsRoot = path.dirname(srcRoot);
-  const sheets = Object.keys(result.metafile.inputs)
-    .filter((input) => input.endsWith(".css") && !input.includes("node_modules/"))
-    .map((input) => path.relative(webviewsRoot, path.resolve(input)))
-    .sort();
+  // The entry as the metafile names it (esbuild resolves symlinks: /var is /private/var on macOS).
+  const real = realpathSync(entry);
+  const entryInput = Object.keys(result.metafile.inputs).find(
+    (input) => path.basename(input) === path.basename(real) && realpathSync(input) === real,
+  );
+  const sheets = cascadeOrder(result.metafile, entryInput)
+    .filter((input) => !input.includes("node_modules/"))
+    .map((input) => path.relative(webviewsRoot, path.resolve(input)));
   await writeFile(cssInputsFile, sheets.map((sheet) => sheet + "\n").join(""));
+}
+
+/**
+ * The stylesheets in the order the page loads them when the browser evaluates the modules (the
+ * Vite dev server's order): depth first from the entry, each module's imports in source order and
+ * before the module itself, a sheet's @import before the sheet, and the first visit wins. Code
+ * behind a dynamic import() runs later, so its sheets follow every static one. A sheet esbuild saw
+ * but the walk did not reach (none today) goes last, so the page still ships it.
+ */
+function cascadeOrder(metafile, entryInput) {
+  const { inputs } = metafile;
+  if (!inputs[entryInput]) throw new Error(`bundle: the entry ${entryInput} is not in the metafile`);
+  const sheets = [];
+  const seen = new Set();
+  const later = [];
+  const visit = (input) => {
+    if (seen.has(input)) return;
+    seen.add(input);
+    for (const record of inputs[input]?.imports ?? []) {
+      if (record.external || record.kind === "url-token") continue;
+      if (record.kind === "dynamic-import") later.push(record.path);
+      else visit(record.path);
+    }
+    if (input.endsWith(".css")) sheets.push(input);
+  };
+  visit(entryInput);
+  while (later.length) visit(later.shift());
+  const unreached = Object.keys(inputs).filter((input) => input.endsWith(".css") && !seen.has(input));
+  return [...sheets, ...unreached.sort()];
 }
 
 bailouts.sort((a, b) => `${a.file}:${a.line}`.localeCompare(`${b.file}:${b.line}`));

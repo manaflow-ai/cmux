@@ -49,8 +49,12 @@ describe.skipIf(!built)("agent pane page", () => {
       const sheets = fs.readFileSync(list, "utf8").split("\n").filter(Boolean);
       expect(sheets).toContain("src/ui/ghost.css");
       const style = normalize(fs.readFileSync(page, "utf8"));
+      // A sheet's own @import lines are not shipped (the page inlines what they name before it).
       const missing = sheets.filter(
-        (sheet) => !style.includes(normalize(fs.readFileSync(path.join(webviews, sheet), "utf8"))),
+        (sheet) =>
+          !style.includes(
+            normalize(fs.readFileSync(path.join(webviews, sheet), "utf8").replace(/^@import .*\n?/gm, "")),
+          ),
       );
       expect(missing).toEqual([]);
     } finally {
