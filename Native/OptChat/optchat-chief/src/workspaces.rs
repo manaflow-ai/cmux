@@ -808,6 +808,96 @@ fn group_workspace(
         .map_err(|e| format!("move-workspace-to-group: {e}"))
 }
 
+/// One `cmux.protocol/2` request (a resource operation, as the `cmux` CLI sends it) on the
+/// session daemon at `daemon`; Ok carries its result. A mutation carries `idempotency_key`.
+pub fn resource_call(
+    daemon: &Path,
+    operation: &str,
+    params: Value,
+    idempotency_key: Option<&str>,
+) -> Result<Value, String> {
+    let mut stream = UnixStream::connect(daemon).map_err(|e| format!("the session daemon: {e}"))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(30)))
+        .map_err(|e| e.to_string())?;
+    let id = format!("optchat-{}", new_key());
+    let mut request = json!({
+        "protocol": "cmux.protocol/2",
+        "type": "request",
+        "id": id,
+        "operation": operation,
+        "params": params,
+    });
+    if let Some(key) = idempotency_key {
+        request["idempotency_key"] = json!(key);
+    }
+    let mut line = request.to_string().into_bytes();
+    line.push(b'\n');
+    stream.write_all(&line).map_err(|e| e.to_string())?;
+    for answer in BufReader::new(stream).lines() {
+        let answer = answer.map_err(|e| format!("reading the daemon's answer: {e}"))?;
+        let Ok(value) = serde_json::from_str::<Value>(&answer) else {
+            continue;
+        };
+        if value["id"] != json!(id) {
+            continue;
+        }
+        return match value["ok"].as_bool() {
+            Some(true) => Ok(value["result"].clone()),
+            _ => Err(value["error"]["message"]
+                .as_str()
+                .map_or_else(|| value["error"].to_string(), str::to_owned)),
+        };
+    }
+    Err("the session daemon closed the connection".to_owned())
+}
+
+/// Puts workspace `key` of the user's session (the app's daemon at `daemon`) in that
+/// session's personal sidebar group named `name` (any case), made when missing: the
+/// `workspace_group.list`, `workspace_group.create` and `workspace.place` operations `cmux
+/// workspace group <g> add` sends, so it sits in a group exactly as a workspace the user
+/// grouped does (a423).
+pub fn place_in_personal_group(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
+    let here = || json!({"machine": "current", "session": "current"});
+    let listed = resource_call(daemon, "workspace_group.list", here(), None)?;
+    let existing = listed.as_array().and_then(|groups| {
+        groups.iter().find_map(|g| {
+            let named = g["name"].as_str()?.trim().eq_ignore_ascii_case(name.trim());
+            named.then(|| g["id"].as_str().map(str::to_owned)).flatten()
+        })
+    });
+    let group = match existing {
+        Some(id) => id,
+        None => {
+            let mut params = here();
+            params["name"] = json!(name);
+            let made = resource_call(
+                daemon,
+                "workspace_group.create",
+                params,
+                Some(&format!("optchat-subagent-group-create-{key}")),
+            )?;
+            made["id"]
+                .as_str()
+                .ok_or("workspace_group.create named no group")?
+                .to_owned()
+        }
+    };
+    let workspace = locate_by_key(daemon, key)
+        .ok_or("the session does not list the new workspace")?
+        .id;
+    let mut params = here();
+    params["workspace"] = json!(workspace);
+    params["group"] = json!(group);
+    resource_call(
+        daemon,
+        "workspace.place",
+        params,
+        Some(&format!("optchat-subagent-place-{key}")),
+    )
+    .map(|_| ())
+}
+
 /// Puts the workspace `key` on the session daemon at `daemon` in the group
 /// named `name`, when the daemon has workspace groups.
 fn group_by_key(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
@@ -904,11 +994,16 @@ impl Workspaces for DaemonWorkspaces {
                 })
                 .map_err(|e| format!("create-workspace: {e}"))?
                 .workspace;
-            if groups {
-                // Best effort: a sidebar group never fails the subagent's start.
-                if let Err(e) = group_workspace(&mut client, Some(workspace), &key, group) {
-                    eprintln!("optchat: subagent workspace {key} stays ungrouped: {e}");
-                }
+            // Best effort: a sidebar group never fails the subagent's start.
+            let grouped = if self.personal {
+                place_in_personal_group(&self.daemon, &key, group)
+            } else if groups {
+                group_workspace(&mut client, Some(workspace), &key, group)
+            } else {
+                Ok(())
+            };
+            if let Err(e) = grouped {
+                eprintln!("optchat: subagent workspace {key} stays ungrouped: {e}");
             }
             let placement = client
                 .create_terminal(CreateTerminalRequest {
