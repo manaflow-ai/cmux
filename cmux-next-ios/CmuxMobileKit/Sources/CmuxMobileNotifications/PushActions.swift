@@ -116,7 +116,8 @@ public struct PushActions: Sendable {
             if question.allowsOther { out.append((.answer, title(.answer))) }
             return out
         case .permission:
-            guard !payload.options.isEmpty else { return [(.allowOnce, title(.allowOnce)), (.deny, title(.deny))] }
+            // None listed (a v1 push, or a sealed one the Mac trimmed to fit): the app opens on it.
+            guard !payload.options.isEmpty else { return [(.answer, title(.answer))] }
             var out: [(action: PushAction, title: String)] = []
             if payload.options.contains(where: { $0.kind == .allowOnce }) { out.append((.allowOnce, title(.allowOnce))) }
             if payload.options.contains(where: { $0.kind == .allowAlways }) { out.append((.allowAlways, title(.allowAlways))) }

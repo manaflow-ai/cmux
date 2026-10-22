@@ -55,6 +55,17 @@ import UserNotifications
     }
 }
 
+/// PR B: a mailbox reply the Mac calls `replayed` was already applied (the
+/// link delivered the same reply id first): nothing to tell the person.
+@MainActor @Suite struct MailboxRefusalTests {
+    @Test func replayedIsSuccess() {
+        #expect(PushReplies.mailboxRefusal("replayed") == nil)
+        #expect(PushReplies.mailboxRefusal("not_pending") == "This was already answered.")
+        #expect(PushReplies.mailboxRefusal("expired") == "Your reply arrived too late.")
+        #expect(PushReplies.mailboxRefusal(nil) == "Your Mac didn't accept the reply.")
+    }
+}
+
 @MainActor @Suite struct PushResponseTests {
     let question = PushPayload(mac: "m", macName: "Mac", kind: .question, eventId: "e", sessionId: "s", permissionId: "p",
                                questions: [PushQuestion(question: "Which?", options: [.init(label: "A"), .init(label: "B")])])

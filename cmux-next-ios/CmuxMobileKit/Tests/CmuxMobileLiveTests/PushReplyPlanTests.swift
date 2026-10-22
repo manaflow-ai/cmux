@@ -88,6 +88,29 @@ import Testing
     }
 }
 
+/// PR B: the link's `notification-reply` carries the reply's id, so the Mac
+/// applies a reply once whichever way (link or mailbox) it arrives first.
+@Suite struct TerminalReplyRequestTests {
+    @Test func theRequestCarriesTheReplyID() throws {
+        let id = UUID(uuidString: "0d9f5e2c-7b3a-4e61-8f20-5c4b3a291807")!
+        let request = PushReplyPlan.terminalRequest(notification: "42", text: "yes", replyID: id)
+        #expect(request["notification"] as? Int == 42)
+        #expect(request["text"] as? String == "yes")
+        #expect(request["reply_id"] as? String == "0d9f5e2c-7b3a-4e61-8f20-5c4b3a291807")
+        #expect(Set(request.keys) == ["notification", "text", "reply_id"])
+        // A ledger id that is not a number goes as text.
+        #expect(PushReplyPlan.terminalRequest(notification: "n-1", text: "y", replyID: id)["notification"] as? String == "n-1")
+    }
+
+    @Test func aDuplicateIsDelivered() {
+        #expect(PushReplyPlan.terminalAnswer(Data(#"{"ok":true,"data":{"duplicate":true}}"#.utf8)) == .delivered)
+        #expect(PushReplyPlan.terminalAnswer(Data(#"{"ok":true}"#.utf8)) == .delivered)
+        #expect(PushReplyPlan.terminalAnswer(Data(#"{"ok":false,"error":{"message":"no such notification"}}"#.utf8))
+            == .refused("no such notification"))
+        #expect(PushReplyPlan.terminalAnswer(Data(#"{"error":"gone"}"#.utf8)) == .refused("gone"))
+    }
+}
+
 /// PR B: what the mailbox carries for an Allow (the acpmux approval, as numbers acpmux reads).
 @Suite struct MailboxApprovalTests {
     @Test func theApprovalMetaBecomesCanonicalJSON() {

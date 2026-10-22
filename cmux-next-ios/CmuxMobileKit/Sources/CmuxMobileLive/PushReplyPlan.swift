@@ -21,6 +21,30 @@ public enum PushReplyPlan: Equatable, Sendable {
     /// `notification-reply {notification, text}` (PR B; device unlock).
     case terminal(notification: String, text: String)
 
+    /// The `notification-reply` params for a terminal reply. `reply_id` is the
+    /// reply's id, the same one its mailbox copy carries, so the Mac applies a
+    /// reply once whichever way it arrives first.
+    public static func terminalRequest(notification: String, text: String, replyID: UUID) -> [String: Any] {
+        let id: Any = Int(notification).map { $0 as Any } ?? notification
+        return ["notification": id, "text": text, "reply_id": replyID.uuidString.lowercased()]
+    }
+
+    /// What the daemon said to a `notification-reply`.
+    public enum TerminalAnswer: Equatable, Sendable {
+        /// Applied now, or already applied (`duplicate`: the same reply id came first another way).
+        case delivered
+        case refused(String)
+    }
+
+    public static func terminalAnswer(_ data: Data) -> TerminalAnswer {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return .delivered }
+        if object["error"] != nil || object["ok"] as? Bool == false {
+            let message = ((object["error"] as? [String: Any])?["message"] as? String) ?? (object["error"] as? String)
+            return .refused(message ?? String(localized: "The terminal didn't take the reply."))
+        }
+        return .delivered
+    }
+
     public struct Refusal: Error, Equatable, Sendable {
         public var message: String
 
