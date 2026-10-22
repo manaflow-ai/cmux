@@ -3,6 +3,9 @@
 // envelope shape unwraps to its text, images or structured content; JSON a tool really returned
 // stays JSON.
 import { expect, test } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { Markdown } from "./Markdown";
 import { envelopeImages, toolResult } from "./toolResult";
 import { cleanText, prettyOutput } from "./mcpCalls";
 import { findMatches } from "./chatFind";
@@ -182,4 +185,46 @@ test("an envelope with nothing in it shows as its JSON", () => {
     text: '{\n  "content": [],\n  "isError": false\n}',
     lang: "json",
   });
+});
+
+test("fences in a tool result's quotes and list items stay plain code, as at the top", () => {
+  // Codex review finding 1: `plainCode` reached only top-level fences.
+  const text =
+    "> ```mermaid\n> graph TD; A-->B\n> ```\n\n- Item\n\n  ```html\n  <b>x</b>\n  ```\n\n```svg\n<svg/>\n```";
+  const html = renderToStaticMarkup(createElement(Markdown, { plainCode: true, children: text }));
+  expect(html.match(/cv-codeblock--plain/g)).toHaveLength(3);
+});
+
+test("an MCP error's data shows after its message in the opened MCP call", () => {
+  // Codex review finding 2: the MCP row dropped what followed the text.
+  const output = JSON.stringify({ error: { code: -32602, message: "Invalid params", data: { field: "path" } } });
+  expect(prettyOutput(output)).toBe('Invalid params\n\n{\n  "field": "path"\n}');
+});
+
+test("a JSON file printed on lines stays as printed even when it looks like an envelope", () => {
+  // Codex review finding 3: a file holding content blocks or a JSON-RPC reply is the file, not a wrapper.
+  const blocks = '[\n  { "type": "text", "text": "hello" }\n]\n';
+  const rpc = '{\n  "jsonrpc": "2.0",\n  "id": 1,\n  "result": "ok"\n}';
+  for (const file of [blocks, rpc]) {
+    expect(toolResult(file)).toEqual({ text: file.trimEnd(), lang: "json", images: [], unwrapped: false });
+    expect(prettyOutput(file)?.[0]).toBe(file[0]);
+  }
+});
+
+test("blocks the pane cannot draw stay in the result as JSON beside its text", () => {
+  // Codex review finding 4: audio and images in other formats were dropped when text was present.
+  const output = JSON.stringify({
+    content: [
+      { type: "text", text: "Caption" },
+      { type: "audio", data: "UklGRg==", mimeType: "audio/wav" },
+      { type: "image", data: "PHN2Zy8+", mimeType: "image/svg+xml" },
+    ],
+  });
+  const result = toolResult(output);
+  expect(result.text.startsWith("Caption\n\n")).toBe(true);
+  expect(result.text).toContain('"type": "audio"');
+  expect(result.text).toContain('"mimeType": "image/svg+xml"');
+  expect(result.text).not.toContain("UklGRg==");
+  expect(result.images).toEqual([]);
+  expect(prettyOutput(output)).toContain('"type": "audio"');
 });

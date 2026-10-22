@@ -26,7 +26,9 @@ const MAX_IMAGE_CHARS = 8 * 1024 * 1024;
 /// Envelopes inside envelopes (JSON text in a text block that is itself a result) are peeled this deep.
 const MAX_DEPTH = 6;
 
-type Peeled = { texts: string[]; images: string[]; rest?: unknown };
+/// An envelope's parts: its texts and images, and what it holds that draws as neither (`rest`:
+/// structured content, an error's data, a block this pane cannot show), kept as JSON.
+type Peeled = { texts: string[]; images: string[]; rest: unknown[] };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -85,71 +87,69 @@ function isBlocks(value: unknown): value is Block[] {
   return Array.isArray(value) && value.length > 0 && value.every(isBlock);
 }
 
-/// One content block's parts: its text, an image's data URL, a resource's text or its link.
+/// A block this pane draws as no text or image (audio, an image in another format or past the
+/// size cap) stays in the result as JSON, its base64 replaced by its size.
+function residual(block: Block): Block {
+  return typeof block.data === "string" ? { ...block, data: `(${block.data.length} characters of base64)` } : block;
+}
+
+/// One content block's parts: its text, an image's data URL, a resource's text or its link, or
+/// the block itself as residual JSON.
 function peelBlock(block: Block, into: Peeled) {
   switch (block.type) {
     case "text":
-      if (typeof block.text === "string") into.texts.push(block.text);
+      into.texts.push(block.text as string);
       return;
     case "content":
-      if (isBlock(block.content)) peelBlock(block.content, into);
+      peelBlock(block.content as Block, into);
       return;
     case "image": {
-      const type = String(block.mimeType ?? "");
-      if (
-        typeof block.data === "string" &&
-        /^image\/(png|jpeg|gif|webp)$/.test(type) &&
-        block.data.length <= MAX_IMAGE_CHARS
-      )
-        into.images.push(`data:${type};base64,${block.data}`);
+      const type = String(block.mimeType);
+      if (/^image\/(png|jpeg|gif|webp)$/.test(type) && (block.data as string).length <= MAX_IMAGE_CHARS)
+        into.images.push(`data:${type};base64,${block.data as string}`);
+      else into.rest.push(residual(block));
       return;
     }
     case "resource": {
-      const resource = isRecord(block.resource) ? block.resource : undefined;
-      if (typeof resource?.text === "string") into.texts.push(resource.text);
-      else if (typeof resource?.uri === "string") into.texts.push(resource.uri);
+      const resource = block.resource as Record<string, unknown>;
+      into.texts.push(typeof resource.text === "string" ? resource.text : String(resource.uri));
       return;
     }
     case "resource_link":
-      if (typeof block.uri === "string")
-        into.texts.push(
-          typeof block.name === "string" && block.name !== block.uri ? `${block.name}: ${block.uri}` : block.uri,
-        );
+      into.texts.push(
+        typeof block.name === "string" && block.name !== block.uri
+          ? `${block.name}: ${block.uri as string}`
+          : String(block.uri),
+      );
       return;
     default:
-      return;
+      into.rest.push(residual(block));
   }
 }
 
+const shows = (peeled: Peeled) => peeled.texts.some((text) => text.trim()) || peeled.images.length > 0;
+
 /// The parts of `value` when it is an envelope a harness wrapped a result in, else undefined.
 export function peelEnvelope(value: unknown): Peeled | undefined {
-  // A list of content blocks (`[{"type":"text","text":"…"}]`), or one block. Blocks that give
-  // nothing to show (audio alone) stay JSON.
+  // A list of content blocks (`[{"type":"text","text":"…"}]`), or one block. Blocks that give no
+  // text or image to show (audio alone) stay JSON as they are.
   if (isBlocks(value) || isBlock(value)) {
-    const peeled: Peeled = { texts: [], images: [] };
+    const peeled: Peeled = { texts: [], images: [], rest: [] };
     for (const block of Array.isArray(value) ? value : [value]) peelBlock(block, peeled);
-    const empty = peeled.texts.every((text) => !text) && !peeled.images.length;
-    return empty && (Array.isArray(value) ? value : [value]).some((block) => block.type !== "text")
-      ? undefined
-      : peeled;
+    return shows(peeled) ? peeled : undefined;
   }
   if (!isRecord(value)) return undefined;
-  // An MCP `CallToolResult`: its content blocks, or its structured content when they say nothing.
+  // An MCP `CallToolResult`: its content blocks, and its structured content when they say nothing
+  // (it repeats them otherwise).
   if (
     Array.isArray(value.content) &&
     (value.content.length === 0 || isBlocks(value.content)) &&
     onlyKeys(value, ["content", "structuredContent", "isError", "_meta"])
   ) {
-    const peeled: Peeled = { texts: [], images: [] };
+    const peeled: Peeled = { texts: [], images: [], rest: [] };
     for (const block of value.content as Block[]) peelBlock(block, peeled);
     const structured = value.structuredContent;
-    if (
-      !peeled.texts.some((text) => text.trim()) &&
-      !peeled.images.length &&
-      structured !== undefined &&
-      structured !== null
-    )
-      peeled.rest = structured;
+    if (!shows(peeled) && structured !== undefined && structured !== null) peeled.rest.push(structured);
     return peeled;
   }
   // A JSON-RPC style result: `{"result": …, "error": null}`.
@@ -162,21 +162,26 @@ export function peelEnvelope(value: unknown): Peeled | undefined {
           : isRecord(error) && typeof error.message === "string"
             ? error.message
             : undefined;
+      if (!message) return { texts: [], images: [], rest: [error] };
       // The message reads as text; the error's `data`, when it has any, follows as JSON.
       const data = isRecord(error) ? error.data : undefined;
-      if (!message) return { texts: [], images: [], rest: error };
-      return { texts: [message], images: [], ...(data !== undefined && data !== null ? { rest: data } : {}) };
+      return { texts: [message], images: [], rest: data !== undefined && data !== null ? [data] : [] };
     }
     const result = value.result;
-    if (result === undefined || result === null) return { texts: [], images: [] };
-    if (typeof result === "string") return { texts: [result], images: [] };
-    return peelEnvelope(result) ?? { texts: [], images: [], rest: result };
+    if (result === undefined || result === null) return { texts: [], images: [], rest: [] };
+    if (typeof result === "string") return { texts: [result], images: [], rest: [] };
+    return peelEnvelope(result) ?? { texts: [], images: [], rest: [result] };
   }
   // Codex's function call output: `{"output": "…", "metadata": {"exit_code": 0, …}}`.
   if (typeof value.output === "string" && "metadata" in value && onlyKeys(value, ["output", "metadata"]))
-    return { texts: [value.output], images: [] };
+    return { texts: [value.output], images: [], rest: [] };
   return undefined;
 }
+
+/// Whether `printed` is how a harness passes an envelope on: one line (`JSON.stringify`). JSON
+/// printed on lines is a tool's own text (a file it read), which is never taken apart.
+export const printedAsEnvelope = (printed: string | undefined) =>
+  printed === undefined || !printed.trim().includes("\n");
 
 /// A value with each string that holds JSON parsed in its place, so nested results read as JSON.
 function parseNested(value: unknown, depth = 0): unknown {
@@ -224,24 +229,26 @@ function fromValue(
   depth: number,
   clean: (text: string) => string,
 ): ToolResult {
-  let peeled = depth < MAX_DEPTH ? peelEnvelope(value) : undefined;
+  let peeled = depth < MAX_DEPTH && printedAsEnvelope(printed) ? peelEnvelope(value) : undefined;
   // An envelope with nothing in it (`{"content":[],"isError":false}`) shows as the JSON it is,
   // so an opened call is never empty.
-  if (peeled && !peeled.images.length && peeled.rest === undefined && !peeled.texts.some((text) => text.trim()))
-    peeled = undefined;
+  if (peeled && !shows(peeled) && !peeled.rest.length) peeled = undefined;
   if (!peeled) {
     // JSON the tool returned. Printed on lines (a file it read) it stays as printed; one long line
     // is pretty-printed.
-    const text = printed !== undefined && printed.trim().includes("\n") ? printed.replace(/\n$/, "") : pretty(value);
+    const text = printed !== undefined && !printedAsEnvelope(printed) ? printed.replace(/\n$/, "") : pretty(value);
     return { text, lang: "json", images: [], unwrapped: printed === undefined };
   }
-  const text = clean(peeled.texts.join("\n\n"));
-  if (peeled.rest !== undefined) {
-    const rest = fromValue(peeled.rest, undefined, depth + 1, clean);
+  const text = clean(peeled.texts.join("\n\n")).replace(/\n$/, "");
+  if (peeled.rest.length) {
+    // Text, then what the envelope held besides (structured content, an error's data, a block
+    // drawn as neither text nor image), each as JSON.
+    const rests = peeled.rest.map((rest) => fromValue(rest, undefined, depth + 1, clean));
+    const parts = [text, ...rests.map((rest) => rest.text)].filter((part) => part.trim());
     return {
-      ...rest,
-      text: text.trim() ? `${text}\n\n${rest.text}` : rest.text,
-      images: [...peeled.images, ...rest.images],
+      text: parts.join("\n\n"),
+      lang: !text.trim() && rests.length === 1 ? rests[0]!.lang : "text",
+      images: [...peeled.images, ...rests.flatMap((rest) => rest.images)],
       unwrapped: true,
     };
   }
@@ -252,7 +259,7 @@ function fromValue(
     const result = fromValue(inner, text, depth + 1, clean);
     return { ...result, images: [...peeled.images, ...result.images], unwrapped: true };
   }
-  return { text: text.replace(/\n$/, ""), lang: textLang(text), images: peeled.images, unwrapped: true };
+  return { text, lang: textLang(text), images: peeled.images, unwrapped: true };
 }
 
 const imagesCache = new Map<string, string[]>();

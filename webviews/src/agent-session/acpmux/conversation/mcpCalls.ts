@@ -6,7 +6,7 @@
 import { createContext } from "react";
 import type { Translate } from "../i18n";
 import type { AcpmuxActivity } from "../model";
-import { peelEnvelope } from "./toolResult";
+import { peelEnvelope, printedAsEnvelope } from "./toolResult";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -267,11 +267,14 @@ function mcpValue(output: string | undefined): unknown {
   if (!output) return undefined;
   const parsed = parseJSON(output);
   if (parsed === undefined) return output;
-  const peeled = peelEnvelope(parsed);
+  const peeled = printedAsEnvelope(output) ? peelEnvelope(parsed) : undefined;
   if (!peeled) return parsed;
-  if (peeled.texts.some((text) => text.trim())) return peeled.texts.length === 1 ? peeled.texts[0] : peeled.texts;
-  // An envelope with nothing in it shows as the JSON it is.
-  return peeled.rest ?? parsed;
+  const texts = peeled.texts.filter((text) => text.trim());
+  // An envelope with no text: what it holds besides, or, empty, the JSON it is.
+  if (!texts.length) return peeled.rest.length === 0 ? parsed : peeled.rest.length === 1 ? peeled.rest[0] : peeled.rest;
+  if (!peeled.rest.length) return texts.length === 1 ? texts[0] : texts;
+  // Text, then what it holds besides (an error's data, a block drawn as neither text nor image) as JSON.
+  return [...texts, ...peeled.rest.map((rest) => JSON.stringify(deepClean(rest), null, 2))].join("\n\n");
 }
 
 /// A value as the opened call shows it: text as itself, anything else as indented JSON.
