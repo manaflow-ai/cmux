@@ -57,8 +57,10 @@ final class ConversationQuickLookPresenter: NSObject, QLPreviewControllerDataSou
     }
 
     nonisolated func previewController(_ controller: QLPreviewController, transitionViewFor item: any QLPreviewItem) -> UIView? {
-        MainActor.assumeIsolated {
-            guard items.indices.contains(index), (item as? ConversationQuickLookItem) === items[index] else { return nil }
+        // Only the opening item zooms from its bubble (compared by identity).
+        let opening = ObjectIdentifier(item as AnyObject)
+        return MainActor.assumeIsolated {
+            guard items.indices.contains(index), ObjectIdentifier(items[index]) == opening else { return nil }
             return sourceView
         }
     }
