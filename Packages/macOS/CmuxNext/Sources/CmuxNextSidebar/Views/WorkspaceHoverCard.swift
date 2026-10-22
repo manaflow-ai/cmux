@@ -649,7 +649,8 @@ extension WorkspaceHoverCardView {
     }
 }
 
-/// The unread dot on the title row, centered on the middle of `line`'s text like the kind icon.
+/// The unread dot on the title row, centered on `line`'s capitals like the card's icons
+/// (`HoverCardIconView`, `NSFont.iconBaselineOffsetFromTop`).
 private final class UnreadDotView: NSView {
     static var side: CGFloat { 6 }
     weak var line: ChromeLabel?
@@ -669,6 +670,6 @@ private final class UnreadDotView: NSView {
     /// getter is not in the probed selector table (scripts/cmux-next/check-objc-selectors.py).
     override var firstBaselineOffsetFromTop: CGFloat {
         guard let font = line?.font else { return Self.side }
-        return Self.side / 2 + (font.ascender + font.descender) / 2
+        return font.iconBaselineOffsetFromTop(iconHeight: Self.side)
     }
 }
