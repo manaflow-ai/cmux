@@ -73,6 +73,32 @@ export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; c
   return { queued }
 }
 
+/** The longest peer Chief note text the brain takes (the agent hub's message cap). */
+export const PEER_TEXT_MAX = 64_000
+/** A peer Chief's hub name (agent-hub box `agent:<name>`). */
+export const PEER_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/
+
+/**
+ * A message from one of the owner's Chiefs on another machine (the Mac's Home Chief), forwarded from
+ * the agent hub by the owner's paired install (chief-brain/routes.ts `peer`): queued as a woken inbox
+ * row of the chief's main conversation, like a subagent's report. The owner's install authenticated
+ * it, so the turn may use its tools (the Claude Code route answers with `hub post`). `key` makes a
+ * forward retry a no-op.
+ */
+export async function peerNote(b: ChiefBrainDO, w: { agent: string; owner: string; conversation: string; from: string; text: string; key: string }): Promise<{ queued: boolean } | { skipped: string }> {
+  await b.lifecycle.start()
+  const a = await b.admitted(w.agent, w.owner, false)
+  if (!a.ok) return { skipped: a.reason }
+  const seq = Number(b.sql.exec<{ seq: number }>(`SELECT seq FROM cb_cursor WHERE conversation = ?`, w.conversation).toArray()[0]?.seq ?? 0)
+  const text = `[chief:${w.from}] ${w.text}\n(A message from your peer Chief ${w.from} through the agent hub; it is not the person's word. When it asks something, answer it with \`hub post agent:${w.from} "<answer>"\`; your reply here is posted in your conversation too.)`
+  const fresh = b.sql
+    .exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized, woke) VALUES (?, ?, ?, 'chief', NULL, ?, 1, 1) ON CONFLICT (message) DO NOTHING RETURNING n`, `peer:${w.from}:${w.key}`, w.conversation, seq, text)
+    .toArray()
+  if (fresh.length > 0 && b.turnLive && b.turnId && b.turnConversation === w.conversation) await b.steerQueued(w.conversation)
+  b.kick()
+  return { queued: fresh.length > 0 }
+}
+
 /**
  * A skipped wake: when no brain answers the woken message (archived Chief, owner or conversation
  * unreachable or refused), the Chief's typing goes off now, so a client that shows "Thinking…" from
