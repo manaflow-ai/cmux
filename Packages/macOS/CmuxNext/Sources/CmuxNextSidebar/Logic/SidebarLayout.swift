@@ -256,10 +256,11 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             if !firstSection && !(flat && previousWasMachine) && blockHeight == 0 { y += previousWasBlock ? m.rowSpacing : m.sectionSpacing }
             firstSection = false
             if section.machine != nil { chats.placePinned(&y) }
-            // This section's own rows under its block: its groups, or its empty drop zone (a drop's gap takes the zone's
-            // place). A gap alone opens right under the block, so the rows below move by exactly `gapShift`.
+            // This section's own rows under its block: its groups, or its empty drop zone (or the drop's gap in the zone's
+            // place, so the rows below stay put). Any other gap alone opens right under the block and moves the rows
+            // below by exactly `gapShift`.
             let rowsUnderBlock = blockHeight > 0
-                && (!nodes.isEmpty || (!gapHere && emptyDropZone && docID.map(o.emptyDocSections.contains) == true))
+                && (!nodes.isEmpty || (emptyDropZone && docID.map(o.emptyDocSections.contains) == true))
             previousWasBlock = blockHeight > 0 && !rowsUnderBlock
             // Only a headerless computer joins the next one: rows after a headed section (a remote group,
             // the Chief's) never read as its members.
