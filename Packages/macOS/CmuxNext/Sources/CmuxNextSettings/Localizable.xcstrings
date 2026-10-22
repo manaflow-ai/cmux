@@ -57,6 +57,78 @@
             "state": "translated",
             "value": "サイドバーのスタイル"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stil bočne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sidepanelstil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stile barra laterale"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រចនាប័ទ្មរបារចំហៀង"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sidefeltstil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Styl paska bocznego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Estilo da barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стиль боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รูปแบบแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kenar çubuğu stili"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стиль бічної панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kiểu thanh bên"
+          }
         }
       }
     },
@@ -115,6 +187,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "レールはサイドバーを、ワークスペースごとに印のある細い帯に縮めます。帯にポインタを置くと、作業の上にサイドバー全体が開きます。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Traka smanjuje bočnu traku na usku traku s oznakom za svaki radni prostor. Pokažite na traku da otvorite cijelu bočnu traku preko svog rada."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skinne gør sidepanelet til en smal strimmel med et mærke for hvert arbejdsområde. Peg på strimlen for at åbne hele sidepanelet over dit arbejde."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La barra riduce la barra laterale a una striscia sottile con un segno per ogni spazio di lavoro. Punta la striscia per aprire la barra laterale completa sopra il tuo lavoro."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "របារបង្រួមរបារចំហៀងទៅជាបន្ទះស្តើងដែលមានសញ្ញាសម្រាប់កន្លែងធ្វើការនីមួយៗ។ ចង្អុលទៅបន្ទះ ដើម្បីបើករបារចំហៀងពេញលើការងាររបស់អ្នក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skinne gjør sidefeltet til en smal stripe med et merke for hvert arbeidsområde. Pek på stripen for å åpne hele sidefeltet over arbeidet ditt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pasek zmniejsza pasek boczny do wąskiej listwy ze znacznikiem dla każdego obszaru roboczego. Wskaż listwę, aby otworzyć pełny pasek boczny nad swoją pracą."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O trilho reduz a barra lateral a uma faixa fina com uma marca para cada espaço de trabalho. Aponte para a faixa para abrir a barra lateral completa sobre o seu trabalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Полоса сжимает боковую панель до узкой ленты с меткой для каждого рабочего пространства. Наведите указатель на ленту, чтобы открыть всю боковую панель поверх работы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แถบจะย่อแถบด้านข้างให้เป็นแถบบางที่มีเครื่องหมายสำหรับแต่ละพื้นที่ทำงาน ชี้ที่แถบเพื่อเปิดแถบด้านข้างเต็มทับงานของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Şerit, kenar çubuğunu her çalışma alanı için bir işaret bulunan ince bir şeride küçültür. Kenar çubuğunun tamamını çalışmanızın üzerinde açmak için şeridin üzerine gelin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Смуга зменшує бічну панель до вузької стрічки з позначкою для кожного робочого простору. Наведіть на стрічку, щоб відкрити всю бічну панель поверх роботи."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thanh mảnh thu nhỏ thanh bên thành một dải hẹp với một dấu cho mỗi không gian làm việc. Trỏ vào dải để mở toàn bộ thanh bên phía trên công việc của bạn."
           }
         }
       }
@@ -175,6 +319,78 @@
             "state": "translated",
             "value": "標準"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Standardno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Standard"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Standard"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្តង់ដារ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Standard"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Standardowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стандартный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มาตรฐาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Standart"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стандартний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tiêu chuẩn"
+          }
         }
       }
     },
@@ -233,6 +449,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "レール"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Traka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skinne"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Barra"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "របារ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skinne"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pasek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trilho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Полоса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แถบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Şerit"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Смуга"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thanh mảnh"
           }
         }
       }
