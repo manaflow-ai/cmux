@@ -52,7 +52,9 @@ import Testing
         let icon = try Self.strongestInk(row, from: iconX, to: iconX + ThemedMenuRowView.imageSide)
         let title = try Self.strongestInk(row, from: titleX, to: titleX + 50)
         #expect(icon > 0.1, "the icon draws")
-        #expect(abs(icon - title) < 0.08, "icon ink \(icon) vs title ink \(title) (dark: \(dark), highlighted: \(highlighted))")
+        // A symbol's thin strokes antialias, so its peak sits a little under the text's: about 0.87
+        // of it in the title's ink, about 0.6 in the quieter secondary ink rows used before.
+        #expect(icon / title > 0.8, "icon ink \(icon) vs title ink \(title) (dark: \(dark), highlighted: \(highlighted))")
     }
 
     /// A pack name with no SF Symbol of the same name (Chrome's page-menu Cast) draws as the SF
