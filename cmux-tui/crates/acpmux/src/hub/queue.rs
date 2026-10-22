@@ -5,6 +5,7 @@
 //! and runs it (`resume_queues`), so queued prompts survive a crash, an update
 //! relaunch, a quit and a reboot.
 
+use super::subsession_runs::{TurnGuard, WaitMark};
 use super::*;
 use std::sync::atomic::Ordering;
 
@@ -91,7 +92,7 @@ pub(super) type Answer = Result<Value, RpcError>;
 
 /// How a queued prompt's wait ends (`queue_turn`).
 pub(super) enum Wait<'a> {
-    Turn(tokio::sync::MutexGuard<'a, ()>),
+    Turn(TurnGuard<'a>),
     Withdrawn,
     Steer,
 }
@@ -112,15 +113,18 @@ pub(super) fn withdrawn_reply(prompt_id: &str, turn_id: &str) -> Value {
 
 impl Hub {
     /// Gets a prompt its turn: at once when nothing runs or waits, else after it joins the queue
-    /// (and `accept` hears `queued`) and reaches its head. Returns the turn id, whether it waited,
-    /// the turn lock, and what it runs (an edit may have changed a prompt that waited); `Err` when
-    /// it left the queue another way. A prompt `restore_queues` rebuilt is in the queue already.
+    /// (and `accept` hears `queued`) and reaches its head. A family prompt to a sub-session whose
+    /// parent's run slots are all taken joins the queue too (`subsession_runs.rs`), and `accept`
+    /// also hears `waitsForSlot`. Returns the turn id, whether it waited, the turn lock (with the
+    /// run slot it holds), and what it runs (an edit may have changed a prompt that waited);
+    /// `Err` when it left the queue another way. A prompt `restore_queues` rebuilt is in the
+    /// queue already.
     pub(super) async fn queue_slot<'a>(
         self: &Arc<Self>,
         session: &'a Arc<Session>,
         p: Slot<'_>,
         accept: &mut impl FnMut(Value),
-    ) -> Result<(String, bool, tokio::sync::MutexGuard<'a, ()>, Arc<PromptRun>), Answer> {
+    ) -> Result<(String, bool, TurnGuard<'a>, Arc<PromptRun>), Answer> {
         // Claimed under the queue lock, as `restore_queue` takes them: a turn of agent messages
         // joins only a restored prompt its task claimed (`digest.rs` `take_joined`).
         let restored = {
@@ -165,22 +169,42 @@ impl Hub {
                 (turn_id, withdraw)
             }
         };
-        let Some(withdraw) = withdraw else {
-            let guard = session.turn_lock.lock().await;
-            session.queued.fetch_sub(1, Ordering::SeqCst);
-            // A move began while it waited for the lock (`transfer_out.rs`): it runs nowhere.
-            if session.moving().is_some() {
-                return Err(Err(moving_error()));
+        // `_slot_wait` counts the sub-session as waiting for a run slot from the moment its prompt
+        // is queued for one, so the summary that `queued` record brings already says so.
+        let (withdraw, _slot_wait): (_, Option<WaitMark>) = match withdraw {
+            Some(withdraw) => (withdraw, None),
+            None => {
+                let guard = session.turn_lock.lock().await;
+                session.queued.fetch_sub(1, Ordering::SeqCst);
+                // A move began while it waited for the lock (`transfer_out.rs`): it runs nowhere.
+                if session.moving().is_some() {
+                    return Err(Err(moving_error()));
+                }
+                match self.take_run_slot(session, p.provenance) {
+                    Ok(slot) => {
+                        let run = PromptRun {
+                            blocks: p.blocks.to_vec(),
+                            control: p.control,
+                            trust_gate: p.trust_gate,
+                            provenance: p.provenance.cloned(),
+                            agent: p.agent.map(str::to_owned),
+                            supersede: p.supersede.map(str::to_owned),
+                        };
+                        return Ok((turn_id, false, TurnGuard::new(guard, slot), Arc::new(run)));
+                    }
+                    // The parent's run slots are all taken: it waits in the queue for one.
+                    Err(parent) => {
+                        drop(guard);
+                        let mark = self.mark_waiting_for_slot(&parent, session);
+                        let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
+                        let waits = self.enqueue(session, &p, position, &turn_id);
+                        accept(
+                            json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "position": position, "waitsForSlot": true}),
+                        );
+                        (waits, Some(mark))
+                    }
+                }
             }
-            let run = PromptRun {
-                blocks: p.blocks.to_vec(),
-                control: p.control,
-                trust_gate: p.trust_gate,
-                provenance: p.provenance.cloned(),
-                agent: p.agent.map(str::to_owned),
-                supersede: p.supersede.map(str::to_owned),
-            };
-            return Ok((turn_id, false, guard, Arc::new(run)));
         };
         let (withdraw, joined) = withdraw;
         // A steer the agent cannot take goes next, and stops the turn that runs now.
@@ -362,10 +386,16 @@ impl Hub {
         turn_id: &str,
         withdraw: &Notify,
     ) -> Wait<'a> {
+        // Set while it waits for a run slot of its parent (`subsession_runs.rs`).
+        let mut slot_wait: Option<WaitMark> = None;
         loop {
             let moved = session.queue_moved.notified();
             tokio::pin!(moved);
             moved.as_mut().enable();
+            // Enabled before the slots are looked at, so a slot freed in between is not missed.
+            let freed = self.run_slots_changed();
+            tokio::pin!(freed);
+            freed.as_mut().enable();
             let steer = session
                 .queue
                 .lock()
@@ -383,15 +413,34 @@ impl Hub {
             };
             // Prompts a failed turn holds wait wherever they are; the first other one is next. Read
             // with the lock held: the turn that just ended may have held this one.
-            let (head, held) = {
+            let (head, held, provenance) = {
                 let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                let held = queue.iter().any(|q| q.turn_id == turn_id && q.held);
-                (queue.iter().find(|q| !q.held).is_none_or(|q| q.turn_id == turn_id), held)
+                let mine = queue.iter().find(|q| q.turn_id == turn_id);
+                let held = mine.is_some_and(|q| q.held);
+                let provenance = mine.and_then(|q| q.run.provenance.clone());
+                let head = queue.iter().find(|q| !q.held).is_none_or(|q| q.turn_id == turn_id);
+                (head, held, provenance)
             };
             let moving = session.moving().is_some();
             if head && !held && !moving && session.turn().is_none() {
                 if !self.shutting_down() {
-                    return Wait::Turn(guard);
+                    match self.take_run_slot(session, provenance.as_ref()) {
+                        Ok(slot) => return Wait::Turn(TurnGuard::new(guard, slot)),
+                        // Its parent's run slots are all taken: it waits for one to free (or a
+                        // limit to change), or to be withdrawn.
+                        Err(parent) => {
+                            drop(guard);
+                            if slot_wait.is_none() {
+                                slot_wait = Some(self.mark_waiting_for_slot(&parent, session));
+                            }
+                            tokio::select! {
+                                () = moved => {}
+                                () = freed => {}
+                                () = withdraw.notified() => return Wait::Withdrawn,
+                            }
+                            continue;
+                        }
+                    }
                 }
                 // A stopping daemon starts no turn: the prompt stays queued in the log, and the
                 // next daemon runs it (`restore_queues`).

@@ -58,6 +58,17 @@ def process_table():
     return rows
 
 
+def resident_mb() -> dict[int, float]:
+    """RSS in MB per pid, from one `ps` call (phys_footprint is the budgeted number; RSS is context)."""
+    out = subprocess.run(["ps", "-axo", "pid=,rss="], capture_output=True, text=True).stdout
+    found = {}
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            found[int(parts[0])] = round(int(parts[1]) / 1024, 1)
+    return found
+
+
 def _roots(bundle: str) -> tuple[str, ...]:
     real = os.path.realpath(bundle)
     return tuple({real + "/", real.removeprefix("/private") + "/", bundle.rstrip("/") + "/"})
@@ -131,11 +142,14 @@ class Instance:
         self.seen |= found
         return {pid: commands[pid] for pid in found}
 
-    def memory(self) -> dict:
-        """Physical footprint now: total MB, process count and MB per kind."""
+    def memory(self, per_pid: bool = False) -> dict:
+        """Physical footprint now: total MB, process count and MB per kind (and per process with
+        `per_pid`: pid, kind, command, footprint MB, RSS MB)."""
         kinds: dict[str, float] = {}
         total = 0.0
         count = 0
+        rows = []
+        rss = resident_mb() if per_pid else {}
         for pid, cmd in self.pids().items():
             got = counters(pid)
             if got is None:
@@ -144,11 +158,18 @@ class Instance:
             total += mb
             count += 1
             kinds[kind_of(cmd)] = kinds.get(kind_of(cmd), 0.0) + mb
-        return {"mb": round(total, 1), "processes": count,
-                "kinds": {k: round(v, 1) for k, v in sorted(kinds.items(), key=lambda kv: -kv[1])}}
+            if per_pid:
+                rows.append({"pid": pid, "kind": kind_of(cmd), "command": cmd[:160], "footprint_mb": round(mb, 1),
+                             "rss_mb": rss.get(pid)})
+        result = {"mb": round(total, 1), "processes": count,
+                  "kinds": {k: round(v, 1) for k, v in sorted(kinds.items(), key=lambda kv: -kv[1])}}
+        if per_pid:
+            result["pids"] = sorted(rows, key=lambda row: -row["footprint_mb"])
+        return result
 
-    def window(self, seconds: float, during=None) -> dict:
-        """Energy (mW), CPU % (of one core) and wakeups/s over `seconds`, summed over the instance.
+    def window(self, seconds: float, during=None, per_pid: bool = False) -> dict:
+        """Energy (mW), CPU % (of one core) and wakeups/s over `seconds`, summed over the instance
+        (and per process with `per_pid`).
 
         A process that starts inside the window counts from its start; one that
         ends inside it is lost (its last counters cannot be read)."""
@@ -161,6 +182,7 @@ class Instance:
         elapsed = time.monotonic() - began
         kinds: dict[str, dict] = {}
         totals = {"mw": 0.0, "cpu_pct": 0.0, "wakeups_per_s": 0.0}
+        rows = []
         for pid, cmd in self.pids().items():
             last = counters(pid)
             if last is None:
@@ -174,10 +196,14 @@ class Instance:
             for key, value in values.items():
                 entry[key] += value
                 totals[key] += value
+            if per_pid:
+                rows.append({"pid": pid, "kind": kind_of(cmd), **{k: round(v, 3) for k, v in values.items()}})
         rounded = {k: round(v, 3) for k, v in totals.items()}
         rounded["seconds"] = round(elapsed, 1)
         rounded["kinds"] = {k: {kk: round(vv, 3) for kk, vv in e.items()}
                             for k, e in sorted(kinds.items(), key=lambda kv: -kv[1]["mw"])}
+        if per_pid:
+            rounded["pids"] = sorted(rows, key=lambda row: -row["cpu_pct"])
         return rounded
 
     def end(self, grace: float = 10):

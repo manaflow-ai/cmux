@@ -34,7 +34,7 @@ extension ChatController {
         for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
             guard let spec = cell.spec, case let .part(p) = spec.kind else { continue }
             let body = cell.convert(RowDraw.bodyRect(spec), to: demo)
-            guard body.maxY > Fixture.headerHeight, body.minY < demo.anchorY + 20 else { continue }
+            guard body.maxY > demo.visibleTop, body.minY < demo.anchorY + 20 else { continue }
             let id = p.ref.messageId
             let t = p.text?.text ?? Self.describe(p.part)
             if let e = by[id] { by[id] = (e.0.union(body), e.1 + [(p.ref.partIndex, t)]) } else { by[id] = (body, [(p.ref.partIndex, t)]); order.append(id) }

@@ -8,6 +8,7 @@ import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRe
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { commandFolder } from "./commandFolder";
 import { cleanText, mcpCall, prettyOutput, prettyValue } from "./mcpCalls";
+import { drawnThought } from "./thoughts";
 
 /** One match: the `occurrence`th match of the query in row `rowIndex`. */
 export type FindMatch = { rowIndex: number; rowId: string; occurrence: number };
@@ -24,7 +25,8 @@ const SEARCHED_KINDS = new Set(["user", "assistant"]);
 /// without the context a host injects into it, as ToolRow does.
 function drawnText(item: AcpmuxActivity): string {
   const tool = item.tool;
-  if (!tool) return item.text;
+  // A thought draws its headings without their marks (ThoughtRow.tsx, thoughts.ts thoughtParts).
+  if (!tool) return item.kind === "thought" ? drawnThought(item.text) : item.text;
   const call = mcpCall(tool);
   if (call) return [prettyValue(call.args), prettyOutput(tool.output)].filter(Boolean).join("\n");
   const shell = tool.kind === "execute" && Boolean(tool.command);
