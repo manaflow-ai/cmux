@@ -51,6 +51,7 @@ import {
   lostPrompt,
   lostPromptSlot,
   waitForResend,
+  withoutRestored,
 } from "./lostPrompt";
 import { pageHostClient, startHostEvents } from "./pageHost";
 import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost } from "./NewTabPage";
@@ -79,7 +80,7 @@ import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type Acpmu
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
-import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
+import { composerDraft, notifyDraftActionsChanged, readPersistedDraft, writePersistedDraft } from "./composerDraft";
 import { paneContext } from "./paneContext";
 import {
   createPaneQueryClient,
@@ -5657,9 +5658,25 @@ function AcpmuxPane() {
       lostDraftsKept.drop(promptId);
       const back = restoredLost.get(promptId);
       if (!back) return;
+      // This chat's lost prompts put back in the composer, in the order they came back.
+      const parts = [...restoredLost].filter(([, other]) => other.sessionId === back.sessionId);
+      const at = parts.findIndex(([id]) => id === promptId);
       const shown = directClient.current;
       if (shown?.selectedSession !== back.sessionId) {
+        // The pane shows another chat: the composer saved this chat's draft as it left it (its text;
+        // `writePersistedDraft`), so the delivered part goes from there, as it would from the composer.
+        const saved = readPersistedDraft(back.sessionId);
+        const left =
+          saved === undefined
+            ? undefined
+            : withoutRestored(
+                { text: saved, attachmentIds: [] },
+                parts.map(([, part]) => ({ text: part.text, attachmentIds: [] })),
+                at,
+              );
+        if (left) writePersistedDraft(back.sessionId, left.text);
         restoredLost.delete(promptId);
+        if (left) shown?.dismissNotice(back.noticeId);
         return;
       }
       const waiting = heldBack.current;
@@ -5667,14 +5684,8 @@ function AcpmuxPane() {
         (draft) => draft.text === back.text && draft.attachments === back.attachments,
       );
       let taken = false;
-      if (composerHandle.current) {
-        // This chat's lost prompts put back in the composer, in the order they came back.
-        const parts = [...restoredLost].filter(([, other]) => other.sessionId === back.sessionId);
-        taken = composerHandle.current.takeBack(
-          parts.map(([, part]) => part),
-          parts.findIndex(([id]) => id === promptId),
-        );
-      } else if (waiting && unmounted !== undefined && unmounted >= 0) {
+      if (composerHandle.current) taken = composerHandle.current.takeBack(parts.map(([, part]) => part), at);
+      else if (waiting && unmounted !== undefined && unmounted >= 0) {
         heldBack.current = waiting.filter((_, index) => index !== unmounted);
         taken = true;
       }
