@@ -1599,12 +1599,18 @@ pre.cv-math-source {
   color: var(--cv-text-dim);
 }
 /* A thought in full (while it streams, or with a Debug choice that folds only long ones): a muted
-   "Thought", then its text wrapped on the tool rows' 20px lines, the first line where a single-line
-   row's text sits (Leo 2026-10-13). */
+   "Thinking" (or "Thought for 12s" once done) on its own line, then its text under the opened
+   fold's left rule, so the label and the first words never read as one sentence (Leo 2026-10-21:
+   "Thought I am here" read weird). */
 .cv-thought {
   align-items: flex-start;
   gap: 6px;
   padding-block: 3px;
+}
+.cv-thought.is-full {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
 }
 .cv-thought__label {
   flex: none;
@@ -1635,11 +1641,29 @@ pre.cv-math-source {
 }
 .cv-thought__body {
   display: block;
+}
+/* A flex item already, so no display here: the live viewport's column (above) keeps its own. */
+.cv-thought__body,
+.cv-thought.is-full .cv-thought__text {
   margin: 2px 0 6px 7px;
   padding-left: 16px;
   border-left: 1px solid var(--cv-rule);
   line-height: 20px;
   overflow: hidden;
+}
+/* A heading in a thought's text (Codex's `**Heading**`, ThoughtRow.tsx thoughtParts): its own muted
+   title, without the marks, a paragraph's gap over the text it heads. */
+.cv-thought__parts,
+.cv-thought__part,
+.cv-thought__title {
+  display: block;
+}
+.cv-thought__title {
+  font-weight: 600;
+  color: var(--cv-text-muted);
+}
+.cv-thought__part + .cv-thought__title {
+  margin-top: 10px;
 }
 .cv-tool.is-toggle {
   cursor: pointer;
