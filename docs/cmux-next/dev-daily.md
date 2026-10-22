@@ -38,5 +38,17 @@ same build keeps running and the app reattaches to it. An acpmux of another
 build, or one still running from the bundle the update replaced, is handed off
 to the bundled one, and its agents keep running under their hosts.
 
+If agents still run on the old acpmux after an update, move it by hand from a
+terminal in the updated app:
+
+```sh
+cmux acp --version; cmux acp --json daemon status | grep '"build"'   # the app's build, then the running daemon's
+cmux acp daemon shutdown     # ends the old daemon; hosted agents keep running for the next one
+cmux acp host update --all   # your ssh peers get the same build, put back if it doesn't start
+```
+
+Then send a message in any agent chat: the app starts its bundled acpmux, which
+adopts the running agents.
+
 Sparkle is disabled for this channel (`UpdateBuildIdentity.track` is
 `.development`), so there is no in-app update; this script is the update path.
