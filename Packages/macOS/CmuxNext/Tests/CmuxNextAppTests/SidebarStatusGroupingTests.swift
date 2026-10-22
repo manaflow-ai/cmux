@@ -153,6 +153,18 @@ import Testing
                 "\(sidebar.drawn)")
     }
 
+    /// The Done fold (`sidebar.doneFold`, on by default) folds workspaces marked Done in the plain list; inside status
+    /// sections it does not apply, so a workspace marked Done shows under its Priority state.
+    @Test func aWorkspaceMarkedDoneShowsUnderItsStateNotTheDoneFold() {
+        defer { Self.toggle(nil) }
+        var rows = Self.rows
+        rows[1].taskStatus = .done // build, working
+        Self.toggle(true)
+        let sidebar = Sidebar(rows)
+        #expect(sidebar.drawn.suffix(4) == ["Working, 1 workspaces", "build", "Idle, 1 workspaces", "shell"], "\(sidebar.drawn)")
+        #expect(!sidebar.view.list.displayed.rows.contains { if case .doneFold = $0.key { true } else { false } })
+    }
+
     /// The sections are the Priority classifier's (`AgentPriorityRanking.state` through `SidebarLaneStatus`), not one
     /// of the sidebar's own: acpmux lanes in, the rows the row feed maps, laid out under their states.
     @Test func theSectionsComeFromThePriorityClassifier() throws {
