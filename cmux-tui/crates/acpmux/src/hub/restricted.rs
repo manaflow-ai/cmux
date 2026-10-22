@@ -21,8 +21,9 @@
 //! - A profile argv that already shapes any of that is refused (`remote_sandbox::refused_arg`).
 //!   The program is one of Claude Code's own launchers (`LAUNCHERS`), never an interpreter that
 //!   would load a script, module or preload from the folder; it is looked up on the absolute
-//!   folders of PATH and never inside the chat's folder, and no argument of the profile's names
-//!   a path there. Env that makes an interpreter or shell load code starts blank (`BLANKED_ENV`).
+//!   folders of PATH and never inside the chat's folder, and no argument or env value of the
+//!   profile's names a path there (`ZDOTDIR=.` would have a zsh launcher source the folder's
+//!   `.zshenv`). Env that makes an interpreter or shell load code starts blank (`BLANKED_ENV`).
 //! - git, which Claude Code runs in the folder, gets `core.fsmonitor=false` and
 //!   `core.hooksPath=/dev/null` through `GIT_CONFIG_COUNT` (other git config in the folder,
 //!   such as a filter driver, still applies: see the PR's risks).
@@ -221,17 +222,46 @@ fn folder_args(args: &[String], cwd: &Path) -> Result<(), String> {
     }
     let words = args.iter().flat_map(|a| [Some(a.as_str()), a.split_once('=').map(|(_, v)| v)]);
     for word in words.flatten().filter(|w| !w.is_empty()) {
-        let path = Path::new(word);
-        let inside = if path.is_absolute() {
-            resolved(path).starts_with(&cwd)
-        } else {
-            word.contains('/') && cwd.join(path).symlink_metadata().is_ok()
-        };
-        if inside {
+        if in_folder(word, &cwd) {
             return Err(format!("{word} is inside the chat's folder"));
         }
     }
     Ok(())
+}
+
+/// Refuses a value of the profile's `env` (the spawn's, `${cwd}` already expanded) with a word
+/// (split at `:`, `=` and spaces, as path lists and option strings are) that names a path inside
+/// the chat's folder `cwd`, as `folder_args` does: a launcher's shell or interpreter reads it
+/// before anything asks. Keys the restricted chat sets itself (`BLANKED_ENV`, PATH) or checks
+/// (`SETTINGS_ROOTS`) are left to that. Allowed when `cwd` holds the person's home.
+fn folder_env(env: &BTreeMap<String, String>, cwd: &Path) -> Result<(), String> {
+    let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+    if held_home(&cwd).is_some() {
+        return Ok(());
+    }
+    let set_here = |key: &str| {
+        key == "PATH" || BLANKED_ENV.contains(&key) || SETTINGS_ROOTS.iter().any(|(k, _)| *k == key)
+    };
+    for (key, value) in env.iter().filter(|(key, _)| !set_here(key.as_str())) {
+        // A value that is a Keychain item is a secret, not a path.
+        let Ok(value) = env_refs_read(key, value) else { continue };
+        let mut words = value.split(|c: char| c == ':' || c == '=' || c.is_whitespace());
+        if let Some(word) = words.find(|w| !w.is_empty() && in_folder(w, &cwd)) {
+            return Err(format!("{key}={word} is inside the chat's folder"));
+        }
+    }
+    Ok(())
+}
+
+/// Whether `word` names a path inside `cwd` (canonical): absolute, or relative (`.`, or with a
+/// `/`) and there, since Claude Code starts in it. A bare word is a value.
+fn in_folder(word: &str, cwd: &Path) -> bool {
+    let path = Path::new(word);
+    if path.is_absolute() {
+        resolved(path).starts_with(cwd)
+    } else {
+        (word == "." || word.contains('/')) && cwd.join(path).symlink_metadata().is_ok()
+    }
 }
 
 /// Refuses `mode` for a restricted chat unless it asks (`MODES`): `Hub::set_mode` and the
@@ -616,6 +646,7 @@ impl Hub {
         let own = own_argv(&profile.argv, &meta.tools);
         launcher(own.first().map_or("", String::as_str)).map_err(refused)?;
         folder_args(own.get(1..).unwrap_or_default(), &meta.cwd).map_err(refused)?;
+        folder_env(&profile.env, &meta.cwd).map_err(refused)?;
         let mut plan = command_line(own, plan).map_err(refused)?;
         plan.program = frozen_program(&plan.program, &meta.cwd).map_err(refused)?;
         for &(key, under) in SETTINGS_ROOTS {
@@ -795,6 +826,41 @@ mod tests {
         let ok = args(&["--model", "opus", "--verbose", &elsewhere.to_string_lossy()]);
         assert!(folder_args(&ok, &chat).is_ok());
         assert!(folder_args(&args(&[&script]), &elsewhere).is_ok());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_profile_env_value_inside_the_chat_folder_is_refused() {
+        let root = std::env::temp_dir().join(format!("restricted-env-{}", std::process::id()));
+        let (chat, elsewhere) = (root.join("chat"), root.join("elsewhere"));
+        std::fs::create_dir_all(chat.join("dots")).unwrap();
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        let env = |pairs: &[(&str, &str)]| {
+            pairs
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect::<BTreeMap<_, _>>()
+        };
+        let dots = chat.join("dots").to_string_lossy().into_owned();
+        assert!(folder_env(&env(&[("ZDOTDIR", ".")]), &chat).is_err());
+        assert!(folder_env(&env(&[("ZDOTDIR", &dots)]), &chat).is_err());
+        assert!(folder_env(&env(&[("ZDOTDIR", "./dots")]), &chat).is_err());
+        let list = format!("/usr/lib:{dots}");
+        assert!(folder_env(&env(&[("GEM_PATH", &list)]), &chat).is_err());
+        assert!(folder_env(&env(&[("TOOL_OPTS", "--rcfile dots/x")]), &chat).is_ok());
+        assert!(folder_env(&env(&[("TOOL_OPTS", "--rcfile=dots")]), &chat).is_ok());
+        assert!(folder_env(&env(&[("TOOL_OPTS", "--rc ./dots")]), &chat).is_err());
+        // Values, other folders, and the keys the restricted chat sets or checks itself.
+        let ok = env(&[
+            ("ANTHROPIC_MODEL", "dots"),
+            ("ANTHROPIC_BASE_URL", "http://localhost:8080/v1"),
+            ("ZDOTDIR", &elsewhere.to_string_lossy()),
+            ("PYTHONPATH", "."),
+            ("PATH", "."),
+        ]);
+        assert!(folder_env(&ok, &chat).is_ok());
+        assert!(folder_env(&env(&[("ZDOTDIR", ".")]), &elsewhere).is_err());
+        assert!(folder_env(&env(&[("ZDOTDIR", &dots)]), &elsewhere).is_ok());
         let _ = std::fs::remove_dir_all(&root);
     }
 
