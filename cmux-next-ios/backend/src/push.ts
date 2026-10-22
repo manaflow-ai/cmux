@@ -78,6 +78,45 @@ export interface NotifyEvent {
   questions?: ReadonlyArray<PushQuestion>
   readonly tail?: ReadonlyArray<string>
   readonly state?: PushState
+  /** Per phone device id: the content sealed to that phone's push key and the Mac's signature (API 0.14.0). */
+  readonly sealed?: Readonly<Record<string, SealedBox>>
+}
+
+/** One phone's sealed notification (PROTOCOL.md "Sealed pushes and the reply mailbox"). */
+export interface SealedBox {
+  readonly box: string
+  readonly sig: string
+}
+
+/** A box is at most 3 KB of base64url, so the whole APNs payload stays under 4096 bytes. */
+export const MAX_SEALED_BOX = 3072
+const MAX_SEALED_PHONES = 20
+const BASE64URL = /^[A-Za-z0-9_-]+$/
+const SIGNATURE = /^[0-9a-f]{128}$/
+const PHONE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+/** How long a reply waits in the mailbox for its Mac (PROTOCOL.md). */
+export const MAILBOX_TTL_MS = 10 * 60_000
+/** The largest sealed reply, in base64url characters. */
+export const MAX_MAILBOX_SEALED = 8192
+/** Pending replies one Mac may have. */
+export const MAILBOX_PENDING_LIMIT = 32
+/** Whether `text` is a sealed blob as clients send it: non-empty base64url of at most `max` characters. */
+export const isSealedText = (text: unknown, max: number): text is string => typeof text === "string" && text.length > 0 && text.length <= max && BASE64URL.test(text)
+
+const parseSealed = (v: unknown): Record<string, SealedBox> | string => {
+  const bad = "sealed must be {<phone device id>: {box, sig}} (box base64url of at most 3072 characters, sig 64 bytes in hex), at most 20 phones"
+  if (!isObject(v)) return bad
+  const entries = Object.entries(v)
+  if (entries.length === 0 || entries.length > MAX_SEALED_PHONES) return bad
+  const out: Record<string, SealedBox> = {}
+  for (const [phone, entry] of entries) {
+    const id = phone.toLowerCase()
+    if (!PHONE_ID.test(id) || !isObject(entry) || !isSealedText(entry.box, MAX_SEALED_BOX)) return bad
+    if (typeof entry.sig !== "string" || !SIGNATURE.test(entry.sig)) return bad
+    out[id] = { box: entry.box, sig: entry.sig }
+  }
+  return out
 }
 
 /** Printable text cut to `max` code points: control and format characters become spaces. */
@@ -161,6 +200,12 @@ export const parseNotify = (b: Record<string, unknown>): Omit<NotifyEvent, "macI
       questions.push({ question: clean(q.question, 200), ...(header ? { header } : {}), multiSelect: q.multiSelect === true, allowsOther: q.allowsOther === true, options: opts })
     }
   }
+  let sealed: Record<string, SealedBox> | undefined
+  if (present(b.sealed)) {
+    const r = parseSealed(b.sealed)
+    if (typeof r === "string") return r
+    sealed = r
+  }
   let tail: Array<string> | undefined
   if (present(b.tail)) {
     if (!Array.isArray(b.tail) || b.tail.some((l) => typeof l !== "string")) return "tail must be a list of strings"
@@ -174,7 +219,8 @@ export const parseNotify = (b: Record<string, unknown>): Omit<NotifyEvent, "macI
     ...(state ? { state } : {}),
     ...(options ? { options } : {}),
     ...(questions ? { questions } : {}),
-    ...(tail ? { tail } : {})
+    ...(tail ? { tail } : {}),
+    ...(sealed ? { sealed } : {})
   }
 }
 
@@ -382,8 +428,31 @@ export const apnsRequest = (target: PushRegistration, e: NotifyEvent, token: str
       "apns-collapse-id": collapseId(e),
       "content-type": "application/json"
     },
-    body: JSON.stringify(apnsPayload(e, { previews: target.previews }))
+    body: JSON.stringify(sealedFor(e, target) ? sealedPayload(e, sealedFor(e, target)!) : apnsPayload(e, { previews: target.previews }))
   })
+}
+
+const sealedFor = (e: NotifyEvent, target: PushRegistration): SealedBox | undefined => e.sealed?.[target.deviceId.toLowerCase()]
+
+/**
+ * The APNs body for a phone the Mac sealed this event to (v3): a generic banner, the routing kind and ids, and
+ * the box its Notification Service Extension opens. No content field and no readable id leaves here: the
+ * thread is a hash, the category the kind's (the extension sets the exact one).
+ */
+export const sealedPayload = (e: NotifyEvent, sealed: SealedBox) => {
+  const ask = e.kind === "question" || e.kind === "permission"
+  const thread = fnv(threadId(e))
+  return {
+    aps: {
+      alert: { title: "cmux", body: `New notification from ${e.macName}` },
+      sound: "default",
+      "mutable-content": 1 as const,
+      "thread-id": thread,
+      category: e.kind === "question" ? "CMUX_MOBILE_QUESTION_FORM" : `CMUX_MOBILE_${e.kind.toUpperCase()}`,
+      ...(ask ? { "interruption-level": "time-sensitive" } : {})
+    },
+    cmuxMobile: { v: 3 as const, mac: e.macId, kind: e.kind, eventId: e.eventId, box: sealed.box, sig: sealed.sig }
+  }
 }
 
 export type ApnsOutcome = "sent" | "drop_target" | "failed"
