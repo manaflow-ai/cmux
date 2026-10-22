@@ -27,6 +27,9 @@ struct HibernationPlanner {
         var isDownloading = false
         /// An agent holds the page's browser lease (its cursor is on it).
         var hasAgentLease = false
+        /// The probe kept the page lately (it played or held form input): under pressure it
+        /// ranks after the others, so it does not hold up the relief of the rest.
+        var recentlyKept = false
     }
 
     /// How many pages one pass hibernates and how soon the next pass runs while more are due,
@@ -34,10 +37,11 @@ struct HibernationPlanner {
     struct Pace: Equatable {
         var perPass: Int
         var interval: Double
-        /// Under pressure, pages hidden less than this never go (the person just left them).
+        /// Pages hidden less than this never go (the person just left them). Without pressure
+        /// the timeout alone decides.
         var minimumHidden: Double
 
-        static let normal = Pace(perPass: 2, interval: 5, minimumHidden: 60)
+        static let normal = Pace(perPass: 2, interval: 5, minimumHidden: 0)
         static let warning = Pace(perPass: 1, interval: 15, minimumHidden: 60)
         static let critical = Pace(perPass: 3, interval: 3, minimumHidden: 10)
 
@@ -156,15 +160,19 @@ struct HibernationPlanner {
             return plan
         }
         let pace = Pace.at(pressure)
-        var ranked: [(key: String, idleness: Double, hiddenFor: Double)] = []
+        var ranked: [(key: String, idleness: Double, hiddenFor: Double, kept: Bool)] = []
         for candidate in candidates {
             if let exemption = exemption(candidate, setting: setting) {
                 plan.exemptions[candidate.key] = exemption
                 continue
             }
-            ranked.append((candidate.key, idleness(candidate, pressure: pressure), candidate.hiddenFor))
+            ranked.append((candidate.key, idleness(candidate, pressure: pressure), candidate.hiddenFor,
+                           pressure != .normal && candidate.recentlyKept))
         }
-        ranked.sort { $0.idleness != $1.idleness ? $0.idleness > $1.idleness : $0.key < $1.key }
+        ranked.sort {
+            if $0.kept != $1.kept { return !$0.kept }
+            return $0.idleness != $1.idleness ? $0.idleness > $1.idleness : $0.key < $1.key
+        }
         // A page the person just left never goes, whatever its memory or the mode.
         let oldEnough = ranked.filter { $0.hiddenFor >= pace.minimumHidden }
         var due = oldEnough.filter { $0.idleness >= threshold }

@@ -121,8 +121,8 @@ final class BrowserHibernation {
     private var memoryMeasuredAt: ContinuousClock.Instant?
     private var measuringMemory = false
     static let memoryMaxAge: Double = 30
-    /// When the probe last kept each page; under pressure such a page waits `keptBackoff`
-    /// before it is asked again, so one playing page does not hold up the relief of the rest.
+    /// When the probe last kept each page; under pressure such a page ranks after the others
+    /// for `keptBackoff` seconds, so one playing page does not hold up the relief of the rest.
     private var probeKeptAt: [String: ContinuousClock.Instant] = [:]
     static let keptBackoff: Double = 60
 
@@ -405,16 +405,11 @@ final class BrowserHibernation {
                 agentUsedAt[key] = nil
                 if exemptions[key] == .agentDriving { exemptions[key] = nil }
             }
-            // Under pressure a page the probe just kept waits, so the relief moves on to the next.
-            if pressure != .normal, let kept = probeKeptAt[key] {
-                let left = Self.keptBackoff - (now - kept).seconds
-                if left > 0 {
-                    graceEnds = min(graceEnds ?? left, left)
-                    return nil
-                }
-                probeKeptAt[key] = nil
+            var facts = candidate(key, entry: entry, hiddenFor: (now - at).seconds, now: now)
+            if let kept = probeKeptAt[key] {
+                if (now - kept).seconds < Self.keptBackoff { facts.recentlyKept = true } else { probeKeptAt[key] = nil }
             }
-            return candidate(key, entry: entry, hiddenFor: (now - at).seconds, now: now)
+            return facts
         }
         let plan = HibernationPlanner.plan(setting, pressure: pressure, candidates: candidates)
         exemptions.merge(plan.exemptions) { $1 }

@@ -78,6 +78,16 @@ import Testing
         #expect(plan.due.isEmpty)
     }
 
+    /// Under pressure a page the probe just kept (it played) goes after the others, so it does
+    /// not hold up the relief; alone, it is asked again.
+    @Test func aRecentlyKeptPageDoesNotBlockRelief() {
+        var playing = page("playing", minutes: 20)
+        playing.recentlyKept = true
+        let plan = HibernationPlanner.plan(.fallback, pressure: .warning, candidates: [playing, page("quiet", minutes: 5)])
+        #expect(plan.due == ["quiet"])
+        #expect(HibernationPlanner.plan(.fallback, pressure: .warning, candidates: [playing]).due == ["playing"])
+    }
+
     @Test func downloadsAndAgentLeasesNeverHibernate() {
         for pressure in [MemoryPressureLevel.normal, .warning, .critical] {
             let plan = HibernationPlanner.plan(.fallback, pressure: pressure, candidates: [
