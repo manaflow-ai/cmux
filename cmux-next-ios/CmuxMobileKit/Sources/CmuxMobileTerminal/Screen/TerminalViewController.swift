@@ -99,6 +99,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// Selection in a full-screen app (vim, htop): a long press always selects,
     /// like Shift-drag on the Mac when the app captures the mouse (G-14).
     let tuiSelection = TerminalSelectionController()
+    /// A vertical drag in a full-screen app scrolls the app (T-SCROLL-12).
+    private let tuiScroll = TerminalTUIScrollController()
     private var documentRows: Int { document?.rowCount ?? 0 }
     /// First absolute row of the document (content y 0).
     private var originRow: Int { document?.originRow ?? 0 }
@@ -500,6 +502,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let tuiTap = UITapGestureRecognizer(target: self, action: #selector(terminalTapped))
         tuiClip.addGestureRecognizer(tuiTap)
         installSelection()
+        installTUIScroll()
 
         surface.configurePasteControlTarget()
         surface.onInput = { [weak self] data in
@@ -1884,8 +1887,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             scrollButtonVisibility = JumpToBottomVisibility()
             setScrollButton(visible: false)
         } else {
-            // The app's screen is gone: its selection goes with it.
+            // The app's screen is gone: its selection and fling go with it.
             tuiSelection.clear()
+            tuiScroll.stopMomentum()
             tuiSizing.tuiEnded()
             scrollView.isScrollEnabled = true
             scrollView.topEdgeEffect.style = .soft
@@ -2229,6 +2233,22 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         tuiSelection.text = { [weak self] start, end in self?.surface.viewportText(from: start, to: end) }
         tuiSelection.install(in: tuiHost)
+    }
+
+    /// The alternate screen's drag: the app scrolls, the page stays pinned.
+    private func installTUIScroll() {
+        tuiScroll.isEnabled = { [weak self] in
+            guard let self else { return false }
+            return model.isTUI && surface.superview === tuiHost
+        }
+        tuiScroll.selectionOwns = { [weak self] touch in
+            guard let self else { return false }
+            if tuiSelection.isPressing { return true }
+            return touch.map { tuiSelection.ownsTouch($0) } ?? false
+        }
+        // The rows move under a selection: it would point at other text.
+        tuiScroll.dragBegan = { [weak self] in self?.tuiSelection.clear() }
+        tuiScroll.install(in: tuiClip, surface: surface)
     }
 
     /// While a long press selects, the page does not scroll under the finger.

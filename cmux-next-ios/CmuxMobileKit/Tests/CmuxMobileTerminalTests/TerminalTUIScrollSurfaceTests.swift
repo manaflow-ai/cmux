@@ -12,7 +12,7 @@ import UIKit
 @MainActor
 @Suite(.serialized) struct TerminalTUIScrollSurfaceTests {
     /// A mirror surface in a window, its output fed and its input collected.
-    final class Rig {
+    @MainActor final class Rig {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         let surface = TerminalSurfaceView(frame: CGRect(x: 0, y: 0, width: 360, height: 600))
         var sent = Data()
@@ -25,7 +25,7 @@ import UIKit
 
         func feed(_ text: String) async {
             await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-                surface.feed(Data(text.utf8)) { done.resume() }
+                surface.feed(Data(text.utf8), completion: { done.resume() })
             }
         }
 
