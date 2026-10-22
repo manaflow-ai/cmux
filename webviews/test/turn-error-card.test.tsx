@@ -32,6 +32,7 @@ test("disk, tailnet, quit and start failures each name their cause", () => {
       "HTTP 401 Unauthorized from https://proxy.tail123.ts.net/v1/messages: user is logged out; please sign in again",
       "proxy-auth",
     ],
+    ['Post "https://proxy.tail123.ts.net/oauth/token": dial tcp 100.101.102.103:443: i/o timeout', "tailscale"],
     ["API Error: 529 overloaded_error from https://proxy.tail123.ts.net/v1/messages", "rate-limited"],
     ["dial tcp proxy.tail123.ts.net:443: connect: connection refused", "tailscale"],
   ];

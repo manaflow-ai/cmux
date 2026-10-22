@@ -45,6 +45,8 @@ const DISK_FULL = /ENOSPC|no space left on device|disk (?:is )?full|out of disk 
 /// it did not connect. A tailnet host that answered (a 401, a 529) is that answer, not Tailscale,
 /// even when its body says "logged out" (`answered`).
 const TAILSCALE = /tailscale|tailnet|\.ts\.net\b/i;
+/// URLs and tailnet host names, with their paths and ports (`answered`).
+const ADDRESSES = /https?:\/\/\S+|\S+\.ts\.net\S*/gi;
 const TAILNET_DOWN = /not connected|logged out|needs login|is (?:down|stopped|offline)|no route|i\/o timeout/i;
 /// The agent's process ended mid-turn (acpmux's "agent process closed", a signal, a broken pipe).
 const AGENT_EXITED =
@@ -94,8 +96,9 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   if (DISK_FULL.test(message)) return "disk-full";
   // Capacity and network first: their messages often mention authentication or keys in passing.
   if (RATE.test(message)) return "rate-limited";
-  // An HTTP sign-in refusal came from a host that answered: the tailnet reached it.
-  const answered = AUTH.test(message);
+  // An HTTP sign-in refusal came from a host that answered: the tailnet reached it. Only the words
+  // outside addresses count: a request to `…/oauth/token` that timed out got no answer.
+  const answered = AUTH.test(message.replace(ADDRESSES, " "));
   if (TAILSCALE.test(message) && !answered && (UNREACHABLE.test(message) || TAILNET_DOWN.test(message)))
     return "tailscale";
   if (UNREACHABLE.test(message)) return "unreachable";
