@@ -541,6 +541,32 @@ public final class FeedStore {
         }
     }
 
+    /// "Typing into the terminal…" while a terminal agent's reply is on its way.
+    public static let typingIntoTerminal = "Typing into the terminal…"
+
+    /// A reply to a terminal agent's event, typed into that terminal by
+    /// `send` (nil: sent; else why not). Its state lives on the item, so a
+    /// recycled cell neither loses the outcome nor sends it twice.
+    public func replyToTerminal(_ id: String, text: String, send: @escaping (FeedItem, String) async -> String?) {
+        guard let item = item(id: id), item.pending == nil else { return }
+        mutate(id) {
+            $0.pending = Self.typingIntoTerminal
+            $0.error = nil
+        }
+        Task { @MainActor in
+            let refusal = await send(item, text)
+            mutate(id) {
+                $0.pending = nil
+                if let refusal {
+                    $0.error = refusal
+                } else {
+                    $0.replies.append(text)
+                    $0.isRead = true
+                }
+            }
+        }
+    }
+
     public func reply(_ id: String, text: String) {
         mutate(id) {
             $0.replies.append(text)

@@ -25,7 +25,6 @@ struct FeedCell: View {
     /// whose refusal (the Mac's reason) shows under the reply instead of a silent "You replied".
     @State private var replyFailure: String?
     @State private var replyChat: AgentChatStore?
-    @State private var sendingToTerminal = false
     @FocusState private var replyFocused: Bool
     @State private var copied = false
     #if DEBUG
@@ -97,10 +96,10 @@ struct FeedCell: View {
                 if !item.replies.isEmpty {
                     replies
                 }
-                if sendingToTerminal {
+                if item.opensTerminal, let pending = item.pending {
                     HStack(spacing: 8) {
                         ProgressView()
-                        Text("Typing into the terminal…")
+                        Text(pending)
                     }
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -409,32 +408,15 @@ struct FeedCell: View {
     }
 
     /// A terminal agent's reply: typed into its terminal on the Mac, then shown
-    /// under the card as sent (or why it was not).
+    /// under the card as sent (or why it was not). Its state lives on the item.
     private func sendTerminalReply(_ text: String) {
-        let item = item
-        let store = store
         replyText = ""
         replyFocused = false
-        withAnimation(.cmuxMobileSnappy) {
-            replying = false
-            sendingToTerminal = true
-        }
-        Task { @MainActor in
-            let refusal: String?
-            if let replyToTerminal = FeedRouting.shared.replyToTerminal {
-                refusal = await replyToTerminal(item, text)
-            } else {
-                refusal = "Open the terminal to reply."
-            }
-            withAnimation(.cmuxMobileSnappy) {
-                sendingToTerminal = false
-                if let refusal {
-                    replyFailure = refusal
-                    replyText = text
-                } else {
-                    store.reply(item.id, text: text)
-                }
-            }
+        withAnimation(.cmuxMobileSnappy) { replying = false }
+        let route = FeedRouting.shared.replyToTerminal
+        store.replyToTerminal(item.id, text: text) { item, text in
+            guard let route else { return "Open the terminal to reply." }
+            return await route(item, text)
         }
     }
 
@@ -447,6 +429,8 @@ struct FeedCell: View {
                     withAnimation(.cmuxMobileSmooth) { replying.toggle() }
                     replyFocused = replying
                 }
+                // One terminal reply at a time: a second would interleave with the first.
+                .disabled(item.opensTerminal && item.pending != nil)
                 Spacer()
             }
             footerButton("arrow.up.right.square", "Open", action: open)

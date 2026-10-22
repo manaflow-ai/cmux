@@ -175,10 +175,14 @@ impl Mux {
         let preview = message.as_deref().and_then(crate::agent_hooks::live_prompt_text);
         let prompt =
             agent_terminal.and_then(|terminal| self.agent_feed_prompt(terminal)).map(|prompt| prompt.to_string());
+        let session = agent_terminal.and_then(|terminal| {
+            lock(&self.agent_records).get(terminal).and_then(|record| record.agent_session_id.clone())
+        });
         self.emit(MuxEvent::Notification(NotificationEvent {
             id: Some(notification.id.as_str().to_owned()),
             message,
             prompt,
+            session,
             notification: numeric_id,
             title: notification.title.clone(),
             subtitle: notification.subtitle.clone(),

@@ -65,22 +65,29 @@ public final class TerminalFeed {
     /// so a read or a read mark never crosses to another Mac or connection.
     /// Parameters are integers only (`limit`, `surface`).
     public var request: (@MainActor (_ command: String, _ params: [String: Int], _ connection: Int) async throws -> Data)?
-    /// Writes `text` into the terminal of `surface` on the Mac's `daemon`
-    /// channel of `connection` (`send`, pasted or typed), only while
-    /// `expectForeground` is still its foreground program (checked by the
-    /// daemon right before the write). Throws like `request`.
-    public var send: (@MainActor (_ surface: Int, _ text: String, _ paste: Bool, _ expectForeground: String, _ connection: Int) async throws -> Data)?
+    /// Pastes `text` into the terminal of `surface` and submits it with Return
+    /// in one `send` on the Mac's `daemon` channel of `connection`, only while
+    /// `expectForeground` is still its foreground program and its agent waits
+    /// at its prompt in `session` (`expect_agent`): both checked by the daemon
+    /// right before the write. Throws like `request`.
+    public var send: (@MainActor (_ surface: Int, _ text: String, _ expectForeground: String, _ session: String?, _ connection: Int) async throws -> Data)?
 
     /// A terminal agent's texts from a live `notification` event (memory only).
     public struct Texts: Hashable, Sendable {
         public var prompt: String?
         public var message: String?
+        /// The posting agent's session (a reply goes only there).
+        public var session: String?
 
-        public init(prompt: String? = nil, message: String? = nil) {
+        public init(prompt: String? = nil, message: String? = nil, session: String? = nil) {
             self.prompt = prompt
             self.message = message
+            self.session = session
         }
     }
+
+    /// The daemon capability that makes a Feed reply safe (`send` `expect_agent`, `submit`).
+    static let replyCapability = "send-expect-agent-v1"
 
     private(set) var macID = ""
     private var connection: Int?
@@ -109,9 +116,11 @@ public final class TerminalFeed {
     /// Each ledger row's texts from its live event (this Mac, this launch).
     private var texts: [String: Texts] = [:]
     private var textOrder: [String] = []
-    /// Texts from an event without a ledger id (an older Mac), by surface,
-    /// for the next new row there.
-    private var unclaimed: [Int: Texts] = [:]
+    /// Texts from events without a ledger id (an older Mac), by surface in
+    /// arrival order, for the new rows of the next ledger read there only.
+    private var unclaimed: [Int: [Texts]] = [:]
+    /// Whether this connection's daemon checks a reply's agent (nil: not asked yet).
+    private var replySupported: Bool?
 
     public init(store: FeedStore) {
         self.store = store
@@ -132,6 +141,8 @@ public final class TerminalFeed {
             unclaimed = [:]
         }
         if connection != self.connection || macID != self.macID {
+            unclaimed = [:]
+            replySupported = nil
             self.connection = connection
             self.macID = macID
             entries = []
@@ -176,14 +187,14 @@ public final class TerminalFeed {
 
     /// The daemon posted a notification: keeps an agent's texts for its row, then reads the ledger.
     public func notificationPosted(_ post: NotificationPost = NotificationPost()) {
-        let kept = Texts(prompt: post.prompt, message: post.message ?? post.preview)
+        let kept = Texts(prompt: post.prompt, message: post.message ?? post.preview, session: post.session)
         if post.source == nil || post.source == "agent", kept.prompt != nil || kept.message != nil {
             if let id = post.id {
                 if texts.updateValue(kept, forKey: id) == nil { textOrder.append(id) }
                 // As many as the ledger read holds, and some.
                 while textOrder.count > Self.limit * 2 { texts[textOrder.removeFirst()] = nil }
             } else if let surface = post.surface {
-                unclaimed[surface] = kept
+                unclaimed[surface, default: []].append(kept)
             }
         }
         Task { await refresh() }
@@ -292,7 +303,9 @@ public final class TerminalFeed {
             guard place.tab.kind == .terminal else { continue }
             let harness = place.tab.harness ?? harnesses[surface] ?? Self.harness(title: entry.title) ?? "terminal"
             let isFresh = known == nil && hydrated && !historyIDs.contains(entry.id)
-            if isFresh, texts[entry.id] == nil, entry.source == "agent", let kept = unclaimed.removeValue(forKey: surface) {
+            // `entries` is oldest first, so an older Mac's events claim their rows in order.
+            if isFresh, texts[entry.id] == nil, entry.source == "agent", let kept = unclaimed[surface]?.first {
+                unclaimed[surface]?.removeFirst()
                 if texts.updateValue(kept, forKey: entry.id) == nil { textOrder.append(entry.id) }
             }
             var item = Self.item(entry, id: id, harness: harness, workspace: place.workspace, tab: place.tab,
@@ -316,6 +329,8 @@ public final class TerminalFeed {
                 history.append(item)
             }
         }
+        // An older Mac's texts are for this read's new rows only: never a later row's.
+        if hydrated { unclaimed = [:] }
         if !history.isEmpty { store.mergeHistory(history) }
         for item in fresh { store.upsert(item, atTop: true) }
         // The Mac's reads.
@@ -403,9 +418,11 @@ public final class TerminalFeed {
 
     /// `known` came with its texts (an answer, a quote) and `item` is the same row without them.
     static func isRicher(_ known: FeedItem, than item: FeedItem) -> Bool {
-        guard known.quote != nil || known.markdown != item.markdown else { return false }
         switch (known.kind, item.kind) {
-        case (.response, .finished), (.finished, .finished), (.failed, .failed), (.needsInput, .needsInput): return true
+        case (.response, .finished): return true
+        // An error with its text under the same headline, or an ask with its quote.
+        case (.failed, .failed): return known.quote != nil || known.markdown.hasPrefix(item.markdown + "\n\n")
+        case (.finished, .finished), (.needsInput, .needsInput): return known.quote != nil
         default: return false
         }
     }
@@ -434,9 +451,8 @@ public final class TerminalFeed {
         guard let tab = Self.places(tree)[surface]?.tab, tab.kind == .terminal, let harness = tab.harness else {
             return "The agent is no longer running in that terminal."
         }
-        if let item = store.item(id: itemID), item.harness != "terminal", item.harness != harness {
-            return "Another agent runs in that terminal now. Open it to reply."
-        }
+        guard let item = store.item(id: itemID), item.harness != "terminal" else { return "Open the terminal to reply." }
+        guard item.harness == harness else { return "Another agent runs in that terminal now. Open it to reply." }
         // Only at the agent's prompt: text typed while it works, or into an approval or a
         // question on its screen, would answer something else.
         switch tab.agentStatus {
@@ -444,24 +460,48 @@ public final class TerminalFeed {
         case .waiting: return "The agent is waiting for an answer in the terminal. Open it to answer."
         case nil: break
         }
+        let session = texts[entry.id]?.session
+        var sending = false
         do {
+            // The daemon must check the agent itself right before the write: the phone's view
+            // of it can be a moment old. A Mac without that check gets no reply from the Feed.
+            if replySupported == nil {
+                let identify = try WorkspaceSync.check(try await request("identify", [:], connection))
+                let data = identify["data"] as? [String: Any] ?? identify
+                replySupported = (data["capabilities"] as? [String] ?? []).contains(Self.replyCapability)
+            }
+            guard replySupported == true else { return "Update cmux on the Mac to reply from here. Open the terminal to reply." }
             let info = try WorkspaceSync.check(try await request("process-info", ["surface": surface], connection))
             let data = info["data"] as? [String: Any] ?? info
             guard let program = Self.runningProgram(foreground: data["foreground_executable"] as? String,
                                                     command: data["command"] as? String) else {
                 return "Only a shell runs in that terminal now, so the reply was not sent."
             }
-            _ = try WorkspaceSync.check(try await send(surface, text, true, program, connection))
-            _ = try WorkspaceSync.check(try await send(surface, "\r", false, program, connection))
+            sending = true
+            _ = try WorkspaceSync.check(try await send(surface, Self.typable(text), program, session, connection))
         } catch let error as DaemonReplyError {
             log.error("terminal reply refused: \(error.message, privacy: .public)")
-            return error.message.contains("foreground changed")
-                ? "The agent left that terminal, so the reply was not sent." : "The Mac refused the reply: \(error.message)"
+            if error.message.contains("foreground changed") { return "The agent left that terminal, so the reply was not sent." }
+            if error.message.contains("agent not waiting") {
+                return "The agent is busy, asking something, or restarted. The reply was not sent. Open the terminal to reply."
+            }
+            return "The Mac refused the reply: \(error.message)"
         } catch {
             log.error("terminal reply failed: \(String(describing: error), privacy: .public)")
-            return "Couldn't reach the Mac. The reply was not sent."
+            // The send may have reached the Mac before the link dropped: say so, so it is not typed twice.
+            return sending ? "The link dropped while sending. Open the terminal to check whether the reply arrived."
+                : "Couldn't reach the Mac. The reply was not sent."
         }
         return nil
+    }
+
+    /// The reply as the agent's input: line breaks and tabs kept, every other
+    /// control character dropped (an escape inside a paste would end it early
+    /// and send the rest as keys).
+    static func typable(_ text: String) -> String {
+        String(String.UnicodeScalarView(text.unicodeScalars.filter { scalar in
+            scalar == "\n" || scalar == "\t" || !(scalar.properties.generalCategory == .control)
+        }))
     }
 
     /// Interactive shells a terminal idles in (as the Mac's `process-info` reading).

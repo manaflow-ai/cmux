@@ -115,17 +115,26 @@ pub const LIVE_MESSAGE_CHARS: usize = 4000;
 /// invisible formatting characters), trimmed, cut to [`LIVE_MESSAGE_CHARS`].
 pub(crate) fn live_message_text(text: &str) -> Option<String> {
     let lines = text.replace("\r\n", "\n").replace('\r', "\n");
-    let shown: String = lines
+    let kept: String = lines
         .chars()
         .filter(|character| {
             matches!(character, '\n' | '\t')
                 || (!character.is_control()
                     && !crate::program_status::is_invisible_format(*character))
         })
-        .take(LIVE_MESSAGE_CHARS)
         .collect();
-    let shown = shown.trim();
-    (!shown.is_empty()).then(|| shown.to_owned())
+    let kept = kept.trim();
+    if kept.is_empty() {
+        return None;
+    }
+    let mut shown: String = kept.chars().take(LIVE_MESSAGE_CHARS).collect();
+    // A cut inside a code block would render the rest of the card as code: close it.
+    if shown.len() < kept.len()
+        && shown.lines().filter(|line| line.trim_start().starts_with("```")).count() % 2 == 1
+    {
+        shown.push_str("\n```");
+    }
+    Some(shown)
 }
 
 /// `text` as a kept prompt: shown text, whitespace folded, cut to [`LIVE_PROMPT_CHARS`].

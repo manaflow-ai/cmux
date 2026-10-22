@@ -75,6 +75,9 @@ pub struct NotificationEvent {
     /// The prompt of the agent turn this notification ends (markdown, up to
     /// `LIVE_MESSAGE_CHARS`), memory only, for the phone Feed's quote.
     pub prompt: Option<String>,
+    /// The posting agent's harness session id (`list-agents` `agent_session_id`), so a reply
+    /// from the Feed goes only to that session (`send` `expect_agent`).
+    pub session: Option<String>,
     pub notification: u64,
     pub title: String,
     /// Second line under the title, as `cmux notify --subtitle`.

@@ -374,15 +374,18 @@ public struct NotificationPost: Equatable, Sendable {
     public var message: String?
     /// The banner's folded cut of `message`; an older Mac sends only this.
     public var preview: String?
+    /// The posting agent's own session id: a Feed reply goes only to that session.
+    public var session: String?
 
     public init(id: String? = nil, surface: Int? = nil, source: String? = nil, prompt: String? = nil,
-                message: String? = nil, preview: String? = nil) {
+                message: String? = nil, preview: String? = nil, session: String? = nil) {
         self.id = id
         self.surface = surface
         self.source = source
         self.prompt = prompt
         self.message = message
         self.preview = preview
+        self.session = session
     }
 
     init(json: [String: Any]) {
@@ -390,7 +393,7 @@ public struct NotificationPost: Equatable, Sendable {
             (json[key] as? String).flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         }
         self.init(id: text("id"), surface: json["surface"] as? Int, source: text("source"), prompt: text("prompt"),
-                  message: text("message"), preview: text("preview"))
+                  message: text("message"), preview: text("preview"), session: text("session"))
     }
 }
 

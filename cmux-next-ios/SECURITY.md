@@ -391,36 +391,59 @@ ledger, the journal, a log or any daemon file. The behavior test
 `a_finished_turn_notification_carries_the_whole_prompt_and_answer_for_the_feed`
 checks the daemon's folders after a checkpoint. The texts are up to 4000
 characters each. The phone keeps them in its own Feed archive, as it keeps a
-GUI chat's preview. They never go into a push. The phone reads the texts
+GUI chat's preview. That includes a failed tool's error text, which, like the
+Mac's own banner, is not redacted: error output can name a path or a value
+the agent printed. They never go into a push. The phone reads the texts
 through the `subscribe` it already had. No command was added.
 
 **Feed reply to a terminal agent.** A finished turn's card or an error's card
 takes a typed reply. The phone types it into that terminal's agent and
 submits it, as the Mac's `notify --reply` banner does (paste, then Return as
 its own key). It uses only lines the phone's terminal keyboard already sends:
-`process-info {surface}`, then
-`send {surface, text, paste: true, expect_foreground}` and
-`send {surface, text: "\r", expect_foreground}`. `notification-reply` stays
-refused. Policy test: `allows_the_terminal_feed_reply`.
+`identify` (for the daemon's capabilities), `process-info {surface}`, then
+one `send {surface, text, paste: true, submit: true, expect_foreground,
+expect_agent: {session}}`. `notification-reply` stays refused. Policy test:
+`allows_the_terminal_feed_reply`.
 
 Who may reply:
 - **Owner only.** The paired owner's phone can reply, over its own approved
   link (device key, owner-only admission, "Who the peer is"). The reply goes
   to the item's own Mac, never another linked Mac
-  (`LiveCoordinator.terminalFeed(macID:)`), and over the daemon connection
-  the event came on. A reconnect refuses it (`connectionSerial`).
+  (`LiveCoordinator.terminalFeed(macID:)`), over that Mac's current daemon
+  connection. A write is refused if the connection changed while the reply
+  was on its way (`connectionSerial`). After a reconnect, the phone reads the
+  ledger again before it allows a reply.
 
-When a reply goes in (`TerminalFeed.reply`):
-- **Only that waiting session.** The event must still be its terminal's
-  newest. A later event means the agent moved on.
-- The terminal must still run an agent of the same harness.
-- The agent must be at its prompt. A working agent is refused. So is one
-  blocked on an approval or question: typed text there would answer
-  something else, and those are answered in the terminal.
-- The foreground program must not be a shell.
-- The daemon checks `expect_foreground` again right before each write. So
-  text never lands in a shell that took the terminal back after the agent
-  exited.
+When a reply goes in: the phone checks first (`TerminalFeed.reply`), then
+the daemon checks again right before the write. The phone's view can be a
+moment old, so the daemon checks are the guarantee.
+- **The daemon.** `send-expect-agent-v1` (`cmd_terminal_io.rs`), checked
+  just before the write, in one command with no gap between the text and
+  Return (`submit`):
+  - **Foreground program.** It must still be the foreground program
+    (`expect_foreground`, its full path). So text never lands in a shell
+    that took the terminal back, or in another program.
+  - **At its prompt.** The terminal's agent must be `idle` or `done`
+    (`expect_agent`). Typed text, or the Return, would otherwise answer
+    something else: refused while it works, or while it is blocked on an
+    approval or a question. Those are answered in the terminal.
+  - **Same session.** The agent must be in the harness session that
+    posted the event (`expect_agent.session`, the event's `session`). A
+    new session in the same terminal, after a restart or `/clear`, is
+    refused.
+  - **Older Macs.** A Mac whose daemon lacks `send-expect-agent-v1` takes
+    no reply from the Feed. The phone asks `identify` first.
+- **The phone**, before it sends:
+  - The event must still be its terminal's newest. A later event means the
+    agent moved on.
+  - The terminal must still run an agent of the same harness.
+  - The foreground program must not be a shell.
+  - The reply's control characters are dropped, except line breaks and
+    tabs. An escape inside a paste would end the paste early and send the
+    rest as keys.
+  - One reply at a time per card.
+  - A link that drops after the send went out says the reply may have
+    arrived, so it is not typed twice.
 
 Rule 2 answers:
 - **Executes commands?** It types text into a program's input, which the

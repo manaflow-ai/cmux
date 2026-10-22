@@ -500,6 +500,7 @@ impl RemoteSession {
                     id: text("id"),
                     message: text("message"),
                     prompt: text("prompt"),
+                    session: text("session"),
                     notification,
                     title: value
                         .get("title")
