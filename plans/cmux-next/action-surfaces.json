@@ -770,9 +770,9 @@
     {
       "cli" : "guiOnly",
       "cli_name" : "app task-manager",
-      "context_menu" : "noObject",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "tabStrip"
       ],
       "default_aliases" : [
 
@@ -3631,7 +3631,8 @@
       "cli_name" : "pane move-to-new-workspace",
       "context_menu" : "offered",
       "context_menus" : [
-        "pane"
+        "pane",
+        "tabStrip"
       ],
       "default_aliases" : [
 
@@ -7461,9 +7462,9 @@
     {
       "cli" : "offered",
       "cli_name" : "tab new",
-      "context_menu" : "duplicateOfDefault",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "tabStrip"
       ],
       "default_aliases" : [
 
@@ -9207,9 +9208,9 @@
     {
       "cli" : "offered",
       "cli_name" : "tab reopen-last-closed",
-      "context_menu" : "noObject",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "tabStrip"
       ],
       "default_aliases" : [
 
@@ -9237,6 +9238,118 @@
       "title" : "Reopen Last Closed Tab",
       "title_key" : "action.reopenClosedBrowserPanel",
       "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "pane toggle-vertical-tabs",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tabStrip"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tabs.verticalTabs.toggle",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Turn On Vertical Tabs",
+      "title_key" : "action.tabs.verticalTabs.toggle",
+      "title_table" : "SettingsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action tabs-vertical-tabs-all-workspaces",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tabStrip"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tabs.verticalTabs.allWorkspaces",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Use Vertical Tabs for All Workspaces",
+      "title_key" : "action.tabs.verticalTabs.allWorkspaces",
+      "title_table" : "SettingsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action tabs-vertical-tabs-collapse",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tabStrip"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tabs.verticalTabs.collapse",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Collapse Tabs",
+      "title_key" : "action.tabs.verticalTabs.collapse",
+      "title_table" : "SettingsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action tabs-vertical-tabs-expand-on-hover",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tabStrip"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tabs.verticalTabs.expandOnHover",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Auto-Expand Tabs on Hover",
+      "title_key" : "action.tabs.verticalTabs.expandOnHover",
+      "title_table" : "SettingsActions"
     },
     {
       "cli" : "offered",
@@ -19820,9 +19933,9 @@
     {
       "cli" : "liveInput",
       "cli_name" : "sidebar open-in",
-      "context_menu" : "noTargetSurface",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "fileExplorerRow"
       ],
       "default_aliases" : [
 
@@ -19848,9 +19961,9 @@
     {
       "cli" : "liveInput",
       "cli_name" : "sidebar reveal-in-finder",
-      "context_menu" : "noTargetSurface",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "fileExplorerRow"
       ],
       "default_aliases" : [
 
@@ -19876,9 +19989,9 @@
     {
       "cli" : "liveInput",
       "cli_name" : "sidebar copy-path",
-      "context_menu" : "noTargetSurface",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "fileExplorerRow"
       ],
       "default_aliases" : [
 
@@ -19904,9 +20017,9 @@
     {
       "cli" : "liveInput",
       "cli_name" : "sidebar copy-relative-path",
-      "context_menu" : "noTargetSurface",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "fileExplorerRow"
       ],
       "default_aliases" : [
 
@@ -19932,9 +20045,9 @@
     {
       "cli" : "liveInput",
       "cli_name" : "sidebar open-with",
-      "context_menu" : "noTargetSurface",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "fileExplorerRow"
       ],
       "default_aliases" : [
 
@@ -19955,6 +20068,118 @@
       "palette_suggested" : null,
       "title" : "Open With…",
       "title_key" : "action.fileExplorerOpenWith",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "sidebar new-file",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "fileExplorerRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "fileExplorerNewFile",
+      "main_menu" : null,
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New File",
+      "title_key" : "action.fileExplorerNewFile",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "sidebar new-folder",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "fileExplorerRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "fileExplorerNewFolder",
+      "main_menu" : null,
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New Folder",
+      "title_key" : "action.fileExplorerNewFolder",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "sidebar rename-item",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "fileExplorerRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "fileExplorerRename",
+      "main_menu" : null,
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Rename",
+      "title_key" : "action.fileExplorerRename",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "sidebar move-to-trash",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "fileExplorerRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "fileExplorerMoveToTrash",
+      "main_menu" : null,
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move to Trash",
+      "title_key" : "action.fileExplorerMoveToTrash",
       "title_table" : "ActionCatalog"
     },
     {
@@ -30007,7 +30232,8 @@
       "context_menu" : "offered",
       "context_menus" : [
         "bookmarksBar",
-        "bookmark"
+        "bookmark",
+        "tabStrip"
       ],
       "default_aliases" : [
 
@@ -36468,6 +36694,146 @@
 
       ]
     },
+    "fileExplorerRow" : {
+      "entries" : [
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerOpenInCmux",
+          "kind" : "action",
+          "order" : 0,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerOpenWith",
+          "kind" : "action",
+          "order" : 1,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerReveal",
+          "kind" : "action",
+          "order" : 2,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 3
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerNewFile",
+          "kind" : "action",
+          "order" : 4,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerNewFolder",
+          "kind" : "action",
+          "order" : 5,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 6
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerRename",
+          "kind" : "action",
+          "order" : 7,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 8
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerCopyPath",
+          "kind" : "action",
+          "order" : 9,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerCopyRelativePath",
+          "kind" : "action",
+          "order" : 10,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 11
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerMoveToTrash",
+          "kind" : "action",
+          "order" : 12,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        }
+      ],
+      "implied" : [
+        "fileExplorerFocused"
+      ]
+    },
     "machineSection" : {
       "entries" : [
         {
@@ -41691,6 +42057,140 @@
           "kind" : "action",
           "label" : "Close Group",
           "order" : 11,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        }
+      ],
+      "implied" : [
+
+      ]
+    },
+    "tabStrip" : {
+      "entries" : [
+        {
+          "enabled_when" : "can_perform",
+          "id" : "newTab.default",
+          "kind" : "action",
+          "order" : 0,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "reopenClosedBrowserPanel",
+          "kind" : "action",
+          "label" : "Reopen Closed Tab",
+          "order" : 1,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "bookmark.addAllTabs",
+          "kind" : "action",
+          "order" : 2,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "pane.moveToNewWorkspace",
+          "kind" : "action",
+          "label" : "Move All Tabs to a New Workspace",
+          "order" : 3,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 4
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "tabs.verticalTabs.toggle",
+          "kind" : "action",
+          "order" : 5,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "tabs.verticalTabs.allWorkspaces",
+          "kind" : "action",
+          "order" : 6,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "tabs.verticalTabs.collapse",
+          "kind" : "action",
+          "order" : 7,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "tabs.verticalTabs.expandOnHover",
+          "kind" : "action",
+          "order" : 8,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 9
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "palette.openTaskManager",
+          "kind" : "action",
+          "order" : 10,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
