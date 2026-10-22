@@ -61,9 +61,19 @@ for arch in $requested_archs; do
   esac
   seen_targets="$seen_targets $target"
   ensure_rust_target "$target"
-  target_dir="${BUILD_WORK_DIR}/${target}"
-  CARGO_TARGET_DIR="$target_dir" \
-    MACOSX_DEPLOYMENT_TARGET="${CMUX_DIFF_SIDECAR_MIN_MACOS:-14.0}" \
+  # The deployment target applies to the shipped binary only. As an
+  # environment variable it also reaches cargo's host builds, and on macOS 27
+  # dyld refuses proc-macro dylibs linked that way ("mis-aligned LINKEDIT
+  # string pool"), which surfaces as E0463 for thiserror_impl/serde_derive.
+  # Xcode exports MACOSX_DEPLOYMENT_TARGET to every script phase, so unset it
+  # and pass the minimum to the target's link step instead. Cargo does not
+  # rebuild host crates when that variable changes, so the "-host-clean"
+  # directory keeps already-broken dylibs from being reused.
+  target_dir="${BUILD_WORK_DIR}/${target}-host-clean"
+  target_rustflags="CARGO_TARGET_$(printf '%s' "$target" | tr '[:lower:]-' '[:upper:]_')_RUSTFLAGS"
+  env -u MACOSX_DEPLOYMENT_TARGET \
+    CARGO_TARGET_DIR="$target_dir" \
+    "$target_rustflags=-C link-arg=-mmacosx-version-min=${CMUX_DIFF_SIDECAR_MIN_MACOS:-14.0}" \
     "$CARGO_RUNNER" build \
       --manifest-path "${CRATE_DIR}/Cargo.toml" \
       --bin "$BINARY_NAME" \
