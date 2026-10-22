@@ -62,11 +62,7 @@ extension TerminalController {
         // still have a combined revision cached from an older Mac. This is
         // only a compatibility lane; notification history never becomes a
         // Feed row and never invalidates the Agent Feed.
-        let revision = FeedCoordinator.combinedMobileFeedRevision(
-            workstream: workstreamRevision,
-            notifications: TerminalNotificationStore.shared
-                .notificationFeedHistory.revision
-        )
+        let revision = FeedCoordinator.combinedMobileFeedRevision(workstream: workstreamRevision)
         let items = FeedCoordinator.shared.snapshot(pendingOnly: pendingOnly)
 
         // The phone Feed is a decision surface, not a raw event log: session

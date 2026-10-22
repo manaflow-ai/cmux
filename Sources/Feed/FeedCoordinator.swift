@@ -87,18 +87,25 @@ final class FeedCoordinator: @unchecked Sendable {
 
     private init() {}
 
-    /// Preserves the historical mobile Feed revision namespace. The Agent Feed
-    /// now contains workstream rows only, but the low notification lane keeps
-    /// a newly upgraded Mac from sending a revision lower than one cached by
-    /// an older phone. Notification changes do not emit `feed.changed`.
-    static func combinedMobileFeedRevision(
-        workstream: Int,
-        notifications: Int
-    ) -> Int {
-        guard notifications > 0 else { return max(0, workstream) }
-        let high = UInt64(max(0, workstream)) & 0xFFFF_FFFF
-        let low = UInt64(max(0, notifications)) & 0xFFFF_FFFF
-        return Int(truncatingIfNeeded: (high << 32) | low)
+    /// The mobile Feed revision, in the namespace older phones may have
+    /// cached. Older Macs packed the workstream revision into the high 32 bits
+    /// and the notification-history revision into the low 32 bits. The Agent
+    /// Feed now contains workstream rows only and notification changes do not
+    /// emit `feed.changed`, so the low lane is pinned to its maximum: the
+    /// result is never below a value an older Mac sent for the same
+    /// workstream revision, and it no longer depends on whether notification
+    /// history has finished loading. The workstream revision counts journal
+    /// bytes, so past 1 GiB the value continues linearly instead of shifting
+    /// into the sign bit; phones read it as a signed Int.
+    static func combinedMobileFeedRevision(workstream: Int) -> Int {
+        let workstreamValue = UInt64(max(0, workstream))
+        let legacyCutover: UInt64 = 0x4000_0000
+        if workstreamValue >= legacyCutover {
+            let cutoverPacked = (legacyCutover << 32) | 0xFFFF_FFFF
+            let continuation = cutoverPacked + (workstreamValue - legacyCutover)
+            return Int(min(continuation, UInt64(Int.max)))
+        }
+        return Int((workstreamValue << 32) | 0xFFFF_FFFF)
     }
 
     /// Must be called once at app launch to install the store.
@@ -122,11 +129,7 @@ final class FeedCoordinator: @unchecked Sendable {
             MobileHostService.emitEvent(
                 topic: "feed.changed",
                 payload: [
-                    "revision": Self.combinedMobileFeedRevision(
-                        workstream: revision,
-                        notifications: TerminalNotificationStore.shared
-                            .notificationFeedHistory.revision
-                    )
+                    "revision": Self.combinedMobileFeedRevision(workstream: revision)
                 ]
             )
         }
@@ -134,10 +137,34 @@ final class FeedCoordinator: @unchecked Sendable {
         // Catch any pending items that were restored from disk whose
         // agent is already gone. After this, live tracking is
         // kqueue-driven — no polling.
+        reconcilePendingItems()
+    }
+
+    /// Reconciles pending rows after asynchronous persistence startup. The
+    /// store is installed before its JSONL snapshot is loaded so socket
+    /// ingress can be accepted immediately; restored rows therefore need a
+    /// second expiry/watcher pass once ``WorkstreamStore.start()`` completes.
+    @MainActor
+    func reconcileRestoredPendingItems() {
+        reconcilePendingItems()
+    }
+
+    /// Applies the same expiry and process-watcher reconciliation to both the
+    /// initial installation and the asynchronous restored snapshot.
+    @MainActor
+    private func reconcilePendingItems() {
+        guard let store else { return }
         store.expireAbandonedItems()
         for ppid in store.pending.compactMap(\.ppid) {
             armPidWatcher(ppid: ppid)
         }
+    }
+
+    /// Joins the Workstream JSONL and revision-sidecar writes before an
+    /// orderly application termination is acknowledged by AppKit.
+    @MainActor
+    func flushPersistenceForTermination() async {
+        await store?.flushPersistence()
     }
 
     /// Installs a one-shot kqueue watcher for `ppid`. The handler
