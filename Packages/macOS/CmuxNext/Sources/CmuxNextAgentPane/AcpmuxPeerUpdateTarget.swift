@@ -7,8 +7,8 @@ import os
 /// ``DaemonUpdateTarget``: `acpmux --json host update NAME --binary-dir DIR [--if-idle]` on the
 /// bundled CLI. The policy asks while busy by default, which drops the flag and restarts the peer's
 /// daemon mid-turn; on an idle attempt (`--if-idle`, a policy with a non-zero `updateBusyAfter`)
-/// the CLI refuses a peer where any session runs a turn (`busy`). The CLI keeps the old binary and rolls back by itself when the new daemon does not come up with the
-/// expected build.
+/// the CLI refuses a peer where any session runs a turn (`busy`). The CLI keeps the old binary and
+/// rolls back by itself when the new daemon does not come up with the expected build.
 /// When it asks for the peer's platform binary (`needsBinary`), the published
 /// `cmux-tui-acpmux-<target>` of the bundled build is downloaded, staged and the update runs again.
 nonisolated struct AcpmuxPeerUpdateTarget: DaemonUpdateTarget {

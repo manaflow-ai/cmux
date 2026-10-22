@@ -78,7 +78,8 @@ import Testing
         #expect(clock.sleeps.reduce(.zero, +) == .seconds(6 * 3600))
         #expect(fixture.whileBusy == Array(repeating: true, count: minutes.count + 1))
         #expect(await target.currentBuild() == Self.older)
-        #expect(fixture.states("unreachable").last == .retrying)
+        // Left: the board forgets it rather than promise a retry.
+        #expect(fixture.states("unreachable").suffix(3) == [.retrying, .updating, .cleared])
         // Not recorded: the next launch tries again.
         #expect(fixture.ledger.targets.isEmpty)
         #expect(fixture.notices.isEmpty)
@@ -138,7 +139,8 @@ import Testing
         #expect(clock.sleeps == minutes.map { .seconds($0 * 60) })
         #expect(fixture.whileBusy == Array(repeating: false, count: 3) + Array(repeating: true, count: minutes.count - 2))
         #expect(await target.currentBuild() == Self.older)
-        #expect(fixture.states("unreachable").last == .retrying)
+        // Left: the board forgets it rather than promise a retry.
+        #expect(fixture.states("unreachable").suffix(3) == [.retrying, .updating, .cleared])
         // Not recorded: the next launch tries again.
         #expect(fixture.ledger.targets.isEmpty)
         #expect(fixture.notices.isEmpty)

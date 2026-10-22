@@ -236,7 +236,6 @@ public actor DaemonUpdatePolicy {
         let outcome = await target.update(to: local, whileBusy: whileBusy)
         Self.logger.info("\(target.displayName, privacy: .public) to \(local.hash, privacy: .public)\(whileBusy ? " while busy" : "", privacy: .public): \(String(describing: outcome), privacy: .public)")
         if outcome == .busy {
-            await deps.report(DaemonUpdateEvent(target, .retrying))
             var again = pending
             let now = elapsed()
             let since = again.firstBusy ?? now
@@ -245,8 +244,11 @@ public actor DaemonUpdatePolicy {
             guard now + delay - since <= deps.giveUpAfter else {
                 Self.logger.info("\(target.displayName, privacy: .public) stayed busy; left for the next launch")
                 settled[target.id] = local.hash
+                // Not "will try again": no retry comes in this run.
+                await deps.report(DaemonUpdateEvent(target, .cleared))
                 return nil
             }
+            await deps.report(DaemonUpdateEvent(target, .retrying))
             // The first update while busy runs at the cap, not after a backoff that passes it.
             let cap = since + deps.updateBusyAfter
             again.due = now < cap ? min(now + delay, cap) : now + delay
