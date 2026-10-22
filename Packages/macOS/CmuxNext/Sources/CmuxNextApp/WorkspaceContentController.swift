@@ -167,7 +167,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         }
     }
 
-    /// Panes whose shown tab holds an unread notification draw the attention
+    /// Panes whose shown tab reads unread (a notification or Mark as Unread) draw the attention
     /// ring; this window's tab selection decides which tab a pane shows.
     private func observeAttention() {
         let notifications = services.notifications, workspace = workspace

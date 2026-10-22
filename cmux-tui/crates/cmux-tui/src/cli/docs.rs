@@ -113,6 +113,8 @@ pub(super) const GUIDES: &[Guide] = &[
             "grant",
             "cloud",
             "notifications",
+            "bookmarks",
+            "cookies",
         ],
         text: "`cmux setup list` names every setup task (folder trust, harness install and sign-in, \
         ssh machines, peer updates, accounts, Cloud machines, Tailscale, MCP wiring, Computer \
@@ -144,11 +146,19 @@ pub(super) const GUIDES: &[Guide] = &[
         record so it may ask again). `cmux setup notifications` lets cmux show macOS \
         notifications: it shows the macOS prompt once, and when they are denied or their alert \
         style is None names the command that opens cmux's page in System Settings > \
-        Notifications. `cmux setup status` lists every \
-        peer with connected and outdated, every harness, the MCP wiring, Computer Use, the \
-        Cloud machine and notifications. Every \
-        `cmux setup` command prints one JSON object: state is ok, changed, planned, needs_user \
-        or failed.",
+        Notifications. `cmux setup browser-import --browser BROWSER[:PROFILE]` \
+        imports that browser's bookmarks (ok when any profile of it is in, or the named one; \
+        the undo removes the folders the run added); with \
+        --cookies it imports its sign-ins once the person allows it on the panel cmux shows, \
+        and that has no undo. History and passwords come in only from Import from Browser... \
+        in cmux. `cmux setup tailnet [--owner LOGIN]` serves this machine to the person's \
+        other machines over Tailscale (what `cmux host enable` does; undo `cmux host disable \
+        --json`); until Tailscale runs it names the person's one step (kind install, start, \
+        sign_in, approve or wait), and a tagged node with no owner is kind owner. \
+        `cmux setup status` lists every peer with connected and outdated, every \
+        harness, the MCP wiring, Computer Use, the Cloud machine, notifications, the \
+        imported browsers and the tailnet. Every `cmux setup` command prints one JSON object: state is ok, \
+        changed, planned, needs_user, failed or not_applicable.",
     },
 ];
 

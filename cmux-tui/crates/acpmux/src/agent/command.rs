@@ -206,6 +206,12 @@ pub(crate) fn harness_command(
         if let Some(headers) = crate::subrouter_session::custom_headers(get) {
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
         }
+        // sr2 cost labels (sr2_cost_labels.rs), over the lines set just above.
+        let env = command_env_with(&cmd, !remote_environment);
+        let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        if let Some(headers) = crate::sr2_cost_labels::custom_headers(get) {
+            cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
+        }
     }
     // A Claude agent's sign-in inputs, for a clear message if it has none.
     match (family == Some("claude"), session) {

@@ -98,6 +98,15 @@
   margin: 0 0 0 3px;
   color: var(--cv-link);
 }
+/* A file on the machine an agent's message came from (LinkChips.tsx ElsewhereChip): the chip
+   without a click, a little quieter. */
+.cv-chip.is-elsewhere {
+  cursor: default;
+  color: var(--cv-text-dim);
+}
+.cv-chip.is-elsewhere:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
 .cv-chip__favicon {
   border-radius: 3px;
   object-fit: contain;

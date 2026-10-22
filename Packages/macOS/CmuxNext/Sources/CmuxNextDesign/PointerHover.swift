@@ -354,7 +354,10 @@ private final class TargetIndex {
         for target in found.values {
             if let other = place(target), other !== window, !moved.contains(where: { $0 === other }) { moved.append(other) }
         }
-        let targets = found.values.sorted { ($0.isHovering ? 0 : 1, $0.order) < ($1.isHovering ? 0 : 1, $1.order) }
+        // One integer per target: a tuple compare goes through the runtime's tuple metadata on
+        // every comparison, half of a Cmd-Tab's main-thread time with a few thousand targets.
+        let targets = found.values.map { (key: ($0.isHovering ? 0 : 1 << 63) | $0.order, target: $0) }
+            .sorted { $0.key < $1.key }.map(\.target)
         return (targets, moved)
     }
 

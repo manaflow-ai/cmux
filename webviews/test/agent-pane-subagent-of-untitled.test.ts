@@ -42,7 +42,11 @@ await requireBrowserLane("agent-pane-subagent-of-untitled.test.ts", async () => 
       "subagent_spawned",
       update(
         { sessionUpdate: "subagent_spawned" },
-        { subagents: [{ id: "a1", parent: null, name: "Reviewer", state: "completed" }] },
+        {
+          subagents: [
+            { id: "a1", parent: null, name: "Reviewer", task: "Review the uploader branch", state: "completed" },
+          ],
+        },
       ),
     ],
     [
@@ -107,8 +111,9 @@ await requireBrowserLane("agent-pane-subagent-of-untitled.test.ts", async () => 
     await page.locator(".cv-subagent-done", { hasText: "Reviewer" }).click();
     await page.locator(".cv-subagent-of").waitFor({ timeout: 5_000 });
     const parent = (await page.locator(".cv-subagent-of__parent").textContent())?.trim();
+    const pill = (await page.locator(".cv-subagent-of__pill").innerText()).replace(/\s+/g, " ").trim();
     await page.close();
-    return parent;
+    return { parent, pill };
   };
   beforeAll(async () => {
     daemon = Bun.serve({
@@ -141,14 +146,20 @@ await requireBrowserLane("agent-pane-subagent-of-untitled.test.ts", async () => 
   });
 
   test("the pill names a titled chat by its title", async () => {
-    expect(await parentShown(TITLED)).toBe("Release review");
+    expect((await parentShown(TITLED)).parent).toBe("Release review");
   });
 
   test("an untitled chat's pill names it as the chat list does, not nothing", async () => {
-    expect(await parentShown(UNTITLED)).toBe("New chat");
+    expect((await parentShown(UNTITLED)).parent).toBe("New chat");
   });
 
   test("a name acpmux generated after the agent never shows in the pill", async () => {
-    expect(await parentShown(GENERATED)).toBe("New chat");
+    expect((await parentShown(GENERATED)).parent).toBe("New chat");
+  });
+
+  // Leo's subagent view read "Subagent of · Reply with only: OK": the chat's name after a dot, and
+  // not what the subagent was asked to do. It reads "Subagent of <chat> · <task>".
+  test("the pill reads Subagent of <chat> · <the subagent's task>", async () => {
+    expect((await parentShown(TITLED)).pill).toBe("Subagent of Release review · Review the uploader branch");
   });
 });

@@ -61,9 +61,9 @@ pub(super) fn read_request_head(stream: &mut TcpStream) -> Option<(Vec<u8>, Requ
         if read == 0 {
             return None;
         }
-        bytes.extend_from_slice(&chunk[..read]);
+        bytes.extend_from_slice(chunk.get(..read)?);
     };
-    let head = std::str::from_utf8(&bytes[..end]).ok()?;
+    let head = std::str::from_utf8(bytes.get(..end)?).ok()?;
     let mut lines = head.split("\r\n");
     let mut request_line = lines.next()?.split(' ');
     let method = request_line.next()?.to_owned();

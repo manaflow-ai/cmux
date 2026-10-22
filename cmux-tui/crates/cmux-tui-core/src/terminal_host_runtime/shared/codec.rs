@@ -486,24 +486,24 @@ pub(crate) fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
 }
 
 pub(crate) fn encode_hex(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut output = String::with_capacity(bytes.len() * 2);
+    let mut output = String::with_capacity(bytes.len().saturating_mul(2));
     for byte in bytes {
-        output.push(HEX[(byte >> 4) as usize] as char);
-        output.push(HEX[(byte & 0x0f) as usize] as char);
+        for nibble in [byte >> 4, byte & 0x0f] {
+            output.push(char::from_digit(u32::from(nibble), 16).unwrap_or('0'));
+        }
     }
     output
 }
 
 pub(crate) fn decode_hex_array<const N: usize>(text: &str) -> anyhow::Result<[u8; N]> {
-    if text.len() != N * 2 {
+    if text.len() != N.saturating_mul(2) {
         anyhow::bail!("terminal-host identity has the wrong length");
     }
+    let not_hex = || anyhow::anyhow!("terminal-host identity is not hexadecimal");
     let mut bytes = [0u8; N];
-    for (index, byte) in bytes.iter_mut().enumerate() {
-        let start = index * 2;
-        *byte = u8::from_str_radix(&text[start..start + 2], 16)
-            .map_err(|_| anyhow::anyhow!("terminal-host identity is not hexadecimal"))?;
+    for (byte, pair) in bytes.iter_mut().zip(text.as_bytes().chunks_exact(2)) {
+        let pair = std::str::from_utf8(pair).map_err(|_| not_hex())?;
+        *byte = u8::from_str_radix(pair, 16).map_err(|_| not_hex())?;
     }
     Ok(bytes)
 }
@@ -534,30 +534,39 @@ impl<'a> PayloadDecoder<'a> {
             .checked_add(length)
             .filter(|end| *end <= self.payload.len())
             .ok_or_else(|| anyhow::anyhow!("truncated terminal-host payload"))?;
-        let bytes = &self.payload[self.offset..end];
+        let bytes = self
+            .payload
+            .get(self.offset..end)
+            .ok_or_else(|| anyhow::anyhow!("truncated terminal-host payload"))?;
         self.offset = end;
         Ok(bytes)
     }
 
+    /// Take exactly `N` bytes as an array.
+    pub(crate) fn array<const N: usize>(&mut self) -> anyhow::Result<[u8; N]> {
+        self.take(N)?.try_into().map_err(|_| anyhow::anyhow!("truncated terminal-host payload"))
+    }
+
     pub(crate) fn u16(&mut self) -> anyhow::Result<u16> {
-        Ok(u16::from_le_bytes(self.take(2)?.try_into().unwrap()))
+        self.array().map(u16::from_le_bytes)
     }
 
     pub(crate) fn u8(&mut self) -> anyhow::Result<u8> {
-        Ok(self.take(1)?[0])
+        let [byte] = self.array()?;
+        Ok(byte)
     }
 
     pub(crate) fn rgb(&mut self) -> anyhow::Result<Rgb> {
-        let bytes = self.take(3)?;
-        Ok(Rgb { r: bytes[0], g: bytes[1], b: bytes[2] })
+        let [r, g, b] = self.array()?;
+        Ok(Rgb { r, g, b })
     }
 
     pub(crate) fn u32(&mut self) -> anyhow::Result<u32> {
-        Ok(u32::from_le_bytes(self.take(4)?.try_into().unwrap()))
+        self.array().map(u32::from_le_bytes)
     }
 
     pub(crate) fn u64(&mut self) -> anyhow::Result<u64> {
-        Ok(u64::from_le_bytes(self.take(8)?.try_into().unwrap()))
+        self.array().map(u64::from_le_bytes)
     }
 
     pub(crate) fn bytes_with_limit(&mut self, limit: usize) -> anyhow::Result<&'a [u8]> {
@@ -577,7 +586,7 @@ impl<'a> PayloadDecoder<'a> {
     }
 
     pub(crate) fn optional_string(&mut self) -> anyhow::Result<Option<String>> {
-        match self.take(1)?[0] {
+        match self.u8()? {
             0 => Ok(None),
             1 => Ok(Some(self.string()?)),
             _ => anyhow::bail!("bad terminal-host optional string tag"),
@@ -841,11 +850,14 @@ pub(crate) fn decode_default_colors(
     }
     let mut palette = [None; 256];
     for _ in 0..palette_count {
-        let index = decoder.u8()? as usize;
-        if palette[index].is_some() {
+        let index = usize::from(decoder.u8()?);
+        let Some(slot) = palette.get_mut(index) else {
+            anyhow::bail!("terminal-host default palette index is out of range");
+        };
+        if slot.is_some() {
             anyhow::bail!("duplicate terminal-host default palette index");
         }
-        palette[index] = Some(decoder.rgb()?);
+        *slot = Some(decoder.rgb()?);
     }
     Ok(DefaultColors {
         fg,

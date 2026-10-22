@@ -1,5 +1,5 @@
 // A run of tool calls between two pieces of text, summarized once it settles:
-// "Edited a file, read files, ran commands", opened to list the calls.
+// "Edited a file, read 6 files, ran 4 commands", opened to list the calls.
 import type { Translate } from "../i18n";
 import { pathKey, toolCanonical, type AcpmuxActivity } from "../model";
 import { editedPaths } from "../toolPaths";
@@ -43,45 +43,58 @@ export function isFoldedRun(items: readonly AcpmuxActivity[]): boolean {
   return items.filter((item) => item.tool).length >= 2;
 }
 
-/// The categories a run's calls fall in, in summary order. Searches count as reads when the
-/// run also reads files, as in "Read files, ran commands".
+/// The categories a run's calls fall in, in summary order.
 export function toolRunCategories(items: readonly AcpmuxActivity[]): ToolRunCategory[] {
   const present = new Set(items.filter((item) => item.tool).map((item) => callCategory(item.tool!)));
-  if (present.has("read")) present.delete("searched");
   return ORDER.filter((category) => present.has(category));
 }
 
-/// "Edited a file, read files, ran commands", in the language `t` speaks.
+/// "Read 6 files, ran 4 commands", in the language `t` speaks, counted as Claude desktop counts a
+/// run (Leo 2026-10-21: "it can consolidate a ton of these tool calls"). Reads count the distinct
+/// files they opened, edits the files they changed, every other category its calls.
 export function toolRunSummary(t: Translate, items: readonly AcpmuxActivity[]): string {
   const tools = items.filter((item) => item.tool);
   const count = (category: ToolRunCategory) =>
     category === "edited"
       ? editedFiles(tools)
-      : tools.filter((item) => {
-          const own = callCategory(item.tool!);
-          return own === category || (category === "read" && own === "searched");
-        }).length;
+      : category === "read"
+        ? readFiles(tools)
+        : tools.filter((item) => callCategory(item.tool!) === category).length;
   const phrase = (category: ToolRunCategory) => {
-    const one = count(category) === 1;
+    const n = count(category);
+    const one = n === 1;
     switch (category) {
       case "used":
-        return one ? t("toolRun.used.one") : t("toolRun.used.other");
+        return one ? t("toolRun.used.one") : t("toolRun.used.other", { n });
       case "edited":
-        return one ? t("toolRun.edited.one") : t("toolRun.edited.other");
+        return one ? t("toolRun.edited.one") : t("toolRun.edited.other", { n });
       case "read":
-        return one ? t("toolRun.read.one") : t("toolRun.read.other");
+        return one ? t("toolRun.read.one") : t("toolRun.read.other", { n });
       case "searched":
-        return t("toolRun.searched");
+        return one ? t("toolRun.searched.one") : t("toolRun.searched.other", { n });
       case "web":
         return t("toolRun.web");
       case "ran":
-        return one ? t("toolRun.ran.one") : t("toolRun.ran.other");
+        return one ? t("toolRun.ran.one") : t("toolRun.ran.other", { n });
     }
   };
   // A catalog separator, not Intl.ListFormat: its unit lists join zh-Hans with nothing and add
   // conjunctions in some languages, while the run reads as a plain comma list.
   const text = toolRunCategories(items).map(phrase).join(t("toolRun.separator"));
   return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/// The distinct files a run's reads opened, by their locations, or one per read without any.
+function readFiles(tools: readonly AcpmuxActivity[]): number {
+  const paths = new Set<string>();
+  let unnamed = 0;
+  for (const { tool } of tools) {
+    if (callCategory(tool!) !== "read") continue;
+    const locations = tool!.locations ?? [];
+    if (!locations.length) unnamed += 1;
+    for (const location of locations) paths.add(pathKey(location));
+  }
+  return paths.size + unnamed;
 }
 
 /// The files a run's edits changed: one Codex change can edit several, so a call counts each

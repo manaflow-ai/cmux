@@ -7,7 +7,10 @@ import { typing } from "../chief-brain/brain-io.ts"
 import { systemPrompt } from "../chief-brain/prompts.ts"
 import { isClaude, OPUS } from "../model-gateway/routes.ts"
 import { netScript, patchNet, readNet } from "./net.ts"
-import { ccSandbox } from "./sandbox.ts"
+import { legacyOf, sandboxesOf } from "./sandbox.ts"
+import { CHIEF_VM_MJS } from "./chief-vm-source.ts"
+import { stageAttachments } from "./attachments.ts"
+import { mergeTurnFiles, toolsOf } from "./tools.ts"
 import { BOOT_MS, CcError, createVm, execRoot, mintTailnetKey, removeVm, vmName, vmNetwork } from "./vm.ts"
 
 /**
@@ -47,18 +50,42 @@ cmux work to feat-cmux-next (rebase, plain push, never force).
 Tailnet: this machine is your own tailnet node (\`tailscale status\`). It reaches the hub at
 http://100.127.110.65:8790 (\`hub\`, the Mac Chief <-> Cloud Chief channel), the build controller
 (\`cmux-ci\`, macOS builds on the Mac minis) and the person's Mac gate.
+Attachments: a message's attached file (a pasted screenshot, a photo, a PDF) is in this machine at the
+path its line names (\`[attachment: NAME, TYPE WxH SIZE, file /home/chief/work/.attachments/...]\`); open it
+with Read (images too) before you answer about it. Later turns see only your words, so say in your reply
+what a picture shows that will matter later.
 Mac: \`mac -- COMMAND\` runs one command on the person's MacBook (as them; every call is logged there);
 \`mac health\` answers at once, and says "Mac asleep" when the laptop sleeps. \`cmux ...\` here is the
 Mac's cmux CLI through the gate.
 Agents: \`chief-agents peers\` lists the Mac Chief's subagents, \`chief-agents spawn "Title: ...\\n task"\`
 starts one there, \`chief-agents tell aN "message"\`, \`chief-agents control status|priority|cap ...\`.
 These need the Mac awake.
-Sandboxes: \`chief-vm create|list|exec ID -- COMMAND|delete ID\`: up to two Linux VMs of your own that
-outlive this turn (12 h, paused when idle), for long work and a disk that stays.
+Sandboxes: \`chief-vm list|get|cap|create|update|resize|pause|start|stop|exec|delete\`:
+Linux VMs of your own that outlive this turn (12 h by default, paused when idle; \`chief-vm cap\` shows how
+many you may keep). New ones are Ubuntu 24.04 on a 16 GB disk with 4 vCPU / 8 GiB (\`--image chief\` for your
+machine image with its tools, 32 GB); \`chief-vm resize ID --cpu 8 --memory-gb 16 --disk-gb 64\` grows one (grow
+only, the filesystem too) and \`create\` takes the same flags; list, get, create and resize show the size and cost
+per hour. \`exec ID [--user root|chief] [--env K=V] [--stdin FILE] -- COMMAND\`.
 Network: by default you reach the public Internet over IPv4 and IPv6 with DNS, and the tailnet; private
 addresses and other local ports are closed. \`chief-net show\`, \`chief-net set internet=on|off dns=on|off
 tailnet=on|off local=on|off\`, \`chief-net allow|deny|unallow|undeny HOST-OR-RANGE...\`, \`chief-net reset\`
-change it for this machine at once and for your next turns.`
+change it for this machine at once and for your next turns.
+Your own tools: \`chief-tools put PATH FILE\` keeps a file for all your next turns and writes it here now;
+\`chief-tools ls\`, \`chief-tools rm PATH\`. PATH is .local/bin/NAME (a command on your PATH),
+.claude/skills/NAME/SKILL.md (a skill), .claude/agents/NAME.md or .chief/tools/...; at most 64 KB a file,
+256 KB in all. Add or fix a tool this way instead of waiting for a new machine image.
+Skills: the skills every Chief ships with are Native/OptChat/optchat-chief/skills/NAME/SKILL.md in ~/work/cmux; read
+the latest with \`git -C ~/work/cmux fetch -q origin feat-cmux-next && git -C ~/work/cmux show
+FETCH_HEAD:Native/OptChat/optchat-chief/skills/NAME/SKILL.md\`. When the person mentions their phone or being away from the desk,
+another computer (a Mac, a Linux server), Tailscale, or asks what else cmux can do, read cmux-adoption and follow it:
+check their setup first (its commands run on their Mac as \`cmux ...\`), then offer the one step that fits (the
+iPhone app and pairing, cmux on the other computer joined over Tailscale), once, in plain words.`
+
+/** Writes the Worker's `chief-vm` client over the snapshot's (root; the wrapper /usr/local/bin/chief-vm runs it). */
+const toolsScript = (): string => {
+  const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(CHIEF_VM_MJS)))
+  return `printf %s '${b64}' | base64 -d > /opt/chief-cc/chief-vm.mjs.new && chmod 644 /opt/chief-cc/chief-vm.mjs.new && mv /opt/chief-cc/chief-vm.mjs.new /opt/chief-cc/chief-vm.mjs`
+}
 
 /** The Chief's tool files (CHIEF_CC_TURN_FILES): relative paths under /home/chief to text, or {} when unset or not well formed. */
 export const turnFiles = (raw: string | undefined): Record<string, string> => {
@@ -171,9 +198,14 @@ export async function ccTurn(b: ChiefBrainDO, id: string, blocks: ReadonlyArray<
       if (boot.exit !== 0 || !boot.stdout.includes("ready")) throw new CcError(`the turn machine did not join the network (exit ${boot.exit})`)
       // The agent stays closed (boot.sh) until the Chief's network settings are applied here.
       const net = readNet(cfgOf(b, "cc_net"))
-      const applied = await execRoot(env, vm, "bash -s", enc.encode(netScript(net)), 30_000)
+      // The current `chief-vm` first (it ships with the Worker, not the snapshot), then the network settings.
+      const applied = await execRoot(env, vm, "bash -s", enc.encode(`${toolsScript()}\n${netScript(net)}`), 30_000)
       if (applied.exit !== 0 || !applied.stdout.includes("net ok")) throw new CcError(`the turn machine's network settings did not apply (exit ${applied.exit})`)
       mark("vm_ready")
+      // The attachments the input names (pasted screenshots, files), written where its lines say, before the agent starts.
+      const staged = await stageAttachments(env, vm, agent, cfg.owner ?? "", conversation, blocks.join("\n\n"))
+      if (staged.written > 0) mark("attachments")
+      const missingNote = staged.missing.length > 0 ? `\n\n[attachment files not available in this turn: ${staged.missing.map((m) => `${m.path} (${m.why})`).join("; ")}]` : ""
       const token = await notesToken(env, agent, conversation, id)
       writeConfig(b.sql, { [`cc_token:${id}`]: await sha(token) })
       const origin = (env.CLOUD_API_ORIGIN ?? "").replace(/\/+$/, "")
@@ -186,11 +218,12 @@ export async function ccTurn(b: ChiefBrainDO, id: string, blocks: ReadonlyArray<
         max_ms: RUN_MS,
         net,
         provider: await vmNetwork(env, vm),
-        // The agent user's tools: written as its files by run.mjs (root) before Claude Code starts.
-        files: turnFiles(env.CHIEF_CC_TURN_FILES),
+        // The agent user's tools: written as its files by run.mjs (root) before Claude Code starts. The Chief's own
+        // tools (chief-tools, tools.ts) come after the set ones and never on a token path.
+        files: mergeTurnFiles(turnFiles(env.CHIEF_CC_TURN_FILES), await toolsOf(env, agent).ccToolFiles()),
         github_token: env.CHIEF_CC_GITHUB_TOKEN ?? null
       }
-      input.prompt = tail(blocks.join("\n\n"), STDIN_BYTES - enc.encode(JSON.stringify(input)).length)
+      input.prompt = tail(blocks.join("\n\n") + missingNote, STDIN_BYTES - enc.encode(JSON.stringify(input)).length)
       const started = await execRoot(env, vm, `/opt/chief-cc/start.sh ${id}`, enc.encode(JSON.stringify(input)), 30_000)
       if (started.exit !== 0) throw new CcError(`the turn did not start (exit ${started.exit})`)
       b.sql.exec(`UPDATE cb_turn SET submitted = 1 WHERE id = ?`, id)
@@ -266,8 +299,18 @@ export async function ccNotes(b: ChiefBrainDO, token: string, body: { run?: unkn
     writeConfig(b.sql, { cc_net: JSON.stringify(r.net) })
     return { status: 200, json: { net: r.net, script: netScript(r.net) } }
   }
-  // The Chief's `chief-vm` (run.mjs): its own sandbox VMs (sandbox.ts).
-  if (body.vm !== undefined) return ccSandbox(b, b.config().agent!, body.vm)
+  // The Chief's `chief-tools` (tools.ts): its own tools, kept per Chief for its next turns.
+  const action = (body.vm as { action?: unknown } | null | undefined)?.action
+  if (typeof action === "string" && action.startsWith("tools_")) return toolsOf(b.doEnv, b.config().agent!).ccTools(body.vm)
+  // The Chief's `chief-vm` (run.mjs): its own sandbox VMs (sandbox.ts), kept per Chief in its `<agent>/sandboxes`
+  // object (never per conversation), so its cap, identity and list are one; sandboxes this brain kept before move there.
+  if (body.vm !== undefined) {
+    const agent = b.config().agent!
+    const legacy = legacyOf(b)
+    const out = await sandboxesOf(b.doEnv, agent).ccSandboxCall(agent, body.vm, legacy)
+    if (legacy.length) b.sql.exec(`DELETE FROM cb_config WHERE name = 'cc_sandboxes'`)
+    return out
+  }
   const live = liveOf(b.doCtx)
   const g = genOf(b)
   for (const e of Array.isArray(body.events) ? (body.events as Array<Ev>).slice(0, 2000) : []) {

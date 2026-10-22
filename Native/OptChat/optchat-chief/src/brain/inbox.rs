@@ -111,8 +111,8 @@ impl Brain {
     /// Spec 5a.2: an edit or a retraction of a message the log holds is
     /// logged as a note that names its line (`edit of <id>: <text>`,
     /// `retracted <id>`), so the next turn's delta carries it and the next
-    /// re-render folds it in. A reaction or another update logs nothing, nor
-    /// does a change of the Chief's own messages. A message still queued
+    /// re-render folds it in. A reaction on the Chief's own messages goes to
+    /// `on_chief_reactions` (reaction_wake.rs); another update logs nothing. A message still queued
     /// takes the edited text, or leaves the queue when retracted. The note's key
     /// names the change, so a replayed update is logged once.
     fn on_message_updated(&mut self, message: &Message) {
@@ -120,6 +120,7 @@ impl Brain {
             return;
         };
         if message.author == self.settings.membership.participant {
+            self.on_chief_reactions(&main, message);
             return;
         }
         let key = format!("{main}#{}", message.seq);
@@ -142,6 +143,43 @@ impl Brain {
         if let Err(e) = self.chat.append_with(&[entry], |_| Vec::new()) {
             (self.log)(&format!(
                 "logging the change of message {target} failed: {e}"
+            ));
+        }
+    }
+
+    /// A tapback or emoji someone else put on one of the Chief's own messages
+    /// (a416: the user's reactions reach the Chief), when reactions cannot
+    /// wake it (reaction_wake.rs), is logged as a quiet note, `reaction
+    /// <glyph> [<tapback>] from <name> on your message: <its first line>`,
+    /// which the next turn's delta carries. The note's key names the message,
+    /// author, part and reaction, so a replayed update logs it once. The
+    /// Chief's own reactions and removed ones log nothing.
+    pub(super) fn note_reactions(&mut self, main: &str, message: &Message) {
+        if message.retracted_at.is_some() {
+            return;
+        }
+        let me = self.settings.membership.participant.clone();
+        // (key, text): a note borrows its text, so the texts outlive the entries.
+        let notes: Vec<(String, String)> = message
+            .reactions
+            .iter()
+            .filter(|r| r.author != me)
+            .map(|r| self.reaction_line(main, message, r))
+            .collect();
+        let entries: Vec<optchat_host::NewMessage> = notes
+            .iter()
+            .map(|(key, text)| optchat_host::NewMessage {
+                key: Some(key.clone()),
+                ..optchat_host::NewMessage::new(optchat_core::Kind::Note, text)
+            })
+            .collect();
+        if entries.is_empty() {
+            return;
+        }
+        if let Err(e) = self.chat.append_with(&entries, |_| Vec::new()) {
+            (self.log)(&format!(
+                "logging the reactions on message {} failed: {e}",
+                message.seq
             ));
         }
     }
@@ -245,6 +283,10 @@ impl Brain {
         }
         self.handled = message.seq;
         self.note_main_message(&message);
+        if message.author == self.settings.membership.participant {
+            // a455: the Chief learns of a bubble posted in its name that it did not write.
+            self.note_host_post(&message);
+        }
         let Some(summary) = self.summary.as_ref() else {
             return;
         };

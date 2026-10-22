@@ -108,7 +108,8 @@ enum PaletteSourcesBridge {
                 let cwd = workspace.screens.flatMap(\.panes).flatMap(\.tabs).first { $0.cwd != nil }?.cwd
                 // The local Chief runs on this Mac, as the sidebar's machine marks say.
                 let onThisMac = daemon.isLocal || MachineID(daemon.machineID).isLocalChief
-                return PaletteWorkspace(id: workspace.id, title: workspace.displayName, directory: cwd,
+                // Named as its sidebar row is: a default-named workspace reads as its front tab.
+                return PaletteWorkspace(id: workspace.id, title: services.shownWorkspaceName(workspace), directory: cwd,
                                         isSelected: workspace.id == shown, unreadCount: workspace.unreadCount,
                                         groupName: groupNames[workspace.id], machineName: onThisMac ? nil : services.machines.machineName(daemon.machineID))
             }

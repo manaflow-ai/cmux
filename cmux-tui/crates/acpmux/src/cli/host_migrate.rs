@@ -3,7 +3,10 @@
 //! update`, and back when the update fails. Setup refuses such a unit
 //! instead (`FOREIGN_UNIT_REFUSAL` in `hosts.rs`).
 
-use super::{RESTORE_PREV, STILL_RUNNING_CHECK, SYSTEMD_LINGERING, SYSTEMD_STARTED, SYSTEMD_UNIT};
+use super::{
+    REMOTE_HOME, RESTORE_PREV, STILL_RUNNING_CHECK, SYSTEMD_LINGERING, SYSTEMD_STARTED,
+    SYSTEMD_UNIT,
+};
 
 /// What a script prints before it refuses (exit 3) to move a hand-written
 /// unit, followed by the reason's code; the message goes to stderr.
@@ -18,9 +21,16 @@ pub(super) const MIGRATING: &str = "ACPMUX_MIGRATING=";
 /// folder `$t`: `$t/d` gets the drop-ins `acpmux.service` needs to be the same
 /// daemon. `ACPMUX_HOME` and `ACPMUX_SOCKET` (read from the daemon's own
 /// environment, so systemd's `%h` is already expanded) are carried in
-/// `10-migrated.conf` unless they resolve to the defaults; the unit's own
-/// drop-ins (`~/.config/systemd/user/<unit>.d/*.conf`, such as a memory
-/// limit) are copied. `daemon run` takes its listen address from `--listen`
+/// `10-migrated.conf`: a home unless it is `$dh` ([`REMOTE_HOME`]) byte for
+/// byte, not through links (the daemon opens its home with `O_NOFOLLOW`,
+/// `config::private_state_dir`, so on huge-blue, where `~/.acpmux` links to
+/// the unit's home, acpmux.service without `ACPMUX_HOME` never starts), and
+/// a socket always (a long one falls back to a path derived from the
+/// variable, not from the home). The unit's own drop-ins
+/// (`~/.config/systemd/user/<unit>.d/*.conf`, such as a memory limit) are
+/// copied; one named `10-migrated.conf` is refused. Every later update
+/// script reads the carried pair back from the unit (`SERVICE_ENV`,
+/// `host_update.rs`). `daemon run` takes its listen address from `--listen`
 /// alone, so a `--listen` the home's config.json does not also name is
 /// refused rather than moved; `--log` is dropped, and any other argument is
 /// refused.
@@ -31,10 +41,11 @@ t=$(mktemp -d) && mkdir "$t/d" || exit 1
 envof() { tr '\000' '\n' < "/proc/$p/environ" 2>/dev/null | sed -n "s/^$1=//p" | head -1; }
 carry() { case "$2" in *[!A-Za-z0-9/._+@:-]*) refuse unitSettings "$u sets $1 to a value acpmux does not copy into a unit: move it to acpmux.service by hand";; esac; printf 'Environment=%s=%s\n' "$1" "$2" >> "$t/env"; }
 h=$(envof ACPMUX_HOME); s=$(envof ACPMUX_SOCKET)
-if [ -n "$h" ] && [ "$(readlink -f "$h")" != "$(readlink -f ~/.acpmux)" ]; then carry ACPMUX_HOME "$h"; fi
-if [ -n "$s" ] && [ "$(readlink -f "$s")" != "$(readlink -f "${h:-$HOME/.acpmux}/acpmux.sock")" ]; then carry ACPMUX_SOCKET "$s"; fi
-if [ -f "$t/env" ]; then { echo '[Service]'; cat "$t/env"; } > "$t/d/10-migrated.conf"; fi
+if [ -n "$h" ] && [ "$h" != "$dh" ]; then carry ACPMUX_HOME "$h"; fi
+if [ -n "$s" ]; then carry ACPMUX_SOCKET "$s"; fi
+[ ! -e "$d/$u.d/10-migrated.conf" ] || refuse unitSettings "$u has a drop-in named 10-migrated.conf, the name acpmux gives the settings it carries: rename it, then run this again"
 if [ -d "$d/$u.d" ]; then find "$d/$u.d" -maxdepth 1 -type f -name '*.conf' -exec cp {} "$t/d/" \; ; fi
+if [ -f "$t/env" ]; then { echo '[Service]'; cat "$t/env"; } > "$t/d/10-migrated.conf"; fi
 l=; k=
 while read -r x; do
 case "$k" in --listen) l=$x; k=; continue;; --log) k=; continue;; esac
@@ -105,7 +116,7 @@ pub(super) fn migrate(dry: bool) -> String {
         )
     };
     format!(
-        "if [ -n \"$u\" ] && [ \"$u\" != acpmux.service ]; then\n{MIGRATE_PLAN}cat > \"$t/acpmux.service\" <<'ACPMUX_UNIT'\n{SYSTEMD_UNIT}ACPMUX_UNIT\n{MIGRATE_CONFLICTS}{apply}fi\n"
+        "if [ -n \"$u\" ] && [ \"$u\" != acpmux.service ]; then\ndh={REMOTE_HOME}\n{MIGRATE_PLAN}cat > \"$t/acpmux.service\" <<'ACPMUX_UNIT'\n{SYSTEMD_UNIT}ACPMUX_UNIT\n{MIGRATE_CONFLICTS}{apply}fi\n"
     )
 }
 

@@ -165,13 +165,13 @@ fn command(arguments: &Map<String, Value>) -> Result<(AgentCommand, Option<Strin
 
 /// Sends `notifications/progress` every [`PROGRESS_EVERY`] until dropped:
 /// `progress` is the seconds waited, `total` the timeout.
-struct Ticker {
+pub(super) struct Ticker {
     stop: Option<mpsc::Sender<()>>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl Ticker {
-    fn start(progress: Option<Progress>, total: Duration) -> Self {
+    pub(super) fn start(progress: Option<Progress>, total: Duration) -> Self {
         let Some(progress) = progress else { return Self { stop: None, thread: None } };
         let (stop, stopped) = mpsc::channel::<()>();
         let started = Instant::now();

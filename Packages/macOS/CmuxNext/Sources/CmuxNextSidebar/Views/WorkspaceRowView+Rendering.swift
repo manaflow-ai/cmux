@@ -92,10 +92,10 @@ extension WorkspaceRowView {
         let fades = fadesNextHover && !isHovered
         defer { fadesNextHover = false; CATransaction.commit() }
 
-        // Members indent under their group header; the members' line is
-        // one layer per group under the rows (SidebarListView+GroupLines).
-        let groupIndent: CGFloat = grouped ? SidebarStyle.groupMemberIndent : 0
-        let indent = groupIndent + CGFloat(treeDepth) * SidebarStyle.treeIndent // a started workspace sits in under its parent
+        // A group member's content starts where an ungrouped row's does: no indent for the group
+        // (Leo 2026-10-21); the members' line is one layer per group beside the rows
+        // (SidebarListView+GroupLines).
+        let indent = CGFloat(treeDepth) * SidebarStyle.treeIndent // a started workspace sits in under its parent
         let (th, sh, top, cy) = textMetrics(head: b)
         // A custom workspace icon takes the leading slot; without one the
         // title starts at the leading inset (no default kind glyph).
@@ -107,7 +107,7 @@ extension WorkspaceRowView {
         case .symbol?, .emoji?, .favicon?: side = SidebarStyle.iconBox
         }
         icon.frame = NSRect(x: leading, y: cy - side / 2, width: side, height: side)
-        layoutTreeLine(leading: SidebarStyle.horizontalInset + groupIndent)
+        layoutTreeLine(leading: SidebarStyle.horizontalInset)
 
         // Trailing cluster, right to left: the disclosure and the tab count
         // (fixed slots, the same with or without hover), close-or-badge, then
@@ -133,6 +133,8 @@ extension WorkspaceRowView {
             prBadge.frame = NSRect(x: trailing - w, y: cy - h / 2, width: w, height: h)
             trailing -= w + Metrics.space2
         }
+        trailing = layoutTreeFold(trailing: trailing, cy: cy, control: control, fades: fades)
+        trailing = layoutRollUp(trailing: trailing, cy: cy)
         trailing = layoutPullRequests(trailing: trailing, cy: cy)
         // Lawrence 2026-10-11 ("Overlay with fade"): the title keeps its full
         // width at rest and on hover. The x and the more button draw over the

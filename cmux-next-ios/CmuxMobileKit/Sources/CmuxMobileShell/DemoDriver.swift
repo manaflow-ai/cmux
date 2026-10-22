@@ -903,6 +903,19 @@ struct DemoDriver {
         }
     }
 
+    /// `-cmux-mobile-team-transparent` (layout captures): the first two
+    /// teams that are not the personal space show an emoji and a letter with
+    /// no background.
+    func seedTransparentTeams() {
+        let teams = shell.store.teams.filter { !$0.isPersonalSpace }
+        for (team, glyph) in zip(teams, ["🚀", "Q"]) {
+            var appearance = team.appearance
+            appearance.glyph = .custom(glyph)
+            appearance.isTransparent = true
+            shell.store.setAppearance(appearance, for: team.id)
+        }
+    }
+
     private func editor() async {
         shell.sidebar.open()
         await pause(1.2)

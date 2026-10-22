@@ -92,8 +92,8 @@ echoes the token),
 | `POST /v1/devices` | `{deviceId, kind, name, teamId, wgPublicKey?}` → `{device:{deviceId,ownerUserId,teamId,kind,name,wgPublicKey,createdAt,updatedAt,lastSeenAt}}` (upsert; caller must be a team member; a deviceId owned by another user is `403 not_owner`) |
 | `GET /v1/teams/:teamId/macs` | → `{macs:[{deviceId,name,online,lastSeenAt,ownerUserId}]}`: the caller's own Macs registered in `teamId` (caller must be a member). Changed in 0.10.0: a teammate's Macs are never listed (before, every Mac of the team was), so `ownerUserId` is always the caller |
 | `GET /v1/me/macs` | → `{macs:[{deviceId,name,teamId,online,lastSeenAt,ownerUserId}]}`: the caller's own Macs (registered by the caller, the only Macs v1 lets it dial) in every team the caller still belongs to and in its personal space, with presence from the caller's hub. Added in 0.5.0 so a phone finds its Mac whichever team either side has selected; the app polls it (every 4 s while its active team has no online Mac, else every 30 s) and moves to the team of an online Mac. `502 membership_unavailable` when Stack cannot list the caller's teams |
-| `GET /v1/teams/:teamId/prefs` | → `{color, emoji}` for the caller (per user per team) |
-| `PUT /v1/teams/:teamId/prefs` | `{color?: "#RRGGBB", emoji?: string\|null}`. `emoji` is the avatar glyph: `null` = automatic (team initial), `""` = none (color only), otherwise exactly one grapheme (letter, digit, symbol or emoji; not whitespace) |
+| `GET /v1/teams/:teamId/prefs` | → `{color, emoji, transparent}` for the caller (per user per team; `transparent` added in 0.12.0, always `false` without an icon) |
+| `PUT /v1/teams/:teamId/prefs` | `{color?: "#RRGGBB", emoji?: string\|null, transparent?: boolean}`. `emoji` is the avatar glyph: `null` = automatic (team initial), `""` = none (color only), otherwise exactly one grapheme (letter, digit, symbol or emoji; not whitespace). `transparent` (0.12.0) draws that grapheme with no background; `true` needs one (`400` otherwise; `false` is always accepted), `color` stays stored as the fallback for clients that predate it, an `emoji` change to `null` or `""` turns it off, and a PUT that sets `color` without `transparent` (any older build) turns it off. Answers the stored `{color, emoji, transparent}` |
 | `POST /v1/teams` | `{name}` (1 to 64 characters, trimmed, no control characters; 3 a minute per user) → `{team:{id,name}}`: creates a Stack team with the caller as creator and first member, using the project's server key (Stack refuses client-side team creation). `503 team_creation_unavailable` when the Worker has no server key for the caller's project; `403`/`502 team_create_failed` when Stack refuses. |
 | `POST /v1/teams/:teamId/invites` | `{email}` → `{url, sent:true}`: Stack emails a team invitation whose link opens `url` (the configured callback) with the code. Changed from a bare link: without a Stack server key the API can only send the invitation email, not mint a shareable link. Needs the caller's `$invite_members` team permission. |
 | `GET /v1/ice` | → `{iceServers:[{urls:[...],username?,credential?}], ttl, turn}` from the Cloudflare TURN key (generate-ice-servers), STUN `stun:stun.cloudflare.com:3478` always included (STUN only if TURN is unavailable). `turn` (0.7.0) is `false` when no TURN server could be included: clients must say so (off-LAN WebRTC may then fail) instead of failing silently. `ttl` is 1 h (was 4 h) |
@@ -546,7 +546,7 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   per-launch secret. The phone sends only datagrams (input, feedback, clock
   probes), `stop`, and rd `service` messages for `rb/1` whose body `t` is a
   viewer message (`rb.open`, `rb.close`, `rb.visibility`, `rb.screen`,
-  `rb.vsync`, `rb.history`, `rb.navigate` to http, https or `about:blank`,
+  `rb.vsync`, `rb.history`, `rb.navigate` to an allowed address (below),
   `rb.menu.result`, `rb.dialog.result`, `rb.open_tab.result`, `rb.find`,
   `rb.find.stop`); hostd drops anything else. One host per `tab` outlives
   its channel; a new channel for the same tab closes the older with
@@ -556,8 +556,61 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   (2026-10-20; before, `replaced`). The phone opens an evicted tab again when
   it is shown (at its current address), and on a new link it opens only the
   tab on screen, never every tab it holds (transport-verify-20261019.md
-  defect 7). `url` must be http, https or `about:blank` (`forbidden`), and
-  a Mac with no browser host refuses with `unavailable`. Under
+  defect 7). `url` must be an allowed address (below; otherwise the channel
+  closes `forbidden`, `not_found` or `bad_request` with the sentence the phone
+  shows as its reason), and a Mac with no browser host refuses with `unavailable`.
+  **Addresses** (2026-10-21, `browser_policy.rs`):
+  - A page one of the Mac's own browser tabs shows (the daemon's
+    `list-workspaces`), and the address a tab was opened at after that check,
+    always loads, whatever its scheme (`file:` anywhere, `chrome:` pages): the
+    phone views what is already on the Mac's screen. `javascript:` and app
+    schemes never load, even then.
+  - Any other address, typed or followed inside the page: `http(s)`,
+    `about:blank`, `data:`, `blob:`, `view-source:` of `http(s)`, and `file:`
+    (`file:///p`, `file://localhost/p`, percent-decoded) inside the folders the
+    Mac shares with the phone, which are the `file` service's roots (Chat
+    Folders and the shareable workspace folders: never home, its parents or
+    `~/.ssh`, `~/Library` and the other credential trees; symlinks resolved).
+    `javascript:`, `chrome:`, `chrome-extension:`, `devtools:`, other `about:`
+    pages, `file:` elsewhere and every other scheme are refused.
+  - A shared file is loaded at its resolved path (hostd forwards
+    `file://<canonical path>`), so a symlink swapped in after the check cannot
+    redirect the load. A page the Mac shows is remembered for the tab; a
+    shared file is checked again each time; its `?query` and `#fragment` are
+    kept. Checks read the daemon once per 2 s at most, and only for `file:`
+    and browser pages, so a page the Mac opened within the last 2 s can be
+    refused once (it loads when asked again).
+  - A refused `rb.navigate` never reaches the host: hostd answers the phone
+    with the rb message `rb.navigate.refused {url, code, reason}`
+    (`code`: `file_not_shared`, `file_missing`, `script`, `browser_page`,
+    `app_scheme`, `malformed`; `reason` an English sentence such as "This file
+    isn't in a folder this Mac shares with your iPhone."). The phone shows the
+    reason over the page, in its own words for a known `code`, and the address
+    bar goes back to the page.
+  - hostd checks the host's `rb.page` too: a page the host went to by itself
+    (a link, a redirect, script) that the rules refuse is not forwarded; hostd
+    sends the host `rb.history back` (or `rb.navigate` to the last shown page
+    when there is no history) and the phone gets `rb.navigate.refused`. After
+    three take-backs with no phone navigation between (and no page that stayed
+    1 s), hostd sends the host to `about:blank` instead (a page that bounces on
+    load, or redirects on to one that does). The frames painted
+    before the host goes back can still reach the phone.
+  - An older hostd refuses every address but http, https and `about:blank`
+    ("only http, https and about:blank load") and drops other `rb.navigate`
+    without an answer. The phone's address bar sends `file:` URLs, Mac paths
+    (`/Users/...` becomes a `file:` URL) and the other schemes as typed.
+  **Keyboard** (2026-10-21): the phone types into the page with rb input events on
+  the input lane: text as `ime_commit`, Return, Tab, Backspace, Escape and arrows
+  as `key` down/up, and shortcuts as `key` with `modifiers` (Command = 8) and the
+  Mac's `edit_commands` (`SelectAll`, `Copy`, `Cut`, `Undo`). Copy and Cut run
+  on the Mac, so they put the text on the Mac's clipboard (the owner's own).
+  Paste sends the phone's clipboard text as `ime_commit`. While the keyboard shows, the phone sends
+  `rb.screen` with the page's visible height, so the page lays out above the
+  keyboard. Hiding the keyboard sends nothing (the page keeps its focus). The host
+  does not report the focused field yet (`rb.text_input`), so the phone cannot
+  raise the keyboard by itself when the page focuses a field. Keys of a
+  hardware keyboard attached to the phone reach the page only as text (and
+  Return, Tab, Backspace); arrows, Escape and shortcuts go through the key bar. Under
   `CMUX_MOBILE_CONTROL=stdio` the app starts the hosts: hostd writes
   `{"type":"need_browser","request","tab","url"}` and the app answers
   `{"type":"browser","request","addr":"127.0.0.1:PORT","secret"}` or

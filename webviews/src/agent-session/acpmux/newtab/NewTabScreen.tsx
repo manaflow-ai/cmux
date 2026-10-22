@@ -14,6 +14,7 @@ import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
 import { useSavedEnvironments } from "./savedEnvironments";
 import type { ComposerAttachment, DroppedKind, LinkItem } from "../attachments";
 import { AttachmentStrip, useAttachmentIntake, useSendWhenAttached } from "../composer/attachmentIntake";
+import { DropOverlay } from "../composer/DropOverlay";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
@@ -69,6 +70,7 @@ import { FastToggle, SpeedToggleHost, type SpeedTiers } from "../FastToggle";
 import { useRowFit } from "../composerRowFit";
 import { useMenuPressGuard } from "../menuPressGuard";
 import { useMinuteClock } from "../clock";
+import { usePasteAnywhere } from "../composer/pasteAnywhere";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
@@ -271,6 +273,16 @@ export function NewTabScreen(props: Props) {
   const projectPending = pending && !reserveOver;
   const project = none ? undefined : (recent ?? seeded);
   const field = useRef<HTMLTextAreaElement>(null);
+  // Cmd-V anywhere on the page outside a text field (a row, a card, the empty page) goes into the
+  // field, caret at the end, as in a chat (composer/pasteAnywhere.ts; Leo 2026-10-22: "cmd v anywhere
+  // in chat should put it in chat").
+  usePasteAnywhere(() => {
+    const input = field.current;
+    if (!input) return false;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+    return true;
+  });
   // A paste on the field (an image, a copied file, a screenshot) and a file drop anywhere on the
   // page stage attachments, as a chat's composer does (composer/attachmentIntake.tsx).
   const {
@@ -278,14 +290,23 @@ export function NewTabScreen(props: Props) {
     setAttachments,
     pending: reading,
     attachError,
-    dropping,
+    drop,
+    dropLanded,
   } = useAttachmentIntake({
     allowImages: snapshot.summary?.promptCapabilities?.image !== false,
+    dropZone: () => field.current?.closest(".acpmux-main") ?? null,
     // Shell mode turns the page into a terminal, which takes no attachment: the paste stays text.
     pasteTarget: (target) => (!shell && field.current?.contains(target) ? { uploads: false } : undefined),
     ...(props.localPaths ? { localPaths: props.localPaths } : {}),
   });
   const holdForAttachments = useSendWhenAttached(reading.length);
+  // The page a file drag covers with the drop overlay (composer/DropOverlay.tsx); a drop lands in the field.
+  const [dropHost, setDropHost] = useState<Element | null>(null);
+  useLayoutEffect(() => {
+    const element = field.current;
+    setDropHost(element ? (element.closest(".acpmux-main") ?? element.ownerDocument.body) : null);
+  }, []);
+  const dropLandingTarget = useCallback(() => field.current?.parentElement ?? null, []);
   const submitNow = useRef(() => {});
   const wholeSelection = useRef(false);
   const inlineCaret = useRef<number | undefined>(undefined);
@@ -1070,11 +1091,13 @@ export function NewTabScreen(props: Props) {
           {/* What was pasted on the field or dropped on the page, as a chat's composer shows it, under
             the field: the box's top is where the page anchors it, so the strip grows away from the
             text and never moves it (Leo 2026-10-19: the composer kept "going to places"). */}
+          {dropHost && (
+            <DropOverlay state={drop} onLanded={dropLanded} container={dropHost} landingTarget={dropLandingTarget} />
+          )}
           <AttachmentStrip
             attachments={attachments}
             pending={reading}
             {...(attachError ? { error: attachError } : {})}
-            dropping={dropping}
             codex={harness === "codex"}
             onRemove={(id) => {
               setAttachments((current) => current.filter((item) => item.id !== id));

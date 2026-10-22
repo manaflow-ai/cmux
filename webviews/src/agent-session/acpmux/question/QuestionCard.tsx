@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import { experimentArm } from "../../../experiments/experiment";
 import { COMPOSER_READY_EVENT } from "../composerFocus";
 import { Check, ChevronDown } from "../conversation/icons";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
@@ -29,8 +30,10 @@ import {
   reply,
   type AgentQuestion,
   type Answer,
+  type Option,
   type QuestionReply,
 } from "./model";
+import { questionPreviewLayout, type QuestionPreviewLayout } from "./previewLayout.experiment";
 
 /// The keys a pending card answers while focus is inside it (the AgentQuestionCardState inputs).
 /// Arrow keys may repeat; a held digit, Enter or Space answers once.
@@ -152,6 +155,10 @@ function PendingQuestion({
   const [sentFor, setSentFor] = useState<string | undefined>();
   // Why the last reply was refused (the host's message, when it gave one), shown until the next try.
   const [refused, setRefused] = useState<{ reason?: string } | undefined>();
+  // The row under the pointer: its preview shows while it is hovered, then the highlighted row's.
+  const [hovered, setHovered] = useState<{ item: string; row: number } | undefined>();
+  // Where the preview draws (previewLayout.experiment.ts); read once per card.
+  const [layout] = useState<QuestionPreviewLayout>(() => experimentArm(questionPreviewLayout));
   // A new snapshot of the same ask keeps the person's choices; another ask starts fresh.
   let state = stored;
   if (stored.question !== question) {
@@ -256,8 +263,8 @@ function PendingQuestion({
     // In the Other field the reducer's Escape only leaves the field.
     dispatch(input);
   };
-  // The keys reach the card from its focused rows, field and buttons, so it listens natively
-  // (PermissionCard does the same): the fieldset is a group, not a control of its own. It runs
+  // The keys reach the card from its focused rows, field and buttons, so it listens natively:
+  // the fieldset is a group, not a control of its own. It runs
   // before the composer's document listener, which skips a key the card prevented.
   useEffect(() => {
     const element = group.current;
@@ -287,8 +294,12 @@ function PendingQuestion({
   };
 
   if (!item) return null;
-  const previewOption = item.options[highlighted] ?? item.options.find((option) => option.preview);
+  const hoveredRow = hovered?.item === item.id ? hovered.row : undefined;
+  const previewOption = shownPreview(item.options, [hoveredRow, highlighted]);
   const showPreview = hasPreviews(item);
+  const preview = showPreview && previewOption && (
+    <OptionPreview id={previewId} t={t} option={previewOption} inline={layout === "inline"} />
+  );
   const multi = item.multiSelect;
   const draft = state.otherDrafts[item.id] ?? "";
   const ready = canSubmit(state) && !sent;
@@ -313,6 +324,7 @@ function PendingQuestion({
       aria-labelledby={legendId}
       aria-busy={sent || undefined}
       data-preview={showPreview || undefined}
+      data-preview-layout={showPreview ? layout : undefined}
     >
       <legend id={legendId} className="acpmux-question-head">
         <span className="acpmux-hidden-label">{t("question.asking", { agent })}</span>
@@ -337,32 +349,40 @@ function PendingQuestion({
         </div>
       )}
       <div className="acpmux-question-body">
-        <div className="acpmux-question-rows" role={multi ? "group" : "radiogroup"} aria-labelledby={legendId}>
+        <div
+          className="acpmux-question-rows"
+          role={multi ? "group" : "radiogroup"}
+          aria-labelledby={legendId}
+          onMouseLeave={() => setHovered(undefined)}
+        >
           {item.options.map((option, row) => {
             const chosen = isChosen(state, option, item);
             const key = row < 9 ? String(row + 1) : undefined;
             return (
-              <button
-                key={option.id}
-                type="button"
-                className="acpmux-question-row"
-                data-focus-ring="row"
-                role={multi ? "checkbox" : "radio"}
-                aria-checked={chosen}
-                aria-keyshortcuts={key}
-                aria-disabled={sent || undefined}
-                data-row={row}
-                data-highlighted={row === highlighted || undefined}
-                // ui-allow: the roving tab stop follows the reducer's highlighted row (radio and checkbox rows alike).
-                tabIndex={row === highlighted ? 0 : -1}
-                onClick={() => dispatch({ type: "click", row })}
-              >
-                <ChoiceMark multi={multi} chosen={chosen} />
-                <span className="acpmux-question-text">
-                  <span className="acpmux-question-label">{option.label}</span>
-                  {option.detail && <span className="acpmux-question-detail">{option.detail}</span>}
-                </span>
-              </button>
+              <React.Fragment key={option.id}>
+                <button
+                  type="button"
+                  className="acpmux-question-row"
+                  data-focus-ring="row"
+                  role={multi ? "checkbox" : "radio"}
+                  aria-checked={chosen}
+                  aria-keyshortcuts={key}
+                  aria-disabled={sent || undefined}
+                  data-row={row}
+                  data-highlighted={row === highlighted || undefined}
+                  // ui-allow: the roving tab stop follows the reducer's highlighted row (radio and checkbox rows alike).
+                  tabIndex={row === highlighted ? 0 : -1}
+                  onClick={() => dispatch({ type: "click", row })}
+                  onMouseEnter={() => setHovered({ item: item.id, row })}
+                >
+                  <ChoiceMark multi={multi} chosen={chosen} />
+                  <span className="acpmux-question-text">
+                    <span className="acpmux-question-label">{option.label}</span>
+                    {option.detail && <span className="acpmux-question-detail">{option.detail}</span>}
+                  </span>
+                </button>
+                {layout === "inline" && option === previewOption && preview}
+              </React.Fragment>
             );
           })}
           {item.allowsOther && (
@@ -376,18 +396,12 @@ function PendingQuestion({
               chosen={draft.trim() !== ""}
               disabled={sent}
               onChoose={() => dispatch({ type: "click", row: item.options.length })}
+              onHover={() => setHovered({ item: item.id, row: item.options.length })}
               onText={(text) => dispatch({ type: "otherText", text })}
             />
           )}
         </div>
-        {showPreview && previewOption && (
-          <section className="acpmux-question-preview" aria-labelledby={previewId}>
-            <span id={previewId} className="acpmux-question-preview-label">
-              {t("question.preview", { option: previewOption.label })}
-            </span>
-            <pre>{previewOption.preview?.text ?? ""}</pre>
-          </section>
-        )}
+        {layout !== "inline" && preview}
       </div>
       {refused && (
         <p className="acpmux-question-error" role="alert">
@@ -433,6 +447,41 @@ function PendingQuestion({
   );
 }
 
+/// The option whose preview shows: the first of `rows` (the hovered row, then the highlighted one)
+/// that has a preview, else the first option with one. The Other row has none.
+export function shownPreview(options: Option[], rows: (number | undefined)[]): Option | undefined {
+  for (const row of rows) {
+    const option = row === undefined ? undefined : options[row];
+    if (option?.preview) return option;
+  }
+  return options.find((option) => option.preview);
+}
+
+/// A preview's text as Claude Code draws it, Markdown in a monospace box: an agent often wraps its
+/// mockup or code in a fence, which the box stands for, so the fence lines go (a fence and its info
+/// string alone on a line, never a line with an inline code span) and the rest keeps every space
+/// and line break (ASCII mockups line up only that way).
+export function previewText(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => !/^\s*(`{3,}|~{3,})[^`~]*$/.test(line))
+    .join("\n")
+    .replace(/^\n+|\s+$/g, "");
+}
+
+/// The highlighted (or hovered) option's preview, labelled with its option. In the `inline` layout
+/// it opens under that option's row.
+function OptionPreview({ id, t, option, inline }: { id: string; t: Translate; option: Option; inline: boolean }) {
+  return (
+    <section className="acpmux-question-preview" data-inline={inline || undefined} aria-labelledby={id}>
+      <span id={id} className="acpmux-question-preview-label">
+        {t("question.preview", { option: option.label })}
+      </span>
+      <pre>{previewText(option.preview?.text ?? "")}</pre>
+    </section>
+  );
+}
+
 /// The "Other" row: a row like the options until chosen, then an inline text field.
 function OtherRow({
   t,
@@ -444,6 +493,7 @@ function OtherRow({
   chosen,
   disabled,
   onChoose,
+  onHover,
   onText,
 }: {
   t: Translate;
@@ -455,12 +505,19 @@ function OtherRow({
   chosen: boolean;
   disabled: boolean;
   onChoose(): void;
+  /// The pointer came onto the row: it has no preview, so the highlighted option's shows.
+  onHover(): void;
   onText(text: string): void;
 }) {
   const key = row < 9 ? String(row + 1) : undefined;
   if (editing)
     return (
-      <div className="acpmux-question-row acpmux-question-other" data-row-editing="true" data-highlighted>
+      <div
+        className="acpmux-question-row acpmux-question-other"
+        data-row-editing="true"
+        data-highlighted
+        onMouseEnter={onHover}
+      >
         <ChoiceMark multi={multi} chosen={multi ? draft.trim() !== "" : true} />
         <input
           type="text"
@@ -486,6 +543,7 @@ function OtherRow({
       // ui-allow: the roving tab stop follows the reducer's highlighted row.
       tabIndex={highlighted ? 0 : -1}
       onClick={onChoose}
+      onMouseEnter={onHover}
     >
       <ChoiceMark multi={multi} chosen={chosen} />
       <span className="acpmux-question-text">

@@ -20,6 +20,7 @@ Safari, on one Mac, the same way for every browser:
   memory-1/10/20       MB, physical footprint over every process of the instance
   memory-closed        MB, back to 1 tab after 20
   power-home-idle, idle-cpu-home, idle-wakeups-home  cmux-terminal only: cmux idle on Home
+  budget-*             cmux-budget only: the resource budget session (budget.py, budgets.json)
 
 Method (after Ardia's docs/perf/vs-browsers.md, so numbers compare):
   - local pages on 127.0.0.1 (pages.py), no network-dependent rows;
@@ -42,10 +43,10 @@ Method (after Ardia's docs/perf/vs-browsers.md, so numbers compare):
 Usage (on a fleet mini; scripts/measure/perf-bench.sh is the fleet entry):
   xbench.py run --out DIR --app NAME=BUNDLE ... [--browsers a,b] [--rounds 3]
       [--launches 2] [--idle 60] [--active 30] [--settle 30] [--max-load 4]
-  xbench.py report --out DIR [--md BENCH.md] [--json results.json]
+  xbench.py report --out DIR [--md BENCH.md] [--json results.json] [--budgets budgets.json]
   xbench.py gate --results results.json --baseline baseline.json [--tolerance 0.15]
 
-Browser names: cmux-chromium, cmux-webkit, cmux-terminal (all --app cmux=BUNDLE),
+Browser names: cmux-chromium, cmux-webkit, cmux-terminal, cmux-budget (all --app cmux=BUNDLE),
 chrome, helium, dia, ardia, safari (default /Applications/Safari.app).
 """
 from __future__ import annotations
@@ -72,6 +73,7 @@ import urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "cmux-next"))
+import budget  # noqa: E402
 import pages  # noqa: E402
 import procs  # noqa: E402
 
@@ -100,6 +102,7 @@ ROWS = [
     ("idle-wakeups-home", "Wakeups, cmux idle on Home", "/s", False),
 ]
 ROW_INFO = {row: (label, unit, main) for row, label, unit, main in ROWS}
+ROW_INFO.update(budget.ROW_INFO)
 
 # Ardia's tweet (2026-10-19, Apple M5 Pro, macOS 27.2): Ardia 0.2.38-nightly.8, Helium 0.19.3.1, Dia 1.53.0.
 PUBLISHED = {
@@ -115,11 +118,11 @@ PUBLISHED = {
 }
 
 CHROMIUM = {"chrome", "helium", "dia", "ardia"}
-CMUX = {"cmux-chromium", "cmux-webkit", "cmux-terminal"}
+CMUX = {"cmux-chromium", "cmux-webkit", "cmux-terminal", budget.NAME}
 LABELS = {"cmux-chromium": "cmux NEXT (Chromium tab)", "cmux-webkit": "cmux NEXT (WebKit tab)",
-          "cmux-terminal": "cmux NEXT (terminals)", "chrome": "Chrome", "helium": "Helium", "dia": "Dia",
+          "cmux-terminal": "cmux NEXT (terminals)", budget.NAME: budget.LABEL, "chrome": "Chrome", "helium": "Helium", "dia": "Dia",
           "ardia": "Ardia", "safari": "Safari"}
-DEFAULT_BROWSERS = "cmux-chromium,cmux-webkit,cmux-terminal,chrome,helium,ardia,dia,safari"
+DEFAULT_BROWSERS = "cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari"
 
 
 def log(message: str):
@@ -239,8 +242,9 @@ class Browser:
             time.sleep(0.02)  # bench: waiting for LaunchServices to start the app
         raise RuntimeError(f"{self.name}: no app process within {timeout} s")
 
-    def hide(self):
-        self.helper.run("hide", str(self.instance.pid))
+    def hide(self) -> bool:
+        """True once NSRunningApplication accepted the hide."""
+        return self.helper.run("hide", str(self.instance.pid)).returncode == 0
 
     def unhide(self):
         self.helper.run("unhide", str(self.instance.pid))
@@ -768,6 +772,9 @@ class Run:
             for round_no in range(1, a.rounds + 1):
                 order = order[1:] + order[:1] if round_no > 1 else order  # rotate each round
                 for browser in order:
+                    if browser.name == budget.NAME:
+                        budget.session(self, browser, round_no, log, a.budgets)
+                        continue
                     self.launches(browser, round_no)
                     self.session(browser, round_no)
         finally:
@@ -889,7 +896,7 @@ def palette_rows(path: str | None) -> tuple[dict, list[str]]:
 
 
 def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str | None = None,
-           palette: str | None = None):
+           palette: str | None = None, budgets: str | None = None):
     path = os.path.join(out, "samples.jsonl")
     samples = [json.loads(line) for line in open(path) if line.strip()] if os.path.exists(path) else []
     meta = json.load(open(os.path.join(out, "meta.json")))
@@ -899,10 +906,15 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
     palette_found, palette_lines = palette_rows(palette)
     rows.update(palette_found)
     errors = [s for s in samples if s["row"] == "session-error" or (s.get("value") is None and s.get("note"))]
+    budget_errors = sum(1 for sample in samples if sample["browser"] == budget.NAME and sample["row"] == "session-error")
+    # The run's budgets file decides, so samples are judged against the scenario that collected them.
+    budgets = budgets or meta.get("args", {}).get("budgets") or budget.DEFAULT_BUDGETS
+    budget_result, budget_lines = budget.evaluate(rows, budget.NAME in meta.get("browsers", {}), budgets,
+                                                  int(meta.get("args", {}).get("rounds") or 0), budget_errors)
     result = {"date": time.strftime("%Y-%m-%d"), "machine": meta["machine"], "cmux_ref": meta.get("cmux_ref"),
               "browsers": meta["browsers"], "rows": rows, "published": PUBLISHED,
               "errors": [{k: s.get(k) for k in ("browser", "round", "row", "note")} for s in errors],
-              "method": "scripts/perf-bench/README.md", "samples": samples}
+              "budgets": budget_result, "method": "scripts/perf-bench/README.md", "samples": samples}
     if json_path:
         with open(json_path, "w") as handle:
             json.dump(result, handle, indent=1)
@@ -914,25 +926,28 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
              f"{m['chip']} ({m['model']}), {m['cores']} cores, {m['ram_gb']} GB, macOS {m['macos']} ({m['build']}), "
              f"host {m['host']}, cmux ref `{(result['cmux_ref'] or '?')[:12]}`. Medians over runs (n per cell in "
              "results.json, min-max there too). Lower is better.", ""]
-    versions = ", ".join(f"{meta['browsers'][b]['name']} {meta['browsers'][b]['version']}" for b in present)
+    versions = ", ".join(f"{meta['browsers'][b]['name']} {meta['browsers'][b]['version']}" for b in present
+                         + ([budget.NAME] if budget_result["measured"] and budget.NAME in meta["browsers"] else []))
     lines += [f"Versions: {versions}.", ""]
-    head = ["Metric"] + [LABELS[b] for b in present] + ["best other", "cmux vs best other", "Ardia (published, M5 Pro)",
-                                                   "Helium (published)"]
-    lines += ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
-    for row, label, unit, main in ROWS:
-        per = rows.get(row, {})
-        if not per:
-            continue
-        cells = [fmt(per.get(b, {}).get("median"), unit) for b in present]
-        best = min((per[b]["median"], b) for b in others if b in per) if any(b in per for b in others) else None
-        cmux_best = min((per[b]["median"] for b in CMUX if b in per), default=None)
-        lines.append("| " + " | ".join([label + ("" if main else " *")] + cells + [
-            f"{fmt(best[0], unit)} ({LABELS[best[1]]})" if best else "–",
-            ratio(cmux_best, best[0] if best else None),
-            fmt(PUBLISHED["ardia"].get(row), unit), fmt(PUBLISHED["helium"].get(row), unit)]) + " |")
-    lines += ["", "\\* not in Ardia's tweet. \"cmux vs best other\" uses the best cmux variant of the row. "
-              "Power is CPU energy (ri_energy_nj) over every process of the browser; GPU and display are not in it. "
-              "The 10x goal: every cmux cell at a tenth of the best other.", ""]
+    if present:  # a budget-only run has no comparison table
+        head = ["Metric"] + [LABELS[b] for b in present] + ["best other", "cmux vs best other", "Ardia (published, M5 Pro)",
+                                                       "Helium (published)"]
+        lines += ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
+        for row, label, unit, main in ROWS:
+            per = rows.get(row, {})
+            if not per:
+                continue
+            cells = [fmt(per.get(b, {}).get("median"), unit) for b in present]
+            best = min((per[b]["median"], b) for b in others if b in per) if any(b in per for b in others) else None
+            cmux_best = min((per[b]["median"] for b in CMUX if b in per), default=None)
+            lines.append("| " + " | ".join([label + ("" if main else " *")] + cells + [
+                f"{fmt(best[0], unit)} ({LABELS[best[1]]})" if best else "–",
+                ratio(cmux_best, best[0] if best else None),
+                fmt(PUBLISHED["ardia"].get(row), unit), fmt(PUBLISHED["helium"].get(row), unit)]) + " |")
+        lines += ["", "\\* not in Ardia's tweet. \"cmux vs best other\" uses the best cmux variant of the row. "
+                  "Power is CPU energy (ri_energy_nj) over every process of the browser; GPU and display are not in it. "
+                  "The 10x goal: every cmux cell at a tenth of the best other.", ""]
+    lines += budget_lines
     lines += switch_lines
     lines += palette_lines
     if errors:
@@ -966,6 +981,8 @@ def gate(results_path: str, baseline_path: str, tolerance: float) -> int:
     for row, per in baseline.items():
         if row not in ROW_INFO and not row.startswith(("tab-switch-", "palette-open-")):
             continue
+        if row in budget.ROW_INFO:
+            continue  # budgets.json gates these (advisory or enforced), not the baseline's 15 %
         unit = ROW_INFO[row][1] if row in ROW_INFO else "ms"
         for browser in (*CMUX, TAB_SWITCH_BROWSER):
             base = per.get(browser, {}).get("median")
@@ -999,12 +1016,16 @@ def main():
     run.add_argument("--cmux-ref", default="")
     run.add_argument("--work", default="/private/tmp/xbench")
     run.add_argument("--cache", default=os.path.expanduser("~/Library/Caches/cmux-perf-bench"))
+    run.add_argument("--budgets", default=budget.DEFAULT_BUDGETS, type=os.path.abspath,
+                     help="cmux-budget's scenario and budgets (kept in meta.json for report)")
     rep = sub.add_parser("report")
     rep.add_argument("--out", required=True)
     rep.add_argument("--md")
     rep.add_argument("--json")
     rep.add_argument("--tabswitch", help="tab-switch-matrix.py's --json report")
     rep.add_argument("--palette", help="palette-open-stages.py's --json report")
+    rep.add_argument("--budgets", help="budgets.json (default: the one the run used); an enforced budget "
+                     "the cmux-budget session broke exits 1")
     gat = sub.add_parser("gate")
     gat.add_argument("--results", required=True)
     gat.add_argument("--baseline", required=True)
@@ -1015,7 +1036,8 @@ def main():
         random.seed(0)
         Run(args).main()
     elif args.command == "report":
-        report(args.out, args.md, args.json, args.tabswitch, args.palette)
+        result = report(args.out, args.md, args.json, args.tabswitch, args.palette, args.budgets)
+        sys.exit(1 if result["budgets"]["failed"] else 0)
     else:
         sys.exit(gate(args.results, args.baseline, args.tolerance))
 
