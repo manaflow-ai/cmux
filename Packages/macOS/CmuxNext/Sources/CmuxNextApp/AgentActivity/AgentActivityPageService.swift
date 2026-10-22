@@ -89,7 +89,7 @@ final class AgentActivityPageService {
         paneWait = Task { [weak self] in
             for await next in ObservationStream({ () -> AgentChatJump.PaneWait in
                 _ = mounts.generation
-                let open = windows.registry.value.window(windowID) != nil
+                let open = windows.registry.value.window(windowID)?.isOpen == true
                 let window = windows.controller(for: windowID)
                 let mounted = window?.content?.workspace.id == workspaceID && window?.focusedPane != nil
                 return .decide(showing: open ? state.workspaceID : nil, workspaceID: workspaceID, hasPane: mounted)
