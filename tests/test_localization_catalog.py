@@ -446,6 +446,45 @@ class LocalizationDebtRatchetTests(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertIn("may only go down", output)
 
+    def write_base(self, strings):
+        base = self.root / "base"
+        path = base / self.catalog.relative_to(self.root)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(catalog(strings), indent=2) + "\n", encoding="utf-8")
+        return base
+
+    def test_debt_the_base_already_has_is_a_warning_not_the_pull_requests_failure(self):
+        # #23770 copied English into feat-cmux-next (identical 38 -> 39) and every pull
+        # request merged with that base went red for it (#23877).
+        self.write({"open": self.copied("Open")})
+        self.check("--write-baseline")
+        self.write({"open": self.copied("Open"), "close": self.copied("Close")})
+        base = self.write_base({"open": self.copied("Open"), "close": self.copied("Close")})
+        status, output = self.check("--base-root", str(base))
+        self.assertEqual(status, 0, output)
+        self.assertIn("warning: the base is already over the baseline", output)
+        self.assertIn("identical 1 -> 2", output)
+
+    def test_debt_a_pull_request_adds_on_top_of_a_red_base_still_fails(self):
+        self.write({"open": self.copied("Open")})
+        self.check("--write-baseline")
+        self.write({"open": self.copied("Open"), "close": self.copied("Close"), "save": self.copied("Save")})
+        base = self.write_base({"open": self.copied("Open"), "close": self.copied("Close")})
+        status, output = self.check("--base-root", str(base))
+        self.assertEqual(status, 1, output)
+        self.assertIn("identical 2 -> 3", output)
+        self.assertIn("save:fr", output)
+
+    def test_a_base_within_the_baseline_does_not_excuse_new_debt(self):
+        self.write({"open": self.copied("Open")})
+        self.check("--write-baseline")
+        self.write({"open": self.copied("Open"), "close": self.copied("Close")})
+        base = self.write_base({"open": self.copied("Open")})
+        status, output = self.check("--base-root", str(base))
+        self.assertEqual(status, 1, output)
+        self.assertIn("identical 1 -> 2", output)
+        self.assertNotIn("warning", output)
+
     def test_the_checked_in_baseline_loads(self):
         path = ROOT / "scripts" / MODULE.DEBT_BASELINE
         if path.exists():
