@@ -49,8 +49,9 @@ public final class AgentChangesPane {
     public func ended() { waiting = nil }
 
     /// The `revealTurn` value that opens a pane on the changes of session `session`'s turn holding
-    /// `row`, at `path`: row ids repeat across sessions, so it names the chat too.
-    public static func reveal(session: String, row: String, path: String?) -> String {
-        "changes:" + session + "\n" + row + (path.map { "\n" + $0 } ?? "")
+    /// `row` (found again by its tool call `tool`), at `path`: row ids repeat across sessions, so it
+    /// names the chat too.
+    public static func reveal(session: String, row: String, tool: String?, path: String?) -> String {
+        ["changes:" + session, row, tool ?? "", path ?? ""].joined(separator: "\n")
     }
 }

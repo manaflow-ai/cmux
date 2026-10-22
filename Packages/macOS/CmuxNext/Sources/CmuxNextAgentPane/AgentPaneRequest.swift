@@ -148,10 +148,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `chat.subagentPane {subagent, focus}`: this chat's subagent in an agent pane of its own,
     /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it.
     case subagentPane(String, focus: Bool)
-    /// `chat.changesPane {session, row, path}`: the changes of this chat's turn holding `row` in an
-    /// agent pane of its own, right of the chat, at file `path` (``AgentChangesPane``). `session` is
-    /// the chat the page asked for; a pane that shows another chat by now opens none.
-    case changesPane(session: String, row: String, path: String?)
+    /// `chat.changesPane {session, row, tool, path}`: the changes of this chat's turn holding `row`
+    /// (whose tool call `tool` finds it again once its id changes) in an agent pane of its own, right
+    /// of the chat, at file `path` (``AgentChangesPane``). `session` is the chat the page asked for; a
+    /// pane that shows another chat by now opens none.
+    case changesPane(session: String, row: String, tool: String?, path: String?)
     /// `chat.processTerminal {toolCallId}`: the background process this chat's tool call started,
     /// in a read-only terminal tab beside the chat (``AgentPaneProcessViewer``).
     case processTerminal(toolCall: String)

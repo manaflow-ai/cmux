@@ -22,9 +22,10 @@ public struct AgentPaneHeaderHooks {
     /// Shows subagent `agent` of session `session` in an agent pane right of the chat
     /// (``AgentSubagentPanes``), focused with `focus`; false when no pane opened.
     public var openSubagent: @MainActor (_ session: String, _ agent: String, _ focus: Bool) -> Bool
-    /// Shows the changes of session `session`'s turn holding `row`, at file `path`, in an agent pane
-    /// right of the chat (``AgentChangesPane``); false when no pane opened.
-    public var openChanges: @MainActor (_ session: String, _ row: String, _ path: String?) -> Bool
+    /// Shows the changes of session `session`'s turn holding `row` (found again by its tool call
+    /// `tool`), at file `path`, in an agent pane right of the chat (``AgentChangesPane``); false when
+    /// no pane opened.
+    public var openChanges: @MainActor (_ session: String, _ row: String, _ tool: String?, _ path: String?) -> Bool
     /// Opens `viewer` (a background process's read-only terminal) in a tab beside the chat; false
     /// when no tab opened.
     public var openProcess: @MainActor (_ viewer: AgentPaneProcessViewer) -> Bool
@@ -58,7 +59,7 @@ public struct AgentPaneHeaderHooks {
                 openSide: @escaping @MainActor (String, String) -> Void = { _, _ in },
                 openTab: @escaping @MainActor (String, AgentForkDestination) -> Bool = { _, _ in false },
                 openSubagent: @escaping @MainActor (String, String, Bool) -> Bool = { _, _, _ in false },
-                openChanges: @escaping @MainActor (String, String, String?) -> Bool = { _, _, _ in false },
+                openChanges: @escaping @MainActor (String, String, String?, String?) -> Bool = { _, _, _, _ in false },
                 openProcess: @escaping @MainActor (AgentPaneProcessViewer) -> Bool = { _ in false },
                 newChat: @escaping @MainActor (String) -> Bool = { _ in false },
                 sideTabs: @escaping @MainActor () -> Bool? = { nil },
@@ -169,14 +170,14 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.subagentPane")
             }
             return AgentPaneReply.success(["opened": header.openSubagent(sessionId, agent, focus)])
-        case .changesPane(let asked, let row, let path):
+        case .changesPane(let asked, let row, let tool, let path):
             // The chat's own turn, in a pane of its own; a refusal answers `opened: false`, and the
             // page shows the changes in this pane instead. A pane that moved to another chat since
             // the click opens none.
             guard let sessionId, sessionId == asked, newTab == nil, let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.changesPane")
             }
-            return AgentPaneReply.success(["opened": header.openChanges(sessionId, row, path)])
+            return AgentPaneReply.success(["opened": header.openChanges(sessionId, row, tool, path)])
         case .processTerminal(let call):
             return AgentPaneProcessViewer.open(call, in: self)
         case .chatTab(let chat, let destination):

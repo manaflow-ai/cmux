@@ -224,7 +224,13 @@ import {
   sessionEdits,
   type SessionEdits,
 } from "./turnChanges/sessionRows";
-import { openChangesPane, revealedChanges, type ChangesRequest } from "./turnChanges/changesPane";
+import {
+  openChangesPane,
+  requestedRow,
+  revealedChanges,
+  rowTool,
+  type ChangesRequest,
+} from "./turnChanges/changesPane";
 import { repositoryRoot, viewChangesBeside } from "./turnChanges/viewChanges";
 import { TurnActionsContext, chatLoginCommand, type TurnActions } from "./conversation/turnActions";
 import {
@@ -4408,9 +4414,7 @@ function AcpmuxPane() {
   /// (Quick Chat, the gallery, a pane already showing a turn's changes, a chat on another machine,
   /// whose session the app opens no second tab on): the diff then opens in place.
   /// Set below, once the header's actions exist.
-  const diffBeside = useRef<(sessionId: string, rowId: string, path?: string) => Promise<boolean>>(
-    async () => false,
-  );
+  const diffBeside = useRef<(sessionId: string, rowId: string, path?: string) => Promise<boolean>>(async () => false);
   // A click does not focus a button in WebKit, so the clicked control is the opener, not the focus.
   const openDiff = useCallback<OpenDiff>((rowId, path, opener) => {
     const clicked = opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined);
@@ -4553,8 +4557,10 @@ function AcpmuxPane() {
       setRequestedChanges(undefined);
     };
     if (snapshot.sessionId !== requestedChanges.sessionId) return drop();
-    // The whole turn, not just the asked row: its files come from every row of it.
-    if (!turnStartLoaded(snapshot.rows, requestedChanges.rowId, snapshot.canLoadOlder)) {
+    // The asked row under its id now (paging renames an activity row), and the whole turn, not just
+    // that row: its files come from every row of it.
+    const shown = requestedRow(snapshot.rows, requestedChanges);
+    if (!shown || !turnStartLoaded(snapshot.rows, shown, snapshot.canLoadOlder)) {
       // A pane still attaching has no rows yet: its history has not ended.
       if (snapshot.rows.length === 0) return;
       if (!snapshot.canLoadOlder) return drop();
@@ -4567,9 +4573,9 @@ function AcpmuxPane() {
       });
       return;
     }
-    const { rowId, path } = requestedChanges;
+    const { path } = requestedChanges;
     changesPane.current = snapshot.sessionId;
-    setDiffView({ sessionId: snapshot.sessionId, rowId, ...(path ? { path } : {}) });
+    setDiffView({ sessionId: snapshot.sessionId, rowId: shown, ...(path ? { path } : {}) });
     setRequestedChanges(undefined);
   }, [requestedChanges, snapshot.sessionId, snapshot.rows, snapshot.canLoadOlder, snapshot.historyFrom]);
   // A changes pane that moves to another chat is an ordinary chat pane from then on.
@@ -6597,7 +6603,7 @@ function AcpmuxPane() {
       window.setTimeout(refreshTabState, 400);
       if (reply?.ran === true) return true;
     }
-    return openChangesPane(callNative, sessionId, rowId, path);
+    return openChangesPane(callNative, sessionId, rowId, rowTool(turnRowsRef.current, rowId), path);
   };
   // The label starts from the chat's layout; Quick Chat's panel has no tab to read.
   useEffect(() => {

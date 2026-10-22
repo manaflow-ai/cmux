@@ -265,11 +265,11 @@ extension AgentPaneRequest {
             } else { self = .unsupported(method) }
         case "chat.changesPane":
             // A row id and a file the page shows first; both only go back to this chat's own page.
-            let path = params?["path"] as? String
-            if let session = params?["session"] as? String, !session.isEmpty, session.count <= 256, !session.contains("\n"),
-               let row = params?["row"] as? String, !row.isEmpty, row.count <= 256, !row.contains("\n"),
-               path.map({ !$0.isEmpty && $0.count <= 4096 }) ?? true {
-                self = .changesPane(session: session, row: row, path: path)
+            let path = params?["path"] as? String, tool = params?["tool"] as? String
+            let token = { (value: String) in !value.isEmpty && value.count <= 256 && !value.contains("\n") }
+            if let session = params?["session"] as? String, token(session), let row = params?["row"] as? String, token(row),
+               tool.map(token) ?? true, path.map({ !$0.isEmpty && $0.count <= 4096 }) ?? true {
+                self = .changesPane(session: session, row: row, tool: tool, path: path)
             } else { self = .unsupported(method) }
         case "chat.processTerminal":
             if let id = params?["toolCallId"] as? String, AgentPaneProcessViewer.isToken(id) { self = .processTerminal(toolCall: id) } else { self = .unsupported(method) }
