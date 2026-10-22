@@ -247,14 +247,15 @@ The store has two catalogs (source: the inventory of 2026-10-21):
 | Cloud | `cmux/cloud` | `native: "cloud"` page and a Rust server (`fs.provider`, `terminal.connector`) | `AppCloudFeature.swift:15` (Discover banner), `CloudLinkKey.swift:7`, `CloudCredentialRelay.swift:22` | the provider part fits (it uses public interfaces); the page is native |
 | CodeRouter | `cmux/coderouter` | a real JS app: section, status item and pane exports; hidden by default | `TopPageRoute.swift:55`, `AppsService.swift:135,155` (React page under `coderouter.surface = web`), `TopPages.swift:89` | yes, after the native page switch is removed |
 
-Two defects found while making the inventory:
+Two defects found while making the inventory (both fixed, 2026-10-22):
 
-- **The `native` field routes nothing.** `AppImplementation.swift:22` only parses it. Opening
-  Cloud from the store runs `app.open`, which needs a scene pane (`AppPanePage.swift:37`), so it
-  very likely fails with `noPage`. This was found by reading the code; it was not run. The Cloud
-  page that works is a separate React page (`palette.openCloudPane`).
-- **`cmux.pane/1` web is ignored.** `codemirror` declares `web: "web/index.html"`, and the client
-  drops it (section 4).
+- **The `native` field routed nothing.** Opening Cloud from the store ran `app.open`, which needed
+  a scene pane, so it failed with `noPage`. Fixed: `AppPaneRoute` reads the native pane, and
+  `AppsService.openApp` shows that internal page (`cloud`, `app-store`; `home.show` for Home).
+- **`cmux.pane/1` web was ignored.** Fixed: `AppImplementation.web` is parsed, and
+  `AppWebPanePage` serves the entry's folder in the app bundle on the shared page host (WebKit,
+  strict page CSP, page host `<name>.<publisher>.apps`, no native ops). `codemirror` declares its
+  page on `cmux.editor/1`, not `cmux.pane/1`, so the editor embed (C3) is still open.
 
 #### Unbundled first-party apps (dev directories only)
 
@@ -322,9 +323,10 @@ of switches.
 | --- | --- | --- | --- |
 | 1 | This design. Prototype `samples/apps/priority-view` with a test. The empty-slot op fix found by the prototype (below). | this agent | landed |
 | 2 | Scene renderer to AppKit (decision 3.2), with the no-SwiftUI owner (a488); split CmuxNextApps (store page to web, a491) | a488 / a491 | next |
-| 3 | `chat.list` op and `chat.changed` event (every ACP chat on every machine: state, unread, pinned, CI failing; `chat.markRead`, `chat.pin`) in the app catalog, owned by acpmux lanes. Then Priority View ships as an app, and the native Priority code is deleted (red test first: the app shows the same order as `AgentPriorityRankingTests`). | lanes owner, then app platform | needs the op |
+| 3a | `chat.list` (family `chat`, scope `agent:read`): every ACP chat in the Priority view's rank order, served on the Mac by `ChatListHandler`; `samples/apps/priority-view` reads it | this agent | landed |
+| 3b | `chat.changed` push event (the provider-side invalidation, as `agent_cli.changed`), `chat.open`, `chat.markRead`, `chat.pin` (gesture). Then Priority View ships as an app and the native Priority code is deleted. | app platform | next |
 | 4 | Batch-rate budget and the Slowed/Paused ladder in the app host | app platform | next |
-| 5 | `render: web` panes on the shared page host (`cmux-app://`, WebKit), with the bridge limits | pages owner | next |
+| 5 | `render: web` panes on the shared page host (WebKit): opening landed (`AppWebPanePage`); the app bridge (scoped catalog ops) and its rate and size limits are next | pages owner | partly landed |
 | 6 | Right sidebar: open panel list, `rightSidebar.panel.*` ops, CLI, palette; the `cmux-customization` skill recipe | right sidebar owner | after 2 |
 | 7 | Store trim (section 7) | app platform | can start now |
 | 8 | Perf-gate scenarios (section 8) | a436 owner | with 4 to 6 |
@@ -359,9 +361,10 @@ each app does not pay it.
 
 **Gaps that keep the native version for now** (step 3):
 
-1. `agent.list` lists terminal agents only. The native view ranks every ACP chat on every machine,
-   with unread, pinned and CI state. The app catalog needs `chat.list` and `chat.changed`.
-2. Mark Read and Pin need `chat.markRead` and `chat.pin`, called with the tap's gesture token.
+1. Done: `chat.list` gives apps every ACP chat in the native rank order. Not done: no
+   `chat.changed` event is sent yet, so the app's live read refreshes only on remount.
+2. Open, Mark Read and Pin need `chat.open`, `chat.markRead` and `chat.pin`, called with the tap's
+   gesture token. Until then the app's rows do nothing on tap.
 3. **The titlebar bell.** Default picked: apps get no titlebar slot (the chrome stays native). The
    section header's collapse control does the bell's job. If the user wants the bell, it becomes
    a `cmux.status/1` item placed in the sidebar titlebar.
