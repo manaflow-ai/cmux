@@ -366,3 +366,11 @@ test("JSON with a decimal past a double's precision shows as printed, never roun
   const both = '{"content":[{"type":"text","text":"Found"}],"structuredContent":{"value":10.000000000000001}}';
   expect(toolResult(both).text).toBe(both);
 });
+
+test("a text with an exact ID is kept beside structured content that rounded it", () => {
+  // Codex review 6: dedup parsed the text, rounded its ID, matched the rounded copy and dropped it.
+  const output =
+    '{"content":[{"type":"text","text":"{\\"id\\":9007199254740993}"}],"structuredContent":{"id":9007199254740992}}';
+  const result = toolResult(output);
+  expect(result.text).toContain("9007199254740993");
+});

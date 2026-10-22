@@ -139,11 +139,13 @@ function peelBlock(block: Block, into: Peeled) {
 const shows = (peeled: Peeled) => peeled.texts.some((text) => text.trim()) || peeled.images.length > 0;
 
 /// The index of the text block that repeats `structured` (MCP asks a tool to send its structured
-/// content as text too), or -1.
+/// content as text too), or -1. A text holding a number a double rounds is never a repeat: parsed,
+/// it could match a structured copy that lost the digit, and the text is the exact one.
 function repeated(texts: string[], structured: unknown): number {
   if (!printable(structured)) return -1;
   const printed = JSON.stringify(structured);
   return texts.findIndex((text) => {
+    if (losesNumbers(text)) return false;
     const parsed = parseJSONValue(text);
     return parsed !== undefined && JSON.stringify(parsed) === printed;
   });
