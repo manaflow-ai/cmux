@@ -282,6 +282,11 @@ fn sends_and_restarts_of_existing_sessions_are_never_refused() {
     assert!(out.status.success(), "a restart of an existing session: {}", text(&out));
     let out = daemon.run(&["send", "kept", "--timeout", "30", "Reply with only: again"]);
     assert!(out.status.success(), "a send after the restart: {}", text(&out));
+    // A fork is a new session: refused, unless forced.
+    let out = daemon.run(&["--json", "fork", "kept", "-n", "kept-fork"]);
+    assert_refused(&out, "under_floor", "under-floor");
+    let out = daemon.run(&["--json", "fork", "kept", "-n", "kept-fork", "--force-admit"]);
+    assert!(out.status.success(), "a forced fork: {}", text(&out));
 }
 
 #[test]
@@ -332,4 +337,25 @@ fn a_leo_workspace_checkouts_registry_caps_a_host_with_no_rendered_copy() {
         "names the checkout's registry: {}",
         text(&out)
     );
+}
+
+#[test]
+fn concurrent_creates_at_the_cap_do_not_all_pass() {
+    let daemon = Daemon::start("race", Some(2), false);
+    let children: Vec<_> = (0..6)
+        .map(|i| {
+            daemon
+                .cmd()
+                .args(["--json", "new", "-d", "-n", &format!("r{i}")])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap()
+        })
+        .collect();
+    let outs: Vec<Output> = children.into_iter().map(|c| c.wait_with_output().unwrap()).collect();
+    let made = outs.iter().filter(|o| o.status.success()).count();
+    let refused = outs.iter().filter(|o| o.status.code() == Some(5)).count();
+    let all: Vec<String> = outs.iter().map(text).collect();
+    assert_eq!((made, refused), (2, 4), "two made, four refused: {all:#?}");
 }
