@@ -98,6 +98,42 @@ struct AuthSnapshot {
     owner: Option<String>,
 }
 
+/// Replace the persisted owner with the identity from the latest hello.
+/// An omitted owner is an explicit absence, so retaining a prior value would
+/// carry authority across reconnects.
+fn reconcile_owner_user_id(config: &mut Config, owner_user_id: Option<String>) {
+    config.owner_user_id = owner_user_id;
+}
+
+/// Reconcile the hello owner and persist unmanaged changes before publishing
+/// the new authority snapshot. A failed write restores the previous owner so
+/// the next reconnect retries the durable update.
+fn reconcile_owner_user_id_and_persist(
+    config: &mut Config,
+    owner_user_id: Option<String>,
+    config_path: &Path,
+    managed: bool,
+) -> std::io::Result<()> {
+    let changed = config.owner_user_id != owner_user_id;
+    if !changed {
+        return Ok(());
+    }
+    if managed {
+        reconcile_owner_user_id(config, owner_user_id);
+        return Ok(());
+    }
+
+    let previous_owner = config.owner_user_id.clone();
+    reconcile_owner_user_id(config, owner_user_id);
+    if let Err(error) = save(config, config_path) {
+        // Keep the old value so the next ownerless hello retries the durable
+        // write instead of treating the in-memory clear as already persisted.
+        config.owner_user_id = previous_owner;
+        return Err(error);
+    }
+    Ok(())
+}
+
 pub(crate) struct OutboundFrame {
     pub(crate) text: String,
     pub(crate) live: Option<Arc<AtomicBool>>,
@@ -513,8 +549,12 @@ pub async fn stay_online(
     }
 }
 
-fn save(config: &Config, config_path: &Path) {
-    if let Err(error) = save_config(config_path, config) {
+fn save(config: &Config, config_path: &Path) -> std::io::Result<()> {
+    save_config(config_path, config)
+}
+
+fn save_best_effort(config: &Config, config_path: &Path) {
+    if let Err(error) = save(config, config_path) {
         eprintln!("Could not save the relay config: {error}");
     }
 }
@@ -887,10 +927,19 @@ async fn relay_session(
                             && (configured != local_trust || local_trust == Trust::Autonomous)
                         {
                             config.pending_trust = Some(local_trust.as_str().to_owned());
-                            save(config, config_path);
+                            save_best_effort(config, config_path);
                         }
-                        if let Some(owner) = hello.owner_user_id {
-                            config.owner_user_id = Some(owner);
+                        if reconcile_owner_user_id_and_persist(
+                            config,
+                            hello.owner_user_id,
+                            config_path,
+                            state.managed,
+                        )
+                        .is_err()
+                        {
+                            break Err(RelayError::transient(
+                                "Relay owner state could not be saved; check relay config permissions while reconnecting.",
+                            ));
                         }
                         if state.managed {
                             match hello
@@ -957,7 +1006,7 @@ async fn relay_session(
                         } else if !state.managed {
                             config.trust = Some(local_trust.as_str().to_owned());
                             config.pending_trust = None;
-                            save(config, config_path);
+                            save_best_effort(config, config_path);
                         } else {
                             config.trust = Some(hello.trust.clone());
                         }
@@ -1008,7 +1057,7 @@ async fn relay_session(
                             config.pending_trust = Some(DEFAULT_RELAY_TRUST.as_str().to_owned());
                             clear_invalid_yolo_confirmation(config);
                             if !state.managed {
-                                save(config, config_path);
+                                save_best_effort(config, config_path);
                             }
                             let frame = set_trust_frame(DEFAULT_RELAY_TRUST.as_str()).to_string();
                             let _ = send_socket_text(
@@ -1031,7 +1080,7 @@ async fn relay_session(
                             config.yolo_confirmed_at = None;
                         }
                         if !state.managed {
-                            save(config, config_path);
+                            save_best_effort(config, config_path);
                         }
                         auth.lock().expect("auth lock").trust = ack.as_str().to_owned();
                         workspace.set_local_observe(ack == Trust::Observe);
@@ -1315,6 +1364,72 @@ mod tests {
         assert_eq!(list["type"], "surface_list_result");
         assert_eq!(list["requestId"], "list_1");
         assert_eq!(list["surfaces"], serde_json::json!([]));
+    }
+}
+
+#[cfg(test)]
+mod owner_identity_tests {
+    use super::{reconcile_owner_user_id, reconcile_owner_user_id_and_persist};
+    use crate::config::{Config, load_config, save_config};
+
+    #[test]
+    fn reconnect_without_owner_clears_previous_owner() {
+        let mut config =
+            Config { owner_user_id: Some("previous-owner".to_owned()), ..Config::default() };
+
+        reconcile_owner_user_id(&mut config, None);
+
+        assert_eq!(config.owner_user_id, None);
+    }
+
+    #[test]
+    fn ownerless_reconnect_persists_before_restart() {
+        let path = std::env::temp_dir()
+            .join(format!("chatmux-relay-owner-reconnect-{}.json", std::process::id()));
+        let mut config = Config {
+            device_id: "device".to_owned(),
+            token: "token".to_owned(),
+            owner_user_id: Some("previous-owner".to_owned()),
+            ..Config::default()
+        };
+        save_config(&path, &config).expect("initial config saves");
+
+        let _ = reconcile_owner_user_id_and_persist(&mut config, None, &path, false);
+
+        let reloaded = load_config(&path).expect("persisted config loads");
+        assert_eq!(reloaded.owner_user_id, None);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn ownerless_reconnect_retries_after_persist_failure() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock is after the Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir()
+            .join(format!("chatmux-relay-owner-reconnect-retry-{}-{unique}", std::process::id()));
+        let persisted_path = root.join("config.json");
+        let blocked_parent = root.join("blocked");
+        let failed_path = blocked_parent.join("config.json");
+        std::fs::create_dir_all(&root).expect("test directory creates");
+
+        let mut config = Config {
+            device_id: "device".to_owned(),
+            token: "token".to_owned(),
+            owner_user_id: Some("previous-owner".to_owned()),
+            ..Config::default()
+        };
+        save_config(&persisted_path, &config).expect("initial config saves");
+        std::fs::write(&blocked_parent, b"not a directory").expect("blocker file writes");
+
+        let _ = reconcile_owner_user_id_and_persist(&mut config, None, &failed_path, false);
+        assert_eq!(config.owner_user_id.as_deref(), Some("previous-owner"));
+        let _ = reconcile_owner_user_id_and_persist(&mut config, None, &persisted_path, false);
+
+        let reloaded = load_config(&persisted_path).expect("persisted config loads");
+        assert_eq!(reloaded.owner_user_id, None);
+        std::fs::remove_dir_all(root).ok();
     }
 }
 
