@@ -10,12 +10,12 @@ import Testing
 /// tooltip.
 @MainActor @Suite struct ChiefNamesTests {
     @Test func aHarnessIdReadsAsItsEngineAndRoute() {
-        #expect(ChiefNames.harness("claude-sr2-pipe") == "\(ChiefBackend.claude.title) (SR2 Pipe)")
-        #expect(ChiefNames.harness("claude-cr") == "\(ChiefBackend.claude.title) (CodeRouter)")
-        #expect(ChiefNames.harness("claude-sr") == "\(ChiefBackend.claude.title) (Subrouter)")
-        #expect(ChiefNames.harness("gemini") == "Gemini")
-        #expect(ChiefNames.harness("codex_gpt") == "\(ChiefBackend.codex.title) (GPT)")
-        #expect(ChiefNames.harness("") == "")
+        #expect("claude-sr2-pipe".chiefHarnessName == "\(ChiefBackend.claude.title) (SR2 Pipe)")
+        #expect("claude-cr".chiefHarnessName == "\(ChiefBackend.claude.title) (CodeRouter)")
+        #expect("claude-sr".chiefHarnessName == "\(ChiefBackend.claude.title) (Subrouter)")
+        #expect("gemini".chiefHarnessName == "Gemini")
+        #expect("codex_gpt".chiefHarnessName == "\(ChiefBackend.codex.title) (GPT)")
+        #expect("".chiefHarnessName == "")
         // The shared title and the Home row's badge use it for every id that is not official.
         #expect(ChiefBackend.title(for: "claude-sr2-pipe") == "\(ChiefBackend.claude.title) (SR2 Pipe)")
         #expect(ChiefBackend.title(for: "unii") == ChiefBackend.unii.title)
@@ -23,12 +23,12 @@ import Testing
     }
 
     @Test func aModelIdReadsAsAName() {
-        #expect(ChiefNames.model("claude-opus-5-5") == "Claude Opus 5.5")
-        #expect(ChiefNames.model("claude-sonnet-4-5-20250929") == "Claude Sonnet 4.5")
-        #expect(ChiefNames.model("gpt-5.1-codex-max") == "GPT 5.1 Codex Max")
-        #expect(ChiefNames.model("opus[1m]") == "Opus (1M)")
-        #expect(ChiefNames.model("opus") == "Opus")
-        #expect(ChiefNames.model("") == "")
+        #expect("claude-opus-5-5".chiefModelName == "Claude Opus 5.5")
+        #expect("claude-sonnet-4-5-20250929".chiefModelName == "Claude Sonnet 4.5")
+        #expect("gpt-5.1-codex-max".chiefModelName == "GPT 5.1 Codex Max")
+        #expect("opus[1m]".chiefModelName == "Opus (1M)")
+        #expect("opus".chiefModelName == "Opus")
+        #expect("".chiefModelName == "")
     }
 
     /// A model the catalog names reads by its catalog name; one it does not, by its id made readable.

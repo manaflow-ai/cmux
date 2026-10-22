@@ -96,20 +96,20 @@ nonisolated struct HomeChiefModelMenu: Equatable {
 
     /// The name a person reads for model `id`: the catalog's name for the release it runs (with
     /// its context variant), else the name acpmux gave it, else the id made readable
-    /// (``ChiefNames/model(_:)``), never the raw id.
+    /// (``Swift/String/chiefModelName``), never the raw id.
     static func name(of id: String, in models: [ChiefEngineReport.Model]) -> String {
         if let release = release(of: id, in: models), release.family != nil {
             let name = displayName(release)
             return baseID(id) == id ? name : variantTitle(base: name, id: id)
         }
         if let own = models.first(where: { $0.id == id }) { return readable(own) }
-        return ChiefNames.model(id)
+        return id.chiefModelName
     }
 
     /// `model`'s own name, or its id made readable when acpmux named it by its id.
     static func readable(_ model: ChiefEngineReport.Model) -> String {
         let name = model.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty || name == model.id ? ChiefNames.model(model.id) : name
+        return name.isEmpty || name == model.id ? model.id.chiefModelName : name
     }
 
     /// `id` without a context-window suffix (`opus[1m]` → `opus`).
@@ -161,7 +161,7 @@ nonisolated struct HomeChiefModelMenu: Equatable {
         }
         if let chosen, chosen != "default", !rows.contains(where: { $0.item.value == chosen }) {
             // Named by its id made readable; the id itself is the row's tooltip.
-            rows.append(Row(item: Item(value: chosen, title: ChiefNames.model(chosen), detail: chosen), family: nil, release: nil,
+            rows.append(Row(item: Item(value: chosen, title: chosen.chiefModelName, detail: chosen), family: nil, release: nil,
                             kind: .model, key: chosen, variant: false))
         }
         return rows

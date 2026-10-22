@@ -17,7 +17,7 @@ import UniformTypeIdentifiers
 ///   never picked here), and the rows other features add (`addAppearanceRow`: the pet).
 /// - Brain: Backend, Model, Effort and (where the harness has a fast tier) Speed, each with a line
 ///   that says what it changes; "Default" names what it runs, every value by its name
-///   (``ChiefNames``), never a raw id. The Model menu groups by family (``HomeChiefModelMenu``)
+///   (``Swift/String/chiefModelName``, ``Swift/String/chiefHarnessName``), never a raw id. The Model menu groups by family (``HomeChiefModelMenu``)
 ///   and Effort offers only the levels the shown model takes.
 /// - Memory (this Mac's brain): what the Chief remembers, and Show Memory.
 /// - Diagnostics: the last turn's engine, time, cost or tokens, cache share and tool calls

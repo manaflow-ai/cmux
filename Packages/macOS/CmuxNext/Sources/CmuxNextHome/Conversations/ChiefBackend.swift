@@ -62,9 +62,9 @@ public nonisolated struct ChiefBackend: Hashable, Sendable, Identifiable {
     }
 
     /// The name to show for harness `id`: an official engine's title, else the id made readable
-    /// (``ChiefNames/harness(_:)``: `claude-cr` → "Claude (CodeRouter)"), never the raw id.
+    /// (``Swift/String/chiefHarnessName``: `claude-cr` → "Claude (CodeRouter)"), never the raw id.
     public static func title(for id: String) -> String {
-        ChiefBackend(id: id)?.title ?? ChiefNames.harness(id)
+        ChiefBackend(id: id)?.title ?? id.chiefHarnessName
     }
 
     /// The badge a Home row shows for a Chief whose effective harness is `harness`: nil for
