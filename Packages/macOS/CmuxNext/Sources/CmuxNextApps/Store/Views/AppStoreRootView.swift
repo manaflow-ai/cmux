@@ -42,7 +42,7 @@ public struct AppStoreRootView: View {
                 tab(.installed, AppsStrings.installed)
             }
             .padding(2)
-            .background(Capsule().fill(colors.hover))
+            .background(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous).fill(colors.hover))
             Spacer()
             HStack(spacing: Metrics.space2) {
                 Icon(.search, size: CGFloat.iconFloor).foregroundStyle(colors.tertiary)
@@ -52,7 +52,7 @@ public struct AppStoreRootView: View {
             }
             .padding(.horizontal, Metrics.space3)
             .frame(height: 26)
-            .background(Capsule().fill(colors.hover))
+            .background(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous).fill(colors.hover))
         }
         // The same column as the page below it (the wide grid on Discover and Features, the
         // reading column on a detail page and Installed); the split layout's list runs edge to
@@ -74,7 +74,8 @@ public struct AppStoreRootView: View {
                 .foregroundStyle(model.tab == tab ? colors.primary : colors.secondary)
                 .padding(.horizontal, Metrics.space3)
                 .padding(.vertical, 3)
-                .background(Capsule().fill(model.tab == tab ? colors.selection : .clear))
+                .background(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous)
+                    .fill(model.tab == tab ? colors.selection : .clear))
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("appStore.tab.\(tab.rawValue)")

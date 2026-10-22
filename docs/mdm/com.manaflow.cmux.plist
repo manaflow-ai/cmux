@@ -183,13 +183,14 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>cards</string>
+			<string>minimal</string>
 			<key>pfm_description</key>
 			<string>The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it.</string>
 			<key>pfm_name</key>
 			<string>tabs.newTabTemplate</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>minimal</string>
 				<string>cards</string>
 				<string>default</string>
 				<string>composer</string>
@@ -846,7 +847,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<false/>
+			<true/>
 			<key>pfm_description</key>
 			<string>Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it.</string>
 			<key>pfm_name</key>
@@ -1210,7 +1211,7 @@
 			<key>pfm_default</key>
 			<string>split-right</string>
 			<key>pfm_description</key>
-			<string>Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from an agent chat, Home or another page opens as a tab in its own pane.</string>
+			<string>Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one.</string>
 			<key>pfm_name</key>
 			<string>layout.linkPlacement</string>
 			<key>pfm_range_list</key>
@@ -3207,6 +3208,16 @@
 		<dict>
 			<key>pfm_default</key>
 			<false/>
+			<key>pfm_name</key>
+			<string>diff.groupByKind</string>
+			<key>pfm_title</key>
+			<string>Group Files by Kind</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
 			<key>pfm_description</key>
 			<string>Web image sites can see your address and when you open a document. When off, each document asks before loading its web images.</string>
 			<key>pfm_name</key>
@@ -4370,6 +4381,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too.</string>
+			<key>pfm_name</key>
+			<string>sidebar.showLocalMachine</string>
+			<key>pfm_title</key>
+			<string>Mark This Mac's Workspaces</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner.</string>
 			<key>pfm_name</key>
 			<string>sidebar.groupHeader.memberCount</string>
@@ -4838,6 +4861,66 @@
 			<string>tabs.newTabNowPlaying</string>
 			<key>pfm_title</key>
 			<string>Show Now Playing on New Tab</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A short greeting over the composer.</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabWidgets.greeting</string>
+			<key>pfm_title</key>
+			<string>Show Greeting on New Tab</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A card of this Mac and its recent projects over the composer.</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabWidgets.projects</string>
+			<key>pfm_title</key>
+			<string>Show Projects on New Tab</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Chats that need you, and New Terminal, New Browser Tab and New Chat.</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabWidgets.actions</string>
+			<key>pfm_title</key>
+			<string>Show Quick Actions on New Tab</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Your recent chats under the composer. The palette finds any chat.</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabWidgets.chats</string>
+			<key>pfm_title</key>
+			<string>Show Recent Chats on New Tab</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Dots under the page that switch its template.</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabWidgets.styleDots</string>
+			<key>pfm_title</key>
+			<string>Show Template Dots on New Tab</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
