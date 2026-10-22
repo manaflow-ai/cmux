@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import Foundation
 import CmuxNextSettings
 
 /// Which hidden pages hibernate now, and when to look again
@@ -18,6 +19,35 @@ struct HibernationPlanner {
         /// The engine can save and restore its history.
         var canRestore = true
         var showsFormSubmission = false  // the shown document came from a POST (BR-R1)
+        /// Times the person showed the tab in the last hour (`BrowserHibernation.focusWindow`).
+        var recentFocusCount = 0
+        /// The page's memory (its renderers' footprint, shared ones split), when sampled.
+        var memoryBytes: UInt64?
+        /// A download the page started still runs.
+        var isDownloading = false
+        /// An agent holds the page's browser lease (its cursor is on it).
+        var hasAgentLease = false
+    }
+
+    /// How many pages one pass hibernates and how soon the next pass runs while more are due,
+    /// so pages never all close at once (a page that wakes meanwhile drops out of the queue).
+    struct Pace: Equatable {
+        var perPass: Int
+        var interval: Double
+        /// Under pressure, pages hidden less than this never go (the person just left them).
+        var minimumHidden: Double
+
+        static let normal = Pace(perPass: 2, interval: 5, minimumHidden: 60)
+        static let warning = Pace(perPass: 1, interval: 15, minimumHidden: 60)
+        static let critical = Pace(perPass: 3, interval: 3, minimumHidden: 10)
+
+        static func at(_ pressure: MemoryPressureLevel) -> Pace {
+            switch pressure {
+            case .normal: .normal
+            case .warning: .warning
+            case .critical: .critical
+            }
+        }
     }
 
     /// Why a page does not hibernate (reported by `debug.surfaces`).
@@ -39,6 +69,10 @@ struct HibernationPlanner {
         /// The page did not answer the probe: kept for `BrowserHibernation.unansweredLimit`
         /// probes in a row, then until memory pressure (its form edits are unknown).
         case unanswered
+        /// A download the page started still runs.
+        case downloading
+        /// An agent holds the page's browser lease.
+        case agentLease = "agent_lease"
     }
 
     struct Plan: Equatable {
@@ -62,6 +96,8 @@ struct HibernationPlanner {
     static func exemption(_ candidate: Candidate, setting: BrowserHibernationSetting) -> Exemption? {
         if !setting.isEnabled { return .disabled }
         if !candidate.canRestore { return .unsupported }
+        if candidate.hasAgentLease { return .agentLease }
+        if candidate.isDownloading { return .downloading }
         if candidate.showsFormSubmission { return .formSubmission }
         if candidate.hasDevTools { return .devTools }
         if candidate.isCapturing { return .capturing }
@@ -77,7 +113,7 @@ struct HibernationPlanner {
         var plan = Plan()
         guard let threshold = setting.freezeSeconds else { return plan }
         for candidate in candidates {
-            if candidate.hasDevTools || candidate.isCapturing || setting.excludes(host: candidate.host)
+            if candidate.hasDevTools || candidate.isCapturing || candidate.hasAgentLease || setting.excludes(host: candidate.host)
                 || (candidate.isPinned && !setting.includesPinnedTabs) { continue }
             let remaining = threshold - candidate.hiddenFor
             if remaining <= 0 {
@@ -89,23 +125,61 @@ struct HibernationPlanner {
         return plan
     }
 
+    /// Seconds of idleness each doubling of recent focus buys: a tab shown 15 times in the last
+    /// hour (4 doublings) hibernates 20 minutes later than one never shown.
+    static let focusCreditPerDoubling: Double = 300
+    /// Seconds a page's memory counts as extra idleness under memory pressure: one minute per
+    /// 100 MB, at most 10. Without pressure memory is not scarce, so it does not count.
+    static func memoryCredit(_ bytes: UInt64?) -> Double {
+        guard let bytes else { return 0 }
+        return min(Double(bytes) / Double(100 << 20), 10) * 60
+    }
+
+    /// How idle a page counts as: seconds hidden, plus its memory under pressure, less its
+    /// recent focus. Larger is less valuable: it hibernates first and sooner.
+    static func idleness(_ candidate: Candidate, pressure: MemoryPressureLevel) -> Double {
+        let focus = log2(1 + Double(min(max(candidate.recentFocusCount, 0), 63))) * focusCreditPerDoubling
+        let memory = pressure == .normal ? 0 : memoryCredit(candidate.memoryBytes)
+        return candidate.hiddenFor + memory - focus
+    }
+
+    /// The pages to hibernate now, least valuable first, and when to look again.
+    ///
+    /// A page is due once its idleness reaches the timeout (`browser.hibernation`; 10 minutes at
+    /// most under pressure). Under memory pressure, when no page is due, the least valuable page
+    /// hidden at least `Pace.minimumHidden` goes anyway, to relieve it. Each pass takes at most
+    /// `Pace.perPass` pages and looks again after `Pace.interval` while more are waiting.
     static func plan(_ setting: BrowserHibernationSetting, pressure: MemoryPressureLevel, candidates: [Candidate]) -> Plan {
         var plan = Plan()
-        guard let threshold = threshold(setting, pressure: pressure) else {
+        guard let threshold = threshold(setting, pressure: pressure == .critical ? .warning : pressure) else {
             for candidate in candidates { plan.exemptions[candidate.key] = .disabled }
             return plan
         }
-        for candidate in candidates.sorted(by: { $0.hiddenFor > $1.hiddenFor }) {
+        let pace = Pace.at(pressure)
+        var ranked: [(key: String, idleness: Double, hiddenFor: Double)] = []
+        for candidate in candidates {
             if let exemption = exemption(candidate, setting: setting) {
                 plan.exemptions[candidate.key] = exemption
                 continue
             }
-            let remaining = threshold - candidate.hiddenFor
-            if remaining <= 0 {
-                plan.due.append(candidate.key)
-            } else {
-                plan.nextCheck = min(plan.nextCheck ?? remaining, remaining)
-            }
+            ranked.append((candidate.key, idleness(candidate, pressure: pressure), candidate.hiddenFor))
+        }
+        ranked.sort { $0.idleness != $1.idleness ? $0.idleness > $1.idleness : $0.key < $1.key }
+        // A page the person just left never goes, whatever its memory or the mode.
+        let oldEnough = ranked.filter { $0.hiddenFor >= pace.minimumHidden }
+        var due = oldEnough.filter { $0.idleness >= threshold }
+        if due.isEmpty, pressure != .normal { due = oldEnough }
+        plan.due = due.prefix(pace.perPass).map(\.key)
+        if due.count > plan.due.count || (pressure != .normal && !plan.due.isEmpty) {
+            plan.nextCheck = pace.interval
+        }
+        let dueKeys = Set(due.map(\.key))
+        for page in ranked where !dueKeys.contains(page.key) {
+            let young = pace.minimumHidden - page.hiddenFor
+            var wait = max(threshold - page.idleness, young)
+            // Under pressure any page old enough is relief: look again once this one is.
+            if pressure != .normal { wait = min(wait, max(young, pace.interval)) }
+            plan.nextCheck = min(plan.nextCheck ?? .infinity, max(wait, 0.001))
         }
         return plan
     }
