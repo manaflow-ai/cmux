@@ -579,7 +579,7 @@ export function ComposerQueue({
     <>
       <ol
         ref={list}
-        className="ui-glass acpmux-composer-queue"
+        className="ui-glass ui-glass-floats acpmux-composer-queue"
         data-unfolded={foldable && !folded ? "" : undefined}
         // A row that takes focus from the keyboard (keys, a move, ↑ from the prompt) scrolls in whole.
         onFocus={(event) => {
@@ -652,7 +652,7 @@ export function ComposerQueue({
       </ol>
       {/* The fold sits under the list, outside its scrolling, so no row ever runs under it. */}
       {foldable && (
-        <div className="ui-glass acpmux-queue-foldbar">
+        <div className="ui-glass ui-glass-floats acpmux-queue-foldbar">
           <button
             ref={foldButton}
             type="button"

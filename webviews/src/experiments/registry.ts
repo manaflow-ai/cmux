@@ -7,6 +7,7 @@ import { chiefDock } from "../agent-session/acpmux/chiefDock.experiment";
 import { hoverActions } from "../ui/hoverActions.experiment";
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
 import { startedSessionCards } from "../agent-session/acpmux/started/startedSessions.experiment";
+import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -17,6 +18,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hoverActions,
   startedSessionCards,
   threadMinimapLayout,
+  chromiumGlassUnderlay,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

@@ -1675,7 +1675,7 @@ function JumpToLatest({
   return (
     <button
       type="button"
-      className="ui-glass acpmux-jump-latest"
+      className="ui-glass ui-glass-floats acpmux-jump-latest"
       data-shown={shown ? "" : undefined}
       data-working={working ? "" : undefined}
       style={lift > 0 ? ({ "--acpmux-dock-space": `${lift}px` } as React.CSSProperties) : undefined}
