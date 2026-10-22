@@ -62,6 +62,13 @@ final class CloudMachineCreation: Identifiable {
         phase = .created
     }
 
+    /// A create refused because the plan has no Cloud machine: the legacy
+    /// `/api/vm` refusal with `upgradeRequired`, or the app server's `plan_required`.
+    nonisolated static func needsPro(_ error: any Error) -> Bool {
+        if case CloudAPIError.planRequired = error { return true }
+        return (error as? CloudAppOpFailure)?.code == CloudAppOpFailure.planRequired
+    }
+
     func fail(_ error: any Error) {
         phase = .failed(RefusalStrings.describe(error))
     }
@@ -136,6 +143,8 @@ struct CloudCreationFlow {
     let open: @MainActor (CloudMachineSession) async throws -> String
     /// Places the opened workspace (`creation.workspaceID`) in its window.
     let show: @MainActor (String, CloudMachineCreation) -> Void
+    /// The account's plan has no Cloud machine (``CloudMachineCreation/needsPro(_:)``): offers cmux Pro.
+    var planRequired: @MainActor () -> Void = {}
 
     /// Starts a creation and, when a window asked, shows it there at once
     /// (before any await): the click focuses the new work, not the old one.
@@ -165,7 +174,7 @@ struct CloudCreationFlow {
     }
 
     private func run(_ creation: CloudMachineCreation) {
-        let create = create, open = open, show = show, creations = creations
+        let create = create, open = open, show = show, creations = creations, planRequired = planRequired
         // task-owner: the creation's one run; cancelled by retry, dismiss or machine removal
         creation.task = Task { @MainActor in
             do {
@@ -195,6 +204,7 @@ struct CloudCreationFlow {
             } catch {
                 guard !Task.isCancelled else { return }
                 creation.fail(error)
+                if CloudMachineCreation.needsPro(error) { planRequired() }
             }
         }
     }

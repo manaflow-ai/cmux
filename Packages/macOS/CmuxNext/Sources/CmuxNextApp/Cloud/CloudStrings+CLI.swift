@@ -18,3 +18,21 @@ extension CloudStrings {
                table: "Cloud", bundle: .module)
     }
 }
+
+/// The cmux Pro offer when a create is refused because the plan has no Cloud
+/// machine. Keys live in Resources/Cloud.xcstrings with every app locale.
+extension CloudStrings {
+    static var proRequiredTitle: String {
+        String(localized: "cloud.pro.required.title", defaultValue: "Cloud machines need cmux Pro", table: "Cloud", bundle: .module)
+    }
+
+    static var proRequiredBody: String {
+        String(localized: "cloud.pro.required.body",
+               defaultValue: "Your plan doesn't include Cloud machines. Upgrade to cmux Pro to create them, for you and for Chief.",
+               table: "Cloud", bundle: .module)
+    }
+
+    static var proRequiredUpgrade: String {
+        String(localized: "cloud.pro.required.upgrade", defaultValue: "Upgrade to cmux Pro", table: "Cloud", bundle: .module)
+    }
+}

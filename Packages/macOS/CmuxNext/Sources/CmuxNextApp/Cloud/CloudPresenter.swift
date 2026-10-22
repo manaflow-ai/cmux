@@ -63,6 +63,13 @@ enum CloudPresenter {
         present(spec, in: window) { answer in done(answer?.button == "confirm") }
     }
 
+    /// The plan has no Cloud machine: offers cmux Pro; `upgrade` runs only on
+    /// the person's click on Upgrade. One offer at a time (its identifier).
+    static func offerPro(in window: NSWindow?, upgrade: @escaping () -> Void) {
+        confirm(CloudStrings.proRequiredTitle, CloudStrings.proRequiredBody, button: CloudStrings.proRequiredUpgrade,
+                identifier: "cmux.dialog.cloud.proRequired", in: window) { if $0 { upgrade() } }
+    }
+
     static func copy(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)

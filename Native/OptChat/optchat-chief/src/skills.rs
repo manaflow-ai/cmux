@@ -23,10 +23,14 @@ pub struct Skill {
 }
 
 /// The skills cmux ships, as `(name, SKILL.md text)`.
-pub const BUILTIN: [(&str, &str); 2] = [
+pub const BUILTIN: [(&str, &str); 3] = [
     (
         "chief-auth-escalation",
         include_str!("../skills/chief-auth-escalation/SKILL.md"),
+    ),
+    (
+        "chief-cloud-machines",
+        include_str!("../skills/chief-cloud-machines/SKILL.md"),
     ),
     ("cmux-setup", include_str!("../skills/cmux-setup/SKILL.md")),
 ];
