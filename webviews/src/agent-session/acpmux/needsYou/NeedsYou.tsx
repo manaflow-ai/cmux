@@ -19,7 +19,9 @@ import type { NeedsYouAnswer, NeedsYouItem, NeedsYouKind } from "./model";
 import "./needsYou.css";
 
 /// The Debug choice `agentPane.debug.needsYou` (data-needs-you on <html>): `pinned` (the default)
-/// draws each ask with its answers; `compact` one line per ask; `off` no badge at all.
+/// draws each ask with its answers; `compact` one line per ask; `off` no badge at all. The host
+/// also writes `off` while the App Store's Needs You item is not installed
+/// (`agentPane.needsYou.enabled`, off by default): no badge, no list, and no link opens one.
 export type NeedsYouMode = "pinned" | "compact" | "off";
 
 export function needsYouMode(
@@ -67,14 +69,17 @@ export function NeedsYouButton({
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const trigger = usePopoverTrigger(open, setOpen);
-  // A `cmux://needs-you/<id>` chip in a reply opens the list on its ask (links.ts).
+  // A `cmux://needs-you/<id>` chip in a reply opens the list on its ask (links.ts). Off (the App
+  // Store item not installed) registers no opener, so nothing can open a list that is not drawn.
   useEffect(
     () =>
-      onOpenNeedsYou((itemId) => {
-        setFocus(itemId);
-        setOpen(true);
-      }),
-    [],
+      mode === "off"
+        ? undefined
+        : onOpenNeedsYou((itemId) => {
+            setFocus(itemId);
+            setOpen(true);
+          }),
+    [mode],
   );
   if (mode === "off") return null;
   const count = items.length;

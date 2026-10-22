@@ -176,6 +176,11 @@ export default agentPaneEntry({
       snapshot: chat(rows),
       play: openList,
     },
+    "not-installed": {
+      note: "The App Store's Needs You item not installed (agentPane.needsYou.enabled off, the default): the header has no inbox and the other tools keep their pitch; `empty` is the same chat with it installed.",
+      snapshot: chat(rows),
+      documentAttributes: { "needs-you": "off" },
+    },
     before: {
       note: "Both Debug toggles off: the pane as it drew before, with no badge and the plain Jump to latest.",
       snapshot: snapshot(),
