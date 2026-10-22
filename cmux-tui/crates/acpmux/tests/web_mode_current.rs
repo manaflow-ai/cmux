@@ -152,19 +152,14 @@ async fn a_local_session_in_a_mode_that_does_not_ask_refuses_web_control() {
     assert_eq!(reason(&r), "remote.mode_not_asking", "{r}");
     assert_eq!(r["error"]["data"]["mode"], json!("normal"), "{r}");
     assert_eq!(r["error"]["data"]["harness"], json!("ftarget"), "{r}");
-    for (m, p) in [
-        (
-            "_acpmux/permission_respond",
-            json!({"sessionId": s, "permissionId": "p", "optionId": "o"}),
-        ),
-        (
-            "_acpmux/permission_group_respond",
-            json!({"sessionId": s, "groupId": "g", "revision": 1, "decisionKey": "k", "decision": "deny"}),
-        ),
-    ] {
-        let r = web.call(m, p).await;
-        assert_eq!(reason(&r), "remote.mode_not_asking", "{m}: {r}");
-    }
+    let allow = json!({"sessionId": s, "permissionId": "p", "optionId": "o"});
+    let r = web.call("_acpmux/permission_respond", allow).await;
+    assert_eq!(reason(&r), "remote.mode_not_asking", "{r}");
+    // A deny only narrows: no asking rule holds it (here: no such group).
+    let deny = json!({"sessionId": s, "groupId": "g", "revision": 1, "decisionKey": "k",
+                      "decision": "deny"});
+    let r = web.call("_acpmux/permission_group_respond", deny).await;
+    assert!(!reason(&r).starts_with("remote."), "{r}");
     // Reads stay.
     for m in ["_acpmux/attach", "_acpmux/events", "_acpmux/info"] {
         let r = web.call(m, json!({"sessionId": s, "limit": 0})).await;
@@ -375,6 +370,74 @@ async fn a_session_with_no_mode_needs_an_asking_policy_for_web_control() {
     // deny-all asks nothing but approves nothing either.
     set_policy(&mut local, &s, "deny-all").await;
     assert!(web.prompt(&s, "denies").await.get("error").is_none());
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// The latest prompt the session asks: its id, decision nonce and daemon run.
+async fn pending_ask(c: &mut Client, s: &str, after: usize) -> (String, String, String) {
+    for _ in 0..500 {
+        let r = c.call("_acpmux/events", json!({"sessionId": s, "limit": 500})).await;
+        let asks: Vec<Value> = r["result"]["events"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|e| e["kind"] == "permission_request")
+            .cloned()
+            .collect();
+        if let Some(ask) = asks.get(after) {
+            let text = |k: &str| ask["msg"][k].as_str().unwrap_or_default().to_owned();
+            return (text("permissionId"), text("decisionNonce"), text("personInstance"));
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("no permission request {after} in the events of {s}");
+}
+
+/// Leo, 2026-10-21 ("this literally doesn't work"): a paired device drew
+/// Allow and Deny for a prompt of an approve-reads session, and every answer
+/// came back "this session's permission settings do not ask before it acts
+/// (policy approve-reads); a paired device cannot prompt it or answer its
+/// permissions". A deny only narrows and counts; an allow that carries the
+/// person's decision proof for that very prompt is the person's own click and
+/// counts; an allow with no proof stays refused. The device's read of the
+/// asks says its group allows are refused, so it draws none.
+#[tokio::test]
+async fn a_paired_device_answers_an_approve_reads_prompt_with_a_deny_or_the_persons_proof() {
+    const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    let d = dir("answers");
+    let hub = hub(&d, None);
+    let mut local = Client::person(&hub, Origin::Local).await;
+    let mut turns = Client::new(&hub, Origin::Local);
+    let mut web = Client::new(&hub, Origin::Web);
+    let s = no_mode_session(&mut local, &d).await;
+    set_policy(&mut local, &s, "approve-reads").await;
+    let ask = |text: &str| json!({"sessionId": s, "prompt": [{"type": "text", "text": text}]});
+    let answer =
+        |pid: &str, option: &str| json!({"sessionId": s, "permissionId": pid, "optionId": option});
+
+    let turn = turns.send("session/prompt", ask("ask: touch marker")).await;
+    let (pid, _, _) = pending_ask(&mut local, &s, 0).await;
+    let r = web.call("_acpmux/permission_groups", json!({"sessionId": s})).await;
+    assert_eq!(r["result"]["allowRefused"], json!("permission.person_required"), "{r}");
+    let r = local.call("_acpmux/permission_groups", json!({"sessionId": s})).await;
+    assert!(r["result"].get("allowRefused").is_none(), "{r}");
+    let r = web.call("_acpmux/permission_respond", answer(&pid, "yes")).await;
+    assert_eq!(reason(&r), "remote.policy_not_asking", "an allow with no proof: {r}");
+    let r = web.call("_acpmux/permission_respond", answer(&pid, "no")).await;
+    assert!(r.get("error").is_none(), "a deny: {r}");
+    assert!(turns.reply(turn).await.get("error").is_none());
+    wait_events(&mut local, &s, "chose no").await;
+
+    let turn = turns.send("session/prompt", ask("ask: git push")).await;
+    let (pid, nonce, instance) = pending_ask(&mut local, &s, 1).await;
+    let proof =
+        acpmux::hub::person::decision_proof(KEY, &instance, &s, &pid, "yes", &nonce).unwrap();
+    let mut proved = answer(&pid, "yes");
+    proved["_meta"] = json!({"acpmux": {"decisionNonce": nonce, "personDecision": proof}});
+    let r = web.call("_acpmux/permission_respond", proved).await;
+    assert!(r.get("error").is_none(), "an allow with the person's proof: {r}");
+    assert!(turns.reply(turn).await.get("error").is_none());
+    wait_events(&mut local, &s, "chose yes").await;
     let _ = std::fs::remove_dir_all(&d);
 }
 
