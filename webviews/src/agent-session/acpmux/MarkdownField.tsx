@@ -98,7 +98,8 @@ export type MarkdownFieldProps = {
   onSubmit?(markdown: string, modifiers: { cmd: boolean }): void;
   /// A new paragraph or line the browser inserts on its own, not from a key the field handled: the
   /// Return an input method or Dictation passes on (keyCode 229, which every key handler leaves to
-  /// it). Set, the field never adds that line and this runs instead, as Return would.
+  /// it), or that 229 Return itself once no composition runs or just ended. Set, the field never
+  /// adds that line and this runs instead, as Return would.
   onReturnInput?(): void;
   /// The user's first edit (the new tab's `newTab.touched`).
   onFirstInput?(): void;
@@ -204,6 +205,12 @@ const copiedText = (slice: Slice) => slice.content.textBetween(0, slice.content.
 
 /// How long after a focus with no click the browser's own caret placement is overruled.
 const KEEP_CARET_MS = 100;
+/// How soon after `compositionend` a keyCode-229 Return is the key that committed the composition
+/// (WebKit sends it after the event). ProseMirror's own Safari guard uses the same window.
+const COMMIT_RETURN_MS = 500;
+/** Return or keypad Enter, also when an input method reports its key as "Process". */
+const isReturnKey = (event: KeyboardEvent) =>
+  event.key === "Enter" || event.code === "Enter" || event.code === "NumpadEnter";
 /// The soft band at a long draft's scrolled edges (markdownField.css reads it as
 /// `--acpmux-md-fade-band`). The caret reveal keeps the caret this far from the field's edge, so the
 /// caret's line never sits in the fade. The attachment row above the prompt fades its scrolled sides
@@ -377,6 +384,8 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
     // long paste left the field (it scrolls past eight lines) at the top. Set while a paste the
     // surface did not consume runs; the paste's dispatch is synchronous inside it.
     let pasting = false;
+    // When the last composition ended (the event's timeStamp), for the Return that commits it.
+    let compositionEndedAt = -Infinity;
     // A paste that ends the draft shows the field's whole end, its bottom inset too: the caret
     // reveal stops a margin short in WebKit, which would leave the last line under the bottom fade
     // (markdownField.css). Every paste path ends here.
@@ -396,6 +405,19 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
               keydown: (_view, event) => {
                 latest.current.onKeyDown?.(event);
                 if (event.defaultPrevented) return true;
+                // A Return an input method or Dictation passed on (keyCode 229) never reaches
+                // ProseMirror's keymap, which reads its key as Enter and splits the paragraph: in
+                // Leo's chat that line was all a dictated prompt's Return did (2026-10-21). The
+                // Return that commits a composition stays the input method's; any later one is
+                // Return, as the field's surface takes it.
+                const returnInput = latest.current.onReturnInput;
+                if (returnInput && isImeKeyEvent(event) && isReturnKey(event) && !event.shiftKey) {
+                  if (!event.isComposing && event.timeStamp - compositionEndedAt > COMMIT_RETURN_MS) {
+                    event.preventDefault();
+                    returnInput();
+                  }
+                  return true;
+                }
                 const submit = latest.current.onSubmit;
                 if (submit && event.key === "Enter" && !event.shiftKey && !event.altKey && !isImeKeyEvent(event)) {
                   event.preventDefault();
@@ -419,7 +441,8 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
                 latest.current.onCompositionChange?.(true);
                 return false;
               },
-              compositionend: () => {
+              compositionend: (_view, event) => {
+                compositionEndedAt = event.timeStamp;
                 composing.current = false;
                 latest.current.onCompositionChange?.(false);
                 return false;
