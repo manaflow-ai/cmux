@@ -35,11 +35,44 @@ final class AgentActivityPageService {
         AgentActivityPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: makeSource())
     }
 
-    /// Reveals the tab that shows a lane's chat, else opens it in the focused pane (the
-    /// `cmux://session/<id>` path every session link takes).
+    /// Shows a lane's chat where ``AgentChatJump`` says it lives.
     func jump(to lane: AgentActivityLane) {
+        switch AgentChatJump.decide(lane: lane, shownIn: services.agentTabs.tab(showing: lane.id),
+                                    hasWorkspace: { [services] in services.workspace(id: $0) != nil }) {
+        case .revealTab(let key):
+            if !services.revealTab(key, intent: .raise) { openInFocusedPane(lane.id) }
+        case .openInWorkspace(let workspaceID, let session):
+            open(session, inWorkspace: workspaceID)
+        case .openInFocusedPane(let session):
+            openInFocusedPane(session)
+        }
+    }
+
+    /// Shows the workspace where it lives, then opens the chat in a pane there,
+    /// so the jump never replaces what the person is looking at. A workspace no
+    /// window can show falls back to the focused pane.
+    private func open(_ session: String, inWorkspace workspaceID: String) {
+        guard let window = services.windows.reveal(workspaceID: workspaceID), let nsWindow = window.window else {
+            return openInFocusedPane(session)
+        }
+        services.showJumpWindow(nsWindow, .raise)
+        guard window.content?.workspace.id != workspaceID else { return open(session, in: window) }
+        // It has to mount that workspace's panes first.
+        services.windows.afterNextContent(in: window, showing: workspaceID) { [weak self] in
+            self?.open(session, in: window)
+        }
+    }
+
+    private func open(_ session: String, in window: WindowController) {
+        guard let pane = window.focusedPane else { return services.registry.refuse(MiscHandlerStrings.noPane) }
+        pane.openAgentSession(session)
+    }
+
+    /// The `cmux://session/<id>` path every session link takes: the focused pane
+    /// of the active window.
+    private func openInFocusedPane(_ session: String) {
         do {
-            try DeepLinkNavigator(services: services).open(DeepLink(.session(lane.id, turn: nil)), background: false)
+            try DeepLinkNavigator(services: services).open(DeepLink(.session(session, turn: nil)), background: false)
         } catch {
             services.registry.refuse(String(describing: error))
         }
