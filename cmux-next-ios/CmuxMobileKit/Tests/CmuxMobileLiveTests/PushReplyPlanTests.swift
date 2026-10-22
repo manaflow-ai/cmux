@@ -72,7 +72,29 @@ import Testing
         let r = reply(.completed, .text("go on", attachments: ["a.png"]))
         #expect(try PushReplyPlan.make(r, pending: nil) == .prompt(sessionID: "s", text: "go on", attachments: ["a.png"], promptID: r.id.uuidString.lowercased()))
         #expect(try PushReplyPlan.make(reply(.chief, .text("hi", attachments: [])), pending: nil) == .chief(text: "hi", attachments: []))
+        // A terminal notification with no ledger id takes no reply.
         #expect(throws: PushReplyPlan.Refusal.self) { try PushReplyPlan.make(reply(.terminal, .text("ls", attachments: [])), pending: nil) }
+    }
+
+    /// PR B: a reply to a terminal notification is `notification-reply` for that
+    /// notification, text only, at most 4 KB.
+    @Test func terminalRepliesGoToTheNotifyingTerminal() throws {
+        let r = PushReply(mac: "m", kind: .terminal, tabId: "s7", notificationId: "42", action: .text("yes", attachments: []))
+        #expect(try PushReplyPlan.make(r, pending: nil) == .terminal(notification: "42", text: "yes"))
+        let image = PushReply(mac: "m", kind: .terminal, notificationId: "42", action: .text("yes", attachments: ["a.png"]))
+        #expect(throws: PushReplyPlan.Refusal.self) { try PushReplyPlan.make(image, pending: nil) }
+        let long = PushReply(mac: "m", kind: .terminal, notificationId: "42", action: .text(String(repeating: "y", count: 4097), attachments: []))
+        #expect(throws: PushReplyPlan.Refusal.self) { try PushReplyPlan.make(long, pending: nil) }
+    }
+}
+
+/// PR B: what the mailbox carries for an Allow (the acpmux approval, as numbers acpmux reads).
+@Suite struct MailboxApprovalTests {
+    @Test func theApprovalMetaBecomesCanonicalJSON() {
+        let payload = ApprovalPayload(instance: "pi", macDevice: "m", approver: "p", session: "s", permission: "q", option: "o",
+                                      nonce: "dn", expiresAt: 1_800_000_120)
+        let meta = LiveCoordinator.pushJSON(payload.meta(signature: Data([0xab])))
+        #expect(meta.canonical == #"{"acpmux":{"approverDecision":{"approver":"p","expiresAt":1800000120,"signature":"ab"},"decisionNonce":"dn"}}"#)
     }
 }
 
