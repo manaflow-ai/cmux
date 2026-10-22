@@ -85,15 +85,15 @@ message ends with the reason in parentheses, one of `malformed`,
 echoes the token),
 `bad_request` (400), `not_member` / `not_owner` / `wrong_team` (403), `not_found` (404),
 `rate_limited` (429, with `retry-after` seconds; 0.7.0 per-user limits: 300 requests a minute overall, 30 `GET /v1/ice`, 10 invites, 60 notifications per Mac),
-`membership_unavailable` / `invite_failed` / `hub_unavailable` (502; `hub_unavailable` since 0.10.0 when the caller's hub refuses a signaling socket for an internal reason).
+`conflict` (409, 0.14.0: a mailbox item id reused with another blob), `membership_unavailable` / `invite_failed` / `hub_unavailable` (502; `hub_unavailable` since 0.10.0 when the caller's hub refuses a signaling socket for an internal reason).
 
 | Method + path | Body / result |
 | --- | --- |
 | `POST /v1/devices` | `{deviceId, kind, name, teamId, wgPublicKey?}` → `{device:{deviceId,ownerUserId,teamId,kind,name,wgPublicKey,createdAt,updatedAt,lastSeenAt}}` (upsert; caller must be a team member; a deviceId owned by another user is `403 not_owner`) |
 | `GET /v1/teams/:teamId/macs` | → `{macs:[{deviceId,name,online,lastSeenAt,ownerUserId}]}`: the caller's own Macs registered in `teamId` (caller must be a member). Changed in 0.10.0: a teammate's Macs are never listed (before, every Mac of the team was), so `ownerUserId` is always the caller |
 | `GET /v1/me/macs` | → `{macs:[{deviceId,name,teamId,online,lastSeenAt,ownerUserId}]}`: the caller's own Macs (registered by the caller, the only Macs v1 lets it dial) in every team the caller still belongs to and in its personal space, with presence from the caller's hub. Added in 0.5.0 so a phone finds its Mac whichever team either side has selected; the app polls it (every 4 s while its active team has no online Mac, else every 30 s) and moves to the team of an online Mac. `502 membership_unavailable` when Stack cannot list the caller's teams |
-| `GET /v1/teams/:teamId/prefs` | → `{color, emoji}` for the caller (per user per team) |
-| `PUT /v1/teams/:teamId/prefs` | `{color?: "#RRGGBB", emoji?: string\|null}`. `emoji` is the avatar glyph: `null` = automatic (team initial), `""` = none (color only), otherwise exactly one grapheme (letter, digit, symbol or emoji; not whitespace) |
+| `GET /v1/teams/:teamId/prefs` | → `{color, emoji, transparent}` for the caller (per user per team; `transparent` added in 0.12.0, always `false` without an icon) |
+| `PUT /v1/teams/:teamId/prefs` | `{color?: "#RRGGBB", emoji?: string\|null, transparent?: boolean}`. `emoji` is the avatar glyph: `null` = automatic (team initial), `""` = none (color only), otherwise exactly one grapheme (letter, digit, symbol or emoji; not whitespace). `transparent` (0.12.0) draws that grapheme with no background; `true` needs one (`400` otherwise; `false` is always accepted), `color` stays stored as the fallback for clients that predate it, an `emoji` change to `null` or `""` turns it off, and a PUT that sets `color` without `transparent` (any older build) turns it off. Answers the stored `{color, emoji, transparent}` |
 | `POST /v1/teams` | `{name}` (1 to 64 characters, trimmed, no control characters; 3 a minute per user) → `{team:{id,name}}`: creates a Stack team with the caller as creator and first member, using the project's server key (Stack refuses client-side team creation). `503 team_creation_unavailable` when the Worker has no server key for the caller's project; `403`/`502 team_create_failed` when Stack refuses. |
 | `POST /v1/teams/:teamId/invites` | `{email}` → `{url, sent:true}`: Stack emails a team invitation whose link opens `url` (the configured callback) with the code. Changed from a bare link: without a Stack server key the API can only send the invitation email, not mint a shareable link. Needs the caller's `$invite_members` team permission. |
 | `GET /v1/ice` | → `{iceServers:[{urls:[...],username?,credential?}], ttl, turn}` from the Cloudflare TURN key (generate-ice-servers), STUN `stun:stun.cloudflare.com:3478` always included (STUN only if TURN is unavailable). `turn` (0.7.0) is `false` when no TURN server could be included: clients must say so (off-LAN WebRTC may then fail) instead of failing silently. `ttl` is 1 h (was 4 h) |
@@ -101,7 +101,7 @@ echoes the token),
 | `DELETE /v1/devices/:deviceId` | → `{deleted:true, deviceId}` (0.7.0). Owner only (`403 not_owner`, `404 not_found`). Deletes the row and its push token; the owner's hub drops the Mac from presence (broadcasting `presence` with `removed:true`), closes the device's signaling socket with code 4002 `removed`, and ends its signaling sessions. A removed device that registers again is a new registration: removal tidies stale devices, it does not ban an id. Used by the phone (Settings → Connection → Macs / Phones) and by the Mac app ("Unpair this Mac") |
 | `PUT /v1/devices/:deviceId/push` | `{token, environment, topic, kinds?}` → `{push:{environment,topic,kinds,updatedAt}}` (0.7.0). Phone only, owner only. `token` is the APNs device token in hex (64 to 200 hex digits), `environment` `sandbox` or `production` (the app's `aps-environment`), `topic` its bundle id, which must be one of the Worker's `APNS_TOPICS`. `kinds` is which events to push (default all): `question`, `permission`, `completed`, `failed`, `chief` |
 | `DELETE /v1/devices/:deviceId/push` | → `{deleted:true}` (0.7.0): stop pushing to this phone (sign-out, notifications turned off) |
-| `POST /v1/devices/:deviceId/notify` | `{eventId, kind, agent?, place?, workspaceId?, tabId?, sessionId?}` → `{configured, sent, failed, dropped, coalesced?}` (0.7.0). `:deviceId` is a Mac the caller owns. Pushes one event to every phone of the same owner that registered a token and wants that `kind`. Content minimization: the Mac sends only a kind, a short agent name (≤ 40 characters) and a short place such as the workspace title (≤ 60); the Worker writes the text itself ("Claude has a question", "Claude needs permission", "Claude finished", "Claude stopped with an error", "Chief replied") with the place as the body, and never forwards agent output, prompts, tool arguments or paths. The payload's `mobile` object carries `{mac, kind, eventId, workspaceId, tabId, sessionId}` so a tap opens that tab. APNs `thread-id` is the `sessionId`, so a phone groups a session's notifications. The collapse id is `eventId` (≤ 64) for a question or permission; for a finished turn, an error or a Chief reply it is one id per session (`turn-<sessionId>`, hashed when longer than 64), so a newer one replaces the older. The Worker passes at most one turn-ending event per Mac, session and finished-or-error in 15 s, once some phone wants the kind (the user hub's `turnPushAllowed`); the rest answer `{sent: 0, coalesced: true}`. The Mac reports only what a person can act on (`cmux-mobile-host` `notify.rs`): never a Chief's compactor (`cmux.chief.role` `compactor`, or an `optchat-compact-` name, preset or folder); a Chief turn session (`cmux.chief`) as `chief`, once per Chief; no finished turn of a sub-session or a Chief's child (their asks still push); and per session at most one finished turn and one error in 30 s, the newest held one sent when the window ends. `configured:false` when the Worker has no APNs key. Tokens APNs reports as gone are deleted (`dropped`). Rate limited per Mac (`429 rate_limited`) |
+| `POST /v1/devices/:deviceId/notify` | `{eventId, kind, agent?, place?, workspaceId?, tabId?, sessionId?}` → `{configured, sent, failed, dropped, coalesced?}` (0.7.0). `:deviceId` is a Mac the caller owns. Pushes one event to every phone of the same owner that registered a token and wants that `kind`. Content minimization: the Mac sends only a kind, a short agent name (≤ 40 characters) and a short place such as the workspace title (≤ 60); the Worker writes the text itself ("Claude has a question", "Claude needs permission", "Claude finished", "Claude stopped with an error", "Chief replied") with the place as the body, and never forwards agent output, prompts, tool arguments or paths. The payload's `mobile` object carries `{mac, kind, eventId, workspaceId, tabId, sessionId}` so a tap opens that tab. APNs `thread-id` is the `sessionId`, so a phone groups a session's notifications (0.13.0: `<mac>:<sessionId>` and the other fields of "Push notifications" below, which also add the answer's `wants`). The collapse id is `eventId` (≤ 64) for a question or permission; for a finished turn, an error or a Chief reply it is one id per session (`turn-<sessionId>`, hashed when longer than 64), so a newer one replaces the older. The Worker passes at most one turn-ending event per Mac, session and finished-or-error in 15 s, once some phone wants the kind (the user hub's `turnPushAllowed`); the rest answer `{sent: 0, coalesced: true}`. The Mac reports only what a person can act on (`cmux-mobile-host` `notify.rs`): never a Chief's compactor (`cmux.chief.role` `compactor`, or an `optchat-compact-` name, preset or folder); a Chief turn session (`cmux.chief`) as `chief`, once per Chief; no finished turn of a sub-session or a Chief's child (their asks still push); and per session at most one finished turn and one error in 30 s, the newest held one sent when the window ends. `configured:false` when the Worker has no APNs key. Tokens APNs reports as gone are deleted (`dropped`). Rate limited per Mac (`429 rate_limited`) |
 | `DELETE /v1/me` | → `{deleted:{devices:n}}` (0.7.0): purges everything the Worker stores for the caller (devices with their push tokens, team prefs) and evicts the caller's sockets: the caller's hub closes every socket with 4002 `removed` and forgets its devices and sessions. The app calls it first when the user deletes their account, then deletes the Stack account through cmux's account deletion (`DELETE <cmux API>/api/account`, as the main cmux app) |
 | `POST /v1/me/bootstrap` | `{teamId, devices:[{deviceId,kind,name}]}` (at most 4) → `{devices:[{device}\|{error}], macs:{macs}\|{error}, myMacs:{macs}\|{error}, ice:{iceServers,ttl,turn}\|{error}}`: the phone's launch in one round trip (added in 0.8.0). Each part is the response of its own route (`POST /v1/devices` with `teamId`, `GET /v1/teams/:teamId/macs`, `GET /v1/me/macs`, `GET /v1/ice`), run at once; a part's error does not fail the others. A 404 means an older service: make the separate calls |
 | `GET /v1/health` | → `{ok:true, version, stackProjects:[projectId], colo}` (accepted Stack projects, primary first; `colo` is the Cloudflare colo that received the request, added in 0.6.0) |
@@ -744,11 +744,11 @@ The phone's link line names the path: "WireGuard direct", "WireGuard relay
 TURN). There is no WebSocket relay any more. cmux-mobile-host reports the path as
 `direct`, `turn`, `turn-tls` or `none` (`phone_up`, `phone_path`).
 
-## Push notifications (API 0.12.0)
+## Push notifications (API 0.13.0)
 
 Rich, interactive notifications (`verify/rich-push.md`). Every field below is
-optional and additive: a 0.11 Mac host sends none of them and gets the 0.11
-banner; a 0.11 phone ignores what it does not read.
+optional and additive: a host before 0.13.0 sends none of them and gets the
+0.11 banner; an older phone ignores what it does not read.
 
 ### Mac → Worker: `POST /v1/devices/:macId/notify`
 
@@ -769,12 +769,13 @@ characters become spaces, then it cuts to the limit in code points):
 | `questions` | 4 × (`question` 200, `header` 30, `multiSelect`, `allowsOther`, `options` 6 × `label` 60) | an AskUserQuestion-style ask |
 | `tail` | 6 × 160 | the last lines: the chat's last messages, or a terminal's last screen rows |
 | `state` | | `waiting`, `finished`, `failed`, `notified` |
+| `replyable` | | a terminal notification whose poster takes a typed reply (`notify --reply`, daemon `notification-reply-v1`) |
 
 The answer adds `wants`: the kinds any phone of the owner that has not muted
 this Mac still wants, so the host skips kinds nobody wants (it asks again at
 most every 60 s).
 
-Content moved from minimized to granular in 0.12.0 by the person's decision
+Content moved from minimized to granular in 0.13.0 by the person's decision
 (rich notifications). Paths, prompts and tool arguments beyond the title are
 still never sent; `tail` is the visible text the phone's chat or terminal
 would show. Until payload encryption (PR B, `sealed`) every field is visible
@@ -840,7 +841,7 @@ The content extension replaces the buttons with the payload's own options
 composer write the request to the App Group outbox and open the app, which
 sends it over that Mac's link and opens the chat.
 
-## Sealed pushes and the reply mailbox (API 0.13.0, `feat-cmux-next-ios-push-fallback`)
+## Sealed pushes and the reply mailbox (API 0.14.0, `feat-cmux-next-ios-push-fallback`)
 
 Held for the #13742 decision (`verify/notifications-trust.md`). Every
 addition is optional: a phone or Mac without it keeps PR A's behavior.
@@ -876,11 +877,14 @@ addition is optional: a phone or Mac without it keeps PR A's behavior.
 `POST /v1/devices/:macId/notify` adds `sealed: {"<phone device id>": {"box": "<sealed>", "sig": "<hex>"}}`,
 where `box` seals the v2 `cmuxMobile` object (plus `decisionNonce` and
 `personInstance` for an ask, so the phone can sign an answer offline) and
-`sig` is the Mac identity signature over `cmux-mobile-push-v1 \0 mac \0 phone \0
-eventId \0 box`. With `sealed`, the Mac sends no content fields; the Worker
+`sig` is the Mac identity signature (64 bytes, 128 hex digits) over `cmux-mobile-push-v1 \0 mac \0 phone \0
+eventId \0 box`. At most 20 phones; `box` is base64url of at most 3072
+characters. With `sealed`, the Mac sends no content fields (a phone missing
+from `sealed` gets the v2 payload built from what the Mac did send); the Worker
 sends a phone listed there `{"aps": {"alert": {"title": "cmux", "body": "New
-notification from <Mac>"}, "mutable-content": 1, "category": …, "thread-id":
-<hash>}, "cmuxMobile": {"v": 3, "mac", "kind", "eventId", "box", "sig"}}`. The
+notification from <Mac>"}, "mutable-content": 1, "category": the kind's
+(`CMUX_MOBILE_QUESTION_FORM` for a question), "thread-id": FNV-1a of the v2
+thread id, 16 hex digits}, "cmuxMobile": {"v": 3, "mac", "kind", "eventId", "box", "sig"}}`. The
 service extension checks `sig` against the pinned Mac key, opens `box` with
 the push key, and fills in the v2 content, category and thread. If it can't,
 the generic banner stays.
@@ -889,15 +893,22 @@ the generic banner stays.
 
 - Phone → Worker: `POST /v1/devices/:macId/mailbox` `{id (uuid), from (the
   phone's link device id), sealed}` → `{queued: true, delivered}`. The caller
-  must own `from` (a phone) and `:macId`; `sealed` at most 8 KB; at most 32
-  pending per Mac and 60 posts a minute per user. Kept in the user hub for
-  10 minutes.
+  must own `from` (a phone) and `:macId` (a Mac), else `403 not_owner`;
+  `sealed` is base64url of at most 8192 characters; at most 32 pending per Mac
+  (`429 rate_limited`) and 60 posts a minute per user. Kept in the user hub for
+  10 minutes. The same `id` with the same blob is the same item (a retried
+  request, answered `{queued: true, delivered: false}`); with another blob it
+  is `409 conflict`.
 - Worker → Mac socket: `{"type":"mailbox","items":[{id, from, sealed, at}]}` at
   once when the Mac's signaling socket is open, else right after its `hello`.
-  The Mac answers `{"type":"mailbox_ack","results":[{id, applied, reason?}]}`,
-  and the hub deletes each item.
+  The Mac answers `{"type":"mailbox_ack","results":[{id, applied, reason?}]}`
+  (at most 64; `reason` `[a-z_]{1,32}`, else `refused`). The hub takes it only
+  from a Mac socket (a phone gets `error bad_request`), settles only that Mac's
+  own queued items, clears each blob, and keeps the outcome for 10 more
+  minutes. Removing either device (`DELETE /v1/devices/:id`) deletes its items.
 - Phone → Worker: `GET /v1/devices/:macId/mailbox/:id` → `{state: "queued" |
-  "applied" | "rejected" | "expired", reason?}`.
+  "applied" | "rejected" | "expired", reason?}`; `404 not_found` for an id it
+  never had or forgot.
 - The sealed plaintext (canonical JSON, keys in byte order):
   `{v: 1, id, mac, phone, kind, target: {sessionId?, permissionId?,
   conversationId?, tabId?, notificationId?}, action: {type: "option" |
