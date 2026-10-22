@@ -42,9 +42,9 @@ public final class WebUpdatesPageProvider: PageProvider {
 extension WebUpdates {
     /// The Web UI card's state (`web_updates` in `cmux.settings.host.lists`), null on a bundle that
     /// takes no web updates. Live through `cmux.settings.host.changed`: it reads only observable
-    /// state. `active` is the update served now or from the next safe point (null: the bundled
-    /// web), `pending` what the next safe point swaps in, `refusal` why the newest pointer was not
-    /// taken, as a code the page words.
+    /// state. `served` is the update the pages serve now (null: the bundled web), `active` the one
+    /// served from the next safe point, `pending` what that safe point swaps in, `refusal` why the
+    /// newest pointer was not taken, as a code the page words.
     public var pageJSON: JSONValue {
         guard let updater else { return .null }
         let phase = switch updater.phase {
@@ -61,6 +61,7 @@ extension WebUpdates {
         return [
             "channel": .string(updater.channel.rawValue),
             "phase": .string(phase),
+            "served": served.map(Self.pageVersion) ?? .null,
             "active": updater.state.active.map(Self.pageVersion) ?? .null,
             "previous": updater.state.previous.map(Self.pageVersion) ?? .null,
             "pending": pending,

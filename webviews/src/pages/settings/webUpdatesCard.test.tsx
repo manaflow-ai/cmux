@@ -16,16 +16,15 @@ const button = (element: HTMLElement, action: string) =>
 const bundled: WebUpdatesState = {
   channel: "every-merge",
   phase: "idle",
+  served: null,
   active: null,
   previous: null,
   pending: null,
   last_check: 1_792_000_000,
   refusal: "not_newer",
 };
-const active: WebUpdatesState = {
-  ...bundled,
-  active: { commit: "765fb01ac29f0123456789abcdef0123456789ab", committed_at: 1_792_000_000 },
-};
+const update = { commit: "765fb01ac29f0123456789abcdef0123456789ab", committed_at: 1_792_000_000 };
+const active: WebUpdatesState = { ...bundled, served: update, active: update };
 
 async function show(state: WebUpdatesState | null, failing: Record<string, string> = {}) {
   const page = await renderPage({ path: "/settings/updates", mock: { failing } });
@@ -50,21 +49,25 @@ test("the built-in web UI: Built in, nothing to roll back", async () => {
   page.unmount();
 });
 
-test("an update: its short commit, then a pending roll back follows live", async () => {
+test("an update: its short commit; a pending roll back keeps it served until the swap", async () => {
   const page = await show(active);
   expect(card(page.container)!.textContent).toContain("765fb01,");
   expect(card(page.container)!.textContent).not.toContain("765fb01a");
   await act(async () =>
-    page.provider.setHost({ ...page.provider.host, web_updates: { ...bundled, pending: "bundled" } }),
+    page.provider.setHost({ ...page.provider.host, web_updates: { ...bundled, served: update, pending: "bundled" } }),
   );
   await settle();
-  const element = card(page.container)!;
-  expect(element.textContent).toContain("Built in");
+  let element = card(page.container)!;
+  expect(element.textContent).toContain("765fb01,");
   expect(element.textContent).toContain("The built-in web UI loads the next time cmux is in the background.");
+  await act(async () => page.provider.setHost({ ...page.provider.host, web_updates: bundled }));
+  await settle();
+  element = card(page.container)!;
+  expect(element.textContent).toContain("Built in");
   page.unmount();
 });
 
-test("a failed check says why in plain words; a check in flight disables Check Now", async () => {
+test("a failed check says why in plain words; a check in flight disables both buttons", async () => {
   const page = await show({ ...active, phase: "failed", refusal: "offline" });
   expect(card(page.container)!.dataset.phase).toBe("failed");
   expect(card(page.container)!.textContent).toContain("cmux could not reach the update server.");
@@ -73,6 +76,7 @@ test("a failed check says why in plain words; a check in flight disables Check N
   );
   await settle();
   expect(button(card(page.container)!, "check").disabled).toBe(true);
+  expect(button(card(page.container)!, "rollback").disabled).toBe(true);
   page.unmount();
 });
 

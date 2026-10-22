@@ -188,13 +188,14 @@ export type ComputerUsePhase = "disabled_by_policy" | "off" | "unavailable" | "s
 export type WebUpdateVersion = { commit: string; committed_at: number };
 
 /**
- * Updates > Web UI (the app's WebUpdates): `active` is served now or from the next safe point (null:
- * the built-in web UI), `pending` what the next safe point swaps in, `refusal` why the newest update
- * was not taken.
+ * Updates > Web UI (the app's WebUpdates): `served` is the update the pages serve now (null: the
+ * built-in web UI), `active` the one served from the next safe point, `pending` what that safe point
+ * swaps in, `refusal` why the newest update was not taken.
  */
 export type WebUpdatesState = {
   channel: "every-merge" | "nightly" | "off";
   phase: "idle" | "checking" | "downloading" | "failed";
+  served: WebUpdateVersion | null;
   active: WebUpdateVersion | null;
   previous: WebUpdateVersion | null;
   pending: "update" | "bundled" | null;

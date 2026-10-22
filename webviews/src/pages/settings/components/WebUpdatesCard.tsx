@@ -61,7 +61,7 @@ export function WebUpdatesCard() {
     <section className="group" data-card="web-updates" data-phase={state.phase}>
       <h3 className="group-title">{t("settingsWindow.webUpdates.title")}</h3>
       <div className="rows">
-        <ActionRow title={t("settingsWindow.webUpdates.served")} help={versionText(state.active)}>
+        <ActionRow title={t("settingsWindow.webUpdates.served")} help={versionText(state.served)}>
           {null}
         </ActionRow>
         <ActionRow
@@ -83,7 +83,7 @@ export function WebUpdatesCard() {
             type="button"
             className="button"
             data-web-updates="rollback"
-            disabled={running !== null || !state.active}
+            disabled={busy || !state.active}
             onClick={() => void run("rollback")}
           >
             {t("settingsWindow.webUpdates.rollBack")}

@@ -16,6 +16,8 @@ import Testing
         var downloads = 0
         /// Downloads still to fail.
         var failures = 0
+        /// Runs at the start of each download (a test holds one there).
+        var hold: (@Sendable () async -> Void)?
     }
 
     static func pointerData(_ pointer: WebUpdatePointer) throws -> Data {
@@ -38,6 +40,7 @@ import Testing
             },
             download: { _ in
                 server.downloads += 1
+                await server.hold?()
                 if server.failures > 0 {
                     server.failures -= 1
                     throw URLError(.networkConnectionLost)
@@ -198,6 +201,40 @@ import Testing
         try await updater.rollBack()
         #expect(updater.state.active == nil)
         #expect(ready.last == .some(nil))
+    }
+
+    @Test func aRollBackIsRefusedWhileACheckDownloads() async throws {
+        let root = try WebUpdateStoreTests.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (archive, first) = try await WebUpdateStoreTests.makeArchive(in: root)
+        var second = first
+        second.key = String(repeating: "e", count: 64)
+        second.committedAt = first.committedAt + 100
+        let server = Server()
+        server.archive = archive
+        let store = WebUpdateStore(base: root.appending(path: "store", directoryHint: .isDirectory))
+        let updater = Self.updater(server, store: store)
+        server.pointer = try Self.pointerData(first)
+        await updater.check()
+        // The second check stops in its download until the test lets it go.
+        let (started, didStart) = AsyncStream<Void>.makeStream()
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        server.hold = {
+            didStart.yield()
+            for await _ in gate {}
+        }
+        server.pointer = try Self.pointerData(second)
+        server.etag = "\"2\""
+        let check = Task { await updater.check() }
+        for await _ in started { break }
+        #expect(updater.phase == .downloading)
+        await #expect(throws: WebUpdater.Busy.self) { try await updater.rollBack() }
+        open.finish()
+        await check.value
+        #expect(updater.state.active == second)
+        // Once the check ends, the roll back goes through.
+        try await updater.rollBack()
+        #expect(updater.state.active == first)
     }
 
     @Test func theServedTreeIsKeptUntilTheSafePointSwapsItOut() async throws {

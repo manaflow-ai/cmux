@@ -25,6 +25,10 @@ public final class WebUpdater {
         case failed(String)
     }
 
+    /// A roll back asked for while a check runs: the check saves its own state when it ends and
+    /// would undo it.
+    nonisolated public struct Busy: Error, Sendable {}
+
     /// What the running app's own web bundles are.
     nonisolated public struct App: Sendable {
         /// `pages/web-abi.json` of the bundled pages.
@@ -86,6 +90,8 @@ public final class WebUpdater {
     /// The launch check of the kept update; every check and channel change waits for it, so none
     /// sees the empty state before `state.json` is read.
     @ObservationIgnored private var launch: Task<URL?, Never>?
+    /// A roll back saving its state: a check waits for it, so it reads the state the roll back left.
+    @ObservationIgnored private var rollback: Task<Void, any Error>?
     /// Whether `updates.web` was read yet (before it, `channel` is only the off default).
     @ObservationIgnored private var followed = false
 
@@ -167,6 +173,7 @@ public final class WebUpdater {
 
     /// Reads the channel's pointer and takes a new update.
     public func check() async {
+        if let rollback { _ = try? await rollback.value }
         guard channel != .off, phase != .checking, phase != .downloading else { return }
         phase = .checking
         _ = await launchTree()
@@ -278,10 +285,16 @@ public final class WebUpdater {
     }
 
     /// Serves the update before the active one (the bundled web when there is none) from the next
-    /// safe point. A rolled-back update is not taken again; the next newer one is.
+    /// safe point. A rolled-back update is not taken again; the next newer one is. Refused
+    /// (``Busy``) while a check runs; a check started meanwhile waits for it.
     public func rollBack() async throws {
+        if let rollback { _ = try? await rollback.value }
         guard state.active != nil else { return }
-        try await serve(state.previous, refusingActive: true)
+        guard phase != .checking, phase != .downloading else { throw Busy() }
+        let task = Task { try await self.serve(self.state.previous, refusingActive: true) }
+        rollback = task
+        defer { if rollback == task { rollback = nil } }
+        try await task.value
     }
 
     /// Serves `pointer`'s kept update (nil: the bundled web) from the next safe point; with

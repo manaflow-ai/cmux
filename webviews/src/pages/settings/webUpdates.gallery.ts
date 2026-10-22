@@ -7,6 +7,7 @@ import type { WebUpdatesState } from "./ops";
 const bundled: WebUpdatesState = {
   channel: "every-merge",
   phase: "idle",
+  served: null,
   active: null,
   previous: null,
   pending: null,
@@ -41,15 +42,15 @@ export default settingsPageEntry({
   variants: {
     bundled: variant(bundled, "The built-in web UI: Built in, up to date, Roll Back disabled."),
     active: variant(
-      { ...bundled, active: update, previous: earlier },
+      { ...bundled, served: update, active: update, previous: earlier },
       "An update served: its short commit and commit date; Roll Back names the update before it.",
     ),
     pending: variant(
-      { ...bundled, active: update, pending: "update" },
-      "A new update is ready: it loads the next time cmux is in the background.",
+      { ...bundled, served: earlier, active: update, previous: earlier, pending: "update" },
+      "A new update is ready: the served version stays the one pages run until it loads, the next time cmux is in the background.",
     ),
     failed: variant(
-      { ...bundled, active: update, phase: "failed", refusal: "offline" },
+      { ...bundled, served: update, active: update, phase: "failed", refusal: "offline" },
       "The last check failed: the card says the server was not reached and that cmux tries again.",
     ),
   },

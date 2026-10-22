@@ -23,6 +23,11 @@ public final class WebUpdates {
     public private(set) var updater: WebUpdater?
     /// The folder to serve from the next safe point (`.some(nil)`: the bundled web).
     public private(set) var pending: URL??
+    /// The update the pages serve now (nil: the bundled web). The updater's `state.active` runs
+    /// ahead of it while a swap waits for its safe point.
+    public private(set) var served: WebUpdatePointer?
+    /// The update ``pending`` swaps in.
+    @ObservationIgnored private var pendingVersion: WebUpdatePointer?
     /// The wait in the background before an update swaps in.
     @ObservationIgnored private let safePoint = DemandTimer(owner: "web-updates.safe-point")
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
@@ -60,6 +65,10 @@ public final class WebUpdates {
         self.updater = updater
         if WebBundleServedViews.shared.isEmpty {
             overlay.load { await updater.launchTree() }
+            // task-owner: reads the one launch check's result; it ends by itself
+            Task { [weak self] in
+                if await updater.launchTree() != nil { self?.served = updater.state.active }
+            }
         } else {
             // A page already loaded bundled files: the kept update waits for a safe point.
             // task-owner: one launch check; it ends by itself
@@ -95,6 +104,7 @@ public final class WebUpdates {
     /// The updater kept `tree` (nil: serve the bundled web): swap it in at the next safe point.
     func ready(_ tree: URL?) {
         pending = .some(tree)
+        pendingVersion = tree == nil ? nil : updater?.state.active
         if WebBundleServedViews.shared.isEmpty || !NSApp.isActive { scheduleSafePoint() }
     }
 
@@ -103,6 +113,7 @@ public final class WebUpdates {
     public func applyPending() -> Int {
         guard let tree = pending else { return 0 }
         pending = nil
+        served = pendingVersion
         guard WebBundleOverlay.shared.activate(tree) else { return 0 }
         // task-owner: one prune of the trees nothing serves now; it ends by itself
         if let updater { Task { await updater.pruneUnused() } }
