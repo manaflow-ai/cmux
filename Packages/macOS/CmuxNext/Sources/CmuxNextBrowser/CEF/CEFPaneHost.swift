@@ -50,6 +50,12 @@ final class CEFPaneHost {
         self.lifecycleTrace = lifecycleTrace
         self.contextMenus = contextMenus
         hostView.liveResizeWillStart = { [weak self] in self?.visibleTab?.samplePageBackdrop() }
+        // Reads the key at each change: a spare host is re-keyed to the pane
+        // that takes it (`CEFSpareWindow`).
+        hostView.frameDidChange = { [weak self] size, inWindow in
+            guard let self else { return }
+            Self.rememberLayout(size, pane: key.pane, inWindow: inWindow)
+        }
         hostView.fileDrag.target = { [weak self] in self?.visibleTab }
     }
 
@@ -57,11 +63,31 @@ final class CEFPaneHost {
     /// size, the WebKit render window's too).
     static let hiddenTabViewport = NSSize(width: 1280, height: 800)
 
-    /// The size a new Chromium window starts at: the host view's, or the
-    /// hidden-tab viewport when the view was never laid out (empty bounds
-    /// gave a 1x1 window, so the page had no viewport).
-    static func creationSize(for bounds: NSSize) -> NSSize {
-        bounds.width >= 1 && bounds.height >= 1 ? bounds : hiddenTabViewport
+    /// The size a new Chromium window starts at: the host view's; when the
+    /// view was never laid out (empty bounds gave a 1x1 window, so the page
+    /// had no viewport), the size this pane last showed, so a page made in a
+    /// hidden pane lays out for the pane and does not reflow when shown;
+    /// else the hidden-tab viewport.
+    static func creationSize(for bounds: NSSize, lastKnown: NSSize?) -> NSSize {
+        // RED: the failing tests land before the pane's size is used.
+        _ = lastKnown
+        return bounds.width >= 1 && bounds.height >= 1 ? bounds : hiddenTabViewport
+    }
+
+    /// The last on-screen page size of each pane, any profile's host. In
+    /// memory only: a relaunch lays panes out again before their pages.
+    private static var laidOutSizes: [BrowserPaneID: NSSize] = [:]
+
+    static func lastLaidOutSize(of pane: BrowserPaneID) -> NSSize? {
+        laidOutSizes[pane]
+    }
+
+    /// Records `size` for `pane` when the host view is in a window and the
+    /// size is real; the frame an off-screen host is given at creation is
+    /// not a pane size.
+    static func rememberLayout(_ size: NSSize, pane: BrowserPaneID, inWindow: Bool) {
+        // RED: nothing is remembered yet.
+        _ = (size, pane, inWindow)
     }
 
     func add(_ tab: CEFTab) {
@@ -179,7 +205,7 @@ final class CEFPaneHost {
         switch window {
         case .none:
             let request = runtime.makeRequestToken()
-            let size = Self.creationSize(for: hostView.bounds.size)
+            let size = Self.creationSize(for: hostView.bounds.size, lastKnown: Self.lastLaidOutSize(of: key.pane))
             // A host no pane has laid out (a background tab an agent drives, a
             // pane under a page) takes the size its window starts at, so a
             // later layout pass does not shrink it back to nothing.
