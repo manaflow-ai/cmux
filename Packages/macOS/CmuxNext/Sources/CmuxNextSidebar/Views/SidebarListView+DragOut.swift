@@ -28,12 +28,18 @@ extension SidebarListViewComponents {
             drag.removesOnDrop = outside
             drag.lift.setRefused(outside || (drag.docItems != nil ? drag.docTarget == nil : drag.target == nil))
         }
+        if outside {
+            // Out there the list does not scroll: an autoscroll tick would replay the last point inside and take the drag back.
+            drag.lastWindowPoint = windowPoint
+            autoscroll.stop()
+        }
         return outside
     }
 
-    /// Ends a drag released beside the sidebar by removing its item; false for any other drag.
-    func finishDragOut(_ drag: Drag) -> Bool {
-        guard drag.removesOnDrop, case let .item(id) = drag.payload else { return false }
+    /// Ends a drag released beside the sidebar by removing its item; false for any other drag. The release
+    /// (`windowPoint`) decides, not the last move.
+    func finishDragOut(_ drag: Drag, at windowPoint: NSPoint) -> Bool {
+        guard holdsDragOut(drag, windowPoint: windowPoint), case let .item(id) = drag.payload else { return false }
         SidebarListPinDrop.end(self)
         // A band tile's press drags nothing more, and its region lets the press go (as `cancelDrag`).
         if let source = drag.tileSource {

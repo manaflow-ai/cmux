@@ -106,11 +106,11 @@ extension SidebarListViewComponents {
         drag.lift.setRefused(target == nil)
         showDragLayout()
     }
-    func finishDrag() {
+    func finishDrag(at windowPoint: NSPoint? = nil) {
         guard let drag else { return }
         autoscroll.stop()
         if SidebarListPinDrop.finish(self, drag) { return }
-        if finishDragOut(drag) { return }
+        if finishDragOut(drag, at: windowPoint ?? drag.lastWindowPoint) { return } // no release point: a band tile's, its last move
         if let items = drag.docItems, let doc = model.docDrag {
             guard let target = drag.docTarget else { return cancelDrag() }
             // The list keeps the drop's look until the move lands; the card settles into the slot it shows.
