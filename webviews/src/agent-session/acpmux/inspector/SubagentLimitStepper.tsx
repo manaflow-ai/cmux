@@ -71,10 +71,13 @@ export function SubagentLimitStepper({
       inFlight.current -= 1;
       if (inFlight.current === 0) setAsked(undefined);
     };
-    onSet(value).then(answered, () => {
-      answered();
-      setRefused({ chat, at: Date.now() });
-    });
+    // A handler that returns no promise, or throws, still settles the line (never an unhandled error).
+    Promise.resolve()
+      .then(() => onSet(value))
+      .then(answered, () => {
+        answered();
+        setRefused({ chat, at: Date.now() });
+      });
   };
   const step = (by: number) => set(clampRunning(max + by));
   const own = limits.maxRunningSource === "session";
