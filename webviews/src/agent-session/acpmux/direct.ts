@@ -4993,13 +4993,15 @@ export class AcpmuxDirectClient {
     // Stop), went on past its last record (an account switch's runs between turns): the held
     // events' first compaction row is it if that started on time; else one still running never
     // said how it ended and is noted as failed, as the next turn's start would.
-    const heldCompaction = [...held.values()]
+    let heldCompaction: AcpmuxRow | undefined = [...held.values()]
       .filter((row) => row.kind === "compaction")
       .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))[0];
     // When that row's first record already says how it ended, it ends the latest compaction the
-    // page left open, however long after, as reading the whole record does (`compaction` above).
-    const opening = heldCompaction && this.events.find((event) => event.seq === heldCompaction.seq);
-    if (opening && compactionOf(sessionUpdate(opening))?.state !== "running") {
+    // page left open, however long after, as reading the whole record does (`compaction` above):
+    // the end goes on that compaction's row, where it started, and the held row goes, so a page
+    // further back finds a row that started running and takes nothing more.
+    const opening = heldCompaction && this.events.find((event) => event.seq === heldCompaction!.seq);
+    if (heldCompaction?.compaction && opening && compactionOf(sessionUpdate(opening))?.state !== "running") {
       let open: AcpmuxRow | undefined;
       for (const row of this.rows.values())
         if (
@@ -5009,7 +5011,13 @@ export class AcpmuxDirectClient {
           (row.seq ?? 0) > (open?.seq ?? -1)
         )
           open = row;
-      if (open) this.rows.delete(open.id);
+      if (open) {
+        this.rows.set(open.id, { ...open, version: open.version + 1, compaction: heldCompaction.compaction });
+        this.compactionHeardAt.delete(open.id);
+        held.delete(heldCompaction.id);
+        this.rows.delete(heldCompaction.id);
+        heldCompaction = undefined;
+      }
     }
     for (const row of this.rows.values())
       if (
