@@ -347,6 +347,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if let Some((w, _)) = &launch.worktree {
                 meta["worktree"] = w.clone();
             }
+            if let Some(tools) = launch.disallowed_tools() {
+                meta["disallowedTools"] = tools;
+            }
             // A session of this name already running is the one asked for:
             // found before the create, or after losing the create to another
             // launcher with the same name.
@@ -524,9 +527,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             stall,
             prompt_id,
             from,
+            supersede,
         } => {
             let mut prompt_id = PromptId::new(prompt_id);
             prompt_id.from_agent = from;
+            let superseding = supersede.is_some();
+            prompt_id.supersede = supersede;
             // A message (--no-wait) steers; a send that waits for its reply queues.
             let steer = send_steers(steer, no_steer, no_wait);
             let client = connect(true).await?;
@@ -565,13 +571,18 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 let accepted = queue_prompt(client, &id, &text, steer, None, &prompt_id).await?;
                 let steered = accepted.get("steer") == Some(&json!(true));
                 if json_out {
-                    print_json(
-                        &json!({"sessionId": id, "queued": !steered, "steered": steered, "queuedBehind": behind, "promptId": prompt_id.id, "accepted": accepted}),
-                    );
-                } else if steered {
-                    println!("steered");
+                    let mut out = json!({"sessionId": id, "queued": !steered, "steered": steered, "queuedBehind": behind, "promptId": prompt_id.id, "accepted": accepted});
+                    if superseding {
+                        // null when the daemon did not report it (one that predates the key).
+                        out["replaced"] = accepted.get("replaced").cloned().unwrap_or(Value::Null);
+                        out["replacedPromptIds"] =
+                            accepted.get("replacedPromptIds").cloned().unwrap_or(Value::Null);
+                    }
+                    print_json(&out);
                 } else {
-                    println!("queued");
+                    for line in sent_lines(&accepted, superseding) {
+                        println!("{line}");
+                    }
                 }
                 return Ok(());
             }

@@ -165,9 +165,10 @@ extension NotificationCenterService {
         for screen in workspace.screens {
             for pane in screen.panes {
                 guard let id = shownTab(pane) ?? self.shownTab(of: pane), let shown = pane.tabs.first(where: { $0.id == id }) else { continue }
-                // An agent chat whose turn ended rings until the person goes into it.
+                // An agent chat whose turn ended rings until the person goes into it (opt-in,
+                // `AgentTurnRing`): a hairline, never the notification blue.
                 if let finished = agentFinished[shown.id] {
-                    marks[LayoutPaneID(pane.id)] = AttentionMark(color: preferences.sources[.agent]?.color, generation: finished)
+                    marks[LayoutPaneID(pane.id)] = AttentionMark(color: preferences.sources[.agent]?.color, generation: finished, hairline: true)
                     continue
                 }
                 guard shown.hasUnread else { continue }
