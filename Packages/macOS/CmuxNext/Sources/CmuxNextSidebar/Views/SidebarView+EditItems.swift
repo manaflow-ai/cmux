@@ -77,8 +77,13 @@ final class SidebarEditBar: NSView {
     }
 
     override func updateLayer() {
+        // The sidebar cards' neutral veil over the sidebar's glass (`CardSurfaceView`), never a solid
+        // bar (Leo 2026-10-21: "STOP DOING SOLID"); solid only under Reduce Transparency.
+        let veil = FloatingGlassStyle.card.look(isDark: themeTokens.isDark).veil.nsColor
+        let opaque = ReduceTransparency.shared.isEnabled
         performWithTheme {
-            layer?.backgroundColor = Palette.elevatedBackground.cgColor
+            // glass-opaque-allow: Reduce Transparency draws every surface solid.
+            layer?.backgroundColor = (opaque ? Palette.elevatedBackground : veil).cgColor
             layer?.borderColor = Palette.separator.cgColor
             layer?.borderWidth = Metrics.lineWidth(1)
         }

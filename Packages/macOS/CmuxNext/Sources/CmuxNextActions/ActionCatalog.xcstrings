@@ -72581,7 +72581,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Palette: Show or Hide Actions"
+            "value": "Palette: Show/Hide Actions"
           }
         },
         "ja": {
@@ -72593,115 +72593,115 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لوحة الأوامر: إظهار الإجراءات أو إخفاؤها"
+            "value": "لوحة الأوامر: إظهار/إخفاء الإجراءات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Paleta: prikaži ili sakrij radnje"
+            "value": "Paleta: prikaži/sakrij radnje"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Palet: Vis eller skjul handlinger"
+            "value": "Palet: Vis/skjul handlinger"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Palette: Aktionen ein- oder ausblenden"
+            "value": "Palette: Aktionen ein-/ausblenden"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Paleta: mostrar u ocultar acciones"
+            "value": "Paleta: mostrar/ocultar acciones"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Palette : afficher ou masquer les actions"
+            "value": "Palette : afficher/masquer les actions"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tavolozza: mostra o nascondi azioni"
+            "value": "Tavolozza: mostra/nascondi azioni"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បន្ទះ៖ បង្ហាញ ឬលាក់សកម្មភាព"
+            "value": "បន្ទះ៖ បង្ហាញ/លាក់សកម្មភាព"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "팔레트: 작업 표시 또는 숨기기"
+            "value": "팔레트: 작업 표시/숨기기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Palett: Vis eller skjul handlinger"
+            "value": "Palett: Vis/skjul handlinger"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Paleta: Pokaż lub ukryj akcje"
+            "value": "Paleta: Pokaż/ukryj akcje"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Paleta: Mostrar ou Ocultar Ações"
+            "value": "Paleta: Mostrar/Ocultar Ações"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Палитра: показать или скрыть действия"
+            "value": "Палитра: показать/скрыть действия"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แผงคำสั่ง: แสดงหรือซ่อนการทำงาน"
+            "value": "แผงคำสั่ง: แสดง/ซ่อนการทำงาน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Palet: Eylemleri Göster veya Gizle"
+            "value": "Palet: Eylemleri Göster/Gizle"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Палітра: показати або сховати дії"
+            "value": "Палітра: показати/сховати дії"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bảng lệnh: Hiện hoặc ẩn thao tác"
+            "value": "Bảng lệnh: Hiện/ẩn thao tác"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "面板：显示或隐藏操作"
+            "value": "面板：显示/隐藏操作"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "命令面板：顯示或隱藏動作"
+            "value": "命令面板：顯示/隱藏動作"
           }
         }
       }
@@ -90160,6 +90160,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cuộc trò chuyện"
+          }
+        }
+      }
+    },
+    "action.chief.toggleMemoryInspector": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief: Toggle Memory Inspector"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief: メモリインスペクタの表示を切り替え"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: إظهار مفتش الذاكرة أو إخفاؤه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Prikaži ili sakrij inspektor memorije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Vis eller skjul hukommelsesinspektør"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Speicher-Inspektor ein-/ausblenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Mostrar u ocultar el inspector de memoria"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief : Afficher ou masquer l’inspecteur de mémoire"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Mostra o nascondi l’ispettore della memoria"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: បង្ហាញ ឬលាក់កម្មវិធីត្រួតពិនិត្យអង្គចងចាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: 메모리 인스펙터 표시/숨기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Vis eller skjul minneinspektør"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Pokaż lub ukryj inspektor pamięci"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Mostrar ou ocultar o inspetor de memória"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: показать или скрыть инспектор памяти"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: แสดงหรือซ่อนตัวตรวจสอบหน่วยความจำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Bellek Denetçisini Göster/Gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: показати або сховати інспектор пам’яті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief: Hiện hoặc ẩn trình kiểm tra bộ nhớ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief：显示或隐藏记忆检查器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief：顯示或隱藏記憶檢查器"
           }
         }
       }
