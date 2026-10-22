@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 use std::process::Child;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock, PoisonError};
 use std::thread;
 
 /// Collect `child`'s exit status when it exits, without a thread of its own.
@@ -66,7 +66,7 @@ impl Reaper {
         let pid = child.id();
         // Insert before registering, so an exit event can never arrive for a
         // pid the map does not hold yet.
-        let mut children = self.children.lock().unwrap();
+        let mut children = self.children.lock().unwrap_or_else(PoisonError::into_inner);
         let handle = match self.queue.register(pid) {
             Ok(handle) => handle,
             Err(_) => {
@@ -96,14 +96,19 @@ impl Reaper {
             if self.queue.wait(&mut ready).is_err() {
                 // The queue failed (should not happen): hand every child to
                 // its own thread and stop.
-                let children: Vec<Watched> =
-                    self.children.lock().unwrap().drain().map(|(_, watched)| watched).collect();
+                let children: Vec<Watched> = self
+                    .children
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .drain()
+                    .map(|(_, watched)| watched)
+                    .collect();
                 for watched in children {
                     reap_on_own_thread(watched.child);
                 }
                 return;
             }
-            let mut children = self.children.lock().unwrap();
+            let mut children = self.children.lock().unwrap_or_else(PoisonError::into_inner);
             for pid in ready.drain(..) {
                 let Some(watched) = children.get_mut(&pid) else { continue };
                 if !matches!(watched.child.try_wait(), Ok(None)) {
