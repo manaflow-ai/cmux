@@ -135,7 +135,7 @@
 .acpmux-pr-dock{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px;font-size:var(--text-control);line-height:18px}
 .acpmux-quick .acpmux-pr-dock{padding:6px 8px 0}
 .acpmux-pr-dock__chip{display:flex;align-items:center;max-width:100%;height:26px;padding-right:2px;box-sizing:border-box;border-radius:8px;background:var(--acpmux-composer-tray)}
-.acpmux-pr-dock__bar{flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:6px;height:100%;padding:0 6px 0 9px;box-sizing:border-box;border-radius:8px;color:var(--agent-text);text-decoration:none;cursor:default}
+.acpmux-pr-dock__bar{flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:6px;height:100%;padding:0 6px 0 9px;box-sizing:border-box;border-radius:8px;color:var(--agent-text);text-decoration:none;cursor:pointer}
 .acpmux-pr-dock__bar>svg{flex:none;color:var(--agent-muted)}
 .acpmux-pr-dock__bar:hover{background:var(--acpmux-composer-hover)}
 .acpmux-pr-dock__bar:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}

@@ -66,3 +66,11 @@ button,
 select {
   cursor: default;
 }
+
+/* A link is the pointing hand over all of it: its text and its icon too (Leo 2026-10-22: "links
+   when i hover them in the chat esp the pr things i need to have the cursor switch to the
+   clickable look"). desktop.css gives every descendant of `.selectable` content `cursor: auto`,
+   which drew the I-beam over a reply chip's label and the arrow over its icon. */
+:is(a[href], [role="link"], .cv-chip, .cv-link, .acpmux-started-chip) * {
+  cursor: inherit;
+}

@@ -404,7 +404,7 @@
   border: 0;
   background: none;
   font: inherit;
-  cursor: default;
+  cursor: pointer;
 }
 .cv-link.is-needs-you .acpmux-needs-you-dot {
   width: 6px;

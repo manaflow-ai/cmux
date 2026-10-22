@@ -819,6 +819,12 @@
 .cv-link:hover {
   text-decoration-color: currentColor;
 }
+/* The hand wherever the link draws, not only in selectable reply text (desktop.css gives other
+   anchors the arrow); a link that opens nothing (`span.cv-link`) keeps the arrow. */
+a.cv-link[href],
+button.cv-link {
+  cursor: pointer;
+}
 .cv-link__icon {
   vertical-align: var(--cv-link-icon-align, -3px);
   margin: var(--cv-link-icon-margin, 0 4px 0 0);

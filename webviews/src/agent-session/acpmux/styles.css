@@ -437,7 +437,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-turn-preview::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--agent-border-strong,var(--agent-border));pointer-events:none}
 .acpmux-turn-preview-head{display:flex;align-items:center;gap:11px;min-height:58px;box-sizing:border-box;padding:9px 12px;background:color-mix(in srgb,var(--agent-text) 5%,var(--cmux-surface-solid,var(--acpmux-base,Canvas)));box-shadow:inset 0 -1px 0 var(--agent-border)}
 .acpmux-turn-preview-icon{flex:none;display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;background:var(--agent-page-bg);color:var(--agent-muted)}
-.acpmux-turn-preview-address{flex:1;min-width:0;font-family:var(--font-mono);font-size:12.5px;color:var(--agent-text);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.acpmux-turn-preview-address{flex:1;cursor:pointer;min-width:0;font-family:var(--font-mono);font-size:12.5px;color:var(--agent-text);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .acpmux-turn-preview-address:hover{text-decoration:underline}
 .acpmux-turn-preview-address:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px;border-radius:3px}
 .acpmux-turn-preview-frame{position:relative;height:180px;overflow:hidden;cursor:pointer;background:var(--cmux-surface-solid,var(--acpmux-base,Canvas))}
@@ -467,7 +467,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-pr-card__title{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;color:var(--agent-text);font-size:var(--text-control);line-height:var(--text-control--line-height);font-weight:600;overflow-wrap:anywhere}
 .acpmux-pr-card__facts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0;color:var(--agent-muted)}
 /* The card's owner/repo#N is the pull request's link, drawn as every link in the pane (.cv-link): blue, faintly underlined, solidly on hover. */
-.acpmux-pr-card__ref{color:var(--agent-link);font-variant-numeric:tabular-nums;font-weight:500;text-decoration:underline;text-decoration-thickness:1px;text-decoration-color:color-mix(in srgb,currentColor 40%,transparent);text-underline-offset:3px;border-radius:3px}.acpmux-pr-card__ref:hover{text-decoration-color:currentColor}.acpmux-pr-card__ref:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
+.acpmux-pr-card__ref{color:var(--agent-link);cursor:pointer;font-variant-numeric:tabular-nums;font-weight:500;text-decoration:underline;text-decoration-thickness:1px;text-decoration-color:color-mix(in srgb,currentColor 40%,transparent);text-underline-offset:3px;border-radius:3px}.acpmux-pr-card__ref:hover{text-decoration-color:currentColor}.acpmux-pr-card__ref:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
 /* The state is the pull request glyph's colour alone, as Claude draws it: no pill, no word. */
 .acpmux-pr-card__glyph{display:inline-flex;flex:none;color:var(--agent-muted)}
 .acpmux-pr-card__glyph[data-state=open]{color:var(--agent-success,var(--acpmux-add,#3fb950))}
