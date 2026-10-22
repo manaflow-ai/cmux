@@ -151,10 +151,13 @@ import Testing
     /// Under a larger Interface Size the front page hands the row `Typography.userScale`, which
     /// `Typography` and `Metrics` already carry: the row's type and insets are scaled once, the
     /// size the same styles have everywhere else, never twice.
-    @Test func aLargerInterfaceSizeScalesTheRowOnce() {
+    @Test func aLargerInterfaceSizeScalesTheRowOnce() throws {
         let design = DesignSettings.shared
         let before = design.interfaceScale
-        TunableStore.shared.set(ChromeTunables.interfaceSize.key, .bool(true))
+        // The store active without a file (nothing is written), with Interface Size registered.
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register([ChromeTunables.interfaceSize.descriptor])
+        try #require(TunableStore.shared.set(ChromeTunables.interfaceSize.key, .bool(true)) == .bool(true))
         design.interfaceScale = 1.5
         defer {
             design.interfaceScale = before
@@ -164,7 +167,9 @@ import Testing
         let row = Self.row(width: 420)
         row.show(Self.two)
         row.applyScale(Typography.userScale)
+        row.setFrameSize(NSSize(width: 420, height: row.intrinsicContentSize.height))
         row.layoutSubtreeIfNeeded()
+        #expect(abs(row.bounds.height - ImportSuggestionRowView.height * Typography.userScale) < 1)
         #expect(abs((row.titleLabel.font?.pointSize ?? 0) - Typography.bodyEmphasized.pointSize) < 0.1)
         #expect(abs((row.factsLabel.font?.pointSize ?? 0) - Typography.caption.pointSize) < 0.1)
         let title = row.convert(row.titleLabel.bounds, from: row.titleLabel)
