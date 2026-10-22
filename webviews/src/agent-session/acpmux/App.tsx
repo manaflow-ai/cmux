@@ -51,7 +51,7 @@ import {
   lostPrompt,
   lostPromptSlot,
   waitForResend,
-  withoutRestored,
+  withoutParts,
 } from "./lostPrompt";
 import { pageHostClient, startHostEvents } from "./pageHost";
 import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost } from "./NewTabPage";
@@ -80,7 +80,7 @@ import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type Acpmu
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
-import { composerDraft, notifyDraftActionsChanged, readPersistedDraft, writePersistedDraft } from "./composerDraft";
+import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
 import { paneContext } from "./paneContext";
 import {
   createPaneQueryClient,
@@ -5629,10 +5629,10 @@ function AcpmuxPane() {
       notice: string;
     }>();
     /// Lost prompts put back in their chat's composer with a "Not sent", by prompt id, until the
-    /// chat's next send takes the draft with it.
+    /// chat's next send takes the draft with it. `delivered`: the host sent it again after all.
     const restoredLost = new Map<
       string,
-      { sessionId: string; text: string; attachments: ComposerAttachment[]; noticeId: string }
+      { sessionId: string; text: string; attachments: ComposerAttachment[]; noticeId: string; delivered?: boolean }
     >();
     /// Prompts a failed or cancelled switch held go back into the composer with their
     /// attachments, before what was typed since; while no composer is mounted they wait for one.
@@ -5651,34 +5651,22 @@ function AcpmuxPane() {
       else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
     };
     /// The host sent a lost prompt again after its sender gave up, and acpmux ran it: its id goes
-    /// (the next identical prompt is new), its draft waiting for another chat goes, and the draft
-    /// put back in the composer goes with its "Not sent", unless the person changed it.
+    /// (the next identical prompt is new) and its draft waiting for another chat goes. Its part of
+    /// the draft put back in the composer is marked delivered: the chat's next send leaves it out
+    /// (`send`), wherever the draft went since (another chat shown, the saved draft, a remount).
+    /// When the composer shows the chat now and still holds it as it came back, it goes from there
+    /// too, with its "Not sent".
     const retireLost = (promptId: string) => {
       lostPrompts.forget(promptId);
       lostDraftsKept.drop(promptId);
       const back = restoredLost.get(promptId);
       if (!back) return;
+      back.delivered = true;
+      const shown = directClient.current;
+      if (shown?.selectedSession !== back.sessionId) return;
       // This chat's lost prompts put back in the composer, in the order they came back.
       const parts = [...restoredLost].filter(([, other]) => other.sessionId === back.sessionId);
       const at = parts.findIndex(([id]) => id === promptId);
-      const shown = directClient.current;
-      if (shown?.selectedSession !== back.sessionId) {
-        // The pane shows another chat: the composer saved this chat's draft as it left it (its text;
-        // `writePersistedDraft`), so the delivered part goes from there, as it would from the composer.
-        const saved = readPersistedDraft(back.sessionId);
-        const left =
-          saved === undefined
-            ? undefined
-            : withoutRestored(
-                { text: saved, attachmentIds: [] },
-                parts.map(([, part]) => ({ text: part.text, attachmentIds: [] })),
-                at,
-              );
-        if (left) writePersistedDraft(back.sessionId, left.text);
-        restoredLost.delete(promptId);
-        if (left) shown?.dismissNotice(back.noticeId);
-        return;
-      }
       const waiting = heldBack.current;
       const unmounted = waiting?.findIndex(
         (draft) => draft.text === back.text && draft.attachments === back.attachments,
@@ -5689,8 +5677,9 @@ function AcpmuxPane() {
         heldBack.current = waiting.filter((_, index) => index !== unmounted);
         taken = true;
       }
+      if (!taken) return;
       restoredLost.delete(promptId);
-      if (taken) shown.dismissNotice(back.noticeId);
+      shown.dismissNotice(back.noticeId);
     };
     const connectHost = async () => {
       if (connecting) return;
@@ -5962,14 +5951,40 @@ function AcpmuxPane() {
         /// passes it (the composer) still holds the prompt until then, so a refusal loses nothing.
         /// Without it a refused prompt goes back into the composer.
         const send = async (
-          text: string,
-          attachments: import("./attachments").ComposerAttachment[] = [],
+          typed: string,
+          typedAttachments: import("./attachments").ComposerAttachment[] = [],
           accepted?: () => void,
           steer = false,
           promptId?: string,
         ) => {
           // The reader sent it: the transcript goes to its latest message now, even scrolled up.
           setSends((count) => count + 1);
+          // A lost prompt put back in this chat's composer that the host sent after all goes out of
+          // this send: it ran once already. Only as it came back; an edited draft goes as typed.
+          const parts = [...restoredLost].filter(([, back]) => back.sessionId === client.selectedSession);
+          const delivered = new Set(parts.flatMap(([, back], at) => (back.delivered ? [at] : [])));
+          const left =
+            delivered.size > 0
+              ? withoutParts(
+                  { text: typed, attachmentIds: typedAttachments.map((attachment) => attachment.id) },
+                  parts.map(([, back]) => ({
+                    text: back.text,
+                    attachmentIds: back.attachments.map((attachment) => attachment.id),
+                  })),
+                  delivered,
+                )
+              : undefined;
+          for (const at of left ? delivered : []) client.dismissNotice(parts[at]![1].noticeId);
+          const text = left ? left.text : typed;
+          const attachments = left
+            ? typedAttachments.filter((attachment) => left.attachmentIds.includes(attachment.id))
+            : typedAttachments;
+          if (left && !text.trim() && attachments.length === 0) {
+            // Nothing but prompts that ran already: nothing goes, and the composer lets go of them.
+            for (const [promptId] of parts) restoredLost.delete(promptId);
+            accepted?.();
+            return;
+          }
           // Whether the composer let go of the prompt (acpmux took it, or a switch row holds it).
           let released = !accepted;
           const accept =

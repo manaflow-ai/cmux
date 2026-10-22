@@ -154,18 +154,28 @@ export function lostDrafts<Draft extends { promptId: string }>() {
 export type HeldPrompt = { text: string; attachmentIds: readonly string[] };
 
 /// The composer as it would hold had `parts[index]` never come back into it, or undefined when
-/// the person changed it since. `parts`: the lost prompts put back into this chat's composer, in
-/// the order they came back. `restore` puts each one first, ahead of what the composer held, a
-/// blank line apart, with its chips first; so the composer is taken apart from its newest part
-/// back to what was there before the first, and built again without the part that went. Matching
-/// whole parts by where they were put, never by searching the text, keeps a part that is also a
-/// paragraph of another one.
+/// the person changed it since (`withoutParts`).
 export function withoutRestored(
   composer: HeldPrompt,
   parts: readonly HeldPrompt[],
   index: number,
 ): HeldPrompt | undefined {
   if (index < 0 || index >= parts.length) return undefined;
+  return withoutParts(composer, parts, new Set([index]));
+}
+
+/// The composer as it would hold had the `parts` at `drop` never come back into it, or undefined
+/// when the person changed it since. `parts`: the lost prompts put back into this chat's composer,
+/// in the order they came back. `restore` puts each one first, ahead of what the composer held, a
+/// blank line apart, with its chips first; so the composer is taken apart from its newest part
+/// back to what was there before the first, and built again without the parts that went. Matching
+/// whole parts by where they were put, never by searching the text, keeps a part that is also a
+/// paragraph of another one.
+export function withoutParts(
+  composer: HeldPrompt,
+  parts: readonly HeldPrompt[],
+  drop: ReadonlySet<number>,
+): HeldPrompt | undefined {
   const gap = "\n\n";
   let text = composer.text;
   let attachmentIds = [...composer.attachmentIds];
@@ -180,7 +190,7 @@ export function withoutRestored(
     attachmentIds = attachmentIds.slice(part.attachmentIds.length);
   }
   for (const [at, part] of parts.entries()) {
-    if (at === index) continue;
+    if (drop.has(at)) continue;
     text = text.trim() ? `${part.text}${gap}${text}` : part.text;
     attachmentIds = [...part.attachmentIds, ...attachmentIds.filter((id) => !part.attachmentIds.includes(id))];
   }

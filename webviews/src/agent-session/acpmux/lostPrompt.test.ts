@@ -10,6 +10,7 @@ import {
   lostPrompt,
   lostPromptSlot,
   waitForResend,
+  withoutParts,
   withoutRestored,
 } from "./lostPrompt";
 
@@ -328,6 +329,25 @@ test("a lost prompt the host sent again after all never comes back into its chat
   drafts.drop("p-3");
   expect(drafts.take("s-a")).toEqual([{ promptId: "p-2", text: "and test it" }]);
   expect(drafts.take("s-b")).toEqual([]);
+});
+
+test("a send leaves out every lost prompt that ran after all, as it came back, and keeps the rest", () => {
+  const first = { text: "continue", attachmentIds: [] };
+  const image = { text: "", attachmentIds: ["img-1"] };
+  const last = { text: "and test it", attachmentIds: [] };
+  // Restored first, then the image, then the last: the composer holds the newest first.
+  const draft = { text: "and test it\n\n\n\ncontinue\n\nmy note", attachmentIds: ["img-1"] };
+  expect(withoutParts(draft, [first, image, last], new Set([0, 1]))).toEqual({
+    text: "and test it\n\nmy note",
+    attachmentIds: [],
+  });
+  // An attachment-only prompt that ran goes too.
+  expect(withoutParts({ text: "", attachmentIds: ["img-1"] }, [image], new Set([0]))).toEqual({
+    text: "",
+    attachmentIds: [],
+  });
+  // Edited: the person's draft, sent as typed.
+  expect(withoutParts({ text: "continue now", attachmentIds: [] }, [first], new Set([0]))).toBeUndefined();
 });
 
 test("a lost prompt the host sent after all leaves the composer; the person's own text and edits stay", () => {
