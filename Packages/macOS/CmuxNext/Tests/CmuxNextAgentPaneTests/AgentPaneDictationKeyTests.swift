@@ -5,7 +5,7 @@ import Testing
 import WebKit
 @testable import CmuxNextAgentPane
 
-/// The Dictation key (fn, the 🎤 key) and Edit ▸ Start Dictation in an agent pane start the pane's
+/// The Dictation key (Globe-D, the 🎤 key) and Edit ▸ Start Dictation in an agent pane start the pane's
 /// own dictation, the waveform inside the composer, not macOS's black overlay that AppKit placed
 /// over the composer's corner. The `agent.systemDictation` Debug toggle brings macOS's back.
 @Suite(.serialized)
@@ -68,6 +68,76 @@ struct AgentPaneDictationKeyTests {
         #expect(startDictation(from: view))
         #expect(routes.system == 1, "with agent.systemDictation on, the Dictation key did not start macOS's dictation")
         #expect(routes.pane == 0, "with agent.systemDictation on, the Dictation key still started the pane's dictation")
+    }
+
+    /// The pane's content host in a window of its own (the cmux window).
+    private func window(holding view: AgentPaneView) throws -> NSWindow {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = try #require(view.superview)
+        return window
+    }
+
+    /// AppKit adds Edit ▸ Start Dictation with NSApplication as its target (Globe-D is its key
+    /// equivalent), so the key calls NSApplication's `startDictation:` and no responder sees it:
+    /// the app's NSApplication asks the pane whose page has the keyboard to take it.
+    @Test func theDictationKeyAtNSApplicationStartsThePanesDictation() throws {
+        let (view, routes, directory) = try page(systemDictation: nil)
+        let window = try window(holding: view)
+        defer { view.close(); window.close(); try? FileManager.default.removeItem(at: directory) }
+        try #require(window.makeFirstResponder(view.webView))
+        #expect(AgentPaneView.takeStartDictation(in: window, sender: nil),
+                "Start Dictation at NSApplication with the agent page's keyboard went to macOS's dictation overlay")
+        #expect(routes.pane == 1, "the Dictation key did not start the pane's dictation")
+        #expect(AgentPaneView.takeStartDictation(in: window, sender: nil))
+        #expect(routes.pane == 2, "a second press did not reach the pane's dictation to finish it")
+        #expect(routes.system == 0)
+    }
+
+    /// A Chromium agent page draws in a child window over the pane and takes key itself; the key
+    /// still starts the pane's dictation.
+    @Test func theDictationKeyFromTheChromiumPageWindowStartsThePanesDictation() throws {
+        let (view, routes, directory) = try page(systemDictation: nil)
+        let window = try window(holding: view)
+        let pageWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
+                                  backing: .buffered, defer: false)
+        pageWindow.isReleasedWhenClosed = false
+        defer { view.close(); pageWindow.close(); window.close(); try? FileManager.default.removeItem(at: directory) }
+        window.addChildWindow(pageWindow, ordered: .above)
+        view.dictationKey.pageWindow = { _ in pageWindow }
+        let chromiumView = NSTextView(frame: pageWindow.contentLayoutRect)
+        pageWindow.contentView = chromiumView
+        try #require(pageWindow.makeFirstResponder(chromiumView))
+        #expect(AgentPaneView.takeStartDictation(in: pageWindow, sender: nil),
+                "Start Dictation from the Chromium agent page went to macOS's dictation overlay")
+        #expect(routes.pane == 1, "the Dictation key in the Chromium page did not start the pane's dictation")
+        #expect(routes.system == 0)
+    }
+
+    @Test func theDebugToggleLeavesTheKeyToMacOSAtNSApplication() throws {
+        let (view, routes, directory) = try page(systemDictation: true)
+        let window = try window(holding: view)
+        defer { view.close(); window.close(); try? FileManager.default.removeItem(at: directory) }
+        try #require(window.makeFirstResponder(view.webView))
+        #expect(!AgentPaneView.takeStartDictation(in: window, sender: nil),
+                "with agent.systemDictation on, the pane kept the Dictation key from macOS")
+        #expect(routes.pane == 0)
+    }
+
+    @Test func otherWindowsKeepMacOSsDictation() throws {
+        let (view, routes, directory) = try page(systemDictation: nil)
+        let paneWindow = try window(holding: view)
+        let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
+                             backing: .buffered, defer: false)
+        other.isReleasedWhenClosed = false
+        defer { view.close(); other.close(); paneWindow.close(); try? FileManager.default.removeItem(at: directory) }
+        let text = NSTextView(frame: other.contentLayoutRect)
+        other.contentView = text
+        try #require(other.makeFirstResponder(text))
+        #expect(!AgentPaneView.takeStartDictation(in: other, sender: nil), "a text view outside agent panes lost macOS's dictation")
+        #expect(!AgentPaneView.takeStartDictation(in: nil, sender: nil))
+        #expect(routes.pane == 0)
     }
 
     @Test func theToggleIsADebugSettingOffByDefault() {

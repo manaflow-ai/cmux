@@ -9,11 +9,11 @@ extension SidebarListViewComponents {
         let target: SidebarContextTarget
         switch hit?.key {
         case let .workspace(id)?:
-            if !model.selection.contains(id) {
-                model.click(id)
-                reload(animated: true)
-            }
-            target = .workspaces(model.orderedSelection.isEmpty ? [id] : model.orderedSelection)
+            // Leo 2026-10-21: "RIGHT CLICKING ... ON A WORKSPACE SHOULDN'T BE IMMEDIATELY FOCUSING". The menu is
+            // for the clicked row, or for the whole selection when the row is part of it; the selection and the
+            // shown workspace stay as they are.
+            let selection = model.orderedSelection
+            target = .workspaces(selection.contains(id) ? selection : [id])
         case let .group(id)?:
             // A right-click on a group shows its one flat menu at once, as Finder and Safari
             // do (Lawrence 2026-10-20: no second step through the editor's More row). A
@@ -21,7 +21,7 @@ extension SidebarListViewComponents {
             target = .group(id)
         case let .section(id)?, let .emptySection(id)?, let .folder(id, _)?:
             target = .section(id)
-        case let .doneFold(fold)?:
+        case let .doneFold(fold)?, let .showMore(fold)?:
             target = fold.group.map(SidebarContextTarget.group) ?? .section(fold.section)
         case let .tab(workspace, tab)?:
             target = .tab(workspace, tab)
