@@ -126,10 +126,11 @@ install_from() {
   install_dirs "$1/$PANE" "$1/$PAGES" "$1/$APP" "$(git -C "$ROOT" rev-parse HEAD)"
 }
 
-# A built cmux .app: its module bundles and its viewer folder hold the same files.
+# A built cmux .app: its module bundles and its viewer folder hold the same files. $2 is the
+# commit it was built from when known (DEV builds carry no CMUXCommit).
 install_app() {
-  local res="$1/Contents/Resources" commit
-  commit="$(/usr/libexec/PlistBuddy -c "Print CMUXCommit" "$1/Contents/Info.plist" 2>/dev/null || echo unknown)"
+  local res="$1/Contents/Resources" commit="${2:-}"
+  [[ -n "$commit" ]] || commit="$(/usr/libexec/PlistBuddy -c "Print CMUXCommit" "$1/Contents/Info.plist" 2>/dev/null || echo unknown)"
   install_dirs "$res/CmuxNext_CmuxNextAgentPane.bundle/Contents/Resources/agent-pane" \
     "$res/CmuxNext_CmuxNextPages.bundle/Contents/Resources/pages" "$res/markdown-viewer/webviews-app" "$commit"
 }
@@ -301,13 +302,16 @@ case "$cmd" in
         *) usage 1 ;;
       esac
     done
-    args+=(--tag "$tag")
+    # The overlay takes only web bundles, so the build needs no cmux backend: a remote backend
+    # would also require this checkout's HEAD to be the built ref.
+    args+=(--tag "$tag" --backend-mode local)
     ci="${CMUX_CI:-$HOME/.local/bin/cmux-ci}"
     [[ -x "$ci" ]] || { echo "no cmux-ci client at $ci (CMUX_CI names another)" >&2; exit 1; }
     if [[ -n "$working_tree" ]]; then
       args+=(--working-tree)
     else
-      args+=(--ref "${ref:-$(git -C "$ROOT" rev-parse HEAD)}" --workspace "$workspace")
+      ref="${ref:-$(git -C "$ROOT" rev-parse HEAD)}"
+      args+=(--ref "$ref" --workspace "$workspace")
     fi
     out="$(mktemp -d "${TMPDIR:-/tmp}/web-overlay-fleet.XXXXXX")"
     trap 'rm -rf "$out"' EXIT
@@ -324,7 +328,7 @@ case "$cmd" in
     fi
     app="$(find "$out/bundle" -maxdepth 2 -name '*.app' -type d | head -1)"
     [[ -n "$app" ]] || { echo "job $job returned no app bundle" >&2; exit 1; }
-    install_app "$app"
+    install_app "$app" "$ref"
     ;;
   off)
     set_key enabled false
