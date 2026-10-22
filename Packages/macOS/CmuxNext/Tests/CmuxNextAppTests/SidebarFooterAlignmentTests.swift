@@ -7,8 +7,8 @@ import Testing
 /// each other's line, the magnifying glass floating above the avatar's center. The footer is one
 /// line: the account chip, its avatar and the Search button share one center, and the line's
 /// taller control ends `SidebarStyle.bottomInset` (#22663's 8 pt) above the window's bottom edge,
-/// at every density. Leo 2026-10-21: the avatar is as big as its square allows and the Search
-/// button sits right after it, its lens on the avatar's center.
+/// at every density. The avatar is the icon box, and the Search button sits right after its
+/// square, its lens on the avatar's center.
 @MainActor @Suite(.serialized) struct SidebarFooterAlignmentTests {
     struct Harness {
         let sidebar: SidebarView
@@ -77,10 +77,10 @@ import Testing
             #expect(abs(title.midY - circle.midY) <= 0.5, "name \(title) off the avatar's center \(circle)")
         }
 
-        // The avatar fills its square but a hairline, as big as the Search button's glyph box reads
-        // (Leo 2026-10-21: "make the icon slightly bigger"), and the Search button sits flush
-        // against that square: the two controls' own insets are the gap, as a toolbar's buttons.
-        #expect(abs(circle.width - (chip.height - Metrics.space1)) <= 0.25, "avatar \(circle) in its square \(chip)")
+        // The avatar is the icon box at every density (Lawrence 2026-10-21: "bottom footer thing too
+        // big, revert to old icon sizes"), and the Search button sits flush against its square: the
+        // two controls' own insets are the gap, as a toolbar's buttons.
+        #expect(abs(circle.width - SidebarStyle.iconBox) <= 0.25, "avatar \(circle) is the icon box \(SidebarStyle.iconBox)")
         #expect(abs(search.minX - chip.maxX) <= 0.25, "search \(search) flush after the avatar's square \(chip)")
 
         // The line's taller control ends exactly the bottom margin above the window's edge (flipped: maxY is the bottom).
