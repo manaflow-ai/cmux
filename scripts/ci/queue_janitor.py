@@ -397,12 +397,12 @@ def needs_jobs(run: Mapping[str, Any], linux_only_paths: frozenset[str], now: dt
 
 
 def run_target_branch(run: Mapping[str, Any]) -> str | None:
-    """The branch whose workflow copy a run follows: a pull request's base, or a push's branch; None when unknown."""
+    """The branch whose workflow copy a run follows: a pull request's base, a push's or dispatch's branch; None when unknown."""
     for pr in run.get("pull_requests") or ():
         base = (pr.get("base") or {}).get("ref") if isinstance(pr, Mapping) else None
         if base:
             return str(base)
-    if run.get("event") == "push" and run.get("head_branch"):
+    if run.get("event") in ("push", "workflow_dispatch") and run.get("head_branch"):
         return str(run["head_branch"])
     return None
 
@@ -420,6 +420,54 @@ def starved_scope_runs(runs: Sequence[Mapping[str, Any]], listed: Mapping[int, A
     return [run for run in runs
             if run.get("id") not in listed and run.get("path") in linux_only_paths
             and needs_jobs(run, frozenset(), now) and run_target_branch(run) not in (None, "main")]
+
+
+def starved_result(github: "GitHub", runs: Sequence[Mapping[str, Any]],
+                   jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
+                   evidence_jobs: Mapping[int, Sequence[Mapping[str, Any]]], *,
+                   linux_only_paths: frozenset[str], now: dt.datetime) -> dict[str, Any]:
+    """The snapshot's `starved` and `unserved` (starved_labels.py), and `starved_incomplete` when a listing failed.
+
+    Reads the sweep's jobs plus starved_scope_runs()'s. Starts in completed runs
+    count as service: the lost-assignment evidence already listed and, only for
+    a label about to alert, up to LOST_EVIDENCE_RUNS_PER_WORKFLOW completed runs
+    of each of its stuck jobs' workflows (at most LOST_EVIDENCE_WORKFLOWS)
+    created since its wait began. A failed listing marks the result incomplete,
+    and the alert step then closes no issue as recovered.
+    """
+    fleet_jobs: dict[int, Sequence[Mapping[str, Any]]] = dict(jobs_by_run)
+    evidence: dict[int, Sequence[Mapping[str, Any]]] = dict(evidence_jobs)
+    incomplete = False
+    for run in starved_scope_runs(runs, jobs_by_run, linux_only_paths, now):
+        try:
+            fleet_jobs[run["id"]] = github.jobs(run["id"])
+        except RuntimeError as error:
+            incomplete = True
+            print(f"queue-janitor: starved-label jobs of run {run['id']}: {error}", file=sys.stderr)
+    found = starved_labels.starved(runs, fleet_jobs, now=now, evidence=evidence)
+    earliest: dict[str, dt.datetime] = {}
+    for entry in found:
+        since = now - dt.timedelta(minutes=int(entry["oldest_queued_minutes"]) + 1)
+        for run in runs:
+            workflow = str(run.get("path") or "").rsplit("/", 1)[-1]
+            if workflow and any(starved_labels.stuck(job) and starved_labels.fleet_key(job) == entry["label"]
+                                for job in fleet_jobs.get(run.get("id"), ())):
+                earliest[workflow] = min(since, earliest.get(workflow, since))
+    for workflow, since in sorted(earliest.items(), key=lambda item: (item[1], item[0]))[:LOST_EVIDENCE_WORKFLOWS]:
+        try:
+            listed = github.completed_runs(workflow, since.strftime("%Y-%m-%dT%H:%M:%SZ"))
+            for run in evidence_runs(listed, known=set(fleet_jobs) | set(evidence), cap=LOST_EVIDENCE_RUNS_PER_WORKFLOW):
+                evidence[run["id"]] = github.jobs(run["id"])
+        except RuntimeError as error:
+            incomplete = True
+            print(f"queue-janitor: starved-label evidence for {workflow}: {error}", file=sys.stderr)
+    if earliest:
+        found = starved_labels.starved(runs, fleet_jobs, now=now, evidence=evidence)
+    result: dict[str, Any] = {"starved": found,
+                              "unserved": starved_labels.unserved(runs, fleet_jobs, now=now, evidence=evidence)}
+    if incomplete:
+        result["starved_incomplete"] = True
+    return result
 
 
 def owned_label(job: Mapping[str, Any]) -> str | None:
@@ -2664,18 +2712,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if waits:
             snapshot[WAIT_P90_KEY] = waits
         # Fleet labels no runner is taking jobs from; the workflow's alert step
-        # (starved_labels.py) annotates them and keeps one issue per label. It
-        # also reads branch runs main's linux-only filter skipped
-        # (starved_scope_runs()), and counts starts in the completed runs
-        # listed as lost-assignment evidence as service.
-        fleet_jobs = dict(jobs_by_run)
-        for run in starved_scope_runs(runs, jobs_by_run, linux_only, now):
-            try:
-                fleet_jobs[run["id"]] = github.jobs(run["id"])
-            except RuntimeError as error:
-                print(f"queue-janitor: starved-label jobs of run {run['id']}: {error}", file=sys.stderr)
-        snapshot["starved"] = starved_labels.starved(runs, fleet_jobs, now=now, evidence=evidence_jobs)
-        snapshot["unserved"] = starved_labels.unserved(runs, fleet_jobs, now=now, evidence=evidence_jobs)
+        # (starved_labels.py) annotates them and keeps one issue per label.
+        snapshot.update(starved_result(github, runs, jobs_by_run, evidence_jobs, linux_only_paths=linux_only, now=now))
         # Warm affinity on: which root runner kept a build of which main
         # commits (owned_warm_state.py). A failure leaves `warm` out, and the
         # picker then routes admission by the root label as before.

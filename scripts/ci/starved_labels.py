@@ -65,24 +65,41 @@ def _served(job: Mapping[str, Any], now: dt.datetime, after: dt.timedelta) -> bo
     return job.get("status") == "in_progress" or bool(job.get("runner_name") and started and now - started <= after)
 
 
-def _stuck(job: Mapping[str, Any]) -> bool:
+def stuck(job: Mapping[str, Any]) -> bool:
+    """Queued with no runner."""
     return job.get("status") == "queued" and not job.get("runner_name")
 
 
-def wait_start(job: Mapping[str, Any], run_jobs: Sequence[Mapping[str, Any]],
-               suspects: frozenset[int] = frozenset()) -> dt.datetime | None:
-    """When a queued job could first have run; None while another job of its run is unfinished.
+def pool_key(job: Mapping[str, Any]) -> frozenset[str]:
+    """Every label a job asked for, lowercased (GitHub matches labels without case)."""
+    return frozenset(str(label).lower() for label in job.get("labels") or ())
 
-    The jobs API can list a job before its `needs` finished and names no `needs`,
-    so, as queue_janitor._gated() reads it, any unfinished sibling (queued,
-    waiting, pending or running) may be its gate and its wait has not begun.
-    A sibling in `suspects` (queued with no runner on an unserved fleet label)
-    is no gate, so two stuck fleet jobs never mask each other. Otherwise the
-    wait counts from the later of its `created_at` and the last sibling
-    completion (queue_janitor.lost_wait_start()).
+
+def _covered(labels: frozenset[str], served: Iterable[frozenset[str]]) -> bool:
+    """A runner that took a job asking for a superset of `labels` could take this one."""
+    return any(labels <= runner_labels for runner_labels in served)
+
+
+def wait_start(job: Mapping[str, Any], run_jobs: Sequence[Mapping[str, Any]],
+               suspects: frozenset[int] = frozenset(),
+               serving: frozenset[frozenset[str]] = frozenset()) -> dt.datetime | None:
+    """When a queued job could first have run; None while a sibling in its run may still be its gate.
+
+    The jobs API can list a job before its `needs` finished and names no
+    `needs`, so a sibling may be its gate (queue_janitor._gated()): one
+    running, waiting or pending, or queued on a pool that started nothing in
+    the window (stuck itself, perhaps upstream). A sibling queued on a pool in
+    `serving` (one that did start a job in the window) is waiting on its own
+    `needs`, so it is downstream and no gate; nor is one in `suspects` (stuck
+    on an unserved fleet label), so two stuck fleet jobs never mask each
+    other. Otherwise the wait counts from the later of its `created_at` and
+    the last sibling completion (queue_janitor.lost_wait_start()).
     """
-    if any(other is not job and other.get("status") != "completed" and id(other) not in suspects
-           for other in run_jobs):
+    for other in run_jobs:
+        if other is job or other.get("status") == "completed" or id(other) in suspects:
+            continue
+        if stuck(other) and _covered(pool_key(other), serving):
+            continue
         return None
     created = parse_time(job.get("created_at"))
     if created is None:
@@ -101,23 +118,29 @@ def _unserved_queues(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int
     `evidence` (run id -> jobs, completed runs the janitor listed anyway) counts only as service.
     """
     served: set[frozenset[str]] = set()
+    serving: set[frozenset[str]] = set()
     for jobs in [*(jobs_by_run.get(run.get("id"), ()) for run in runs), *(evidence or {}).values()]:
         for job in jobs:
+            if stuck(job) or not _served(job, now, after):
+                continue
+            serving.add(pool_key(job))
             key = fleet_key(job)
-            if key and not _stuck(job) and _served(job, now, after):
+            if key:
                 served.add(frozenset(key.split("+")))
 
     def unserved_key(key: str) -> bool:
-        return not any(frozenset(key.split("+")) <= runner_labels for runner_labels in served)
+        return not _covered(frozenset(key.split("+")), served)
 
     run_lists = [list(jobs_by_run.get(run.get("id"), ())) for run in runs]
     suspects = frozenset(id(job) for run_jobs in run_lists for job in run_jobs
-                         if fleet_key(job) and _stuck(job) and unserved_key(fleet_key(job)))
+                         if fleet_key(job) and stuck(job) and unserved_key(fleet_key(job)))
+    frozen_serving = frozenset(serving)
     waiting: dict[str, list[tuple[Mapping[str, Any], dt.datetime | None]]] = {}
     for run_jobs in run_lists:
         for job in run_jobs:
             if id(job) in suspects:
-                waiting.setdefault(fleet_key(job), []).append((job, wait_start(job, run_jobs, suspects)))
+                waiting.setdefault(fleet_key(job), []).append(
+                    (job, wait_start(job, run_jobs, suspects, frozen_serving)))
     return dict(sorted(waiting.items()))
 
 
@@ -184,14 +207,15 @@ class IssuePlan:
 
 
 def plan_issues(found: Iterable[Mapping[str, Any]], open_issues: Iterable[Mapping[str, Any]], *,
-                unserved: Iterable[str] = (), generated_at: str = "") -> IssuePlan:
+                unserved: Iterable[str] = (), generated_at: str = "", incomplete: bool = False) -> IssuePlan:
     """What to do with each open starved-label issue.
 
     Sweeps are serialized (the workflow's concurrency group never cancels one in progress), and this
     fences anyway: a title with several open issues keeps its oldest and closes the rest as
     duplicates, a label still queued and unserved keeps its issue open even below the alert
     threshold, and an issue updated at or after this snapshot's time is never closed by it, nor is
-    any issue with its title closed as recovered.
+    any issue with its title closed as recovered. An `incomplete` inventory (a jobs listing failed)
+    closes nothing as recovered: the missing jobs may be the stuck ones.
     """
     by_title: dict[str, list[Mapping[str, Any]]] = {}
     for issue in open_issues:
@@ -220,14 +244,14 @@ def plan_issues(found: Iterable[Mapping[str, Any]], open_issues: Iterable[Mappin
         else:
             plan.update.append((issue, entry))
     held = {issue_title(label) for label in unserved} | fenced
-    for title, issue in sorted(keepers.items(), key=lambda item: item[1]["number"]):
+    for title, issue in sorted(keepers.items(), key=lambda item: item[1]["number"]) if not incomplete else ():
         if title not in held:
             plan.close.append(issue)
     return plan
 
 
 def sync_issues(github: Any, found: Sequence[Mapping[str, Any]], generated_at: str, *,
-                unserved: Iterable[str] = ()) -> list[str]:
+                unserved: Iterable[str] = (), incomplete: bool = False) -> list[str]:
     """Open, update and close the per-label issues; returns one line per action."""
     repo = github.repo
     # Found by title, not by ISSUE_LABEL: GitHub drops a label that does not exist yet when the token
@@ -235,7 +259,7 @@ def sync_issues(github: Any, found: Sequence[Mapping[str, Any]], generated_at: s
     query = urllib.parse.urlencode({"q": f'repo:{repo} is:issue is:open in:title "{ISSUE_PREFIX.strip()}"',
                                     "per_page": 100})
     open_issues = (github.request("GET", f"/search/issues?{query}") or {}).get("items") or []
-    plan = plan_issues(found, open_issues, unserved=unserved, generated_at=generated_at)
+    plan = plan_issues(found, open_issues, unserved=unserved, generated_at=generated_at, incomplete=incomplete)
     lines = []
     for issue, keeper in plan.duplicates:
         github.request("POST", f"/repos/{repo}/issues/{issue['number']}/comments",
@@ -289,7 +313,11 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         print(f"::error title=Runner label starved::{entry['label']} took no job for "
               f"{format_minutes(int(entry['oldest_queued_minutes']))}: {entry['job_url']}")
         lines.append(f"- **Starved** {describe(entry)}.")
-    if not found:
+    incomplete = bool(snapshot.get("starved_incomplete"))
+    if incomplete:
+        print("::warning title=Runner label starved::a jobs listing failed this sweep, so no issue is closed as recovered")
+        lines.append("- A jobs listing failed this sweep: no tracking issue is closed as recovered.")
+    elif not found:
         lines.append("Every fleet label with a queued job is taking jobs.")
     code = 0
     token = env.get("GH_TOKEN") or ""
@@ -302,7 +330,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     else:
         try:
             lines.extend(f"- {line}" for line in sync_issues(client(token, repo), found, generated_at,
-                                                            unserved=snapshot.get("unserved") or ()))
+                                                            unserved=snapshot.get("unserved") or (),
+                                                            incomplete=incomplete))
         except RuntimeError as error:
             print(f"::error title=Runner label starved::tracking issues: {error}")
             lines.append(f"- Tracking issues could not be synced: {error}")
