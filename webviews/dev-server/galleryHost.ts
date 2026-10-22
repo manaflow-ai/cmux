@@ -6,8 +6,9 @@
 //   virtual:cmux-gallery/themes            every theme the app ships (Resources/ghostty/themes, Resources/cmux-themes)
 //   virtual:cmux-gallery/web-theme         WebTheme.bootstrapScript, the script the app injects at
 //                                          document start in every cmux web view (WebTheme.swift)
-//   virtual:cmux-gallery/agent-pane.css    the agent pane's shipped stylesheet, the files and the
-//                                          order scripts/cmux-next/build-agent-pane-web.sh inlines
+//   virtual:cmux-gallery/agent-pane.css    the agent pane's shipped stylesheet: the sheets
+//                                          acpmux/pageStyles.ts imports, in the order
+//                                          scripts/cmux-next/build-agent-pane-web.sh ships them
 //   virtual:cmux-gallery/metrics           the chrome metrics (MetricTunables.swift: sidebar width,
 //                                          tab strip height, ...) per density, for window mode
 //   virtual:cmux-gallery/fixtures          every shared fixture JSON (schemas/gallery/fixtures.json
@@ -30,8 +31,8 @@ export const THEMES_DIR = path.join(repoRoot, "Resources/ghostty/themes");
 /** cmux's own themes, which the app's bundle phase adds to Ghostty's themes folder. */
 export const CMUX_THEMES_DIR = path.join(repoRoot, "Resources/cmux-themes");
 const WEB_THEME_SWIFT = path.join(repoRoot, "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WebTheme.swift");
-const PANE_BUILD_SCRIPT = path.join(repoRoot, "scripts/cmux-next/build-agent-pane-web.sh");
 const SESSION = path.join(webviewsRoot, "src/agent-session");
+const PANE_PAGE_STYLES = path.join(SESSION, "acpmux/pageStyles.ts");
 const galleryDir = path.join(webviewsRoot, "src/gallery");
 
 const FIXTURE_INDEX = path.join(repoRoot, "schemas/gallery/fixtures.json");
@@ -116,22 +117,31 @@ export function readWebThemeBootstrap(file = WEB_THEME_SWIFT): string {
   return script.replace(/\\\\/g, "\\");
 }
 
+/** A sheet's `@import "./x.css";` of a sibling, which the page carries ahead of it (not inlined). */
+const SIBLING_IMPORT = /^[ \t]*@import\s+["'](\.\.?\/[^"']+\.css)["'];[ \t]*$/gim;
+
 /**
- * The pane's stylesheets in shipped order: desktop.css, the shared stylesheet without its Tailwind
- * @import lines, then every `$SRC/...css` file the build script concatenates. (KaTeX's stylesheet
- * loads beside it; the shipped copy only inlines its fonts.)
+ * The pane's stylesheets in shipped order: the sheets acpmux/pageStyles.ts imports, each after the
+ * siblings it @imports (changes.css after git.css), then acpmux/tailwind.css, which
+ * build-agent-pane-web.sh compiles and puts last. The page also ships every sheet a component
+ * imports and pageStyles.ts leaves out, after these; in the gallery those load with the pane's own
+ * modules (main.tsx), as they do in the dev server. (KaTeX's stylesheet loads beside it; the
+ * shipped copy only inlines its fonts.)
  */
-export function agentPaneStylesheets(script = PANE_BUILD_SCRIPT): string[] {
-  const text = fs.readFileSync(script, "utf8");
-  // `$SRC/...` (the session sources) and `$ROOT/webviews/src/...` (shared ui/ files such as
-  // ui/popupSurface.css), in the script's order, so the gallery pane matches the shipped one.
-  const files = [...text.matchAll(/"\$(SRC|ROOT\/webviews\/src)\/([^"$]+\.css)"/g)].map((match) =>
-    match[1] === "SRC" ? path.join(SESSION, match[2]!) : path.join(webviewsRoot, "src", match[2]!),
-  );
-  if (!files.some((file) => file.endsWith("shared/styles.css")))
-    throw new Error("gallery: build-agent-pane-web.sh no longer names shared/styles.css; update agentPaneStylesheets");
-  const desktop = path.join(webviewsRoot, "src/pages/shared/desktop.css");
-  return [desktop, ...files.filter((file) => file !== desktop)];
+export function agentPaneStylesheets(pageStyles = PANE_PAGE_STYLES): string[] {
+  const text = fs.readFileSync(pageStyles, "utf8");
+  const files: string[] = [];
+  const add = (file: string) => {
+    if (files.includes(file)) return;
+    const css = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+    for (const match of css.matchAll(SIBLING_IMPORT)) add(path.resolve(path.dirname(file), match[1]!));
+    if (!files.includes(file)) files.push(file);
+  };
+  for (const match of text.matchAll(/^import\s+"([^"]+\.css)";/gm))
+    add(path.resolve(path.dirname(pageStyles), match[1]!));
+  if (!files.some((file) => file.endsWith("agent-session/shared/styles.css")))
+    throw new Error("gallery: acpmux/pageStyles.ts no longer imports shared/styles.css; update agentPaneStylesheets");
+  return [...files, path.join(SESSION, "acpmux/tailwind.css")];
 }
 
 export type Revision = { sha: string; subject: string; committedAt: number; branch: string };
@@ -160,16 +170,6 @@ export function readRevision(root = repoRoot): Revision {
 }
 
 function agentPaneCSS(): string {
-  const inlineRelativeImports = (file: string, css: string, seen = new Set<string>()): string =>
-    css.replace(/^@import\s+["']([^"']+)["'];\s*$/gm, (statement, specifier: string) => {
-      if (!specifier.startsWith(".")) return statement;
-      const imported = path.resolve(path.dirname(file), specifier);
-      if (seen.has(imported)) return "";
-      seen.add(imported);
-      if (!fs.existsSync(imported)) return statement;
-      return inlineRelativeImports(imported, fs.readFileSync(imported, "utf8"), seen);
-    });
-
   return agentPaneStylesheets()
     .map((file) => {
       const css = fs.readFileSync(file, "utf8");
@@ -177,7 +177,7 @@ function agentPaneCSS(): string {
         ? css.replace(/^@import .*$/gm, "")
         : file.endsWith("acpmux/tailwind.css")
           ? `${css}\n${tailwindSources()}`
-          : inlineRelativeImports(file, css);
+          : css.replace(SIBLING_IMPORT, "");
       return `/* ${path.relative(webviewsRoot, file)} */\n${body}`;
     })
     .join("\n");
@@ -229,14 +229,14 @@ export function galleryModules(): Plugin {
         response.setHeader("Content-Type", "text/javascript; charset=utf-8");
         response.end(readVegaLibrary());
       });
-      // The sources live partly outside webviews/ (the themes, WebTheme.swift, the build script),
-      // where Vite does not watch: watch them, and reload the module built from a changed one.
+      // The sources live partly outside webviews/ (the themes, WebTheme.swift), where Vite does not
+      // watch: watch them, and reload the module built from a changed one (pageStyles.ts too).
       const roots = fixtureRoots().map((root) => path.join(repoRoot, root));
       server.watcher.add([
         THEMES_DIR,
         CMUX_THEMES_DIR,
         WEB_THEME_SWIFT,
-        PANE_BUILD_SCRIPT,
+        PANE_PAGE_STYLES,
         FIXTURE_INDEX,
         METRICS_SWIFT,
         ...roots,
@@ -251,7 +251,7 @@ export function galleryModules(): Plugin {
               ? `\0${THEMES_ID}`
               : file === WEB_THEME_SWIFT
                 ? `\0${WEB_THEME_ID}`
-                : file === PANE_BUILD_SCRIPT
+                : file === PANE_PAGE_STYLES
                   ? PANE_CSS_PATH
                   : undefined;
         const module = id ? server.moduleGraph.getModuleById(id) : undefined;

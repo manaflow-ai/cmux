@@ -49,56 +49,47 @@ LOADER="$(bun scripts/pages/split-strings.mjs "$SRC/acpmux/generated/strings.jso
 # common languages, not every grammar and the WebAssembly engine. The React Compiler
 # runs on first-party sources, as in the Vite dev server; skipped components are listed.
 # Dynamic imports (shiki's grammars, KaTeX) become chunks/ beside pane.js, loaded when used.
-# --css-inputs lists the stylesheets the pane imports; the bundle drops them, so each must be
-# one of the sheets the page's <style> is written from (checked below).
-bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --css-inputs "$WORK/imported-sheets"
+# --css-inputs lists every stylesheet the pane imports, in the order the page applies them: the
+# import graph of acpmux/pageStyles.ts (the page's own sheets) and then main.tsx, as esbuild orders
+# a CSS bundle. The bundle drops CSS, so the page's <style> is written from that list (below).
+bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --css-inputs "$WORK/sheets" --page-styles "$SRC/acpmux/pageStyles.ts"
 # Code highlighting runs in a worker beside the page (conversation/highlightPool.ts): Pierre's
 # worker, bundled with the same trimmed shiki. It is the entry point itself because the package
 # marks the module side-effect free, so an import of it would be dropped. Both hosts serve it
 # with a policy that allows no network.
 bun scripts/agent-pane/bundle.mjs node_modules/@pierre/diffs/dist/worker/worker.js "$SRC/acpmux/shiki" "$WORK/highlight-worker.js"
 
-# The desktop layer first (R139): chrome never selects, so Cmd-A highlights only
-# fields and `.selectable` content. desktop.ts imports it, but the bundle drops CSS.
-cat "$ROOT/webviews/src/pages/shared/desktop.css" > "$WORK/styles.css"
-# The liquid glass surface and tokens, which desktop.ts imports beside desktop.css.
-cat "$ROOT/webviews/src/ui/glass/glass.css" >> "$WORK/styles.css"
-# The shared shimmer wave, which desktop.ts imports too.
-cat "$ROOT/webviews/src/ui/wave.css" >> "$WORK/styles.css"
-# The shared stylesheet opens with a Tailwind @import that only Vite resolves;
-# the pane needs just its variables and rules, so drop @import lines.
-grep -v '^@import ' "$SRC/shared/styles.css" >> "$WORK/styles.css"
-# One surface for every menu and popover (the pane does not load ui.css, which imports it).
-cat "$ROOT/webviews/src/ui/popupSurface.css" >> "$WORK/styles.css"
-# The shared icon+label button (New Tab's tools, the composer footer), imported by main.tsx.
-cat "$ROOT/webviews/src/ui/ghost.css" >> "$WORK/styles.css"
-# The shared find pill (Find in Chat), imported by ui/FindPill.tsx.
-cat "$ROOT/webviews/src/ui/findPill.css" >> "$WORK/styles.css"
-# The import suggestion cards in New Tab's notice slot (ui/ImportCards.tsx).
-cat "$ROOT/webviews/src/ui/importCards.css" >> "$WORK/styles.css"
-cat "$ROOT/webviews/src/theme/messages.css" "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/acpmux/chips/chips.css" "$SRC/acpmux/previewCard/previewCard.css" >> "$WORK/styles.css"
-# changes.css @imports git.css; an @import never loads here (mid-sheet, and the CSP loads no
-# style file), so inline it where the import stood.
-cat "$SRC/acpmux/changes/git.css" >> "$WORK/styles.css"
-grep -v '^@import ' "$SRC/acpmux/changes/changes.css" >> "$WORK/styles.css"
-cat "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/composerLocation.css" "$SRC/acpmux/savedEnvironments.css" "$SRC/acpmux/bottomStack.css" "$SRC/acpmux/composerAttachments.css" "$SRC/acpmux/composer/dropOverlay.css" "$SRC/acpmux/markdownField.css" \
-  "$SRC/acpmux/modelPicker.css" "$SRC/acpmux/keys.css" "$SRC/acpmux/summary/summary.css" "$SRC/acpmux/subagents/subagents.css" "$SRC/acpmux/header/header.css" "$SRC/acpmux/needsYou/needsYou.css" "$SRC/acpmux/newtab/screen.css" "$SRC/acpmux/newtab/history.css" "$SRC/acpmux/threadMinimap/threadMinimap.css" >> "$WORK/styles.css"
-cat "$SRC/acpmux/turnChanges/turnChanges.css" "$SRC/acpmux/Inspector.css" "$SRC/acpmux/inspector/inspector.css" "$SRC/acpmux/inspector/ContextSection.css" "$SRC/acpmux/dictation.css" >> "$WORK/styles.css"
-cat "$SRC/acpmux/addProject.css" "$SRC/acpmux/harnesses/harnesses.css" "$SRC/acpmux/replay/replay.css" "$SRC/acpmux/offer/suggestedTasks.css" "$SRC/acpmux/started/startedSessions.css" "$SRC/acpmux/started/sessionHover.css" "$SRC/acpmux/conversation/SubsessionCallCard.css" "$SRC/acpmux/conversation/AgentMessageRow.css" "$ROOT/webviews/src/markdown-task-checkbox.css" >> "$WORK/styles.css"
+# The page's <style>: every sheet in that list, in its order (desktop.css first, R139: chrome never
+# selects, so Cmd-A highlights only fields and `.selectable` content). A sheet's @import of a
+# sibling never loads here (mid-sheet, and the CSP loads no style file); the list carries the
+# sibling ahead of it (git.css before changes.css), so the line is dropped. Tailwind's entry is
+# compiled over the pane's sources and goes last (below), not as written.
+TAILWIND=src/agent-session/acpmux/tailwind.css
+SIBLING_IMPORT='s/^[ \t]*\@import\s+["\x27]\.\.?\/[^"\x27]+\.css["\x27];[ \t]*(?:\n|\z)//mgi'
+[ -s "$WORK/sheets" ] || { echo "error: bundle.mjs listed no stylesheets for the agent pane" >&2; exit 1; }
+: > "$WORK/styles.css"
+while IFS= read -r sheet; do
+  [ "$sheet" = "$TAILWIND" ] && continue
+  perl -0777 -pe "$SIBLING_IMPORT" "$ROOT/webviews/$sheet" >> "$WORK/styles.css"
+done < "$WORK/sheets"
 # Every sheet the pane imports ships: a missing one renders its component unstyled in the app
 # only (the dev server loads imports), as New Tab's tools did.
 while IFS= read -r sheet; do
+  [ "$sheet" = "$TAILWIND" ] && continue
+  perl -0777 -pe "$SIBLING_IMPORT" "$ROOT/webviews/$sheet" > "$WORK/sheet.css"
   perl -0777 -e 'open my $all, "<", shift or die; open my $one, "<", shift or die; exit(index(<$all>, <$one>) < 0)' \
-    "$WORK/styles.css" "$ROOT/webviews/$sheet" && continue
-  echo "error: the agent pane imports webviews/$sheet but build-agent-pane-web.sh does not add it to the page's styles" >&2
+    "$WORK/styles.css" "$WORK/sheet.css" && continue
+  echo "error: the agent pane imports webviews/$sheet but its rules are missing from the page's styles" >&2
   exit 1
-done < "$WORK/imported-sheets"
-if grep -n '^@import ' "$WORK/styles.css" >&2; then
-  echo "error: an @import reached the agent pane's styles, where it never loads; inline the sheet in build-agent-pane-web.sh" >&2
+done < "$WORK/sheets"
+# Any other @import (with a media or layer condition, mid-line, in any letter case: CSS keywords
+# ignore case) is left in place, where the browser drops it: refuse it, outside comments.
+if perl -0777 -ne 's{/\*.*?\*/}{}gs; exit(/\@import\b/i ? 0 : 1)' "$WORK/styles.css"; then
+  echo "error: an @import reached the agent pane's styles, where it never loads; import the sheet from a module (acpmux/pageStyles.ts) instead" >&2
   exit 1
 fi
 # Tailwind utilities last (acpmux/tailwind.css): compiled over the classes the pane's sources use.
-bun scripts/agent-pane/tailwind-css.mjs "$SRC/acpmux/tailwind.css" >> "$WORK/styles.css"
+bun scripts/agent-pane/tailwind-css.mjs "$ROOT/webviews/$TAILWIND" >> "$WORK/styles.css"
 
 # Same-origin script files only (no inline script, no eval; WebAssembly compiles for Ondine's Mermaid diagrams) and inline style. No connection of its own: the
 # host's native transport (AgentPaneTransport) carries acpmux. No remote loads. Frames show only loopback web
