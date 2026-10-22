@@ -45,12 +45,19 @@ import WebKit
 /// far. Check those (or `debug.toast`) instead of looking for the toast in
 /// the PNG.
 enum DebugWindowSnapshot {
-    /// The control route, `debug.window_snapshot`.
+    /// How long `debug.window_snapshot` may take, instead of the 2 s control-plane deadline. The
+    /// capture runs on the main actor and takes about 50 ms once it runs, but on a capture mini
+    /// that also runs builds and tests, or while the app is still launching, the wait for the
+    /// main actor alone passed 2 s: the snapshot timed out and the capture had no still. Its
+    /// callers wait 10 to 90 s (pr-capture's driver 30 s).
+    static let deadline: Duration = .seconds(30)
+
+    /// The control route, `debug.window_snapshot`, with its own ``deadline``.
     static func controlMethod(services: AppServices) -> ControlMethod {
         .async("debug.window_snapshot") { [weak services] call in
             guard let services = await MainActor.run(body: { services }) else { return .null }
             return await captureAsync(call.params, services: services)
-        }
+        }.withDeadline(.fixed(deadline))
     }
 
     @MainActor
