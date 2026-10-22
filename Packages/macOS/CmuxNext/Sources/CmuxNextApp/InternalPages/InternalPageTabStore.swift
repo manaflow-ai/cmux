@@ -63,10 +63,13 @@ final class InternalPageTabStore {
     /// Adds a tab of `page` to `paneKey`'s strip after `after` (else at the
     /// end) and returns its id: `key` when the provider made it first (so it
     /// can hold the tab's state before the view exists), else a new one.
+    /// A pane in a dock that takes no tabs (the Home dock, ``DockTabHost``)
+    /// gets no tab: the id comes back, and no strip lists it (u9415).
     @discardableResult
     func open(_ page: InternalPageID, in paneKey: String, of store: DaemonStore, after: String? = nil,
               window: WindowController? = nil, key: String? = nil) -> String {
         let key = key.flatMap { LocalPageTab.page(of: $0) == page ? $0 : nil } ?? LocalPageTab.makeKey(page)
+        if Self.takesNoTabs(paneKey, in: store) { return key }
         var tabs = tabsByPane[paneKey] ?? []
         if let after, let index = tabs.firstIndex(of: after) {
             tabs.insert(key, at: index + 1)
@@ -81,6 +84,12 @@ final class InternalPageTabStore {
     }
 
     func tabIDs(in paneKey: String) -> [String] { tabsByPane[paneKey] ?? [] }
+
+    /// Whether pane `paneKey` of `store` is in a dock that takes no tabs (``DockTabHost``).
+    static func takesNoTabs(_ paneKey: String, in store: DaemonStore) -> Bool {
+        let pane = store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).first { $0.id == paneKey }
+        return pane.map { store.tabHost(for: $0.handle) != .takesTabs } ?? false
+    }
 
     /// The first tab of `page` among `paneKeys`, with its pane.
     func tab(of page: InternalPageID, inPanes paneKeys: some Sequence<String>) -> (pane: String, key: String)? {
@@ -189,6 +198,8 @@ final class InternalPageTabStore {
     func openStoreTab(_ page: InternalPageID, in pane: PaneController, window: WindowController,
                       focus: Bool, key given: String? = nil,
                       created onCreated: (@MainActor (SurfaceID) -> Void)? = nil) -> InternalPageView? {
+        // The Home dock takes no tab: the page opens beside it (u9415).
+        let pane = pane.daemonTabHost
         let daemon = pane.daemon, store = daemon.store
         guard let provider = providers[page], daemon.supports(DaemonCapabilities.shared.pageTabs),
               case .connected = store.connectionState else { return nil }

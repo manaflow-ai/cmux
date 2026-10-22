@@ -227,6 +227,8 @@ final class FilePageService: InternalPageProvider {
     /// tab that already shows the file, or a local tab no move can take, shows where it is.
     private func show(in pane: PaneController, focus: Bool, placed: (@MainActor (SurfaceID) -> Void)? = nil, _ tab: Tab,
                       matching: (String) -> Bool) -> String {
+        // The Home dock takes no tab: the page opens beside it (u9415).
+        let pane = pane.daemonTabHost
         let window = services.windowController(showing: pane)
         let revealsExisting = focus || placed != nil
         for candidate in window?.content?.panes.values.map({ $0 }) ?? [pane] {

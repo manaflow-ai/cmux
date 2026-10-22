@@ -136,6 +136,11 @@ struct PaneBrowserTabOpener {
             return false
         }
         child?.close()  // Session-local tabs are WebKit pages made on demand.
+        // Only the app holds a session-local tab: none enters the Home dock (u9415).
+        guard !controller.takesNoTabs else {
+            services.registry.refuse(RefusalStrings.dockTakesNoTabs)
+            return false
+        }
         let local = LocalBrowserTab.make(url: url)
         // Another machine's workspace: the tab is this Mac's; its page says so.
         if !controller.daemon.isLocal, !onMachine {

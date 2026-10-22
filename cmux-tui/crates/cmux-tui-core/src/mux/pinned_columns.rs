@@ -192,3 +192,98 @@ pub(crate) fn lone_pinned_dock_taking_no_tabs(state: &State, pane: PaneId) -> bo
             .flat_map(|screen| screen.layout_columns.iter())
             .any(|column| column.root.contains(pane) && column.dock.is_some_and(|f| !f.allow_tabs))
 }
+
+/// Where a new tab asked for in `pane` goes when `pane` is in a pinned
+/// column that takes no tabs (the Home dock, u9415): the pane of its screen
+/// outside every such column and outside the left chat dock that has the
+/// screen's focus, else the one focused most recently, then layout order.
+/// `None` when `pane` takes tabs, or when the dock has nothing beside it (a
+/// lone dock: a browser tab opens a new column right of it, anything else is
+/// refused by [`ensure_pane_takes_tabs`]). Every tab creation that names a
+/// pane runs through this before its commit, so the dock never holds a tab
+/// it did not start with, whichever client or command asked.
+pub(crate) fn right_pane_beside_pinned_dock(state: &State, pane: PaneId) -> Option<PaneId> {
+    let takes_no_tabs = |dock: &Option<crate::model::ColumnDock>| {
+        dock.is_some_and(|flag| flag.pinned && !flag.allow_tabs)
+    };
+    let screen = state
+        .workspaces
+        .iter()
+        .flat_map(|workspace| workspace.screens.iter())
+        .find(|screen| screen.layout_columns.iter().any(|column| column.root.contains(pane)))?;
+    let column = screen.layout_columns.iter().find(|column| column.root.contains(pane))?;
+    if !takes_no_tabs(&column.dock) {
+        return None;
+    }
+    let left_chat = |dock: &Option<crate::model::ColumnDock>| {
+        dock.is_some_and(|flag| {
+            flag.role == Some(crate::model::DockRole::AgentChat)
+                || flag.edge == crate::model::DockEdge::Left
+        })
+    };
+    let excluded = screen
+        .layout_columns
+        .iter()
+        .filter(|column| takes_no_tabs(&column.dock) || left_chat(&column.dock))
+        .flat_map(|column| column.root.pane_ids_vec())
+        .collect::<HashSet<_>>();
+    let mut right = screen
+        .root
+        .pane_ids_vec()
+        .into_iter()
+        .filter(|candidate| !excluded.contains(candidate))
+        .filter_map(|candidate| Some((candidate, state.panes.get(&candidate)?)))
+        .collect::<Vec<_>>();
+    // Stable: equal recency keeps the layout order.
+    right.sort_by_key(|(id, pane)| {
+        (std::cmp::Reverse(*id == screen.active_pane), std::cmp::Reverse(pane.focused_at))
+    });
+    right.first().map(|(id, _)| *id)
+}
+
+impl Mux {
+    /// The pane a tab creation with `selectors` goes to instead of the pane
+    /// it resolves to (the named pane, else the named screen's or
+    /// workspace's focused pane) when that pane is in a pinned column that
+    /// takes no tabs: [`right_pane_beside_pinned_dock`]. `None` keeps the
+    /// request as sent.
+    pub(crate) fn pane_beside_pinned_dock(
+        &self,
+        selectors: &crate::ResourceSelectors,
+    ) -> Option<PanePublicId> {
+        let target = if selectors.pane.is_some() {
+            crate::ResourceTarget::Pane
+        } else if selectors.screen.is_some() {
+            crate::ResourceTarget::Screen
+        } else if selectors.workspace.is_some() {
+            crate::ResourceTarget::Workspace
+        } else {
+            return None;
+        };
+        let path = self.resolve_resource_path(target, selectors).ok()?;
+        self.with_state(|state| {
+            let pane = match (&path.pane, &path.screen, &path.workspace) {
+                (Some(pane), _, _) => state.pane_by_public_id(pane)?.id,
+                (None, Some(screen), _) => {
+                    state
+                        .workspaces
+                        .iter()
+                        .flat_map(|workspace| workspace.screens.iter())
+                        .find(|candidate| candidate.public_id == *screen)?
+                        .active_pane
+                }
+                (None, None, Some(workspace)) => {
+                    state
+                        .workspaces
+                        .iter()
+                        .find(|candidate| candidate.public_id == *workspace)?
+                        .active_screen_ref()?
+                        .active_pane
+                }
+                _ => return None,
+            };
+            let beside = right_pane_beside_pinned_dock(state, pane)?;
+            state.resource_indexes.pane_ids.get(&beside).cloned()
+        })
+    }
+}

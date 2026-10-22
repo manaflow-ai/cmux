@@ -29873,6 +29873,137 @@
           }
         }
       }
+    },
+    "handlers.refusal.dockTakesNoTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home's column takes no other tabs. Open it beside Home."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يقبل عمود الصفحة الرئيسية علامات تبويب أخرى. افتحها بجانب الصفحة الرئيسية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kolona početne stranice ne prima druge kartice. Otvorite je pored početne stranice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hjems kolonne tager ingen andre faner. Åbn den ved siden af Hjem."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Spalte von Home nimmt keine anderen Tabs auf. Öffne ihn neben Home."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La columna de Inicio no admite otras pestañas. Ábrela junto a Inicio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La colonne de l'Accueil n'accepte pas d'autres onglets. Ouvrez-le à côté de l'Accueil."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La colonna della Home non accetta altre schede. Aprila accanto alla Home."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームの列にはほかのタブを追加できません。ホームの横で開いてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជួរឈររបស់ទំព័រដើមមិនទទួលផ្ទាំងផ្សេងទៀតទេ។ សូមបើកវានៅក្បែរទំព័រដើម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "홈 열에는 다른 탭을 넣을 수 없습니다. 홈 옆에서 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hjem-kolonnen tar ikke andre faner. Åpne den ved siden av Hjem."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kolumna strony głównej nie przyjmuje innych kart. Otwórz ją obok strony głównej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A coluna do Início não aceita outras abas. Abra ao lado do Início."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Столбец «Главной» не принимает другие вкладки. Откройте её рядом с «Главной»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คอลัมน์ของหน้าแรกไม่รับแท็บอื่น เปิดไว้ข้างหน้าแรกแทน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ana Sayfa sütunu başka sekme almaz. Ana Sayfa'nın yanında açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стовпець «Головної» не приймає інших вкладок. Відкрийте її поруч із «Головною»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cột của Trang chủ không nhận tab khác. Hãy mở bên cạnh Trang chủ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主页的列不接受其他标签页。请在主页旁边打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "首頁的欄不接受其他分頁。請在首頁旁邊開啟。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
