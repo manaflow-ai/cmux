@@ -30,7 +30,6 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     public static let maximumAge: TimeInterval = 24 * 60 * 60
     static let maximumEntries = 64
     static let maximumParamsBytes = 8 << 20
-    static let maximumRemembered = 256
     static let fileName = "agent-pane-unsent-prompts.json"
 
     /// The app's journal: `<Application Support>/<bundle id>/agent-pane-unsent-prompts.json`. Nil
@@ -76,9 +75,10 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         var holders: [String: Holder] = [:]
         /// Connections that ended: they record and claim nothing more.
         var ended: Set<UUID> = []
-        /// The daemon and promptId of each prompt the relay sent in this run, oldest first (at
-        /// most ``maximumRemembered``; never on disk).
-        var sent: [String] = []
+        /// The daemon and promptId of each prompt the relay sent in this run (never on disk). Never
+        /// trimmed: a failed row keeps its Retry for the whole run, and a forgotten id would go
+        /// unmarked. One person's prompts in one run stay small.
+        var sent: Set<String> = []
         var generation = 0
     }
 
@@ -124,13 +124,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     /// Notes that the relay sends prompt `promptId` to `daemon`. True when it sent that id there
     /// before in this run: the pane's Retry, which goes as a resend.
     func sendsAgain(daemon: String, promptId: String) -> Bool {
-        state.withLock { state in
-            let key = Self.key(daemon, promptId)
-            if state.sent.contains(key) { return true }
-            state.sent.append(key)
-            if state.sent.count > Self.maximumRemembered { state.sent.removeFirst() }
-            return false
-        }
+        state.withLock { !$0.sent.insert(Self.key(daemon, promptId)).inserted }
     }
 
     /// acpmux acknowledged or answered the prompt, or it never went: it is not sent again. On disk
