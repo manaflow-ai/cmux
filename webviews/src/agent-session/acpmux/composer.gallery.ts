@@ -935,23 +935,12 @@ export default agentPaneEntry({
       },
     },
     "queued-paused": {
-      note: 'A turn failed with prompts queued: the note names the turn\'s error, and they wait, in order, until Resume (never "Sends after this turn"). A prompt sent meanwhile runs now.',
+      note: "A turn failed with prompts queued: they wait, in order, until Resume. A prompt sent meanwhile runs now.",
       snapshot: (() => {
         const failed = steering(true);
         return {
           ...failed,
           isWorking: false,
-          rows: [
-            ...failed.rows,
-            {
-              id: "summary-failed",
-              version: 1,
-              at: 1,
-              kind: "turnSummary",
-              status: "failed",
-              error: "429 Too Many Requests: the account is rate limited",
-            },
-          ],
           summary: { ...failed.summary!, status: "ready", queuePaused: true },
           queue: waiting,
         };

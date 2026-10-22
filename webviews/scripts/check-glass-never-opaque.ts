@@ -27,8 +27,8 @@ const HOST_SOLID = /^--cmux-(?:.*solid.*|popup-surface)$/;
 const NAMED_TRANSLUCENT = new Set(["transparent"]);
 const NAMED_UNKNOWN = new Set(["currentcolor", "inherit", "initial", "unset", "revert", "none"]);
 
-type Kind = "opaque" | "translucent" | "unknown";
-interface Block {
+export type Kind = "opaque" | "translucent" | "unknown";
+export interface Block {
   file: string;
   line: number;
   selector: string;
@@ -219,20 +219,29 @@ function blurs(block: Block): boolean {
   );
 }
 
-/** Every glass fill under src/ that is opaque, as `file:line: selector { prop: value }`. */
-export function findOpaqueGlass(srcDir: string = SRC): string[] {
+/** Every rule under srcDir outside Reduce Transparency; loads the tokens they define for fillKind. */
+export function glassContextRules(srcDir: string = SRC): Block[] {
   const parsed = cssFiles(srcDir).flatMap((file) => parse(relative(srcDir, file), readFileSync(file, "utf8")));
+  const rules = parsed.filter((block) => !inReduce(block));
   tokens = new Map();
-  for (const block of parsed) {
-    if (inReduce(block)) continue;
+  for (const block of rules) {
     for (const d of block.decls) {
       if (!d.prop.startsWith("--")) continue;
       tokens.set(d.prop, [...(tokens.get(d.prop) ?? []), d.value]);
     }
   }
+  return rules;
+}
+
+/** What a fill provably is, resolving tokens from the last glassContextRules() call. */
+export function fillKind(value: string): Kind {
+  return classify(value);
+}
+
+/** Every glass fill under src/ that is opaque, as `file:line: selector { prop: value }`. */
+export function findOpaqueGlass(srcDir: string = SRC): string[] {
   const found: string[] = [];
-  for (const block of parsed) {
-    if (inReduce(block)) continue;
+  for (const block of glassContextRules(srcDir)) {
     // Glass: a blur, or a class named glass (`.sa-glass`).
     const glass = blurs(block) || /\.[\w-]*glass[\w-]*/i.test(block.selector);
     for (const d of block.decls) {

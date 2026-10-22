@@ -24,9 +24,7 @@
     "zod": "4.6.2"
   },
   "overrides": {
-    "esbuild": "0.28.1",
-    "sharp": "0.35.5",
-    "undici": "7.29.1"
+    "esbuild": "0.28.1"
   },
   "devDependencies": {
     "@types/bun": "1.4.2",

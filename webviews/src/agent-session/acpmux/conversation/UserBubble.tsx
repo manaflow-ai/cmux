@@ -62,15 +62,11 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   return (
     <>
       {row.images && row.images.length > 0 && <SentImages images={row.images} />}
-      {/* No text to read draws no bubble: a prompt of images alone is its images (an empty glass
-          bubble under them read as a lost message; Leo 2026-10-21). */}
-      {text.trim() && (
-        <div className="ui-glass cv-user__bubble selectable">
-          <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
-          {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
-          {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
-        </div>
-      )}
+      <div className="ui-glass cv-user__bubble selectable">
+        <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
+        {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
+        {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
+      </div>
       {text && !row.failed && !row.queued && (
         <div className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}>
           {branch && branches && (
