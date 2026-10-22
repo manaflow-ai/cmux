@@ -5,6 +5,7 @@ import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileLive
 import CmuxMobileModel
+import CmuxMobileNotifications
 import CmuxMobileTransport
 import CmuxMobileOnboarding
 import CmuxMobileSettings
@@ -276,8 +277,10 @@ public struct RootView: View {
             accountUserID = nil
         }
         store.resetForSignOut()
-        // No account's chat text stays for notification previews.
+        // No account's chat text stays for notification previews, and no reply or photo waits (review L4).
         PushSnapshots().removeAll()
+        PushOutbox(group: .current())?.removeAll()
+        PushRetryStore.app?.removeAll()
         welcomeCut = false
         log.info("signed out: account state reset, device identity kept")
     }
@@ -426,8 +429,9 @@ struct ShellView: View {
         // Notification taps: open now, or once the Mac's tree places the tab.
         .onChange(of: NotificationRouter.shared.pending, initial: true) { _, route in
             guard let route else { return }
-            if shell.open(route) { NotificationRouter.shared.pending = nil }
+            if shell.open(route) { NotificationRouter.shared.opened() }
         }
+        .modifier(NotificationRouteObserver(shell: shell))
         // Design/terminal P10: remember where the user is; finish a launch
         // restore once the workspace is listed (or its Mac says it is gone).
         // Back to the workspace and tab that were open (P10), once, on the
@@ -447,7 +451,7 @@ struct ShellView: View {
         .onChange(of: shell.store.macData) { _, _ in
             shell.continueRestore()
             // Its Mac answered or went away: open the route, or the Feed.
-            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.pending = nil }
+            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
         }
         .onChange(of: shell.live?.workspaces.tree?.surfaces ?? [:]) { _, _ in
             shell.terminalTabs.liveDataChanged()
@@ -457,7 +461,7 @@ struct ShellView: View {
             // restore) attaches now (design/terminal R1-0).
             shell.terminalTabs.liveDataChanged()
             // A tapped notification waits for its Mac's tree (a cold launch), then opens.
-            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.pending = nil }
+            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
         }
         .onChange(of: pushKinds, initial: true) { _, preferences in
             PushRegistration.shared.setPreferences(preferences)
@@ -480,6 +484,23 @@ struct ShellView: View {
             await DebugLaunch.run(selectTab: { shell.tab = $0 })
             #endif
         }
+    }
+}
+
+/// A tapped notification's route that waits (review #4): opened as the Feed
+/// once its budget ends, dropped when the person goes elsewhere. Its own
+/// modifier, so ShellView's chain stays small enough to type-check.
+private struct NotificationRouteObserver: ViewModifier {
+    let shell: ShellModel
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: NotificationRouter.shared.expired) { _, _ in
+                if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
+            }
+            .onChange(of: shell.tab) { _, tab in
+                if tab != .feed { NotificationRouter.shared.userNavigated() }
+            }
     }
 }
 

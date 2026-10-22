@@ -66,6 +66,7 @@ public struct PushOutbox: Sendable {
 
     /// Every waiting reply, oldest first; expired and unreadable ones are deleted.
     public func all(now: Date = Date()) -> [PushReply] {
+        pruneAttachments(now: now)
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return [] }
         var out: [PushReply] = []
         for name in names where name.hasSuffix(".json") {
@@ -84,8 +85,66 @@ public struct PushOutbox: Sendable {
         all(now: now).compactMap { take($0.id) }
     }
 
+    /// Deletes the named attachments (after their reply was sent). A name that
+    /// is not a plain file name is ignored.
+    public func removeAttachments(_ names: [String]) {
+        for name in names where (name as NSString).lastPathComponent == name && !name.hasPrefix(".") {
+            try? FileManager.default.removeItem(at: attachments.appendingPathComponent(name))
+        }
+    }
+
+    /// Deletes attachments older than `maxAge` (their reply expired unsent).
+    public func pruneAttachments(now: Date = Date()) {
+        let keys: [URLResourceKey] = [.contentModificationDateKey]
+        guard let files = try? FileManager.default.contentsOfDirectory(at: attachments, includingPropertiesForKeys: keys) else { return }
+        for url in files {
+            let date = (try? url.resourceValues(forKeys: Set(keys)).contentModificationDate) ?? .distantPast
+            if now.timeIntervalSince(date) >= Self.maxAge { try? FileManager.default.removeItem(at: url) }
+        }
+    }
+
+    /// Sign-out: every waiting reply and attachment.
+    public func removeAll() {
+        try? FileManager.default.removeItem(at: directory)
+    }
+
     static func read(_ url: URL) -> PushReply? {
         (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(PushReply.self, from: $0) }
+    }
+}
+
+/// Replies a "Couldn't reach" notification retries, in the app's own
+/// container (never the App Group): the notification carries only the id
+/// (`PushReply.retryUserInfo`), and a retry is taken only for a notification
+/// the app posted itself (PR #24156 review H1).
+public struct PushRetryStore: Sendable {
+    let outbox: PushOutbox
+
+    public init(directory: URL) {
+        outbox = PushOutbox(directory: directory)
+    }
+
+    /// `Application Support/PushRetries` of the running app.
+    public static var app: PushRetryStore? {
+        guard let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
+        return PushRetryStore(directory: base.appendingPathComponent("PushRetries", isDirectory: true))
+    }
+
+    public func put(_ reply: PushReply) throws {
+        try outbox.put(reply)
+    }
+
+    /// The reply a notification response retries: only for a local
+    /// notification (`fromPush` false), taken once, and only while fresh.
+    public func resolve(userInfo: [AnyHashable: Any], fromPush: Bool, now: Date = Date()) -> PushReply? {
+        guard !fromPush, let text = userInfo[PushReply.retryIDKey] as? String, let id = UUID(uuidString: text),
+              let reply = outbox.take(id), now.timeIntervalSince(reply.createdAt) < PushOutbox.maxAge else { return nil }
+        return reply
+    }
+
+    /// Sign-out.
+    public func removeAll() {
+        outbox.removeAll()
     }
 }
 

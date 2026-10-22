@@ -105,7 +105,7 @@ import Testing
         PushReply(mac: "m", kind: .question, sessionId: "s", permissionId: "q1", action: action)
     }
 
-    func chosen(_ plan: PushReplyPlan) throws -> JSONValue? {
+    func chosen(_ plan: PushReplyPlan) throws -> AgentQuestionJSON? {
         guard case .answer(let question, let answer) = plan else { return nil }
         return try question.reply(answer).answers
     }

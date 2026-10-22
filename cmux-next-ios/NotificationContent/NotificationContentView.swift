@@ -32,7 +32,8 @@ final class NotificationContentModel {
         let markerDirectory = group?.directory ?? FileManager.default.temporaryDirectory
         let unlocked = PushProtectedMarker(directory: markerDirectory).isUnlocked()
         showsContent = PushForm.showsContent(previews: payload?.previews ?? true, unlocked: unlocked)
-        if showsContent, let payload, let mac = payload.mac, let session = payload.sessionId {
+        // The saved chat holds the person's own messages: only while unlocked (review L1).
+        if showsContent, PushForm.loadsSnapshot(unlocked: unlocked), let payload, let mac = payload.mac, let session = payload.sessionId {
             snapshot = PushSnapshotStore(group: group)?.load(mac: mac, session: session)
         }
     }

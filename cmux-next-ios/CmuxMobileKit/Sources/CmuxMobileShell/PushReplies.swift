@@ -59,24 +59,54 @@ public final class PushReplies {
     @ObservationIgnored private weak var live: LiveCoordinator?
     /// Foreground replies waiting for the app to be active, unlocked and live.
     private(set) var waiting: [PushReply] = []
-    /// Whether a headless coordinator is delivering now.
+    /// Background deliveries in flight on the headless coordinator (one at a
+    /// time, review #8): it stops when the last one ends.
     private(set) var headlessRunning = false
+    @ObservationIgnored private var headlessCount = 0
+    @ObservationIgnored private var headlessCoordinator: LiveCoordinator?
     @ObservationIgnored private var draining = false
+    /// The first drain after a cold attach waits as long as a cold launch does (review #7).
+    @ObservationIgnored private var coldAttach = true
+    @ObservationIgnored private var activeObserver: NSObjectProtocol?
+    /// Settings → Require Face ID: Reply and Deny open the app (review L2).
+    @ObservationIgnored private(set) var requireFaceID = PushActions(defaults: PushReplies.preferences).requireFaceID
+    /// Retries of "Couldn't reach" in the app's own storage (review H1).
+    @ObservationIgnored let retries = PushRetryStore.app
 
     /// How long a cold background launch waits for sign-in, the team and the link.
     static let coldBudget: Duration = .seconds(12)
 
-    init() {}
+    init() {
+        // The app coming back retries what waited (review #2), also when no scene modifier saw it.
+        activeObserver = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil,
+                                                                queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.drainOutbox() }
+        }
+    }
+
+    /// Where the Require Face ID choice is shared with the content extension.
+    static var preferences: UserDefaults? { PushActions.sharedDefaults(.current()) ?? .standard }
 
     /// Registers every category (at launch, before any notification can arrive).
     public func registerCategories(center: UNUserNotificationCenter = .current()) {
-        center.setNotificationCategories(PushActions().categories)
+        center.setNotificationCategories(PushActions(requireFaceID: requireFaceID).categories)
     }
 
-    /// RootView's coordinator is live: send what waited for it.
+    /// Settings → Require Face ID changed (AppLock): the buttons follow it.
+    func setRequireFaceID(_ on: Bool) {
+        PushActions.setRequireFaceID(on, defaults: Self.preferences)
+        guard on != requireFaceID else { return }
+        requireFaceID = on
+        // Only an app has a notification center (a test host has none, and asking it throws).
+        guard Bundle.main.bundleURL.pathExtension == "app" else { return }
+        registerCategories()
+    }
+
+    /// RootView's coordinator is live: send what waited for it, and what the
+    /// content extension left while the app was not running (review #2).
     func attach(live: LiveCoordinator) {
         self.live = live
-        drain()
+        drainOutbox()
     }
 
     /// Waits for a headless delivery to end (RootView calls it before it
@@ -102,6 +132,15 @@ public final class PushReplies {
             self.payload = payload
             self.retry = retry
         }
+
+        /// What a notification response says. A retry comes only from the
+        /// app's own store and only for a notification the app posted itself:
+        /// a remote push never carries a reply (review H1).
+        public init(actionIdentifier: String, text: String?, userInfo: [AnyHashable: Any], fromPush: Bool, retries: PushRetryStore?) {
+            self.init(actionIdentifier: actionIdentifier, text: text,
+                      payload: PushPayload(userInfo: userInfo),
+                      retry: retries?.resolve(userInfo: userInfo, fromPush: fromPush))
+        }
     }
 
     /// What a response does (pure, tested).
@@ -112,7 +151,7 @@ public final class PushReplies {
         case background(PushReply)
     }
 
-    static func outcome(_ response: Response) -> Outcome {
+    static func outcome(_ response: Response, requireFaceID: Bool = false) -> Outcome {
         let identifier = response.actionIdentifier
         if let retry = response.retry {
             // "Couldn't reach" → Retry, or a tap on it: send again in the foreground.
@@ -122,17 +161,18 @@ public final class PushReplies {
         if identifier == UNNotificationDefaultActionIdentifier { return .open(payload) }
         guard let button = PushAction(identifier: identifier) else { return .nothing }
         if button == .answer { return .open(payload) }
+        let opensApp = PushActions(requireFaceID: requireFaceID).opensApp(button)
         guard let reply = PushReply(payload: payload, button: button, text: response.text) else {
-            return button.opensApp ? .open(payload) : .nothing
+            return opensApp ? .open(payload) : .nothing
         }
-        return button.opensApp ? .foreground(reply, open: payload) : .background(reply)
+        return opensApp ? .foreground(reply, open: payload) : .background(reply)
     }
 
     /// One notification response (the app delegate). Returns once a
     /// background reply was delivered or failed: iOS keeps the app awake
     /// until the delegate returns.
     public func handle(_ response: Response) async {
-        switch Self.outcome(response) {
+        switch Self.outcome(response, requireFaceID: requireFaceID) {
         case .nothing:
             break
         case .open(let payload):
@@ -169,9 +209,11 @@ public final class PushReplies {
         draining = true
         let batch = waiting
         waiting = []
+        let budget = coldAttach ? Self.coldBudget : LiveCoordinator.pushReplyBudget
+        coldAttach = false
         Task {
             for reply in batch {
-                await self.send(reply, on: live, budget: LiveCoordinator.pushReplyBudget)
+                await self.send(reply, on: live, budget: budget)
             }
             self.draining = false
             self.drain()
@@ -186,14 +228,21 @@ public final class PushReplies {
             await send(reply, on: live, budget: LiveCoordinator.pushReplyBudget)
             return
         }
-        guard let coordinator = await headless() else {
-            await postCouldNotReach(reply, reason: String(localized: "Open cmux to sign in."))
-            return
-        }
+        // One headless coordinator for every reply of a cold launch (the hub keeps one socket per device).
+        headlessCount += 1
         headlessRunning = true
         defer {
-            coordinator.stop()
-            headlessRunning = false
+            headlessCount -= 1
+            if headlessCount == 0 {
+                headlessCoordinator?.stop()
+                headlessCoordinator = nil
+                headlessRunning = false
+            }
+        }
+        if headlessCoordinator == nil { headlessCoordinator = await headless() }
+        guard let coordinator = headlessCoordinator else {
+            await postCouldNotReach(reply, reason: String(localized: "Open cmux to sign in."))
+            return
         }
         await send(reply, on: coordinator, budget: Self.coldBudget)
     }
@@ -215,6 +264,8 @@ public final class PushReplies {
         do {
             try await live.deliver(reply, budget: budget)
             if let eventId = reply.eventId { clearDelivered(eventId: eventId) }
+            // Its photos leave the App Group once sent (review L4).
+            if case .text(_, let names) = reply.action, !names.isEmpty { PushOutbox(group: .current())?.removeAttachments(names) }
         } catch let failure as LiveCoordinator.PushReplyFailure {
             switch failure.reason {
             case .unreachable:
@@ -254,7 +305,13 @@ public final class PushReplies {
         content.threadIdentifier = reply.sessionId.map { "\(reply.mac):\($0)" } ?? reply.mac
         if retry {
             content.categoryIdentifier = PushCategory.retry.rawValue
-            content.userInfo = reply.userInfo
+            // Only the id: the reply stays in the app's own storage (review H1).
+            do {
+                try retries?.put(reply)
+                content.userInfo = reply.retryUserInfo
+            } catch {
+                log.error("push reply: retry not saved")
+            }
         }
         let request = UNNotificationRequest(identifier: "reply-\(reply.id.uuidString)", content: content, trigger: nil)
         try? await UNUserNotificationCenter.current().add(request)
