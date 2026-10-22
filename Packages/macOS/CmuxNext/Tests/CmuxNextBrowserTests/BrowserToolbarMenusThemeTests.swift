@@ -18,7 +18,11 @@ import Testing
             } else {
                 #expect(item.view?.subviews.first is NSSearchField, "\(name): \(item.title) is not themed")
             }
-            if let submenu = item.submenu { expectThemedWithIcons(submenu, "\(name) ▸ \(item.title)") }
+            // A submenu draws its rows as it opens.
+            if let submenu = item.submenu {
+                submenu.delegate?.menuNeedsUpdate?(submenu)
+                expectThemedWithIcons(submenu, "\(name) ▸ \(item.title)")
+            }
         }
     }
 

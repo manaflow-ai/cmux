@@ -138,12 +138,18 @@ public final class MenuNameField: NSTextField, NSTextFieldDelegate {
 }
 
 /// One row of color swatches; the current one is ringed in the label's ink, the hovered one in the
-/// menu scope's accent. VoiceOver offers each color as an action of the row.
+/// menu scope's accent. A row that can take the color away leads with a no-color swatch (a slashed
+/// ring). VoiceOver offers each choice as an action of the row and reads the current one as its value.
 public final class MenuSwatchStrip: NSView {
+    /// The swatches' menu rows, the no-color row first when there is one.
     private let choices: [NSMenuItem]
     /// Each choice's color; nil draws the scope's tertiary ink.
     private let colors: [GroupColor?]
     private let current: GroupColor?
+    /// Whether the first swatch is the no-color one.
+    private let leadsWithClear: Bool
+    /// Whether no color is current: the no-color swatch is ringed.
+    private let isCleared: Bool
     private var hovered: Int?
     /// The scope of the view whose menu this is (`themeRows(in:)`); nil until a themed menu hands it.
     private var menuScope: ThemeScope?
@@ -151,18 +157,24 @@ public final class MenuSwatchStrip: NSView {
 
     var naturalWidth: CGFloat { CGFloat(choices.count) * (Self.diameter + Self.gap) - Self.gap + 6 }
 
-    /// One swatch per choice, drawn in `colors` (same order); `current` is ringed.
-    public init(title: String, choices: [NSMenuItem], colors: [GroupColor?], current: GroupColor?) {
-        self.choices = choices
-        self.colors = colors
-        self.current = current
+    /// One swatch per choice, drawn in `colors` (same order); `current` is ringed. `clear`, when
+    /// given, is the row that removes the color: it leads as a no-color swatch, ringed when `isCleared`.
+    public init(title: String, choices: [NSMenuItem], colors: [GroupColor?], current: GroupColor?,
+                clear: NSMenuItem? = nil, isCleared: Bool = false) {
+        self.choices = (clear.map { [$0] } ?? []) + choices
+        self.colors = (clear == nil ? [] : [nil]) + colors
+        self.current = isCleared && clear != nil ? nil : current
+        leadsWithClear = clear != nil
+        self.isCleared = isCleared && clear != nil
         super.init(frame: NSRect(x: 0, y: 0, width: 0, height: Self.height))
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel(title)
-        setAccessibilityCustomActions(choices.indices.map { index in
-            NSAccessibilityCustomAction(name: choices[index].title) { [weak self] in
+        let chosen = self.isCleared ? 0 : self.colors.indices.first { self.colors[$0] != nil && self.colors[$0] == self.current }
+        if let chosen { setAccessibilityValue(self.choices[chosen].title) }
+        setAccessibilityCustomActions(self.choices.indices.map { index in
+            NSAccessibilityCustomAction(name: self.choices[index].title) { [weak self] in
                 self?.run(index)
                 return self != nil
             }
@@ -202,9 +214,14 @@ public final class MenuSwatchStrip: NSView {
         let hoverRing = hoverRingColor, unknown = unknownSwatchColor
         for (index, rect) in swatches.enumerated() {
             let color = colors.indices.contains(index) ? colors[index] : nil
-            (color?.markColor ?? unknown).setFill()
-            NSBezierPath(ovalIn: rect).fill()
-            let ringed = index == hovered ? hoverRing : color != nil && color == current ? NSColor.labelColor : nil
+            if leadsWithClear && index == 0 {
+                drawNoColor(in: rect, ink: unknown)
+            } else {
+                (color?.markColor ?? unknown).setFill()
+                NSBezierPath(ovalIn: rect).fill()
+            }
+            let current = leadsWithClear && index == 0 ? isCleared : color != nil && color == self.current
+            let ringed = index == hovered ? hoverRing : current ? NSColor.labelColor : nil
             if let ringed {
                 ringed.setStroke()
                 let ring = NSBezierPath(ovalIn: rect.insetBy(dx: -2.5, dy: -2.5))
@@ -212,6 +229,20 @@ public final class MenuSwatchStrip: NSView {
                 ring.stroke()
             }
         }
+    }
+
+    /// The no-color swatch: an empty ring crossed by a slash, in the scope's tertiary ink.
+    private func drawNoColor(in rect: NSRect, ink: NSColor) {
+        ink.setStroke()
+        let ring = NSBezierPath(ovalIn: rect.insetBy(dx: 0.75, dy: 0.75))
+        ring.lineWidth = 1.5
+        ring.stroke()
+        let slash = NSBezierPath()
+        let inset = rect.insetBy(dx: rect.width * 0.2, dy: rect.height * 0.2)
+        slash.move(to: NSPoint(x: inset.minX, y: inset.minY))
+        slash.line(to: NSPoint(x: inset.maxX, y: inset.maxY))
+        slash.lineWidth = 1.5
+        slash.stroke()
     }
 
     private func swatch(at event: NSEvent) -> Int? {

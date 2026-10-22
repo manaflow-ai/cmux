@@ -95,7 +95,13 @@ struct AgentPaneMenuLookTests {
     // MARK: Helpers
 
     private static func rows(of menu: NSMenu) -> [NSMenuItem] {
-        menu.items.filter { !$0.isSeparatorItem }.flatMap { [$0] + ($0.submenu.map(rows(of:)) ?? []) }
+        // A submenu draws its rows as it opens.
+        menu.items.filter { !$0.isSeparatorItem }.flatMap { item in
+            [item] + (item.submenu.map { submenu in
+                submenu.delegate?.menuNeedsUpdate?(submenu)
+                return rows(of: submenu)
+            } ?? [])
+        }
     }
 
     /// A press and release on the item's row.
