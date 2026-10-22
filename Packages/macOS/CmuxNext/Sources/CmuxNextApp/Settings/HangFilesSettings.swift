@@ -53,7 +53,8 @@ enum HangFileTunables {
     static func reveal(_ recorder: HangEpisodeRecorder?, path: String?) throws {
         guard let recorder else { throw PageError.invalidParams("hang files are off in this build") }
         guard let path else { return NSWorkspace.shared.revealInBackground([recorder.directory]) }
-        guard let entry = recorder.entries.first(where: { $0.url.path == path }) else {
+        // A listed file that is still a regular file in the hang folder (one lstat; never a symlink's target).
+        guard let entry = recorder.entries.first(where: { $0.url.path == path }), recorder.isHangFile(entry.url) else {
             throw PageError.invalidParams("not a listed hang file")
         }
         NSWorkspace.shared.revealInBackground([entry.url])

@@ -1,4 +1,5 @@
 @testable import CmuxNextControl
+import CmuxNextCompat
 import Foundation
 import Testing
 
@@ -72,7 +73,7 @@ struct HangEpisodeTrackerTests {
         #expect(text.contains("duration: at least 2.000 s"))
         #expect(text.contains("main thread (innermost first):"))
         #expect(text.contains("thread worker:"))
-        #expect(text.contains("executable uuid: "))
+        #expect(text.contains("executable: uuid "))
 
         recorder.update(beat: 4, duration: .milliseconds(3_456), ongoing: false)
         // Another beat's update (an episode that was never opened) changes nothing.
@@ -127,6 +128,60 @@ struct HangEpisodeTrackerTests {
         #expect(String(decoding: data, as: UTF8.self).hasSuffix("truncated to 2048 bytes\n"))
     }
 
+    /// Symbolication (`dladdr`, the loader lock) can block forever in a hang; the raw stack is on
+    /// disk first and the final duration still lands.
+    @Test func aStuckSymbolicatorDelaysNeitherTheFileNorItsFinalDuration() throws {
+        let directory = scratch()
+        let release = DispatchSemaphore(value: 0)
+        let recorder = HangEpisodeRecorder(directory: directory, symbolicate: { addresses in
+            // concurrency-allow: the recorder's symbol queue in a test, never the main thread; released below.
+            release.wait()
+            return addresses.map { _ in "symbolicated" }
+        })
+        defer {
+            release.signal()
+            recorder.drain()
+            try? FileManager.default.removeItem(at: directory)
+        }
+        recorder.begin(beat: 2, elapsed: .seconds(2), main: [0x1234, 0x5678], others: [])
+        recorder.update(beat: 2, duration: .milliseconds(2_500), ongoing: false)
+        recorder.drain(symbols: false)
+        let url = try #require(recorder.entries.first?.url)
+        let text = try String(contentsOf: url, encoding: .utf8)
+        #expect(text.contains("  0  0x1234\n  1  0x5678\n"), "raw addresses: \(text)")
+        #expect(text.contains("state: recovered"))
+        #expect(text.contains("duration: 2.500 s"))
+        #expect(text.contains("load address 0x"))
+        #expect(recorder.entries.first?.topFrames == ["0x1234", "0x5678"])
+    }
+
+    /// Only regular files in the folder are listed or read: a symlink to a hang file elsewhere is
+    /// skipped and never followed, and a file over the cap is not read.
+    @Test func ignoresSymlinksAndOversizedFiles() throws {
+        let directory = scratch()
+        let outside = scratch()
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+            try? FileManager.default.removeItem(at: outside)
+        }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let hang = "cmux main-thread hang\nstarted: 2026-10-22T00:42:10.123Z\nduration: 3.000 s\nstate: recovered\n"
+        let target = outside.appending(path: "secret.txt")
+        try hang.write(to: target, atomically: true, encoding: .utf8)
+        let link = directory.appending(path: "hang-2026-10-22T00-42-10.123Z.txt")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        let big = directory.appending(path: "hang-2026-10-21T00-00-00.000Z.txt")
+        try (hang + String(repeating: "x", count: 4_096)).write(to: big, atomically: true, encoding: .utf8)
+        let recorder = HangEpisodeRecorder(directory: directory, maxBytes: 2_048)
+        recorder.drain()
+        #expect(recorder.entries.isEmpty)
+        #expect(recorder.text(of: link) == nil)
+        #expect(!recorder.isHangFile(link))
+        #expect(recorder.text(of: big) == nil)
+        #expect(recorder.text(of: target) == nil, "outside the folder")
+    }
+
     @Test func writesNothingWhileTurnedOff() {
         let directory = scratch()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -136,5 +191,37 @@ struct HangEpisodeTrackerTests {
         recorder.drain()
         #expect(recorder.entries.isEmpty)
         #expect(files(in: directory).isEmpty)
+    }
+}
+
+/// The open episode's exact stall length: written only by that stall, kept until consumed.
+struct HangEpisodeCompletionTests {
+    @MainActor
+    @Test func aLaterShortStallDoesNotOverwriteTheEpisodesLength() {
+        let clock = ManualUptime()
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false), uptime: clock.read)
+        watchdog.heartbeat(.afterWaiting)
+        let beat = watchdog.beatSequence.load(ordering: .acquiring)
+        watchdog.openEpisode(beat: beat)
+        clock.advance(by: .seconds(3))
+        watchdog.heartbeat(.beforeWaiting) // the hang ends after 3 s
+        watchdog.heartbeat(.afterWaiting)
+        clock.advance(by: .milliseconds(200))
+        watchdog.heartbeat(.beforeWaiting) // a short stall before the watchdog thread looked
+        #expect(watchdog.closeEpisode(beat: beat, lastElapsedNanos: 2_000_000_000) == 3_000_000_000)
+        #expect(watchdog.closeEpisode(beat: beat, lastElapsedNanos: 2_000_000_000) == 2_000_000_000, "consumed once")
+    }
+
+    /// A stall that ended before the episode was published leaves the last length seen.
+    @MainActor
+    @Test func aStallEndingBeforeTheEpisodeOpenedFallsBackToTheLastLengthSeen() {
+        let clock = ManualUptime()
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false), uptime: clock.read)
+        watchdog.heartbeat(.afterWaiting)
+        let beat = watchdog.beatSequence.load(ordering: .acquiring)
+        clock.advance(by: .seconds(3))
+        watchdog.heartbeat(.beforeWaiting)
+        watchdog.openEpisode(beat: beat)
+        #expect(watchdog.closeEpisode(beat: beat, lastElapsedNanos: 2_100_000_000) == 2_100_000_000)
     }
 }

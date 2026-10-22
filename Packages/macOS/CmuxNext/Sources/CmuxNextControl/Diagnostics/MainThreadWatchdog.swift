@@ -98,9 +98,10 @@ public final class MainThreadWatchdog: Sendable {
     }
     private let stallSink = Mutex<(@Sendable (HangRecord) -> Void)?>(nil)
     let episodeSink = Mutex<HangEpisodeRecorder?>(nil) // ``episodes``
-    /// The last finished stall's exact length and the beat it began at. Nanos first, then beat (release).
-    let endedStallNanos = Atomic<UInt64>(0)
-    let endedStallBeat = Atomic<UInt64>(.max)
+    /// The open hang episode's beat (`.max`: none), and its stall's exact length once it ended,
+    /// written only by that stall (MainThreadWatchdog+Episodes.swift).
+    let episodeBeat = Atomic<UInt64>(.max)
+    let episodeEnd = Mutex<(beat: UInt64, nanos: UInt64)?>(nil)
     private let hangNanos: UInt64
     let hangIntervalNanos: UInt64
     private let hangAssertNanos: UInt64?
@@ -283,8 +284,7 @@ public final class MainThreadWatchdog: Sendable {
             // No symbolication here (main thread); `debug.hangs` resolves the stack.
             logger.error("main thread stalled \(record.duration.fractionalMilliseconds, format: .fixed(precision: 1)) ms (hang \(record.sequence), \(addresses.count) frames; see debug.hangs)")
         }
-        endedStallNanos.store(nanos, ordering: .relaxed)
-        endedStallBeat.store(beat, ordering: .releasing)
+        if episodeBeat.load(ordering: .acquiring) == beat { episodeEnd.withLock { $0 = (beat, nanos) } }
         stallSink.withLock { $0 }?(record)
     }
 
@@ -294,8 +294,8 @@ public final class MainThreadWatchdog: Sendable {
         var sampledBeat: UInt64 = .max
         var hang = HangState(episodes: HangEpisodeTracker(hangNanos: hangNanos))
         while running.load(ordering: .acquiring) {
-            closeRecoveredEpisode(&hang.episodes) // before this thread parks
             if mainAsleep.load(ordering: .acquiring) {
+                closeRecoveredEpisode(&hang.episodes) // seen asleep: an open hang ended; before parking
                 watchdogParked.store(true, ordering: .releasing)
                 // Re-check after publishing `parked`: the main thread may have woken in between.
                 if !mainAsleep.load(ordering: .acquiring),
