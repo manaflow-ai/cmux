@@ -592,7 +592,10 @@ fn a_daemon_under_a_hand_written_unit_moves_to_acpmux_service_with_its_agents() 
     let home = peer.home.join(".acpmux-supervised/hb");
     assert_eq!(
         peer.read(&format!("{UNITS}/acpmux.service.d/10-migrated.conf")),
-        format!("[Service]\nEnvironment=ACPMUX_HOME={}\n", home.display())
+        format!(
+            "[Service]\nEnvironment=ACPMUX_HOME={h}\nEnvironment=ACPMUX_SOCKET={h}/acpmux.sock\n",
+            h = home.display()
+        )
     );
     let started_with = peer.read("started-with");
     assert!(started_with.contains("MemoryMax=6G") && started_with.contains("ACPMUX_HOME="));
@@ -654,7 +657,10 @@ fn huge_blues_stale_binary_never_runs() {
     let home = peer.home.join(".acpmux-supervised/hb");
     assert_eq!(
         peer.read(&format!("{UNITS}/acpmux.service.d/10-migrated.conf")),
-        format!("[Service]\nEnvironment=ACPMUX_HOME={}\n", home.display())
+        format!(
+            "[Service]\nEnvironment=ACPMUX_HOME={h}\nEnvironment=ACPMUX_SOCKET={h}/acpmux.sock\n",
+            h = home.display()
+        )
     );
     assert!(peer.read("started-with").contains("MemoryHigh=5G"));
 
@@ -671,6 +677,20 @@ fn huge_blues_stale_binary_never_runs() {
         peer.read(&format!("{UNITS}/acpmux.service.d/10-migrated.conf")),
         format!("[Service]\nEnvironment=ACPMUX_HOME={linked}\n")
     );
+
+    // A drop-in of the unit's own with the carried settings' name would
+    // replace them: refused before anything changes.
+    let peer = FakePeer::new("stale-clash");
+    peer.under_foreign_unit(false);
+    peer.write(&format!("{UNITS}/{FOREIGN}.d/10-migrated.conf"), "[Service]\nNice=5\n");
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(true);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Failed, Some("unitSettings")),
+        "{up:?}"
+    );
+    peer.assert_untouched(&fake_acpmux(STALE, Some(STALE)), OLD);
 }
 
 #[test]
