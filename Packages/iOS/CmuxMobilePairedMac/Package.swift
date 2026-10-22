@@ -40,3 +40,15 @@ let package = Package(
         ),
     ]
 )
+
+#if os(Linux)
+// Apple SDKs ship the SQLite3 module; elsewhere it comes from the system library.
+package.targets.append(
+    .systemLibrary(
+        name: "SQLite3",
+        pkgConfig: "sqlite3",
+        providers: [.apt(["libsqlite3-dev"])]
+    )
+)
+package.targets.first { $0.name == "CmuxMobilePairedMac" }?.dependencies.append("SQLite3")
+#endif
