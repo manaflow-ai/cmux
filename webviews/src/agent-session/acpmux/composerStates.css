@@ -589,12 +589,22 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
    Under Plain glass the band used to be the tray tone at 60% with no blur; the tray is the text at 9%
    over a page that is transparent here, so the art showed through almost untouched and the "Queued"
    label and the prompts were hard to read (Leo 2026-10-21: "this is also maybe a little too...
-   glassy?"; queued-glass.test.ts). It is still glass, never opaque; Reduce Transparency keeps it
-   solid. */
+   glassy?"; queued-glass.test.ts). It is still glass, never opaque. Reduce Transparency makes it
+   the card's solid fill (--glass-opaque, the composer's solid surface): the tray is mixed over the
+   page, which is transparent over art, so without this the band stayed a 9% film under an opaque
+   card. */
 @media not (prefers-reduced-transparency: reduce) {
   :root[data-cmux-see-through]:not([data-reduce-transparency]) .acpmux-composer > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
     --acpmux-queue-fill: var(--glass-tint);
   }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-composer > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
+    --acpmux-queue-fill: var(--glass-opaque);
+  }
+}
+:root[data-reduce-transparency] .acpmux-composer > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
+  --acpmux-queue-fill: var(--glass-opaque);
 }
 .acpmux-queue-fold {
   height: 24px;
