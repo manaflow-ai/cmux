@@ -16,9 +16,9 @@ import { ThoughtRow } from "./ThoughtRow";
 import { toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun, toolRunCategory } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
-import { workedLabel } from "./turns";
+import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
 import { ChevronRight, Retry } from "./icons";
-import { ForkButton, MessageCopy, MessageTime, PinButton, ReadAloudButton } from "./MessageActions";
+import { ForkButton, MessageCopy, MessageTime, PinButton, ReadAloudButton, ROW_ICON } from "./MessageActions";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { useT } from "../i18n";
 import { failureCopy, failureKind, type FailureRoute } from "../failureCopy";
@@ -205,6 +205,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const kind = failed ? failureKind(row.error, route) : undefined;
   // Only the CLI's own login (or an unexplained 401 on a direct route) asks to sign in (cx-w10a).
   const authenticationFailed = kind === "subscription-login" || kind === "auth";
+  const label = footerLabel(t, row);
   // A failure reads as the turn's answer does: its own block above the footer row, never squeezed
   // into it (Codex, Claude desktop). The row is one quiet line under the answer's left edge; it
   // shows on hover or keyboard focus, and always for a failed turn (VirtualTranscript marks the
@@ -212,8 +213,16 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   return (
     <>
       {failed && <TurnFailure message={row.error} route={route} switchModel={switchModel} />}
-      <div className={failed ? "cv-turn-actions cv-turn-actions--failed" : "cv-turn-actions"}>
-        {!row.folded && <span className="cv-turn-summary">{workedLabel(t, row)}</span>}
+      <div
+        className={
+          failed
+            ? "cv-turn-actions cv-turn-actions--failed"
+            : isEmptyFooter(row)
+              ? "cv-turn-actions cv-turn-actions--empty"
+              : "cv-turn-actions"
+        }
+      >
+        {label && <span className="cv-turn-summary">{label}</span>}
         <span className="cv-turn-action-group">
           {text && <MessageCopy text={text} />}
           {failed && retry && prompt && (
@@ -224,7 +233,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               title={t("turn.retryLabel")}
               onClick={() => retry(row.retryRowId ?? "", prompt)}
             >
-              <Retry size={14} />
+              <Retry size={ROW_ICON} />
             </button>
           )}
           {failed && retry && prompt && retryWith && retryWith.models.length > 1 && (

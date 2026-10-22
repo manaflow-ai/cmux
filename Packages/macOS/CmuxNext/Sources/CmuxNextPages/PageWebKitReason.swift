@@ -25,4 +25,8 @@ public nonisolated enum PageWebKitReason: String, Sendable, Hashable, CaseIterab
     /// Chromium's page scheme does not serve this page: only the pages the app ships are registered
     /// with it (CmuxNextApp `FirstPartyPageSchemes.descriptors`), and this page is not one.
     case notServedByChromium = "not-served-by-chromium"
+    /// `web-dev.json` points cmux's pages at a dev server or an overlay (``WebDevOverride``). Only
+    /// the WebKit scheme handler reads it: Chromium serves the bundled folder it was handed at
+    /// start, so a page there would never show the edit.
+    case liveWebOverride = "live-web-override"
 }

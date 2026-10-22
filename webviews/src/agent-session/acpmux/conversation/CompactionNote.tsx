@@ -6,9 +6,13 @@
 //
 // A failover note says acpmux moved the chat onto its fallback harness after a usage limit, which
 // is otherwise invisible: the turn just goes on, answered by another harness.
-import { useT } from "../i18n";
-import type { AcpmuxCompaction, AcpmuxFailover } from "../model";
-import { ArrowRight, Spinner, SummaryToggle } from "./icons";
+//
+// A policy note says the chat's harness cannot keep its permission policy (acpmux
+// `policy_unenforced`), which is otherwise invisible too: the chat still names the policy while
+// its agent runs without the asks the policy would answer.
+import { type StringKey, useT } from "../i18n";
+import type { AcpmuxCompaction, AcpmuxFailover, AcpmuxPolicyUnenforced } from "../model";
+import { ArrowRight, Lock, Spinner, SummaryToggle } from "./icons";
 
 /// 27183 -> "27k", 2470 -> "2.5k"; under a thousand as is.
 export function compactTokens(tokens: number): string {
@@ -48,6 +52,35 @@ export function FailoverNote({ failover }: { failover: AcpmuxFailover }) {
           <ArrowRight />
         </span>
         <span className="cv-tool__text">{t("failover.continued", { from: failover.from, to: failover.to })}</span>
+      </div>
+    </div>
+  );
+}
+
+/// The name of each acpmux permission policy a harness can fail to keep (approve-all always holds).
+const POLICY_NAMES: Record<string, StringKey> = {
+  ask: "policy.ask",
+  "approve-reads": "policy.approveReads",
+  "approve-edits": "policy.approveEdits",
+  "deny-all": "policy.denyAll",
+};
+
+export function PolicyUnenforcedNote({ note }: { note: AcpmuxPolicyUnenforced }) {
+  const t = useT();
+  const name = POLICY_NAMES[note.policy];
+  // A policy this pane does not know yet keeps acpmux's id.
+  const values = { policy: name ? t(name) : note.policy };
+  return (
+    <div className="cv-tools">
+      <div className="cv-tool cv-policy-unenforced">
+        <span className="cv-tool__icon">
+          <Lock />
+        </span>
+        <span className="cv-tool__text cv-policy-unenforced__text">
+          {note.why === "ownSettings"
+            ? t("policyUnenforced.ownSettings", values)
+            : t("policyUnenforced.noAskingMode", values)}
+        </span>
       </div>
     </div>
   );

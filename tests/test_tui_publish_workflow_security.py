@@ -1708,7 +1708,7 @@ def test_sdk_publish_conformance_runs_live_against_exact_built_binary() -> None:
         ) in text
 
     typescript = workflow("sdk-publish-npm.yml")
-    assert 'node-version: "22.14.0"' in typescript
+    assert 'node-version: "22.23.4"' in typescript
     assert (
         "cache-dependency-path: cmux-tui/bindings/typescript/package-lock.json"
         in typescript
@@ -2326,18 +2326,18 @@ def test_cmux_next_daemon_tests_take_the_owned_side_lane_like_the_build_legs() -
         "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && "
         "github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || "
     )
-    # 2026-10-21: a cmux-tui-pin-* push takes CI_PIN_DAEMON_POOL, else the
-    # light minis, on every attempt, and never the side lane; a pin pool never
-    # names the promotion's daemon pool (tests/test_ci_tui_routes_avoid_nightly_label.py).
+    # 2026-10-21: a cmux-tui-pin-* push takes CI_PIN_DAEMON_POOL, else
+    # Blacksmith Linux, on every attempt, and never the side lane; a pin pool
+    # never names the promotion's daemon pool
+    # (tests/test_ci_tui_routes_avoid_nightly_label.py,
+    # tests/test_cmux_tui_daemon_tests_linux.py).
     promotion_pool = "(vars.CI_NEXT_DAEMON_POOL || vars.CI_NEXT_PROMOTE_POOL)"
     pin = (
         "github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && "
         "startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && ("
         "vars.CI_PIN_DAEMON_POOL != vars.CI_SIDE_LANE_RUNNER && "
         f"vars.CI_PIN_DAEMON_POOL != {promotion_pool} && vars.CI_PIN_DAEMON_POOL || "
-        "vars.CI_PR_POOL_OWNED == '1' && vars.CI_LIGHT_LANE_RUNNER != vars.CI_SIDE_LANE_RUNNER && "
-        "vars.CI_LIGHT_LANE_RUNNER || "
-        "'blacksmith-6vcpu-macos-15') || "
+        "'blacksmith-16vcpu-ubuntu-2404') || "
     )
     assert fork_gate in build_route
     side_attempt_one = "github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER"
