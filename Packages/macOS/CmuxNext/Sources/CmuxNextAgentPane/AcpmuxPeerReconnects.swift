@@ -67,10 +67,8 @@ public final class AcpmuxPeerReconnects {
         let enabled = enabled
         // task-owner: one per launch (startOnce); ends when agent.updatePeers is turned off or the task is cancelled
         return Task.detached(priority: .utility) {
-            while true {
-                // wakeup-allow: one local status read every ten minutes while peer updates are on
-                do { try await clock.sleep(for: interval) } catch { return }
-                guard enabled() else { return }
+            // wakeup-allow: one local status read every ten minutes while peer updates are on
+            while (try? await clock.sleep(for: interval)) != nil, enabled() {
                 for target in await source.targetsNow() {
                     await offer(target)
                 }
