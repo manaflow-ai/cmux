@@ -278,22 +278,13 @@ html[data-cmux-page="changelog"] body {
   line-height: var(--text-body--line-height);
   font-weight: var(--weight-emphasis);
   text-wrap: balance;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
 }
-/* Long notes would make one card tower over its row; the full text stays in the DOM. */
 .cln-card-summary {
   margin: 0;
   color: var(--page-text-2);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   text-wrap: pretty;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
 }
 .cln-card-media { margin: 8px 0 0; aspect-ratio: 16 / 10; }
 .cln-card .cl-row-actions { margin: auto 0 0; padding-top: 8px; opacity: 1; }
