@@ -183,7 +183,7 @@ let package = Package(
         .package(url: "https://github.com/getsentry/sentry-cocoa.git", "9.3.0"..<"9.29.0"),
         // Sparkle driver shared with the legacy app (no bonsplit, no legacy deps).
         .package(path: "../CmuxUpdater"),
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.0"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.6"),
         // Lock-free atomics on macOS 14 for CmuxNextCompat.Atomic (already resolved through
         // other dependencies; Apache-2.0).
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.3.0"),
@@ -454,7 +454,7 @@ let package = Package(
             swiftSettings: daemonSwiftSettings
         ),
         // The cards' center and surfaces: the scan schedule, the job runner, the `import.*`
-        // actions, the agent pages' push and the Home strip. The App supplies `ImportCardsHost`.
+        // actions, the agent pages' push and the Chief front page's row. The App supplies `ImportCardsHost`.
         .target(
             name: "CmuxNextImportCards",
             dependencies: ["CmuxNextActions", "CmuxNextAgentPane", "CmuxNextBrowserImport", "CmuxNextCompat", "CmuxNextDesign",
@@ -1446,6 +1446,8 @@ let package = Package(
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
                 "CmuxNextHostedChief",
+                "CmuxNextImportCards",
+                "CmuxNextImportSuggestions",
                 "CmuxNextLayout",
                 "CmuxNextNowPlaying",
                 "CmuxNextProcessEnvironment",
