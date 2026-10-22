@@ -205,6 +205,69 @@ pub(crate) fn refuse_mode(meta: &SessionMeta, mode: Option<&str>) -> Result<(), 
     }
 }
 
+/// `request` (a `session/request_permission`) as a restricted chat offers it: without the
+/// options that allow more than this one call (`allow_always`, "Allow for this session",
+/// after which Claude Code keeps the rules it suggested and stops asking). An answer naming
+/// one is then refused as not offered (`Hub::respond_permission`), and a chat with an ask
+/// open never becomes restricted (`Hub::set_restricted`).
+pub(crate) fn strip_lasting_allows(request: &mut Value) {
+    if let Some(options) = request.get_mut("options").and_then(Value::as_array_mut) {
+        options.retain(|o| o.get("kind").and_then(Value::as_str) != Some("allow_always"));
+    }
+}
+
+/// Profile, login and daemon env that loads code into Claude Code's process: a restricted chat
+/// starts with it blank (a relative `--require` in `NODE_OPTIONS` would load the folder's).
+const BLANKED_ENV: &[&str] = &["NODE_OPTIONS", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH"];
+
+/// Refuses a `CLAUDE_CONFIG_DIR` (each value the spawn could inherit) that is relative or
+/// inside the chat's folder `cwd`: Claude Code reads its user settings there, so
+/// `--setting-sources user` would load the folder's own. One elsewhere is the person's own
+/// (another Claude account's folder), unless `cwd` holds the person's home (`frozen_program`).
+fn check_config_dir<'v>(
+    values: impl IntoIterator<Item = &'v str>,
+    cwd: &Path,
+) -> Result<(), String> {
+    let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+    let holds_home = dirs::home_dir()
+        .and_then(|home| std::fs::canonicalize(home).ok())
+        .is_some_and(|home| home.starts_with(&cwd));
+    for value in values.into_iter().filter(|v| !v.is_empty()) {
+        let dir = Path::new(value);
+        if !dir.is_absolute() {
+            return Err(format!("CLAUDE_CONFIG_DIR={value} is a relative path"));
+        }
+        // Claude Code makes the folder when it is missing: its nearest existing folder says
+        // where it would be.
+        let real = dir
+            .ancestors()
+            .find_map(|a| Some(std::fs::canonicalize(a).ok()?.join(dir.strip_prefix(a).ok()?)))
+            .unwrap_or_else(|| dir.to_path_buf());
+        if real.starts_with(&cwd) && !holds_home {
+            return Err(format!("CLAUDE_CONFIG_DIR={value} is inside the chat's folder"));
+        }
+    }
+    Ok(())
+}
+
+/// A profile's `CLAUDE_CONFIG_DIR` value with its `${env:…}` references read as the spawn
+/// reads them (`agent/command.rs`); any other reference (`${cwd}`, a Keychain item) cannot be
+/// checked here, so it is refused.
+fn env_refs_read(value: &str) -> Result<String, String> {
+    let key = "CLAUDE_CONFIG_DIR";
+    let mut one = BTreeMap::from([(key.to_owned(), value.to_owned())]);
+    crate::config::profiles::resolve_env_refs(
+        &mut one,
+        &|var| crate::login_env::allowed_var(var).or_else(|| std::env::var(var).ok()),
+        &|_, _| Err("not read for a restricted chat".into()),
+    )?;
+    let read = one.remove(key).unwrap_or_default();
+    if read.contains("${") {
+        return Err(format!("{key}={value} holds a reference a restricted chat cannot check"));
+    }
+    Ok(read)
+}
+
 /// Why a request would widen what a restricted chat runs without asking, or Ok.
 pub(crate) fn refuse_widening(meta: &SessionMeta, m: &str, params: &Value) -> Result<(), RpcError> {
     if !meta.restricted {
@@ -422,7 +485,19 @@ impl Hub {
         self.refuse_unrestricted_start(session, &profile)?;
         let mut plan = command_line(&profile.argv, plan).map_err(refused)?;
         plan.program = frozen_program(&plan.program, &meta.cwd).map_err(refused)?;
+        let own = profile.env.get("CLAUDE_CONFIG_DIR").map(|v| env_refs_read(v)).transpose();
+        let (own, login, daemon) = (
+            own.map_err(refused)?,
+            crate::login_env::var("CLAUDE_CONFIG_DIR"),
+            std::env::var("CLAUDE_CONFIG_DIR").ok(),
+        );
+        let config_dirs = [own.as_ref(), login.as_ref(), daemon.as_ref()];
+        check_config_dir(config_dirs.into_iter().flatten().map(String::as_str), &meta.cwd)
+            .map_err(refused)?;
         let mut profile = profile.into_owned();
+        for key in BLANKED_ENV {
+            profile.env.insert((*key).to_owned(), String::new());
+        }
         let inherited = crate::login_env::var("GIT_CONFIG_COUNT")
             .or_else(|| std::env::var("GIT_CONFIG_COUNT").ok());
         add_git_config(&mut profile.env, inherited.as_deref());
@@ -556,6 +631,46 @@ mod tests {
         if dirs::home_dir().is_some_and(|home| home.canonicalize().is_ok()) {
             assert!(frozen_program(&program.to_string_lossy(), Path::new("/")).is_ok());
         }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_restricted_ask_offers_nothing_that_allows_more_than_the_call() {
+        let mut request = json!({"options": [
+            {"optionId": "allow_once", "name": "Allow", "kind": "allow_once"},
+            {"optionId": "allow_always", "name": "Allow for this session", "kind": "allow_always"},
+            {"optionId": "reject_once", "name": "Reject", "kind": "reject_once"},
+        ]});
+        strip_lasting_allows(&mut request);
+        let kinds: Vec<_> =
+            request["options"].as_array().unwrap().iter().map(|o| o["kind"].clone()).collect();
+        assert_eq!(kinds, [json!("allow_once"), json!("reject_once")]);
+    }
+
+    #[test]
+    fn a_claude_config_dir_in_the_chat_folder_or_relative_is_refused() {
+        let root = std::env::temp_dir().join(format!("restricted-config-{}", std::process::id()));
+        let (chat, elsewhere) = (root.join("chat"), root.join("elsewhere"));
+        std::fs::create_dir_all(&chat).unwrap();
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        let text = |p: &Path| p.to_string_lossy().into_owned();
+        assert!(check_config_dir([], &chat).is_ok());
+        assert!(check_config_dir([""], &chat).is_ok(), "set but empty is unset");
+        let relative = check_config_dir([".claude"], &chat).unwrap_err();
+        assert!(relative.contains("relative path"), "{relative}");
+        // Missing yet (Claude Code makes it), and through the temp folder's symlink on macOS.
+        let inside = text(&chat.join(".claude"));
+        let refused = check_config_dir([inside.as_str()], &chat).unwrap_err();
+        assert!(refused.contains("inside the chat's folder"), "{refused}");
+        // Another account's folder elsewhere is the person's own.
+        let own = text(&elsewhere.join(".claude-work"));
+        assert!(check_config_dir([own.as_str()], &chat).is_ok());
+        // Any one value the spawn could inherit is enough to refuse.
+        assert!(check_config_dir([own.as_str(), inside.as_str()], &chat).is_err());
+        // A profile's references: `${env:…}` is read, any other cannot be checked.
+        assert_eq!(env_refs_read("/opt/claude").unwrap(), "/opt/claude");
+        assert!(env_refs_read("${cwd}/.claude").is_err());
+        assert!(env_refs_read("${keychain:claude}").is_err());
         let _ = std::fs::remove_dir_all(&root);
     }
 
