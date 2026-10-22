@@ -58,6 +58,15 @@ export type AttachmentIntakeOptions = {
   /// For a chat on this Mac: where the files of the person's drop or paste are (composer/intakeFiles.ts
   /// droppedPaths), so a folder or a file no block takes goes as a link to it, tried before `upload`.
   localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
+  /// The chat the composer shows. A file is the chat's it was pasted or dropped in: its placeholder
+  /// shows only there, and a read that ends after the composer moved to another chat hands its
+  /// chips to `elsewhere` instead of this chat's strip.
+  scope?: string;
+  /// Keeps chips whose read ended after the composer left `scope` for that chat (keptAttachments.ts).
+  elsewhere?(scope: string, attachments: ComposerAttachment[]): void;
+  /// When the composer moves to another chat: whether the files still being read move with it (a
+  /// harness switch's new session carries the prompt). A chat that had no id yet always carries.
+  carries?(): boolean;
 };
 
 /** Append a batch while replacing the same attachment id and collapsing repeated local path links
@@ -94,7 +103,7 @@ export function appendAttachments(
 /// saves it (intakeFiles.ts can take a large screenshot hundreds of ms): the chip it becomes, or
 /// the refusal's note, takes its place. Leo 2026-10-21: "ME PASTING IT DOESN'T JUST PASTE RIGHT
 /// INTO THE COMPOSER IMMEDIATELY".
-export type PendingAttachment = { id: string; name: string; image: boolean };
+export type PendingAttachment = { id: string; name: string; image: boolean; scope?: string };
 
 /// The prompt's staged attachments: what a paste on the composer's field or a file drop anywhere on
 /// the page adds (the document-level drop contract, attachments.ts), with the note a refusal leaves.
@@ -111,6 +120,17 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// The files of every batch still being read, counted as soon as it comes in (before a render),
   /// so a second paste meanwhile leaves room for the first one's chips.
   const reading = useRef(0);
+  /// Each batch still being read, with the chat it belongs to (`scope`).
+  const batches = useRef(new Set<{ scope?: string }>());
+  const scope = options.scope;
+  const lastScope = useRef(scope);
+  useEffect(() => {
+    const from = lastScope.current;
+    lastScope.current = scope;
+    if (from === scope || (from !== undefined && !live.current.options.carries?.())) return;
+    for (const batch of batches.current) if (batch.scope === from) batch.scope = scope;
+    setPending((chips) => chips.map((chip) => (chip.scope === from ? { ...chip, scope } : chip)));
+  }, [scope]);
   /// `uploads`: the person dropped, pasted or chose these, so the chat's host may save what the
   /// composer can't attach (a moved chat's machine, or this Mac for a local chat) and its chip sends
   /// the saved path (composer/intakeFiles.ts); never a capture. `kind`: the person's own drop or
@@ -119,17 +139,21 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     if (files.length === 0) return;
     const { options: current, t: translate, held } = live.current;
     const ahead = reading.current;
+    const batch = { scope: current.scope };
     // In the paste's or drop's own task, so React draws them before the next frame.
     const shown: PendingAttachment[] = files
       .slice(0, Math.max(0, MAX_ATTACHMENTS - held - ahead))
-      .map((file) => ({ id: crypto.randomUUID(), name: file.name, image: isImageFile(file) }));
+      .map((file) => ({ id: crypto.randomUUID(), name: file.name, image: isImageFile(file), scope: batch.scope }));
+    const ids = new Set(shown.map((chip) => chip.id));
     reading.current += files.length;
+    batches.current.add(batch);
     if (shown.length) setPending((chips) => [...chips, ...shown]);
     const paths = current.localPaths;
     // Their placeholders go in the same render as what they became (or when the read fails).
     const read = () => {
       reading.current -= files.length;
-      if (shown.length) setPending((chips) => chips.filter((chip) => !shown.includes(chip)));
+      batches.current.delete(batch);
+      if (shown.length) setPending((chips) => chips.filter((chip) => !ids.has(chip.id)));
     };
     let taken: Awaited<ReturnType<typeof intakeFiles>>;
     try {
@@ -144,6 +168,12 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       throw error;
     }
     read();
+    // The composer moved to another chat meanwhile: the chips are the chat's they were pasted in.
+    const now = live.current.options;
+    if (batch.scope !== now.scope) {
+      if (batch.scope !== undefined && taken.attachments.length) now.elsewhere?.(batch.scope, taken.attachments);
+      return;
+    }
     setAttachments((staged) => appendAttachments(staged, taken.attachments));
     const error = taken.error;
     setAttachError(error && ("text" in error ? error.text : attachmentErrorText(error, translate)));
@@ -169,7 +199,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       document.removeEventListener("paste", paste);
     };
   }, [attach]);
-  return { attachments, setAttachments, pending, attachError, setAttachError, dropping, attach };
+  const shown = pending.filter((chip) => chip.scope === scope);
+  return { attachments, setAttachments, pending: shown, attachError, setAttachError, dropping, attach };
 }
 
 /// A prompt sent while its files are still being read (`pending`) is held and goes, once, when the
