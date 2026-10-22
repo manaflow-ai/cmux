@@ -130,6 +130,7 @@ extension AgentPaneModel {
             return AgentPaneReply.success()
         case .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .dragImage, .dragFile:
             return await AgentPaneImageCopies.respond(to: request, in: self)
+        case .previewPath(let path): return await previewReplyPath(path)
         }
     }
 
