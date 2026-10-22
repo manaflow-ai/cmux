@@ -4280,6 +4280,12 @@ function AcpmuxPane() {
     (id: string) => directClient.current?.killProcess(id) ?? Promise.reject(new Error()),
     [],
   );
+  // The Inspector's running-limit stepper (inspector/SubagentLimitStepper.tsx).
+  const setRunningLimit = useCallback(
+    (sessionId: string, maxRunning: number | null) =>
+      directClient.current?.setRunningLimit(sessionId, maxRunning) ?? Promise.reject(new Error()),
+    [],
+  );
   // An opened background task note reads the end of the task's output from the same registry
   // (conversation/backgroundTaskOutput.ts), once, when it opens.
   const backgroundTaskOutput = useMemo<BackgroundTaskOutputReader | undefined>(
@@ -4822,6 +4828,7 @@ function AcpmuxPane() {
     onStopProcess: stopProcess,
     subagents: cardSubagents,
     sessions: cardSessions,
+    onSetRunningLimit: setRunningLimit,
   });
   // The running line's counts (conversation/WorkingFor.tsx), with the tray off (Debug Settings):
   // the subagents still running, the background commands that have not ended and the started chats
