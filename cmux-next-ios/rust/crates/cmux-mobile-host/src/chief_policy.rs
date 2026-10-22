@@ -789,4 +789,78 @@ mod tests {
             serde_json::json!([{"id": "user_local", "kind": "human"}, {"id": "agent_../x", "kind": "agent"}])
         ));
     }
+
+    /// Home on the phone shows the Mac's Home list (`home-inbox`, local
+    /// owner only) narrowed to the scope, and the person's own pin and
+    /// unread mark of a Chief conversation in scope (`conversation-inbox-op`).
+    #[test]
+    fn home_inbox_and_list_state_stay_in_scope() {
+        let policy = listed();
+        assert_eq!(
+            policy.evaluate(&line(serde_json::json!({"cmd": "home-inbox", "id": "h1", "owners": ["local"]}))),
+            Verdict::Forward
+        );
+        let reply = serde_json::json!({"id": "h1", "ok": true, "data": {"me": "user_local", "cloud": "not_asked", "rows": [
+            {"id": OTHER, "owner": "local", "kind": "channel", "name": "Build", "unread": 1, "activity_at": "2026-10-21T10:00:00.000Z",
+             "pinned": true, "marked_unread": false, "muted": false},
+            {"id": REMOTE, "owner": "local", "kind": "direct", "name": "Phone", "unread": 3, "activity_at": "2026-10-21T09:00:00.000Z",
+             "pinned": false, "marked_unread": false, "muted": false},
+            {"id": CHIEF, "owner": "local", "kind": "chief", "name": "Chief", "unread": 0, "activity_at": "2026-10-21T08:00:00.000Z",
+             "chief_state": "idle", "pinned": false, "marked_unread": false, "muted": false},
+            {"id": "conv_01JCLOUD0000000000000000000", "owner": "cloud", "kind": "direct", "name": "user_x", "unread": 0,
+             "activity_at": "2026-10-21T07:00:00.000Z", "pinned": false, "marked_unread": false, "muted": false},
+        ]}});
+        let narrowed: Value =
+            serde_json::from_slice(&policy.filter_reply(reply.to_string().as_bytes()).unwrap()).unwrap();
+        let ids: Vec<&str> =
+            narrowed["data"]["rows"].as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap()).collect();
+        // The owner's order, only conversations between the owner and agents.
+        assert_eq!(ids, [OTHER, CHIEF]);
+        assert_eq!(narrowed["data"]["me"], "user_local");
+        // The Cloud owner's rows are never asked for over the link.
+        refused(&policy, serde_json::json!({"cmd": "home-inbox", "id": "h2"}));
+        refused(&policy, serde_json::json!({"cmd": "home-inbox", "id": "h3", "owners": ["local", "cloud"]}));
+        refused(&policy, serde_json::json!({"cmd": "home-inbox", "id": "h4", "owners": ["cloud"]}));
+        refused(&policy, serde_json::json!({"cmd": "home-inbox", "id": "h5", "owners": "local"}));
+
+        for op in [
+            serde_json::json!({"kind": "inbox.pin", "pinned": true, "position": 1_790_000_000_000_u64}),
+            serde_json::json!({"kind": "inbox.pin", "pinned": false}),
+            serde_json::json!({"kind": "inbox.mark_unread", "unread": true}),
+        ] {
+            assert_eq!(
+                policy.evaluate(&line(serde_json::json!({"cmd": "conversation-inbox-op", "id": format!("p{op}"),
+                    "conversation": CHIEF, "op": op}))),
+                Verdict::Forward,
+                "{op}"
+            );
+        }
+        for value in [
+            // Out of scope, or no conversation.
+            serde_json::json!({"cmd": "conversation-inbox-op", "id": "x1", "conversation": REMOTE,
+                "op": {"kind": "inbox.pin", "pinned": true}}),
+            serde_json::json!({"cmd": "conversation-inbox-op", "id": "x2", "op": {"kind": "inbox.pin", "pinned": true}}),
+            // Mute is the Cloud owner's; unknown kinds and fields are refused.
+            serde_json::json!({"cmd": "conversation-inbox-op", "id": "x3", "conversation": CHIEF,
+                "op": {"kind": "inbox.mute", "muted": true}}),
+            serde_json::json!({"cmd": "conversation-inbox-op", "id": "x4", "conversation": CHIEF,
+                "op": {"kind": "inbox.pin", "pinned": true, "participant": "agent_mux"}}),
+            serde_json::json!({"cmd": "conversation-inbox-op", "id": "x5", "conversation": CHIEF,
+                "op": {"kind": "inbox.mark_unread", "unread": "yes"}}),
+            serde_json::json!({"cmd": "conversation-inbox-op", "id": "x6", "conversation": CHIEF, "op": "inbox.pin"}),
+            serde_json::json!({"cmd": "conversation-inbox-op", "id": "x7", "conversation": CHIEF,
+                "op": {"kind": "inbox.pin", "pinned": true}, "actor": "agent_mux"}),
+        ] {
+            refused(&policy, value);
+        }
+
+        // The person's list state comes back as its event, in scope only.
+        let changed = |conversation: &str, participant: &str| {
+            line(serde_json::json!({"event": "conversation-inbox-changed", "conversation": conversation,
+                "participant": participant, "pinned": true, "marked_unread": false}))
+        };
+        assert!(policy.filter_reply(&changed(CHIEF, "user_local")).is_some());
+        assert!(policy.filter_reply(&changed(REMOTE, "user_local")).is_none());
+        assert!(policy.filter_reply(&changed(CHIEF, "agent_mux")).is_none());
+    }
 }
