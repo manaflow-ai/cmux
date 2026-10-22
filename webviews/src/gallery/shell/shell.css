@@ -7,7 +7,7 @@
   --g-muted: light-dark(#6a6a66, #9a9a96);
   --g-line: light-dark(#dcdcd8, #333331);
   --g-current: light-dark(#e6e6e2, #2c2c2a);
-  font: 13px/1.45 var(--font-ui);
+  font: 13px/1.45 var(--font-ui, "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif);
   background: var(--g-bg);
   color: var(--g-text);
 }

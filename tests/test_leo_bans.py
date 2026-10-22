@@ -80,7 +80,8 @@ class LeoBansTests(unittest.TestCase):
         self.write(FONTS + "InterVariable.woff2", b"wOF2fake")
         self.write("webviews/src/page.css", ".page { font: 13px var(--font-ui); }\n"
                    "code { font-family: ui-monospace, \"SF Mono\", Menlo, monospace; }\n"
-                   "/* was system-ui before Inter */\n")
+                   "/* was system-ui before Inter */\n"
+                   ".standalone { font: 13px var(--font-ui, \"Inter\", -apple-system, system-ui, sans-serif); }\n")
         self.commit("base\n\nLeo-order: WE SAID INTER")
         self.base = self.git("rev-parse", "HEAD").strip()
 

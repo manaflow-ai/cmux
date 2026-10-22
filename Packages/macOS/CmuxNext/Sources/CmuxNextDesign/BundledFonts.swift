@@ -38,7 +38,10 @@ public nonisolated struct BundledFonts: Sendable {
         var error: Unmanaged<CFError>?
         if CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error) { return true }
         let failure = error?.takeRetainedValue()
-        if let failure, CFErrorGetCode(failure) == CTFontManagerError.alreadyRegistered.rawValue { return true }
+        // Registered before, or the person has Inter installed (a duplicate name): the family is there.
+        if let failure, [CTFontManagerError.alreadyRegistered, .duplicatedName].map(\.rawValue).contains(CFErrorGetCode(failure)) {
+            return true
+        }
         logger.error("bundled UI font did not register: \(failure.map { "\($0)" } ?? "unknown", privacy: .public)")
         return false
     }()

@@ -14,7 +14,8 @@ schemas/type-scale/leo-bans.json. This check fails when:
              no longer draws the default design in the bundled face (`BundledFonts.uiFont`)
   bundle     the bundled font files are missing, or the TTF's family is not the pinned one
   system-ui  a webviews stylesheet names the system font (system-ui, -apple-system,
-             BlinkMacSystemFont) instead of `var(--font-ui)`; monospace stacks never name them
+             BlinkMacSystemFont) instead of `var(--font-ui)`; monospace stacks never name them. The
+             fallback of `var(--font-ui, ...)` may, for a page that loads no desktop.css
   pin        schemas/type-scale/leo-bans.json changed (with --base) and no commit of the range that
              touches it carries a `Leo-order: <Leo's words>` trailer
 
@@ -49,6 +50,7 @@ END = "/* type-scale:end */"
 SYSTEM_FONT = re.compile(r"(?<![\w-])(system-ui|-apple-system|BlinkMacSystemFont)(?![\w-])")
 CSS_COMMENT = re.compile(r"/\*.*?\*/", re.S)
 LEO_ORDER = re.compile(r"^Leo-order:\s*\S", re.M)
+FONT_UI_FALLBACK = re.compile(r"var\(\s*--font-ui\s*,[^()]*\)")
 
 
 class Tree:
@@ -214,6 +216,7 @@ def check_tree(tree: Tree) -> list[str]:
             start, stop = text.index(BEGIN), text.index(END)
             text = text[:start] + re.sub(r"[^\n]", " ", text[start:stop]) + text[stop:]
         text = CSS_COMMENT.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)
+        text = FONT_UI_FALLBACK.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)
         for number, line in enumerate(text.split("\n"), 1):
             hit = SYSTEM_FONT.search(line)
             if hit:
