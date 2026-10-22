@@ -26,6 +26,7 @@ let package = Package(
         .library(name: "CmuxMobileArtifacts", targets: ["CmuxMobileArtifacts"]),
         .library(name: "CmuxMobileBrowserStream", targets: ["CmuxMobileBrowserStream"]),
         .library(name: "CmuxMobileVoice", targets: ["CmuxMobileVoice"]),
+        .library(name: "CmuxMobileNotifications", targets: ["CmuxMobileNotifications"]),
     ],
     dependencies: [
         .package(path: "../../Packages/Shared/CmuxGhosttyKit"),
@@ -44,6 +45,10 @@ let package = Package(
     ],
     targets: [
         .target(name: "CmuxMobileDesign"),
+        // Push payloads, notification buttons, the App Group outbox and chat
+        // snapshots: Foundation and UserNotifications only, so the notification
+        // extensions link it without the app's modules (verify/rich-push.md).
+        .target(name: "CmuxMobileNotifications"),
         .target(name: "CmuxMobileModel"),
         .binaryTarget(name: "CmuxMobileLinkFFIFFI", path: "Frameworks/CmuxMobileLinkFFI.xcframework"),
         .target(
@@ -137,6 +142,7 @@ let package = Package(
             ]
         ),
         .testTarget(name: "CmuxMobileModelTests", dependencies: ["CmuxMobileModel"]),
+        .testTarget(name: "CmuxMobileNotificationsTests", dependencies: ["CmuxMobileNotifications"]),
         .testTarget(name: "CmuxMobileTransportTests", dependencies: ["CmuxMobileTransport"]),
         .testTarget(name: "CmuxMobileAgentChatTests", dependencies: ["CmuxMobileAgentChat", "CmuxMobileDiff", "CmuxMobileMarkdown", "CmuxMobileArtifacts"]),
         .testTarget(name: "CmuxMobileTerminalTests", dependencies: ["CmuxMobileTerminal"]),

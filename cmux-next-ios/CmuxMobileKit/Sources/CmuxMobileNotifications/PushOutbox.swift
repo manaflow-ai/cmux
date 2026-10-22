@@ -1,0 +1,209 @@
+import Foundation
+
+/// The App Group container the app and its notification extensions share
+/// (Info.plist `CmuxMobileAppGroup`). Nil in a build without the App Group
+/// entitlement (a hand-installed wildcard-signed build): the extension then
+/// offers "Open in app" only.
+public struct PushAppGroup: Sendable, Equatable {
+    public static let infoKey = "CmuxMobileAppGroup"
+
+    public var identifier: String
+    public var directory: URL
+
+    public init(identifier: String, directory: URL) {
+        self.identifier = identifier
+        self.directory = directory
+    }
+
+    /// The current bundle's group, when it is configured and entitled.
+    public static func current(bundle: Bundle = .main) -> PushAppGroup? {
+        guard let id = bundle.object(forInfoDictionaryKey: infoKey) as? String, !id.isEmpty,
+              let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: id) else { return nil }
+        return PushAppGroup(identifier: id, directory: url)
+    }
+}
+
+/// Replies the content extension hands the app (and replies the app keeps
+/// for a retry): one JSON file per reply, written and read under
+/// `NSFileCoordinator` so the two processes never see half a file. The app
+/// drains it on launch and on every return to the foreground; nothing polls.
+public struct PushOutbox: Sendable {
+    /// A reply older than this is dropped unsent: its question has likely moved on.
+    public static let maxAge: TimeInterval = 15 * 60
+
+    public let directory: URL
+
+    public init(directory: URL) {
+        self.directory = directory
+    }
+
+    public init?(group: PushAppGroup?) {
+        guard let group else { return nil }
+        self.init(directory: group.directory.appendingPathComponent("PushOutbox", isDirectory: true))
+    }
+
+    /// Where a reply's attachments go (file names in `PushReply.Action.text`).
+    public var attachments: URL { directory.appendingPathComponent("attachments", isDirectory: true) }
+
+    func file(_ id: UUID) -> URL { directory.appendingPathComponent("\(id.uuidString).json") }
+
+    public func put(_ reply: PushReply) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let data = try JSONEncoder().encode(reply)
+        try coordinate(writing: file(reply.id)) { try data.write(to: $0, options: Data.WritingOptions.pushFile) }
+    }
+
+    /// Removes and returns one reply.
+    @discardableResult
+    public func take(_ id: UUID) -> PushReply? {
+        let url = file(id)
+        var reply: PushReply?
+        try? coordinate(writing: url) { url in
+            reply = (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(PushReply.self, from: $0) }
+            try? FileManager.default.removeItem(at: url)
+        }
+        return reply
+    }
+
+    /// Every waiting reply, oldest first; expired and unreadable ones are deleted.
+    public func all(now: Date = Date()) -> [PushReply] {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return [] }
+        var out: [PushReply] = []
+        for name in names where name.hasSuffix(".json") {
+            let url = directory.appendingPathComponent(name)
+            var reply: PushReply?
+            try? coordinate(reading: url) { url in
+                reply = (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(PushReply.self, from: $0) }
+            }
+            guard let reply, now.timeIntervalSince(reply.createdAt) < Self.maxAge else {
+                try? coordinate(writing: url) { try? FileManager.default.removeItem(at: $0) }
+                continue
+            }
+            out.append(reply)
+        }
+        return out.sorted { $0.createdAt < $1.createdAt }
+    }
+
+    /// Removes and returns every waiting reply, oldest first.
+    public func takeAll(now: Date = Date()) -> [PushReply] {
+        all(now: now).compactMap { take($0.id) }
+    }
+
+    private func coordinate(writing url: URL, _ body: (URL) throws -> Void) throws {
+        var coordinationError: NSError?
+        var bodyError: (any Error)?
+        NSFileCoordinator().coordinate(writingItemAt: url, options: [.forReplacing], error: &coordinationError) { url in
+            do { try body(url) } catch { bodyError = error }
+        }
+        if let error = coordinationError ?? bodyError { throw error }
+    }
+
+    private func coordinate(reading url: URL, _ body: (URL) throws -> Void) throws {
+        var coordinationError: NSError?
+        var bodyError: (any Error)?
+        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinationError) { url in
+            do { try body(url) } catch { bodyError = error }
+        }
+        if let error = coordinationError ?? bodyError { throw error }
+    }
+}
+
+/// A chat's recent messages, saved by the app for the content extension's
+/// preview (it has no link). Bounded: 8 messages of 280 characters per
+/// session, 64 sessions.
+public struct PushSnapshot: Codable, Sendable, Equatable {
+    public struct Message: Codable, Sendable, Equatable {
+        public enum Role: String, Codable, Sendable { case user, agent, system }
+        public var role: Role
+        public var text: String
+
+        public init(role: Role, text: String) {
+            self.role = role
+            self.text = text
+        }
+    }
+
+    public var mac: String
+    public var session: String
+    public var title: String?
+    public var messages: [Message]
+    public var updatedAt: Date
+
+    public init(mac: String, session: String, title: String? = nil, messages: [Message], updatedAt: Date = Date()) {
+        self.mac = mac
+        self.session = session
+        self.title = title
+        self.messages = messages
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct PushSnapshotStore: Sendable {
+    public static let maxMessages = 8
+    public static let maxCharacters = 280
+    public static let maxSessions = 64
+
+    public let directory: URL
+
+    public init(directory: URL) {
+        self.directory = directory
+    }
+
+    public init?(group: PushAppGroup?) {
+        guard let group else { return nil }
+        self.init(directory: group.directory.appendingPathComponent("PushSnapshots", isDirectory: true))
+    }
+
+    func file(mac: String, session: String) -> URL {
+        let key = Data("\(mac)\u{0}\(session)".utf8).base64EncodedString()
+            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "=", with: "")
+        return directory.appendingPathComponent(String(key.prefix(240)) + ".json")
+    }
+
+    /// Saves the last messages (bounded); skips the write when nothing changed.
+    public func save(_ snapshot: PushSnapshot) {
+        var snapshot = snapshot
+        snapshot.messages = snapshot.messages.suffix(Self.maxMessages).map {
+            PushSnapshot.Message(role: $0.role, text: String($0.text.prefix(Self.maxCharacters)))
+        }
+        if let old = load(mac: snapshot.mac, session: snapshot.session), old.messages == snapshot.messages, old.title == snapshot.title { return }
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try JSONEncoder().encode(snapshot).write(to: file(mac: snapshot.mac, session: snapshot.session),
+                                                     options: Data.WritingOptions.pushFile)
+        } catch {
+            return
+        }
+        prune()
+    }
+
+    public func load(mac: String, session: String) -> PushSnapshot? {
+        (try? Data(contentsOf: file(mac: mac, session: session))).flatMap { try? JSONDecoder().decode(PushSnapshot.self, from: $0) }
+    }
+
+    /// Sign-out and account deletion.
+    public func removeAll() {
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func prune() {
+        let keys: [URLResourceKey] = [.contentModificationDateKey]
+        guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: keys),
+              files.count > Self.maxSessions else { return }
+        let dated = files.map { ($0, (try? $0.resourceValues(forKeys: Set(keys)).contentModificationDate) ?? .distantPast) }
+        for (url, _) in dated.sorted(by: { $0.1 > $1.1 }).dropFirst(Self.maxSessions) {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+}
+
+extension Data.WritingOptions {
+    /// Atomic, and readable by an extension once the phone was unlocked after boot.
+    static var pushFile: Data.WritingOptions {
+        #if os(iOS)
+        [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+        #else
+        [.atomic]
+        #endif
+    }
+}
