@@ -1206,11 +1206,30 @@ impl Brain {
         // NO_REPLY posts nothing: a Chief that reads every message stays
         // quiet with it (membership), and any Chief ends with it when a
         // reaction or its `reply` calls said it all (brain/replies.rs).
-        let text = if crate::membership::is_no_reply(&text) {
-            (self.log)(&format!(
-                "turn {key} answered {}: nothing posted",
-                crate::membership::NO_REPLY
-            ));
+        let said_no_reply = crate::membership::is_no_reply(&text);
+        let text = if said_no_reply {
+            // Never for a person's message of the Chief conversation: it
+            // stays in the reply ledger, and a retry turn answers it
+            // (reply_ledger.rs, user 2026-10-21).
+            let main = conversation.is_some() && conversation == self.state.conversation;
+            let person = main
+                && self.state.turn.as_ref().is_some_and(|t| {
+                    t.key == key
+                        && t.answers
+                            .iter()
+                            .any(|id| self.state.awaiting.iter().any(|a| &a.id == id))
+                });
+            if person {
+                (self.log)(&format!(
+                    "turn {key} answered {} with a person's message in the batch: refused; a retry turn answers it",
+                    crate::membership::NO_REPLY
+                ));
+            } else {
+                (self.log)(&format!(
+                    "turn {key} answered {}: nothing posted",
+                    crate::membership::NO_REPLY
+                ));
+            }
             String::new()
         } else {
             text
@@ -1339,10 +1358,21 @@ impl Brain {
             _ => Vec::new(),
         };
         let main = self.turn_side().is_none();
+        // The owner stopped the turn: its messages need no reply (the person
+        // asked for the silence). Any other end leaves what no post answered
+        // to a retry check (reply_ledger.rs).
+        if owner_stopped {
+            self.reply_not_needed(&answers);
+        }
         self.state.turn = None;
         self.stop_wanted = false;
         self.save_with(extra);
         self.flush_outbox();
+        self.schedule_reply_checks(if said_no_reply {
+            super::reply_ledger::WHY_NO_REPLY
+        } else {
+            super::reply_ledger::WHY_SILENT
+        });
         // After the reply: a client drops the draft as the message lands.
         if let (Some(done), Some(conversation)) = (outcome_done, &done_conversation) {
             self.publish_draft(conversation, &done);
@@ -1550,6 +1580,10 @@ impl Brain {
         self.interrupt.set_gate(false);
         self.stop_wanted = false;
         self.save_with(extra);
+        self.schedule_reply_checks(&format!(
+            "the turn was cut ({})",
+            optchat_core::cut_at_bytes(&error, 120)
+        ));
         if main {
             self.set_typing(false);
         }
