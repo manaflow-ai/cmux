@@ -81,3 +81,13 @@ test("why a send was not delivered, read from its result", async () => {
   expect(reason(JSON.stringify({ success: false }))).toBe("other");
   expect(reason("")).toBe("other");
 });
+
+test("a result that says it was not delivered never reads as delivered", async () => {
+  const { messageDelivery } = await import("./agentMessages");
+  const done = (output: string) => messageDelivery({ status: "completed", output });
+  expect(done("Message could not be delivered: the session is gone")).toBe("failed");
+  expect(done("warning: not delivered")).toBe("failed");
+  expect(done('{"success":true,"message":"Failed to deliver to grid-fix"}')).toBe("failed");
+  // An empty error field is no error.
+  expect(done('{"success":true,"error":"","message":"Message delivered to grid-fix"}')).toBe("delivered");
+});

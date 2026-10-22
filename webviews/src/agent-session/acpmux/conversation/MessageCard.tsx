@@ -97,7 +97,16 @@ function MessageText({ text }: { text: string }) {
     const node = ref.current;
     if (node) setMore(node.scrollHeight - node.scrollTop - node.clientHeight > 1);
   };
-  useLayoutEffect(measure, [text]);
+  useLayoutEffect(() => {
+    measure();
+    // The pane's width decides the wrap, so a resize can bring the fade in or take it away.
+    const node = ref.current;
+    if (!node || typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- measure reads only the node
+  }, [text]);
   return (
     <div ref={ref} className={`cv-message__text${more ? " has-more" : ""}`} onScroll={measure}>
       {text}

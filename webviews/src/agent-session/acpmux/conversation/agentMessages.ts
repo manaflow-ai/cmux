@@ -175,7 +175,13 @@ export function messageDelivery(tool: Pick<Tool, "status" | "exitCode" | "output
   const value = parseJson(output);
   if (value && typeof value === "object" && !Array.isArray(value)) {
     const result = value as Record<string, unknown>;
-    if (result.success === false || result.ok === false || typeof result.error === "string" || result.isError === true)
+    const error = typeof result.error === "string" ? result.error.trim() : result.error;
+    if (
+      result.success === false ||
+      result.ok === false ||
+      result.isError === true ||
+      (error !== undefined && error !== null && error !== "" && error !== false)
+    )
       return "failed";
     if (result.steered === true || result.delivered === true) return "delivered";
     if (result.queued === true) return "queued";
@@ -188,6 +194,13 @@ export function messageDelivery(tool: Pick<Tool, "status" | "exitCode" | "output
 /// A send's printed words, read for how far it got.
 function deliveryWords(text: string): Delivery {
   if (/^\s*(?:error|failed|failure)\b/im.test(text)) return "failed";
+  // "could not be delivered", "not delivered", "failed to deliver", "undeliverable".
+  if (
+    /\b(?:not|never|n['’]t)\s+(?:be\s+|been\s+)?(?:delivered|sent|queued)\b|\bfailed to (?:deliver|send|queue)\b|\bundeliver/i.test(
+      text,
+    )
+  )
+    return "failed";
   if (/\bqueued\b/i.test(text)) return "queued";
   if (/^\s*steered\s*$/im.test(text) || /\bdelivered\b/i.test(text)) return "delivered";
   return "sent";

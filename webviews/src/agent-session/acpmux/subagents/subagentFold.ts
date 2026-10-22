@@ -72,6 +72,9 @@ export class SubagentFold {
     for (const change of events) this.apply(change, event, spawn);
     const owner = typeof mux?.subagent === "string" ? this.agents.get(mux.subagent) : undefined;
     if (owner) {
+      // A nested subagent's Agent call answers with its agentId too.
+      const nested = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
+      if (nested && this.spawnCalls.has(nested)) this.readAgentId(nested, update);
       if ((update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update") && update.title)
         owner.action = String(update.title);
       const kind = update?.sessionUpdate;
@@ -242,9 +245,10 @@ export class SubagentFold {
   }
 }
 
-/// The agentId a Claude Code Agent call's result names (`agentId: a39e817af38ddf5e7 (…)`).
+/// The agentId a Claude Code Agent call's result names (`agentId: a39e817af38ddf5e7 (…)`): the
+/// last one, as Claude appends it after a finished subagent's report, which may itself say `agentId:`.
 export function agentIdIn(text: string): string | undefined {
-  return /\bagentId:\s*([A-Za-z0-9_-]+)/.exec(text)?.[1];
+  return [...text.matchAll(/\bagentId:\s*([A-Za-z0-9_-]+)/g)].at(-1)?.[1];
 }
 
 /// Which running subagents nothing will end any more, and how they read: `turn` only the
