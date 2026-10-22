@@ -1371,6 +1371,18 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
                 self.assertEqual(permissions.get("actions"), "read")
                 self.assertEqual(permissions.get("contents"), "read")
 
+    def test_a_mini_release_compile_records_only_when_the_cef_checks_ran(self):
+        # ensure-cef.sh --optional skips the CEF shim compile and the Chromium Objective-C contract check
+        # when the engine is unreadable (an R2 miss, a Dependabot run without secrets); a pass from such a
+        # run must not stand for one on the same key that would have run them.
+        steps = self.steps("release-compile")
+        cef = steps[index_of(steps, lambda s: s.get("id") == "cef")]
+        self.assertIn("startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-')", cef["if"])
+        for name in ("Record this pass for the same inputs", "Save the pass"):
+            with self.subTest(step=name):
+                step = steps[index_of(steps, lambda s, n=name: s.get("name") == n)]
+                self.assertIn("(!startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') || steps.cef.outputs.dir != '')", step["if"])
+
     def test_a_hit_skips_every_step_that_builds_or_tests(self):
         for job in self.JOBS:
             with self.subTest(job=job):
