@@ -10,6 +10,9 @@
 //! a second Ctrl-C exits at once. `repl` keeps one session across lines and
 //! starts a new one when a cell ends its session (timeout, limit, cancel).
 //! `types` prints the generated `cmux` declarations plus the script additions.
+//! `status`, `reload` and `check [PATH]` report the config scripts (`scripts/`
+//! beside the settings file; `script-config-*`), and `action ID` runs a user
+//! action they define (`script-action-run`, origin `cli`).
 
 mod messages;
 
@@ -60,10 +63,29 @@ pub(super) enum Source {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum Action {
-    Run { source: Source, args: Value, timeout_ms: Option<u64> },
-    Repl { timeout_ms: Option<u64> },
+    Run {
+        source: Source,
+        args: Value,
+        timeout_ms: Option<u64>,
+    },
+    Repl {
+        timeout_ms: Option<u64>,
+    },
     Types,
     Help,
+    /// `status`: the loaded config scripts.
+    ConfigStatus,
+    /// `reload`: loads the config scripts again.
+    ConfigReload,
+    /// `check [PATH]`: loads them (or `PATH`) without applying.
+    ConfigCheck {
+        path: Option<PathBuf>,
+    },
+    /// `action ID [KEY=VALUE ...] [--args JSON]`: runs a user action.
+    RunAction {
+        action: String,
+        args: Value,
+    },
 }
 
 /// How one request ended.
@@ -105,8 +127,147 @@ pub(super) fn parse(args: &[String]) -> Result<Action, String> {
             _ => Err(usage()),
         },
         [verb, rest @ ..] if verb == "run" => parse_run(rest),
+        [verb] if verb == "status" => Ok(Action::ConfigStatus),
+        [verb] if verb == "reload" => Ok(Action::ConfigReload),
+        [verb] if verb == "check" => Ok(Action::ConfigCheck { path: None }),
+        [verb, path] if verb == "check" && !path.starts_with('-') => {
+            Ok(Action::ConfigCheck { path: Some(PathBuf::from(path)) })
+        }
+        [verb, id, rest @ ..] if verb == "action" && !id.starts_with('-') => {
+            let action = if id.starts_with("user.") { id.clone() } else { format!("user.{id}") };
+            Ok(Action::RunAction { action, args: parse_pairs(rest)? })
+        }
         _ => Err(usage()),
     }
+}
+
+/// `KEY=VALUE` words and `--args JSON` as one object.
+fn parse_pairs(rest: &[String]) -> Result<Value, String> {
+    let usage = || messages().usage.to_string();
+    let mut args = Map::new();
+    let mut words = rest.iter();
+    while let Some(word) = words.next() {
+        if word == "--args" {
+            let text = words.next().ok_or_else(usage)?;
+            let value: Value = serde_json::from_str(text)
+                .map_err(|error| messages().bad_args.replace("{error}", &error.to_string()))?;
+            let Value::Object(fields) = value else {
+                return Err(messages().bad_args.replace("{error}", "not an object"));
+            };
+            args.extend(fields);
+            continue;
+        }
+        match word.split_once('=') {
+            Some((key, value)) if !key.is_empty() && !key.starts_with('-') => {
+                args.insert(key.to_string(), Value::String(value.to_string()));
+            }
+            _ => return Err(messages().bad_pair.replace("{word}", word)),
+        }
+    }
+    Ok(Value::Object(args))
+}
+
+/// The one request of a config verb; `None` for the other actions.
+pub(super) fn config_request(action: &Action) -> Option<Value> {
+    let id = "script-config-1";
+    Some(match action {
+        Action::ConfigStatus => json!({ "id": id, "cmd": "script-config-status" }),
+        Action::ConfigReload => json!({ "id": id, "cmd": "script-config-reload" }),
+        Action::ConfigCheck { path } => {
+            let mut request = json!({ "id": id, "cmd": "script-config-check" });
+            if let Some(path) = path {
+                // The daemon resolves a relative path from its own folder.
+                let path = std::path::absolute(path).unwrap_or_else(|_| path.clone());
+                request["path"] = json!(path.display().to_string());
+            }
+            request
+        }
+        Action::RunAction { action, args } => json!({
+            "id": id,
+            "cmd": "script-action-run",
+            "action": action,
+            "args": args,
+            "context": { "origin": "cli" },
+        }),
+        _ => return None,
+    })
+}
+
+/// What to print and the exit code for a config verb's answer: the report
+/// (JSON as is; for people the actions, keys and modes), diagnostics on
+/// stderr as `file:line:column: message`, exit 1 when a reload or check
+/// did not apply or found problems.
+pub(super) fn config_report(
+    action: &Action,
+    answer: &Value,
+    output: OutputMode,
+) -> (Option<String>, Option<String>, i32) {
+    if answer["ok"] != true {
+        return (None, Some(error_text(answer)), 1);
+    }
+    let data = &answer["data"];
+    if let Action::RunAction { .. } = action {
+        return (render(&data["value"], output), None, 0);
+    }
+    let diagnostics: Vec<String> = data["diagnostics"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|d| {
+            let place = [&d["file"], &d["line"], &d["column"]]
+                .iter()
+                .filter(|v| !v.is_null())
+                .map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_string))
+                .collect::<Vec<_>>()
+                .join(":");
+            let message = d["message"].as_str().unwrap_or_default();
+            if place.is_empty() { message.to_string() } else { format!("{place}: {message}") }
+        })
+        .collect();
+    let failed = !diagnostics.is_empty()
+        || match action {
+            Action::ConfigReload => data["applied"] != true,
+            Action::ConfigCheck { .. } => data["ok"] != true,
+            _ => false,
+        };
+    let stderr = (!diagnostics.is_empty()).then(|| diagnostics.join("\n"));
+    let stdout = match output {
+        OutputMode::Quiet => None,
+        OutputMode::Json | OutputMode::JsonLines => Some(data.to_string()),
+        OutputMode::Human => Some(config_summary(data)),
+    };
+    (stdout, stderr, i32::from(failed))
+}
+
+/// The actions, keys and modes of a report, one per line.
+fn config_summary(data: &Value) -> String {
+    let list = |key: &str| data[key].as_array().cloned().unwrap_or_default();
+    let mut lines = Vec::new();
+    if let Some(dir) = data["dir"].as_str() {
+        lines.push(messages().config_dir.replace("{dir}", dir));
+    }
+    for action in list("actions") {
+        if action["palette"] == false {
+            continue;
+        }
+        let id = action["id"].as_str().unwrap_or_default();
+        let title = action["title"].as_str().unwrap_or_default();
+        lines.push(format!("  {id}  {title}"));
+    }
+    for key in list("keys") {
+        let mode = key["mode"].as_str().map(|m| format!(" [{m}]")).unwrap_or_default();
+        lines.push(format!(
+            "  {}{mode}  {}",
+            key["key"].as_str().unwrap_or_default(),
+            key["command"].as_str().unwrap_or_default()
+        ));
+    }
+    for mode in list("modes") {
+        lines.push(
+            messages().config_mode.replace("{mode}", mode["name"].as_str().unwrap_or_default()),
+        );
+    }
+    lines.join("\n")
 }
 
 /// A word that names a script file even though it contains `=`.
@@ -560,6 +721,56 @@ fn read_stdin() -> std::io::Result<String> {
     Ok(text)
 }
 
+/// One config verb: one request, its report.
+fn run_config(global: &GlobalArgs, action: &Action, request: &Value) -> i32 {
+    let socket = match super::wire::resolve_socket_or_report(global) {
+        Ok((socket, _)) => socket,
+        Err(code) => return code,
+    };
+    let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+        return 3;
+    };
+    let output = global.output;
+    let result = runtime.block_on(async {
+        let stream = connect(&socket).await?;
+        let mut interrupts = SigInt(
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+                .map_err(|error| error.to_string())?,
+        );
+        let (reader, mut writer) = tokio::io::split(stream);
+        let mut lines = BufReader::new(reader).lines();
+        Ok::<_, String>(
+            exchange(
+                &mut lines,
+                &mut writer,
+                request,
+                &mut interrupts,
+                &mut |level, message| print_log(output, level, message),
+                CANCEL_WAIT,
+            )
+            .await,
+        )
+    });
+    let outcome = match result {
+        Ok(outcome) => outcome,
+        Err(message) => {
+            eprintln!("cmux: {message}");
+            return 3;
+        }
+    };
+    let (stdout, stderr, code) = match &outcome {
+        Outcome::Answer(answer) => config_report(action, answer, output),
+        other => report(other, output),
+    };
+    if let Some(text) = stdout.filter(|text| !text.is_empty()) {
+        println!("{text}");
+    }
+    if let Some(text) = stderr {
+        eprintln!("{text}");
+    }
+    code
+}
+
 fn run(global: &GlobalArgs, args: &[String]) -> i32 {
     let action = match parse(args) {
         Ok(action) => action,
@@ -568,7 +779,14 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
             return 2;
         }
     };
+    if let Some(request) = config_request(&action) {
+        return run_config(global, &action, &request);
+    }
     let (code, args, timeout_ms) = match action {
+        Action::ConfigStatus
+        | Action::ConfigReload
+        | Action::ConfigCheck { .. }
+        | Action::RunAction { .. } => return 2,
         Action::Help => {
             println!("{}", messages().usage);
             return 0;

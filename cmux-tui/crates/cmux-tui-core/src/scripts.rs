@@ -17,6 +17,8 @@
 //! connections are refused until agent principals land (phase 3).
 
 #[cfg(unix)]
+pub(crate) mod config;
+#[cfg(unix)]
 pub(crate) mod router;
 #[cfg(unix)]
 mod slot;

@@ -209,6 +209,86 @@
     })
   }
 
+  // Config as code (scripting-runtime.md section 5): user actions, key
+  // bindings and key modes. The daemon reads them with the `config` export
+  // after it loads the config scripts, and runs an action with `action`.
+  const invalid = (message) => new CmuxError("validation.invalid", message)
+  const userActions = new Map()
+  const keyBindings = []
+  const keyModes = new Map()
+  const keyRemovals = []
+  let keyActions = 0
+  const NAME = /^[a-z0-9][a-z0-9_.-]*$/
+  const text = (value) => (typeof value === "string" && value.trim() ? value.trim() : null)
+  const plainObject = (value, what) => {
+    if (value === undefined || value === null) return {}
+    if (!isFilter(value)) throw invalid(`${what} must be an object`)
+    return plain(value)
+  }
+
+  const defineAction = (name, fields, run, palette) => {
+    if (userActions.has(name)) throw invalid(`the action user.${name} is already defined`)
+    userActions.set(name, { name, title: fields.title || name, description: fields.description || null, palette, run })
+    return `user.${name}`
+  }
+
+  /**
+   * Defines the user action `user.<name>`: `{ name, title?, description?, run(ctx, args) }`.
+   * The palette, keys, `cmux script action` and scripts run it; `ctx.origin`
+   * says who asked. Returns the action id.
+   */
+  cmux.action = (definition) => {
+    if (!isFilter(definition)) throw invalid("cmux.action needs { name, run }")
+    const name = definition.name
+    if (typeof name !== "string" || !NAME.test(name) || name.startsWith("key.")) {
+      throw invalid(`the action name ${JSON.stringify(name)} must be lowercase letters, digits, '.', '_' or '-', and not start with 'key.'`)
+    }
+    if (typeof definition.run !== "function") throw invalid(`the action ${name} needs a run function`)
+    return defineAction(name, { title: text(definition.title), description: text(definition.description) }, definition.run, true)
+  }
+
+  cmux.keys = {
+    /**
+     * Binds `key` (keybindings.json syntax: strokes separated by spaces,
+     * such as `cmd+k s`) to an action id or a function. Options: `args`
+     * (the action's args), `when` (a when clause), `mode` (only while that
+     * key mode is on).
+     */
+    bind: (key, target, options) => {
+      const keyText = text(key)
+      if (!keyText) throw invalid("cmux.keys.bind needs a key")
+      const opts = plainObject(options, "the cmux.keys.bind options")
+      const mode = opts.mode === undefined || opts.mode === null ? null : String(opts.mode)
+      if (mode !== null && !keyModes.has(mode)) throw invalid(`the key mode ${mode} is not defined (cmux.keys.mode)`)
+      let command
+      if (typeof target === "function") {
+        keyActions += 1
+        command = defineAction(`key.${keyActions}`, { title: keyText }, target, false)
+      } else if (text(target)) {
+        command = text(target)
+      } else {
+        throw invalid("cmux.keys.bind needs an action id or a function")
+      }
+      keyBindings.push({ key: keyText, command, args: plainObject(opts.args, "args"), when: text(opts.when), mode })
+    },
+    /** Removes the default binding of `command` on `key` (every key when absent). */
+    unbind: (command, key) => {
+      const commandText = text(command)
+      if (!commandText) throw invalid("cmux.keys.unbind needs an action id")
+      keyRemovals.push({ command: commandText, key: text(key) })
+    },
+    /**
+     * Defines key mode `name`: bindings with `{ mode: name }` work only
+     * while it is on. An exclusive mode (the default) swallows other keys.
+     */
+    mode: (name, options) => {
+      if (typeof name !== "string" || !NAME.test(name)) throw invalid(`the key mode name ${JSON.stringify(name)} is not valid`)
+      if (keyModes.has(name)) throw invalid(`the key mode ${name} is already defined`)
+      const opts = plainObject(options, "the cmux.keys.mode options")
+      keyModes.set(name, { name, title: text(opts.title) || name, exclusive: opts.exclusive !== false })
+    },
+  }
+
   cmux.args = {}
 
   const session = replHost.createReplSession({ host: { now: () => Date.now() }, globals: [{ console: root.console }] })
@@ -225,6 +305,27 @@
   }
 
   root.__cmuxAppExports = {
+    // What the config scripts defined.
+    config: () => ({
+      actions: Array.from(userActions.values(), (a) => ({ id: `user.${a.name}`, name: a.name, title: a.title, description: a.description, palette: a.palette })),
+      keys: keyBindings.map((b) => ({ ...b })),
+      modes: Array.from(keyModes.values(), (m) => ({ ...m })),
+      removals: keyRemovals.map((r) => ({ ...r })),
+    }),
+    // Runs user action `name` with `args` and `context` (`{ origin, ... }`).
+    action: async (request) => {
+      const name = String((request && request.name) || "")
+      const action = userActions.get(name)
+      if (!action) throw new CmuxError("action.not_found", `no user action ${name}`)
+      const context = isFilter(request.context) ? request.context : {}
+      const args = isFilter(request.args) ? request.args : {}
+      try {
+        return plain(await action.run({ ...context, origin: String(context.origin || "script") }, args))
+      } catch (error) {
+        if (error instanceof CmuxError) throw error
+        throw new CmuxError("script.error", `user.${name}: ${describe(error)}`)
+      }
+    },
     eval: async (request) => {
       const args = request && request.args
       cmux.args = args && typeof args === "object" && !Array.isArray(args) ? args : {}

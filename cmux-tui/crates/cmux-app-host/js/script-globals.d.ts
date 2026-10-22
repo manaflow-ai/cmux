@@ -67,5 +67,41 @@ interface CmuxGlobal {
   stream<S extends string>(stream: S, filter?: Partial<CmuxEventOf<S>>): CmuxEventStream<CmuxEventOf<S>>
 }
 
+/** What a user action's `run` gets as its first argument. */
+interface CmuxActionContext {
+  /** Who ran it: `key`, `palette`, `cli`, `script`, ... */
+  origin: string
+  workspace?: string
+  pane?: string
+  tab?: string
+  terminal?: string
+}
+
+interface CmuxKeyBindOptions {
+  /** The action's args. */
+  args?: Record<string, unknown>
+  /** A when clause (keybindings.json syntax). */
+  when?: string
+  /** Only while this key mode (`cmux.keys.mode`) is on. */
+  mode?: string
+}
+
+interface CmuxGlobal {
+  /**
+   * Defines the user action `user.<name>` (config scripts in `scripts/` beside
+   * the settings file): the palette, keys, `cmux script action NAME` and
+   * scripts run it. Returns its id.
+   */
+  action(definition: { name: string; title?: string; description?: string; run(ctx: CmuxActionContext, args: Record<string, unknown>): unknown }): string
+  keys: {
+    /** Binds keys (`cmd+k s`: strokes separated by spaces) to an action id or a function. */
+    bind(key: string, target: string | ((ctx: CmuxActionContext, args: Record<string, unknown>) => unknown), options?: CmuxKeyBindOptions): void
+    /** Removes the default binding of `command` on `key` (every key when absent). */
+    unbind(command: string, key?: string): void
+    /** Defines a key mode; an exclusive mode (the default) swallows unbound keys while it is on. */
+    mode(name: string, options?: { title?: string; exclusive?: boolean }): void
+  }
+}
+
 declare function setTimeout(fn: (...args: unknown[]) => void, ms?: number, ...args: unknown[]): number
 declare function clearTimeout(id: number): void

@@ -9,6 +9,17 @@
 //! | `script-repl-open` | | `{session}` |
 //! | `script-repl-eval` | `session`, `code`, `args?`, `timeout_ms?` | `{value}` |
 //! | `script-repl-close` | `session` | `{closed}` |
+//! | `script-config-status` | | the config report (below) |
+//! | `script-config-reload` | | the config report; applies when every file ran |
+//! | `script-config-check` | `path?` (folder or file) | `{ok, diagnostics, files?, actions?, keys?, modes?, removals?}` |
+//! | `script-action-run` | `action` (`user.<name>`), `args?`, `context?` (`{origin, ...}`) | `{value}` |
+//!
+//! The config report (`scripts::config`): `{loaded, generation, dir, files,
+//! applied, diagnostics: [{file, line, column, code?, message}], actions:
+//! [{id, name, title, description, palette}], keys: [{key, command, args,
+//! when, mode}], modes: [{name, title, exclusive}], removals: [{command,
+//! key}]}`. An applied reload emits `script-config-changed {generation}` to
+//! subscribers.
 //!
 //! Console output arrives before the reply as events `{event: "script-log",
 //! request?, session?, level, message}`. `cancel-request {target}` ends a
@@ -67,6 +78,29 @@ enum Command {
     },
     #[serde(rename = "script-repl-close")]
     Close { session: String },
+    #[serde(rename = "script-config-status")]
+    ConfigStatus,
+    #[serde(rename = "script-config-reload")]
+    ConfigReload,
+    #[serde(rename = "script-config-check")]
+    ConfigCheck {
+        #[serde(default)]
+        path: Option<String>,
+    },
+    #[serde(rename = "script-action-run")]
+    ActionRun {
+        action: String,
+        #[serde(default)]
+        args: Value,
+        #[serde(default)]
+        context: Value,
+    },
+}
+
+/// Console output of the config scripts: no connection owns them, so it
+/// goes to the daemon's stderr log.
+fn config_log() -> LogSink {
+    Arc::new(|level: &str, message: &str| eprintln!("cmux-tui: config script {level}: {message}"))
 }
 
 #[derive(Deserialize)]
@@ -285,6 +319,42 @@ pub(super) fn try_handle(
         Command::Close { session } => {
             let closed = mux.control_clients.scripts.close(client, &session);
             reply(writer, id, Ok(json!({ "closed": closed })))
+        }
+        Command::ConfigStatus => reply(writer, id, Ok(mux.control_clients.scripts.config.status())),
+        Command::ConfigReload => {
+            let mux = mux.clone();
+            answer_later(writer, id, move || {
+                let scripts = &mux.control_clients.scripts;
+                let start = |log: LogSink| scripts.start_config(&mux, log);
+                let (report, applied) = scripts.config.reload(&start, config_log());
+                if applied {
+                    let generation = report["generation"].as_u64().unwrap_or_default();
+                    mux.emit(crate::MuxEvent::ScriptConfigChanged { generation });
+                }
+                Ok(report)
+            })
+        }
+        Command::ConfigCheck { path } => {
+            let mux = mux.clone();
+            answer_later(writer, id, move || {
+                let path = path
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(crate::scripts::config::scripts_dir);
+                let scripts = &mux.control_clients.scripts;
+                let start = |log: LogSink| scripts.start_config(&mux, log);
+                Ok(scripts.config.check(&path, &start, config_log()))
+            })
+        }
+        Command::ActionRun { action, args, context } => {
+            let mux = mux.clone();
+            answer_later(writer, id, move || {
+                let context = if context.is_object() { context } else { json!({}) };
+                mux.control_clients
+                    .scripts
+                    .config
+                    .run_action(&action, args_object(args), context)
+                    .map(|value| json!({ "value": value }))
+            })
         }
     })
 }

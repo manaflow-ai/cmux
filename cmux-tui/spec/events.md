@@ -44,6 +44,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `history-changed` | subscribe | none | protocol 12; capability `history-v1` |
 | `settings-changed` | subscribe | machine settings | protocol 12; capability `settings-v1` |
 | `keybindings-changed` | subscribe | machine keybindings | protocol 12; capability `keybindings-v1` |
+| `script-config-changed` | subscribe | session | protocol 12 additive extension; with the `script-*` commands |
 | `conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
 | `conversation-typing` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
 | `conversation-inbox-changed` | subscribe | `conversation`, `participant` | protocol 12 additive extension; capability `conversation-inbox-state-v1` |
@@ -473,6 +474,21 @@ advances once per change and is the `revision` of `keybindings.get`, and
 `origin` is `user`, `cli`, `mcp`, `script`, `remote`, `app` or `file` (found
 on disk). A write that leaves the text unchanged publishes nothing. Clients
 refetch `keybindings.get`.
+
+### script-config-changed
+
+| Field | Value |
+| --- | --- |
+| event | `script-config-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; with the `script-*` commands |
+
+Published after a `script-config-reload` applied: every config script in
+`scripts/` beside the settings file ran, and the user actions, key bindings,
+key modes and removals they define replaced the previous ones. The payload is
+`{event:"script-config-changed", generation:uint64}`; `generation` is the
+report's. A reload that kept the last good load publishes nothing. Clients
+refetch `script-config-status`.
 ### conversation-changed
 
 | Field | Value |
