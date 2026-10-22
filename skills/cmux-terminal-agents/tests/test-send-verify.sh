@@ -119,5 +119,11 @@ if [ "$code" = 0 ] && [ "$(echo "$out" | field verified)" = '"prompt_gone"' ] &&
   pass "choose: digit ignored, arrows picked option 2"
 else failt "choose: digit ignored, arrows picked option 2" "exit $code out=$(echo "$out" | head -c 300)"; fi
 
+# 11. wait with no turn sent yet reports no since-send time (not seconds since 1970).
+start fresh ""
+out=$("$A" wait fresh --idle-seconds 1 --timeout 5 2>/dev/null); code=$?
+s=$(echo "$out" | field since_send_seconds)
+[ "$code" = 0 ] && [ "$s" = null ] && pass "wait without a turn: since_send_seconds null" || failt "wait without a turn: since_send_seconds null" "exit $code since=$s"
+
 echo
 if [ "$fails" = 0 ]; then echo "cmux-terminal-agents send-verify tests passed"; else echo "$fails test(s) failed"; exit 1; fi

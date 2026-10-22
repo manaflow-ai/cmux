@@ -29,6 +29,21 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     public var revealFolder: @MainActor (URL) -> Void = { NSWorkspace.shared.revealInBackground([$0]) }
     /// Selects a file in Finder (the image viewer's Show in Finder).
     public var revealFile: @MainActor (URL) -> Void = { NSWorkspace.shared.revealInBackground([$0]) }
+    /// The context menu's Copy Image: replaces the general pasteboard's contents with the item
+    /// (``AgentPaneImageCopies/pasteboardItem(_:data:)``); tests record it instead.
+    public var copyItem: @MainActor (NSPasteboardItem) -> Bool = { AgentPaneImageCopies.writeGeneral($0) }
+    /// Save Image As…: asks where to save the file under the name (the system save panel).
+    public var saveFile: @MainActor (_ file: URL, _ name: String) -> Void = { AgentPaneImageCopies.askToSave($0, name: $1) }
+    /// Quick Look on a file (the system's preview panel).
+    public lazy var quickLookFile: @MainActor (URL) -> Void = { [quickLook = self.quickLook] in quickLook.show($0) }
+    /// Whether the person still holds the pointer's button: a page drag (`image.drag`, `file.drag`)
+    /// becomes the host's drag only then, so page script alone never starts one.
+    public var mouseHeld: @MainActor () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
+    /// Starts the host's drag of a real file out of the pane (the view's dragging session); false
+    /// when there is no pane to drag from.
+    public var startDrag: @MainActor (URL) -> Bool = { _ in false }
+    /// The Quick Look panel's source for ``quickLookFile``.
+    private let quickLook = AgentPaneQuickLook()
     /// Where the image viewer keeps the copies it shows or opens (``AgentPaneImageCopies``).
     public var imageFolder = AgentPaneImageCopies.defaultFolder()
     public var browsers: any AgentPaneBrowserApps = AgentPaneWorkspaceBrowsers()
@@ -113,7 +128,8 @@ extension AgentPaneModel {
             guard transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
             replyLinks.browsers.open(url, withApplicationAt: app)
             return AgentPaneReply.success()
-        case .revealImage, .openImageInPane: return await AgentPaneImageCopies.respond(to: request, in: self)
+        case .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .dragImage, .dragFile:
+            return await AgentPaneImageCopies.respond(to: request, in: self)
         }
     }
 
