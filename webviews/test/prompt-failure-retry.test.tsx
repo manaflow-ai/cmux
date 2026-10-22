@@ -12,6 +12,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { DeliveryFailure } from "../src/agent-session/acpmux/conversation/PromptDelivery";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxRow, PromptDelivery } from "../src/agent-session/acpmux/model";
+import * as failureCause from "../src/agent-session/acpmux/promptFailureCause";
 
 const failedRow = (delivery: Partial<PromptDelivery> & Record<string, unknown>): AcpmuxRow => ({
   id: "local-p1",
@@ -80,9 +81,57 @@ describe("Retry on a prompt that did not get there", () => {
   });
 
   test("a send the pane's connection lost offers Retry once the pane is connected again", () => {
-    const row = failedRow({ hop: "connection", code: "transport.connect_failed" });
-    expect(buttons(row, { trustBlocked: false, connected: false })).toEqual(OTHERS);
-    expect(buttons(row, open)).toEqual([RETRY, ...OTHERS]);
+    for (const code of ["transport.stale_connection", "native.not_connected"]) {
+      const row = failedRow({ hop: "connection", code });
+      expect(buttons(row, { trustBlocked: false, connected: false })).toEqual(OTHERS);
+      expect(buttons(row, open)).toEqual([RETRY, ...OTHERS]);
+    }
+  });
+
+  test("an allow only the person at the Mac may give offers no Retry, connected or not", () => {
+    // direct.ts labels every transport refusal but a gesture's as the connection's hop.
+    expect(buttons(failedRow({ hop: "connection", code: "transport.person_required" }), open)).toEqual(OTHERS);
+    expect(buttons(failedRow({ reason: "permission.person_required" }), open)).toEqual(OTHERS);
+  });
+
+  test("a refusal the pane does not know offers no Retry unless acpmux marks it retryable", () => {
+    expect(buttons(failedRow({ hop: "connection", code: "transport.some_new_refusal" }), open)).toEqual(OTHERS);
+    expect(buttons(failedRow({ reason: "session.some_new_refusal" }), open)).toEqual(OTHERS);
+    expect(buttons(failedRow({ reason: "session.some_new_refusal", retryable: true }), open)).toEqual([
+      RETRY,
+      ...OTHERS,
+    ]);
+  });
+
+  test("a turn that failed after acpmux took the prompt keeps Retry", () => {
+    expect(buttons(failedRow({ hop: "agent" }), open)).toEqual([RETRY, ...OTHERS]);
+  });
+
+  test("a failed row with no record of its send (an older session's) offers no Retry: nothing is left to send", () => {
+    const row: AcpmuxRow = { id: "local-p0", version: 1, at: 0, kind: "user", text: "Ship it", failed: true };
+    expect(buttons(row, open)).toEqual([]);
+  });
+});
+
+describe("the trust question's hold on Retry", () => {
+  // What useFolderTrustAsk says while it reads the folder again after a trust.pending refusal.
+  const holds = (trust: { blocked?: object; trusted: boolean }) => failureCause.trustHolds(trust);
+
+  test("a read in flight holds: the answer is not known yet", () => {
+    expect(holds({ blocked: {}, trusted: false })).toBe(true);
+  });
+
+  test("an open question or Don't trust holds", () => {
+    expect(holds({ blocked: { reason: "trust.answerFirst" }, trusted: false })).toBe(true);
+    expect(holds({ blocked: { reason: "trust.notTrustedNoPrompts" }, trusted: false })).toBe(true);
+  });
+
+  test("a read that came back with no answer holds: acpmux refuses the prompt again", () => {
+    expect(holds({ blocked: undefined, trusted: false })).toBe(true);
+  });
+
+  test("only a folder known to be trusted lets Retry show", () => {
+    expect(holds({ blocked: undefined, trusted: true })).toBe(false);
   });
 });
 
