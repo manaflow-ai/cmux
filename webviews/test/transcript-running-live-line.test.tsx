@@ -172,3 +172,32 @@ test("the older layout offers no ⌃B while the agent still writes the command",
     expect(withCtrlB(<WorkingFor row={line} now={() => line.at + 5_000} />)).not.toContain("cv-command__bg");
   }
 });
+
+// Re-review on #24305 (Codex xhigh): with a todo list the activity line names the command the runs
+// left out, even when a newer earlier run holds a read or a call Claude is still writing.
+test("with a todo list the activity line names the command its run gave up", () => {
+  const plan = row("p", "plan", { plan: [{ content: "Copy the logs", status: "in_progress" }] });
+  const newer = [
+    call("Bash", "pending", { title: "Bash", command: undefined }),
+    call("Read session.log", "in_progress", { kind: "read", command: undefined }),
+  ];
+  for (const other of newer) {
+    const shaped = turnView(
+      [
+        row("u", "user"),
+        plan,
+        row("r1", "activity", { items: [call("cp a b", "in_progress")] }),
+        row("a1", "assistant", { text: LONG_NOTE }),
+        row("r2", "activity", { items: [other] }),
+        row("a2", "assistant", { text: LONG_NOTE }),
+        row("r3", "activity", { items: [call("git status")] }),
+      ],
+      new Set(),
+      { working: true, liveRuns: true, lineBelow: true, sessionStatus: true },
+    );
+    const line = shaped.at(-1)!;
+    expect(line).toMatchObject({ kind: "activityLine", doingCommand: true });
+    expect(line.text).toContain("cp a b");
+    expect(shaped.some((entry) => entry.id === "r1")).toBe(false);
+  }
+});

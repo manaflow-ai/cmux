@@ -788,6 +788,7 @@ function codexLiveTurn(
       drawn.filter((row) => row !== plan),
       plan,
       clockOffset,
+      named?.tool,
     ),
   ];
 }
@@ -834,11 +835,21 @@ function withLiveStep(rows: AcpmuxRow[], last: AcpmuxRow | undefined): AcpmuxRow
 /// itself, an edit by its file name), else the todo in progress. What it names is its text and
 /// moves its version, so the memoized row redraws when the call's path arrives; it carries no
 /// items, so Find never counts the call's output a second time. Its clock ticks from the prompt.
-function activityLine(user: AcpmuxRow, work: AcpmuxRow[], plan: AcpmuxRow, clockOffset: number): AcpmuxRow {
-  const running = work
-    .flatMap((row) => (row.kind === "activity" ? (row.items ?? []) : []))
-    .reverse()
-    .find((item) => item.tool?.status === "pending" || item.tool?.status === "in_progress");
+/// With `named` (the Codex-style runs, `lineCall`) it names that call, the one the runs left out, so
+/// a command never leaves its run without the line naming it.
+function activityLine(
+  user: AcpmuxRow,
+  work: AcpmuxRow[],
+  plan: AcpmuxRow,
+  clockOffset: number,
+  named?: NonNullable<AcpmuxActivity["tool"]>,
+): AcpmuxRow {
+  const running = named
+    ? { kind: "tool", text: "", tool: named }
+    : work
+        .flatMap((row) => (row.kind === "activity" ? (row.items ?? []) : []))
+        .reverse()
+        .find((item) => item.tool?.status === "pending" || item.tool?.status === "in_progress");
   const label = running?.tool
     ? runningLabel(running.tool, running.text)
     : (plan.plan?.find((entry) => entry.status === "in_progress")?.content ?? "");
