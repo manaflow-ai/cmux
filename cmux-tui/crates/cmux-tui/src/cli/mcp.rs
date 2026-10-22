@@ -346,7 +346,13 @@ fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
     server.allowed = allowed_tools(std::env::var_os(ALLOWED_TOOLS_ENV));
     server.upstreams = upstream::specs(std::env::var_os(upstream::ENV))
         .into_iter()
-        .map(|spec| upstream::Proxied::new(upstream::Upstream::new(spec)))
+        .map(|spec| {
+            let upstream = upstream::Upstream::new(spec);
+            upstream::Proxied::new(match upstream::listing_cache_dir() {
+                Some(dir) => upstream.with_listing_cache(dir),
+                None => upstream,
+            })
+        })
         .collect();
     server.run(io::stdin().lock(), &output)
 }

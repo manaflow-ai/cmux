@@ -7,15 +7,22 @@
 //! `<prefix>_<tool>` (`cmux-cua` is `cua`), so `cmux_docs` finds them and a
 //! `cmux_exec` script calls them through `Server::call`, under the same
 //! allowlist as every other tool.
+//!
+//! A server's list is kept in [`listing_cache_dir`], keyed by its command,
+//! args and the command file's size and time: a chat lists the tools from
+//! there and starts the server only when a tool of its is called
+//! (ask-a3c16b28b7: every chat ran all of them from launch). The list a
+//! start gets replaces the kept one.
 
 use std::collections::BTreeSet;
 use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 
 /// The env acpmux gives the `cmux` server: a JSON array of
 /// `{name, command, args, env}`.
@@ -75,6 +82,39 @@ pub(super) fn specs(value: Option<std::ffi::OsString>) -> Vec<Spec> {
         .collect()
 }
 
+/// Where `serve` keeps the servers' lists: `~/Library/Caches/cmux-tui/mcp-upstreams`
+/// on macOS, else `$XDG_CACHE_HOME` or `~/.cache`, then `cmux-tui/mcp-upstreams`.
+pub(super) fn listing_cache_dir() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from);
+    let base = if cfg!(target_os = "macos") {
+        home?.join("Library").join("Caches")
+    } else {
+        std::env::var_os("XDG_CACHE_HOME")
+            .filter(|d| !d.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| home.map(|h| h.join(".cache")))?
+    };
+    Some(base.join("cmux-tui").join("mcp-upstreams"))
+}
+
+/// The kept list's file in `dir` for `spec`: the same command file, args
+/// and name. Never the env, which holds the session's token.
+fn listing_file(dir: &Path, spec: &Spec) -> PathBuf {
+    let mut hash = Sha256::new();
+    hash.update(spec.name.as_bytes());
+    hash.update([0]);
+    hash.update(spec.command.as_os_str().as_encoded_bytes());
+    for arg in &spec.args {
+        hash.update([0]);
+        hash.update(arg.as_bytes());
+    }
+    if let Ok(meta) = std::fs::metadata(&spec.command) {
+        let time = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok());
+        hash.update(format!("\0{}\0{:?}", meta.len(), time).as_bytes());
+    }
+    dir.join(format!("{:x}.json", hash.finalize()))
+}
+
 /// The tool name prefix of server `name`: `cmux-cua` is `cua`.
 fn prefix(name: &str) -> String {
     let name = name.strip_prefix("cmux-").unwrap_or(name);
@@ -94,6 +134,8 @@ pub(super) struct Upstream {
     /// Why and when the last start failed: said once, retried after
     /// `START_BACKOFF`.
     failed: Option<(String, Instant)>,
+    /// Its kept list's file (`listing_file`), when there is a cache.
+    cache: Option<PathBuf>,
 }
 
 /// Why a request has no result.
@@ -130,23 +172,67 @@ impl Drop for Conn {
 impl Upstream {
     pub(super) fn new(spec: Spec) -> Self {
         let prefix = prefix(&spec.name);
-        Self { spec, prefix, conn: None, tools: None, instructions: None, failed: None }
+        Self {
+            spec,
+            prefix,
+            conn: None,
+            tools: None,
+            instructions: None,
+            failed: None,
+            cache: None,
+        }
     }
 
-    /// Keeps the server's last list in `dir`.
-    pub(super) fn with_listing_cache(self, dir: PathBuf) -> Self {
-        let _ = dir;
+    /// Keeps the server's last list in `dir`, and lists from it before a start.
+    pub(super) fn with_listing_cache(mut self, dir: PathBuf) -> Self {
+        self.cache = Some(listing_file(&dir, &self.spec));
         self
+    }
+
+    /// The kept list, when there is one: tools and instructions.
+    fn load_listing(&mut self) -> bool {
+        let Some(text) = self.cache.as_ref().and_then(|f| std::fs::read_to_string(f).ok()) else {
+            return false;
+        };
+        let Ok(kept) = serde_json::from_str::<Value>(&text) else { return false };
+        let Some(tools) = kept["tools"].as_array() else { return false };
+        self.tools = Some(tools.clone());
+        self.instructions = kept["instructions"].as_str().map(str::to_owned);
+        true
+    }
+
+    /// Keeps the list a start got, when it differs from the kept one. A
+    /// write that fails only means the next chat starts the server to list.
+    fn keep_listing(&self) {
+        let Some(file) = &self.cache else { return };
+        let kept = json!({"tools": self.tools, "instructions": self.instructions});
+        let same = std::fs::read_to_string(file)
+            .ok()
+            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+            .is_some_and(|old| old == kept);
+        if same {
+            return;
+        }
+        let (Some(dir), Some(name)) = (file.parent(), file.file_name()) else { return };
+        // Each chat's own temp file, then one rename: a reader sees a whole list.
+        let tmp = dir.join(format!(".{}.{}.tmp", name.to_string_lossy(), std::process::id()));
+        let written = std::fs::create_dir_all(dir)
+            .and_then(|()| std::fs::write(&tmp, kept.to_string()))
+            .and_then(|()| std::fs::rename(&tmp, file));
+        if written.is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
     }
 
     pub(super) fn name(&self) -> &str {
         &self.spec.name
     }
 
-    /// The tools under their cmux names, starting the server if needed.
+    /// The tools under their cmux names: the kept list, else from starting
+    /// the server.
     /// `taken` holds names already in use; a clash is left out.
     pub(super) fn descriptors(&mut self, taken: &BTreeSet<String>) -> Vec<Value> {
-        if self.tools.is_none() {
+        if self.tools.is_none() && !self.load_listing() {
             if self.failed.as_ref().is_some_and(|(_, at)| at.elapsed() < START_BACKOFF) {
                 return Vec::new();
             }
@@ -281,6 +367,7 @@ impl Upstream {
         }
         self.tools = Some(tools);
         self.failed = None;
+        self.keep_listing();
         Ok(())
     }
 
