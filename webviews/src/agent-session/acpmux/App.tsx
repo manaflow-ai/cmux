@@ -2012,6 +2012,11 @@ export function VirtualTranscript({
   /// The open waits, unseen, while older pages bring back `openAt`'s row; expired, it opens at the latest.
   const [seeking, setSeeking] = useState(false);
   const [seekExpired, setSeekExpired] = useState(false);
+  /// The sends this chat's view has taken in (`sends`): a new one puts the view at the latest message.
+  const seenSends = useRef(sends);
+  /// A prompt was sent before the chat opened (while it seeks `openAt`'s row, or while its tail still
+  /// fits): it opens at the latest message, not at the reader's old place.
+  const sentBeforeOpen = useRef(false);
   const seekTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /// When the walk began, and the first row it had then: a new first row is a page landed.
   const seekStart = useRef<number | undefined>(undefined);
@@ -2443,6 +2448,9 @@ export function VirtualTranscript({
       // openAt position or latest row.
       previousSession.current = sessionId;
       didOpenAtLatest.current = false;
+      // Another chat's count (the subagent view takes none) is not a send in this one.
+      seenSends.current = sends;
+      sentBeforeOpen.current = false;
       endSeek();
       setSeeking(false);
       setSeekExpired(false);
@@ -2546,8 +2554,9 @@ export function VirtualTranscript({
     // Runs on height too: rows that fit and then overflow on a height-only shrink keep the same memoized layout.
     if (!didOpenAtLatest.current && node) {
       const latest = Math.max(0, layout.totalHeight - node.clientHeight);
-      // A chat reopened where the reader left it (cx-6bgzj), else at the latest message.
-      const at = openAt ? rows.findIndex((row) => row.id === openAt.rowId) : -1;
+      // A chat reopened where the reader left it (cx-6bgzj), else at the latest message, as it is
+      // once the reader sent a prompt into it.
+      const at = openAt && !sentBeforeOpen.current ? rows.findIndex((row) => row.id === openAt.rowId) : -1;
       // That row is older than the pages loaded so far (a chat opens on its tail): page back to it
       // unseen, one older page after another: each page that lands changes `rows` and looks again
       // (cx-odzaz).
@@ -2829,12 +2838,18 @@ export function VirtualTranscript({
   // The reader sent a prompt: the view goes to the latest message before the frame paints, even
   // scrolled up, and follows the prompt's row and its reply in (Leo 2026-10-21). Only a scroll up
   // by the reader lets go of it again.
-  const seenSends = useRef(sends);
   useLayoutEffect(() => {
     if (sends === seenSends.current) return;
     seenSends.current = sends;
     const node = ref.current;
-    if (!node || !didOpenAtLatest.current) return;
+    if (!node) return;
+    if (!didOpenAtLatest.current) {
+      // The chat has not opened yet: it stops paging back to the reader's old place and opens at
+      // the latest message (the placement pass, which `seekExpired` runs again).
+      sentBeforeOpen.current = true;
+      setSeekExpired(true);
+      return;
+    }
     revealing.current = undefined;
     revealWindow.current = 0;
     foldAnchor.current = undefined;
@@ -6762,7 +6777,8 @@ function AcpmuxPane() {
                                                     : undefined
                                                 }
                                                 anchorNow={quick || childRows ? undefined : transcriptAnchor}
-                                                sends={sends}
+                                                // A prompt goes to the chat, not to the subagent shown in its place.
+                                                sends={childRows ? undefined : sends}
                                                 onAnchor={
                                                   quick || childRows || !shownSessionId
                                                     ? undefined

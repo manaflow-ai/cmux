@@ -3,9 +3,10 @@
 // IMMEDIATELY PUTTING ME AT THE BOTTOM EVERY SINGLE TIME"). A long chat opens at its end with
 // nothing sliding it; a reply streamed a chunk per frame, and a tool row coming in under it, move
 // the view in the frame that draws them, with no glide holding the new text below the view's foot;
-// a prompt sent while the reader is scrolled up lands at the bottom on the next painted frame; and
-// a reader who scrolled up is left where they scrolled while the reply grows. On base every chunk
-// glid in (180 ms each), and a send left a scrolled-up reader where they were.
+// a prompt sent while the reader is scrolled up lands at the bottom on the next painted frame; a
+// prompt sent while the chat still pages back to the reader's saved place opens it at the bottom
+// instead; and a reader who scrolled up is left where they scrolled while the reply grows. On base
+// every chunk glid in (180 ms each), and a send left a scrolled-up reader where they were.
 //
 // Real Chromium and WebKit from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -204,6 +205,33 @@ await requireBrowserLane("transcript-pinned-bottom.test.ts", async () => {
       const sent = await samples(page);
       // The first frame may still show the scroll up: the send lands on the next painted frame.
       expect(sent.slice(1).filter((frame) => frame.fromEnd > 1)).toEqual([]);
+      await page.close();
+    });
+
+    test(`${name}: a send while the chat pages back to the reader's saved place opens it at the bottom`, async () => {
+      const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 560 } });
+      await installPaintedFrames(page);
+      const { port } = vite!.httpServer!.address() as { port: number };
+      await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
+      await page.waitForFunction(() => "__showRows" in window);
+      // The saved place is a row older than the loaded tail: the open pages back for it, unseen.
+      await page.evaluate(() =>
+        (window as unknown as { __openAt(anchor: unknown): void }).__openAt({ rowId: "t-older-answer", offset: 0 }),
+      );
+      const opened = history(60);
+      await show(page, opened);
+      await painted(page, 10);
+      const seeking = () => page.evaluate(() => document.querySelector(".acpmux-scroll")!.hasAttribute("data-seeking"));
+      expect(await seeking()).toBe(true);
+      // The send was counted and dropped while the chat had not opened (#23807 review): it opens at
+      // its latest message now, not at the saved place once that page lands, nor seconds later.
+      await page.evaluate(() => (window as unknown as { __send(): void }).__send());
+      await painted(page, 3);
+      expect({ seeking: await seeking(), atEnd: (await fromEnd(page)) <= 1 }).toEqual({ seeking: false, atEnd: true });
+      // It follows from there: the prompt's row arrives at the bottom.
+      await show(page, [...opened, row("sent-user", "user", "And then?")]);
+      await painted(page, 5);
+      expect(await fromEnd(page)).toBeLessThanOrEqual(1);
       await page.close();
     });
   }
