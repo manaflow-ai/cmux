@@ -74,6 +74,7 @@ import {
 } from "./composer/attachmentIntake";
 import { type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
+import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
 import { useHeaderState } from "./header/headerState";
@@ -451,6 +452,21 @@ export function Composer({
   attachmentsRef.current = attachments;
   // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
   const pastedChips = usePastedChips(attachmentsRef, setAttachments, field);
+  // A paste anywhere in the pane outside a text field goes into the prompt, after what is already
+  // there (composer/pasteAnywhere.ts).
+  usePasteAnywhere(() => {
+    const shellInput = shellRef.current.shell ? shellField.current : null;
+    if (shellInput) {
+      shellInput.focus();
+      shellInput.setSelectionRange(shellInput.value.length, shellInput.value.length);
+      return true;
+    }
+    const prompt = field.current;
+    if (!prompt?.element()) return false;
+    prompt.focus();
+    prompt.setCaret(Number.MAX_SAFE_INTEGER);
+    return true;
+  });
   // + then Attach files clicks this input: the system file chooser (an open panel in the app).
   const chooser = useRef<HTMLInputElement>(null);
   useLayoutEffect(() => {

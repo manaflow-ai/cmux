@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
 import { pasteIsOnlyFileNames } from "./attachments";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
-import { liftInlineImages } from "./inlineImages";
+import { liftInlineImages, withoutMarkdownImages } from "./inlineImages";
 import { isImeKeyEvent } from "../../pages/shared/imeKeys";
 import { activeFormats, applyFormat, type MarkdownFormat } from "./markdownFormat";
 import "./markdownField.css";
@@ -440,7 +440,16 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
                 if (!data.files.length && !htmlHasDataImage(data.getData("text/html")) && !lifted.attachments.length)
                   return false;
                 event.preventDefault();
-                const plain = pasteIsOnlyFileNames(data) ? "" : lifted.text;
+                // The picture itself is on the clipboard (a file, or a data: <img>): the `![…](…)`
+                // a browser or the transcript copies beside it is only markup for it, never text.
+                const carriesImage =
+                  [...data.files].some((file) => file.type.startsWith("image/")) ||
+                  htmlHasDataImage(data.getData("text/html"));
+                const plain = pasteIsOnlyFileNames(data)
+                  ? ""
+                  : carriesImage
+                    ? withoutMarkdownImages(lifted.text)
+                    : lifted.text;
                 if (!plain.trim() || beforeInput(editorView, plain, true)) return true;
                 insertPlain(editorView, plain);
                 showPastedEnd(editorView.state);
