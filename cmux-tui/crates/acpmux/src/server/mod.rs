@@ -48,6 +48,8 @@ pub struct Conn {
     raw_text: bool,
     name: StdMutex<String>,
     out: mpsc::Sender<String>,
+    /// True once the client stopped sending (its read side ended): it exited or hung up.
+    ended: tokio::sync::watch::Sender<bool>,
     subs: StdMutex<HashMap<String, SubOpts>>,
     /// Server-derived mailbox identities for this connection's local attachments.
     mailbox_bindings: StdMutex<HashMap<String, SessionReceipt>>,
@@ -146,6 +148,17 @@ impl Conn {
         let held = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).take();
         for lease in held.unwrap_or_default() {
             hub.end_peer_lease(&lease);
+        }
+    }
+
+    /// Resolves once the client is gone: nobody reads its replies any more, or it stopped
+    /// sending. A unix socket's writer learns of a closed socket only when it writes, so the
+    /// read side ending counts too.
+    async fn closed(&self) {
+        let mut ended = self.ended.subscribe();
+        tokio::select! {
+            () = self.out.closed() => {}
+            _ = ended.wait_for(|ended| *ended) => {}
         }
     }
 
@@ -827,6 +840,7 @@ async fn serve_connection_from(
         unproven_caller: std::sync::OnceLock::new(),
         peer_leases: StdMutex::new(Some(Vec::new())),
         ephemeral: StdMutex::new(Some(Vec::new())),
+        ended: tokio::sync::watch::Sender::new(false),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -873,6 +887,7 @@ async fn serve_connection_from(
             }
         }
     }
+    conn.ended.send_replace(true);
     fan.abort();
     view::release_all(&hub, &conn);
     // Leases first: ending one is cheap and synchronous, while the ephemeral
