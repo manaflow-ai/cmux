@@ -54,6 +54,7 @@ pub mod local_stream;
 pub mod login_env;
 pub mod mailbox;
 pub mod native;
+pub mod no_panic;
 pub mod offer_mcp;
 pub(crate) mod opencode_ask;
 #[cfg(windows)]

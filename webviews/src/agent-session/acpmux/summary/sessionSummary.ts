@@ -16,6 +16,8 @@ export type SummarySource = { url?: string; label: string };
 export type SummaryBackgroundTask = {
   id: string;
   command: string;
+  /// What the call says it does (Claude's Bash `description`), when it says.
+  description?: string;
   state: "running" | "completed" | "failed" | "stopped";
   /// When its call started (epoch ms), for its elapsed time; absent for one known from its end only.
   startedAt?: number;
@@ -127,6 +129,7 @@ function backgroundTasks(rows: readonly AcpmuxRow[], all: readonly Tool[]): Summ
     .map((tool): SummaryBackgroundTask => ({
       id: tool.id,
       command: field(input(tool).command) ?? tool.title,
+      ...(field(input(tool).description) ? { description: field(input(tool).description) } : {}),
       state: ended.get(tool.id) ?? (tool.status === "failed" ? "failed" : "running"),
       ...(tool.startedAt !== undefined ? { startedAt: tool.startedAt } : {}),
     }));

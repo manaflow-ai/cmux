@@ -11,7 +11,9 @@
 // live in the shared link card (LinkHoverCard.tsx) that hovering opens: Open and Open in, and a
 // pull request's title, state, author and checks.
 import { useState, type ReactNode } from "react";
+import { useT } from "../i18n";
 import { callChipHost } from "./host";
+import { useMessageScope } from "./messageScope";
 import { FileDoc, Folder, GitHubMark, Globe, Lock } from "../conversation/icons";
 import { usePathInfo, useSiteInfo } from "./linkStore";
 import { isPrivateUrl, redactUrlText } from "./linkDisplay";
@@ -23,7 +25,10 @@ import { useHoverCard } from "./useHoverCard";
 /// A path chip. `label` is the link's text, else the file name; `written` is the reply's own
 /// text, which a path that gets no chip draws as.
 export function PathChip({ path, label, written }: { path: string; label?: ReactNode; written?: string }) {
+  const scope = useMessageScope();
   if (isDeniedPath(path)) return <span className="cv-chip-plain">{written ?? label ?? path}</span>;
+  // Another machine's file: never asked about or opened here (chips/messageScope.ts).
+  if (scope?.host !== undefined) return <ElsewhereChip path={path} host={scope.host} label={label} />;
   return <HostPathChip path={path} label={label} written={written} />;
 }
 
@@ -41,12 +46,33 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
       type="button"
       className={`cv-chip is-path${outside ? " is-outside" : ""}`}
       data-path={path}
+      /* It drags out as the file itself (conversation/dragOut.ts). */
+      draggable
       onClick={() => void callChipHost("link.openPath", { path })}
     >
       {folder ? <Folder size={15} className="cv-chip__icon" /> : <FileDoc size={15} className="cv-chip__icon" />}
       <span className="cv-chip__label">{label ?? pathName(path)}</span>
       {outside && <Lock size={11} className="cv-chip__lock" />}
     </button>
+  );
+}
+
+/// A file on the machine an agent's message came from: its name with a lock, the path and the
+/// machine in its tooltip. Not a button: this Mac has no way to it.
+export function ElsewhereChip({ path, host, label }: { path: string; host: string; label?: ReactNode }) {
+  const t = useT();
+  const where = host ? t("message.fileOnHost", { host, path }) : t("message.fileElsewhere", { path });
+  return (
+    <span
+      className="cv-chip is-path is-elsewhere"
+      data-path={path}
+      /* tooltip-allow: the chip shows the file's name only; the tooltip says where it is */ title={where}
+      aria-label={where}
+    >
+      <FileDoc size={15} className="cv-chip__icon" />
+      <span className="cv-chip__label">{label ?? pathName(path)}</span>
+      <Lock size={11} className="cv-chip__lock" />
+    </span>
   );
 }
 

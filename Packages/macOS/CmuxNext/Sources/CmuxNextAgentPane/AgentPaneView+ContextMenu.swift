@@ -36,6 +36,11 @@ final class AgentPaneWKWebView: WKWebView {
         menuAutoFill.hidesInputContext() ? nil : super.inputContext
     }
 
+    /// No caret accessory over the composer, as on the page host (``PageWKWebView``): the
+    /// system's input source / Caps Lock bubble beside the caret of an empty prompt covered the
+    /// + button (Leo, 2026-10-21).
+    @objc var preferredTextAccessoryPlacement: NSTextCursorAccessoryPlacement { .invisible }
+
     override func mouseDown(with event: NSEvent) {
         menuAutoFill.noteContextClick(event)
         super.mouseDown(with: event)

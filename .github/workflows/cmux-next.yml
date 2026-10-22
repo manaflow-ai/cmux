@@ -153,6 +153,8 @@ on:
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/check-single-omnibar.py
+      - scripts/cmux-next/check-no-swiftui.py
+      - scripts/cmux-next/no-swiftui-allowlist.txt
       - scripts/cmux-next/check-perf-source-guard.py
       - scripts/cmux-next/check-overlay-glass.py
       - tests/test_cmux_next_perf_source_guard.py
@@ -377,6 +379,8 @@ on:
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/check-single-omnibar.py
+      - scripts/cmux-next/check-no-swiftui.py
+      - scripts/cmux-next/no-swiftui-allowlist.txt
       - scripts/cmux-next/check-perf-source-guard.py
       - scripts/cmux-next/check-overlay-glass.py
       - tests/test_cmux_next_perf_source_guard.py
@@ -1227,6 +1231,25 @@ jobs:
         continue-on-error: true
         run: python3 -I scripts/cmux-next/check-single-omnibar.py "$GITHUB_WORKSPACE"
 
+      # Blocking (not a warn-only style check): the allowlist only shrinks, so a
+      # pull request compares with its merge commit's first parent and a push
+      # with the commit before it (plans/cmux-next/no-swiftui-DESIGN.md).
+      - name: No new SwiftUI (macOS UI is AppKit)
+        id: no-swiftui
+        continue-on-error: true
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          base=()
+          [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
+          if [[ "$EVENT_NAME" == push && -n "$BEFORE" && "$BEFORE" != 0000000000000000000000000000000000000000 ]]; then
+            git cat-file -e "$BEFORE^{commit}" 2>/dev/null \
+              || git fetch --no-tags --quiet --depth=1 origin "$BEFORE" || true
+            git cat-file -e "$BEFORE^{commit}" 2>/dev/null && base=(--base "$BEFORE")
+          fi
+          python3 -I scripts/cmux-next/check-no-swiftui.py ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE"
+
       - name: No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
         id: no-process-scan
         continue-on-error: true
@@ -1461,6 +1484,7 @@ jobs:
             bash scripts/cmux-next/tests/check-overlay-glass.test.sh
             bash scripts/cmux-next/tests/check-no-process-scan.test.sh
           bash scripts/cmux-next/tests/check-single-omnibar.test.sh
+            bash scripts/cmux-next/tests/check-no-swiftui.test.sh
             bash scripts/cmux-next/tests/check-state-roots.test.sh
             bash scripts/cmux-next/tests/check-dialog-key-hints.test.sh
             bash scripts/cmux-next/tests/check-switch-fetches.test.sh
@@ -1763,6 +1787,7 @@ jobs:
             ${{ steps.no-swift-cli.outcome }}|No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
             ${{ steps.no-swift-closed-history.outcome }}|No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)
             ${{ steps.single-omnibar.outcome }}|One omnibar (popups, New Tab and tabs share AddressBarView)
+            ${{ steps.no-swiftui.outcome }}|No new SwiftUI (macOS UI is AppKit)
             ${{ steps.no-process-scan.outcome }}|No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
             ${{ steps.state-roots.outcome }}|No literal state roots (per-build isolation S7, cx-is1kf.8)
             ${{ steps.dialog-key-hints.outcome }}|Dialog buttons show their keys (u2647)

@@ -1,9 +1,9 @@
 // RUNNING-WAVE in the gallery (Leo 2026-10-21, ask-05b0074927: "THESE GLIMMER AT DIFFERENT INTERVALS
 // ... it would look cool if they went in a wave, like how thinking glimmers in ChatGPT"). Screenshots
 // come from the gallery, so the Inspector's `subagents-wave` state holds the wave mid-sweep: the
-// running avatars sit at different points of one shimmer by their place in the row (dim, brighter,
-// the crest, brighter, dim, left to right), the finished and the failed one at full strength, and the
-// frame does not move between two reads. running-wave-loops.test.ts covers the live loops and what
+// running lines' icons sit at different points of one shimmer by their place in the list (dim,
+// brighter, the crest, brighter, dim, top to bottom), the one row of the finished and the failed one
+// at full strength, and the frame does not move between two reads. running-wave-loops.test.ts covers the live loops and what
 // stops them.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -36,13 +36,13 @@ await requireBrowserLane("inspector-subagents-wave-hold.test.ts", async () => {
     await vite?.close();
   });
 
-  /** Each avatar in the row, in order: its state, whether it is in the wave, and its opacity now. */
-  const avatars = (page: Page) =>
+  /** Each line's icon in Subagents, in order: its state, whether it is in the wave, its opacity now. */
+  const icons = (page: Page) =>
     page.evaluate(() =>
-      [...document.querySelectorAll(".acpmux-chat-inspector-avatars__stack > .cv-subagent-avatar")].map((avatar) => ({
-        state: avatar.getAttribute("data-state"),
-        wave: avatar.classList.contains("acpmux-wave-item"),
-        opacity: Number(getComputedStyle(avatar).opacity),
+      [...document.querySelectorAll(".acpmux-chat-inspector-subagents .acpmux-lineage__icon")].map((icon) => ({
+        state: icon.getAttribute("data-state"),
+        wave: icon.classList.contains("acpmux-wave-item"),
+        opacity: Number(getComputedStyle(icon).opacity),
       })),
     );
 
@@ -55,7 +55,7 @@ await requireBrowserLane("inspector-subagents-wave-hold.test.ts", async () => {
         .map((animation) => ({ state: animation.playState, at: Number(animation.currentTime) })),
     );
 
-  test("subagents-wave holds the running avatars mid-sweep, by index, and the frame stays put", async () => {
+  test("subagents-wave holds the running lines mid-sweep, by index, and the frame stays put", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 420, height: 900 } });
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: "subagents-wave" })}`);
@@ -69,18 +69,16 @@ await requireBrowserLane("inspector-subagents-wave-hold.test.ts", async () => {
     });
     expect(root).toEqual({ ready: "1", play: "none" });
 
-    const first = await avatars(page);
-    const running = first.filter((avatar) => avatar.wave);
-    const still = first.filter((avatar) => !avatar.wave);
-    // Several running avatars lead the row; one done and one failed follow, outside the wave.
+    const first = await icons(page);
+    const running = first.filter((icon) => icon.wave);
+    const still = first.filter((icon) => !icon.wave);
+    // Several running lines lead the list; the one row of the done and the failed one (its icon the
+    // failed one's) follows, outside the wave.
     expect(running.length).toBeGreaterThanOrEqual(4);
-    expect(running.every((avatar) => avatar.state === "running")).toBe(true);
-    expect(first.slice(0, running.length).every((avatar) => avatar.wave)).toBe(true);
-    expect(still.map((avatar) => avatar.state ?? "").sort((a, b) => a.localeCompare(b))).toEqual([
-      "completed",
-      "failed",
-    ]);
-    expect(still.map((avatar) => avatar.opacity)).toEqual([1, 1]);
+    expect(running.every((icon) => icon.state === "running")).toBe(true);
+    expect(first.slice(0, running.length).every((icon) => icon.wave)).toBe(true);
+    expect(still.map((icon) => icon.state)).toEqual(["failed"]);
+    expect(still.map((icon) => icon.opacity)).toEqual([1]);
 
     // Every wave loop is paused at the one shared point, so only its index sets its phase.
     const held = await loops(page);
@@ -88,9 +86,9 @@ await requireBrowserLane("inspector-subagents-wave-hold.test.ts", async () => {
     expect(held.every((loop) => loop.state === "paused")).toBe(true);
     expect(new Set(held.map((loop) => loop.at)).size).toBe(1);
 
-    // Mid-sweep: the crest sits on an avatar inside the row; the opacities rise to it and fall after
+    // Mid-sweep: the crest sits on a line inside the list; the opacities rise to it and fall after
     // it in index order, each one visibly different from every other.
-    const opacity = running.map((avatar) => avatar.opacity);
+    const opacity = running.map((icon) => icon.opacity);
     const crest = opacity.indexOf(Math.max(...opacity));
     expect(crest).toBeGreaterThan(0);
     expect(crest).toBeLessThan(opacity.length - 1);
@@ -106,7 +104,7 @@ await requireBrowserLane("inspector-subagents-wave-hold.test.ts", async () => {
     // The same frame a full wave period later (1.6 s on the page's own timeline): nothing moved.
     const at = await page.evaluate(() => Number(document.timeline.currentTime));
     await page.waitForFunction((from) => Number(document.timeline.currentTime) > from + 1_700, at);
-    expect(await avatars(page)).toEqual(first);
+    expect(await icons(page)).toEqual(first);
     expect(await loops(page)).toEqual(held);
     await page.close();
   });

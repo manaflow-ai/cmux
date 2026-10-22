@@ -85,8 +85,11 @@ impl FrontendKey {
         payload.push_str(&self.install_id);
         payload.push(' ');
         for byte in self.key.iter() {
-            payload.push(char::from(HEX_DIGITS[usize::from(byte >> 4)]));
-            payload.push(char::from(HEX_DIGITS[usize::from(byte & 0x0f)]));
+            for nibble in [byte >> 4, byte & 0x0f] {
+                payload.push(
+                    HEX_DIGITS.get(usize::from(nibble)).map_or('0', |&digit| char::from(digit)),
+                );
+            }
         }
         payload.push('\n');
         payload

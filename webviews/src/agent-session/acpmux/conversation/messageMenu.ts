@@ -27,7 +27,14 @@ export type MessageMenuTarget = {
 
 /// What the page reports on `contextmenu`: the message under the pointer, and the selected
 /// transcript text when the pointer is inside it (Quote in Reply, Search the Web...).
-export type MessageMenuReport = Partial<MessageMenuTarget> & { selection?: string; openImage?: true; part?: MenuPart };
+export type MessageMenuReport = Partial<MessageMenuTarget> & {
+  selection?: string;
+  openImage?: true;
+  /// The pointer is on an image (a reply's, one I sent, the gallery's): the menu's Copy Image,
+  /// Save Image As…, Quick Look and Show in Finder act on it (imageMenuActions.ts).
+  image?: true;
+  part?: MenuPart;
+};
 
 /// Whether acpmux can fork the chat at all here: it serves forks, the pane is connected and the
 /// chat is on this computer (acpmux refuses the rest).
@@ -223,6 +230,18 @@ export function setMessageMenuSource(next: MessageSource | undefined) {
 type Handler = { postMessage(body: unknown): void };
 
 let reportedImage: HTMLElement | undefined;
+let reportedPicture: HTMLImageElement | undefined;
+
+/// The image the last report named, for one image action: its source, its name (alt text) and the
+/// file a reply read it from (`data-image-path`). Undefined when the report named none; it is used up.
+export function takeReportedPicture(): { src: string; name: string; path?: string } | undefined {
+  const picture = reportedPicture;
+  reportedPicture = undefined;
+  const src = picture?.currentSrc || picture?.getAttribute("src") || "";
+  if (!picture || !src) return undefined;
+  const path = picture.closest<HTMLElement>("[data-image-path]")?.getAttribute("data-image-path") || undefined;
+  return { src, name: picture.getAttribute("alt") ?? "", ...(path ? { path } : {}) };
+}
 
 /// Open Image: opens the image the last report named as its click does; false when it named none.
 export function openReportedImage(): boolean {
@@ -245,14 +264,17 @@ export function installMessageMenuReporter(
     const rowId = target?.closest?.("[data-row-id]")?.getAttribute("data-row-id");
     const message = (rowId && source?.(rowId)) || undefined;
     reportedImage = target?.closest?.<HTMLElement>("[data-open-image]") ?? undefined;
+    const picture = reportedImage?.querySelector("img") ?? target?.closest?.("img") ?? undefined;
+    reportedPicture = picture && (picture.currentSrc || picture.getAttribute("src")) ? picture : undefined;
     const selection = selectionAt(doc, target);
     const part = selection ? undefined : menuPartAt(target);
     const body: MessageMenuReport | null =
-      message || selection || reportedImage || part
+      message || selection || reportedImage || reportedPicture || part
         ? {
             ...message,
             ...(selection ? { selection } : {}),
             ...(reportedImage ? { openImage: true as const } : {}),
+            ...(reportedPicture ? { image: true as const } : {}),
             ...(part ? { part } : {}),
           }
         : null;

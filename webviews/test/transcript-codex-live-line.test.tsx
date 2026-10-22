@@ -100,9 +100,9 @@ test("with the tray off the live line counts the work still going, beside a call
   const drawn = (node: ReactElement) =>
     words(renderToStaticMarkup(<WorkingCountsContext.Provider value={counts}>{node}</WorkingCountsContext.Provider>));
   expect(drawn(<Thinking doing="Read app.ts" doingAt={start} now={() => start + 3_000} />)).toBe(
-    "Read app.ts 3s · 2 agents · 1 command",
+    "Read app.ts 3s · 2 subagents · 1 command",
   );
-  expect(drawn(<Thinking since={start} now={() => start + 18_000} />)).toBe("Thinking 18s · 2 agents · 1 command");
+  expect(drawn(<Thinking since={start} now={() => start + 18_000} />)).toBe("Thinking 18s · 2 subagents · 1 command");
   // Not on the start status line, before the agent runs.
   expect(drawn(<Thinking status="Starting Claude Code…" />)).toBe("Starting Claude Code…");
 });

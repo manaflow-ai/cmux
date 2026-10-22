@@ -176,7 +176,7 @@ final class AppServices {
     private(set) lazy var workspaceTodo = WorkspaceTodoPageService(services: self)
     /// The viewers' recents, the cmux picker, the diff, markdown and editor tabs (R89, S4, S6, S7).
     private(set) lazy var viewers = ViewerService(services: self)
-    /// Where a link or path the person opens lands: a tab in its page's pane, a Cmd-click by `layout.linkPlacement`.
+    /// Where a link or path the person opens lands (`layout.linkPlacement`): beside its pane.
     private(set) lazy var linkOpener = LinkOpener(services: self)
     /// A person's quick Cmd-W presses after one that emptied its pane (``TabCloseGuard/swallowsCmdW(_:at:)``).
     var emptiedPaneCloseRun = EmptiedPaneCloseRun()

@@ -32,8 +32,10 @@ import Foundation
 ///   scrollback, in the same order as on the Mac.
 ///
 /// The alternate screen (DEC modes 47, 1047, 1049) is drawn from the mirror's
-/// top and clipped to the TUI rows, so nothing is shifted there; leaving it
-/// resets the scroll margins a TUI set for its rows. Escape
+/// top and clipped to the TUI rows, so nothing is shifted there, but its
+/// scroll margins are the Mac's rows (set on entering it, and for a TUI's
+/// margin reset): a line feed on the Mac's last row scrolls, as on the Mac.
+/// Leaving it resets the scroll margins a TUI set for its rows. Escape
 /// sequences split across chunks are held until complete; OSC, DCS, APC, PM
 /// and SOS strings pass through untouched.
 public struct TerminalRowShift: Sendable {
@@ -120,7 +122,22 @@ public struct TerminalRowShift: Sendable {
             // never scroll again. Reset the margins, keeping the cursor
             // (DECSTBM homes it).
             if !isAlternate, offset > 0 { return sequence + [0x1B, UInt8(ascii: "7"), 0x1B, UInt8(ascii: "["), UInt8(ascii: "r"), 0x1B, UInt8(ascii: "8")] }
+            // The alternate screen is drawn from the mirror's top: its
+            // margins are the Mac's rows, so a line feed on the Mac's last
+            // row scrolls (less scrolls that way, with no margins of its own;
+            // on the full mirror it moved below the rows shown).
+            if isAlternate, offset > 0 { return sequence + Self.saved(Self.csi("1;\(remoteRows)", UInt8(ascii: "r"))) }
             return sequence
+        }
+        if isAlternate, offset > 0, final == UInt8(ascii: "r"),
+           body.allSatisfy({ (0x30...0x39).contains($0) || $0 == UInt8(ascii: ";") }) {
+            // A TUI's margins are within the Mac's screen, not the mirror's:
+            // a missing or zero bottom (a reset, `ESC[;r`, `ESC[5r`) is the
+            // Mac's last row, and none goes past it.
+            let params = text.split(separator: ";", omittingEmptySubsequences: false).map { Int($0) ?? 0 }
+            let top = max(1, params.first ?? 0)
+            let bottom = params.count > 1 && params[1] > 0 ? min(params[1], remoteRows) : remoteRows
+            return Self.csi("\(top);\(bottom)", final)
         }
         guard offset > 0, !isAlternate,
               body.allSatisfy({ (0x30...0x39).contains($0) || $0 == UInt8(ascii: ";") }) else { return sequence }
@@ -142,6 +159,11 @@ public struct TerminalRowShift: Sendable {
         default:
             return sequence
         }
+    }
+
+    /// `sequence` with the cursor kept (DECSTBM homes it).
+    private static func saved(_ sequence: [UInt8]) -> [UInt8] {
+        [0x1B, UInt8(ascii: "7")] + sequence + [0x1B, UInt8(ascii: "8")]
     }
 
     private static func csi(_ params: String, _ final: UInt8) -> [UInt8] {

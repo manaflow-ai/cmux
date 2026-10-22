@@ -53,7 +53,7 @@
 .acpmux-summary-text{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .acpmux-summary-meta{flex:none;color:var(--agent-muted);font-size:var(--text-detail);font-variant-numeric:tabular-nums}
 .acpmux-summary-link,.acpmux-summary-more{transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
-.acpmux-summary-link:hover,.acpmux-summary-more:hover{background:var(--acpmux-menu-hover)}
+.acpmux-summary-link:hover:not(:disabled),.acpmux-summary-more:hover{background:var(--acpmux-menu-hover)}
 .acpmux-summary-link:active,.acpmux-summary-more:active{background:color-mix(in srgb,var(--agent-text) 18%,var(--acpmux-base))}
 .acpmux-summary-link:focus-visible,.acpmux-summary-more:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
 .acpmux-summary-link:disabled{color:var(--agent-muted)}

@@ -1,11 +1,14 @@
 public import AppKit
+import CmuxNextDesign
+import Observation
 
 /// The Home page's two columns with a real divider: the resize cursor over a
 /// wide grab area, the sidebar between its minimum and half the window, a
 /// double-click back to the standard width, and the width kept per window
 /// (`HomeSidebarWidth`). The docked column model takes this width over when
 /// the daemon owns the column. While the list shows avatars only, its compose
-/// button shows at the chat's top-left instead (`HomeChatColumnView`).
+/// button shows at the chat's top-left instead (`HomeChatColumnView`). An avatar-only list that
+/// holds one conversation takes no column at all (`foldsLoneConversation`).
 @MainActor
 public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     /// The window's key for its saved width (resolved on use: the window's
@@ -27,9 +30,15 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     public var composing = false {
         didSet { if composing != oldValue { updateChatCompose() } }
     }
+    private let list: HomeSidebarView
+    /// Debug Settings (`HomeTunables.loneConversationRail`); tests give their own store.
+    var tunables = TunableStore.shared {
+        didSet { followLoneConversationTunable() }
+    }
 
     public init(sidebar: HomeSidebarView, content: NSView, widths: HomeSidebarWidth = HomeSidebarWidth()) {
         self.widths = widths
+        list = sidebar
         minimum = sidebar.minimumWidth
         standard = sidebar.preferredWidth
         chatColumn = HomeChatColumnView(content: content, compose: sidebar.chatCompose)
@@ -41,12 +50,15 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         setHoldingPriority(.defaultHigh, forSubviewAt: 0)
         delegate = self
         setAccessibilityIdentifier("cmux.home.split")
+        sidebar.onContentChange = { [weak self] in self?.needsLayout = true }
+        followLoneConversationTunable()
     }
 
     @available(*, unavailable)
     public required init?(coder: NSCoder) { nil }
 
-    public var sidebarWidth: CGFloat { arrangedSubviews.first?.frame.width ?? 0 }
+    /// Zero while the list is folded (a hidden subview keeps its last frame).
+    public var sidebarWidth: CGFloat { list.isHidden ? 0 : list.frame.width }
 
     /// The divider in window points from the content view's top-left (as
     /// `debug.mouse` takes them), nil before the view is in a window.
@@ -76,6 +88,7 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     override public func layout() {
         super.layout()
         guard bounds.width > 0 else { return }
+        if foldLoneConversation() { return }
         // One rule on every size change (live resize, split drag, fullscreen, a dock that
         // shrank): the list shows the saved width as far as this width allows, so it shrinks to
         // leave the transcript its minimum and grows back when there is room again. The saved
@@ -93,7 +106,7 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
 
     override public func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if event.clickCount == 2, dividerRect.insetBy(dx: -Self.grab, dy: 0).contains(point) {
+        if event.clickCount == 2, !list.isHidden, dividerRect.insetBy(dx: -Self.grab, dy: 0).contains(point) {
             resetWidth()
             return
         }
@@ -117,10 +130,54 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     }
 
     private func updateChatCompose() {
-        chatColumn.showsCompose = HomeSidebarHeaderLayout.isCompact(width: sidebarWidth) && !composing
+        chatColumn.showsCompose = !composing
+    }
+
+    /// A narrow column squeezing a list of one conversation (only the Chief) to avatars would leave
+    /// one avatar in an empty band beside the chat (visual QA 2026-10-21): it takes no column, and
+    /// compose shows at the chat's top-left as for any avatar-only list. A list the person dragged
+    /// to avatars keeps its column (and so the divider to drag it back); a wider column brings the
+    /// list back at their width. Debug Settings can keep the column.
+    private var foldsLoneConversation: Bool {
+        let own = widths.width(window: windowKey()) ?? standard
+        return list.holdsOneConversation && HomeSidebarHeaderLayout.isCompact(width: clamp(own))
+            && !HomeSidebarHeaderLayout.isCompact(width: own) && !HomeTunables.loneConversationRail.value(in: tunables)
+    }
+
+    /// Hides or shows the list for ``foldsLoneConversation``; true while it is folded.
+    private func foldLoneConversation() -> Bool {
+        let fold = foldsLoneConversation
+        if list.isHidden != fold {
+            list.isHidden = fold
+            // Shown again, the list goes back to its width below.
+            placed = false
+            adjustSubviews()
+            // As after `place`: NSSplitView placed its divider's layer in the pass above, before
+            // the fold, so lay out again or a stale line stays at the list's old edge (only
+            // `layout()` calls this).
+            super.layout()
+            updateChatCompose()
+        }
+        return fold
+    }
+
+    private func followLoneConversationTunable() {
+        withObservationTracking {
+            _ = HomeTunables.loneConversationRail.value(in: tunables)
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.needsLayout = true
+                self?.followLoneConversationTunable()
+            }
+        }
     }
 
     private func place(_ width: CGFloat) {
+        // A folded list has no divider to move: the next layout shows it if the width needs it.
+        guard !list.isHidden else {
+            needsLayout = true
+            return
+        }
         placing = true
         defer { placing = false }
         setPosition(width, ofDividerAt: 0)
@@ -137,6 +194,9 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     }
 
     public func splitView(_ splitView: NSSplitView, canCollapseSubview subview: NSView) -> Bool { false }
+
+    /// The folded list's divider takes no width either: the chat spans the split.
+    public func splitView(_ splitView: NSSplitView, shouldHideDividerAt dividerIndex: Int) -> Bool { list.isHidden }
 
     public func splitView(_ splitView: NSSplitView, shouldAdjustSizeOfSubview view: NSView) -> Bool {
         // A window resize goes to the transcript; the sidebar keeps its width.

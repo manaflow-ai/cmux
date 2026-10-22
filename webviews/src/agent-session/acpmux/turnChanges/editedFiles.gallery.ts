@@ -93,10 +93,12 @@ const variants: Record<string, AgentPaneVariant> = {
     snapshot: turn([FILES[0]!], "Wrap fetch in withRetry"),
   },
   "three-files": {
-    note: "Three edited files (one new): the rows with their counts. The row's copy action shows only on hover.",
+    note: "Three edited files (one new): the rows with their counts. No row's floating copy action shows at rest.",
     snapshot: turn(FILES),
     play: async (ctx) => {
-      await ctx.waitFor(() => ctx.document.querySelector(".acpmux-row__copy"));
+      // The prompt's action row: the transcript has drawn. A prompt's bubble row has no floating
+      // copy action of its own any more (its Copy is in that row), so none may show here.
+      await ctx.waitFor(() => ctx.document.querySelector(".cv-user__actions"));
       for (const copy of ctx.document.querySelectorAll(".acpmux-row__copy")) {
         const style = ctx.document.defaultView!.getComputedStyle(copy);
         if (style.position !== "absolute" || style.opacity !== "0")

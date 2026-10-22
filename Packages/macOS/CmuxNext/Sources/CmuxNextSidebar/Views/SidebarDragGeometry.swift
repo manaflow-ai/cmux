@@ -19,6 +19,8 @@ public nonisolated struct SidebarDragGeometry: Sendable {
             case tile
             /// A section's header or its empty drop zone: the drop goes first in it.
             case section
+            /// An open empty group's row (`SidebarRowKey.emptyGroup`): the drop goes into the group.
+            case emptyGroup
         }
 
         /// The acceptance table's key (the view row key).
@@ -82,9 +84,14 @@ public nonisolated struct SidebarDragGeometry: Sendable {
         for slot in slots where slot.kind == .group { headers[slot.key] = slot }
         var blocks: [String: ClosedRange<CGFloat>] = [:]
         for slot in slots {
-            guard let group = slot.kind == .group ? slot.key : slot.parent, headers[group] != nil else { continue }
+            // A slot widens its own group's block and every enclosing group's: a subgroup sits in its parent's block.
+            var group = slot.kind == .group ? slot.key : slot.parent
+            var seen: Set<String> = []
             let range = slot.frame.minY...slot.frame.maxY
-            blocks[group] = blocks[group].map { min($0.lowerBound, range.lowerBound)...max($0.upperBound, range.upperBound) } ?? range
+            while let id = group, seen.insert(id).inserted, let header = headers[id] {
+                blocks[id] = blocks[id].map { min($0.lowerBound, range.lowerBound)...max($0.upperBound, range.upperBound) } ?? range
+                group = header.parent
+            }
         }
         groupHeaders = headers
         groupBlocks = blocks
@@ -93,11 +100,13 @@ public nonisolated struct SidebarDragGeometry: Sendable {
     /// The slot under `point` (or the nearest one above or below the
     /// slots), its zone and the move a drop there makes.
     ///
-    /// A drop that cannot go into a group (a dragged group: groups do not
-    /// nest; a workspace of another machine) goes before or after the whole
-    /// group instead, by which half of the group's block holds `point`: over
-    /// its header or any of its member rows. Without this, a dragged group
-    /// found a slot only on the thin top and bottom bands of each header.
+    /// A drop a group's rows refuse (a dragged group lands beside rows only at
+    /// its own level or above, `accept.rs`; a workspace of another machine)
+    /// goes before or after the whole group instead, by which half of the
+    /// group's block holds `point`: over its header or any of its member rows,
+    /// climbing to the nearest enclosing group that takes it. Without this, a
+    /// dragged group found a slot only on the thin top and bottom bands of
+    /// each header, and a member row's gap nested the group it reordered.
     public func hit(_ point: CGPoint) -> Hit? {
         guard let line = line(at: point.y) else { return nil }
         let slot = Self.slot(in: line, x: point.x)
@@ -107,6 +116,18 @@ public nonisolated struct SidebarDragGeometry: Sendable {
         if let parent = slot.parent, let around = around(group: parent, point) { return around }
         let accepted = acceptance[slot.key] ?? slot.item.flatMap { acceptance[$0] }
         return Hit(slot: slot, zone: zone, target: nil, refusal: accepted?.refusal ?? "refused")
+    }
+
+    /// A drop right before or after the slot keyed `key` (a section's slot: first in it), if accepted there.
+    ///
+    /// A dragged group's reorder uses it (`SidebarGroupReorder`): the drop goes beside a whole top-level block's
+    /// first row, never into a group or beside one of its members, whatever the acceptance table would take there
+    /// (since nested groups, a group may land among another group's members, which a reorder must not do).
+    public func beside(_ key: String, after: Bool) -> Hit? {
+        guard let slot = lines.lazy.flatMap({ $0 }).first(where: { $0.key == key }) else { return nil }
+        let zone: Zone = slot.kind == .section ? .into : after ? .after : .before
+        guard allows(slot, zone) else { return nil }
+        return Hit(slot: slot, zone: zone, target: Self.target(slot, zone), refusal: nil)
     }
 
     /// Whether a drop at `zone` of `slot` is accepted.
@@ -121,12 +142,17 @@ public nonisolated struct SidebarDragGeometry: Sendable {
         }
     }
 
-    /// A drop before (upper half of the block) or after (lower half) the whole group `group`, if accepted there.
+    /// A drop before (upper half of the block) or after (lower half) the whole group `group`, if accepted
+    /// there, else around the group that holds it (a subgroup's block sits inside its parent's).
     private func around(group: String, _ point: CGPoint) -> Hit? {
-        guard let header = groupHeaders[group], let block = groupBlocks[group] else { return nil }
-        let zone: Zone = point.y < (block.lowerBound + block.upperBound) / 2 ? .before : .after
-        guard allows(header, zone) else { return nil }
-        return Hit(slot: header, zone: zone, target: Self.target(header, zone), refusal: nil)
+        var current: String? = group
+        var seen: Set<String> = []
+        while let id = current, seen.insert(id).inserted, let header = groupHeaders[id], let block = groupBlocks[id] {
+            let zone: Zone = point.y < (block.lowerBound + block.upperBound) / 2 ? .before : .after
+            if allows(header, zone) { return Hit(slot: header, zone: zone, target: Self.target(header, zone), refusal: nil) }
+            current = header.parent
+        }
+        return nil
     }
 
     /// The line whose y range holds `y` (binary search), else the nearest.
@@ -154,7 +180,7 @@ public nonisolated struct SidebarDragGeometry: Sendable {
     static func zone(_ slot: Slot, _ point: CGPoint) -> Zone {
         let frame = slot.frame
         switch slot.kind {
-        case .section:
+        case .section, .emptyGroup:
             return .into
         case .tile:
             return point.x < frame.midX ? .before : .after

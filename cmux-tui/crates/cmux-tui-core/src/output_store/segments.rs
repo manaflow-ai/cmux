@@ -167,11 +167,13 @@ fn frames(path: &Path) -> Vec<(u64, Vec<u8>)> {
     let Ok(contents) = fs::read(path) else { return Vec::new() };
     let mut out = Vec::new();
     let mut at = 0;
-    while contents.len() - at >= FRAME_HEADER_BYTES {
-        let start = u64::from_le_bytes(contents[at..at + 8].try_into().unwrap_or_default());
-        let compressed =
-            u32::from_le_bytes(contents[at + 8..at + 12].try_into().unwrap_or_default());
-        let raw = u32::from_le_bytes(contents[at + 12..at + 16].try_into().unwrap_or_default());
+    use crate::terminal_host_protocol::{wire_u32, wire_u64};
+    while contents.len().saturating_sub(at) >= FRAME_HEADER_BYTES {
+        let (Some(start), Some(compressed), Some(raw)) =
+            (wire_u64(&contents, at), wire_u32(&contents, at + 8), wire_u32(&contents, at + 12))
+        else {
+            break;
+        };
         let body = at + FRAME_HEADER_BYTES;
         let Some(end) = body.checked_add(compressed as usize).filter(|end| *end <= contents.len())
         else {
@@ -181,10 +183,8 @@ fn frames(path: &Path) -> Vec<(u64, Vec<u8>)> {
             break;
         }
         let mut bytes = Vec::with_capacity(raw as usize);
-        if GzDecoder::new(&contents[body..end])
-            .take(u64::from(raw) + 1)
-            .read_to_end(&mut bytes)
-            .is_err()
+        let Some(frame) = contents.get(body..end) else { break };
+        if GzDecoder::new(frame).take(u64::from(raw) + 1).read_to_end(&mut bytes).is_err()
             || bytes.len() != raw as usize
         {
             break;
@@ -228,7 +228,7 @@ pub(super) fn read_after(
             let skip = usize::try_from(after.saturating_sub(start)).unwrap_or(usize::MAX);
             let piece = bytes.get(skip..).unwrap_or_default();
             let take = piece.len().min(room);
-            window.bytes.extend_from_slice(&piece[..take]);
+            window.bytes.extend_from_slice(piece.get(..take).unwrap_or(piece));
             window.next_offset = start + (skip.min(bytes.len()) + take) as u64;
             if take < piece.len() {
                 window.truncated = true;

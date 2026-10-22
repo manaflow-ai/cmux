@@ -112,6 +112,9 @@ public final class StatusIndicatorAppearance {
     public static let shared = StatusIndicatorAppearance()
 
     public private(set) var config: StatusIndicatorConfig
+    /// Indicators a resync reached and checked again (`debug.layout_counters` `indicator_resyncs`):
+    /// an app activation should touch the indicators on screen only, never every row and tab.
+    public static var resyncs: UInt64 = 0
     private let clients = NSHashTable<AnyObject>.weakObjects()
     private var observation: Task<Void, Never>?
     private var reduceMotionObserver: (any NSObjectProtocol)?
