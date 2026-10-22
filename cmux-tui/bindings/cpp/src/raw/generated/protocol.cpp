@@ -37191,6 +37191,41 @@ Result<ScreenRenamedEvent> Codec<ScreenRenamedEvent>::decode(const Json& value) 
     return result;
 }
 
+Result<Json> Codec<ScriptConfigChangedEvent>::encode(const ScriptConfigChangedEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("script-config-changed")));
+    auto encoded_generation = encode_value(value.generation);
+    if (!encoded_generation) return std::move(encoded_generation).error();
+    object.emplace("generation", std::move(encoded_generation).value());
+    return Json(std::move(object));
+}
+
+Result<ScriptConfigChangedEvent> Codec<ScriptConfigChangedEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ScriptConfigChangedEvent result{};
+    const Json* field_generation = value.find("generation");
+    if (!field_generation) {
+        return make_error(ErrorCode::decode, "missing required field 'generation'");
+    }
+    if (field_generation) {
+        auto decoded = decode_value<std::uint64_t>(*field_generation);
+        if (!decoded) return std::move(decoded).error();
+        result.generation = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("script-config-changed"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<ScrollChangedEvent>::encode(const ScrollChangedEvent& value) {
     (void)value;
     Json::Object object;
@@ -41028,6 +41063,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
+    if (name.value() == "script-config-changed") {
+        auto decoded = decode_value<ScriptConfigChangedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "scroll-changed") {
         auto decoded = decode_value<ScrollChangedEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -41670,7 +41710,7 @@ constexpr std::array<CommandMetadata, 282> kCommands{{
     {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 87> kEvents{{
+constexpr std::array<EventMetadata, 88> kEvents{{
     {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"agent-inventory-changed", 12U, "agent-inventory-watch-v1", "control", "emitted"},
@@ -41731,6 +41771,7 @@ constexpr std::array<EventMetadata, 87> kEvents{{
     {"screen-changed", 12U, "screen-metadata-v1", "subscribe-deltas", "emitted"},
     {"screen-closed", 7U, "", "subscribe-deltas", "emitted"},
     {"screen-renamed", 7U, "", "subscribe-deltas", "emitted"},
+    {"script-config-changed", 12U, "script-config-v1", "subscribe", "emitted"},
     {"scroll-changed", 6U, "", "subscribe,attach-byte,attach-render,attach-browser", "emitted"},
     {"settings-changed", 12U, "settings-v1", "subscribe", "emitted"},
     {"size-state", 12U, "shared-sizing-v1", "subscribe,attach-byte,attach-render", "emitted"},

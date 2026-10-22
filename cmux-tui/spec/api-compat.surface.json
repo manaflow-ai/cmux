@@ -3661,6 +3661,19 @@
         "required": true
       }
     },
+    "event:script-config-changed": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"script-config-changed\""
+        ]
+      },
+      "/generation": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "event:scroll-changed": {
       "/at_bottom": {
         "ty": "boolean",

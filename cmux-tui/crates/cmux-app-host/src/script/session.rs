@@ -420,6 +420,12 @@ impl Session {
         timeout: Duration,
         hold: bool,
     ) -> Result<Value, ScriptError> {
+        self.export("eval", json!({ "code": code, "args": args, "hold": hold }), timeout)
+    }
+
+    /// Runs the prelude's export `name` (`eval`, `config`, `action`) with
+    /// `args`, one at a time like cells, with the same limits.
+    pub fn export(&self, name: &str, args: Value, timeout: Duration) -> Result<Value, ScriptError> {
         let Ok(_turn) = self.turn.try_lock() else {
             return Err(ScriptError::new(codes::BUSY, "another cell of this session is running"));
         };
@@ -432,12 +438,7 @@ impl Session {
             }
             waiters.insert(cb, tx);
         }
-        self.shared.send(&ToHost::Run {
-            cb,
-            export: "eval".into(),
-            args: json!({ "code": code, "args": args, "hold": hold }),
-            gesture: None,
-        });
+        self.shared.send(&ToHost::Run { cb, export: name.into(), args, gesture: None });
         let timeout = timeout.min(MAX_TIMEOUT);
         match rx.recv_timeout(timeout) {
             Ok((true, body)) => Ok(body.get("value").cloned().unwrap_or(Value::Null)),

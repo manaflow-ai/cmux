@@ -125,6 +125,11 @@ pub enum MuxEvent {
     SettingsChanged(cmux_config::Change),
     /// keybindings.json changed (`keybindings-v1`; mux/keybindings.rs).
     KeybindingsChanged(cmux_config::KeybindingsChange),
+    /// A reload of the config scripts applied (`scripts::config`): their
+    /// actions, keys and modes changed.
+    ScriptConfigChanged {
+        generation: u64,
+    },
     Conversation(Arc<crate::conversation_store::ConversationEvent>),
     /// An event of the cloud conversations proxy (`cloud-conversations-v1`).
     CloudConversation(Arc<crate::cloud_conversations::CloudEvent>),

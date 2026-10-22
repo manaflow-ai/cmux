@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 22526ef27362464ad1798ceadf7ab3b0225cd784acc1dcc13419362378a066bc.
+// cmux-tui mux protocol 12, IR d7bec72ab83f28d7ea3e1396a463faa265e759b913e276c625a1ad436cb8603e.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -677,6 +677,12 @@ pub struct ScreenRenamedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScriptConfigChangedEvent {
+    pub generation: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ScrollChangedEvent {
     pub at_bottom: bool,
     pub offset: u64,
@@ -1032,6 +1038,7 @@ pub enum Event {
     ScreenChanged(ScreenChangedEvent),
     ScreenClosed(ScreenClosedEvent),
     ScreenRenamed(ScreenRenamedEvent),
+    ScriptConfigChanged(ScriptConfigChangedEvent),
     ScrollChanged(ScrollChangedEvent),
     SettingsChanged(SettingsChangedEvent),
     SizeState(SizeStateEvent),
@@ -1126,6 +1133,7 @@ impl Event {
             Self::ScreenChanged(_) => Some("screen-changed"),
             Self::ScreenClosed(_) => Some("screen-closed"),
             Self::ScreenRenamed(_) => Some("screen-renamed"),
+            Self::ScriptConfigChanged(_) => Some("script-config-changed"),
             Self::ScrollChanged(_) => Some("scroll-changed"),
             Self::SettingsChanged(_) => Some("settings-changed"),
             Self::SizeState(_) => Some("size-state"),
@@ -1219,6 +1227,7 @@ impl Event {
             Self::ScreenChanged(_) => Some(&SCREEN_CHANGED_EVENT_METADATA),
             Self::ScreenClosed(_) => Some(&SCREEN_CLOSED_EVENT_METADATA),
             Self::ScreenRenamed(_) => Some(&SCREEN_RENAMED_EVENT_METADATA),
+            Self::ScriptConfigChanged(_) => Some(&SCRIPT_CONFIG_CHANGED_EVENT_METADATA),
             Self::ScrollChanged(_) => Some(&SCROLL_CHANGED_EVENT_METADATA),
             Self::SettingsChanged(_) => Some(&SETTINGS_CHANGED_EVENT_METADATA),
             Self::SizeState(_) => Some(&SIZE_STATE_EVENT_METADATA),
@@ -1729,6 +1738,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("screen-renamed") => match serde_json::from_value::<ScreenRenamedEvent>(raw.clone()) {
             Ok(event) => Event::ScreenRenamed(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("script-config-changed") => match serde_json::from_value::<ScriptConfigChangedEvent>(raw.clone()) {
+            Ok(event) => Event::ScriptConfigChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

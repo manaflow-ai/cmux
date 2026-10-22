@@ -791,6 +791,12 @@
       ]
     },
     {
+      "name": "script-config-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "layout-changed",
       "streams": [
         "subscribe"

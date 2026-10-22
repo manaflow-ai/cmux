@@ -111,6 +111,8 @@ impl Inner {
 #[derive(Default)]
 pub(crate) struct ScriptsSlot {
     inner: Mutex<Inner>,
+    /// The config scripts (`scripts/` beside the settings file).
+    pub(crate) config: super::config::ConfigOwner,
     /// Random per daemon, so script idempotency keys never repeat across
     /// daemon restarts (session ids do).
     nonce: std::sync::OnceLock<String>,
@@ -185,6 +187,15 @@ impl ScriptsSlot {
         inner.next += 1;
         let id = format!("scr_{}", inner.next);
         Ok((id, StartGuard { slot: self, client }))
+    }
+
+    /// Starts a session for the config scripts (no connection owns it).
+    pub(crate) fn start_config(
+        &self,
+        mux: &Arc<Mux>,
+        log: LogSink,
+    ) -> Result<Session, ScriptError> {
+        self.start(mux, "config", log)
     }
 
     fn start(&self, mux: &Arc<Mux>, id: &str, log: LogSink) -> Result<Session, ScriptError> {

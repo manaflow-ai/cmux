@@ -146,6 +146,79 @@ fn terminal_events_become_script_streams_with_public_ids() {
 }
 
 #[test]
+fn notifications_become_a_script_stream_with_or_without_a_terminal() {
+    let ids = |surface: SurfaceId| {
+        (surface == 7).then(|| ScriptIds { tab: "tab_x".into(), terminal: Some("term_x".into()) })
+    };
+    let notification = |surface: Option<SurfaceId>| {
+        MuxEvent::Notification(crate::mux::NotificationEvent {
+            notification: 1,
+            title: "Build".into(),
+            subtitle: None,
+            body: "done".into(),
+            preview: Some("private".into()),
+            level: crate::mux::NotificationLevel::Warning,
+            surface,
+            workspace_id: None,
+            source: crate::mux::NotificationSource::Cli,
+            desktop: true,
+            reply: false,
+        })
+    };
+    let base = json!({
+        "title": "Build", "subtitle": null, "body": "done", "level": "warning",
+        "source": "cli", "workspace": null, "terminal": null, "tab": null,
+    });
+    let mut at = base.clone();
+    at["terminal"] = json!("term_x");
+    at["tab"] = json!("tab_x");
+    // The agent preview stays out: scripts see what the banner's text is.
+    assert_eq!(script_event(&notification(Some(7)), &ids), Some(("notification.created", at)));
+    assert_eq!(
+        script_event(&notification(None), &ids),
+        Some(("notification.created", base.clone()))
+    );
+    // A terminal with no public ids still notifies, without them.
+    assert_eq!(script_event(&notification(Some(8)), &ids), Some(("notification.created", base)));
+}
+
+#[test]
+fn an_event_right_after_watch_reaches_the_script() {
+    let mux = Mux::new_for_test("scripts-router-watch-race", SurfaceOptions::default());
+    let router = DaemonRouter::new(&mux, "scr_t");
+    let (sender, received) = std::sync::mpsc::channel::<String>();
+    let sender = Mutex::new(sender);
+    let guard = router.watch(Arc::new(move |stream: &str, _fields: Value| {
+        let _ = sender.lock().unwrap().send(stream.to_string());
+    }));
+    // The script's next op can commit at once (the host runs it on another
+    // worker): its event must not fall before the bus subscription.
+    mux.emit(MuxEvent::Notification(crate::mux::NotificationEvent {
+        notification: 1,
+        title: "now".into(),
+        subtitle: None,
+        body: String::new(),
+        preview: None,
+        level: crate::mux::NotificationLevel::Info,
+        surface: None,
+        workspace_id: None,
+        source: crate::mux::NotificationSource::Cli,
+        desktop: false,
+        reply: false,
+    }));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match received.recv_timeout(left) {
+            Ok(stream) if stream == "notification.created" => break,
+            Ok(_) => {}
+            Err(_) => panic!("the notification right after watch was lost"),
+        }
+    }
+    drop(guard);
+}
+
+#[test]
 fn the_router_runs_daemon_reads_with_current_selectors() {
     let mux = Mux::new_for_test("scripts-router-read", SurfaceOptions::default());
     let router = DaemonRouter::new(&mux, "scr_t");

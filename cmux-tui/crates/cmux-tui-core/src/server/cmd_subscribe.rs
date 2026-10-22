@@ -466,6 +466,9 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "revision": change.revision,
             "origin": change.origin.as_str(),
         }),
+        MuxEvent::ScriptConfigChanged { generation } => {
+            json!({"event": "script-config-changed", "generation": generation})
+        }
         MuxEvent::TerminalRegistryChanged { registry_id, generation, terminal_revision } => json!({
             "event":"terminal-registry-changed",
             "registry_id":registry_id,

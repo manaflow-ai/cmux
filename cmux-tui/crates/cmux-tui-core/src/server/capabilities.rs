@@ -107,6 +107,8 @@ fn always_identified() -> Vec<&'static str> {
     capabilities.push(agent_cli_job::RESOLVE_CAPABILITY);
     #[cfg(unix)]
     capabilities.push(agent_cli_intents::CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(crate::scripts::config::SCRIPT_CONFIG_CAPABILITY);
     capabilities.push(activity::CAPABILITY);
     capabilities.push(page_credential::PAGE_CREDENTIAL_CAPABILITY);
     capabilities.push(page_credential::SCOPED_PAGE_CREDENTIAL_CAPABILITY);
