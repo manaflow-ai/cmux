@@ -215,6 +215,58 @@ const shellDisclosureChecks = {
   },
 };
 
+/// One long finished turn, shaped like the ones Lawrence and Leo pasted (synthetic text): runs of
+/// commands, short narration, a compaction and a subagent ending, two answers to the person, a
+/// command after the second and a closing line. Only the work folds, each stretch under its own
+/// line between the answers (turns.ts `foldSegments`).
+const takeawayTurnRows = [
+  user("Why is the agent pane slow, and what should we fix first?", 12, { id: "gallery-takeaway-user" }),
+  activity(
+    [
+      tool("rg -n useLayoutEffect src", "execute", "completed", { command: "rg -n useLayoutEffect src", exitCode: 0 }),
+      tool("bun run bench:transcript", "execute", "completed", { command: "bun run bench:transcript", exitCode: 0 }),
+    ],
+    11.8,
+    { id: "gallery-takeaway-run-1" },
+  ),
+  assistant("Both audits are still running.", 11.5, { id: "gallery-takeaway-narration" }),
+  row("compaction", 11.2, {
+    id: "gallery-takeaway-compaction",
+    compaction: { state: "completed", preTokens: 123_000, postTokens: 13_000 },
+  }),
+  activity(
+    [
+      tool("Read src/transcript/VirtualList.tsx", "read", "completed"),
+      tool("bun test src/transcript", "execute", "completed", { command: "bun test src/transcript", exitCode: 0 }),
+    ],
+    10.4,
+    { id: "gallery-takeaway-run-2" },
+  ),
+  assistant(
+    "The first audit is done. Most of the time goes to measuring rows twice:\n\n1. Every new token re-measures the whole visible list.\n2. Opening a fold re-lays out the rows above it.\n\nShould I start with the first one?",
+    9,
+    { id: "gallery-takeaway-first" },
+  ),
+  activity(
+    [
+      tool("git diff --stat", "execute", "completed", { command: "git diff --stat", exitCode: 0 }),
+      tool("bun run typecheck", "execute", "completed", { command: "bun run typecheck", exitCode: 0 }),
+    ],
+    6,
+    { id: "gallery-takeaway-run-3" },
+  ),
+  assistant(
+    "Why it is slow, and the fixes:\n\n- Measure only the row that changed, not the visible list.\n- Keep the fold's header in place and grow its content downward.\n- Cache each row's height by its version.\n\nThe first fix is on the branch; the other two follow.",
+    4.6,
+    { id: "gallery-takeaway-second" },
+  ),
+  activity([tool("git push", "execute", "completed", { command: "git push", exitCode: 0 })], 4.4, {
+    id: "gallery-takeaway-push",
+  }),
+  assistant("Pushed.", 4.3, { id: "gallery-takeaway-pushed" }),
+  summary(4.3, { id: "gallery-takeaway-summary", status: "completed", durationMs: 456_000, toolCount: 7 }),
+];
+
 const longChatRows = Array.from({ length: 24 }, (_, index) => {
   const at = 3000 - index * 120;
   return [
@@ -1070,6 +1122,15 @@ export default agentPaneEntry({
         if (!at?.closest(".cv-thought__text"))
           throw new Error(`the current match is not in the thought's text: ${at?.className ?? "none"}`);
       },
+    },
+    "takeaways-stay-open": {
+      note: 'A long finished turn (synthetic text): every answer to the person stays in sight, and only the work folds, each stretch under its own Worked for line between the answers. The closing "Pushed." stays too.',
+      snapshot: chat(takeawayTurnRows),
+    },
+    "takeaways-fold-open": {
+      note: "The same turn with its first Worked for opened: the commands, the short narration and the compaction, in order, then the first answer.",
+      snapshot: chat(takeawayTurnRows),
+      play: (ctx) => ctx.click({ selector: ".cv-worked" }),
     },
     "working-tools": {
       note: "Tool calls running in a live turn; the status line names the call in flight.",
