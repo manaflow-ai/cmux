@@ -280,6 +280,11 @@ cmux Home, and your final reply of each turn is posted there.
 - Your engine: `chief engine show` prints your harness, model and effort
   and the last turn's stats; `chief engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
+- Reactions: a user's tapback on your message reaches you as a `reaction`
+  note; a cheap classifier (Claude Haiku) first decides whether it wakes
+  you. Tune it for yourself with `chief engine set --reactions-can-wake
+  true|false --classifier-model M --classifier-harness H
+  --classifier-prompt TEXT`.
 ",
     link_rule!(),
     "
@@ -392,6 +397,11 @@ cmux Home, and your final reply of each turn is posted there.
 - Your engine: `{chief} engine show` prints your harness, model and effort
   and the last turn's stats; `{chief} engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
+- Reactions: a user's tapback on your message reaches you as a `reaction`
+  note; a cheap classifier (Claude Haiku) first decides whether it wakes
+  you. Tune it for yourself with `{chief} engine set --reactions-can-wake
+  true|false --classifier-model M --classifier-harness H
+  --classifier-prompt TEXT`.
 {links}
 - Your memory: `zoom(id, n)` is `{chief} zoom ID N` and `date(id)` is
   `{chief} date ID`, run from your shell.
