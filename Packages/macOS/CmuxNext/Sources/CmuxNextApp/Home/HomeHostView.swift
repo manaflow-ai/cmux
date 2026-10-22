@@ -219,7 +219,7 @@ final class HomeHostView: NSView {
         // (Leo 2026-10-21, nightly 331e2e9). Not Now dismisses it; Show All opens Settings › Import.
         let suggestion = ImportSuggestionRowView()
         suggestion.onChange = { [weak transcript] in transcript?.firstRunAccessoryChanged() }
-        transcript.setFirstRunAccessory(suggestion)
+        transcript.setFirstRunAccessory(suggestion, applyScale: { [weak suggestion] in suggestion?.applyScale($0) })
         // task-owner: lives as long as this view; event-driven (Observation):
         // the user's agents for the first-run glance, only while it can show
         // (the Chief with no messages yet): otherwise no tab is read, so tab

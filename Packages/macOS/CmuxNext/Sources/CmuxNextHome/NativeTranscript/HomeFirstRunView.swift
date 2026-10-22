@@ -47,23 +47,30 @@ final class HomeFirstRunView: NSView {
     /// The host's row under the action rows (Home's import suggestion, `ImportSuggestionRowView`),
     /// at the column's width; out of the layout while hidden. It sizes its own height and tells
     /// the host when it shows or hides (`HomeNativeTranscriptView.firstRunAccessoryChanged`).
-    var accessory: NSView? {
-        didSet {
-            guard accessory !== oldValue else { return }
-            accessoryWidth?.isActive = false
-            accessoryWidth = nil
-            oldValue?.removeFromSuperview()
-            if let accessory {
-                accessory.translatesAutoresizingMaskIntoConstraints = false
-                let width = accessory.widthAnchor.constraint(equalToConstant: Self.maxWidth)
-                width.isActive = true
-                accessoryWidth = width
-            }
-            arrange()
-            needsLayout = true
-        }
-    }
+    private(set) var accessory: NSView?
     private var accessoryWidth: NSLayoutConstraint?
+    /// Hands the accessory the panel's interface scale, as the rows get it.
+    private var accessoryScale: (CGFloat) -> Void = { _ in }
+
+    /// Puts `view` under the action rows (nil removes it); `applyScale` gets the panel's
+    /// interface scale now and on every change, as the panel's own rows do.
+    func setAccessory(_ view: NSView?, applyScale: @escaping (CGFloat) -> Void = { _ in }) {
+        accessoryScale = view == nil ? { _ in } : applyScale
+        accessoryScale(scale)
+        guard view !== accessory else { return }
+        accessoryWidth?.isActive = false
+        accessoryWidth = nil
+        accessory?.removeFromSuperview()
+        accessory = view
+        if let view {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            let width = view.widthAnchor.constraint(equalToConstant: Self.maxWidth * scale)
+            width.isActive = true
+            accessoryWidth = width
+        }
+        arrange()
+        needsLayout = true
+    }
     /// Called when the user picks open a terminal or start an agent.
     var onAction: (HomeFirstRunAction) -> Void = { _ in }
     /// Called with an agent's tab id when the user picks its row.
@@ -202,6 +209,7 @@ final class HomeFirstRunView: NSView {
         agentsHeader.font = .systemFont(ofSize: 12 * scale, weight: .medium)
         applySpacing()
         for row in rows { row.applyScale(scale) }
+        accessoryScale(scale)
         invalidateIntrinsicContentSize()
         needsLayout = true
     }

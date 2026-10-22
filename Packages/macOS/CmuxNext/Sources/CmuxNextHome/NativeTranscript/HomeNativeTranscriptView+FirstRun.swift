@@ -41,9 +41,10 @@ extension HomeNativeTranscriptView {
 
     /// A row the host puts on the Chief's front page under its action rows (Home's import
     /// suggestion, `ImportSuggestionRowView`), in the panel's own layout so it never covers the
-    /// conversation; nil removes it.
-    public func setFirstRunAccessory(_ view: NSView?) {
-        firstRun.accessory = view
+    /// conversation; nil removes it. `applyScale` gets the panel's interface scale (the Home
+    /// text size), now and on every change, as the panel's own rows do.
+    public func setFirstRunAccessory(_ view: NSView?, applyScale: @escaping (CGFloat) -> Void = { _ in }) {
+        firstRun.setAccessory(view, applyScale: applyScale)
     }
 
     /// The front page's host row showed, hid or changed size: the panel fits its rows again.

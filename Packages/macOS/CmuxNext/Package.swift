@@ -457,7 +457,7 @@ let package = Package(
         .target(
             name: "CmuxNextImportCards",
             dependencies: ["CmuxNextActions", "CmuxNextAgentPane", "CmuxNextBrowserImport", "CmuxNextCompat", "CmuxNextDesign",
-                           "CmuxNextImportSuggestions", "CmuxNextOnboarding", "CmuxNextSettings"],
+                           "CmuxNextIcons", "CmuxNextImportSuggestions", "CmuxNextOnboarding", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
