@@ -309,8 +309,13 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
         if model.isOpen {
             return velocity.x < 0
         }
-        guard velocity.x > 0, model.allowsInteractiveOpen else { return false }
-        let location = pan.location(in: view)
+        guard velocity.x > 0 else { return false }
+        return mayOpen(at: pan.location(in: view))
+    }
+
+    /// Whether a rightward pan at `location` may open the closed drawer.
+    func mayOpen(at location: CGPoint) -> Bool {
+        guard model.allowsInteractiveOpen else { return false }
         return !touchIsInPushedScreen(location) && !touchIsInHorizontalScroller(location)
     }
 
