@@ -41,6 +41,18 @@ extension NSWindow {
         throw WindowScreenshotFailure.blank
     }
 
+    /// This window with every child window and the app's windows over it composited together
+    /// (``compositedSnapshotWithOverlays()``: glass panels and menus blur the window under them,
+    /// as on screen) at the backing scale, with how many of the app's other windows it includes;
+    /// nil when the window is not on screen or the window server gives no image (the caller then
+    /// takes ``screenshotImage(includeChild:)``).
+    public func screenshotImageWithOverlays() -> (image: CGImage, floating: Int)? {
+        guard windowNumber > 0, !isMiniaturized, isVisible, let snapshot = compositedSnapshotWithOverlays() else { return nil }
+        let scale = backingScaleFactor
+        let width = Int((frame.width * scale).rounded()), height = Int((frame.height * scale).rounded())
+        return snapshot.image.resampled(width: width, height: height).map { ($0, snapshot.floating) }
+    }
+
     /// This window alone through ScreenCaptureKit's current-process content
     /// (no Screen Recording consent), at the backing scale; nil when the
     /// window server lists no such window of this process or the image is

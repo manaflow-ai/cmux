@@ -95,15 +95,48 @@ extension NSWindow {
     /// of the window then shows them as on screen. Menus are not in AppKit's window list, so
     /// the window server's list chooses (``ownWindows(above:pid:region:layer:skipping:ordinary:)``).
     public func floatingWindowsSnapshot() -> (image: CGImage, count: Int)? {
-        guard windowNumber > 0, isOnActiveSpace, let primary = NSScreen.screens.first else { return nil }
-        let above = (CGWindowListCopyWindowInfo([.optionOnScreenAboveWindow], CGWindowID(windowNumber)) as? [[String: Any]] ?? [])
-            .compactMap(ListedWindow.init)
-        let numbers = Self.ownWindows(above: above, pid: getpid(), region: Self.globalRect(of: frame, primaryHeight: primary.frame.maxY),
-                                      layer: level.rawValue, skipping: Set(visibleChildWindows.map(\.windowNumber)),
-                                      ordinary: Self.ordinaryWindowTrees(besides: self))
+        let numbers = floatingWindowNumbers()
         guard !numbers.isEmpty, let image = Self.windowServerImage(ofNumbers: numbers, croppedTo: self),
               image.width > 0, image.height > 0, !Self.isBlank(image) else { return nil }
         return (image, numbers.count)
+    }
+
+    /// The numbers of the windows ``floatingWindowsSnapshot()`` paints, topmost first.
+    private func floatingWindowNumbers() -> [Int] {
+        guard windowNumber > 0, isOnActiveSpace, let primary = NSScreen.screens.first else { return [] }
+        let above = (CGWindowListCopyWindowInfo([.optionOnScreenAboveWindow], CGWindowID(windowNumber)) as? [[String: Any]] ?? [])
+            .compactMap(ListedWindow.init)
+        return Self.ownWindows(above: above, pid: getpid(), region: Self.globalRect(of: frame, primaryHeight: primary.frame.maxY),
+                               layer: level.rawValue, skipping: Set(visibleChildWindows.map(\.windowNumber)),
+                               ordinary: Self.ordinaryWindowTrees(besides: self))
+    }
+
+    /// This window, every visible child window and the app's windows over it
+    /// (``floatingWindowsSnapshot()``: an open menu, a card or popover that is not its child)
+    /// composited together by the window server and cropped to the window's frame, with how many
+    /// of those other windows it includes; nil without an image (not on screen, or all
+    /// transparent). Composited together, a glass or vibrancy panel blurs the window under it, as
+    /// on screen; composited alone (``childWindowsSnapshot(includeChild:)``) it blurs nothing and
+    /// comes out grey. Windows of other apps are never included.
+    public func compositedSnapshotWithOverlays() -> (image: CGImage, floating: Int)? {
+        let floating = floatingWindowNumbers()
+        let children = visibleChildWindows.map(\.windowNumber)
+        let image = children.isEmpty && floating.isEmpty
+            ? Self.windowServerImage(of: windowNumber)
+            : Self.windowServerImage(ofNumbers: Self.frontToBack([windowNumber] + children + floating), croppedTo: self)
+        guard let image, image.width > 0, image.height > 0, !Self.isBlank(image) else { return nil }
+        return (image, floating.count)
+    }
+
+    /// The window's overlays alone: its visible child windows `includeChild` accepts and the app's
+    /// windows over it, composited on a transparent image the size of this window, or nil without
+    /// one. Their alpha says where they cover the window: a page image painted over a
+    /// ``compositedSnapshotWithOverlays()`` gives those pixels back to them.
+    public func overlaysSnapshot(includeChild: (NSWindow) -> Bool) -> CGImage? {
+        let numbers = visibleChildWindows.filter(includeChild).map(\.windowNumber) + floatingWindowNumbers()
+        guard !numbers.isEmpty, let image = Self.windowServerImage(ofNumbers: Self.frontToBack(numbers), croppedTo: self),
+              image.width > 0, image.height > 0, !Self.isBlank(image) else { return nil }
+        return image
     }
 
     /// From `above` (the windows the window server shows above a window, topmost first), the
@@ -196,12 +229,18 @@ extension NSWindow {
     /// Windows it does not list on screen keep AppKit's order behind them
     /// (each child after its parent is above it, so reversed).
     private static func frontToBack(_ numbers: [Int]) -> [Int] {
-        let wanted = Set(numbers)
         let onScreen = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? [])
             .compactMap { ($0[kCGWindowNumber as String] as? NSNumber)?.intValue }
-            .filter { wanted.contains($0) }
-        let listed = Set(onScreen)
-        return onScreen + numbers.reversed().filter { !listed.contains($0) }
+        return frontToBack(numbers, onScreen: onScreen)
+    }
+
+    /// `numbers` in the order of `onScreen` (the window server's on-screen list, topmost first),
+    /// then the ones it does not list, last of `numbers` first; each number once.
+    nonisolated static func frontToBack(_ numbers: [Int], onScreen: [Int]) -> [Int] {
+        let wanted = Set(numbers)
+        var seen = Set<Int>()
+        let listed = onScreen.filter { wanted.contains($0) && seen.insert($0).inserted }
+        return listed + numbers.reversed().filter { seen.insert($0).inserted }
     }
 
     /// Whether every pixel of `image` is transparent (sampled at 64 x 64).

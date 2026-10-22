@@ -10,6 +10,10 @@ enum WindowImageLayer {
     case page(CGImage, NSRect, holes: [NSRect] = [])
     /// A window server image of child windows, the size of the window.
     case window(CGImage)
+    /// The window's own composite (`full`, its overlays included) painted back where `coverage`
+    /// (its overlays alone, the size of the window) covers what was painted below: a popover or
+    /// menu over a page image shows as on screen, with the page under it.
+    case overlay(CGImage, coverage: CGImage)
 
     /// `base` (an image of `window`) with `layers` painted over it, bottom first; nil without layers.
     static func composite(base: CGImage, window: NSWindow, layers: [WindowImageLayer]) -> CGImage? {
@@ -48,8 +52,24 @@ enum WindowImageLayer {
                 context.restoreGState()
             case .window(let image):
                 context.draw(image, in: whole)
+            case .overlay(let full, let coverage):
+                guard let covered = masked(full, by: coverage, width: width, height: height, space: space) else { continue }
+                context.draw(covered, in: whole)
             }
         }
+        return context.makeImage()
+    }
+
+    /// `image` kept only where `mask` has alpha (premultiplied: `image` times the mask's alpha),
+    /// both drawn at `width` x `height` pixels.
+    static func masked(_ image: CGImage, by mask: CGImage, width: Int, height: Int, space: CGColorSpace) -> CGImage? {
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                      space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        let whole = CGRect(x: 0, y: 0, width: width, height: height)
+        context.interpolationQuality = .high
+        context.draw(mask, in: whole)
+        context.setBlendMode(.sourceIn)
+        context.draw(image, in: whole)
         return context.makeImage()
     }
 }

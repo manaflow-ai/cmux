@@ -67,6 +67,17 @@ import Testing
         #expect(overlays([menu, card, raisedCard, sheet, page], ordinary: other) == [85, 84])
     }
 
+    /// The window, its child windows and the app's windows over it go to the window server as one
+    /// composite (glass over the window then blurs it, as on screen; composited apart it came out
+    /// grey), topmost first. Windows it does not list on screen follow, last child first.
+    @Test func theWindowAndItsOverlaysAreOneCompositeTopmostFirst() {
+        // On screen, topmost first: a menu, a popover child, a page child, the window, another app's window.
+        let onScreen = [40, 31, 30, 10, 99]
+        #expect(NSWindow.frontToBack([10, 30, 31, 40], onScreen: onScreen) == [40, 31, 30, 10])
+        #expect(NSWindow.frontToBack([10, 30, 32, 33], onScreen: onScreen) == [30, 10, 33, 32])
+        #expect(NSWindow.frontToBack([10, 10, 30], onScreen: onScreen) == [30, 10])
+    }
+
     @Test func theRegionIsInGlobalDisplayCoordinates() {
         // The primary screen is 1000 points tall; a window 100 points above its bottom edge.
         let frame = NSRect(x: 50, y: 100, width: 400, height: 300)
