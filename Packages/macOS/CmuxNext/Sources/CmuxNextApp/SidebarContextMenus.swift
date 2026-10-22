@@ -38,7 +38,7 @@ enum SidebarContextMenus {
             MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: selection ? nil : model.workspace(first)?.title ?? "",
                                        rename: "renameWorkspace")
             if selection { nameSelection(menu, ids, services) }
-            if !selection, model.workspace(first)?.machineID.isLocalChief == true { noteStartedByChief(menu) }
+            if !selection, let starter = model.workspace(first)?.machineID.startedBy { note(startedBy: starter, in: menu) }
             menu.themeRows(in: scope)
             return menu
         case .group(let id):
@@ -91,8 +91,8 @@ enum SidebarContextMenus {
 
     /// A Chief subagent's workspace says who started it at the end of its menu, as its hover card
     /// does, since its row no longer does (Leo 2026-10-21).
-    private static func noteStartedByChief(_ menu: NSMenu) {
-        let note = NSMenuItem(title: ChiefWorkspaceName.startedBy, action: nil, keyEquivalent: "")
+    private static func note(startedBy starter: String, in menu: NSMenu) {
+        let note = NSMenuItem(title: starter, action: nil, keyEquivalent: "")
         note.isEnabled = false
         if !menu.items.isEmpty { menu.addItem(.separator()) }
         menu.addItem(note)

@@ -157455,6 +157455,268 @@
           }
         }
       }
+    },
+    "settings.sidebar.nowPlaying.otherApps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Include Other Apps in Now Playing"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تضمين التطبيقات الأخرى في «قيد التشغيل»"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uključi druge aplikacije u Sada svira"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medtag andre apps i Afspilles nu"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Andere Apps in „Jetzt läuft“ einbeziehen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incluir otras apps en Reproduciendo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inclure les autres apps dans À l’écoute"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Includi altre app in In riproduzione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生中に他のアプリを含める"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រួម​បញ្ចូល​កម្មវិធី​ផ្សេង​ទៀត​ក្នុង​កំពុង​ចាក់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 재생 중에 다른 앱 포함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta med andre apper i Spilles nå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uwzględniaj inne aplikacje w Teraz odtwarzane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incluir outros apps em Tocando Agora"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включать другие приложения в «Сейчас играет»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รวมแอปอื่นในกำลังเล่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şimdi Çalıyor’a diğer uygulamaları dahil et"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Додавати інші програми до «Зараз грає»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bao gồm ứng dụng khác trong Đang phát"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在“正在播放”中包含其他应用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在「正在播放」中包含其他 App"
+          }
+        }
+      }
+    },
+    "settings.sidebar.nowPlaying.otherApps.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Also show what plays in other apps, such as Spotify, Music or another browser. Off: only what plays in cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اعرض أيضًا ما يتم تشغيله في تطبيقات أخرى مثل Spotify أو الموسيقى أو متصفح آخر. عند الإيقاف: ما يتم تشغيله في cmux فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži i ono što svira u drugim aplikacijama, poput Spotifyja, Muzike ili drugog preglednika. Isključeno: samo ono što svira u cmuxu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis også, hvad der afspilles i andre apps, f.eks. Spotify, Musik eller en anden browser. Fra: kun det, der afspilles i cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auch zeigen, was in anderen Apps läuft, etwa Spotify, Musik oder einem anderen Browser. Aus: nur, was in cmux läuft."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar también lo que suena en otras apps, como Spotify, Música u otro navegador. Desactivado: solo lo que suena en cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher aussi ce qui est lu dans d’autres apps, comme Spotify, Musique ou un autre navigateur. Désactivé : seulement ce qui est lu dans cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra anche ciò che è in riproduzione in altre app, come Spotify, Musica o un altro browser. Disattivato: solo ciò che è in riproduzione in cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spotify、ミュージック、別のブラウザなど、他のアプリで再生中のものも表示します。オフ：cmux で再生中のものだけ。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ​អ្វី​ដែល​កំពុង​ចាក់​ក្នុង​កម្មវិធី​ផ្សេង​ទៀត​ផង​ដែរ ដូចជា Spotify, Music ឬ​កម្មវិធី​រុករក​ផ្សេង។ បិទ៖ តែ​អ្វី​ដែល​កំពុង​ចាក់​ក្នុង cmux ប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spotify, 음악 또는 다른 브라우저 등 다른 앱에서 재생 중인 항목도 표시합니다. 끔: cmux에서 재생 중인 항목만."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis også det som spilles i andre apper, som Spotify, Musikk eller en annen nettleser. Av: bare det som spilles i cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuj też to, co gra w innych aplikacjach, np. Spotify, Muzyka lub innej przeglądarce. Wyłączone: tylko to, co gra w cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar também o que toca em outros apps, como Spotify, Música ou outro navegador. Desativado: só o que toca no cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать и то, что играет в других приложениях, например Spotify, «Музыке» или другом браузере. Выкл.: только то, что играет в cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงสิ่งที่กำลังเล่นในแอปอื่นด้วย เช่น Spotify, เพลง หรือเบราว์เซอร์อื่น ปิด: เฉพาะสิ่งที่เล่นใน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spotify, Müzik veya başka bir tarayıcı gibi diğer uygulamalarda çalanı da göster. Kapalı: yalnızca cmux’ta çalan."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати й те, що грає в інших програмах, як-от Spotify, «Музика» чи інший браузер. Вимк.: лише те, що грає в cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiển thị cả nội dung đang phát trong ứng dụng khác, như Spotify, Nhạc hoặc trình duyệt khác. Tắt: chỉ nội dung phát trong cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同时显示其他应用（如 Spotify、音乐或其他浏览器）中正在播放的内容。关闭：仅显示 cmux 中播放的内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同時顯示其他 App（例如 Spotify、音樂或其他瀏覽器）中正在播放的內容。關閉：僅顯示 cmux 中播放的內容。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
