@@ -140,6 +140,17 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.descriptionString.describingTarget], targets: [.workspace],
                 cliName: "workspace edit-description", mainMenu: .file
             ),
+            // How many sub-sessions each chat of the workspace runs at once, under a chat's own
+            // value (acpmux `_acpmux/subsession/limits {workspaceId}`); a dialog, so no CLI verb.
+            ActionDescriptor(
+                id: "workspace.subagentLimit",
+                title: String(localized: "action.workspace.subagentLimit", defaultValue: "Workspace Subagent Limit…", bundle: .module),
+                keywords: ["subagent", "sub-session", "limit", "parallel", "concurrency", "running", "agents"],
+                category: .workspace, symbol: "slider.horizontal.3", surfaces: [.palette, .contextMenu], targets: [.workspace],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenus: [
+                    ActionSurfaceCatalog.p(.workspaceRow, .identity, 116, folder: .options, label: ObjectMenuLabels.subagentLimit),
+                ])
+            ),
             ActionDescriptor(
                 id: "palette.clearWorkspaceDescription",
                 title: String(localized: "action.palette.clearWorkspaceDescription", defaultValue: "Clear Workspace Description", bundle: .module),

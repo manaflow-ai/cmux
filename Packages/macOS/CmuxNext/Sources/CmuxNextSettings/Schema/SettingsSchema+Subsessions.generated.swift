@@ -12,6 +12,10 @@ extension SubsessionSettings {
     public nonisolated static let subsessionsMaxChildrenPath = ["agents", "subsessions", "maxChildren"]
     public nonisolated static let subsessionsMaxChildrenDefault: Double = 50
     public nonisolated static let subsessionsMaxChildrenRange: ClosedRange<Double> = 1...1000
+    /// `agents.subsessions.maxRunning`: Sub-sessions of one session that run a turn at the same time. More wait queued and start as running ones finish; lowering it stops none. A chat's own value (_acpmux/subsession/limits {sessionId}) and its workspace's ({workspaceId}) come before this one.
+    public nonisolated static let subsessionsMaxRunningPath = ["agents", "subsessions", "maxRunning"]
+    public nonisolated static let subsessionsMaxRunningDefault: Double = 16
+    public nonisolated static let subsessionsMaxRunningRange: ClosedRange<Double> = 1...1000
     /// `agents.subsessions.maxDepth`: The deepest level of nesting: a top-level session is 0, its sub-sessions 1.
     public nonisolated static let subsessionsMaxDepthPath = ["agents", "subsessions", "maxDepth"]
     public nonisolated static let subsessionsMaxDepthDefault: Double = 10
@@ -53,6 +57,16 @@ nonisolated enum SubsessionSettingsSchema {
                 kind: .number(SettingNumber(SubsessionSettings.subsessionsMaxChildrenRange, step: 1, unit: .count)),
                 default: .number(SubsessionSettings.subsessionsMaxChildrenDefault),
                 keywords: ["subagent", "sub-session", "limit", "width", "children", "parallel"]
+            ),
+            SettingDescriptor(
+                SubsessionSettings.subsessionsMaxRunningPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.subsessions.maxRunning", "Running Sub-sessions per Session"),
+                help: SettingsText.keyed("settings.agents.subsessions.maxRunning.help", "The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it."),
+                kind: .number(SettingNumber(SubsessionSettings.subsessionsMaxRunningRange, step: 1, unit: .count)),
+                default: .number(SubsessionSettings.subsessionsMaxRunningDefault),
+                keywords: ["subagent", "sub-session", "limit", "running", "concurrency", "parallel", "queue"]
             ),
             SettingDescriptor(
                 SubsessionSettings.subsessionsMaxDepthPath,
