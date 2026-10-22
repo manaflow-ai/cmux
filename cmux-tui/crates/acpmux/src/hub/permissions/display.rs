@@ -96,13 +96,25 @@ impl Hub {
         Some(display)
     }
 
-    /// The `mux.label` of the child of `parent` whose handle is `handle`.
+    /// The `mux.label` of the child of `parent` whose handle is `handle`: a
+    /// session here, else one a peer lists (a cloud subagent), whose row
+    /// carries its live tags.
     fn child_label(&self, parent: &str, handle: &str) -> Option<String> {
-        self.sessions().iter().find_map(|s| {
+        let local = self.sessions().iter().find_map(|s| {
             let meta = s.meta.lock().unwrap();
             let mine = live_tag(&meta, PARENT_TAG).as_deref() == Some(parent)
                 && live_tag(&meta, HANDLE_TAG).as_deref() == Some(handle);
             if mine { live_tag(&meta, LABEL_TAG) } else { None }
+        });
+        local.or_else(|| {
+            let rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+            rows.values().find_map(|r| {
+                let tags = r.summary.get("tags")?;
+                let tag = |key: &str| tags.get(key).and_then(text);
+                let mine = tag(PARENT_TAG).as_deref() == Some(parent)
+                    && tag(HANDLE_TAG).as_deref() == Some(handle);
+                if mine { tag(LABEL_TAG) } else { None }
+            })
         })
     }
 }
