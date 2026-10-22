@@ -64,6 +64,38 @@ impl std::fmt::Display for SessionStatus {
     }
 }
 
+/// What a watched chat follows (`hub/watch.rs`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Watching {
+    /// `claude` or `codex`.
+    pub family: String,
+    /// The harness's transcript, found in its own store (`adopt.rs`).
+    pub file: PathBuf,
+    /// How far into `file` acpmux has read, in bytes.
+    #[serde(default)]
+    pub offset: u64,
+    /// The rollout is a current Codex one, whose message items are its turns (`adopt_replay.rs`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub codex_items: bool,
+    /// The turn shown as open: the last prompt, until the transcript ends it, the next prompt
+    /// comes, or Take Over settles it. Kept so a daemon restart goes on with it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open: Option<WatchedTurn>,
+}
+
+/// A watched chat's open turn (`Watching::open`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatchedTurn {
+    pub turn_id: String,
+    pub prompt_id: String,
+    pub turn_seq: u64,
+    /// An answer was shown, so the next piece is set apart from it.
+    #[serde(default)]
+    pub answered: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
@@ -141,6 +173,11 @@ pub struct SessionMeta {
     pub turn_count: u64,
     #[serde(default)]
     pub usage: Option<Value>,
+    /// The agent's newest `available_commands_update` (its slash commands), so
+    /// opening a chat names them without reading its log back to the start,
+    /// where an agent lists them once (perf100).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub available_commands: Option<Value>,
     /// Per-session permission rules layered above the policy (see hub/rules.rs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_rules: Option<Value>,
@@ -198,6 +235,10 @@ pub struct SessionMeta {
     /// (ALL-CHATS-ON-DEVICE C3): absolute, existing folders only.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub harness_roots: Vec<HarnessRoot>,
+    /// A Claude Code or Codex conversation this chat shows without running it (`hub/watch.rs`):
+    /// cleared when a client takes it over.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub watching: Option<Watching>,
     /// Unsent composer text owned by this acpmux session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub composer_draft: Option<String>,
@@ -428,11 +469,15 @@ pub trait Store: Send + Sync {
     }
     /// Visit records with `after < seq < before` newest first until `visit`
     /// returns false: the reverse of `scan`, for pages taken from the end.
+    /// `skip(dir, kind)` true says a record is surely not wanted: a file store
+    /// passes such a line without parsing it (a store that holds parsed
+    /// records may ignore it; `visit` still decides on the rest).
     fn scan_back(
         &self,
         id: &str,
         after: u64,
         before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         let mut found = Vec::new();
@@ -440,7 +485,9 @@ pub trait Store: Send + Sync {
             if rec.seq >= before {
                 return false;
             }
-            found.push(rec);
+            if !skip(rec.dir.as_bytes(), rec.kind.as_bytes()) {
+                found.push(rec);
+            }
             true
         })?;
         for rec in found.into_iter().rev() {
@@ -656,34 +703,132 @@ fn record_seq(line: &[u8]) -> Option<u64> {
     std::str::from_utf8(&rest[..digits]).ok()?.parse().ok()
 }
 
+/// The `dir` of one serialized record, read without parsing it, as `record_kind` reads its kind.
+fn record_dir(line: &[u8]) -> Option<&[u8]> {
+    const KEY: &[u8] = b"\"dir\":\"";
+    let head = &line[..line.len().min(160)];
+    let msg = head.windows(6).position(|w| w == b"\"msg\":").unwrap_or(head.len());
+    let start = head[..msg].windows(KEY.len()).position(|w| w == KEY)? + KEY.len();
+    let len = line[start..].iter().position(|&b| b == b'"')?;
+    Some(&line[start..start + len])
+}
+
+/// The byte offset in segment `path` where its first record with `seq >= before` starts (the
+/// file's length when it has none), found by a binary search on line headers: the records of a
+/// segment are appended in `seq` order. A line whose header does not read (an older field
+/// order) ends the search at the file's length, which reads the segment from its end as before.
+fn offset_of_seq(path: &Path, before: u64) -> Result<u64> {
+    use std::io::{Seek, SeekFrom};
+    const PROBE: usize = 64 * 1024;
+    let mut file = crate::config::private_state_file(path)?;
+    let len = file.seek(SeekFrom::End(0))?;
+    let mut buf = vec![0u8; PROBE];
+    // A segment whose last record is before `before` (every older segment of a page) needs no
+    // search: its end is the offset.
+    if len > PROBE as u64 {
+        file.seek(SeekFrom::Start(len - PROBE as u64))?;
+        file.read_exact(&mut buf)?;
+        let body = buf.strip_suffix(b"\n").unwrap_or(&buf);
+        if let Some(nl) = body.iter().rposition(|&b| b == b'\n')
+            && record_seq(&body[nl + 1..]).is_some_and(|seq| seq < before)
+        {
+            return Ok(len);
+        }
+    }
+    // The first line starting at or after `pos`: its offset and seq; None past the end, or when
+    // no line starts in the probe (a line over 64 KiB) or its header does not read.
+    let mut line_at = |pos: u64| -> Result<Option<(u64, Option<u64>)>> {
+        file.seek(SeekFrom::Start(pos))?;
+        let mut filled = 0;
+        while filled < PROBE {
+            let n = file.read(&mut buf[filled..])?;
+            if n == 0 {
+                break;
+            }
+            filled += n;
+        }
+        let data = &buf[..filled];
+        let start = if pos == 0 {
+            0
+        } else {
+            match data.iter().position(|&b| b == b'\n') {
+                Some(nl) => nl + 1,
+                None => return Ok(None),
+            }
+        };
+        if start >= data.len() {
+            return Ok(None);
+        }
+        Ok(Some((pos + start as u64, record_seq(&data[start..]))))
+    };
+    let (mut lo, mut hi, mut end) = (0u64, len, len);
+    while hi - lo > PROBE as u64 {
+        let mid = lo + (hi - lo) / 2;
+        match line_at(mid)? {
+            Some((_, None)) | None => return Ok(len),
+            Some((start, Some(seq))) if seq >= before => {
+                hi = mid;
+                end = start;
+            }
+            Some(_) => lo = mid,
+        }
+    }
+    Ok(end)
+}
+
 /// Visits `path`'s lines newest first, reading 64 KiB blocks from the end, until `visit`
 /// returns false: a tail costs its own bytes, not the segment's.
 fn for_each_line_rev(path: &Path, visit: &mut dyn FnMut(&[u8]) -> bool) -> Result<()> {
+    for_each_line_rev_from(path, u64::MAX, visit)
+}
+
+/// `for_each_line_rev` over the bytes before offset `end` (a line start, or past the end).
+fn for_each_line_rev_from(
+    path: &Path,
+    end: u64,
+    visit: &mut dyn FnMut(&[u8]) -> bool,
+) -> Result<()> {
     use std::io::{Seek, SeekFrom};
     const BLOCK: u64 = 64 * 1024;
     let mut file = crate::config::private_state_file(path)?;
-    let mut end = file.seek(SeekFrom::End(0))?;
-    // Bytes of a line whose start is in an earlier block, in file order.
-    let mut carry: Vec<u8> = Vec::new();
+    let mut end = file.seek(SeekFrom::End(0))?.min(end);
+    // The blocks of a line whose start is in an earlier block, newest first: each block is read
+    // and scanned once, so a line of many megabytes costs its length, not its length squared.
+    let mut carry: Vec<Vec<u8>> = Vec::new();
+    let joined = |head: &[u8], carry: &mut Vec<Vec<u8>>| {
+        let mut line = head.to_vec();
+        for piece in carry.drain(..).rev() {
+            line.extend_from_slice(&piece);
+        }
+        line
+    };
     while end > 0 {
         let start = end.saturating_sub(BLOCK);
         let mut block = vec![0u8; (end - start) as usize];
         file.seek(SeekFrom::Start(start))?;
         file.read_exact(&mut block)?;
-        block.extend_from_slice(&carry);
         let mut cut = block.len();
         while let Some(newline) = block[..cut].iter().rposition(|&b| b == b'\n') {
-            let line = &block[newline + 1..cut];
+            let head = &block[newline + 1..cut];
+            let whole;
+            let line = if carry.is_empty() {
+                head
+            } else {
+                whole = joined(head, &mut carry);
+                &whole[..]
+            };
             if !line.iter().all(u8::is_ascii_whitespace) && !visit(line) {
                 return Ok(());
             }
             cut = newline;
         }
-        carry = block[..cut].to_vec();
+        block.truncate(cut);
+        carry.push(block);
         end = start;
     }
-    if !carry.iter().all(u8::is_ascii_whitespace) {
-        visit(&carry);
+    let line = joined(&[], &mut carry);
+    if !line.iter().all(u8::is_ascii_whitespace) {
+        visit(&line);
     }
     Ok(())
 }
@@ -888,30 +1033,53 @@ impl Store for LocalStore {
     /// Segments newest first, so a page from the end reads only the segments it
     /// needs however long the log is. A segment whose first record is at or past
     /// `before` holds nothing for the page and is skipped after one line.
+    /// Reads backwards from the end of the records before `before` only: the
+    /// segment is read in blocks from the offset where `before` starts (found
+    /// by a search on the line headers), never whole, and a line `skip` names,
+    /// or one at or past `before`, is passed on its header unparsed. A page
+    /// costs its own bytes, not its segment's (perf100: every older page of a
+    /// scroll to the first message read and parsed its whole 8 MiB segment,
+    /// and opening a chat read the log once for each of its three reads).
     fn scan_back(
         &self,
         id: &str,
         after: u64,
         before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         for (_, path) in self.segments(id)?.into_iter().rev() {
             if first_seq(&path)?.is_some_and(|first| first >= before) {
                 continue;
             }
-            let mut text = String::new();
-            BufReader::new(crate::config::private_state_file(&path)?).read_to_string(&mut text)?;
-            for line in text.lines().rev() {
-                if line.trim().is_empty() {
-                    continue;
+            let mut done = false;
+            let end = offset_of_seq(&path, before)?;
+            for_each_line_rev_from(&path, end, &mut |line| {
+                match record_seq(line) {
+                    Some(seq) if seq >= before => return true,
+                    Some(seq) if seq <= after => {
+                        done = true;
+                        return false;
+                    }
+                    _ => {}
                 }
-                let Ok(rec) = serde_json::from_str::<EventRecord>(line) else { continue };
+                if let (Some(dir), Some(kind)) = (record_dir(line), record_kind(line))
+                    && skip(dir, kind)
+                {
+                    return true;
+                }
+                let Ok(rec) = serde_json::from_slice::<EventRecord>(line) else { return true };
                 if rec.seq >= before {
-                    continue;
+                    return true;
                 }
                 if rec.seq <= after || !visit(rec) {
-                    return Ok(());
+                    done = true;
+                    return false;
                 }
+                true
+            })?;
+            if done {
+                return Ok(());
             }
         }
         Ok(())
@@ -1093,5 +1261,35 @@ mod permission_tests {
             .unwrap();
         assert!(status.success());
         assert!(LocalStore::new(root, 64 * 1024).is_err());
+    }
+}
+
+#[cfg(all(test, unix))]
+mod line_rev_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    /// Lines come newest first, whole, whatever blocks they span; blank lines are skipped.
+    #[test]
+    fn lines_across_blocks_come_back_whole_newest_first() {
+        let path = std::env::temp_dir().join(format!(
+            "acpmux-line-rev-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        let lines =
+            ["a".to_owned(), "x".repeat(200_000), String::new(), "b".repeat(65_535), "c".into()];
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let mut seen = Vec::new();
+        for_each_line_rev(&path, &mut |line| {
+            seen.push(String::from_utf8(line.to_vec()).unwrap());
+            true
+        })
+        .unwrap();
+        let _ = std::fs::remove_file(&path);
+        let want: Vec<String> = lines.iter().rev().filter(|l| !l.is_empty()).cloned().collect();
+        assert_eq!(seen.len(), want.len());
+        assert!(seen == want, "lines came back changed or out of order");
     }
 }

@@ -79,7 +79,7 @@ public final class TabModel: Identifiable {
 
     /// Shows `marked` now, before the daemon's `tab.update` answers: the
     /// round trip (hundreds of ms on a busy daemon) is never on the visible
-    /// path of Toggle Tab Unread. The record's echo of `marked` settles it.
+    /// path of Mark Tab Read/Unread. The record's echo of `marked` settles it.
     public func expectMarkedUnread(_ marked: Bool) {
         pendingMarkedUnread = marked
         publishMarkedUnread()

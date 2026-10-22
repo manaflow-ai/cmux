@@ -325,6 +325,48 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         },
       },
     },
+    "started-move-to-cloud": {
+      note: "Preview, a started chat on this Mac: the picker shows where it runs and Move to Cloud, the tab menu's same action, saying it reuses a Cloud machine or makes one.",
+      props: {
+        ...baseProps,
+        environments: true,
+        started: true,
+        onOffload: () => undefined,
+        offloads: ["move"],
+        summary: {
+          sessionId: "gallery-started-local",
+          harness: "claude",
+          cwd: projects[0]!.cwd,
+          host: "This Mac",
+          hostKind: "local",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-env-popover .acpmux-env-new"));
+      },
+    },
+    "started-bring-back": {
+      note: "Preview, a started Cloud chat a move from this Mac put there: the picker shows its machine and Bring Back Local, which merges the machine's changes into the folder here.",
+      props: {
+        ...baseProps,
+        environments: true,
+        started: true,
+        onOffload: () => undefined,
+        offloads: ["bringBack"],
+        summary: {
+          sessionId: "gallery-started-cloud",
+          harness: "claude",
+          cwd: "/home/you/project",
+          host: "Cloud machine",
+          hostKind: "cloud",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-env-popover .acpmux-env-new"));
+      },
+    },
     "started-branch": {
       note: "After a turn starts, location labels lock while the branch remains visible at the right.",
       props: {

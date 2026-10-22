@@ -46,8 +46,8 @@ beforeEach(() => {
 afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
-  // React's scheduler may still run a passive effect; let it see the window before it goes.
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  // React's scheduler may still run a passive effect; let its queued task run while the window is there.
+  await new Promise((resolve) => setTimeout(resolve, 0));
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

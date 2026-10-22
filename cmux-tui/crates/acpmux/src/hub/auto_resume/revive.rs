@@ -99,7 +99,7 @@ impl Hub {
 
     /// A turn refused after it was accepted (dispatch check, remote floor): failed unstarted.
     pub(in crate::hub) fn refuse_started_turn(
-        &self,
+        self: &Arc<Self>,
         session: &Arc<Session>,
         prompt_id: &str,
         turn_id: &str,
@@ -131,7 +131,7 @@ impl Hub {
     /// A recorded prompt whose agent could not start: the turn ends failed, so every client
     /// sees the prompt settle instead of a turn that never starts.
     pub(in crate::hub) fn fail_unstarted_turn(
-        &self,
+        self: &Arc<Self>,
         session: &Arc<Session>,
         prompt_id: &str,
         turn_id: &str,

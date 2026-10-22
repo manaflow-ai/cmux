@@ -2,7 +2,7 @@
 //! `hub/worktree_care/revive.rs`): on 2026-10-20 lane `chief-fix` sat `disconnected` for hours after
 //! its agent closed mid-turn, two coordinator messages held behind it, and a reclaim job had
 //! deleted the worktrees of three such lanes.
-use super::*;
+use super::super::*;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 

@@ -17,7 +17,8 @@ extension SidebarListViewComponents {
         case let .workspace(id):
             guard !model.isPlaceholder(id) else { return }
             let ids = model.selection.contains(id) ? model.orderedSelection : [id]
-            if !model.selection.contains(id) { model.click(id) }
+            // Multi-view: the drag moves the row and leaves the shown workspace (and the selection) as it is.
+            if !model.selection.contains(id), press.clickOnRelease != id { model.click(id) }
             payload = .workspaces(ids)
             hidden = Set(ids.map(SidebarRowKey.workspace))
             origin = ids.first.flatMap { SidebarEdits.position(of: $0, in: model.sections) }.map(DropTarget.position)
@@ -34,7 +35,7 @@ extension SidebarListViewComponents {
             payload = .item(item)
             hidden = [press.key]
             origin = .position(DropPosition(section: row.section, group: row.group, index: row.siblingIndex)) // a group's member item: inside it
-        case .tab, .section, .emptySection, .folder, .block:
+        case .tab, .section, .emptySection, .folder, .block, .doneFold:
             return
         }
         hidden.formUnion(Self.tabKeys(of: hidden, in: model))
@@ -264,7 +265,7 @@ extension SidebarListViewComponents {
         if let source = drag.tileSource { drag.tileRegion?.docSpentPress = source.item } // the tile's press drags nothing more
         suppressed = drag.hiddenKeys
         reload(animated: true, adopt: true) // the gap closes and the source slot opens on the drag's spring
-        land(drag)
+        land(drag) { [weak region = drag.tileSource == nil ? nil : drag.tileRegion] in region?.endDocPress() } // a list press eats the tile's release
     }
     /// Flies the lifted view to its row's current frame (or `slot`, the
     /// band slot of a pin drop), then swaps it out and runs `then`.

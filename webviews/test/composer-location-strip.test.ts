@@ -26,6 +26,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { PNG } from "pngjs";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -44,8 +45,17 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
+  // Each page loads its entry file alone (`entryPath`, src/gallery/registry.ts). Without it every
+  // page loaded all ~150 gallery entries (about 2,300 modules) and the warm-up transformed them all
+  // first: beside the other dev server files on a CI runner the file was killed at its 120 s limit
+  // after eight of its cases (job 119080446280), with nothing stuck.
+  const ENTRY_PATHS: Record<string, string> = {
+    "agent-pane.composer-strip": "src/agent-session/acpmux/composerStrip.gallery.ts",
+    "agent-pane.composer-context": "src/agent-session/acpmux/ComposerContext.gallery.tsx",
+    "agent-pane.new-tab": "src/agent-session/acpmux/newtab/NewTabScreen.gallery.ts",
+  };
   const stageURL = (entry: string, variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&entryPath=${ENTRY_PATHS[entry]}&variant=${variant}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -54,7 +64,17 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
+    // The entry files and the hosts they mount (the strip and the New Tab in frame/agentPane.ts,
+    // which imports acpmux/main; the folder popover in frame/component.tsx), not the frame: its
+    // registry names every entry. Module URLs carry the config's base, /gallery/; a path outside it
+    // is a 404 that warms nothing, so that fails here.
+    for (const file of [
+      ...Object.values(ENTRY_PATHS),
+      "src/gallery/frame/agentPane.ts",
+      "src/gallery/frame/component.tsx",
+    ])
+      if ((await warmViteServer(vite, `/gallery/${file}`)) === 0)
+        throw new Error(`warmViteServer: ${file} imports nothing; is it served?`);
     browser = await chromium.launch({ headless: true });
     // Warm the stage once: the first load can run Vite's dependency optimizer and reload mid-compile.
     const warm = await browser.newPage({ viewport: { width: 720, height: 400 } });
@@ -544,8 +564,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
   // Focus draws no ring (Leo 2026-10-19): a focused footer control leaves the strip's rim at rest.
   test("focusing a footer control changes neither the strip rim nor its geometry", async () => {
     const page = await open("agent-pane.composer-strip", "project", 420);
+    await installPaintedFrames(page);
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-    await page.waitForTimeout(20);
+    await page.evaluate(() => window.cmuxPaintFrame());
     const before = await page.evaluate(() => {
       const strip = document.querySelector<HTMLElement>(".acpmux-composer-strip")!;
       const rect = strip.getBoundingClientRect();
@@ -555,6 +576,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       };
     });
     await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-composer-strip button")!.focus());
+    await page.evaluate(() => window.cmuxPaintFrame());
     const after = await page.evaluate(() => {
       const strip = document.querySelector<HTMLElement>(".acpmux-composer-strip")!;
       const rect = strip.getBoundingClientRect();

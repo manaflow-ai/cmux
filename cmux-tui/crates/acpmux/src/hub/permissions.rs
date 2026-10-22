@@ -103,6 +103,7 @@ impl Hub {
             return;
         }
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
+        self.note_activity(session, update);
         // A mode or option change goes through the one setter below.
         let mut mode_write = None;
         let mut reported_tools = None;
@@ -129,6 +130,7 @@ impl Hub {
                 super::pull_requests::absorb(session, update, &mut m)
             }
             "usage_update" => m.usage = Some(update.clone()),
+            "available_commands_update" => m.available_commands = Some(update.clone()),
             "current_mode_update" => {
                 mode_write = update.get("currentModeId").cloned().map(ModeWrite::CurrentMode);
             }
@@ -543,6 +545,11 @@ impl Hub {
             state.pending.insert(
                 permission_id.clone(),
                 PendingPermission {
+                    // Who asked: acpmux itself (Grok's, Cursor's asks) or the agent.
+                    ancestor_may_answer: super::questions::ancestor_answerable(
+                        &request,
+                        agent_request_id.is_some(),
+                    ),
                     request: request.clone(),
                     reply: tx,
                     decision_nonce: decision_nonce.clone(),
@@ -682,7 +689,22 @@ impl Hub {
                     })
                 });
                 let allows = option_id.is_some() && !rejects;
-                if allows || answered_by.is_some() {
+                // An ancestor session's answer to a question
+                // (`subsession_answer.rs`): answers to a prompt recorded as a
+                // question when it was asked (`questions::ancestor_answerable`,
+                // never from its input's shape), with its one-time allow and
+                // the hub's own `answeredBy`; never a permission prompt, a
+                // lasting grant or a plan.
+                let ancestor_answers = answerer.ancestor.is_some()
+                    && answered_by.is_some()
+                    && answers.is_some()
+                    && p.ancestor_may_answer
+                    && super::questions::trust_cwd(&p.request).is_none()
+                    && option_id.as_deref().is_some_and(|o| {
+                        option_kind(p.request["options"].as_array().map_or(&[], Vec::as_slice), o)
+                            == Some("allow_once")
+                    });
+                if (allows || answered_by.is_some()) && !ancestor_answers {
                     let proved = match (&option_id, answerer.decision) {
                         (Some(o), Some((nonce, proof))) => {
                             answers.is_none()
