@@ -17,7 +17,7 @@ import os
 /// system's placement when it had none) for a web page in a browser tab.
 nonisolated enum ChromiumPageTextAccessory {
     /// `-[NSTextInputClient preferredTextAccessoryPlacement]`.
-    static let selector = #selector(getter: NSTextInputClient.preferredTextAccessoryPlacement)
+    static let selector = #selector(NSTextInputClient.preferredTextAccessoryPlacement)
 
     private typealias Getter = @convention(c) (AnyObject, Selector) -> Int
 
