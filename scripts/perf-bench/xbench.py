@@ -907,6 +907,8 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
     rows.update(palette_found)
     errors = [s for s in samples if s["row"] == "session-error" or (s.get("value") is None and s.get("note"))]
     budget_errors = sum(1 for sample in samples if sample["browser"] == budget.NAME and sample["row"] == "session-error")
+    # The run's budgets file decides, so samples are judged against the scenario that collected them.
+    budgets = budgets or meta.get("args", {}).get("budgets") or budget.DEFAULT_BUDGETS
     budget_result, budget_lines = budget.evaluate(rows, budget.NAME in meta.get("browsers", {}), budgets,
                                                   int(meta.get("args", {}).get("rounds") or 0), budget_errors)
     result = {"date": time.strftime("%Y-%m-%d"), "machine": meta["machine"], "cmux_ref": meta.get("cmux_ref"),
@@ -1014,15 +1016,16 @@ def main():
     run.add_argument("--cmux-ref", default="")
     run.add_argument("--work", default="/private/tmp/xbench")
     run.add_argument("--cache", default=os.path.expanduser("~/Library/Caches/cmux-perf-bench"))
-    run.add_argument("--budgets", default=budget.DEFAULT_BUDGETS, help="cmux-budget's scenario and budgets")
+    run.add_argument("--budgets", default=budget.DEFAULT_BUDGETS, type=os.path.abspath,
+                     help="cmux-budget's scenario and budgets (kept in meta.json for report)")
     rep = sub.add_parser("report")
     rep.add_argument("--out", required=True)
     rep.add_argument("--md")
     rep.add_argument("--json")
     rep.add_argument("--tabswitch", help="tab-switch-matrix.py's --json report")
     rep.add_argument("--palette", help="palette-open-stages.py's --json report")
-    rep.add_argument("--budgets", default=budget.DEFAULT_BUDGETS,
-                     help="budgets.json; an enforced budget the cmux-budget session broke exits 1")
+    rep.add_argument("--budgets", help="budgets.json (default: the one the run used); an enforced budget "
+                     "the cmux-budget session broke exits 1")
     gat = sub.add_parser("gate")
     gat.add_argument("--results", required=True)
     gat.add_argument("--baseline", required=True)
