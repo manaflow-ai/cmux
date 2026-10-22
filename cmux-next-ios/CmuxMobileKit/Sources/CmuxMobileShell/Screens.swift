@@ -39,7 +39,8 @@ struct HomeScreen: View {
     var body: some View {
         @Bindable var shell = shell
         NavigationStack(path: $shell.homePath) {
-            ConversationsHome(store: shell.store, open: { route in
+            ConversationsHome(store: shell.store, macFilter: shell.macFilter,
+                              selectMac: shell.live.map { live in { live.select(macID: $0) } }, open: { route in
                 if let chief = route.chiefRoute {
                     shell.homePath.append(chief)
                 } else if case let .agent(destination) = route {
@@ -77,7 +78,8 @@ struct WorkspacesScreen: View {
                 openAccount: {
                     shell.tab = .settings
                     shell.settingsPath = [.account]
-                }
+                },
+                filter: shell.macFilter
             ) { shell.workspacesPath.append($0) }
                 .background(theme.colors.bg.color.ignoresSafeArea())
                 .navigationBarTitleDisplayMode(.inline)

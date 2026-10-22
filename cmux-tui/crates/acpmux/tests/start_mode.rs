@@ -317,14 +317,14 @@ async fn start_mode_answer_is_the_mode_a_new_chat_then_starts_in() {
     // Before any chat: full access, from config.json.
     let answer = start_mode(&mut app, &dir, "claude").await;
     assert_eq!(answer["modeId"], "bypassPermissions", "{answer}");
-    assert_eq!(answer["name"], "Full access", "{answer}");
+    assert_eq!(answer["name"], "Bypass permissions", "{answer}");
     assert_eq!(answer["level"], "fullAccess", "{answer}");
     assert_eq!(answer["source"], "config", "{answer}");
     assert_eq!(app.chat(&dir, "claude").await.1, "bypassPermissions");
     // A harness with no full-access mode keeps its own: no prediction.
     assert_eq!(start_mode(&mut app, &dir, "plain").await["modeId"], Value::Null);
 
-    // The person picks Normal in a chat: the answer follows, and so does the
+    // The person picks Manual in a chat: the answer follows, and so does the
     // next new chat.
     let (claude, _) = app.chat(&dir, "claude").await;
     let r = app.call("session/set_mode", json!({"sessionId": claude, "modeId": "default"})).await;
