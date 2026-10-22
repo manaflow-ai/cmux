@@ -130,6 +130,8 @@ pub(in crate::cli) fn agent_of_terminal(terminal: &Value, agents: &[Value]) -> O
         let harness = text(&record["extra"]["agent"])
             .or_else(|| text(&record["agent"]))
             .unwrap_or_else(|| "agent".to_owned());
+        // Hooks say `claude`, the screen-detection plugin `claude-code`.
+        let harness = if harness == "claude-code" { "claude".to_owned() } else { harness };
         // A daemon agent record is `done` when the harness session ended
         // (`agent.session.ended`); a status record's `done` is a turn's end.
         let state = match record["state"].as_str()? {

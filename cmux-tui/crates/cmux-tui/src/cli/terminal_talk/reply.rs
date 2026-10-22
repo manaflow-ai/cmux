@@ -108,13 +108,34 @@ fn is_composer(line: &str) -> bool {
     trimmed.starts_with('›') || matches!(trimmed.trim_end(), "❯" | ">")
 }
 
+/// A harness's turn summary or spinner line: Claude Code's `✻ Brewed for
+/// 1m 38s · done 10:33 PM` (a symbol, a word, `for`, a duration).
+fn is_turn_summary(line: &str) -> bool {
+    let mut words = line.trim().split_whitespace();
+    let symbol = words.next().unwrap_or_default();
+    let symbolic =
+        symbol.chars().count() == 1 && symbol.chars().all(|character| !character.is_alphanumeric());
+    symbolic
+        && words.next().is_some_and(|word| word.chars().all(char::is_alphabetic))
+        && words.next() == Some("for")
+        && words.next().is_some_and(|word| word.starts_with(|c: char| c.is_ascii_digit()))
+}
+
 /// `body` without the input box and status lines at its bottom.
 fn without_footer(body: &[String]) -> &[String] {
     let start = body.len().saturating_sub(FOOTER_LINES);
     let cut = (start..body.len())
         .find(|&index| is_rule(&body[index]))
         .or_else(|| (start..body.len()).find(|&index| is_composer(&body[index])));
-    &body[..cut.unwrap_or(body.len())]
+    let mut body = &body[..cut.unwrap_or(body.len())];
+    while let Some((last, rest)) = body.split_last() {
+        if last.trim().is_empty() || is_turn_summary(last) {
+            body = rest;
+        } else {
+            break;
+        }
+    }
+    body
 }
 
 /// Trailing whitespace off each line; leading and trailing blank lines off.

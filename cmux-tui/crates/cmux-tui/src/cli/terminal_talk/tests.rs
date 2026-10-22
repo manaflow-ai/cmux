@@ -126,6 +126,8 @@ fn reply_after_reads_a_claude_code_answer_without_its_input_box() {
         "⏺ The failing test is pinned_columns_tests.rs:232; it expects",
         "  three columns and gets two.",
         "",
+        "✻ Brewed for 1m 38s · done 10:33 PM",
+        "",
         "─────────────────────────────────────────────",
         "> ",
         "─────────────────────────────────────────────",
@@ -386,4 +388,12 @@ fn send_flags_parse_with_defaults() {
     assert!(super::parse_send("term_a", &words(&["--text", "  "])).is_err());
     assert!(super::parse_list(&words(&["--agents"])).is_ok());
     assert!(super::parse_list(&words(&["--agents", "--bogus"])).is_err());
+}
+
+#[test]
+fn claude_code_plugin_records_name_the_claude_harness() {
+    let mut snapshot = snapshot();
+    snapshot["agents"][0]["extra"]["agent"] = json!("claude-code");
+    let rows = roster::agent_rows(&snapshot);
+    assert!(rows.iter().any(|row| row.harness == "claude" && row.source == "hook"));
 }
