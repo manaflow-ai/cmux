@@ -1,7 +1,7 @@
-import AppKit
-import CmuxNextBrowser
+public import AppKit
+public import CmuxNextBrowser
 import CmuxNextIcons
-import CmuxNextRemoteView
+public import CmuxNextRemoteView
 import Foundation
 import Observation
 
@@ -18,23 +18,23 @@ import Observation
 /// host `mock` streams; every other case shows `RemoteViewUnavailableView`.
 @MainActor
 @Observable
-final class RemoteViewPageTab: BrowserTab {
-    let id: BrowserTabID
-    let engineKind: BrowserEngineKind
-    let profileID: BrowserProfileID
-    let presentation: BrowserPresentation = .inView
-    private(set) var state: BrowserTabState
-    let favicon: NSImage? = NSImage.icon(.remoteDisplay, size: 16)
-    let pendingPrompts: [BrowserPrompt] = []
-    @ObservationIgnored weak var delegate: (any BrowserTabDelegate)?
-    @ObservationIgnored weak var keyRouter: (any BrowserKeyRouting)?
-    @ObservationIgnored let record: RemoteViewTabRecord?
-    @ObservationIgnored let contentView: NSView
-    @ObservationIgnored var onNavigate: ((URL) -> Void)?
+public final class RemoteViewPageTab: BrowserTab {
+    public let id: BrowserTabID
+    public let engineKind: BrowserEngineKind
+    public let profileID: BrowserProfileID
+    public let presentation: BrowserPresentation = .inView
+    public private(set) var state: BrowserTabState
+    public let favicon: NSImage? = NSImage.icon(.remoteDisplay, size: 16)
+    public let pendingPrompts: [BrowserPrompt] = []
+    @ObservationIgnored public weak var delegate: (any BrowserTabDelegate)?
+    @ObservationIgnored public weak var keyRouter: (any BrowserKeyRouting)?
+    @ObservationIgnored public let record: RemoteViewTabRecord?
+    @ObservationIgnored public let contentView: NSView
+    @ObservationIgnored public var onNavigate: ((URL) -> Void)?
     @ObservationIgnored private let session: RemoteViewPageSession?
 
     /// `decision` is `RemoteViewTabPolicy`'s answer for the record at `url`.
-    init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, url: URL, decision: RemoteViewTabDecision,
+    public init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, url: URL, decision: RemoteViewTabDecision,
          closeTab: @escaping @MainActor () -> Void, connect: @escaping @MainActor (URL) -> Void) {
         self.id = id
         self.engineKind = engine
@@ -69,49 +69,49 @@ final class RemoteViewPageTab: BrowserTab {
 
     #if DEBUG
     /// Every live remote view tab, for `debug.remote_view` (weak).
-    static let live = NSHashTable<RemoteViewPageTab>.weakObjects()
+    public static let live = NSHashTable<RemoteViewPageTab>.weakObjects()
 
     /// The Connect button of a tab that asks first; nil for any other tab.
-    var debugConnect: (() -> Void)? { (contentView as? RemoteViewUnavailableView)?.onConnect }
+    public var debugConnect: (() -> Void)? { (contentView as? RemoteViewUnavailableView)?.onConnect }
 
     /// The tab's session, when it streams (development path or mock).
-    var debugSession: RemoteViewPageSession? { session }
+    public var debugSession: RemoteViewPageSession? { session }
     #endif
 
-    func load(_ url: URL) {
+    public func load(_ url: URL) {
         if RemoteViewTabRecord.matches(url) { return }
         onNavigate?(url)
     }
 
     /// Reload never reconnects: after Stop only the pane's Reconnect (a
     /// person) starts a new session, never `browser reload` automation.
-    func reload() {}
-    func goBack() {}
-    func goForward() {}
-    func stop() { session?.pause() }
+    public func reload() {}
+    public func goBack() {}
+    public func goForward() {}
+    public func stop() { session?.pause() }
 
-    func setFocused(_ focused: Bool) {
+    public func setFocused(_ focused: Bool) {
         guard focused, let window = contentView.window else { return }
         window.makeFirstResponder(session?.focusTarget ?? contentView)
     }
 
-    func setContentVisible(_ visible: Bool) {
+    public func setContentVisible(_ visible: Bool) {
         contentView.isHidden = !visible
         if visible { session?.resume() } else { session?.pause() }
     }
 
-    func snapshot() async throws -> CGImage {
+    public func snapshot() async throws -> CGImage {
         guard let rep = contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds) else { throw BrowserTabError.snapshotUnavailable }
         contentView.cacheDisplay(in: contentView.bounds, to: rep)
         guard let image = rep.cgImage else { throw BrowserTabError.snapshotUnavailable }
         return image
     }
 
-    func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue { throw BrowserTabError.closed }
-    func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult { .none }
-    func clearFind() {}
-    func setZoom(_ zoom: Double) {}
-    func exitContentFullscreen() {}
-    func showDevTools() {}
-    func close() { session?.pause() }
+    public func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue { throw BrowserTabError.closed }
+    public func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult { .none }
+    public func clearFind() {}
+    public func setZoom(_ zoom: Double) {}
+    public func exitContentFullscreen() {}
+    public func showDevTools() {}
+    public func close() { session?.pause() }
 }
