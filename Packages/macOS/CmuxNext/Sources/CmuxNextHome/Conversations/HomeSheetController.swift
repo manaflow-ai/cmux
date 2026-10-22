@@ -17,6 +17,10 @@ public class HomeSheetController: NSViewController {
     let cancelButton = ThemedBezelButton(title: HomeConversationStrings.cancel, target: nil, action: nil)
     let primaryButton = ThemedDefaultButton(title: "", target: nil, action: nil)
     let buttons = NSStackView()
+    /// The sheet's material, under its content: this Mac's glass with no card fill, like every
+    /// overlay, solid only under Reduce Transparency (Leo 2026-10-21: "glass is never opaque (the
+    /// only exception is the Reduce Transparency fallback)").
+    let surface = OverlaySurfaceView(interactive: true, cornerRadius: 0)
     private(set) var isRunning = false
     // task-owner: the sheet's one running action; cancelled when the sheet closes
     private var work: Task<Void, Never>?
@@ -31,15 +35,13 @@ public class HomeSheetController: NSViewController {
     required init?(coder: NSCoder) { nil }
 
     public override func loadView() {
-        // The sheet's window background is the system's: the sheet paints the theme's popup
-        // surface (`Palette.popupSurface`) over it, re-resolved on every theme change.
-        let root = ThemeChangeView(frame: NSRect(x: 0, y: 0, width: 420, height: 200))
-        root.wantsLayer = true
-        root.onThemeChange = { [weak root] in
-            guard let root else { return }
-            root.layer?.backgroundColor = root.performWithTheme { Palette.popupSurface.cgColor }
-        }
-        root.onThemeChange?()
+        // The sheet's glass fills it, under the stack; the surface re-reads the theme itself.
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 200))
+        surface.frame = root.bounds
+        surface.autoresizingMask = [.width, .height]
+        // The sheet is a window of its own: the vibrancy fallback blurs the window behind it.
+        surface.samplesBehindWindow = true
+        root.addSubview(surface)
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = Metrics.space3

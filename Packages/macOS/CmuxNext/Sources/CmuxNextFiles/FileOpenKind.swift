@@ -34,6 +34,11 @@ public enum FileOpenKind: Sendable, Equatable {
     /// app runs code, so an agent's or a script's open (`cmux file open`) uses the editor instead.
     public var needsUserChoice: Bool { self == .web || self == .app }
 
+    /// Whether a file of this kind also opens as its source text in the code editor ("Open as
+    /// Text", u9489): true for the pages cmux renders (Markdown, HTML, SVG). Other files already
+    /// open as text (``editor``) or have no text to show.
+    public var opensAsText: Bool { self == .web || self == .markdown }
+
     /// The kind of a file named `fileName`.
     ///
     /// - Parameters:

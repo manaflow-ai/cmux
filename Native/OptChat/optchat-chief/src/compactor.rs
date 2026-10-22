@@ -571,6 +571,9 @@ impl Timing {
 
 pub type Log = Arc<dyn Fn(&str) + Send + Sync>;
 
+/// The harness and model one node runs on instead of the compactor's.
+type NodeOverride = (Option<String>, Option<String>);
+
 pub struct AcpmuxCompactor {
     port: Arc<dyn AgentPort>,
     spec: CompactorSpec,
@@ -582,6 +585,10 @@ pub struct AcpmuxCompactor {
     prompts: AtomicU64,
     /// Image descriptions started (each gets its own node id).
     describes: AtomicU64,
+    /// The harness and model a node runs on instead of the compactor's
+    /// (a reaction classifier's, `ReactionJudge`); such a node never takes
+    /// or leaves a warm session.
+    overrides: Mutex<HashMap<NodeId, NodeOverride>>,
     /// Makes prompt ids unique across host starts (acpmux runs an id once).
     stamp: u64,
     /// Claude Code refused the node's cache marker (it placed a fourth
@@ -635,6 +642,7 @@ impl AcpmuxCompactor {
             prompts: AtomicU64::new(0),
             flight: crate::single_flight::SingleFlight::new(),
             describes: AtomicU64::new(0),
+            overrides: Mutex::new(HashMap::new()),
             stamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_millis() as u64),
@@ -969,6 +977,11 @@ impl AcpmuxCompactor {
         // Claude only through acpmux's own Claude Code adapter
         // (harness_gate), checked before a slot is taken.
         let admitted = self.admit(node)?;
+        let overridden = self.node_override(node);
+        let model = overridden
+            .clone()
+            .and_then(|(_, m)| m)
+            .or_else(|| self.model());
         self.work.fetch_add(1, Ordering::SeqCst);
         self.reap_warm();
         let route = self.harness();
@@ -982,16 +995,20 @@ impl AcpmuxCompactor {
         let acquired = match kept {
             // A size retry: a ready warm session, else the slot its first
             // try held.
-            Some(k) => match (self.warm > 0).then(|| self.slots.take_warm(key)).flatten() {
+            Some(k) => match (self.warm > 0 && overridden.is_none())
+                .then(|| self.slots.take_warm(key))
+                .flatten()
+            {
                 Some(w) => {
                     self.slots.release_slot(k);
                     Acquired::Warm(w)
                 }
                 None => Acquired::Slot(k),
             },
-            None => self
-                .slots
-                .acquire((self.warm > 0).then_some(key), foreground),
+            None => self.slots.acquire(
+                (self.warm > 0 && overridden.is_none()).then_some(key),
+                foreground,
+            ),
         };
         let slot_wait = asked.elapsed();
         let got = Instant::now();
@@ -1007,7 +1024,7 @@ impl AcpmuxCompactor {
                     Acquired::Warm(_) => unreachable!(),
                 };
                 let name = self.session_name(node);
-                match self.start(slot, &name, system, &admitted, ttl, ours) {
+                match self.start(slot, &name, system, &admitted, ttl, ours, model.clone()) {
                     Ok((id, cwd, preset)) => (id, slot, cwd, preset),
                     Err(e) => {
                         self.slots.give(slot);
@@ -1047,7 +1064,10 @@ impl AcpmuxCompactor {
     }
 
     fn admit(&self, node: NodeId) -> Result<crate::harness_gate::Admitted, ModelError> {
-        let harness = self.harness();
+        let harness = self
+            .node_override(node)
+            .and_then(|(h, _)| h)
+            .unwrap_or_else(|| self.harness());
         let refused = |reason: String, setup: bool| {
             self.say(&format!("compactor node {}: {reason}", node.name()));
             crate::harness_gate::trace_refusal(&self.trace, "compactor", &harness, &reason);
@@ -1070,7 +1090,10 @@ impl AcpmuxCompactor {
     }
 
     /// Starts a session named `name` in `slot` (held by the caller), with
-    /// `system` as the slot preset's system prompt: its id, cwd and preset.
+    /// `system` as the slot preset's system prompt and `model`: its id, cwd
+    /// and preset.
+    // Each argument is one fact of the session; a struct would only rename them.
+    #[allow(clippy::too_many_arguments)]
     fn start(
         &self,
         slot: usize,
@@ -1079,6 +1102,7 @@ impl AcpmuxCompactor {
         admitted: &crate::harness_gate::Admitted,
         ttl: CacheTtl,
         ours: bool,
+        model: Option<String>,
     ) -> Result<(String, PathBuf, String), ModelError> {
         let cwd = self.slot_dir(slot, ttl, ours).map_err(|e| {
             ModelError::new(format!("creating the compactor's working directory: {e}"))
@@ -1125,7 +1149,7 @@ impl AcpmuxCompactor {
             cwd: cwd.clone(),
             harness: admitted.profile.clone(),
             policy: POLICY.to_owned(),
-            model: self.model(),
+            model,
             effort: self.spec.effort.clone(),
             preset: Some(preset.clone()),
             tags: crate::acpmux::chief_tags(&self.spec.chief, crate::acpmux::COMPACTOR_ROLE),
@@ -1186,6 +1210,7 @@ impl AcpmuxCompactor {
                 &admitted,
                 ttl,
                 ours,
+                self.model(),
             )
         });
         match started {
@@ -1755,6 +1780,55 @@ impl crate::brain::images::Describe for AcpmuxCompactor {
         let reply = self.prompt(node, &session, blocks, &|| {});
         self.end_node(node);
         reply.map(|r| r.text).map_err(|e| e.message)
+    }
+}
+
+impl AcpmuxCompactor {
+    /// The harness and model node `node` runs on instead of the compactor's.
+    fn node_override(&self, node: NodeId) -> Option<NodeOverride> {
+        self.overrides
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&node)
+            .cloned()
+    }
+}
+
+/// The reaction classifier (brain/reaction_wake.rs, a416): one deny-all
+/// session per question on a compactor slot (its isolated configuration),
+/// with the asked model and, when set, the asked harness, which must be of
+/// the compactor's family (its slot presets are made for that family).
+impl crate::brain::reaction_wake::ReactionJudge for AcpmuxCompactor {
+    fn judge(&self, ask: &crate::brain::reaction_wake::JudgeAsk) -> Result<String, String> {
+        if let Some(h) = ask.harness.as_deref() {
+            let mine = self.harness();
+            let catalog = self.port.harness_catalog().unwrap_or(Value::Null);
+            let family = |name: &str| crate::acpmux::harness_family(&catalog, name).ok();
+            if h != mine && (family(h).is_none() || family(h) != family(&mine)) {
+                return Err(format!(
+                    "harness {h} is not of the compactor's family ({mine}); set a harness like {mine}, or leave it unset"
+                ));
+            }
+        }
+        let n = self.describes.fetch_add(1, Ordering::SeqCst);
+        let node = NodeId::new(0, u64::MAX - n);
+        self.overrides
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(node, (ask.harness.clone(), Some(ask.model.clone())));
+        let answer = self
+            .open(node, None, self.cache_ttl.get(), false, true)
+            .map_err(|e| e.message)
+            .and_then(|session| {
+                let reply = self.prompt(node, &session, vec![text_block(&ask.prompt)], &|| {});
+                self.end_node(node);
+                reply.map(|r| r.text).map_err(|e| e.message)
+            });
+        self.overrides
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&node);
+        answer
     }
 }
 

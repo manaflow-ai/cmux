@@ -22,6 +22,8 @@ mod app_browser_route;
 mod app_focus;
 #[cfg(unix)]
 mod apps_run;
+#[cfg(unix)]
+mod billing;
 mod capability_cache;
 #[cfg(unix)]
 mod chief;
@@ -290,6 +292,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| chief::run_if_requested(args))
         .or_else(|| chief::run_avatar_if_requested(args))
         .or_else(|| coderouter::run_if_requested(args))
+        .or_else(|| billing::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
