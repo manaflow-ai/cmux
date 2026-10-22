@@ -278,13 +278,22 @@ html[data-cmux-page="changelog"] body {
   line-height: var(--text-body--line-height);
   font-weight: var(--weight-emphasis);
   text-wrap: balance;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
+/* Long notes would make one card tower over its row; the full text stays in the DOM. */
 .cln-card-summary {
   margin: 0;
   color: var(--page-text-2);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   text-wrap: pretty;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
 }
 .cln-card-media { margin: 8px 0 0; aspect-ratio: 16 / 10; }
 .cln-card .cl-row-actions { margin: auto 0 0; padding-top: 8px; opacity: 1; }
@@ -307,7 +316,15 @@ html[data-cmux-page="changelog"] body {
 .cln-fixed summary:hover { color: var(--page-text); }
 .cln-fixed summary:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
 .cln-fixed ul { margin: 8px 0 0; padding: 0; list-style: none; }
-.cln-fixed li { padding: 4px 0; font-size: var(--text-body); line-height: var(--text-body--line-height); }
+.cln-fixed li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.cln-fixed li:hover .cl-row-actions { opacity: 1; }
 .clj {
   padding: 48px max(32px, calc((100% - 640px) / 2)) 96px;
 }
