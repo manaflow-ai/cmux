@@ -229,13 +229,13 @@ final class DesktopNotifier: NSObject {
         return UNNotificationCategory(identifier: defaultCategory, actions: [open, markReadBannerAction()], intentIdentifiers: [])
     }
 
-    /// Mark as Read: reads the banner's tab without bringing cmux forward.
     /// Needs you banners' category: Show, which brings cmux to the marked tab.
     static func attentionBannerCategory() -> UNNotificationCategory {
         let show = UNNotificationAction(identifier: showAction, title: AttentionBannerStrings.show, options: [.foreground])
         return UNNotificationCategory(identifier: attentionCategory, actions: [show], intentIdentifiers: [])
     }
 
+    /// Mark as Read: reads the banner's tab without bringing cmux forward.
     private static func markReadBannerAction() -> UNNotificationAction {
         UNNotificationAction(identifier: markReadAction,
                              title: String(localized: "notifications.action.markRead", defaultValue: "Mark as Read", bundle: .module))
