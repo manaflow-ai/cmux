@@ -1816,3 +1816,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_next_fixture_host_names.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_kill_switches.py"
+lane = "linux-guard"

@@ -48,32 +48,66 @@ DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 MAX_DAYS = 90
 
 
-def masked(text: str) -> str:
+def interpolation_end(text: str, i: int, close: str) -> int:
+    """The offset just past the bracket `close` that ends the interpolation opened before `i`."""
+    opening = "(" if close == ")" else "{"
+    depth = 1
+    while i < len(text) and depth:
+        if text[i] == opening:
+            depth += 1
+        elif text[i] == close:
+            depth -= 1
+        i += 1
+    return i
+
+
+def masked(text: str, swift: bool) -> str:
     """`text` with comments blanked and string contents replaced by `x`, at the same offsets, so a
-    call is found only in code and its literal argument is read back from `text`."""
+    call is found only in code and its literal argument is read back from `text`. Interpolations
+    (Swift `\\(...)`, TypeScript `${...}`) stay code; Swift block comments nest."""
     out = list(text)
+
+    def blank(begin: int, finish: int, fill: str) -> None:
+        out[begin:finish] = ["\n" if c == "\n" else fill for c in text[begin:finish]]
+
     i, n = 0, len(text)
     while i < n:
         if text.startswith("//", i):
             end = text.find("\n", i)
             end = n if end < 0 else end
-            out[i:end] = " " * (end - i)
+            blank(i, end, " ")
             i = end
         elif text.startswith("/*", i):
-            end = text.find("*/", i + 2)
-            end = n if end < 0 else end + 2
-            out[i:end] = ["\n" if c == "\n" else " " for c in text[i:end]]
-            i = end
+            depth, j = 1, i + 2
+            while j < n and depth:
+                if swift and text.startswith("/*", j):
+                    depth, j = depth + 1, j + 2
+                elif text.startswith("*/", j):
+                    depth, j = depth - 1, j + 2
+                else:
+                    j += 1
+            blank(i, j, " ")
+            i = j
         elif text[i] in "\"'`":
             quote = '"""' if text.startswith('"""', i) else text[i]
-            j = i + len(quote)
             # Only `"""` and template strings span lines: a stray apostrophe (JSX text) masks one line at most.
             single_line = quote in ('"', "'")
+            j = i + len(quote)
             while j < n and not text.startswith(quote, j) and not (single_line and text[j] == "\n"):
-                j += 2 if text[j] == "\\" else 1
-            end = min(j, n)
-            out[i + len(quote):end] = ["\n" if c == "\n" else "x" for c in text[i + len(quote):end]]
-            i = end + (len(quote) if text.startswith(quote, end) else 0)
+                if swift and quote != "'" and text.startswith("\\(", j):
+                    j = interpolation_end(text, j + 2, ")")
+                elif not swift and quote == "`" and text.startswith("${", j):
+                    j = interpolation_end(text, j + 2, "}")
+                elif text[j] == "\\":
+                    out[j] = "x"
+                    if j + 1 < n and text[j + 1] != "\n":
+                        out[j + 1] = "x"
+                    j += 2
+                else:
+                    if text[j] != "\n":
+                        out[j] = "x"
+                    j += 1
+            i = j + (len(quote) if text.startswith(quote, j) else 0)
         else:
             i += 1
     return "".join(out)
@@ -130,7 +164,8 @@ def call_sites(root: Path, errors: list[str]) -> dict[str, dict[str, list[str]]]
             if "killSwitch" not in text:
                 continue
             # Comments, strings and the definition are not call sites.
-            code = "\n".join("" if DEFINITION.search(line) else line for line in masked(text).split("\n"))
+            code = "\n".join(" " * len(line) if DEFINITION.search(line) else line
+                              for line in masked(text, path.suffix == ".swift").split("\n"))
             for call in CALL.finditer(code):
                 number = code.count("\n", 0, call.start()) + 1
                 argument = text[call.start(1):call.end(1)]

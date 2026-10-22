@@ -130,6 +130,21 @@ class KillSwitchLintTest(unittest.TestCase):
         files = {SWIFT: 'if CmuxNextCompat.killSwitch("pr-23456") { old() }\n'}
         self.assert_fails(self.run_lint({}, files), f"{SWIFT}:1: pr-23456 is not in")
 
+    def test_interpolations_are_code_and_swift_block_comments_nest(self):
+        for rel, text in ((SWIFT, 'let t = "on: \\(killSwitch("pr-23456"))"\n'),
+                          ("webviews/src/tabs/newTab.ts", 'const t = `on: ${killSwitch("pr-23456")}`;\n')):
+            with self.subTest(rel=rel):
+                self.assert_fails(self.run_lint({}, {rel: text}), f"{rel}:1: pr-23456 is not in")
+        files = {**self.call(), "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/Other.swift":
+                 '/* outer /* inner */ killSwitch("pr-23456") */\n'}
+        done = self.run_lint({"pr-23456": entry()}, files)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
+    def test_a_call_after_the_definition_in_the_same_file_is_read(self):
+        files = {SWIFT: 'public func killSwitch(_ key: StaticString) -> Bool { true }\nlet a = killSwitch("pr-23456")\n'}
+        done = self.run_lint({"pr-23456": entry()}, files)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
     def test_the_definition_comments_and_tests_are_not_call_sites(self):
         files = {
             "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/KillSwitches.swift":
