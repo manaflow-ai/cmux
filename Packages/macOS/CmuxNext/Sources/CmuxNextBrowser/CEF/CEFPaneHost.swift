@@ -50,6 +50,7 @@ final class CEFPaneHost {
         self.lifecycleTrace = lifecycleTrace
         self.contextMenus = contextMenus
         hostView.liveResizeWillStart = { [weak self] in self?.visibleTab?.samplePageBackdrop() }
+        hostView.fileDrag.target = { [weak self] in self?.visibleTab }
     }
 
     /// The viewport of a tab no pane has shown (Playwright's default page
@@ -287,8 +288,9 @@ final class CEFPaneHost {
         tab.isCreationPending = true
         add(tab)
         runtime.register(tab, browser: browser)
-        // Opened by a page: past a new tab's first paint (PageBackground).
-        tab.reachedFirstRealPage()
+        // Opened by a page: past a new tab's first paint (PageBackground), and
+        // Chromium, not us, drives its document, so its page area is its own.
+        tab.reachedFirstRealPage(settled: true)
         tab.inheritDelegates(from: opener)
         opener?.emit(.adoptTab(tab, disposition))
     }

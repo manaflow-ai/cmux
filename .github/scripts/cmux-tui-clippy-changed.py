@@ -8,25 +8,25 @@ only `--all-targets` lint of cmux-tui, and the fast tier's cargo entries only
 run tests. So #23163 and #23372 landed clippy reds in cmux-tui/crates/cmux-tui/tests/
 and broke base clippy for everyone. This lints the cmux-tui workspace members
 owning a changed .rs file or Cargo.toml between --base and HEAD (tests, benches
-and examples included), in one `cargo clippy --keep-going` so each red package
-is reported. A change to the workspace manifest, the lockfile, a clippy config
-or the toolchain pin, or no usable base, lints the whole workspace. Packages
-with a workspace of their own (cmux-rd-ffi, cmux-rd-host, ...) and vendored
-crates are not members and stay with cmux-tui.yml's dispatch run. Which files
-map to which package is cmux-tui-fmt-changed.py's rule, shared from there.
-Packages that only depend on a changed one are not linted here; the
-workspace clippy in cmux-tui.yml is where a break reaching them shows.
+and examples included), plus every member that depends on one of them, in one
+`cargo clippy --keep-going` so each red package is reported. Members and their
+path dependencies come from `cargo metadata --no-deps`. A change to the workspace
+manifest, the lockfile, a clippy config or the toolchain pin, or no usable base,
+lints the whole workspace. Packages with a workspace of their own (cmux-rd-ffi,
+cmux-rd-host, ...) and vendored crates are not members and stay with
+cmux-tui.yml's dispatch run. Which files map to which package is
+cmux-tui-fmt-changed.py's rule, shared from there.
 """
 
 from __future__ import annotations
 
 import argparse
-from fnmatch import fnmatch
+from collections import deque
 import importlib.util
-from pathlib import Path, PurePosixPath
+import json
+from pathlib import Path
 import subprocess
 import sys
-import tomllib
 
 
 def _load_fmt_changed():
@@ -44,21 +44,37 @@ WHOLE_WORKSPACE = frozenset({
 })
 
 
-def members(repo: Path, known: set[str]) -> dict[str, str]:
-    """The workspace's member package directories (repository-relative), each with its package name."""
-    manifest = tomllib.loads((repo / ROOT / "Cargo.toml").read_text(encoding="utf-8"))
-    patterns = [f"{ROOT}/{member}".rstrip("/") for member in manifest.get("workspace", {}).get("members", [])]
-    excluded = [f"{ROOT}/{path}".rstrip("/") for path in manifest.get("workspace", {}).get("exclude", [])]
-    dirs = {path for path in known if any(fnmatch(path, pattern) for pattern in patterns)}
-    if "package" in manifest:
-        dirs.add(ROOT)
-    dirs = {path for path in dirs if not any(path == ex or path.startswith(f"{ex}/") for ex in excluded)}
-    names = {}
-    for path in dirs:
-        package = tomllib.loads((repo / path / "Cargo.toml").read_text(encoding="utf-8")).get("package", {})
-        if "name" in package:
-            names[path] = package["name"]
-    return names
+def workspace_of(repo: Path) -> tuple[dict[str, str], dict[str, set[str]]]:
+    """The members' directories (repository-relative) with their package names, and each
+    member's dependents: the members naming it as a path dependency of any kind."""
+    meta = json.loads(subprocess.run(
+        ["cargo", "metadata", "--format-version", "1", "--no-deps"],
+        cwd=repo / ROOT, check=True, stdout=subprocess.PIPE, text=True,
+    ).stdout)
+    top = repo.resolve()
+    ids = set(meta["workspace_members"])
+    packages = [package for package in meta["packages"] if package["id"] in ids]
+    names = {Path(package["manifest_path"]).resolve().parent.relative_to(top).as_posix(): package["name"]
+             for package in packages}
+    by_dir = {top / path: name for path, name in names.items()}
+    dependents: dict[str, set[str]] = {name: set() for name in names.values()}
+    for package in packages:
+        for dependency in package["dependencies"]:
+            target = by_dir.get(Path(dependency["path"]).resolve()) if dependency.get("path") else None
+            if target and target != package["name"]:
+                dependents[target].add(package["name"])
+    return names, dependents
+
+
+def with_dependents(changed: set[str], dependents: dict[str, set[str]]) -> set[str]:
+    """`changed` and every member that depends on one of them, directly or through others."""
+    seen, queue = set(changed), deque(changed)
+    while queue:
+        for user in dependents.get(queue.popleft(), ()):
+            if user not in seen:
+                seen.add(user)
+                queue.append(user)
+    return seen
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -68,7 +84,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     repo = (args.repo or Path(fmt_changed.git(Path.cwd(), "rev-parse", "--show-toplevel").strip())).resolve()
     known = fmt_changed.packages(repo)
-    workspace = members(repo, known)
+    try:
+        workspace, dependents = workspace_of(repo)
+    except subprocess.CalledProcessError:
+        print("::error title=cmux-tui clippy::`cargo metadata --no-deps` failed in cmux-tui (its error is above); "
+              "fix the manifest it names")
+        return 1
     base = args.base.strip()
     paths = fmt_changed.changed(repo, base)
     if paths is None or any(path in WHOLE_WORKSPACE for path in paths):
@@ -78,10 +99,13 @@ def main(argv: list[str] | None = None) -> int:
         touched = fmt_changed.touched(paths, known, fmt_changed.manifest_dirs(repo, base))
         for path in sorted(touched - workspace.keys()):
             print(f"cmux-tui-clippy-changed: {path} is not a cmux-tui workspace member (cmux-tui.yml lints it)")
-        selected = sorted(workspace[path] for path in touched if path in workspace)
-        if not selected:
+        changed = {workspace[path] for path in touched if path in workspace}
+        if not changed:
             print("cmux-tui-clippy-changed: no cmux-tui workspace package changed")
             return 0
+        selected = sorted(with_dependents(changed, dependents))
+        if users := [name for name in selected if name not in changed]:
+            print(f"cmux-tui-clippy-changed: {', '.join(users)} depend on {', '.join(sorted(changed))}")
         packages = [arg for name in selected for arg in ("-p", name)]
         command = ["cargo", "clippy", "--locked", "--keep-going", *packages, "--all-targets", "--", "-D", "warnings"]
         scope = ", ".join(selected)
@@ -91,7 +115,8 @@ def main(argv: list[str] | None = None) -> int:
     rc = subprocess.run(command, cwd=repo / ROOT).returncode
     if rc:
         print(f"::error title=cmux-tui clippy::clippy -D warnings failed for {scope}; "
-              f"run `{' '.join(command)}` in cmux-tui and fix each lint (an allow needs a comment saying why)")
+              f"run `{' '.join(command)}` in cmux-tui and fix each lint (an allow needs a comment saying why); "
+              f"a red in a package you did not touch may already be red on the base branch")
     return 1 if rc else 0
 
 

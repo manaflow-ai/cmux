@@ -269,8 +269,6 @@
   padding: var(--ui-popup-padding);
   border: 0;
   border-radius: var(--ui-popup-radius);
-  background-color: var(--surface-popup);
-  box-shadow: var(--acpmux-popup-elevation);
   color: var(--agent-text);
   transform-origin: var(--transform-origin);
 }
@@ -344,19 +342,12 @@
 .acpmux-asks-stack {
   --acpmux-composer-radius: 18px;
 }
-/* The card over a backdrop (a background image or a clear window): the card mixes its tint into the
-   opaque base at 72% instead of into the clear page, so the prompt, the chips and the footer stay
-   legible over a busy painting while the backdrop still shows through. On an opaque page the base is
-   the page color, so the card looks as before. Reduce Transparency makes the card opaque. The
-   composer card itself paints the solid composer surface (below, composerStates.css). */
+/* The card's material is the liquid glass (.ui-glass, ui/glass/glass.css) with the composer's own
+   tokens (composerStates.css): the solid composer surface on an opaque window, glass over art or a
+   see-through window, opaque under Reduce Transparency. */
 .acpmux-composer-box {
-  --acpmux-composer-glass: color-mix(in srgb, var(--acpmux-base) 72%, transparent);
   overflow: visible;
   border-radius: var(--acpmux-composer-radius);
-  background: color-mix(in srgb, var(--agent-text) 13%, var(--acpmux-composer-glass));
-}
-@media (prefers-reduced-transparency: reduce) {
-  .acpmux-composer-box { --acpmux-composer-glass: var(--acpmux-base); }
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-access-menu { animation: ui-popup-open var(--ui-popup-open) ease-out; }
@@ -463,7 +454,8 @@
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button:hover,
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-plan:hover,
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-steer:hover,
-  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-mic:not([data-state="starting"], [data-state="listening"], [data-state="finalizing"]):hover {
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-mic:not([data-state="starting"], [data-state="listening"], [data-state="finalizing"]):hover,
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-fast:hover {
     background: var(--acpmux-row-hover);
     color: var(--agent-text);
   }
@@ -475,7 +467,8 @@
     .acpmux-picker-button,
     .acpmux-plan,
     .acpmux-steer,
-    .acpmux-mic:not([data-state="starting"], [data-state="listening"], [data-state="finalizing"])
+    .acpmux-mic:not([data-state="starting"], [data-state="listening"], [data-state="finalizing"]),
+    .acpmux-fast
   ):focus-visible {
   background: var(--acpmux-row-hover);
   box-shadow: none;
@@ -495,12 +488,12 @@
     background: var(--acpmux-pill-hover, var(--acpmux-row-hover));
   }
 }
-:is(.acpmux-composer-bar, .nt-pickers) :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic):focus-visible {
+:is(.acpmux-composer-bar, .nt-pickers) :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic, .acpmux-fast):focus-visible {
   outline: 2px solid color-mix(in srgb, var(--agent-text) 72%, transparent);
   outline-offset: 0;
 }
 @media (prefers-contrast: more) {
-  :is(.acpmux-composer-bar, .nt-pickers) :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic):focus-visible {
+  :is(.acpmux-composer-bar, .nt-pickers) :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic, .acpmux-fast):focus-visible {
     outline-offset: 2px;
   }
 }
@@ -513,7 +506,7 @@
 /* Plan on is accent ink with no pill at rest; hovered it takes the same soft pill as every chip
    and keeps its accent ink. */
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-plan[aria-pressed="true"]:is(:hover, :focus-visible) {
-  color: var(--agent-accent, var(--agent-text));
+  color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
 }
 .acpmux-composer-bar .acpmux-picker-button > .acpmux-icon:last-child,
 .acpmux-composer-bar .acpmux-access-trigger > .acpmux-icon:last-child {
@@ -737,9 +730,10 @@
    edge (.acpmux-composer-strip), so it cannot read as a second box over wallpaper. Its only edge is
    the --acpmux-composer-edge hairline (styles.css), one device pixel (--cmux-hairline, #20481) and
    clear under appearance.borders = none, focused or not. Focus is quiet (composerStates.css). Its
-   shadow is the composer's (composerStates.css): --elevation-1 in a light theme, none in a dark one. */
+   shadow is the composer's (composerStates.css): --elevation-1 in a light theme, none in a dark one.
+   Its fill and blur are the glass's (.ui-glass, composerStates.css's tokens); this sheet loads after
+   glass.css, so the card's own ring and shadow stand in for the glass's box-shadow. */
 .acpmux-composer-box {
-  background: var(--acpmux-composer-surface);
   box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
 }
 .acpmux-composer-box:has(:focus-visible) {
@@ -958,7 +952,7 @@
   margin: 0 var(--acpmux-tray-inset) calc(-1 * var(--acpmux-tray-tuck));
   padding: 4px 0 calc(4px + var(--acpmux-tray-tuck));
   border-radius: 14px 14px 0 0;
-  background: color-mix(in srgb, var(--acpmux-top-tray) var(--acpmux-queue-glass, 100%), transparent);
+  background: var(--acpmux-queue-fill);
   box-shadow: inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-composer-edge);
 }
 :root[data-top-strip="tray"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
@@ -975,7 +969,7 @@
   --acpmux-composer-tray: var(--acpmux-top-tray);
   margin: 0 var(--acpmux-tray-inset) calc(-1 * var(--acpmux-tray-tuck));
   padding: 0 0 calc(2px + var(--acpmux-tray-tuck)) calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset));
-  background: color-mix(in srgb, var(--acpmux-top-tray) var(--acpmux-queue-glass, 100%), transparent);
+  background: var(--acpmux-queue-fill);
   box-shadow: none;
 }
 /* As specific as the focused card's queue rule above, so the queue stops over its fold then too. */
@@ -1056,6 +1050,31 @@
 .acpmux-location-worktrees:hover { background: color-mix(in srgb, var(--agent-text) 9%, transparent); color: var(--agent-text); }
 .acpmux-location-worktrees[data-open] > .acpmux-icon:last-child { transform: rotate(90deg); }
 .acpmux-location-worktrees + .acpmux-location-check { margin-left: 0; }
+
+/* Codex's speed bolt (FastToggle.tsx; Leo 2026-10-21: "KEEP it for Codex"), just left of the mic and
+   drawn as the mic is: a 28 px button with no bezel and no disc, a plain 16 px outline glyph in muted
+   ink, the soft pill only on hover or keyboard focus. On, the glyph takes the theme accent; nothing
+   fills. It never leaves a row (Codex has no menu row for it): the prompt gives way, as for the mic. */
+.acpmux-fast {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--agent-muted);
+  cursor: default;
+}
+.acpmux-fast .acpmux-icon { width: 16px; height: 16px; }
+.acpmux-fast:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) {
+  .acpmux-fast:hover { background: var(--acpmux-row-hover, var(--acpmux-composer-hover)); color: var(--agent-text); }
+}
+.acpmux-fast[aria-pressed="true"],
+.acpmux-fast[aria-pressed="true"]:hover { color: var(--agent-accent); }
 
 /* Claude Code's split (Leo 2026-10-19, "stick it to the bottom"; ComposerFoot.tsx): under the plain
    footer look the box keeps +, the prompt, the mic and Send or Stop, and the mode, model and effort

@@ -22,6 +22,7 @@ import CmuxNextPopups
 import CmuxNextBrowserImport
 import CmuxNextPhone
 import CmuxNextPhoneAccess
+import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
@@ -71,7 +72,10 @@ final class AppServices {
     /// SSH machines (Connect to Machine…); `serverReach`: paired servers' Chief sessions in the sidebar.
     private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID)  // first read in init (no IUO)
     private(set) lazy var serverReach = ServerReachService.app(services: self)
-    let mobile = MobileHostService(displayName: { await MacName().computerName() })  // phone access; the account layer starts it
+    /// Add Machine and Check Machine (plans/cmux-next/add-machine-DESIGN.md); each machine's last check.
+    private(set) lazy var addMachine = AddMachineCard(services: .app(self))
+    let machineHealth = MachineHealthStore()
+    let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
     let iphone = IPhoneHostService()
     let registry = ActionRegistry.standard()
@@ -196,6 +200,8 @@ final class AppServices {
         overlay: SleepyOverlayWindows(workingAgents: { [weak self] in self?.workingAgentTabCount() ?? 0 },
                                       lockMac: { SleepyMacLock().lock() })
     )
+    /// Native input for `browser.page.mouse|wheel|insert_text|key` (`BrowserNativeInputs`).
+    let browserNativeInputs = BrowserNativeInputs()
     /// Each pane's own Hide Tab Bar choice (`PaneTabBarChoices`).
     let paneTabBars = PaneTabBarChoices()
     /// The panes in Full Width Tab mode (`PaneFullWidthTabs`).
@@ -277,6 +283,8 @@ final class AppServices {
     var chromiumLikelyObservations: [Task<Void, Never>] = []
     /// Repaints on `appearance.borders` changes (`observeBorders`).
     var borderObservation: Task<Void, Never>?
+    /// Repaints when the glass mode pages draw changes (`observeGlass`).
+    var glassWatch: GlassModeWatch?
     /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
     var updateFeedObservation: Task<Void, Never>?
     /// Page menus and the open-menu diagnostic shared by browser hosts.
@@ -432,6 +440,7 @@ final class AppServices {
         cache.makeExtensionMenuHandler = { [weak self] key in self.map { ExtensionMenuRouter(services: $0, tabKey: key) } }
         cache.onDevToolsChange = { [weak self] key, state, focused in self?.devToolsDidChange(key, state: state, focused: focused) }
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }
+        (NSApp as? CmuxApplication)?.assistiveClientsChanged = { [weak self] active in self?.cache.cef.setAssistiveClientActive(active) }
         (NSApp as? CmuxApplication)?.keyDownInterceptor = { [weak self] event, window in
             guard let self else { return false }
             // A key on Sleepy Mode's scene only wakes it; no shortcut runs behind the cover.

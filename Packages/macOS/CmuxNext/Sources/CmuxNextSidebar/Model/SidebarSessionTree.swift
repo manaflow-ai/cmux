@@ -153,6 +153,8 @@ public final class SidebarSessionTree {
     public static let shared = SidebarSessionTree()
 
     public var state: SidebarSessionTreeState?
+    /// Every row's pull request badge (`sidebar.pullRequestBadges`), with the tree on or off.
+    public var pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]
     /// The parents the user folded (a chevron on the row), kept across launches.
     public private(set) var collapsed: Set<WorkspaceID>
     @ObservationIgnored private let defaults: UserDefaults

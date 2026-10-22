@@ -1,7 +1,6 @@
 /* Needs you (needsYou/NeedsYou.tsx, JumpPill.tsx): the header badge, its pinned list, and the
    chat's Needs your input pill. One mark says "this needs you" everywhere: the dot the
-   window sidebar draws for a workspace that waits on you (the sidebar's input mark, the badge, the
-   pill). */
+   window sidebar draws for a workspace that waits on you (the badge, the pill, the Chief dock). */
 :root,
 .acpmux-shell,
 .ui-positioner {
@@ -18,14 +17,9 @@
   background: var(--acpmux-needs-you-mark);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--acpmux-needs-you-mark) 18%, transparent);
 }
-.acpmux-session-mark-input,
-.acpmux-session-preview-status.acpmux-session-mark-input {
+/* The dev prototype's workspace row (prototype/WorkspaceShell.tsx) tints its input mark the same. */
+.acpmux-session-mark-input {
   color: var(--acpmux-needs-you-mark);
-}
-.acpmux-session-mark .acpmux-needs-you-dot {
-  width: 7px;
-  height: 7px;
-  box-shadow: none;
 }
 
 /* The badge: the header's tool button, widened by the count while asks are open. */
@@ -58,8 +52,6 @@
   padding: 0;
   border: 0;
   border-radius: var(--ui-popup-radius);
-  background: var(--surface-popup);
-  box-shadow: var(--acpmux-popup-elevation);
   transform-origin: var(--transform-origin);
   color: var(--agent-text);
   font-size: var(--text-control);
@@ -80,7 +72,11 @@
   align-items: center;
   gap: 6px;
   padding: 10px 12px 8px;
-  background: var(--surface-popup);
+  /* Glass on the list's glass: the rows scrolled under it frost, never a solid band. The tokens
+     are the list's own, so under prefers-reduced-transparency it is opaque and unblurred too. */
+  background: var(--glass-tint);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  backdrop-filter: var(--glass-backdrop);
   border-bottom: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   color: var(--agent-muted);
 }
@@ -388,7 +384,7 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 40%, transparent);
 }
 
-/* The Needs your input pill: Jump to latest's glass, widened to a small-radius rect in the composer's look,
+/* The Needs your input pill: Jump to latest's glass (tint, rim, hover wash), widened to a small-radius rect,
    a little larger than Claude's (Leo 2026-10-20). */
 .acpmux-jump-latest.acpmux-needs-you-pill {
   display: inline-flex;
@@ -397,17 +393,10 @@
   height: 34px;
   padding: 0 12px 0 13px;
   border-radius: 9px;
-  background-color: color-mix(in srgb, var(--acpmux-composer-bg, var(--agent-page-bg)) 82%, transparent);
-  box-shadow:
-    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, color-mix(in srgb, var(--agent-text) 18%, transparent)),
-    var(--elevation-2);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   font-size: var(--text-control);
   font-weight: var(--weight-emphasis, 600);
   white-space: nowrap;
-}
-.acpmux-jump-latest.acpmux-needs-you-pill:hover {
-  background-color: var(--acpmux-composer-hover, color-mix(in srgb, var(--agent-page-bg) 60%, var(--agent-text) 6%));
 }
 .acpmux-needs-you-pill__chevron {
   flex: none;

@@ -90,8 +90,7 @@ struct WorkspaceNothingToDoRefusalTests {
         }
     }
 
-    @Test(.disabled("blocked: the test app's sidebar never shows a new group (GroupHeaderNewWorkspaceTests.groupHeaderPlusMakesTheNewWorkspaceInThatGroup fails the same way)"))
-    func aWorkspaceAloneInItsGroupHasNoOtherToCloseOrStepTo() async throws {
+    @Test func aWorkspaceAloneInItsGroupHasNoOtherToCloseOrStepTo() async throws {
         try await Self.withGroupedApp { services, workspace, _ in
             let (menu, cli) = Self.outcome("workspace.closeOthersInGroup", Self.workspaceTarget(workspace.id), services)
             #expect(menu != nil, "Close Other Workspaces in Group on a one-member group is enabled and closes nothing")
@@ -125,6 +124,30 @@ struct WorkspaceNothingToDoRefusalTests {
             #expect(failures.isEmpty, "the create failed: \(failures)")
             try await PinnedPageTests.until({ context.workspaces(inPersonalGroup: group).count == 2 },
                                             report: { "members \(context.workspaces(inPersonalGroup: group).map(\.id))" })
+        }
+    }
+
+    /// `cmux workspace new-on-machine --machine <id>` answers with the workspace it made: the CLI's
+    /// run tracks the create (`action.run` lists it in `created`; it answered `created: []` before
+    /// the create had even started) and its `result` names the workspace's public id, its name and
+    /// its machine.
+    @Test func newWorkspaceOnMachineAnswersWithTheWorkspaceItMade() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            var results: [ActionResultWork] = []
+            let refusal = services.registry.capturingRefusal {
+                results = services.registry.capturingRun {
+                    _ = services.registry.perform("workspace.newOnMachine", invocation: ActionInvocation(
+                        arguments: ["machine": .string(MachineRegistry.localID)], origin: .cli))
+                }.results
+            }
+            #expect(refusal == nil, "New Workspace on Machine refused: \(refusal ?? "")")
+            let result = try #require(results.first, "the create is not tracked: action.run answers before it with created: []")
+            let fields = try await result.value.get()
+            #expect(fields["machine_id"] == .string(MachineRegistry.localID), "\(fields)")
+            guard case .string(let id)? = fields["workspace_id"] else { Issue.record("no workspace_id: \(fields)"); return }
+            #expect(id.hasPrefix("ws_"), "not the public id: \(id)")
+            let workspace = try #require(services.machines.local.store.workspace(resourceID: ResourceID(rawValue: id)), "\(id) is not listed")
+            #expect(fields["name"] == .string(workspace.displayName), "\(fields)")
         }
     }
 

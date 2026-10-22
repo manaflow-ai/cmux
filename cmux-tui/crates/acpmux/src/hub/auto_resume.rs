@@ -199,10 +199,12 @@ impl TurnInfo {
             started_at: super::now_ms(),
             client: client.to_owned(),
             prompt_preview: super::short_text(text, 200),
+            masked_preview: super::session::masked_preview(text, 200),
             turn_id: turn_id.to_owned(),
             prompt_id: prompt_id.to_owned(),
             turn_seq: 0,
             control,
+            doing: Default::default(),
         }
     }
 }
@@ -274,6 +276,15 @@ impl Hub {
                 CutTurn { prompt_id: &root, turn_id: &turn_id, control, trust_gate, error: &error };
             hub.auto_resume(&session, cut, attempt).await;
         });
+    }
+
+    /// Whether a continuation may still answer for the chat's cut turn: it releases what that
+    /// turn held, so a held agent message's own retry waits for it (`digest.rs`).
+    pub(super) fn continuation_pending(&self, session: &Session) -> bool {
+        matches!(
+            self.auto_resumes.lock().get(&session.id),
+            Some(Mark::Waiting(_) | Mark::Firing(_) | Mark::Ending(_))
+        )
     }
 
     /// Stop or close: the chat's waiting continuation does not fire, and the turn running or

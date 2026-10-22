@@ -41,7 +41,8 @@ extension AgentTabStore {
             seedFirstChat(chat, in: workspace)
         }
         defer { firstChats[workspace] = nil; firstPageTokens[workspace] = nil }
-        let response = try await connection.request(request)
+        // One mutation id for every send: a tab the daemon made after the deadline replays.
+        let response = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command) { try await connection.request(request) }
         let key = response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)"
         if chat != nil {
             // No view took the seed while the request ran: the tab's view takes it.
@@ -311,7 +312,7 @@ extension AgentTabStore {
         // task-owner: one read of this Mac's name, shown to Macs that see its tabs and on every
         // pane's location row (a pane's handshake awaits it)
         AgentPaneModel.localMachineName = Task { [weak tabs] in
-            let name = await MacName().computerName()
+            let name = await MacName().displayName()
             tabs?.localHostName = name
             return AgentPaneModel.rememberLocalMachineName(AgentTabStore.displayName(name) ?? name)
         }

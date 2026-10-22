@@ -264,6 +264,21 @@ test("a chat on another computer is never read, and stays an input item with no 
   expect(items.map((item) => [item.id, item.kind, item.answers.length])).toEqual([["chat:far", "input", 0]]);
 });
 
+// acpmux relays a peer's request with `peer` and `via: "peer"` (server/pending.rs
+// `peer_permission_pending`). It can land before that chat's summary (the snapshot's list), when
+// the page does not yet know the chat is remote: the notice itself names the peer, so it is never
+// held as an answerable ask (PR #22646 review).
+test("a peer's pending notice that beats its chat's summary is not held as an ask", () => {
+  const { asks, reads, changes } = tracker();
+  asks.pending({ sessionId: "far", permissionId: "p-far", peer: "build-host", via: "peer" });
+  expect(ids(asks)).toEqual([]);
+  expect(changes()).toBe(0);
+  // The summary arrives later and names the peer: still nothing to read or hold.
+  asks.sessions([{ sessionId: "far", peer: "build-host", pendingPermissions: 1 }]);
+  expect(ids(asks)).toEqual([]);
+  expect(reads).toHaveLength(0);
+});
+
 // The read path, against the real allowlists rather than a stand-in: the pane's relay sends only
 // the methods in AcpmuxPaneMethods.requests (Swift), so `_acpmux/info` there is refused and every
 // read fails, leaving answered asks listed (PR #22646 review). In the app the read is the page op
