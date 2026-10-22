@@ -401,18 +401,24 @@ fn mark_proc_descriptors_close_on_exec(directory_fd: RawFd) -> io::Result<()> {
             return Ok(());
         }
 
-        let mut offset = 0;
-        while offset < count {
-            let remaining = &entries[offset..count];
+        let corrupt = || io::Error::from_raw_os_error(libc::EIO);
+        let mut remaining = entries.get(..count).ok_or_else(corrupt)?;
+        while !remaining.is_empty() {
             if remaining.len() <= DIRENT_NAME_OFFSET {
-                return Err(io::Error::from_raw_os_error(libc::EIO));
+                return Err(corrupt());
             }
-            let record_length = u16::from_ne_bytes([remaining[16], remaining[17]]) as usize;
-            if record_length <= DIRENT_NAME_OFFSET || record_length > remaining.len() {
-                return Err(io::Error::from_raw_os_error(libc::EIO));
+            let Some(&[length0, length1]) = remaining.get(16..18) else {
+                return Err(corrupt());
+            };
+            let record_length = usize::from(u16::from_ne_bytes([length0, length1]));
+            if record_length <= DIRENT_NAME_OFFSET {
+                return Err(corrupt());
             }
-            let name = &remaining[DIRENT_NAME_OFFSET..record_length];
-            let name = &name[..name.iter().position(|byte| *byte == 0).unwrap_or(name.len())];
+            let Some((record, rest)) = remaining.split_at_checked(record_length) else {
+                return Err(corrupt());
+            };
+            let name = record.get(DIRENT_NAME_OFFSET..).unwrap_or_default();
+            let name = name.split(|byte| *byte == 0).next().unwrap_or_default();
             if let Some(descriptor) = parse_decimal_descriptor(name)
                 && descriptor >= 3
             {
@@ -421,7 +427,7 @@ fn mark_proc_descriptors_close_on_exec(directory_fd: RawFd) -> io::Result<()> {
                     result => result?,
                 }
             }
-            offset += record_length;
+            remaining = rest;
         }
     }
 }

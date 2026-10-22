@@ -127,12 +127,12 @@ impl Feed {
                     .rposition(|item| item.context.terminal.as_deref() == Some(terminal))
             })
             .filter(|&index| {
-                let item = &self.items[index];
-                item.state == ItemState::Open && item.is_unread()
+                self.items
+                    .get(index)
+                    .is_some_and(|item| item.state == ItemState::Open && item.is_unread())
             });
-        let outcome = match target {
-            Some(index) => {
-                let item = &mut self.items[index];
+        let outcome = match target.and_then(|index| self.items.get_mut(index)) {
+            Some(item) => {
                 item.title = notice.title;
                 item.body = notice.body;
                 item.level = notice.level;
@@ -143,7 +143,7 @@ impl Feed {
                 item.count = item.count.saturating_add(1);
                 item.aliases.push(notice.dedupe_key);
                 if item.aliases.len() > MAX_ALIASES {
-                    let excess = item.aliases.len() - MAX_ALIASES;
+                    let excess = item.aliases.len().saturating_sub(MAX_ALIASES);
                     item.aliases.drain(..excess);
                 }
                 changes.upsert(item);

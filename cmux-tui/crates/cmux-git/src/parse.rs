@@ -36,7 +36,7 @@ pub fn name_status(bytes: &[u8]) -> Vec<NameStatus> {
         } else {
             (None, first)
         };
-        let (status, previous_path) = match code.as_bytes()[0] {
+        let (status, previous_path) = match code.as_bytes().first().copied().unwrap_or_default() {
             b'A' => ("added", None),
             b'D' => ("deleted", None),
             b'R' => ("renamed", previous_path),
@@ -111,13 +111,13 @@ fn insert_section(patches: &mut Vec<(String, String)>, section: &[&str]) {
     let Some(first_hunk) = section.iter().position(|line| line.starts_with("@@")) else {
         return;
     };
-    let header = &section[..first_hunk];
+    let Some((header, hunks)) = section.split_at_checked(first_hunk) else { return };
     let path = header
         .iter()
         .find_map(|line| header_path(line, "+++ ", "b/"))
         .or_else(|| header.iter().find_map(|line| header_path(line, "--- ", "a/")));
     if let Some(path) = path {
-        patches.push((path, section[first_hunk..].concat()));
+        patches.push((path, hunks.concat()));
     }
 }
 
@@ -174,15 +174,10 @@ pub fn truncate_patch(patch: &mut String, limit: usize) -> bool {
     if patch.len() <= limit {
         return false;
     }
-    let end = match patch.as_bytes()[..limit].iter().rposition(|byte| *byte == b'\n') {
-        Some(newline) => newline + 1,
-        None => {
-            let mut end = limit;
-            while !patch.is_char_boundary(end) {
-                end -= 1;
-            }
-            end
-        }
+    let head = patch.as_bytes().get(..limit).unwrap_or_default();
+    let end = match head.iter().rposition(|byte| *byte == b'\n') {
+        Some(newline) => newline.saturating_add(1),
+        None => (0..=limit).rev().find(|&end| patch.is_char_boundary(end)).unwrap_or(0),
     };
     patch.truncate(end);
     true

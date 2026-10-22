@@ -201,7 +201,8 @@ impl Repository {
             for entry in output.stdout.split(|byte| *byte == 0) {
                 // Checked out: an uninitialized one is an empty folder.
                 let Some(tab) = entry.iter().position(|byte| *byte == b'\t') else { continue };
-                let checkout = root.join(path_from_bytes(&entry[tab + 1..]));
+                let checkout = root
+                    .join(path_from_bytes(entry.get(tab.saturating_add(1)..).unwrap_or_default()));
                 if !checkout.join(".git").exists() {
                     continue;
                 }

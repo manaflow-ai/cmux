@@ -88,7 +88,7 @@ impl fmt::Display for BackendId {
 /// `options.kinds`: 1 to 16 unique local ids. Anything else is refused.
 pub fn check_kinds(kinds: &[LocalId]) -> Result<(), BackendError> {
     for (i, kind) in kinds.iter().enumerate() {
-        if kinds[..i].contains(kind) {
+        if kinds.get(..i).is_some_and(|earlier| earlier.contains(kind)) {
             return Err(BackendError::invalid(format!("kind {kind} is declared twice")));
         }
     }

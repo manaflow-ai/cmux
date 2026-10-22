@@ -282,7 +282,8 @@ fn split_host_port(value: &str) -> Option<(&str, Option<u16>)> {
     }
     if let Some(rest) = value.strip_prefix('[') {
         let (address, after) = rest.split_once(']')?;
-        let name = &value[..address.len() + 2];
+        // `[` + address + `]`, both ASCII.
+        let name = value.get(..address.len().saturating_add(2))?;
         return match after {
             "" => Some((name, None)),
             port => Some((name, Some(port.strip_prefix(':')?.parse().ok()?))),

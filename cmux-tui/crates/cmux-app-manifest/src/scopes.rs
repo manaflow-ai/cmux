@@ -32,8 +32,9 @@ pub struct ScopeInfo {
 pub(crate) fn parse_rules(raw: &str) -> Result<Vec<(Regex, ScopeInfo)>, String> {
     let table: Value =
         serde_json::from_str(raw).map_err(|e| format!("scope classes are not JSON: {e}"))?;
-    table["rules"]
-        .as_array()
+    table
+        .get("rules")
+        .and_then(Value::as_array)
         .ok_or("scope classes have no rules")?
         .iter()
         .map(|r| {

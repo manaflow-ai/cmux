@@ -367,8 +367,8 @@ impl TerminalSizingEngine {
         participant.viewport = participant.viewport.map(TerminalGridSize::clamped);
         let activity = if participant.device_kind.is_handheld() { 0 } else { self.activity_clock };
         let entry = Entry { participant, activity };
-        match self.index(&entry.participant.id) {
-            Some(index) => self.entries[index] = entry,
+        match self.entry_mut(&entry.participant.id) {
+            Some(slot) => *slot = entry,
             None => self.entries.push(entry),
         }
         self.publish()
@@ -381,22 +381,27 @@ impl TerminalSizingEngine {
     }
 
     pub fn report(&mut self, id: &str, viewport: TerminalGridSize) -> bool {
-        let Some(index) = self.index(id) else { return false };
-        self.entries[index].participant.viewport = Some(viewport.clamped());
+        let Some(entry) = self.entry_mut(id) else { return false };
+        entry.participant.viewport = Some(viewport.clamped());
         self.publish()
     }
 
     /// Explicit focus-click or keyboard, paste or mouse input. Never hover.
     pub fn note_activity(&mut self, id: &str) -> bool {
-        let Some(index) = self.index(id) else { return false };
+        if !self.contains(id) {
+            return false;
+        }
         self.activity_clock += 1;
-        self.entries[index].activity = self.activity_clock;
+        let activity = self.activity_clock;
+        if let Some(entry) = self.entry_mut(id) {
+            entry.activity = activity;
+        }
         self.publish()
     }
 
     pub fn set_counts_override(&mut self, id: &str, value: Option<bool>) -> bool {
-        let Some(index) = self.index(id) else { return false };
-        self.entries[index].participant.counts_override = value;
+        let Some(entry) = self.entry_mut(id) else { return false };
+        entry.participant.counts_override = value;
         self.publish()
     }
 
@@ -413,16 +418,16 @@ impl TerminalSizingEngine {
     /// background, a terminal off screen). The viewer stops counting until
     /// its next report. Shared fixture op `clear_viewport`.
     pub fn clear_viewport(&mut self, id: &str) -> bool {
-        let Some(index) = self.index(id) else { return false };
-        self.entries[index].participant.viewport = None;
+        let Some(entry) = self.entry_mut(id) else { return false };
+        entry.participant.viewport = None;
         self.publish()
     }
 
     /// Replaces identity fields of an attached view, keeping its activity,
     /// viewport and counts override.
     pub fn update_identity(&mut self, identity: &TerminalSizingParticipant) -> bool {
-        let Some(index) = self.index(&identity.id) else { return false };
-        let participant = &mut self.entries[index].participant;
+        let Some(entry) = self.entry_mut(&identity.id) else { return false };
+        let participant = &mut entry.participant;
         participant.user_id = identity.user_id.clone();
         participant.display_name = identity.display_name.clone();
         participant.device_kind = identity.device_kind;
@@ -463,6 +468,10 @@ impl TerminalSizingEngine {
         self.entries.iter().position(|entry| entry.participant.id == id)
     }
 
+    fn entry_mut(&mut self, id: &str) -> Option<&mut Entry> {
+        self.entries.iter_mut().find(|entry| entry.participant.id == id)
+    }
+
     fn entry_counts(&self, entry: &Entry) -> bool {
         let participant = &entry.participant;
         if participant.viewport.is_none() {
@@ -492,30 +501,34 @@ impl TerminalSizingEngine {
         })
     }
 
-    fn decide(&self, counting: &[&Entry]) -> (TerminalGridSize, Vec<String>, TerminalSizingReason) {
+    /// `counting` pairs every counting entry with its viewport (a counting
+    /// entry always has one).
+    fn decide(
+        &self,
+        counting: &[(&Entry, TerminalGridSize)],
+    ) -> (TerminalGridSize, Vec<String>, TerminalSizingReason) {
         if self.policy.mode == TerminalSizingMode::Fixed
             && let Some(fixed) = self.policy.fixed
         {
             return (fixed, Vec::new(), TerminalSizingReason::Fixed);
         }
-        if counting.is_empty() {
-            return (self.held, Vec::new(), TerminalSizingReason::Held);
-        }
+        let held = || (self.held, Vec::new(), TerminalSizingReason::Held);
         // Ties happen only between handhelds whose attach was not activity
         // (activity 0): the later entry wins. `max_by_key` keeps the last
         // maximum; an attach again replaces its entry in place, so it keeps its
         // place. The Swift twin breaks ties the same way.
-        fn newest<'a>(list: impl Iterator<Item = &'a &'a Entry>) -> &'a Entry {
-            // crash-allow: callers pass a non-empty list
-            list.max_by_key(|entry| entry.activity).expect("non-empty")
+        fn newest<'a, 'b>(
+            list: impl Iterator<Item = &'b (&'a Entry, TerminalGridSize)>,
+        ) -> Option<(&'a Entry, TerminalGridSize)>
+        where
+            'a: 'b,
+        {
+            list.max_by_key(|(entry, _)| entry.activity).copied()
         }
-        let single = |owner: &Entry, reason| {
-            (
-                // crash-allow: counting entries have a viewport
-                owner.participant.viewport.expect("counting"),
-                vec![owner.participant.id.clone()],
-                reason,
-            )
+        let single = |owner: Option<(&Entry, TerminalGridSize)>, reason| match owner {
+            Some((owner, viewport)) => (viewport, vec![owner.participant.id.clone()], reason),
+            // No counting view: keep the held grid.
+            None => held(),
         };
         match self.policy.mode {
             TerminalSizingMode::Latest | TerminalSizingMode::Fixed => {
@@ -525,7 +538,7 @@ impl TerminalSizingEngine {
                 for key in &self.policy.priority {
                     let mut matches = counting
                         .iter()
-                        .filter(|entry| entry.participant.matches_priority_key(key))
+                        .filter(|(entry, _)| entry.participant.matches_priority_key(key))
                         .peekable();
                     if matches.peek().is_some() {
                         return single(newest(matches), TerminalSizingReason::Priority);
@@ -535,30 +548,19 @@ impl TerminalSizingEngine {
             }
             TerminalSizingMode::Smallest | TerminalSizingMode::Largest => {
                 let smallest = self.policy.mode == TerminalSizingMode::Smallest;
-                let viewports = counting
-                    .iter()
-                    // crash-allow: counting entries have a viewport
-                    .map(|entry| entry.participant.viewport.expect("counting"))
-                    .collect::<Vec<_>>();
-                let pick = |values: Vec<u16>| {
-                    if smallest {
-                        // crash-allow: counting is non-empty here
-                        values.into_iter().min().expect("non-empty")
-                    } else {
-                        // crash-allow: counting is non-empty here
-                        values.into_iter().max().expect("non-empty")
-                    }
+                let pick = |values: &mut dyn Iterator<Item = u16>| {
+                    if smallest { values.min() } else { values.max() }
                 };
-                let cols = pick(viewports.iter().map(|size| size.cols).collect());
-                let rows = pick(viewports.iter().map(|size| size.rows).collect());
+                let (Some(cols), Some(rows)) = (
+                    pick(&mut counting.iter().map(|(_, size)| size.cols)),
+                    pick(&mut counting.iter().map(|(_, size)| size.rows)),
+                ) else {
+                    return held();
+                };
                 let owners = counting
                     .iter()
-                    .filter(|entry| {
-                        // crash-allow: counting entries have a viewport
-                        let viewport = entry.participant.viewport.expect("counting");
-                        viewport.cols == cols || viewport.rows == rows
-                    })
-                    .map(|entry| entry.participant.id.clone())
+                    .filter(|(_, viewport)| viewport.cols == cols || viewport.rows == rows)
+                    .map(|(entry, _)| entry.participant.id.clone())
                     .collect();
                 let reason = if smallest {
                     TerminalSizingReason::Smallest
@@ -571,8 +573,12 @@ impl TerminalSizingEngine {
     }
 
     fn publish(&mut self) -> bool {
-        let counting =
-            self.entries.iter().filter(|entry| self.entry_counts(entry)).collect::<Vec<_>>();
+        let counting = self
+            .entries
+            .iter()
+            .filter(|entry| self.entry_counts(entry))
+            .filter_map(|entry| Some((entry, entry.participant.viewport?)))
+            .collect::<Vec<_>>();
         let (size, owners, reason) = self.decide(&counting);
         if reason != TerminalSizingReason::Held && reason != TerminalSizingReason::Fixed {
             self.held = size;

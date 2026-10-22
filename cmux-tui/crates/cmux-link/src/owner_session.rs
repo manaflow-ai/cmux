@@ -140,10 +140,10 @@ pub fn is_brain_identity(reply: &str) -> bool {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(reply.trim_end()) else {
         return false;
     };
-    if value["ok"].as_bool() != Some(true) {
+    if value.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
         return false;
     }
-    let data = &value["data"];
+    let Some(data) = value.get("data") else { return false };
     if data["app"].as_str() != Some("cmux-tui") {
         return false;
     }
