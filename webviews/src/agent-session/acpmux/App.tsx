@@ -192,6 +192,7 @@ import { transcriptRepositories, type RepositoryCache } from "./conversation/tra
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { PromptActions, ReceivedActions } from "./conversation/MessageActions";
+import { AgentNamesContext, agentNames } from "./conversation/agentNames";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { foldToggleAt, holdFold, keepFold, type FoldAnchor } from "./conversation/foldAnchor";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
@@ -4807,7 +4808,9 @@ function AcpmuxPane() {
     [snapshot.rows, snapshot.subagentViews],
   );
   const agentsKey = freshAgents
-    .map((agent) => [agent.id, agent.name, agent.state, agent.action ?? "", agent.endedAt ?? ""].join("\u0000"))
+    .map((agent) =>
+      [agent.id, agent.name, agent.state, agent.action ?? "", agent.endedAt ?? "", agent.agentId ?? ""].join("\u0000"),
+    )
     .join("\u0001");
   // eslint-disable-next-line react-hooks/exhaustive-deps -- a new list only when an agent changes
   const chatAgents = useMemo(() => freshAgents, [agentsKey]);
@@ -4817,6 +4820,8 @@ function AcpmuxPane() {
     canBackground && snapshot.isWorking && freshAgents.some((agent) => running(agent) && !agent.background);
   useBackgroundKey(!quick && (foreground.length > 0 || foregroundAgent), runInBackground);
   const chatTones = useMemo(() => (chatAgents.length > 0 ? agentTones(chatAgents) : undefined), [chatAgents]);
+  // A message to a subagent names it by its description, never its agentId (MessageCard.tsx).
+  const chatAgentNames = useMemo(() => agentNames(chatAgents), [chatAgents]);
   const freshWaiting = useMemo(
     () => (chatAgents.some(running) ? waitingSubagents(askedToolCalls, snapshot.subagentViews) : new Set<string>()),
     [chatAgents, askedToolCalls, snapshot.subagentViews],
@@ -7966,9 +7971,11 @@ function AcpmuxPane() {
                   <EmptyState project={projectName(composerSnapshot.summary?.cwd)} picker={heroPicker} />
                 ) : (
                   <AgentTonesContext.Provider value={chatTones}>
-                    <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
-                      {transcript}
-                    </BackgroundTaskOutputContext.Provider>
+                    <AgentNamesContext.Provider value={chatAgentNames}>
+                      <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
+                        {transcript}
+                      </BackgroundTaskOutputContext.Provider>
+                    </AgentNamesContext.Provider>
                   </AgentTonesContext.Provider>
                 )}
                 {displayAnchor && (
