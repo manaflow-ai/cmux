@@ -30,6 +30,7 @@ import { type StringKey, type Translate, translate, useT } from "./i18n";
 import { parsePageWidgets, type PageWidget } from "./newtab/pageWidgets";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
 import { seedWarmNewTab } from "./newtab/warmSnapshot";
+import { useNoEntryMotion } from "./newtab/noEntryMotion";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -282,6 +283,9 @@ export function NewTabPage({
   onInputReady,
 }: Props) {
   const t = useT();
+  // The classic template is a New Tab page too: what it opens (the project chooser, its menus)
+  // appears at once; exits keep their fades (newtab/noEntryMotion.ts).
+  useNoEntryMotion();
   const [kind, setKind] = useState<TabKind>(initialKind);
   // The field is reused when the kind changes. A short directional handoff gives the new
   // placeholder and context a visible swipe without moving the composer or stealing its focus.

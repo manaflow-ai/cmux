@@ -263,9 +263,11 @@ describe("what the New Tab opens appears at once", () => {
     expect(read("webviews/src/agent-session/acpmux/newtab/noEntryMotion.ts")).toContain('import "./noEntry.css";');
   });
 
-  test("both New Tab screens mark the root while they show", () => {
-    for (const screen of ["NewTabScreen.tsx", "HistoryScreen.tsx"])
-      expect(read(`webviews/src/agent-session/acpmux/newtab/${screen}`)).toMatch(/\n\s+useNoEntryMotion\(\);\n/);
+  test("every New Tab template marks the root while it shows", () => {
+    // Every template App.tsx renders for a New Tab: the screen (Default, Minimal, Cards, ...),
+    // History, and the classic page.
+    for (const screen of ["newtab/NewTabScreen.tsx", "newtab/HistoryScreen.tsx", "NewTabPage.tsx"])
+      expect(read(`webviews/src/agent-session/acpmux/${screen}`)).toMatch(/\n\s+useNoEntryMotion\(\);\n/);
   });
 
   test("every shared surface it opens enters on a zeroed token or is stopped by name", () => {
