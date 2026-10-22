@@ -778,8 +778,24 @@ impl Hub {
         newest_first(v)
     }
 
-    /// Resolve by id, exact name, or unique prefix of either.
+    /// Resolve by id, exact name, or unique prefix of either. A key that finds nothing and starts
+    /// with this machine's own peer name (`HOST/NAME`, the form other machines list the session
+    /// under, which coordinators use for every lane) is looked up again without it: on the
+    /// lane's own machine that name was `no_session`. A session whose own name has the prefix
+    /// (one moved here from that host) still matches first.
     pub fn resolve(&self, key: &str) -> Result<Arc<Session>, RpcError> {
+        let found = self.resolve_here(key);
+        if found.as_ref().is_err_and(|e| e.code == RpcError::not_found("").code)
+            && let Some(rest) = key.strip_prefix(own_machine_name()).and_then(|k| k.strip_prefix('/'))
+            && !rest.is_empty()
+            && let Ok(s) = self.resolve_here(rest)
+        {
+            return Ok(s);
+        }
+        found
+    }
+
+    fn resolve_here(&self, key: &str) -> Result<Arc<Session>, RpcError> {
         let sessions = self.sessions.lock().unwrap();
         // A qualified id is authoritative for new routing. The old bare id,
         // name and prefix forms below remain compatible.
@@ -1248,4 +1264,11 @@ impl Drop for LogsReady<'_> {
         }
         self.0.send_replace(true);
     }
+}
+
+/// This machine's name as its peers know it (`pairing::machine_name`), read once.
+fn own_machine_name() -> &'static str {
+    static NAME: std::sync::LazyLock<String> =
+        std::sync::LazyLock::new(crate::pairing::machine_name);
+    &NAME
 }
