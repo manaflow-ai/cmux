@@ -344,11 +344,19 @@ async fn a_long_queue_log_restores_in_time() {
     let started = Instant::now();
     daemon.start();
     let mut rpc = daemon.rpc().await;
-    // `_acpmux/info` answers once the logs are read and the queues restored (`wait_logs`).
-    let info = tokio::time::timeout(
-        Duration::from_secs(900),
-        rpc.call("_acpmux/info", json!({"sessionId": session})),
-    )
+    // `_acpmux/info` answers once the logs are read and the queues restored (`wait_logs`). Its
+    // own deadline, not `Rpc::reply`'s 30 s a line: a slow restore fails on the bound below,
+    // with its time.
+    let id = rpc.send("_acpmux/info", json!({"sessionId": session})).await;
+    let info = tokio::time::timeout(Duration::from_secs(900), async {
+        loop {
+            let line = rpc.lines.next_line().await.unwrap().expect("daemon closed the socket");
+            let v: Value = serde_json::from_str(&line).unwrap();
+            if v.get("id") == Some(&json!(id)) {
+                return v["result"].clone();
+            }
+        }
+    })
     .await
     .expect("the logs were read within 900 s");
     let took = started.elapsed();
