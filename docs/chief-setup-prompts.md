@@ -35,7 +35,7 @@ What only you can do: key-only ssh to the machine: adding a key there or fixing 
 ## Update acpmux on peer machines that run an older build
 
 ```text
-Something is wrong with one of my agent machines: run `cmux setup status` and run the `fix` it names for each peer that is outdated or not connected. For one that still fails, run `cmux acp host doctor NAME --fix --json` and tell me what is left.
+Something is wrong with my agent machine NAME: run `cmux setup status`, and if it lists NAME as outdated or not connected, run the `fix` it names for NAME only. If NAME still fails, run `cmux acp host doctor NAME --fix --json` and tell me what is left.
 ```
 
 ## Sign in to cmux and see each agent provider's sign-in

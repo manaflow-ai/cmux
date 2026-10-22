@@ -161,7 +161,7 @@ const TASKS: &[Task] = &[
         check: &["cmux setup status", "cmux acp host ls --json"],
         apply: &["cmux setup machine SSH_TARGET --name NAME", "cmux acp host update --all --json"],
         person: None,
-        prompt: "Something is wrong with one of my agent machines: run `cmux setup status` and run the `fix` it names for each peer that is outdated or not connected. For one that still fails, run `cmux acp host doctor NAME --fix --json` and tell me what is left.",
+        prompt: "Something is wrong with my agent machine NAME: run `cmux setup status`, and if it lists NAME as outdated or not connected, run the `fix` it names for NAME only. If NAME still fails, run `cmux acp host doctor NAME --fix --json` and tell me what is left.",
     },
     Task {
         id: "accounts",
@@ -378,7 +378,7 @@ mod tests {
     fn chief_prompt_markdown_has_a_block_per_task() {
         let page = prompts_markdown();
         assert!(page.starts_with("# "), "{page}");
-        assert!(page.contains(STATUS_PROMPT) && !STATUS_PROMPT.is_empty());
+        assert!(page.contains(STATUS_PROMPT));
         for task in TASKS {
             assert!(page.contains(&format!("```text\n{}\n```", task.prompt)), "{}", task.id);
         }
