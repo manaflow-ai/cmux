@@ -461,6 +461,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
     return turnLoop.wake(this, w)
   }
 
+  /** A peer Chief's message (brain-turn.ts peerNote), forwarded by the owner's install. */
+  async peerNote(w: { agent: string; owner: string; conversation: string; from: string; text: string; key: string }): Promise<{ queued: boolean } | { skipped: string }> {
+    return turnLoop.peerNote(this, w)
+  }
+
   /**
    * Logs the conversation's queued messages of the turn's thread into the running turn and gives them
    * to it (pi steer, after its current step). The op is recorded (memory and storage) before anything
