@@ -75,6 +75,10 @@ fn hub(d: &Path) -> Arc<Hub> {
             "fpymod": {"argv": ["python3", "-m", "claude_wrapper"], "kind": "claude-stdio"},
             // Python imports the `sitecustomize.py` it finds on PYTHONPATH (the folder) at start.
             "fpypath": {"argv": [CLAUDE], "kind": "claude-stdio", "env": {"PYTHONPATH": "."}},
+            // A zsh launcher sources `$ZDOTDIR/.zshenv` (here the folder's) before Claude Code.
+            "fzdot": {"argv": [CLAUDE], "kind": "claude-stdio", "env": {"ZDOTDIR": "."}},
+            "fzdotabs": {"argv": [CLAUDE], "kind": "claude-stdio",
+                         "env": {"ZDOTDIR": d.join("work").join("dots")}},
             // Its HOME is the chat's folder: Claude Code would read the folder's
             // `.claude/settings.json` as the person's own.
             "fhome": {"argv": [CLAUDE], "kind": "claude-stdio",
@@ -300,7 +304,8 @@ async fn not_now_opens_a_restricted_claude_chat_only_with_the_setting_on() {
     // A Claude Code whose user settings or code would be the folder's own does not start.
     std::fs::copy(FAKE_CLAUDE, work.join("claude.py")).unwrap();
     std::fs::copy(FAKE_CLAUDE, work.join("claude_wrapper.py")).unwrap();
-    for harness in ["fhome", "fhomelink", "fscript", "fscriptrel", "fpymod"] {
+    std::fs::create_dir_all(work.join("dots")).unwrap();
+    for harness in ["fhome", "fhomelink", "fscript", "fscriptrel", "fpymod", "fzdot", "fzdotabs"] {
         let r = app.new_session(&work, harness).await;
         let refused = match r["result"]["sessionId"].as_str() {
             Some(id) => {
@@ -310,7 +315,7 @@ async fn not_now_opens_a_restricted_claude_chat_only_with_the_setting_on() {
             None => r,
         };
         assert_eq!(reason(&refused), "restricted.refused", "{harness}: {refused}");
-        if harness.starts_with("fhome") {
+        if harness.starts_with("fhome") || harness.starts_with("fzdot") {
             assert!(refused.to_string().contains("inside the chat's folder"), "{refused}");
         }
     }
