@@ -76,8 +76,53 @@
   content: none;
 }
 /* Full access names its risk in the theme's accent, where Codex draws orange. */
-:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-access.acpmux-unrestricted :is(.acpmux-picker-button, .acpmux-access-trigger) {
+:is(.acpmux-composer, .nt-composer, .acpmux-newtab)[data-composer-look="codex"] .acpmux-access.acpmux-unrestricted :is(.acpmux-picker-button, .acpmux-access-trigger) {
   color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
+}
+
+/* The Classic New Tab page (NewTabPage.tsx) draws the same look in its own box: the row under the
+   field takes Codex's order, the mode first, then the project and the agent, the model and effort
+   pushed right next to Send. */
+.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under :is(.acpmux-newtab-context, .acpmux-chips) {
+  display: contents;
+}
+.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under .acpmux-chips > * {
+  order: 2;
+}
+.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under .acpmux-chips > .acpmux-access {
+  order: 0;
+}
+.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under :is(.acpmux-project, .acpmux-newtab-chip) {
+  order: 1;
+}
+.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under .acpmux-chips > .acpmux-model {
+  margin-inline-start: auto;
+}
+.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under > .acpmux-send {
+  order: 3;
+}
+/* A terminal or a browser tab has no model: Send keeps the right edge. */
+.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under:not(:has(.acpmux-model)) > .acpmux-send {
+  margin-inline-start: auto;
+}
+
+/* The New Tab page's dots (newtab/PageDots.tsx): the looks, then the page's styles, one row under
+   the page where the style switch sat (newtab/screen.css .nt-style). */
+.nt-page-dots {
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  display: flex;
+  gap: 12px;
+  max-width: calc(100% - 32px);
+  transform: translateX(-50%);
+}
+.nt-page-dots > .nt-style {
+  position: relative;
+  bottom: auto;
+  left: auto;
+  max-width: none;
+  transform: none;
 }
 
 /* The look dots in a chat (LookSwitch.tsx): the New Tab page's dots (newtab/screen.css .nt-style),

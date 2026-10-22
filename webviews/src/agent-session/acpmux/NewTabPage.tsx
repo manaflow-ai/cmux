@@ -5,6 +5,7 @@ import { agentBrand } from "../shared/agentBrand";
 import { agentDisplayName } from "./agents";
 import { seedLastPicks } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
+import { useComposerLook } from "./composerLook";
 import type { AcpmuxSnapshot } from "./model";
 import { ProjectChooser, type Project } from "./ProjectChooser";
 import {
@@ -478,9 +479,12 @@ export function NewTabPage({
     }
     setText(next);
   };
+  // The composer's look (composerLook.ts; the page's first two dots, newtab/PageDots.tsx): Codex's
+  // lays the row under the field out as Codex's (composerLook.css).
+  const look = useComposerLook();
 
   return (
-    <div className="acpmux-newtab" data-kind={kind}>
+    <div className="acpmux-newtab" data-kind={kind} data-composer-look={look === "codex" ? "codex" : undefined}>
       {/* The suggestions float under the field (cx-6k6cg): opening them moves nothing below. */}
       <div className="acpmux-newtab-anchor">
         <form className="acpmux-newtab-box" onSubmit={submit}>

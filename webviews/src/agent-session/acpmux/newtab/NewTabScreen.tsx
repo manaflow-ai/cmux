@@ -402,7 +402,10 @@ export function NewTabScreen(props: Props) {
   // row under the box. Default keeps the chips in the box, as before the split.
   // Codex's look (the page's second dot, composerLook.ts) keeps them in the box's row too.
   const look = useComposerLook();
-  const split = plainFooter && look === "claude" && props.chips !== undefined && template !== "default";
+  // Either look draws the chat composer's box (Cards too, its strip Codex's tray); only the plain
+  // footer off keeps Cards' pill.
+  const chatBox = plainFooter && props.chips !== undefined && template !== "default";
+  const split = chatBox && look === "claude";
   useRowFit(foot, split);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
   useMenuPressGuard();
@@ -867,7 +870,7 @@ export function NewTabScreen(props: Props) {
   const [speed, setSpeed] = useState<SpeedTiers | undefined>(undefined);
   /// The Cards template (u2851): the field is a pill of its own and the chips sit under it. The
   /// split draws the chat composer's box instead.
-  const pill = template === "cards" && !split;
+  const pill = template === "cards" && !chatBox;
   // Where the chat starts: the folder Enter asks in (askFolder), picked as in the agent composer's
   // location strip; never the home ~ the tab inherited (cx-7fje0).
   const folderStrip = (

@@ -1,53 +1,16 @@
 // The New Tab page's dots (Leo 2026-10-22: "first dot claude, second dot codex. since it's just all
-// looks anyways. first 2 dots minimal on the new tab page"): the first two are the Minimal page with
-// the composer's two looks (composerLook.ts), Claude's then Codex's; they show on every New Tab page.
-// With the style dots widget on (newtab/pageWidgets.ts, off by default on Minimal, always on the
-// other styles) the page's other styles follow them, as the style switch had them (templates.ts).
-import {
-  COMPOSER_LOOK_NAMES,
-  COMPOSER_LOOKS,
-  setComposerLook,
-  useComposerLook,
-  type ComposerLook,
-} from "../composerLook";
-import { useNt } from "./strings";
-import { DotSwitch } from "./StyleSwitch";
-import { PAGE_STYLES, pageStyle, pickNewTabStyle, type NewTabTemplate, type PageStyle } from "./templates";
-
-/// A dot: one of the Minimal page's two looks, or another page style.
-export type PageDot = ComposerLook | Exclude<PageStyle, "minimal">;
-
-function isLook(dot: PageDot): dot is ComposerLook {
-  return COMPOSER_LOOKS.includes(dot as ComposerLook);
-}
-
-/// The dots in order: the two looks, then, with the style dots on, the other page styles.
-export function pageDots(styleDots: boolean): PageDot[] {
-  return [
-    ...COMPOSER_LOOKS,
-    ...(styleDots ? PAGE_STYLES.filter((style): style is Exclude<PageStyle, "minimal"> => style !== "minimal") : []),
-  ];
-}
-
-/// The marked dot: on Minimal the composer's look, else the page's style.
-export function currentPageDot(template: NewTabTemplate, look: ComposerLook): PageDot {
-  const style = pageStyle(template);
-  return style === "minimal" ? look : style;
-}
+// looks anyways. first 2 dots minimal on the new tab page"): first the composer's two looks
+// (composerLook.ts), Claude's then Codex's, on every New Tab page; on Minimal, with the style dots
+// widget off (newtab/pageWidgets.ts, its default), they are the only dots. A look dot switches the
+// look only, in place: the page keeps its style, and every page draws the look (the screens'
+// .nt-composer, Classic's .acpmux-newtab). With the style dots on (always on the other styles) the
+// page's styles follow, Minimal among them, as the style switch had them (StyleSwitch.tsx).
+import { COMPOSER_LOOK_NAMES, COMPOSER_LOOKS, setComposerLook, useComposerLook } from "../composerLook";
+import { useT } from "../i18n";
+import { DotSwitch, StyleSwitch } from "./StyleSwitch";
+import { pageStyle, pickNewTabStyle, type NewTabTemplate, type PageStyle } from "./templates";
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
-
-/// A dot picked: a look is the Minimal page (written only when the page shows another style) with
-/// that look for every composer; another style is that page, the look kept.
-export function pickPageDot(
-  dot: PageDot,
-  template: NewTabTemplate,
-  deps: { callNative: Native; show(style: PageStyle): void },
-): void {
-  if (!isLook(dot)) return pickNewTabStyle(dot, deps);
-  setComposerLook(dot);
-  if (pageStyle(template) !== "minimal") pickNewTabStyle("minimal", deps);
-}
 
 export function PageDots({
   template,
@@ -62,17 +25,26 @@ export function PageDots({
   show(style: PageStyle): void;
   onCancel(): void;
 }) {
-  const nt = useNt();
+  const t = useT();
   const look = useComposerLook();
   return (
-    <DotSwitch
-      options={pageDots(styleDots)}
-      current={currentPageDot(template, look)}
-      label={nt("templates")}
-      radioName="nt-style"
-      name={(dot) => (isLook(dot) ? COMPOSER_LOOK_NAMES[dot] : nt(`template.${dot}`))}
-      onPick={(dot) => pickPageDot(dot, template, { callNative, show })}
-      onCancel={onCancel}
-    />
+    <div className="nt-page-dots">
+      <DotSwitch
+        options={COMPOSER_LOOKS}
+        current={look}
+        label={t("composer.look.label")}
+        name={(option) => COMPOSER_LOOK_NAMES[option]}
+        className="nt-style nt-look-dots"
+        onPick={setComposerLook}
+        onCancel={onCancel}
+      />
+      {styleDots && (
+        <StyleSwitch
+          current={pageStyle(template)}
+          onCancel={onCancel}
+          onPick={(style) => pickNewTabStyle(style, { callNative, show })}
+        />
+      )}
+    </div>
   );
 }

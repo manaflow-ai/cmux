@@ -48,7 +48,8 @@ function current(): ComposerLook {
 function subscribe(listener: () => void) {
   listeners.add(listener);
   const onStorage = (event: StorageEvent) => {
-    if (event.key === KEY) listener();
+    // A null key is the storage cleared (localStorage.clear()): the look is back to the default.
+    if (event.key === KEY || event.key === null) listener();
   };
   globalThis.addEventListener?.("storage", onStorage);
   return () => {
