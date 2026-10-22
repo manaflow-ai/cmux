@@ -126,4 +126,13 @@ import Testing
         let buried = query.match("summwhatever")?.score ?? 0
         #expect(boundary > buried)
     }
+
+    @Test func aCaseModeOverridesSmartCase() {
+        #expect(FzfQuery("abc", caseMode: .smart).match("ABC") != nil)
+        #expect(FzfQuery("Abc", caseMode: .smart).match("abc") == nil)
+        #expect(FzfQuery("abc", caseMode: .respect).match("ABC") == nil)
+        #expect(FzfQuery("abc", caseMode: .respect).match("abc") != nil)
+        #expect(FzfQuery("ABC", caseMode: .ignore).match("abc") != nil)
+        #expect(FzfQuery("'ABC", caseMode: .ignore).match("xabcx") != nil)
+    }
 }
