@@ -299,9 +299,16 @@ extension ThemedMenuRowView {
     }
 
     /// Where a row draws its icon and its title (MenuMetrics): titles line up whether or not their
-    /// row has an icon, once any row of the menu has one.
+    /// row has an icon, once any row of the menu has one; a state column only in a menu with a
+    /// checkmark or dash, as native menus keep one.
     public static func columns(of item: NSMenuItem) -> (icon: CGFloat, text: CGFloat) {
-        (MenuMetrics.iconX, MenuMetrics.textX(iconColumn: hasIconColumn(item)))
+        let state = hasStateColumn(item)
+        return (MenuMetrics.iconX(stateColumn: state), MenuMetrics.textX(iconColumn: hasIconColumn(item), stateColumn: state))
+    }
+
+    /// Whether `item`'s menu draws a state column: some row in it shows a checkmark or a dash.
+    static func hasStateColumn(_ item: NSMenuItem) -> Bool {
+        item.state != .off || item.menu?.items.contains { $0.state != .off } == true
     }
 
     /// Whether `item`'s menu draws an icon column: some row in it has an image.

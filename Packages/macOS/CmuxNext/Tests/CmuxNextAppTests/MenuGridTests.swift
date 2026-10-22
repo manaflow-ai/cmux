@@ -35,8 +35,10 @@ struct MenuGridTests {
             }
             let columns = ThemedMenuRowView.columns(of: item)
             let iconColumn = item.menu?.items.contains { $0.image != nil } == true
-            #expect(columns.icon == MenuMetrics.iconX, "\(name): \(item.title)'s icon at \(columns.icon)")
-            #expect(columns.text == MenuMetrics.textX(iconColumn: iconColumn), "\(name): \(item.title)'s text at \(columns.text)")
+            let stateColumn = item.menu?.items.contains { $0.state != .off } == true
+            #expect(columns.icon == MenuMetrics.iconX(stateColumn: stateColumn), "\(name): \(item.title)'s icon at \(columns.icon)")
+            #expect(columns.text == MenuMetrics.textX(iconColumn: iconColumn, stateColumn: stateColumn),
+                    "\(name): \(item.title)'s text at \(columns.text)")
             if item.menu === menu { measured = columns }
         }
         return measured
@@ -62,7 +64,7 @@ struct MenuGridTests {
         let services = Self.services()
         let menu = services.registry.makeContextMenu(for: .newTab).themeRows(in: ThemeScope(level: .room))
         let columns = try #require(Self.expectOnGrid(menu, "new tab"))
-        #expect(columns.icon == MenuMetrics.iconX && columns.text == MenuMetrics.textX(iconColumn: true))
+        #expect(columns.icon == MenuMetrics.iconX && columns.text == MenuMetrics.textX(iconColumn: true), "\(columns)")
     }
 
     /// The sidebar group menu, the other one: its name field's box on the rows' highlight edge and
@@ -108,9 +110,11 @@ struct MenuGridTests {
 
     /// The grid's own sense: a menu's columns read left to right inside its highlight.
     @Test func theGridReadsLeftToRight() {
-        #expect(MenuMetrics.highlightInset < MenuMetrics.stateX && MenuMetrics.stateX < MenuMetrics.iconX)
+        #expect(MenuMetrics.highlightInset < MenuMetrics.stateX && MenuMetrics.stateX < MenuMetrics.stateIconX)
         #expect(MenuMetrics.textX(iconColumn: false) == MenuMetrics.iconX)
         #expect(MenuMetrics.textX(iconColumn: true) == MenuMetrics.iconX + MenuMetrics.iconSize + MenuMetrics.iconGap)
-        #expect(MenuMetrics.separatorInset > MenuMetrics.highlightInset)
+        #expect(MenuMetrics.textX(iconColumn: true, stateColumn: true) == MenuMetrics.stateIconX + MenuMetrics.iconSize + MenuMetrics.iconGap)
+        // Native: a row's content starts where AppKit's separators start.
+        #expect(MenuMetrics.separatorInset == MenuMetrics.iconX)
     }
 }
