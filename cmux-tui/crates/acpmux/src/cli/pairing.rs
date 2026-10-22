@@ -119,8 +119,13 @@ fn install_command(ticket: &str) -> String {
     install_line(&url, ticket)
 }
 
+/// Installs cmux, then joins with the CLI it installed (at the script's
+/// default `~/.cmux/bin`). The ticket goes to `cmux host join`, not to the
+/// script: a script that does not join (cmux.com served one on 2026-10-22)
+/// would install and stop, and a script that does join would spend the
+/// single-use ticket before a second join.
 fn install_line(url: &str, ticket: &str) -> String {
-    format!("curl -fsSL {url} | sh -s -- '{ticket}'")
+    format!("curl -fsSL {url} | sh && \"$HOME/.cmux/bin/cmux\" host join --serve '{ticket}'")
 }
 
 fn print_minted(v: &Value) {
