@@ -1,10 +1,10 @@
 // A refused answer shows one message, never two glued together (Leo's live report 2026-10-21):
 // the card said "Couldn’t send your answer. Try again. approve this on the Mac app: allowing a
 // permission is accepted only from the cmux app, ..." because it appended acpmux's English
-// refusal, meant for its CLI, to its own sentence. Now an error the pane has words for (a refusal
-// with a code) shows those words alone; a message already in the person's language (the Swift
-// host's or the pane's own) follows the card's sentence; and acpmux's English never shows: such
-// a failure reads only "Couldn’t send your answer. Try again."
+// refusal, meant for its CLI, to its own sentence. Now the card's sentence always leads; the
+// pane's own words for a refusal it knows (a code), or a message already in the person's language
+// (the Swift host's or the pane's own), follow it; and acpmux's English never shows: such a
+// failure reads only "Couldn’t send your answer. Try again."
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -116,7 +116,8 @@ test("acpmux's English refusal is never appended to the card's sentence", async 
       data: { reason: "permission.person_required" },
     }),
   );
-  // Not pinned to one sentence: #23890 gives this reason its own words; either way, never acpmux's.
+  // #23890 may give this reason its own words after the card's sentence; never acpmux's.
+  expect(text.startsWith(translate("question.replyFailed"))).toBe(true);
   expect(text).not.toContain("approve this on the Mac app");
   expect(text).not.toContain("never from the CLI");
 });
@@ -138,11 +139,22 @@ test("a failure the pane has no words for shows only the card's own sentence", a
   );
 });
 
-test("a refusal the pane has words for shows those words alone", async () => {
+test("a refusal the pane has words for follows the card's sentence", async () => {
   const text = await refusedWith(
     Object.assign(new Error("not in this pane"), { code: "transport.session_not_in_pane" }),
   );
-  expect(text).toBe(translate("transport.sessionNotInPane"));
+  expect(text).toBe(`${translate("question.replyFailed")} ${translate("transport.sessionNotInPane")}`);
+});
+
+test("acpmux's full_access_off refusal reads as the card's sentence, then the pane's words", async () => {
+  const text = await refusedWith(
+    new AcpmuxRpcError({
+      code: -32000,
+      message: "full access is off for this session",
+      data: { reason: "full_access_off" },
+    }),
+  );
+  expect(text).toBe(`${translate("question.replyFailed")} ${translate("transport.fullAccessOff")}`);
 });
 
 test("the app's own message, already in the person's language, follows the card's sentence", async () => {
