@@ -93,7 +93,7 @@ SECTIONS = [
         "lists": {"updates": ("descriptors", "UpdatesSettings"),
                   "announcements": ("announcements", "AnnouncementsSettings")},
         "enums": {"updates.channel": "UpdatesChannelSetting", "updates.meteredNetwork": "UpdatesMeteredSetting",
-                  "updates.notify": "UpdatesNotifySetting"},
+                  "updates.notify": "UpdatesNotifySetting", "updates.web": "UpdatesWebSetting"},
     },
     {
         "source": "schemas/settings/source/labs.json",
@@ -149,6 +149,13 @@ SECTIONS = [
         "swift": SCHEMA_DIR + "/SettingsSchema+NowPlaying.generated.swift",
         "type": "NowPlayingSettingsSchema",
         "lists": {"nowPlaying": ("descriptors", "NowPlayingSettings"), "newTab": ("newTabDescriptors", "NowPlayingSettings")},
+        "enums": {},
+    },
+    {
+        "source": "schemas/settings/source/new-tab-widgets.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+NewTabWidgets.generated.swift",
+        "type": "NewTabWidgetSettingsSchema",
+        "lists": {"newTabWidgets": ("descriptors", "NewTabWidgetSettings")},
         "enums": {},
     },
     {
