@@ -77,7 +77,7 @@ public struct MoveTabToColumnRequest: DaemonRequest {
     }
 
     enum CodingKeys: String, CodingKey { case surface, pane, screen, afterColumn, width, dock, keepFocus, transaction }
-    enum PinKeys: String, CodingKey { case edge, mode, role }
+    enum PinKeys: String, CodingKey { case edge, mode, role, pinned }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(surface, forKey: .surface)
@@ -92,6 +92,8 @@ public struct MoveTabToColumnRequest: DaemonRequest {
             try pin.encode(dock.edge.rawValue, forKey: .edge)
             try pin.encode(dock.mode.rawValue, forKey: .mode)
             try pin.encodeIfPresent(dock.role?.rawValue, forKey: .role)
+            // `pinned-dock-alone-v1`: only a pinned dock may take a screen's only tab (Home's dock).
+            if dock.isPinned { try pin.encode(true, forKey: .pinned) }
         }
         if keepFocus { try c.encode(true, forKey: .keepFocus) }
         try c.encodeIfPresent(transaction, forKey: .transaction)
