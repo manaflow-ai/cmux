@@ -1,6 +1,12 @@
 {
  "_doc": "cmux-next perf budgets (perf-budgets.py). A frame budget is one 120 Hz frame (8.33 ms) between presented frames during a motion; a latency budget (input to the committed frame that shows its result) is two 120 Hz frames (16.7 ms). CPU rows are percent of one core. Patterns are full-match regexes over row names; the first match wins. floor: the smallest p95 change the gate counts as a regression (noise).",
  "rows": {
+  "workspace_switch\\..*\\.input_to_commit": {
+   "p95": 16.7,
+   "unit": "ms",
+   "floor": 1.0,
+   "what": "workspace switch: input event to the Core Animation commit that shows the new workspace (debug.workspace_switch; builds after 2026-10-21)"
+  },
   "workspace_switch\\..*\\.input_to_idle": {
    "p95": 16.7,
    "unit": "ms",

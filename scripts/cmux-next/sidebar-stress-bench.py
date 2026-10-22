@@ -517,6 +517,9 @@ def scenario_switch_matrix(pid, size):
     order = [r.get("title") for r in workspace_rows()[:4]]
     out["top_rows"] = order
     pairs = {"chromium": ("sw chromium a", "sw chromium b", 1), "terminal": ("sw term a", "sw term b", 3)}
+    probe = rpc("debug.workspace_switch", {"action": "stop"})  # an older build answers with an error
+    timed = isinstance(probe, dict) and "recording" in probe
+    out["app_timer"] = timed
     tr = Trace(pid, f"{size}-switch-matrix", 4 + 3 * 2 * opts.switches * 0.45 + 10)
     tr.__enter__()
     for kind, (a, b, first) in pairs.items():
@@ -524,6 +527,8 @@ def scenario_switch_matrix(pid, size):
             lat, longest, wrong = [], [], 0
             action("goToWorkspace", {"workspace": refs[a]}, focus=True)
             time.sleep(0.6)
+            if timed:
+                rpc("debug.workspace_switch", {"action": "start"})
             for i in range(opts.switches):
                 to_b = i % 2 == 0
                 target = b if to_b else a
@@ -550,8 +555,18 @@ def scenario_switch_matrix(pid, size):
                 if i % 4 == 3 and selected_title() != target:
                     wrong += 1
                 time.sleep(0.2)
-            out[f"{kind}.{how}"] = {"switches": len(lat), "input_to_idle_ms": percentiles(lat),
-                                    "longest_frame_ms": percentiles(longest), "wrong_selection_checks": wrong}
+            entry = {"switches": len(lat), "input_to_idle_ms": percentiles(lat),
+                     "longest_frame_ms": percentiles(longest), "wrong_selection_checks": wrong}
+            if timed:
+                samples = (rpc("debug.workspace_switch", {"action": "stop"}) or {}).get("switches") or []
+                entry["app_samples"] = samples
+                commit = [x["commit_ms"] + x.get("input_ms", 0) for x in samples if isinstance(x.get("commit_ms"), (int, float))]
+                entry["input_to_commit_ms"] = percentiles(commit)
+                for stage in ("input", "park", "content", "sidebar", "root", "theme", "did_show", "apply", "commit"):
+                    vals = [x[stage + "_ms"] for x in samples if isinstance(x.get(stage + "_ms"), (int, float))]
+                    if vals:
+                        entry.setdefault("stages_ms", {})[stage] = percentiles(vals)
+            out[f"{kind}.{how}"] = entry
             note(f"switch matrix {kind} {how}: {out[f'{kind}.{how}']['input_to_idle_ms']}")
     tr.__exit__(None, None, None)
     ticking(False)

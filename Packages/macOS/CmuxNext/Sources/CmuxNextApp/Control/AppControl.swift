@@ -92,6 +92,8 @@ final class AppControl {
             .mainActor("debug.tab_switch") { call in .value(DebugTabSwitch.timer.handle(call.params, key: "switches")) },
             // Each pane focus move's own time: intent to settled, and to the next frame (perf-gate.py pane_focus).
             .mainActor("debug.pane_focus") { call in .value(DebugPaneFocus.handle(call.params)) },
+            // Each workspace switch's own time: input to shown content, and to its commit (perf-budgets.py).
+            .mainActor("debug.workspace_switch") { call in .value(DebugWorkspaceSwitch.timer.handle(call.params, key: "switches")) },
             // Each new workspace's own time: the press to its sidebar row drawn, and the walks between (perf-gate.py).
             .mainActor("debug.new_workspace") { call in .value(SidebarNewRowTimer.shared.timer.handle(call.params, key: "creates")) },
             // Work per layout change: pane snapshots, applies, topology sends (bench_pane_scale.py).

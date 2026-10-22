@@ -186,6 +186,8 @@ def rows_sidebar(rep, size):
         if isinstance(m, dict) and "input_to_idle_ms" in m:
             out[f"workspace_switch.{key}.input_to_idle"] = p50_p95(m["input_to_idle_ms"])
             out[f"workspace_switch.{key}.longest_frame"] = p50_p95(m.get("longest_frame_ms"))
+            if m.get("input_to_commit_ms"):
+                out[f"workspace_switch.{key}.input_to_commit"] = p50_p95(m["input_to_commit_ms"])
     return out
 
 
