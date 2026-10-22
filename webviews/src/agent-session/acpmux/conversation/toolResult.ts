@@ -201,8 +201,12 @@ export function peelEnvelope(value: unknown, depth = 0, room = MAX_TOOL_IMAGES):
             ? error.message
             : undefined;
       if (!message) return { texts: [], images: [], rest: [error], room };
-      // The message reads as text; the error's `data`, when it has any, follows as JSON.
-      const data = isRecord(error) ? error.data : undefined;
+      // The message reads as text. A JSON-RPC error (`code`, `message`, `data`) follows with its
+      // data; any other error (a REST API's `status`, `details`) with everything but its message.
+      if (!isRecord(error)) return { texts: [message], images: [], rest: [], room };
+      const { message: _message, ...others } = error;
+      if (!onlyKeys(others, ["code", "data"])) return { texts: [message], images: [], rest: [others], room };
+      const data = error.data;
       return { texts: [message], images: [], rest: data !== undefined && data !== null ? [data] : [], room };
     }
     const result = value.result;

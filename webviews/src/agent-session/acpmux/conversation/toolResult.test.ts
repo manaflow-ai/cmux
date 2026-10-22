@@ -412,3 +412,16 @@ test("images past the strip's limit stay JSON across envelopes inside envelopes"
   expect(result.text.match(/"type": "image"/g)).toHaveLength(1);
   expect(result.text.startsWith("Child\n\n")).toBe(true);
 });
+
+test("an API error keeps the fields beside its message", () => {
+  // Codex review 9: a REST error's status and details were dropped behind its message.
+  const error = {
+    code: 400,
+    message: "Invalid request",
+    status: "INVALID_ARGUMENT",
+    details: [{ fieldViolations: [{ field: "region", description: "Unsupported region" }] }],
+  };
+  const { message: _message, ...others } = error;
+  expect(toolResult(JSON.stringify({ error })).text).toBe(`Invalid request\n\n${JSON.stringify(others, null, 2)}`);
+  expect(prettyOutput(JSON.stringify({ error }))).toContain("Unsupported region");
+});
