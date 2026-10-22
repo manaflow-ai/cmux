@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -215,6 +216,16 @@ class GuardsRunFromTheBase(unittest.TestCase):
                 self.assertEqual(code, 0, err)
                 self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
                 self.assertEqual(out["hookSpecificOutput"]["permissionDecisionReason"], "merge guard base v1")
+
+    def test_a_refusal_never_waits_for_the_next_guard(self):
+        """Codex review of #24265 (round 3): both guards ran before the refusal was read, so a slow update-branch
+        warning could run the hook past its timeout with the refusal unprinted, and the merge went through."""
+        self.land_on_base("scripts/ci/base-merge-warning-hook.sh", "sleep 30\n")
+        started = time.monotonic()
+        code, out, err = self.hook("gh pr merge 5 --squash; gh api -X PUT repos/manaflow-ai/cmux/pulls/5/update-branch")
+        self.assertLess(time.monotonic() - started, 20)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
 
     def old_base(self) -> str:
         """A commit on the base from before the launcher existed."""
