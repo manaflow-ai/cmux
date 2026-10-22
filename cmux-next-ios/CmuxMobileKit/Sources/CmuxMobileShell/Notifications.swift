@@ -58,7 +58,12 @@ public final class NotificationRouter {
     public static let shared = NotificationRouter()
 
     /// A tapped notification the shell has not opened yet.
-    public var pending: NotificationRoute?
+    public private(set) var pending: NotificationRoute?
+    /// When `pending` was set: past `waitBudget` it opens the Feed (review #4).
+    @ObservationIgnored private(set) var pendingSince: ContinuousClock.Instant?
+    /// How long a route waits for its Mac's tree before it settles for the Feed.
+    static let waitBudget: Duration = .seconds(10)
+    @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
     /// Settings → Require Face ID has the app locked (AppLock): replies that
     /// need Face ID wait, so the two prompts never overlap.
     public internal(set) var appLocked = false {
@@ -70,11 +75,41 @@ public final class NotificationRouter {
     init() {}
 
     func open(_ payload: PushPayload) {
-        pending = NotificationRoute(payload)
+        set(NotificationRoute(payload))
     }
 
     func open(reply: PushReply) {
-        pending = NotificationRoute(reply)
+        set(NotificationRoute(reply))
+    }
+
+    /// Waits for `route`, at most `waitBudget`: then it is tried once more, as expired.
+    func set(_ route: NotificationRoute?, at now: ContinuousClock.Instant = .now) {
+        pending = route
+        pendingSince = route == nil ? nil : now
+        guard let route else { return }
+        let clock = clock
+        Task { @MainActor [weak self] in
+            try? await clock.sleep(for: Self.waitBudget)
+            guard let self, self.pending == route else { return }
+            self.expired += 1
+        }
+    }
+
+    /// Bumped when a waiting route's budget ends (the shell then opens the Feed).
+    public private(set) var expired = 0
+
+    func isExpired(at now: ContinuousClock.Instant = .now) -> Bool {
+        pendingSince.map { now - $0 > Self.waitBudget } ?? false
+    }
+
+    /// The route was opened (or settled for the Feed).
+    func opened() {
+        set(nil)
+    }
+
+    /// The person went to another screen while a route waited: it is dropped.
+    func userNavigated() {
+        if pending != nil { set(nil) }
     }
 }
 
@@ -113,9 +148,11 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
     public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         // Only Sendable values cross to the main actor.
         let userInfo = response.notification.request.content.userInfo
+        // Only the app's own (local) notifications may carry a retry (review H1).
+        let fromPush = response.notification.request.trigger is UNPushNotificationTrigger
         let read = PushReplies.Response(actionIdentifier: response.actionIdentifier,
                                         text: (response as? UNTextInputNotificationResponse)?.userText,
-                                        payload: PushPayload(userInfo: userInfo), retry: PushReply(userInfo: userInfo))
+                                        userInfo: userInfo, fromPush: fromPush, retries: PushRetryStore.app)
         await PushReplies.shared.handle(read)
     }
 }

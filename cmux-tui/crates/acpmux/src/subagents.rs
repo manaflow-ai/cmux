@@ -22,6 +22,15 @@ use crate::hub::merge_mux_meta;
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 
+/// Whether a `session/update` params object is a subagent's (the hub tags it
+/// `_meta.acpmux.subagent`, ``SubagentTree::annotate``). A subagent's text and
+/// thinking reach its own view; a reader of the chat's own words (a reply, a
+/// transcript, a handoff) skips them, or a subagent's report would join the
+/// chat's answer.
+pub fn is_subagents(params: &Value) -> bool {
+    params.pointer("/_meta/acpmux/subagent").is_some()
+}
+
 /// The subagents seen in one session, each mapped to its parent subagent
 /// (`None` for the session's own).
 #[derive(Debug, Default)]

@@ -13,8 +13,12 @@
 //! the notification: the question and its options, a permission's title and
 //! acpmux options, the session's last lines (`preview`), a Chief reply's first
 //! lines, an error's text, and the workspace and tab the session is in
-//! (`notify_content.rs`). Still never paths, the person's prompts (a session's
-//! `name`), or tool arguments beyond a permission's title. Kinds no phone wants
+//! (`notify_content.rs`). A permission's title is the tool's own title, which
+//! for a shell command is the whole command line, and last lines are what the
+//! agent printed: both can name paths and command arguments. Every such text
+//! is redacted first (`notify_redact`: tokens, `Bearer` values, `password=`
+//! assignments, PEM blocks, high-entropy runs), and the terminal's screen is
+//! never sent. Never the person's prompts (a session's `name`). Kinds no phone wants
 //! are not sent (`Reporter`, the answer's `wants`).
 //!
 //! Only what a person can act on is pushed:
@@ -87,14 +91,57 @@ const SEEN_LIMIT: usize = 512;
 /// At most one finished-turn push per session in this window.
 pub const TURN_WINDOW: Duration = Duration::from_secs(30);
 
-/// A printable label of at most `max` characters.
+/// A printable label of at most `max` characters: control and bidi
+/// characters become spaces, runs of whitespace one space, combining marks
+/// past two on one letter are dropped, and a cut label ends with "…" so the
+/// end of a long command is never hidden without a sign.
 pub fn label(text: &str, max: usize) -> String {
     let hidden = |c: char| {
         c.is_control()
             || matches!(c, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}')
     };
-    let cleaned: String = text.chars().map(|c| if hidden(c) { ' ' } else { c }).collect();
-    cleaned.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(max).collect()
+    let mut marks = 0;
+    let cleaned: String = text
+        .chars()
+        .filter_map(|c| {
+            if is_combining_mark(c) {
+                marks += 1;
+                return (marks <= 2).then_some(c);
+            }
+            marks = 0;
+            Some(if hidden(c) { ' ' } else { c })
+        })
+        .collect();
+    let joined = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+    if joined.chars().count() <= max {
+        return joined;
+    }
+    let mut cut: String = joined.chars().take(max.saturating_sub(1)).collect();
+    cut.truncate(cut.trim_end().len());
+    cut.push('…');
+    cut
+}
+
+/// Text a person reads (a title, a body, a last line, a question): secrets
+/// redacted (`notify_redact`), then cleaned and cut like `label`.
+pub fn text_label(text: &str, max: usize) -> String {
+    label(&crate::notify_redact::redact(text), max)
+}
+
+/// A combining mark (Unicode `Mn` in the common blocks).
+fn is_combining_mark(c: char) -> bool {
+    matches!(c, '\u{0300}'..='\u{036f}' | '\u{0483}'..='\u{0489}' | '\u{0591}'..='\u{05bd}' | '\u{0610}'..='\u{061a}'
+        | '\u{064b}'..='\u{065f}' | '\u{0e31}' | '\u{0e34}'..='\u{0e3a}' | '\u{0e47}'..='\u{0e4e}' | '\u{1ab0}'..='\u{1aff}'
+        | '\u{1dc0}'..='\u{1dff}' | '\u{20d0}'..='\u{20ff}' | '\u{fe20}'..='\u{fe2f}')
+}
+
+/// An id as it is, when the backend accepts it (`[A-Za-z0-9._:-]{1,max}`);
+/// None otherwise: an id changed to fit would name something else.
+pub fn valid_id(id: &str, max: usize) -> Option<String> {
+    (!id.is_empty()
+        && id.len() <= max
+        && id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-')))
+    .then(|| id.to_owned())
 }
 
 /// An id the backend accepts (`[A-Za-z0-9._:-]{1,64}`).
@@ -221,13 +268,13 @@ impl Classifier {
                 let request = params.get("request").unwrap_or(&Value::Null);
                 let kind = if is_question(request) { "question" } else { "permission" };
                 let mut event = self.event(id, kind, session_id);
-                event.permission_id = Some(label(permission_id, 128)).filter(|p| !p.is_empty());
+                event.permission_id = valid_id(permission_id, 128);
                 event.questions = crate::notify_content::questions(request);
                 if kind == "permission" {
                     event.options = crate::notify_content::permission_options(request);
                 }
                 let tool_title =
-                    request.pointer("/toolCall/title").and_then(Value::as_str).map(|t| label(t, 200));
+                    request.pointer("/toolCall/title").and_then(Value::as_str).map(|t| text_label(t, 200));
                 event.title = event
                     .questions
                     .first()
@@ -294,7 +341,7 @@ impl Classifier {
                         event.body = session
                             .pointer("/lastTurn/errorText")
                             .and_then(Value::as_str)
-                            .map(|t| label(t, 400))
+                            .map(|t| text_label(t, 400))
                             .filter(|t| !t.is_empty());
                     }
                     _ => event.state = Some("finished".into()),
@@ -302,7 +349,7 @@ impl Classifier {
                 if kind == "chief" {
                     event.conversation_id = known.chief_home.as_deref().map(label_id_text);
                     event.body =
-                        self.previews.get(session_id).map(|p| label(p, 400)).filter(|t| !t.is_empty());
+                        self.previews.get(session_id).map(|p| text_label(p, 400)).filter(|t| !t.is_empty());
                 }
                 self.gate((self.scope(session_id), kind == "failed"), event, now)
             }
@@ -370,7 +417,7 @@ impl Classifier {
         let tail = self.previews.get(session_id).map(|p| crate::notify_content::tail(p)).unwrap_or_default();
         NotifyEvent {
             workspace: place.as_ref().map(|p| p.workspace.clone()),
-            workspace_id: place.as_ref().map(|p| p.workspace_id.clone()),
+            workspace_id: place.as_ref().and_then(|p| valid_id(&p.workspace_id, 128)),
             tab_id: place.map(|p| p.tab_id),
             tail,
             event_id,
@@ -558,7 +605,8 @@ mod tests {
                 agent: Some("Claude".into()),
                 place: Some("cmuxterm-hq".into()),
                 session_id: Some("s1".into()),
-                permission_id: Some("perm/1".into()),
+                // "perm/1" is no id the Worker accepts: dropped, never changed.
+                permission_id: None,
                 title: Some("Deploy to staging?".into()),
                 questions: vec![NotifyQuestion {
                     question: "Deploy to staging?".into(),

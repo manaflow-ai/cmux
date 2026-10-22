@@ -77,7 +77,7 @@ public struct PushForm: Sendable, Equatable {
         case .deny: return .deny(optionID: row.id)
         case .choice:
             guard let index = payload.questions.first?.options.firstIndex(where: { $0.label == row.label }) else { return nil }
-            return .option(index)
+            return .option(index, label: row.label)
         case .checkbox:
             guard selected.indices.contains(row.question) else { return nil }
             let multi = payload.questions[row.question].multiSelect
@@ -119,7 +119,9 @@ public struct PushForm: Sendable, Equatable {
         switch payload.kind {
         case .permission: false
         case .question: payload.questions.count <= 1 && (payload.questions.first?.allowsOther ?? true)
-        case .completed, .failed, .chief, .terminal: true
+        case .completed, .failed, .chief: true
+        // Text into a terminal from a notification waits for the #13742 decision (PR B).
+        case .terminal: false
         }
     }
 
@@ -139,6 +141,12 @@ public struct PushForm: Sendable, Equatable {
     /// only while the phone is unlocked (`PushProtectedMarker`).
     public static func showsContent(previews: Bool, unlocked: Bool) -> Bool {
         previews || unlocked
+    }
+
+    /// The saved chat (which holds the person's own messages) loads only while
+    /// the phone is unlocked, whatever Show previews says (PR #24156 review L1).
+    public static func loadsSnapshot(unlocked: Bool) -> Bool {
+        unlocked
     }
 }
 

@@ -12,7 +12,7 @@ use std::sync::Mutex;
 use cmux_mobile_link::api::{NotifyChoice, NotifyOption, NotifyQuestion};
 use serde_json::Value;
 
-use crate::notify::label;
+use crate::notify::{label, text_label, valid_id};
 
 /// At most this many questions, options and last lines travel.
 pub const MAX_QUESTIONS: usize = 4;
@@ -34,6 +34,12 @@ fn cut(value: &Value, key: &str, max: usize) -> Option<String> {
     text(value, key).map(|t| label(t, max)).filter(|t| !t.is_empty())
 }
 
+/// Text a person reads (a question, a description, a title): redacted too.
+/// Option labels stay `cut`: the phone matches them against the Mac's own.
+fn cut_text(value: &Value, key: &str, max: usize) -> Option<String> {
+    text(value, key).map(|t| text_label(t, max)).filter(|t| !t.is_empty())
+}
+
 fn choices(options: Option<&Value>, label_key: &str, detail_key: &str) -> Vec<NotifyChoice> {
     options
         .and_then(Value::as_array)
@@ -42,7 +48,7 @@ fn choices(options: Option<&Value>, label_key: &str, detail_key: &str) -> Vec<No
         .filter_map(|o| {
             Some(NotifyChoice {
                 label: cut(o, label_key, CHOICE_MAX)?,
-                description: cut(o, detail_key, DESCRIPTION_MAX),
+                description: cut_text(o, detail_key, DESCRIPTION_MAX),
             })
         })
         .take(MAX_OPTIONS)
@@ -61,7 +67,7 @@ pub fn questions(request: &Value) -> Vec<NotifyQuestion> {
             .iter()
             .filter_map(|item| {
                 Some(NotifyQuestion {
-                    question: cut(item, "prompt", QUESTION_MAX)?,
+                    question: cut_text(item, "prompt", QUESTION_MAX)?,
                     header: cut(item, "header", HEADER_MAX),
                     multi_select: item.get("multiSelect").and_then(Value::as_bool).unwrap_or(false),
                     allows_other: item.get("allowsOther").and_then(Value::as_bool).unwrap_or(true),
@@ -82,7 +88,7 @@ pub fn questions(request: &Value) -> Vec<NotifyQuestion> {
             .iter()
             .filter_map(|q| {
                 Some(NotifyQuestion {
-                    question: cut(q, "question", QUESTION_MAX)?,
+                    question: cut_text(q, "question", QUESTION_MAX)?,
                     header: cut(q, "header", HEADER_MAX),
                     multi_select: q.get("multiSelect").and_then(Value::as_bool).unwrap_or(false),
                     allows_other: true,
@@ -99,7 +105,7 @@ pub fn questions(request: &Value) -> Vec<NotifyQuestion> {
                 let options = choices(q.get("options"), "label", "description");
                 let other = q.get("isOther").and_then(Value::as_bool).unwrap_or(options.is_empty());
                 Some(NotifyQuestion {
-                    question: cut(q, "question", QUESTION_MAX)?,
+                    question: cut_text(q, "question", QUESTION_MAX)?,
                     header: cut(q, "header", HEADER_MAX),
                     multi_select: q.get("multiSelect").and_then(Value::as_bool).unwrap_or(false),
                     allows_other: other || options.is_empty(),
@@ -116,7 +122,7 @@ pub fn questions(request: &Value) -> Vec<NotifyQuestion> {
         return Vec::new();
     }
     vec![NotifyQuestion {
-        question: cut(tool_call, "title", QUESTION_MAX).unwrap_or_default(),
+        question: cut_text(tool_call, "title", QUESTION_MAX).unwrap_or_default(),
         header: None,
         multi_select: false,
         allows_other: false,
@@ -132,11 +138,13 @@ pub fn permission_options(request: &Value) -> Vec<NotifyOption> {
         .into_iter()
         .flatten()
         .filter_map(|o| {
-            let id = text(o, "optionId")?;
+            // An id the Worker would refuse is dropped, never changed: the
+            // phone answers with it, and acpmux must know it.
+            let id = valid_id(text(o, "optionId")?, 64)?;
             Some(NotifyOption {
-                id: id.chars().take(64).collect(),
-                label: cut(o, "name", CHOICE_MAX).unwrap_or_else(|| label(id, CHOICE_MAX)),
+                label: cut(o, "name", CHOICE_MAX).unwrap_or_else(|| label(&id, CHOICE_MAX)),
                 kind: text(o, "kind").map(|k| label(k, 32)),
+                id,
             })
         })
         .take(MAX_OPTIONS)
@@ -145,7 +153,8 @@ pub fn permission_options(request: &Value) -> Vec<NotifyOption> {
 
 /// The last non-empty lines of `text`, each cleaned and cut.
 pub fn tail(text: &str) -> Vec<String> {
-    let lines: Vec<String> = text.lines().map(|l| label(l, LINE_MAX)).filter(|l| !l.is_empty()).collect();
+    let lines: Vec<String> =
+        text.lines().map(|l| text_label(l, LINE_MAX)).filter(|l| !l.is_empty()).collect();
     lines[lines.len().saturating_sub(MAX_TAIL)..].to_vec()
 }
 

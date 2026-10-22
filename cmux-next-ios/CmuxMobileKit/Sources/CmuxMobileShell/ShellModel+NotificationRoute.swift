@@ -21,10 +21,14 @@ enum NotificationTarget: Equatable {
     /// - `chat`: the chat a session or a tab is bound to, when known.
     /// - `workspace`: the workspace (with its Mac) that lists `tabID`, when known.
     /// - `phase`: the route's Mac's data phase.
+    /// - `canLink`: whether the phone may dial the route's Mac at all.
+    /// - `expired`: the route waited its whole budget (`NotificationRouter.waitBudget`).
     static func decide(_ route: NotificationRoute,
                        chat: (NotificationRoute) -> AgentChatDestination?,
                        workspace: (String) -> Workspace?,
-                       phase: (String) -> MacDataMachine.Phase) -> NotificationTarget {
+                       phase: (String) -> MacDataMachine.Phase,
+                       canLink: (String) -> Bool,
+                       expired: Bool) -> NotificationTarget {
         if route.kind == "chief" { return .chief }
         // A terminal notification opens its terminal, never a chat bound elsewhere.
         if route.kind != "terminal", let destination = chat(route) { return .chat(destination) }
@@ -32,10 +36,13 @@ enum NotificationTarget: Equatable {
             let tab = route.tabID.flatMap { tab in ws.tabs.contains(where: { $0.id == tab }) ? tab : nil }
             if tab != nil || route.kind == "terminal" || route.tabID == nil { return .workspace(id: ws.id, tabID: tab) }
         }
-        guard let mac = route.mac else { return .feed }
+        guard let mac = route.mac, !expired else { return .feed }
+        // Wait only while the Mac's tree can still arrive (review #4).
         switch phase(mac) {
         case .live, .empty, .failed, .offline: return .feed
-        case .loading, .cached, .idle: return .wait
+        case .cached(.offline), .cached(.failed): return .feed
+        case .idle: return canLink(mac) ? .wait : .feed
+        case .loading, .cached: return .wait
         }
     }
 }
@@ -56,7 +63,9 @@ extension ShellModel {
             route,
             chat: { [live] in live?.destination(sessionID: $0.sessionID, workspaceID: $0.workspaceID, tabID: $0.tabID) },
             workspace: { [store] in store.workspace(id: $0) },
-            phase: { [store] in store.macDataPhase($0) }
+            phase: { [store] in store.macDataPhase($0) },
+            canLink: { [live] in live?.canLink(macID: $0) ?? false },
+            expired: NotificationRouter.shared.isExpired()
         )
         switch target {
         case .chief:

