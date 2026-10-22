@@ -3,7 +3,7 @@ import CmuxNextDesign
 import QuartzCore
 
 /// The small machine label of a tab whose terminal runs on another machine (plans/cmux-next/data-model.md
-/// 1.2b), in the machine's color (MachineColor), as its sidebar rows and the composer's chip draw it.
+/// 1.2b): quiet (textTertiary), or the color the person picked for that machine (`appearance.machineColors`).
 extension TabCell {
     func updateMachineBadge() {
         guard let badge = item.machineBadge, !badge.isEmpty else {
@@ -21,7 +21,7 @@ extension TabCell {
         }()
         label.font = Typography.caption
         label.string = badge
-        themeScope.perform { label.foregroundColor = item.machineColor.color.cgColor }
+        themeScope.perform { label.foregroundColor = item.machineBadgeColor.cgColor }
     }
 
     /// Places the machine badge at the end of the title area when the title
@@ -42,7 +42,10 @@ extension TabCell {
 }
 
 extension TabItem {
-    /// The badge's machine color (MachineColor, with the person's pick): from the machine's own
-    /// name when the badge shows another.
-    var machineColor: MachineColor { MachineColor(name: machineName ?? machineBadge ?? "") }
+    /// The badge's color: the person's pick for the machine (MachineColor.pickedColor), from its
+    /// own name when the badge shows another, else textTertiary. Theme-scoped: read it inside
+    /// `themeScope.perform`.
+    @MainActor var machineBadgeColor: NSColor {
+        MachineColor(name: machineName ?? machineBadge ?? "").pickedColor ?? Palette.textTertiary
+    }
 }

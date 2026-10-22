@@ -25,4 +25,10 @@ public nonisolated struct MachineColor: Sendable {
     @MainActor public var color: NSColor {
         rgb(tokens: ThemeContext.active ?? ThemeScope.app.tokens, overrides: ThemeStore.shared.machineColors).nsColor
     }
+
+    /// The person's pick for this machine in the active theme scope; nil without one. For marks
+    /// that stay quiet unless the person colored the machine (a tab's machine badge).
+    @MainActor public var pickedColor: NSColor? {
+        ThemeStore.shared.machineColors.rgb(forKey: key, tokens: ThemeContext.active ?? ThemeScope.app.tokens)?.nsColor
+    }
 }
