@@ -172,7 +172,9 @@ impl JournalStreamFilter {
                             "journal class filter is invalid",
                         )
                     })?;
-                classes[journal_class_index(class)] = true;
+                if let Some(slot) = classes.get_mut(journal_class_index(class)) {
+                    *slot = true;
+                }
             }
         }
         let mut subject_kinds = HashSet::new();
@@ -253,8 +255,8 @@ impl JournalStreamFilter {
         let kind_matches = (self.exact_kinds.is_empty() && self.kind_prefixes.is_empty())
             || self.exact_kinds.contains(&record.kind)
             || self.kind_prefixes.iter().any(|prefix| record.kind.starts_with(prefix));
-        let class_matches =
-            !self.has_class_filter || self.classes[journal_class_index(record.class)];
+        let class_matches = !self.has_class_filter
+            || self.classes.get(journal_class_index(record.class)).copied().unwrap_or(false);
         let subject_matches = !self.has_subject_filter
             || record.subjects.iter().any(|subject| {
                 self.subject_kinds.contains(&subject.kind)

@@ -145,7 +145,7 @@ await requireBrowserLane("agent-pane-follow-live.test.ts", async () => {
       const last = lines.at(-1)!.getBoundingClientRect().bottom;
       return Math.max(0, Math.round(last - scroller.getBoundingClientRect().bottom));
     });
-  /// Resolves once the view is at rest: no glide running, and three painted frames in a row show the
+  /// Resolves once the view is at rest: no finite animation running, and three painted frames in a row show the
   /// transcript scrolled and sized as the frame before.
   const settle = (page: Page) =>
     page.evaluate(
