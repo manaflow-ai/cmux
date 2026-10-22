@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The nightly visual gate: automated checks on real light and dark stills of the app.
 
-    visual_gate.py [--json REPORT] [--summary MD] CAPTURE_DIR...
+    visual_gate.py [--json REPORT] [--summary MD] [--states STATES_DIR] CAPTURE_DIR...
 
 Each CAPTURE_DIR is one state's capture, in the shape both capture paths
 write (capture_states.py on a CI runner, `cmux-ci capture` / HQ pr-capture on
@@ -12,9 +12,14 @@ a fleet capture mini):
                            "errors": [...], optionally "window_points": [w, h]}
     text-boxes.json       optional: ocr_boxes.swift's output for the two stills
 
+With --states (the folder of state files the capture drove), every state
+there with no CAPTURE_DIR of its name fails: a state that was never captured
+is not a pass.
+
 Checks (docs/ci/nightly-next-visual-gate.md says why each one exists):
 
-  steps        a required step failed, the capture reported an error, or a still is missing  -> fail
+  steps        a required step failed, the capture reported an error, a still is missing, or
+               (with --states) the state was never captured                             -> fail
   appearance   light.png and dark.png are the same picture. Before blaming the build it reads
                what the app reported (result.json "appearance", debug.appearance after each
                switch): the build's fault (the app stayed dark, its bundle has no themes, the
@@ -33,15 +38,20 @@ Checks (docs/ci/nightly-next-visual-gate.md says why each one exists):
                window's other lines that, read again on its own and scaled up, stays garbled
                or comes back as lines on top of each other (Vision reads two pieces of text
                drawn over each other as one tall, garbled line; two wrapped lines it ran
-               together read cleanly, one above the other)                                      -> fail
+               together read cleanly, one above the other). Garbled means two unknown words,
+               or one the reread reads differently: a large heading holding one word the
+               spell checker does not know reads the same both times                          -> fail
 
 Levels: fail blocks (in enforce mode), host is the capture Mac's configuration
 drifting (named, never blocks: one mini's config must not fail every nightly),
-warn and info are notes.
+warn and info are notes, and error says the gate could not judge a state (its
+files could not be read; the other states are still judged).
 
 Pure Python and stdlib only (PNGs are decoded with zlib), so it runs on any
 runner and the tests run on Linux; only producing text-boxes.json needs macOS
-Vision. Exit 0 when nothing failed, 1 when a check failed, 2 on bad input.
+Vision. Exit 0 when every state passed, 1 when a check failed, 3 when none
+failed but a state could not be judged, 2 on bad input or a crash: the
+workflow reads 1 as `fail` and anything else but 0 as `unavailable`.
 """
 
 from __future__ import annotations
@@ -83,6 +93,10 @@ OVERLAP_MIN_CONFIDENCE = 0.3
 STACKED_MIN_CHARS = 12
 STACKED_TALL_RATIO = 1.4
 STACKED_MIN_GARBLE = 6
+# One unknown word is garbled only when the reread reads it differently; a
+# large heading holding one jargon word reads the same both times. Two or more
+# unknown words on one tall line are garbled whatever the reread says.
+STACKED_MIN_GARBLED_WORDS = 2
 KNOWN_WORDS = {"cmux", "acpmux", "glaeda", "webview", "webviews", "showcase", "codex", "worktree", "worktrees",
                "repo", "repos", "localhost", "chromium", "proration", "changelog", "async", "tooltip", "ghostty"}
 
@@ -192,6 +206,8 @@ def check_steps(result: dict[str, Any], stills: dict[str, bool]) -> list[dict[st
     """A failed required step, a capture error or a missing still fails; an optional one is noted."""
     found = []
     for step in result.get("steps") or []:
+        if not isinstance(step, dict):
+            raise BadInput(f"result.json holds a step that is not an object: {step!r}")
         status = step.get("status")
         title = step.get("title") or "(untitled step)"
         detail = f": {step['detail']}" if step.get("detail") else ""
@@ -383,7 +399,7 @@ def clean_merge(observation: dict[str, Any]) -> bool:
 def text_overlaps(observations: list[dict[str, Any]]) -> list[tuple[dict[str, Any], dict[str, Any], float]]:
     """Pairs of separately read text whose boxes share at least OVERLAP_MIN_SHARE of the smaller box."""
     usable = [o for o in observations
-              if not clean_merge(o)
+              if isinstance(o, dict) and not clean_merge(o)
               and isinstance(o.get("box"), list) and len(o["box"]) == 4
               and o["box"][2] * o["box"][3] >= OVERLAP_MIN_AREA
               and float(o.get("confidence", 1.0)) >= OVERLAP_MIN_CONFIDENCE
@@ -439,11 +455,30 @@ def reread_collisions(observation: dict[str, Any]) -> list[tuple[str, str]]:
             if box_overlap(a["box"], b["box"]) >= OVERLAP_MIN_SHARE]
 
 
+def unsteady_words(observation: dict[str, Any], words: list[str]) -> list[str]:
+    """Of the reread's unknown `words`, those the first read did not read the same: garbage
+    changes from one read to the next, a real word Vision knows the shape of does not."""
+    if not isinstance(observation.get("reread"), dict):
+        return []
+    first = str(observation.get("text", "")).lower()
+    return [w for w in words if w.lower() not in first]
+
+
+def garbled_evidence(observation: dict[str, Any]) -> list[str]:
+    """The garbled words of a tall line, when they are evidence of text over text: two or more,
+    or one the reread read differently. One steady unknown word (jargon in a large heading, or a
+    word one host's spell checker lacks) is not."""
+    words = garbled_words(observation)
+    if len(words) >= STACKED_MIN_GARBLED_WORDS or unsteady_words(observation, words):
+        return [f"garbled {w!r}" for w in words]
+    return []
+
+
 def stacked_lines(observations: list[dict[str, Any]]) -> list[tuple[dict[str, Any], float, list[str]]]:
     """Lines read much taller than the window's other lines that stay garbled, or whose reread
     puts lines on top of each other: text over text. (line, height ratio, evidence)."""
-    lines = [o for o in observations if isinstance(o.get("box"), list) and len(o["box"]) == 4
-             and len(str(o.get("text", ""))) >= STACKED_MIN_CHARS]
+    lines = [o for o in observations if isinstance(o, dict) and isinstance(o.get("box"), list)
+             and len(o["box"]) == 4 and len(str(o.get("text", ""))) >= STACKED_MIN_CHARS]
     if len(lines) < 3:
         return []
     heights = sorted(o["box"][3] for o in lines)
@@ -454,7 +489,7 @@ def stacked_lines(observations: list[dict[str, Any]]) -> list[tuple[dict[str, An
     for o in lines:
         ratio = o["box"][3] / median
         if ratio >= STACKED_TALL_RATIO:
-            evidence = [f"garbled {w!r}" for w in garbled_words(o)]
+            evidence = garbled_evidence(o)
             evidence += [f"{a!r} on top of {b!r}" for a, b in reread_collisions(o)]
             if evidence:
                 found.append((o, ratio, evidence))
@@ -464,7 +499,9 @@ def stacked_lines(observations: list[dict[str, Any]]) -> list[tuple[dict[str, An
 def check_overlaps(boxes: dict[str, Any] | None, name: str) -> list[dict[str, Any]]:
     if boxes is None:
         return [finding("overlap", "warn", f"{name}: no text boxes (text-boxes.json); overlap not checked")]
-    observations = boxes.get("observations") or []
+    observations = boxes.get("observations") if isinstance(boxes, dict) else None
+    if not isinstance(observations, list):
+        return [finding("overlap", "warn", f"{name}: text-boxes.json has no observation list; overlap not checked")]
     found = []
     for a, b, share in text_overlaps(observations):
         found.append(finding("overlap", "fail",
@@ -479,21 +516,41 @@ def check_overlaps(boxes: dict[str, Any] | None, name: str) -> list[dict[str, An
 
 # ---------------------------------------------------------------- driver
 
+def read_json(path: Path) -> Any:
+    """The JSON in `path`; BadInput when it cannot be read or parsed (an empty file included)."""
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError) as error:
+        raise BadInput(f"{path.name}: {error}") from error
+
+
+def read_boxes(directory: Path) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    """(text boxes by still name, findings); None when there are none to read."""
+    boxes_file = directory / "text-boxes.json"
+    if not boxes_file.is_file():
+        return None, []
+    try:
+        data = read_json(boxes_file)
+    except BadInput as error:
+        return None, [finding("overlap", "warn", f"{error}; overlap not checked")]
+    if not isinstance(data, dict):
+        return None, [finding("overlap", "warn", "text-boxes.json is not an object; overlap not checked")]
+    return {Path(key).name: value for key, value in data.items()}, []
+
+
 def gate_capture(directory: Path, *, require_2x: bool = False) -> dict[str, Any]:
     """Every check on one state's capture directory."""
     result_path = directory / "result.json"
-    try:
-        result = json.loads(result_path.read_text()) if result_path.is_file() else {"errors": ["no result.json"]}
-    except ValueError as error:
-        result = {"errors": [f"result.json: {error}"]}
+    # No result.json: the capture of the state never finished, which fails it. One the gate
+    # cannot read is the capture tool's fault, not the build's: BadInput, and judge() keeps it.
+    result: Any = read_json(result_path) if result_path.is_file() else {"errors": ["no result.json"]}
+    if not isinstance(result, dict):
+        raise BadInput("result.json is not an object")
     stills = {name: (directory / name).is_file() for name in ("light.png", "dark.png")}
     findings = check_steps(result, stills)
     images = {name: read_png(directory / name) for name, present in stills.items() if present}
-    boxes_file = directory / "text-boxes.json"
-    boxes_by_name: dict[str, Any] = {}
-    if boxes_file.is_file():
-        for key, value in json.loads(boxes_file.read_text()).items():
-            boxes_by_name[Path(key).name] = value
+    boxes_by_name, box_findings = read_boxes(directory)
+    findings += box_findings
     if len(images) == 2:
         findings += check_appearance(images["light.png"], images["dark.png"], result)
     if images:
@@ -501,9 +558,34 @@ def gate_capture(directory: Path, *, require_2x: bool = False) -> dict[str, Any]
         findings += check_scale(first, result.get("window_points"), require=require_2x)
     for name, image in sorted(images.items()):
         findings += check_seams(image, name)
-        findings += check_overlaps(boxes_by_name.get(name) if boxes_file.is_file() else None, name)
-    return {"capture": str(directory), "state": result.get("state") or directory.name, "host": result.get("host"),
-            "ok": not any(f["level"] == "fail" for f in findings), "findings": findings}
+        if not box_findings:  # an unreadable text-boxes.json warned once already
+            findings += check_overlaps(None if boxes_by_name is None else boxes_by_name.get(name), name)
+    return report(directory, result.get("state") or directory.name, result.get("host"), findings)
+
+
+def report(directory: Path, state: str, host: Any, findings: list[dict[str, Any]]) -> dict[str, Any]:
+    failed = any(f["level"] == "fail" for f in findings)
+    verdict = "fail" if failed else "error" if any(f["level"] == "error" for f in findings) else "pass"
+    return {"capture": str(directory), "state": state, "host": host, "ok": verdict == "pass",
+            "verdict": verdict, "findings": findings}
+
+
+def judge(directory: Path, *, require_2x: bool = False) -> dict[str, Any]:
+    """gate_capture(), with any error reading the state's files kept as that state's finding, so
+    one bad still never stops the others from being judged."""
+    try:
+        return gate_capture(directory, require_2x=require_2x)
+    except Exception as error:  # noqa: BLE001 - one state's bad file must not end the gate
+        return report(directory, directory.name, None,
+                      [finding("gate", "error", f"could not judge this state: {type(error).__name__}: {error}")])
+
+
+def never_captured(captures: list[Path], states: Path) -> list[dict[str, Any]]:
+    """A failing report for each state file in `states` with no capture folder of its name."""
+    captured = {directory.name for directory in captures}
+    return [report(states / path.name, path.stem, None,
+                   [finding("steps", "fail", f"the state was never captured (no {path.stem}/ folder)")])
+            for path in sorted(states.glob("*.json")) if path.stem not in captured]
 
 
 def summary_markdown(reports: list[dict[str, Any]]) -> str:
@@ -511,10 +593,11 @@ def summary_markdown(reports: list[dict[str, Any]]) -> str:
              "| State | Host | Result | Failures | Host drift | Warnings |", "| --- | --- | --- | --- | --- | --- |"]
     for report in reports:
         count = lambda level: sum(1 for f in report["findings"] if f["level"] == level)
-        lines.append(f"| `{report['state']}` | {report.get('host') or ''} | {'pass' if report['ok'] else 'FAIL'} "
+        result = {"pass": "pass", "fail": "FAIL"}.get(report.get("verdict", ""), "not judged")
+        lines.append(f"| `{report['state']}` | {report.get('host') or ''} | {result} "
                      f"| {count('fail')} | {count('host')} | {count('warn')} |")
     for report in reports:
-        shown = [f for f in report["findings"] if f["level"] in ("fail", "host", "warn")]
+        shown = [f for f in report["findings"] if f["level"] in ("fail", "error", "host", "warn")]
         if shown:
             lines += ["", f"### `{report['state']}`", ""]
             lines += [f"- **{f['level']}** {f['check']}: {f['message']}" for f in shown]
@@ -527,18 +610,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("captures", nargs="+", type=Path, help="one directory per captured state")
     parser.add_argument("--json", type=Path, help="write the full report here")
     parser.add_argument("--summary", type=Path, help="append a Markdown summary here ($GITHUB_STEP_SUMMARY)")
+    parser.add_argument("--states", type=Path, help="the state files the capture drove: each one not captured fails")
     parser.add_argument("--require-2x", action="store_true", default=os.environ.get("VISUAL_GATE_REQUIRE_2X") == "1",
                         help="fail stills below 2x instead of warning (default: VISUAL_GATE_REQUIRE_2X=1)")
     args = parser.parse_args(argv)
     try:
-        reports = [gate_capture(directory, require_2x=args.require_2x) for directory in args.captures]
-    except (BadInput, ValueError) as error:
-        print(f"visual-gate: {error}", file=sys.stderr)
+        return run(args)
+    except Exception as error:  # noqa: BLE001 - a crash is `unavailable`, never a build failure
+        print(f"visual-gate: crashed: {type(error).__name__}: {error}", file=sys.stderr)
         return 2
+
+
+def run(args: argparse.Namespace) -> int:
+    reports = [judge(directory, require_2x=args.require_2x) for directory in args.captures]
+    if args.states:
+        reports += never_captured(args.captures, args.states)
     for report in reports:
-        print(f"{'PASS' if report['ok'] else 'FAIL'} {report['state']}")
+        print(f"{report['verdict'].upper()} {report['state']}")
         for f in report["findings"]:
-            print(f"  {f['level']:>4} {f['check']}: {f['message']}")
+            print(f"  {f['level']:>5} {f['check']}: {f['message']}")
             if f["level"] == "host" and os.environ.get("GITHUB_ACTIONS"):
                 print(f"::warning title=visual gate host drift::{report['state']}: {f['message']}")
     if args.json:
@@ -546,7 +636,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.summary:
         with args.summary.open("a") as out:
             out.write(summary_markdown(reports))
-    return 0 if all(report["ok"] for report in reports) else 1
+    verdicts = {report["verdict"] for report in reports}
+    return 1 if "fail" in verdicts else 3 if "error" in verdicts else 0
 
 
 if __name__ == "__main__":

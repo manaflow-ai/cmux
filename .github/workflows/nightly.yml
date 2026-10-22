@@ -4393,9 +4393,12 @@ jobs:
     permissions:
       actions: read
       contents: read
+      issues: read # the visual gate's verdict per build (docs/ci/nightly-next-visual-gate.md)
     outputs:
       found: ${{ steps.find.outputs.found }}
       candidates: ${{ steps.find.outputs.candidates }}
+      visual_gate_mode: ${{ steps.visual-gate.outputs.mode }}
+      visual_gate_verdicts: ${{ steps.visual-gate.outputs.verdicts }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -4440,6 +4443,28 @@ jobs:
             echo "### Pending nightly-next notarizations" >> "$GITHUB_STEP_SUMMARY"
             echo "$candidates" | python3 -c 'import json, sys; [print("- run %s build %s" % (c["run_id"], c["build"])) for c in json.load(sys.stdin)]' >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      # A recovered build is judged by the visual gate's verdict on that build,
+      # recorded in the gate's issue by the run that built it, never by this
+      # run's own gate: in enforce mode the continuation refuses a build the
+      # gate failed (scripts/ci/nightly_next_canary_mode.py admit).
+      - name: Read the visual gate's verdicts
+        id: visual-gate
+        if: steps.find.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NIGHTLY_NEXT_VISUAL_GATE: ${{ vars.NIGHTLY_NEXT_VISUAL_GATE }}
+          NIGHTLY_NEXT_VISUAL_GATE_ENFORCE_AFTER: ${{ vars.NIGHTLY_NEXT_VISUAL_GATE_ENFORCE_AFTER }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/nightly_next_canary_mode.py resolve --variable NIGHTLY_NEXT_VISUAL_GATE \
+            --default-enforce-after 2026-10-28T16:00:00Z --gate "visual gate" \
+            --issue-title "nightly-next visual gate" --failure-prefix "cmux NEXT visual gate failed " \
+            --pass-prefix "cmux NEXT visual gate passed " --min-passes 3 \
+            | tee -a "$GITHUB_OUTPUT"
+          verdicts="$(python3 scripts/ci/nightly_next_canary_mode.py verdicts --issue-title "nightly-next visual gate" \
+            --pass-prefix "cmux NEXT visual gate passed " --failure-prefix "cmux NEXT visual gate failed ")"
+          echo "verdicts=$verdicts" >> "$GITHUB_OUTPUT"
 
   recover-nightly-next-notarization:
     environment: ${{ needs.decide.outputs.environment }}
@@ -4521,6 +4546,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CANDIDATES: ${{ needs.find-nightly-next-recovery.outputs.candidates }}
           REQUIRED: ${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}
+          VISUAL_GATE_MODE: ${{ needs.find-nightly-next-recovery.outputs.visual_gate_mode }}
+          VISUAL_GATE_VERDICTS: ${{ needs.find-nightly-next-recovery.outputs.visual_gate_verdicts }}
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
@@ -4564,6 +4591,12 @@ jobs:
             fi
             if ! python3 scripts/ci/nightly_version.py check-build --build "$BUILD" "${feeds[@]}"; then
               echo "::notice::run $run_id: build $BUILD is no longer above both feeds; skipping"
+              echo "::endgroup::"; continue
+            fi
+            # The visual gate's verdict on this build, recorded by the run that built it.
+            if ! python3 scripts/ci/nightly_next_canary_mode.py admit --mode "${VISUAL_GATE_MODE:-report}" \
+                --build-sha "$BUILD_SHA" --verdicts "$VISUAL_GATE_VERDICTS"; then
+              echo "::notice title=Recovery refused::run $run_id: build $BUILD failed the visual gate in enforce mode; skipping"
               echo "::endgroup::"; continue
             fi
             mkdir -p "$dir/cmux-nightly-notarization-recovery-app"
@@ -4735,11 +4768,16 @@ jobs:
   # scripts/cmux-next/visual-gate/states on an owned Mac's session runner, light
   # and dark stills of each, then automated checks on the pictures (failed
   # steps, light == dark, 1-px seams, text drawn over text). It runs beside the
-  # signed build, not after it, so it adds no time to a nightly. publish-nightly
-  # waits for it; only `enforce` with a failing verdict stops publication. The
-  # mode comes from the canary's resolver under its own variable
-  # (NIGHTLY_NEXT_VISUAL_GATE: report, enforce, off, or unset = report until
-  # the date, then enforce after a clean report week).
+  # signed build, not after it; publish-nightly waits for it, so a gate that
+  # outlasts the build delays publication by the difference. It runs only when
+  # a session runner is idle as the run starts, and never queues for one: with
+  # none idle the gate is skipped (verdict `unavailable`) and publication goes
+  # ahead. Only `enforce` with a failing verdict stops publication of this
+  # run's build; recovered builds are judged by their own recorded verdict
+  # (recover-nightly-next-notarization). The mode comes from the canary's
+  # resolver under its own variable (NIGHTLY_NEXT_VISUAL_GATE: report,
+  # enforce, off, or unset = report until the date, then enforce after a
+  # report week with no failure and at least 3 passes).
   route-visual-gate-nightly:
     needs: [decide, resolve-nightly-cmux-tui-client]
     if: github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.no_publish != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && vars.NIGHTLY_NEXT_VISUAL_GATE != 'off'
@@ -4751,6 +4789,8 @@ jobs:
     outputs:
       runs_on: ${{ steps.pick.outputs.runs_on }}
       reason: ${{ steps.pick.outputs.reason }}
+      # `unavailable` when no session runner was idle: the gate is skipped.
+      verdict: ${{ steps.pick.outputs.verdict }}
       mode: ${{ steps.mode.outputs.mode }}
       why: ${{ steps.mode.outputs.why }}
     steps:
@@ -4774,25 +4814,48 @@ jobs:
           set -euo pipefail
           python3 scripts/ci/nightly_next_canary_mode.py resolve --variable NIGHTLY_NEXT_VISUAL_GATE \
             --default-enforce-after 2026-10-28T16:00:00Z --gate "visual gate" \
-            --issue-title "nightly-next visual gate failed" --failure-prefix "cmux NEXT visual gate failed " \
+            --issue-title "nightly-next visual gate" --failure-prefix "cmux NEXT visual gate failed " \
+            --pass-prefix "cmux NEXT visual gate passed " --min-passes 3 \
             | tee -a "$GITHUB_OUTPUT"
 
-      # The media tour's runner: an owned Mac's session runner (its gui runner
-      # until the slots name session runners), the one that holds the logged-in
-      # console session the app draws in. Workflows never name an owned label
-      # (tests/test_ci_self_hosted_guard.sh); it arrives as this output.
-      - name: Pick an owned session runner
+      # Idle runners are read live, as side_lane_placement.py does. Any
+      # failure leaves the token empty, and the gate is skipped.
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: steps.mode.outputs.mode != 'off' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      # The media tour's runner: an owned Mac's session runner (else its gui
+      # runner), the one that holds the logged-in console session the app
+      # draws in, and only one that is idle now (--idle-now). A self-hosted job
+      # queued for a busy runner can wait a day, and publish-nightly waits on
+      # this one, so with none idle the gate is skipped. Workflows never name
+      # an owned label (tests/test_ci_self_hosted_guard.sh); it arrives as
+      # this output.
+      - name: Pick an idle owned session runner
         id: pick
         if: steps.mode.outputs.mode != 'off'
         env:
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
-          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
         run: |
           set -euo pipefail
-          python3 scripts/ci/cmux_next_media_runner.py --same-repo true
-          if ! grep -q '^runs_on=.' "$GITHUB_OUTPUT"; then
-            echo "::warning title=nightly-next visual gate::no owned Mac to capture on; this nightly is not checked"
+          python3 scripts/ci/cmux_next_media_runner.py --same-repo true --idle-now | tee "$RUNNER_TEMP/pick.out"
+          if ! grep -q '^runs_on=.' "$RUNNER_TEMP/pick.out"; then
+            reason="$(sed -n 's/^reason=//p' "$RUNNER_TEMP/pick.out")"
+            echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
+            echo "::warning title=nightly-next visual gate::skipped, verdict unavailable: $reason; $BUILD_SHA is not checked"
+            printf '## Nightly visual gate\n\nSkipped for `%s`, verdict `unavailable`: %s. This nightly is not checked and publishes as usual.\n' \
+              "$BUILD_SHA" "$reason" >> "$GITHUB_STEP_SUMMARY"
           fi
 
   visual-gate-nightly:
@@ -4884,14 +4947,23 @@ jobs:
           exec python3 scripts/cmux-next/visual-gate/capture_states.py --app "$APP" \
             --out "$RUNNER_TEMP/visual-gate" scripts/cmux-next/visual-gate/states
 
+      # Each state's boxes go to a temporary file that is moved into place
+      # only when ocr_boxes succeeded: a failed read leaves no text-boxes.json
+      # (the gate warns that overlap was not checked) and the next state is
+      # still read.
       - name: Read the text boxes
         continue-on-error: true
         run: |
-          set -euo pipefail
-          swiftc -O scripts/cmux-next/visual-gate/ocr_boxes.swift -o "$RUNNER_TEMP/ocr_boxes"
+          set -uo pipefail
+          swiftc -O scripts/cmux-next/visual-gate/ocr_boxes.swift -o "$RUNNER_TEMP/ocr_boxes" || exit 0
           for state in "$RUNNER_TEMP"/visual-gate/*/; do
             [ -f "$state/light.png" ] && [ -f "$state/dark.png" ] || continue
-            "$RUNNER_TEMP/ocr_boxes" "$state/light.png" "$state/dark.png" > "$state/text-boxes.json"
+            if "$RUNNER_TEMP/ocr_boxes" "$state/light.png" "$state/dark.png" > "$state/text-boxes.json.part"; then
+              mv "$state/text-boxes.json.part" "$state/text-boxes.json"
+            else
+              rm -f "$state/text-boxes.json.part"
+              echo "::warning title=nightly-next visual gate::could not read the text boxes of $(basename "$state")"
+            fi
           done
 
       - name: Run the visual gate
@@ -4900,6 +4972,11 @@ jobs:
         env:
           # 1 once the capture Macs draw at 2x (a HiDPI display): stills below 2x then fail.
           VISUAL_GATE_REQUIRE_2X: ${{ vars.NIGHTLY_NEXT_VISUAL_GATE_REQUIRE_2X }}
+        # visual_gate.py exits 0 (every state passed), 1 (a check failed: the
+        # build's fault), 3 (a state could not be judged) or 2 (bad input or a
+        # crash). Only 1 is `fail`; a gate that could not judge is
+        # `unavailable`, never a build failure. --states fails each state file
+        # with no capture folder (a state the capture never reached).
         run: |
           set -uo pipefail
           states=("$RUNNER_TEMP"/visual-gate/*/)
@@ -4907,7 +4984,7 @@ jobs:
             verdict=unavailable
           else
             python3 scripts/cmux-next/visual-gate/visual_gate.py --json "$RUNNER_TEMP/visual-gate/report.json" \
-              --summary "$GITHUB_STEP_SUMMARY" "${states[@]}"
+              --summary "$GITHUB_STEP_SUMMARY" --states scripts/cmux-next/visual-gate/states "${states[@]}"
             case $? in 0) verdict=pass ;; 1) verdict=fail ;; *) verdict=unavailable ;; esac
           fi
           blocks=false
@@ -4916,7 +4993,7 @@ jobs:
           echo "visual gate: $verdict (mode $GATE_MODE: $GATE_WHY)"
           case "$verdict" in
             fail) echo "::warning title=nightly-next visual gate::the stills of $BUILD_SHA failed the visual gate (mode $GATE_MODE); see the job summary and the nightly-next-visual-gate artifact" ;;
-            unavailable) echo "::warning title=nightly-next visual gate::the gate could not capture $BUILD_SHA; this nightly is not checked" ;;
+            unavailable) echo "::warning title=nightly-next visual gate::the gate could not capture or judge $BUILD_SHA; this nightly is not checked" ;;
           esac
 
       - name: Keep the stills and the report
@@ -4934,36 +5011,46 @@ jobs:
           echo "::error title=nightly-next visual gate::$BUILD_SHA failed the visual gate in enforce mode ($GATE_WHY); publish-nightly publishes nothing"
           exit 1
 
-  # One entry per failed build in the `nightly-next visual gate failed` issue:
-  # the report week the auto flip reads, and where people look.
+  # One entry per judged build in the `nightly-next visual gate` issue, its
+  # record: `cmux NEXT visual gate passed|failed <build sha>: <run>`. The
+  # recovery path reads it to judge a recovered build by its own verdict
+  # (find-nightly-next-recovery), and the auto flip reads the report week's
+  # failures and passes from it. A run whose gate could not judge records
+  # nothing.
   report-visual-gate-nightly:
     needs: [resolve-nightly-cmux-tui-client, route-visual-gate-nightly, visual-gate-nightly]
-    if: always() && needs.visual-gate-nightly.outputs.verdict == 'fail'
+    if: always() && (needs.visual-gate-nightly.outputs.verdict == 'fail' || needs.visual-gate-nightly.outputs.verdict == 'pass')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
-      issues: write # the nightly-next visual gate failed issue
+      issues: write # the nightly-next visual gate issue
     steps:
-      - name: Open or comment on the visual gate issue
+      - name: Record the verdict in the visual gate issue
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           MODE: ${{ needs.route-visual-gate-nightly.outputs.mode }}
+          VERDICT: ${{ needs.visual-gate-nightly.outputs.verdict }}
         with:
           script: |
-            const title = 'nightly-next visual gate failed';
+            const title = 'nightly-next visual gate';
             const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const action = process.env.MODE === 'enforce'
-              ? 'The gate is in `enforce` mode, so this build was not published.'
-              : `The gate is in \`${process.env.MODE}\` mode, so the build was published anyway.`;
-            const body = `cmux NEXT visual gate failed ${process.env.SHA}: ${run}\n\n${action} The stills and the findings are in the run's \`nightly-next-visual-gate-*\` artifact and job summary.`;
-            const open = await github.paginate(github.rest.issues.listForRepo, { ...context.repo, state: 'open', per_page: 100, creator: 'github-actions[bot]' });
-            const issue = open.find(i => i.title === title && !i.pull_request);
-            if (issue) {
-              await github.rest.issues.createComment({ ...context.repo, issue_number: issue.number, body });
-            } else {
-              await github.rest.issues.create({ ...context.repo, title, body });
+            let body = `cmux NEXT visual gate passed ${process.env.SHA}: ${run}`;
+            if (process.env.VERDICT === 'fail') {
+              const action = process.env.MODE === 'enforce'
+                ? 'The gate is in `enforce` mode, so this build is not published, by this run or by a later recovery.'
+                : `The gate is in \`${process.env.MODE}\` mode, so the build was published anyway.`;
+              body = `cmux NEXT visual gate failed ${process.env.SHA}: ${run}\n\n${action} The stills and the findings are in the run's \`nightly-next-visual-gate-*\` artifact and job summary.`;
             }
+            const open = await github.paginate(github.rest.issues.listForRepo, { ...context.repo, state: 'open', per_page: 100, creator: 'github-actions[bot]' });
+            let issue = open.find(i => i.title === title && !i.pull_request);
+            if (!issue) {
+              ({ data: issue } = await github.rest.issues.create({ ...context.repo, title, body:
+                'The nightly-next visual gate\'s record (docs/ci/nightly-next-visual-gate.md): one comment per judged build, '
+                + '`cmux NEXT visual gate passed|failed <build sha>: <run>`. The recovery path and the auto flip read it, '
+                + 'so keep the first line of each comment as it is.' }));
+            }
+            await github.rest.issues.createComment({ ...context.repo, issue_number: issue.number, body });
 
   publish-nightly:
     # Production secrets: GitHub releases them only to protected refs (the
@@ -4994,9 +5081,11 @@ jobs:
       # live is not mac, or is unreadable; or NIGHTLY_NEXT_HOLD is 1).
       refused: ${{ steps.gate.outputs.refused }}
       refusal_reason: ${{ steps.gate.outputs.refusal_reason }}
-    # visual-gate-nightly blocks only in enforce mode with a failing verdict;
-    # skipped, unavailable or report mode publishes as before.
-    if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && needs.visual-gate-nightly.outputs.blocks != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))"
+    # visual-gate-nightly holds this run's own build only, in enforce mode with
+    # a failing verdict; skipped, unavailable or report mode publishes as
+    # before. A recovered build was judged by its own verdict when
+    # recover-nightly-next-notarization continued it.
+    if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success' && needs.visual-gate-nightly.outputs.blocks != 'true') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))"
     # A literal ephemeral label: this job holds the release App key (guard rule 7).
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -5025,6 +5114,8 @@ jobs:
           # verify-final-dmg-nightly its final DMG.
           OWN_VERIFIED: ${{ needs.verify-signed-nightly.result }}
           OWN_DMG_VERIFIED: ${{ needs.verify-final-dmg-nightly.result }}
+          # The visual gate failed this run's build in enforce mode.
+          OWN_GATE_BLOCKS: ${{ needs.visual-gate-nightly.outputs.blocks }}
           RECOVERED_VERIFIED: ${{ needs.verify-recovered-nightly-next.result }}
           OWN_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
           OWN_BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
@@ -5040,7 +5131,7 @@ jobs:
           RECOVERED_BEHIND_HOURS: ${{ needs.recover-nightly-next-notarization.outputs.behind_hours }}
         run: |
           set -euo pipefail
-          if [ "$OWN_RESULT" = success ] && [ "$OWN_PENDING" != true ] && [ "$OWN_VERIFIED" = success ] && [ "$OWN_DMG_VERIFIED" = success ]; then
+          if [ "$OWN_RESULT" = success ] && [ "$OWN_PENDING" != true ] && [ "$OWN_VERIFIED" = success ] && [ "$OWN_DMG_VERIFIED" = success ] && [ "$OWN_GATE_BLOCKS" != true ]; then
             source=own build="$OWN_BUILD" build_sha="$OWN_BUILD_SHA" tip_sha="$OWN_TIP_SHA"
             behind="$OWN_BEHIND" behind_hours="$OWN_BEHIND_HOURS" pattern="cmux-nightly-variant-*"
             tested_pattern="cmux-nightly-tested-*"

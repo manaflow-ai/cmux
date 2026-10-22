@@ -31,11 +31,26 @@ or silently skip).
 Other report-then-enforce gates on the nightly reuse this resolver with their
 own names (docs/ci/nightly-next-visual-gate.md):
 
-  resolve --variable NIGHTLY_NEXT_VISUAL_GATE --issue-title "nightly-next visual gate failed"
+  resolve --variable NIGHTLY_NEXT_VISUAL_GATE --issue-title "nightly-next visual gate"
           --failure-prefix "cmux NEXT visual gate failed " --default-enforce-after WHEN
+          --pass-prefix "cmux NEXT visual gate passed " --min-passes 3
 
 --variable names the toggle in messages and the default for --value and
 --enforce-after (read from $VARIABLE and $VARIABLE_ENFORCE_AFTER).
+--min-passes N (default 0, the canary's rule) also needs N entries starting
+with --pass-prefix in the report week before auto enforces: a week in which
+the gate judged nothing is no evidence that it judges well.
+
+A gate whose issue holds one entry per judged build (`<prefix><build sha>: ...`)
+is that gate's record of each build's verdict:
+
+  verdicts --issue-title T --pass-prefix P --failure-prefix F [--days 14]
+      prints {"<build sha>": "pass" | "fail"} (the newest entry per build) as
+      one JSON line; {} when the issue cannot be read.
+  admit --mode MODE --build-sha SHA --verdicts JSON [--gate NAME]
+      exit 0 to publish the build, 1 to refuse it: only `enforce` with a
+      `fail` verdict refuses. A build with no verdict is published (with a
+      warning in enforce): a gate that could not judge never blocks.
 """
 
 from __future__ import annotations
@@ -90,10 +105,41 @@ def failures_in(entries: Iterable[tuple[dt.datetime, str]], start: dt.datetime, 
     return sorted(found)
 
 
+def build_verdicts(entries: Iterable[tuple[dt.datetime, str]], pass_prefix: str,
+                   failure_prefix: str) -> dict[str, str]:
+    """{build sha: "pass" | "fail"} from entries `<prefix><sha>: ...`; the newest entry per build wins."""
+    found: dict[str, str] = {}
+    for _, body in sorted(entries, key=lambda entry: entry[0]):
+        text = body.lstrip()
+        for prefix, verdict in ((pass_prefix, "pass"), (failure_prefix, "fail")):
+            if prefix and text.startswith(prefix):
+                words = text[len(prefix):].split(maxsplit=1)
+                sha = words[0].rstrip(":,.").lower() if words else ""
+                if len(sha) == 40 and all(c in "0123456789abcdef" for c in sha):
+                    found[sha] = verdict
+                break
+    return found
+
+
+def admit(mode: str, build_sha: str, verdicts: dict[str, str],
+          gate: str = "visual gate") -> tuple[bool, str, str]:
+    """(publish?, annotation level, why) for one build: refused only in enforce mode with a recorded `fail`."""
+    verdict = verdicts.get(build_sha.strip().lower())
+    said = {"pass": "passed", "fail": "failed"}.get(verdict or "", "recorded no verdict for")
+    if mode != "enforce":
+        return True, "notice", f"the {gate} {said} {build_sha} and is in {mode or 'no'} mode; publishing it"
+    if verdict == "fail":
+        return False, "error", f"the {gate} failed {build_sha} and is in enforce mode; not publishing it"
+    if verdict is None:
+        return True, "warning", f"the {gate} recorded no verdict for {build_sha}; publishing it unchecked"
+    return True, "notice", f"the {gate} passed {build_sha}; publishing it"
+
+
 def resolve(value: str, enforce_after: str, now: dt.datetime,
             read_entries: Callable[[dt.datetime], list[tuple[dt.datetime, str]]], *,
             variable: str = VARIABLE, default_enforce_after: str = DEFAULT_ENFORCE_AFTER,
-            failure_prefix: str = FAILURE_PREFIX, gate: str = "canary") -> tuple[str, str]:
+            failure_prefix: str = FAILURE_PREFIX, gate: str = "canary",
+            pass_prefix: str = "", min_passes: int = 0) -> tuple[str, str]:
     value = value.strip().lower()
     if value in EXPLICIT:
         return value, f"{variable}={value}"
@@ -115,6 +161,14 @@ def resolve(value: str, enforce_after: str, now: dt.datetime,
         return "report", (f"auto: the {gate} failed {len(failed)} build(s) in the report week before {stamp} "
                           f"(first: {failed[0]}); triage, then set {variable}=enforce or move "
                           f"{variable}_ENFORCE_AFTER")
+    if min_passes > 0:
+        passed = failures_in(entries, start, when, pass_prefix) if pass_prefix else []
+        if len(passed) < min_passes:
+            return "report", (f"auto: the {gate} passed {len(passed)} build(s) in the report week before {stamp}, "
+                              f"fewer than the {min_passes} it needs to enforce; set {variable}=enforce or move "
+                              f"{variable}_ENFORCE_AFTER")
+        return "enforce", (f"auto: enforce since {stamp} (no {gate} failure and {len(passed)} pass(es) "
+                           "in the report week)")
     return "enforce", f"auto: enforce since {stamp} (no {gate} failure in the report week)"
 
 
@@ -168,9 +222,42 @@ def main(argv: list[str]) -> int:
     r.add_argument("--issue-title", default=ISSUE_TITLE, help="the issue holding the report week's failures")
     r.add_argument("--failure-prefix", default=FAILURE_PREFIX, help="how each failure entry starts")
     r.add_argument("--gate", default="canary", help="the gate's name in messages")
+    r.add_argument("--pass-prefix", default="", help="how each pass entry starts")
+    r.add_argument("--min-passes", type=int, default=0, help="pass entries the report week needs to enforce")
     r.add_argument("--now", default="")
     r.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", "manaflow-ai/cmux"))
+    v = sub.add_parser("verdicts")
+    v.add_argument("--issue-title", required=True)
+    v.add_argument("--pass-prefix", required=True)
+    v.add_argument("--failure-prefix", required=True)
+    v.add_argument("--days", type=float, default=14.0)
+    v.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", "manaflow-ai/cmux"))
+    a = sub.add_parser("admit")
+    a.add_argument("--mode", required=True)
+    a.add_argument("--build-sha", required=True)
+    a.add_argument("--verdicts", default="{}")
+    a.add_argument("--gate", default="visual gate")
     args = parser.parse_args(argv)
+    if args.command == "verdicts":
+        since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=args.days)
+        try:
+            entries = github_entries(args.repo, os.environ.get("GH_TOKEN", ""), args.issue_title)(since)
+        except Exception as err:  # noqa: BLE001 - unreadable: no verdicts, so nothing is refused
+            print(f"::warning title=nightly-next verdicts::could not read {args.issue_title!r} ({err})",
+                  file=sys.stderr)
+            entries = []
+        print(json.dumps(build_verdicts(entries, args.pass_prefix, args.failure_prefix), sort_keys=True,
+                         separators=(",", ":")))
+        return 0
+    if args.command == "admit":
+        try:
+            verdicts = json.loads(args.verdicts or "{}")
+        except ValueError:
+            verdicts = {}
+        ok, level, why = admit(args.mode.strip().lower(), args.build_sha,
+                               verdicts if isinstance(verdicts, dict) else {}, args.gate)
+        print(f"::{level} title=nightly-next {args.gate}::{why}")
+        return 0 if ok else 1
     value = args.value if args.value is not None else os.environ.get(args.variable, "")
     enforce_after = (args.enforce_after if args.enforce_after is not None
                      else os.environ.get(f"{args.variable}_ENFORCE_AFTER", ""))
@@ -180,7 +267,8 @@ def main(argv: list[str]) -> int:
         mode, why = resolve(value, enforce_after, now,
                             github_entries(args.repo, os.environ.get("GH_TOKEN", ""), args.issue_title),
                             variable=args.variable, default_enforce_after=args.default_enforce_after,
-                            failure_prefix=args.failure_prefix, gate=args.gate)
+                            failure_prefix=args.failure_prefix, gate=args.gate,
+                            pass_prefix=args.pass_prefix, min_passes=args.min_passes)
     except BadValue as err:
         print(f"::error title=nightly-next {args.gate} mode::{err}", file=sys.stderr)
         return 2

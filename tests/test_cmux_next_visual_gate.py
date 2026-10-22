@@ -309,6 +309,25 @@ class OverlapTests(unittest.TestCase):
         again = obs("row now, with the PR status in color.", [332, 136, 208, 17])
         self.assertEqual(gate.check_overlaps(self.lines(joined, again), "light.png"), [])
 
+    def test_a_large_heading_with_one_jargon_word_passes(self):
+        # A heading reads taller than body text; one word the spell checker lacks (and that
+        # differs by host) reads the same in the reread, so it is not text over text.
+        heading = obs("Kubernetes deployment overview", [10, 300, 320, 26], misspelled=["Kubernetes"],
+                      reread={"lines": [{"text": "Kubernetes deployment overview", "box": [10, 300, 320, 26]}],
+                              "misspelled": ["Kubernetes"]})
+        self.assertEqual(gate.check_overlaps(self.lines(heading), "light.png"), [])
+        # Without a reread one steady word is no evidence either.
+        bare = obs("Kubernetes deployment overview", [10, 300, 320, 26], misspelled=["Kubernetes"])
+        self.assertEqual(gate.check_overlaps(self.lines(bare), "light.png"), [])
+
+    def test_a_tall_line_with_two_unknown_words_fails(self):
+        both = obs("Kubernetes frobnicated overview", [10, 300, 320, 26],
+                   reread={"lines": [{"text": "Kubernetes frobnicated overview", "box": [10, 300, 320, 26]}],
+                           "misspelled": ["Kubernetes", "frobnicated"]})
+        found = gate.check_overlaps(self.lines(both), "light.png")
+        self.assertEqual(len(found), 1)
+        self.assertIn("garbled 'frobnicated'", found[0]["message"])
+
     def test_a_garbled_line_of_normal_height_passes(self):
         # Garbled OCR alone (small text, an icon read as letters) is not evidence of overlap.
         meh = obs("Qxzvblorp frenulated nonsense", [10, 300, 200, 14], misspelled=["Qxzvblorp"])
@@ -355,12 +374,91 @@ class CaptureDirTests(unittest.TestCase):
             self.assertIn("cmux-mac-mini", done.stdout)
 
 
+def good_capture(directory: Path) -> Path:
+    directory.mkdir(parents=True)
+    (directory / "light.png").write_bytes(png(120, 80, light_ui))
+    (directory / "dark.png").write_bytes(png(120, 80, dark_ui))
+    (directory / "result.json").write_text(json.dumps({"steps": [{"title": "a", "status": "ok"}],
+                                                       "window_points": [60, 40]}))
+    (directory / "text-boxes.json").write_text(json.dumps({"light.png": {"observations": []},
+                                                           "dark.png": {"observations": []}}))
+    return directory
+
+
+def run_gate(*args):
+    return subprocess.run([sys.executable, str(GATE / "visual_gate.py"), *map(str, args)],
+                          capture_output=True, text=True, timeout=120)
+
+
+class RobustnessTests(unittest.TestCase):
+    """One bad file is that state's finding; the other states are still judged, and a gate that
+    could not judge is never a build failure (exit 3 or 2, which the workflow reads as unavailable)."""
+
+    def test_an_empty_text_boxes_file_only_skips_the_overlap_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = good_capture(Path(tmp) / "a")
+            (state / "text-boxes.json").write_text("")  # what a failed `ocr_boxes > file` left behind
+            report = gate.judge(state)
+            self.assertEqual(report["verdict"], "pass", report)
+            self.assertIn("overlap not checked", " ".join(f["message"] for f in report["findings"]))
+
+    def test_a_bad_png_and_a_bad_result_are_errors_and_the_rest_are_judged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            good = good_capture(Path(tmp) / "good")
+            bad_png = good_capture(Path(tmp) / "bad-png")
+            (bad_png / "dark.png").write_bytes(b"\x89PNG\r\n\x1a\nnot really")
+            listed = good_capture(Path(tmp) / "listed")
+            (listed / "result.json").write_text(json.dumps({"steps": ["ok"]}))  # a list where a dict belongs
+            not_object = good_capture(Path(tmp) / "not-object")
+            (not_object / "result.json").write_text("[]")
+            report = Path(tmp) / "report.json"
+            done = run_gate("--json", report, bad_png, listed, not_object, good)
+            self.assertEqual(done.returncode, 3, done.stdout + done.stderr)
+            verdicts = {r["state"]: r["verdict"] for r in json.loads(report.read_text())}
+            self.assertEqual(verdicts, {"bad-png": "error", "listed": "error", "not-object": "error", "good": "pass"})
+            # A real failure elsewhere still fails the gate.
+            failed = good_capture(Path(tmp) / "failed")
+            (failed / "result.json").write_text(json.dumps({"steps": [{"title": "a", "status": "failed"}]}))
+            self.assertEqual(run_gate(bad_png, failed).returncode, 1)
+
+    def test_a_crash_is_exit_2_not_a_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            good = good_capture(Path(tmp) / "good")
+            done = run_gate("--json", Path(tmp) / "missing-dir/report.json", good)
+            self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
+            self.assertIn("crashed", done.stderr)
+
+    def test_a_state_never_captured_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            states = Path(tmp) / "states"
+            states.mkdir()
+            for name in ("good", "skipped"):
+                (states / f"{name}.json").write_text("{}")
+            good = good_capture(Path(tmp) / "out/good")
+            self.assertEqual(run_gate(good).returncode, 0)
+            report = Path(tmp) / "report.json"
+            done = run_gate("--json", report, "--states", states, good)
+            self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+            skipped = next(r for r in json.loads(report.read_text()) if r["state"] == "skipped")
+            self.assertIn("never captured", skipped["findings"][0]["message"])
+
+
+SCRIPT = ROOT / "scripts/ci/nightly_next_canary_mode.py"
+
+
 class ModeResolverTests(unittest.TestCase):
     """The canary's resolver, reused under the gate's own variable and issue."""
-    SCRIPT = ROOT / "scripts/ci/nightly_next_canary_mode.py"
+    SCRIPT = SCRIPT
     ARGS = ["--variable", "NIGHTLY_NEXT_VISUAL_GATE", "--default-enforce-after", "2026-10-28T16:00:00Z",
-            "--gate", "visual gate", "--issue-title", "nightly-next visual gate failed",
-            "--failure-prefix", "cmux NEXT visual gate failed "]
+            "--gate", "visual gate", "--issue-title", "nightly-next visual gate",
+            "--failure-prefix", "cmux NEXT visual gate failed ", "--pass-prefix", "cmux NEXT visual gate passed ",
+            "--min-passes", "3"]
+    spec = importlib.util.spec_from_file_location("canary_mode_for_gate", SCRIPT)
+    mode = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mode)
+    OPTIONS = dict(variable="NIGHTLY_NEXT_VISUAL_GATE", default_enforce_after="2026-10-28T16:00:00Z",
+                   failure_prefix="cmux NEXT visual gate failed ", gate="visual gate",
+                   pass_prefix="cmux NEXT visual gate passed ", min_passes=3)
 
     def resolve(self, *extra, **env):
         return subprocess.run([sys.executable, str(self.SCRIPT), "resolve", *self.ARGS, *extra],
@@ -383,20 +481,73 @@ class ModeResolverTests(unittest.TestCase):
         self.assertEqual(done.returncode, 2)
         self.assertIn("NIGHTLY_NEXT_VISUAL_GATE='enforec'", done.stderr)
 
+    def passes(self, count, flip, *extra):
+        day = self.mode.REPORT_WEEK / 8
+        return lambda _since: [(flip - day * (i + 1), f"cmux NEXT visual gate passed {i:040x}: run")
+                               for i in range(count)] + list(extra)
+
     def test_the_report_week_counts_only_gate_failures(self):
-        spec = importlib.util.spec_from_file_location("canary_mode_for_gate", self.SCRIPT)
-        mode = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mode)
-        flip = mode.parse_when("2026-10-28T16:00:00Z")
-        options = dict(variable="NIGHTLY_NEXT_VISUAL_GATE", default_enforce_after="2026-10-28T16:00:00Z",
-                       failure_prefix="cmux NEXT visual gate failed ", gate="visual gate")
-        canary_only = lambda _since: [(flip - mode.REPORT_WEEK / 2, "cmux NEXT build 9 failed the canary twice")]
-        got, why = mode.resolve("", "", flip + mode.REPORT_WEEK, canary_only, **options)
+        mode, flip = self.mode, self.mode.parse_when("2026-10-28T16:00:00Z")
+        canary_only = self.passes(3, flip, (flip - mode.REPORT_WEEK / 2, "cmux NEXT build 9 failed the canary twice"))
+        got, why = mode.resolve("", "", flip + mode.REPORT_WEEK, canary_only, **self.OPTIONS)
         self.assertEqual(got, "enforce", why)
-        gate_failed = lambda _since: [(flip - mode.REPORT_WEEK / 2, "cmux NEXT visual gate failed abc: run")]
-        got, why = mode.resolve("", "", flip + mode.REPORT_WEEK, gate_failed, **options)
+        gate_failed = self.passes(3, flip, (flip - mode.REPORT_WEEK / 2, "cmux NEXT visual gate failed abc: run"))
+        got, why = mode.resolve("", "", flip + mode.REPORT_WEEK, gate_failed, **self.OPTIONS)
         self.assertEqual(got, "report")
         self.assertIn("set NIGHTLY_NEXT_VISUAL_GATE=enforce", why)
+
+    def test_auto_enforces_only_after_3_proven_passes(self):
+        # A quiet week (the gate skipped or could not judge) is no evidence the gate works.
+        mode, flip = self.mode, self.mode.parse_when("2026-10-28T16:00:00Z")
+        for count, want in ((0, "report"), (2, "report"), (3, "enforce")):
+            got, why = mode.resolve("", "", flip + mode.REPORT_WEEK, self.passes(count, flip), **self.OPTIONS)
+            self.assertEqual(got, want, (count, why))
+        got, why = mode.resolve("", "", flip + mode.REPORT_WEEK, self.passes(2, flip), **self.OPTIONS)
+        self.assertIn("passed 2 build(s)", why)
+        # Passes after the flip do not count toward the week before it.
+        late = lambda _since: [(flip + mode.REPORT_WEEK / 8 * (i + 1), f"cmux NEXT visual gate passed {i:040x}: r")
+                               for i in range(5)]
+        self.assertEqual(mode.resolve("", "", flip + mode.REPORT_WEEK, late, **self.OPTIONS)[0], "report")
+
+    def test_each_build_has_its_own_verdict(self):
+        mode, flip = self.mode, self.mode.parse_when("2026-10-28T16:00:00Z")
+        a, b, c = "a" * 40, "b" * 40, "c" * 40
+        entries = [(flip, f"cmux NEXT visual gate failed {b}: run 2\n\nThe gate is in `enforce` mode"),
+                   (flip - mode.REPORT_WEEK, f"cmux NEXT visual gate passed {a}: run 1"),
+                   (flip + mode.REPORT_WEEK, f"cmux NEXT visual gate passed {c}: run 3"),
+                   (flip + mode.REPORT_WEEK, f"cmux NEXT build 7 {a} failed the canary"),
+                   (flip, "The nightly-next visual gate's record: one comment per judged build")]
+        verdicts = mode.build_verdicts(entries, "cmux NEXT visual gate passed ", "cmux NEXT visual gate failed ")
+        self.assertEqual(verdicts, {a: "pass", b: "fail", c: "pass"})
+        # A later judgment of the same build wins.
+        again = entries + [(flip + mode.REPORT_WEEK * 2, f"cmux NEXT visual gate passed {b}: run 4")]
+        self.assertEqual(mode.build_verdicts(again, "cmux NEXT visual gate passed ",
+                                             "cmux NEXT visual gate failed ")[b], "pass")
+
+    def test_a_recovered_build_is_refused_only_by_its_own_failed_verdict_in_enforce(self):
+        failed, passed, unknown = "f" * 40, "e" * 40, "d" * 40
+        verdicts = {failed: "fail", passed: "pass"}
+        self.assertEqual(self.mode.admit("enforce", failed, verdicts)[0], False)
+        self.assertEqual(self.mode.admit("enforce", passed, verdicts)[:2], (True, "notice"))
+        # No verdict (the gate skipped or could not judge it): published, with a warning in enforce.
+        self.assertEqual(self.mode.admit("enforce", unknown, verdicts)[:2], (True, "warning"))
+        for quiet in ("report", "off", ""):
+            self.assertTrue(self.mode.admit(quiet, failed, verdicts)[0], quiet)
+        done = subprocess.run([sys.executable, str(self.SCRIPT), "admit", "--mode", "enforce", "--build-sha", failed,
+                               "--verdicts", json.dumps(verdicts)], capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("::error", done.stdout)
+        done = subprocess.run([sys.executable, str(self.SCRIPT), "admit", "--mode", "enforce", "--build-sha", unknown,
+                               "--verdicts", ""], capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("::warning", done.stdout)
+
+    def test_unreadable_verdicts_are_none(self):
+        done = subprocess.run([sys.executable, str(self.SCRIPT), "verdicts", "--issue-title", "nightly-next visual gate",
+                               "--pass-prefix", "p ", "--failure-prefix", "f "], capture_output=True, text=True,
+                              timeout=60, env={"PATH": "/usr/bin:/bin"})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.strip(), "{}")
 
 
 # A fake app for capture_states.py: serves CMUX_NEXT_SOCKET_PATH, logs its launch
@@ -499,6 +650,23 @@ class CaptureStatesTests(unittest.TestCase):
             self.assertIn("--showcase", launch["argv"])
             self.assertEqual(launch["showcase"], "1")
 
+    def test_an_unreadable_bundle_is_each_states_error_and_every_state_runs(self):
+        with tempfile.TemporaryDirectory(prefix="visual-gate-test.") as tmp:
+            root = Path(tmp)
+            app = root / "cmux DEV broken.app"  # no Contents/Info.plist
+            app.mkdir()
+            for name in ("one", "two"):
+                (root / f"{name}.json").write_text(json.dumps({"settings": None, "steps": [{"title": "wait", "wait": 0}]}))
+            env = {key: value for key, value in os.environ.items() if not key.startswith("CMUX_")}
+            out = root / "out"
+            done = subprocess.run([sys.executable, str(GATE / "capture_states.py"), "--app", str(app), "--out", str(out),
+                                   str(root / "one.json"), str(root / "two.json")],
+                                  capture_output=True, text=True, timeout=120, env=env)
+            self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+            for name in ("one", "two"):
+                result = json.loads((out / name / "result.json").read_text())
+                self.assertIn("Info.plist", result["errors"][0])
+
     def test_a_bad_state_file_is_refused(self):
         with tempfile.TemporaryDirectory(prefix="visual-gate-test.") as tmp:
             bad = Path(tmp) / "bad.json"
@@ -508,6 +676,54 @@ class CaptureStatesTests(unittest.TestCase):
                                   capture_output=True, text=True, timeout=60)
             self.assertEqual(done.returncode, 2)
             self.assertIn("step 2 has both `cmux` and `rpc`", done.stderr)
+
+
+def load_media_runner():
+    spec = importlib.util.spec_from_file_location("media_runner_for_gate", ROOT / "scripts/ci/cmux_next_media_runner.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def runner(name, *labels, busy=False, status="online"):
+    return {"name": name, "status": status, "busy": busy, "labels": [{"name": label} for label in labels]}
+
+
+class IdleRunnerTests(unittest.TestCase):
+    """The gate takes only a session (else gui) runner idle now: a queued job would hold publish-nightly."""
+    media = load_media_runner()
+    XCODE = "/Applications/Xcode_26.6.app"
+    SESSION = "glaeda-session-std-xcode-26.6"
+    GUI = "glaeda-gui-std-xcode-26.6"
+
+    def pick(self, runners, **overrides):
+        options = dict(same_repo=True, owned="1", pr_xcode_app=self.XCODE, runners=runners)
+        options.update(overrides)
+        return self.media.pick_idle(**options)
+
+    def test_an_idle_session_runner_first_then_an_idle_gui_runner(self):
+        both = [runner("a", "glaeda-std-xcode-26.6", self.GUI, self.SESSION, busy=True),
+                runner("b", "glaeda-std-xcode-26.6", self.SESSION)]
+        self.assertEqual(self.pick(both)[0], self.SESSION)
+        gui_only = [runner("a", "glaeda-std-xcode-26.6", self.GUI), runner("b", self.SESSION, busy=True)]
+        self.assertEqual(self.pick(gui_only)[0], self.GUI)
+
+    def test_nothing_idle_or_unreadable_places_nothing(self):
+        busy = [runner("a", self.GUI, self.SESSION, busy=True), runner("b", self.SESSION, status="offline")]
+        label, reason = self.pick(busy)
+        self.assertEqual(label, "")
+        self.assertIn("idle", reason)
+        self.assertEqual(self.pick(None)[0], "")
+        self.assertEqual(self.pick([runner("b", self.SESSION)], owned="0")[0], "")
+        self.assertEqual(self.pick([runner("b", self.SESSION)], same_repo=False)[0], "")
+
+    def test_the_cli_without_a_token_places_nothing(self):
+        done = subprocess.run([sys.executable, str(ROOT / "scripts/ci/cmux_next_media_runner.py"), "--same-repo", "true",
+                               "--idle-now"], capture_output=True, text=True, timeout=60,
+                              env={"PATH": "/usr/bin:/bin", "POOL_OWNED": "1", "PR_XCODE_APP": self.XCODE,
+                                   "OWNED_SLOTS": json.dumps({self.SESSION: 4})})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("runs_on=\n", done.stdout)
 
 
 class StateFileTests(unittest.TestCase):
@@ -536,8 +752,47 @@ class WiringTests(unittest.TestCase):
         publish = self.job("publish-nightly")
         needs = publish[publish.index("needs:"):].splitlines()[0]
         self.assertIn("visual-gate-nightly", needs)
-        # In report mode (and when the gate is skipped) publication goes ahead; enforce blocks it.
-        self.assertIn("needs.visual-gate-nightly.outputs.blocks != 'true'", publish)
+        # In report mode (and when the gate is skipped) publication goes ahead; enforce blocks this
+        # run's own build only, never a recovered one (judged by its own verdict).
+        condition = next(line for line in publish.splitlines() if line.strip().startswith("if: \"!cancelled()"))
+        own, recovered = condition.split(" || (needs.recover-nightly-next-notarization")
+        self.assertIn("needs.visual-gate-nightly.outputs.blocks != 'true'", own.split("((", 1)[1])
+        self.assertNotIn("visual-gate-nightly", recovered)
+        self.assertIn('[ "$OWN_GATE_BLOCKS" != true ]', publish)
+
+    def test_a_recovered_build_is_judged_by_its_own_verdict(self):
+        find = self.job("find-nightly-next-recovery")
+        self.assertIn("issues: read", find)
+        self.assertIn("nightly_next_canary_mode.py verdicts --issue-title \"nightly-next visual gate\"", find)
+        self.assertIn("visual_gate_verdicts: ${{ steps.visual-gate.outputs.verdicts }}", find)
+        recover = self.job("recover-nightly-next-notarization")
+        admit = recover.index("nightly_next_canary_mode.py admit")
+        # After the manifest names the build, before anything is notarized or stapled.
+        self.assertLess(recover.index('source "$dir/manifest.env"'), admit)
+        self.assertLess(admit, recover.index("./scripts/ci/notarize-nightly-dmg.sh"))
+        self.assertIn('--build-sha "$BUILD_SHA"', recover[admit:admit + 300])
+
+    def test_every_judged_build_is_recorded(self):
+        report = self.job("report-visual-gate-nightly")
+        self.assertIn("needs.visual-gate-nightly.outputs.verdict == 'pass'", report)
+        self.assertIn("cmux NEXT visual gate passed ${process.env.SHA}", report)
+        self.assertIn("cmux NEXT visual gate failed ${process.env.SHA}", report)
+        self.assertIn("const title = 'nightly-next visual gate';", report)
+
+    def test_the_gate_is_placed_only_on_an_idle_runner_and_judges_every_state(self):
+        route = self.job("route-visual-gate-nightly")
+        self.assertIn("cmux_next_media_runner.py --same-repo true --idle-now", route)
+        self.assertIn("permission-organization-self-hosted-runners: read", route)
+        self.assertIn("verdict=unavailable", route)
+        self.assertIn("GITHUB_STEP_SUMMARY", route)
+        self.assertIn("--min-passes 3", route)
+        job = self.job("visual-gate-nightly")
+        # A failed read leaves no half-written text-boxes.json, and the next state is still read.
+        self.assertIn('> "$state/text-boxes.json.part"; then', job)
+        self.assertIn('mv "$state/text-boxes.json.part" "$state/text-boxes.json"', job)
+        self.assertNotIn("set -euo pipefail\n          swiftc", job)
+        self.assertIn("--states scripts/cmux-next/visual-gate/states", job)
+        self.assertIn("case $? in 0) verdict=pass ;; 1) verdict=fail ;; *) verdict=unavailable ;; esac", job)
 
     def test_the_gate_uses_the_shared_mode_resolver(self):
         route = self.job("route-visual-gate-nightly")

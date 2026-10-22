@@ -149,17 +149,19 @@ def capture_state(app_path: Path, state: dict[str, Any], out: Path, session: Any
     session.shareable(directory)
     workdir = Path(tempfile.mkdtemp(prefix="cmux-visual-gate.", dir="/tmp"))
     env = {"CMUX_NEXT_SHOWCASE": "1"} if "--showcase" in state["launch_args"] else {}
-    # Its own settings file always (`{}` without settings): never the Mac's.
-    app = tour.App(app_path, session, workdir, fresh_state=True, settings=state["settings"] or {},
-                   launch_env=env, launch_args=state["launch_args"])
     result: dict[str, Any] = {"state": state["name"], "host": socket.gethostname(),
                               "runner": os.environ.get("RUNNER_NAME", ""), "settings_source": "own",
                               "steps": [], "errors": [], "appearance": {}, "snapshots": {}}
+    app = None
     try:
         try:
+            # Its own settings file always (`{}` without settings): never the Mac's. A bundle
+            # that cannot be read (no Info.plist) is this state's error, and the next state runs.
+            app = tour.App(app_path, session, workdir, fresh_state=True, settings=state["settings"] or {},
+                           launch_env=env, launch_args=state["launch_args"])
             app.launch()
-        except (tour.TourError, OSError) as error:
-            result["errors"].append(f"launch: {error}")
+        except (tour.TourError, OSError, ValueError, KeyError) as error:
+            result["errors"].append(f"launch: {type(error).__name__}: {error}")
             return result
         result["app"] = {key: app.identity.get(key) for key in ("version", "build", "bundle_id", "tag")}
         for step in state["steps"]:
@@ -179,9 +181,10 @@ def capture_state(app_path: Path, state: dict[str, Any], out: Path, session: Any
     finally:
         signal.signal(signal.SIGINT, signal.SIG_IGN)
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        app.stop()
-        if app.log_path.exists():
-            shutil.copy(app.log_path, directory / "app.log")
+        if app is not None:
+            app.stop()
+            if app.log_path.exists():
+                shutil.copy(app.log_path, directory / "app.log")
         shutil.rmtree(workdir, ignore_errors=True)
         (directory / "result.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     return result
