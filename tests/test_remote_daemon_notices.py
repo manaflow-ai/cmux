@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -109,11 +110,13 @@ class RemoteDaemonNoticesTest(unittest.TestCase):
             rdn.compose(self.modules, "go1.27.0", self.review)
         self.assertIn("go1.27.0", str(raised.exception))
 
-    def test_a_go_minor_bump_with_an_added_notice_ships_it(self) -> None:
+    def test_a_go_minor_bump_with_an_unrecognised_notice_fails(self) -> None:
+        # An unrecognised notice may carry terms: a person reads it (Codex review of #24198).
         root = self.go_root()
         (root / "NOTICE").write_text("an added Go notice\n")
-        text = rdn.compose(self.modules, "go1.27.3", self.review, go_root=root)
-        self.assertIn("an added Go notice", text)
+        with self.assertRaises(rdn.NoticeError) as raised:
+            rdn.compose(self.modules, "go1.27.3", self.review, go_root=root)
+        self.assertIn("NOTICE", str(raised.exception))
 
     def test_a_go_minor_bump_under_a_disallowed_license_fails(self) -> None:
         with self.assertRaises(rdn.NoticeError) as raised:
@@ -220,6 +223,14 @@ class RemoteDaemonNoticesTest(unittest.TestCase):
                 rdn.compose([*self.modules, self.module(f"example.com/{name.replace(' ', '-')}", LICENSE=text)], "go1.26.8", self.review)
             self.assertIn("LICENSE", str(raised.exception))
 
+    def test_apache_2_0_is_approved_whole_and_refused_with_a_clause_in_seconds(self) -> None:
+        # A regex of Apache-2.0's SPDX template backtracked for minutes on the added clause.
+        for name, text, approved in (("as is", APACHE, True), ("with a clause", APACHE + "\nNo commercial use.\n", False)):
+            with self.subTest(name):
+                start = time.monotonic()
+                self.assertEqual(rdn.allowed_license(text), "Apache-2.0" if approved else None)
+                self.assertLess(time.monotonic() - start, 5)
+
     def test_a_recorded_license_off_the_allowlist_fails_unless_a_person_approved_it(self) -> None:
         saved = rdn.ALLOWED
         rdn.ALLOWED = frozenset(saved) - {"MIT"}
@@ -271,6 +282,7 @@ FIXTURES = ROOT / "tests/fixtures/remote-daemon-notices"
 MIT = (FIXTURES / "creack-pty-LICENSE").read_text()
 BSD3 = (FIXTURES / "x-sys-LICENSE").read_text()
 GO_PATENTS = (FIXTURES / "x-sys-PATENTS").read_text()
+APACHE = (FIXTURES / "apache-2.0-LICENSE").read_text()  # apache.org/licenses/LICENSE-2.0.txt
 GPL = "GNU GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007\n"
 
 # The reviewed texts, keyed by sha256, from the module cache (go mod download).

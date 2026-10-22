@@ -15,13 +15,17 @@ sha256 of each file. A dependency change never waits for a person when its
 license is allowed (Leo, 2026-10-22: fix it, don't fail "without a review"):
   - a module whose files hash the same as a recorded entry (its own version or
     another of the same module) is approved by that entry;
-  - any other module is approved when each of its license files is a license on
-    the allowlist (license_match's signatures; check_app_crate_licenses.ALLOWED,
-    the app's crate allowlist), and a NOTICE or PATENTS file that is no license
-    ships as a notice;
-  - Go itself the same way, from GOROOT's license files.
-Only an unknown or disallowed license fails, naming the module, the file and
-the license. Approvals the record does not have yet, and entries for modules
+  - any other module is approved when each of its license files is wholly a
+    license on the allowlist (check_app_crate_licenses.ALLOWED, the app's crate
+    allowlist): the whole text matches that license's SPDX template
+    (third-party/spdx-templates), with only copyright lines where the template
+    takes them, so an added clause is never approved. A NOTICE or PATENTS file
+    is approved only when its text is already recorded (Go's PATENTS);
+  - Go itself the same way, from GOROOT's license files, on every Go version;
+  - a recorded entry still has to be on the allowlist, unless it carries an
+    "approved" note: a person's approval of a license off the list.
+Anything else (an unknown text, a disallowed license, an unrecognised notice)
+fails, naming the module, the file and the license. Approvals the record does not have yet, and entries for modules
 the build no longer links, are notes; `--update-review` writes the record.
 `check` is the fast guard (cmux-next-remote-daemon.yml, on pull requests and
 feat-cmux-next pushes): it prints the notes as warnings and fails only where
@@ -53,9 +57,13 @@ from check_app_crate_licenses import ALLOWED  # noqa: E402
 THIRD_PARTY = ROOT / "daemon/remote/third-party"
 TEXTS = THIRD_PARTY
 REVIEW = THIRD_PARTY / "review.json"
-LICENSE_NAME = re.compile(r"^(LICEN[CS]E|COPYING|NOTICE|PATENTS|UNLICENSE)(\..*)?$", re.I)
-# Shipped as found; a license text in one is still classified.
-NOTICE_NAME = re.compile(r"^(NOTICE|PATENTS)(\..*)?$", re.I)
+LICENSE_NAME = re.compile(r"^(LICEN[CS]E|COPYING|NOTICE|PATENTS|UNLICENSE)([._-].*)?$", re.I)
+NOTICE_NAME = re.compile(r"^(NOTICE|PATENTS)([._-].*)?$", re.I)
+SPDX_TEMPLATES = THIRD_PARTY / "spdx-templates"
+# What the copyright part of a template may hold: a license title, then copyright lines.
+TITLE = re.compile(r"^(the )?[a-z0-9 .-]{0,30}licen[cs]e( \([a-z0-9 .-]{1,20}\))?( version [0-9.]+)? ?")
+COPYRIGHT_START = re.compile(r"^(copyright|\(c\)|©)")
+RESTRICTION = re.compile(r"\b(use|used|commercial|non-commercial|permit|permitted|permission|prohibit\w*|restrict\w*|must|shall|may|not|only|except|conditions?|terms|grant\w*|licen[cs]\w*|warrant\w*|liab\w*)\b")
 # Signatures that only qualify an allowed license (Apache-2.0 WITH LLVM-exception).
 EXCEPTIONS = {"LLVM-exception"}
 PLATFORMS = (("linux", "amd64"), ("linux", "arm64"), ("darwin", "amd64"), ("darwin", "arm64"))
@@ -89,21 +97,146 @@ def license_digests(directory: Path) -> dict:
     return {name: hashlib.sha256((directory / name).read_bytes()).hexdigest() for name in names}
 
 
-def classify(directory: Path, label: str) -> str:
-    """The SPDX license of a directory's license files, when every one is allowed."""
+def normalize(text: str) -> str:
+    """SPDX matching: case, quotes, dashes, comment markers and whitespace do not count."""
+    text = text.lower().replace("\u2019", "'").replace("\u2018", "'").replace("\u201c", '"').replace("\u201d", '"')
+    text = re.sub("[\u2010-\u2015]", "-", text)
+    text = re.sub(r"(?m)^[ \t]*(?://+|#+|\*+|>+)", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+SPDX_TOKEN = re.compile(r"<<(beginOptional|endOptional)(?:;[^>]*)?>>|<<var;(.*?)>>", re.S)
+# Punctuation is a word of its own, so "conditions:" and "conditions :" compare equal.
+WORD = re.compile(r"[a-z0-9]+(?:['.][a-z0-9]+)*|[^\sa-z0-9]")
+# A variable part with no bound in its pattern spans at most this many characters.
+VAR_CHARS = 5000
+
+
+def words(normalized: str) -> list:
+    return [(match.group(), match.start(), match.end()) for match in WORD.finditer(normalized)]
+
+
+def parse_template(template: str) -> list:
+    """An SPDX license template as nodes: ("word", w), ("var", name, pattern,
+    max characters) and ("optional", nodes)."""
+    root: list = []
+    stack = [root]
+    pos = 0
+    for match in SPDX_TOKEN.finditer(template):
+        stack[-1].extend(("word", w) for w, _, _ in words(normalize(template[pos:match.start()])))
+        pos = match.end()
+        if match.group(1) == "beginOptional":
+            stack[-1].append(("optional", []))
+            stack.append(stack[-1][-1][1])
+        elif match.group(1) == "endOptional":
+            stack.pop()
+        else:
+            attrs = dict(re.findall(r'(\w+)="((?:[^"\\]|\\.)*)"', match.group(2)))
+            pattern = attrs.get("match", ".{0,5000}")
+            bound = re.fullmatch(r"\.\{0,(\d+)\}", pattern)
+            limit = int(bound.group(1)) if bound else VAR_CHARS
+            stack[-1].append(("var", attrs.get("name", ""), re.compile(pattern, re.I | re.S), limit))
+    stack[-1].extend(("word", w) for w, _, _ in words(normalize(template[pos:])))
+    return root
+
+
+def template_matches(nodes: list, normalized: str) -> bool:
+    """Whether the whole text matches the template. It walks the set of word
+    positions each node can end at, so it never backtracks: a regex of
+    Apache-2.0's template took minutes on a text with an added clause."""
+    tokens = words(normalized)
+
+    def span(start: int, end: int) -> str:
+        return normalized[tokens[start][1]:tokens[end - 1][2]] if end > start else ""
+
+    def advance(seq: list, positions: set) -> set:
+        previous = None
+        for node in seq:
+            # Apache-2.0's template says "Copyright <<var>>": its holder is checked with the word.
+            after_copyright, previous = previous == ("word", "copyright"), node
+            if not positions:
+                break
+            if node[0] == "word":
+                positions = {p + 1 for p in positions if p < len(tokens) and tokens[p][0] == node[1]}
+            elif node[0] == "optional":
+                positions = positions | advance(node[1], positions)
+            else:
+                _, name, pattern, limit = node
+                reached = set()
+                for start in positions:
+                    for end in range(start, len(tokens) + 1):
+                        text = span(start, end)
+                        if len(text) > limit:
+                            break
+                        if pattern.fullmatch(text) and (name != "copyright" or only_copyright(span(start - 1, end) if after_copyright else text)):
+                            reached.add(end)
+                positions = reached
+        return positions
+
+    return len(tokens) in advance(nodes, {0})
+
+
+_TEMPLATES: dict = {}
+
+
+def templates() -> dict:
+    if not _TEMPLATES:
+        for path in sorted(SPDX_TEMPLATES.glob("*.template.txt")):
+            _TEMPLATES[path.name[: -len(".template.txt")]] = parse_template(path.read_text(encoding="utf-8"))
+    return {spdx: nodes for spdx, nodes in _TEMPLATES.items() if spdx in ALLOWED}
+
+
+def only_copyright(span: str) -> bool:
+    """A template's copyright part holds a title and copyright lines, never terms."""
+    span = TITLE.sub("", span.strip(), count=1).strip()
+    return not span or bool(COPYRIGHT_START.match(span)) and not RESTRICTION.search(span)
+
+
+def allowed_license(text: str) -> str | None:
+    """The allowed SPDX id this text wholly is, or None."""
+    normalized = normalize(text)
+    for spdx, nodes in templates().items():
+        if template_matches(nodes, normalized):
+            return spdx
+    return None
+
+
+def license_ids(expression: str) -> set:
+    return set(re.findall(r"[A-Za-z0-9.+-]+", expression)) - {"AND", "OR", "WITH"}
+
+
+def check_recorded(label: str, entry: dict) -> None:
+    refused = sorted(license_ids(entry["license"]) - set(ALLOWED) - EXCEPTIONS)
+    if refused and not entry.get("approved"):
+        raise NoticeError(f"{label}: its recorded license {entry['license']} is not on the allowlist (scripts/cmux-next/check_app_crate_licenses.py ALLOWED); a person approves it with an \"approved\" note in daemon/remote/third-party/review.json")
+
+
+def recorded_texts(review: dict) -> set:
+    """Every text review.json records: a person or this check approved each."""
+    return {digest for entry in [review["go"], *review["modules"].values()] for digest in entry["files"].values()}
+
+
+def classify(directory: Path, label: str, known: set = frozenset()) -> str:
+    """The license of a directory's license files, when each is wholly an allowed
+    license or a recorded text; otherwise the error names what a person reviews."""
+    digests = license_digests(directory)
+    if not [name for name in digests if not NOTICE_NAME.match(name)]:
+        raise NoticeError(f"{label} ships no license file ({', '.join(digests) or 'none'}); a person reviews it")
     ids = set()
-    names = sorted(license_digests(directory))
-    for name in names:
+    for name, digest in digests.items():
         text = _text((directory / name).read_bytes(), f"{label} {name}")
-        found = {i for i in license_match.SIGNATURES if license_match.matches(i, text)}
-        refused = sorted(i for i in found if i not in ALLOWED and i not in EXCEPTIONS)
+        spdx = allowed_license(text)
+        if spdx:
+            ids.add(spdx)
+            continue
+        if digest in known:
+            continue
+        refused = sorted(i for i in license_match.SIGNATURES if license_match.matches(i, text) and i not in ALLOWED and i not in EXCEPTIONS)
         if refused:
             raise NoticeError(f"{label}: {name} is {' and '.join(refused)}, which is not on the allowlist (scripts/cmux-next/check_app_crate_licenses.py ALLOWED); a person decides whether cmuxd-remote may ship it")
-        if not found - EXCEPTIONS and not NOTICE_NAME.match(name):
-            raise NoticeError(f"{label}: {name} is no license this check recognizes (cmux-tui/build-support/notices/license_match.py); a person reviews it")
-        ids |= found - EXCEPTIONS
+        raise NoticeError(f"{label}: {name} is not wholly a license on the allowlist (daemon/remote/third-party/spdx-templates) nor a recorded text; a person reviews it")
     if not ids:
-        raise NoticeError(f"{label} ships no license file ({', '.join(names) or 'none'}); a person reviews it")
+        raise NoticeError(f"{label}: none of its license files ({', '.join(digests)}) is an allowed license; a person reviews it")
     return " AND ".join(sorted(ids))
 
 
@@ -125,25 +258,29 @@ def review_entry(module: Module, review: dict) -> tuple[str | None, dict]:
     same_path = [k for k in sorted(review["modules"]) if k.rsplit("@", 1)[0] == module.path]
     for candidate in sorted(same_path, key=lambda k: k != key):
         if review["modules"][candidate]["files"] == digests:
+            check_recorded(key, review["modules"][candidate])
             return candidate, review["modules"][candidate]
-    return None, {"license": classify(module.directory, key), "files": digests}
+    return None, {"license": classify(module.directory, key, recorded_texts(review)), "files": digests}
 
 
 def go_entry(go_version: str, review: dict, go_root: Path | None) -> tuple[bool, dict, Path]:
     """Whether review.json's Go entry approves this Go, the entry, and where its texts are."""
     go = review["go"]
-    if re.fullmatch(re.escape(go["minor"]) + r"(\.[0-9]+)?", go_version):
-        return True, go, TEXTS / "go"
+    check_recorded(f"Go {go_version}", go)
+    same_minor = bool(re.fullmatch(re.escape(go["minor"]) + r"(\.[0-9]+)?", go_version))
+    minor = re.match(r"go[0-9]+\.[0-9]+", go_version)
     if go_root is None:
+        if same_minor:
+            return True, go, TEXTS / "go"
         raise NoticeError(f"cmuxd-remote is built with {go_version}, but review.json records {go['minor']} and GOROOT was not given")
     try:
         digests = license_digests(go_root)
     except OSError as error:
         raise NoticeError(f"Go {go_version}: cannot read GOROOT's license files ({error})") from None
     if digests == go["files"]:
-        return True, go, TEXTS / "go"
-    minor = re.match(r"go[0-9]+\.[0-9]+", go_version)
-    entry = {**go, "minor": minor.group(0) if minor else go_version, "license": classify(go_root, f"Go {go_version}"),
+        return same_minor, {**go, "minor": minor.group(0) if minor else go["minor"]}, TEXTS / "go"
+    entry = {**go, "minor": minor.group(0) if minor else go_version,
+             "license": classify(go_root, f"Go {go_version}", recorded_texts(review)),
              "files": digests, "source": f"LICENSE files of GOROOT ({go_version})"}
     return False, entry, go_root
 
@@ -204,16 +341,31 @@ def compose(modules: List[Module], go_version: str, review: dict, go_root: Path 
     return "".join(out)
 
 
-def update_go_texts(go: dict, go_texts: Path) -> None:
-    """Copy an automatically approved Go's license files into third-party/go."""
-    directory = TEXTS / "go"
-    if go_texts == directory:
+def write_review_bundle(review_text: str, go_files: dict, go_texts: Path) -> None:
+    """Write review.json and, when Go's texts changed, third-party/go together:
+    the new texts are staged beside the old, swapped in, and swapped back if
+    review.json cannot be written, so the two never disagree."""
+    current = TEXTS / "go"
+    if go_texts == current:
+        write_atomically(REVIEW, review_text)
         return
-    for old in directory.iterdir():
-        if old.is_file() and old.name not in go["files"]:
-            old.unlink()
-    for name in go["files"]:
-        shutil.copyfile(go_texts / name, directory / name)
+    staged = TEXTS / f".go.new-{os.getpid()}"
+    previous = TEXTS / f".go.old-{os.getpid()}"
+    try:
+        staged.mkdir()
+        for name in go_files:
+            shutil.copyfile(go_texts / name, staged / name)
+        os.rename(current, previous)
+        os.rename(staged, current)
+        try:
+            write_atomically(REVIEW, review_text)
+        except BaseException:
+            shutil.rmtree(current)
+            os.rename(previous, current)
+            raise
+    finally:
+        shutil.rmtree(staged, ignore_errors=True)
+        shutil.rmtree(previous, ignore_errors=True)
 
 
 def _go(daemon_root: Path, *args: str, env: dict | None = None) -> str:
@@ -265,8 +417,7 @@ def main(argv: List[str]) -> int:
         args.out.write_text(text, encoding="utf-8")
         print(f"remote_daemon_notices: wrote {args.out} ({go_version})")
     if updated is not None:
-        update_go_texts(updated["go"], go_entry(go_version, review, go_root)[2])
-        write_atomically(REVIEW, dump_review(updated))
+        write_review_bundle(dump_review(updated), updated["go"]["files"], go_entry(go_version, review, go_root)[2])
         print(f"remote_daemon_notices: updated {REVIEW.relative_to(ROOT)}")
     if args.command == "check":
         print(f"remote_daemon_notices: every license cmuxd-remote links is allowed ({len(modules)} modules, {go_version})")
