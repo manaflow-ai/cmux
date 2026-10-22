@@ -1,8 +1,8 @@
 import { experimentArm } from "../../../experiments/experiment";
 import { sessionOffer } from "./sessionOffer.experiment";
 
-/// The Debug toggle `agent.suggestedTasks` (DEV and NIGHTLY) as the host last said
-/// (`applySuggestedTasks`).
+/// Whether suggested tasks are on, as the host last said (`applySuggestedTasks`): the
+/// `sessions.promptSuggestions` setting, or the Debug tunable `agent.suggestedTasks` forcing them on.
 let toggle = false;
 
 /// Records the host's suggested tasks toggle; true when it changed what draws.

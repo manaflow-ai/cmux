@@ -86,7 +86,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// read at each daemon start, since Computer Use turns on and off while the app runs.
     private let computerUse: @Sendable () -> [String: String]
     /// Whether the daemon gets the session offer tools now (`AcpmuxEnvironment.offersSessionTools`:
-    /// ``AgentPaneSuggestedTasks/forNextDaemon``: `sessions.promptSuggestions`), read at each
+    /// ``AgentPaneSuggestedTasks/forNextDaemon``: `sessions.promptSuggestions` or the forcing tunable), read at each
     /// daemon start: a change applies to the next daemon this app starts, never to the one running.
     private let offersSessionTools: @Sendable () -> Bool
     /// Whether the daemon keeps the agent message runaway guard on now (`AcpmuxEnvironment.agentPairGuard`,
