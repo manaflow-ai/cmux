@@ -77,6 +77,7 @@ impl Scratch {
             codex_config: root.join("codex.toml"),
             record: root.join("acpmux").join("trust.json"),
             agent_home: Some(root.join("agent-home")),
+            cmux_worktrees: None,
         };
         Scratch { root, trust }
     }
