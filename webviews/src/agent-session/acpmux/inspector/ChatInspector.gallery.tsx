@@ -189,7 +189,7 @@ export default componentEntry<Props>({
       props: full,
     },
     "context-connectors-open": {
-      note: "Context and Connectors open: the token counts, and each MCP server with the one that needs reconnecting.",
+      note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status.",
       props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
     },
     "changes-breakdown": {

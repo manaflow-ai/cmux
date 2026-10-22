@@ -56,6 +56,7 @@ mod queue;
 mod queue_edit;
 pub use digest::declared_sender;
 pub use queue::QueuedPrompt;
+pub use queue::supersede::key as supersede_key;
 mod resolve;
 mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
@@ -252,6 +253,9 @@ pub struct PromptOptions {
     /// An automatic continuation (`auto_resume.rs`): runs only while the chat still ends on
     /// this turn, checked again once it holds the turn lock, else refused unrecorded.
     pub after_turn: Option<String>,
+    /// `_meta.acpmux.supersede` (`supersede.rs`): the same sender's prompts still queued under
+    /// this key leave the queue, replaced by this one.
+    pub supersede: Option<String>,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -723,6 +727,7 @@ impl Hub {
             fork_from: StdMutex::new(None),
             applied: StdMutex::new(session::Applied::default()),
             purged: AtomicBool::new(false),
+            replaced: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),
