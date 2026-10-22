@@ -119,6 +119,7 @@ impl Hub {
                     keep_harness_mode: true,
                     route: None,
                     subsession: None,
+                    lineage: None,
                     disallowed_tools: Vec::new(),
                 };
                 let side = match self.new_session(req.clone()).await {
