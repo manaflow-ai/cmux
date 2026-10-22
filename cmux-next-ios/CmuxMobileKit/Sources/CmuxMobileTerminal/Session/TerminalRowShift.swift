@@ -129,9 +129,15 @@ public struct TerminalRowShift: Sendable {
             if isAlternate, offset > 0 { return sequence + Self.saved(Self.csi("1;\(remoteRows)", UInt8(ascii: "r"))) }
             return sequence
         }
-        if isAlternate, offset > 0, final == UInt8(ascii: "r"), text.isEmpty {
-            // A TUI's margin reset: the Mac's whole screen, not the mirror's.
-            return Self.csi("1;\(remoteRows)", final)
+        if isAlternate, offset > 0, final == UInt8(ascii: "r"),
+           body.allSatisfy({ (0x30...0x39).contains($0) || $0 == UInt8(ascii: ";") }) {
+            // A TUI's margins are within the Mac's screen, not the mirror's:
+            // a missing or zero bottom (a reset, `ESC[;r`, `ESC[5r`) is the
+            // Mac's last row, and none goes past it.
+            let params = text.split(separator: ";", omittingEmptySubsequences: false).map { Int($0) ?? 0 }
+            let top = max(1, params.first ?? 0)
+            let bottom = params.count > 1 && params[1] > 0 ? min(params[1], remoteRows) : remoteRows
+            return Self.csi("\(top);\(bottom)", final)
         }
         guard offset > 0, !isAlternate,
               body.allSatisfy({ (0x30...0x39).contains($0) || $0 == UInt8(ascii: ";") }) else { return sequence }

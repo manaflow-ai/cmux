@@ -217,6 +217,9 @@ import Testing
         #expect(run(["\u{1B}[?1049h"]) == altEnter)
         #expect(run(["\u{1B}[?1049h", "\u{1B}[r", "\u{1B}[1;42r", "\u{1B}[3;10r"])
             == altEnter + "\u{1B}[1;42r\u{1B}[1;42r\u{1B}[3;10r")
+        // Every reset form is the Mac's screen; a bottom past it is clamped.
+        #expect(run(["\u{1B}[?1049h", "\u{1B}[;r\u{1B}[0;0r\u{1B}[1;0r\u{1B}[5r\u{1B}[2;99r"])
+            == altEnter + "\u{1B}[1;42r\u{1B}[1;42r\u{1B}[1;42r\u{1B}[5;42r\u{1B}[2;42r")
         // Mode 47 and 1047 too; no mirror offset, nothing to add.
         #expect(run(["\u{1B}[?47h"]) == "\u{1B}[?47h\u{1B}7\u{1B}[1;42r\u{1B}8")
         #expect(run(["\u{1B}[?1049h\u{1B}[r"], offset: 0) == "\u{1B}[?1049h\u{1B}[r")
