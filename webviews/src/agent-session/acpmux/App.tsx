@@ -1046,7 +1046,7 @@ const PermissionRow = memo(
           <strong>{t("permission.required")}</strong>
         </div>
       );
-    return <PermissionAsk permission={permission} />;
+    return <PermissionAsk permission={permission} shortcuts={false} />;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
