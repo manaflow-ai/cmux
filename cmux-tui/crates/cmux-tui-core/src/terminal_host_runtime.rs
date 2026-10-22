@@ -630,7 +630,7 @@ mod unix {
     ) -> anyhow::Result<Arc<HostShared>> {
         if let Some(prepared) = prepared {
             match prepared.hand_off(launch) {
-                Ok((master, child)) => {
+                Some((master, child)) => {
                     crate::debug_spans::mark("host.prepared_handed_off");
                     return start_host_runtime(
                         launch,
@@ -641,10 +641,7 @@ mod unix {
                         None,
                     );
                 }
-                Err(prepared) => {
-                    crate::debug_spans::mark("host.prepared_unmatched");
-                    drop(prepared);
-                }
+                None => crate::debug_spans::mark("host.prepared_unmatched"),
             }
         }
         spawn_host_runtime(launch, bootstrapped)

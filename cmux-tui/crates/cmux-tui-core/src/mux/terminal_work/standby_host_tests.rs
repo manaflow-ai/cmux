@@ -117,7 +117,7 @@ fn spares_prepared_for_another_launch_are_dropped() {
     let (slot, pool) = (slot(), TerminalWorkPool::default());
     let _ = slot.take(None);
     let here: PrepareKey = (Some("/tmp/here".into()), None);
-    slot.prepare_for(here.clone(), HostLaunch::stand_in_for_tests());
+    slot.prepare_for(here, HostLaunch::stand_in_for_tests());
     slot.refill(&pool);
     assert!(wait_for_spares(&slot, SPARES));
     let elsewhere: PrepareKey = (Some("/tmp/elsewhere".into()), None);

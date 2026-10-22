@@ -201,52 +201,52 @@ impl PreparedShell {
     }
 
     /// Hand the prepared launch to `launch`: resize the PTY, write the ids
-    /// line, and return the PTY and its child for the host's runtime. `Err`
-    /// gives the prepared shell back when `launch` differs from it, its
-    /// child already ended, or its line would not fit.
+    /// line, and return the PTY and its child for the host's runtime. None
+    /// (the prepared session ends as this drops) when `launch` differs from
+    /// it, its child already ended, or its line would not fit.
     pub(crate) fn hand_off(
         mut self,
         launch: &HostLaunch,
-    ) -> Result<(Box<dyn MasterPty + Send>, HostChild), Self> {
-        let Some(mut handoff) = Handoff::between(&self.template, launch) else { return Err(self) };
+    ) -> Option<(Box<dyn MasterPty + Send>, HostChild)> {
+        let mut handoff = Handoff::between(&self.template, launch)?;
         let alive = self.child.as_mut().is_some_and(|child| matches!(child.try_wait(), Ok(None)));
         if !alive {
-            return Err(self);
+            return None;
         }
-        let Some(fd) = self.master.as_ref().and_then(|master| master.as_raw_fd()) else {
-            return Err(self);
-        };
+        let fd = self.master.as_ref().and_then(|master| master.as_raw_fd())?;
         let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
         let size = pty_size(launch.cols, launch.rows, cell_pixels);
-        if !self.master.as_ref().is_some_and(|master| master.resize(size).is_ok()) {
-            return Err(self);
+        let resized =
+            matches!(self.master.as_ref().map(|master| master.resize(size)), Some(Ok(())));
+        if !resized {
+            return None;
         }
         // Echo off for the line, so it never shows; the launcher restores it.
         let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
         // SAFETY: tcgetattr writes into `termios` on the PTY this owns.
         if unsafe { libc::tcgetattr(fd, termios.as_mut_ptr()) } != 0 {
-            return Err(self);
+            return None;
         }
         // SAFETY: tcgetattr succeeded, so `termios` is initialized.
         let mut termios = unsafe { termios.assume_init() };
         handoff.echo = termios.c_lflag & libc::ECHO != 0;
         let line = handoff.encode_line();
         if line.len() > MAX_LINE {
-            return Err(self);
+            return None;
         }
         termios.c_lflag &= !libc::ECHO;
         // SAFETY: a valid termios for the PTY this owns.
         if unsafe { libc::tcsetattr(fd, libc::TCSANOW, &termios) } != 0 {
-            return Err(self);
+            return None;
         }
         if write_all_fd(fd, line.as_bytes()).is_err() {
-            return Err(self);
+            return None;
         }
         let (Some(master), Some(child)) = (self.master.take(), self.child.take()) else {
-            return Err(self);
+            return None;
         };
         let process_group_leader = master.process_group_leader();
-        Ok((master, HostChild::Spawned(SpawnedPtyChild::new(child, process_group_leader))))
+        Some((master, HostChild::Spawned(SpawnedPtyChild::new(child, process_group_leader))))
     }
 }
 

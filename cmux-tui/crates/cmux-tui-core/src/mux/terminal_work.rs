@@ -366,6 +366,19 @@ impl Mux {
     }
 }
 
+/// Whether `error` is a terminal host's report that no PTY was free.
+#[cfg(any(unix, windows))]
+fn pty_capacity_exhausted(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause.downcast_ref::<crate::terminal_host_protocol::HostLaunchFailure>().is_some_and(
+            |failure| {
+                failure.kind
+                    == crate::terminal_host_protocol::HostLaunchFailureKind::PtyCapacityExhausted
+            },
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -430,17 +443,4 @@ mod tests {
         assert!(peak <= MAX_TERMINAL_WORKERS, "peak {peak} workers");
         assert!(peak > 1, "jobs did not overlap");
     }
-}
-
-/// Whether `error` is a terminal host's report that no PTY was free.
-#[cfg(any(unix, windows))]
-fn pty_capacity_exhausted(error: &anyhow::Error) -> bool {
-    error.chain().any(|cause| {
-        cause.downcast_ref::<crate::terminal_host_protocol::HostLaunchFailure>().is_some_and(
-            |failure| {
-                failure.kind
-                    == crate::terminal_host_protocol::HostLaunchFailureKind::PtyCapacityExhausted
-            },
-        )
-    })
 }
