@@ -400,6 +400,7 @@
     "setting.diff.colors": "theme",
     "setting.diff.diffIndicators": "bars",
     "setting.diff.expandUnchanged": false,
+    "setting.diff.groupByKind": false,
     "setting.diff.layout": "unified",
     "setting.diff.lineNumbers": true,
     "setting.diff.showBackgrounds": true,

@@ -245,6 +245,10 @@ impl Transcript {
             self.last_seq = seq;
         }
         let Some(update) = params.get("update") else { return };
+        // A subagent's words are its own view's, never the chat's reply.
+        if crate::subagents::is_subagents(params) && is_words(update) {
+            return;
+        }
         self.apply_session_update(update);
     }
 
@@ -506,6 +510,8 @@ impl Transcript {
             }
             if msg.get("method").and_then(Value::as_str) == Some("session/update")
                 && let Some(update) = msg.pointer("/params/update")
+                && !(msg.get("params").is_some_and(crate::subagents::is_subagents)
+                    && is_words(update))
             {
                 self.apply_session_update(update);
             }
@@ -816,3 +822,11 @@ pub fn item_text(item: &Item) -> String {
 #[cfg(test)]
 #[path = "transcript_tests.rs"]
 mod tests;
+
+/// A message or thought chunk: the words a reader of the chat's own text keeps.
+fn is_words(update: &Value) -> bool {
+    matches!(
+        update.get("sessionUpdate").and_then(Value::as_str),
+        Some("agent_message_chunk" | "agent_thought_chunk")
+    )
+}
