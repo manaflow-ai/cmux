@@ -254,7 +254,6 @@ select {
   gap: 9px;
   min-width: 0;
   border-radius: 6px;
-  cursor: default;
 }
 
 .cloud-machine.layout-rows {
@@ -348,7 +347,6 @@ select {
 .cloud-link-button {
   white-space: nowrap;
   border-radius: 6px;
-  cursor: default;
 }
 
 .cloud-button {

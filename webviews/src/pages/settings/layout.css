@@ -964,10 +964,6 @@
   outline: none;
 }
 
-.accent-popover .theme-option {
-  cursor: default;
-}
-
 .accent-popover .theme-option[aria-selected="true"] {
   background: var(--row-focus);
   box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);

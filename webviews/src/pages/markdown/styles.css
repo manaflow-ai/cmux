@@ -675,7 +675,6 @@ body {
   background: transparent;
   color: var(--cmux-md-faint-color);
   font-size: var(--cmux-md-toolbar-font-size);
-  cursor: default;
 }
 
 .md-raw-frontmatter .md-raw-label {
@@ -1077,7 +1076,6 @@ body {
   color: var(--page-text-2);
   font-size: var(--text-caption);
   line-height: 1;
-  cursor: default;
 }
 
 .md-width-stepper button:hover {
@@ -1127,7 +1125,6 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  cursor: default;
 }
 
 .md-reading-segment input {
@@ -1329,7 +1326,6 @@ body {
   background: none;
   color: var(--md-callout-color);
   vertical-align: -0.1em;
-  cursor: default;
 }
 
 .md-prose .md-callout-fold::before {

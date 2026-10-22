@@ -72,7 +72,6 @@
   font: inherit;
   font-size: var(--text-detail);
   text-align: start;
-  cursor: default;
 }
 .lg-search span {
   flex: 1;
@@ -139,7 +138,6 @@
   color: var(--page-text-2);
   font: inherit;
   text-align: start;
-  cursor: default;
 }
 .lg-row:hover {
   background: var(--page-hover);
@@ -500,7 +498,6 @@
   text-decoration: underline;
   text-decoration-color: var(--lg-line);
   text-underline-offset: 2px;
-  cursor: default;
 }
 .hc-msg.lg-msg .hc-tag {
   padding: 0 4px;
@@ -532,7 +529,6 @@
   color: var(--page-text);
   font: inherit;
   text-align: start;
-  cursor: default;
 }
 .lg-thread-row:hover {
   background: var(--lg-fill-strong);
@@ -675,7 +671,6 @@
   color: inherit;
   font: inherit;
   text-align: start;
-  cursor: default;
 }
 .lg-live-text,
 .lg-live-activity {
@@ -775,7 +770,6 @@
   font: inherit;
   font-size: var(--text-detail);
   font-weight: 500;
-  cursor: default;
 }
 .lg-status-button:hover {
   background: var(--page-hover);
@@ -890,7 +884,6 @@
   color: var(--page-text);
   font: inherit;
   font-weight: 500;
-  cursor: default;
 }
 .lg-button:not(.primary):hover {
   background: var(--page-hover);
@@ -977,7 +970,6 @@
 .lg-palette-row {
   display: block;
   color: var(--page-text);
-  cursor: default;
 }
 .lg-palette-line {
   display: grid;
@@ -1083,7 +1075,6 @@
   background: none;
   color: inherit;
   font: inherit;
-  cursor: default;
 }
 .lg-owner-button:hover {
   background: var(--page-hover);
@@ -1199,7 +1190,6 @@
   font: inherit;
   font-size: var(--text-detail);
   text-align: start;
-  cursor: default;
 }
 .lg-run-label {
   min-width: 0;
@@ -1341,9 +1331,6 @@
 .lg-run-block.thought {
   color: var(--page-text-3);
   font-size: var(--text-detail);
-}
-.lg-run-block.thought > summary {
-  cursor: default;
 }
 .lg-run-block.thought > p {
   margin: 4px 0 0;
@@ -1704,7 +1691,7 @@
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
 }
-.hc-att-image.failed {
+.hc-att-image:disabled {
   cursor: default;
 }
 .hc-att-unread {

@@ -138,7 +138,6 @@
   color: inherit;
   font: inherit;
   text-align: start;
-  cursor: default;
 }
 
 /* A long label (a link, a path) ends in an ellipsis instead of widening the menu. */

@@ -697,7 +697,7 @@ function LocationPicker({
           placeholder={t(CONTEXT_LABELS.folderSearch)}
           inputClassName="acpmux-location-search block h-8 w-full min-w-60 appearance-none border-0 bg-transparent px-2 font-[inherit] text-fg outline-none placeholder:text-muted"
           listClassName="acpmux-location-folders m-0 list-none border-t-[0.5px] border-edge p-0 pt-1 [&:not([hidden])]:mt-1"
-          itemClassName="acpmux-menu-item cursor-default rounded-lg data-[highlighted]:bg-hover"
+          itemClassName="acpmux-menu-item rounded-lg data-[highlighted]:bg-hover"
           renderItem={(path) => {
             const folder = options.find((option) => option.id === path);
             const suffix = suffixes?.get(path);

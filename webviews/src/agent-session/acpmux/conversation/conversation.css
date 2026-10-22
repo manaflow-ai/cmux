@@ -323,7 +323,6 @@
   color: var(--cv-text-muted);
   white-space: nowrap;
   user-select: none;
-  cursor: default;
 }
 .cv-user__more:hover {
   color: var(--cv-text);
@@ -348,7 +347,6 @@
   font: inherit;
   font-size: var(--text-detail);
   text-align: start;
-  cursor: default;
 }
 .cv-user__paste:hover {
   background: color-mix(in srgb, var(--agent-text) 8%, var(--agent-control));
@@ -386,7 +384,6 @@
   color: inherit;
   text-decoration: underline;
   text-underline-offset: 2px;
-  cursor: default;
 }
 .cv-user__cancel:hover {
   color: var(--cv-text);
@@ -437,7 +434,6 @@
   color: inherit;
   text-decoration: underline;
   text-underline-offset: 2px;
-  cursor: default;
 }
 .cv-thinking__cancel:hover {
   color: var(--cv-text);
@@ -508,7 +504,6 @@
   font-size: var(--text-detail);
   line-height: 24px;
   color: var(--agent-muted);
-  cursor: default;
 }
 .acpmux-artifact-tab:hover:not([aria-pressed="true"]) {
   color: var(--agent-text);
@@ -705,7 +700,6 @@
   line-height: 26px;
   color: var(--cv-text);
   box-shadow: inset 0 0 0 1px var(--cv-rule);
-  cursor: default;
 }
 .cv-user__edit-button:hover {
   background: var(--cv-faint-rule);
@@ -1252,7 +1246,6 @@ pre.cv-math-source {
   gap: 6px;
   min-inline-size: 0;
   border-radius: 5px;
-  cursor: default;
 }
 .acpmux-ask-chevron {
   flex: none;
@@ -1306,7 +1299,6 @@ pre.cv-math-source {
   color: var(--cv-text);
   font-size: var(--text-detail);
   line-height: 22px;
-  cursor: default;
 }
 .acpmux-ask-action:hover {
   background: color-mix(in srgb, var(--cv-fg) 7%, transparent);
@@ -2932,7 +2924,6 @@ button.cv-received__name:focus-visible {
   --glass-edge: var(--acpmux-jump-latest-rim, color-mix(in srgb, var(--agent-text) 18%, transparent));
   --glass-elevation: var(--elevation-2);
   color: var(--agent-text);
-  cursor: default;
   opacity: 0;
   pointer-events: none;
   transform: translate3d(-50%, 6px, 0);
@@ -3432,7 +3423,6 @@ button.cv-received__name:focus-visible {
   color: inherit;
   text-decoration: underline;
   text-underline-offset: 2px;
-  cursor: default;
 }
 .cv-user__send-now:hover:not(:disabled) {
   color: var(--cv-text);

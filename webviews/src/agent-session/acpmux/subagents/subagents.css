@@ -300,7 +300,6 @@ button.cv-subagent > :last-child {
   font-size: var(--text-control);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  cursor: default;
   user-select: none;
 }
 .acpmux-agents-pill:hover,
@@ -356,7 +355,6 @@ button.cv-subagent > :last-child {
   gap: 10px;
   border-radius: 8px;
   color: var(--agent-muted);
-  cursor: default;
 }
 /* An agent another one spawned sits under it, moved in a step per level (AgentsPill.tsx). */
 .acpmux-agents-list__row[data-depth="1"] {

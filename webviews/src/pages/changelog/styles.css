@@ -102,7 +102,6 @@ html[data-cmux-page="changelog"] body {
   background: var(--page-hover);
   font-size: var(--text-control);
   font-weight: 500;
-  cursor: default;
 }
 .cl-button:hover { background: var(--page-selection); }
 .cl-link { color: var(--page-text-2); text-decoration: none; font-size: var(--text-body); }
@@ -145,7 +144,6 @@ html[data-cmux-page="changelog"] body {
   padding: 0 2px;
   color: var(--page-text-3);
   font-size: var(--text-detail);
-  cursor: default;
 }
 .cl-row-action:hover,
 .cl-row-link:hover { color: var(--page-text); }
@@ -159,7 +157,6 @@ html[data-cmux-page="changelog"] body {
   align-items: baseline;
   color: var(--page-text-3);
   font-size: var(--text-detail);
-  cursor: default;
   list-style: none;
 }
 .cl-changes summary::-webkit-details-marker { display: none; }
@@ -197,7 +194,6 @@ html[data-cmux-page="changelog"] body {
   background: transparent;
   color: var(--page-text-2);
   font-size: var(--text-detail);
-  cursor: default;
 }
 .cl-more:hover { color: var(--page-text); }
 .cl-builds {
@@ -226,7 +222,6 @@ html[data-cmux-page="changelog"] body {
   color: var(--page-text-2);
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
-  cursor: default;
 }
 .cl-reel-chip:hover { background: var(--page-hover); color: var(--page-text); }
 .cl-reel-chip[aria-pressed="true"] { background: var(--page-selection); color: var(--page-text); }
@@ -338,7 +333,6 @@ html[data-cmux-page="changelog"] body {
   color: var(--page-text-2);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
-  cursor: default;
   list-style: none;
 }
 .cln-fixed summary::-webkit-details-marker { display: none; }
@@ -473,7 +467,6 @@ html[data-cmux-page="changelog"] body {
   border-radius: 6px;
   background: transparent;
   text-align: left;
-  cursor: default;
 }
 .clr-version:hover { background: var(--page-hover); }
 .clr-version.is-selected { background: var(--page-selection); }

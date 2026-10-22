@@ -78,7 +78,6 @@
   color: var(--page-text-2);
   padding: 3px 8px;
   border-radius: 6px;
-  cursor: default;
 }
 
 .pw-button:hover:not(:disabled) {
@@ -256,7 +255,6 @@
   border-radius: 5px;
   background: transparent;
   color: var(--page-text-2);
-  cursor: default;
 }
 
 .pw-row-button:hover {

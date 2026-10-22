@@ -62,7 +62,3 @@ textarea {
   font: inherit;
 }
 
-button,
-select {
-  cursor: default;
-}

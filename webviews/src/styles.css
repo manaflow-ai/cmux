@@ -2287,7 +2287,9 @@ svg[data-icon-fill] {
 
 /* R139 desktop feel for the chrome this file restyles (the toolbar and its
    pill, the files sidebar, the file bars, the file menu): not selectable, an
-   arrow cursor, no image or link drag. The file bar's path and anything
+   arrow cursor over the chrome itself and the pointing hand over what it holds
+   that clicks (desktop.css), no image or link drag. The file bar (a button: a
+   click folds the file) shows the hand. The file bar's path and anything
    marked `.selectable` opt back into selection; diff lines opt in inside
    Pierre's shadow root (codeViewUnsafeCSS). Focus rings come from :focus-visible rules only. */
 #toolbar,
@@ -2297,14 +2299,11 @@ svg[data-icon-fill] {
 #options-menu {
   -webkit-user-select: none;
   user-select: none;
-  cursor: default;
 }
-#toolbar :is(button, [role="button"], [role="menuitem"], [role="menuitemcheckbox"]),
-#files-sidebar :is(button, [role="button"]),
-.file-header,
-.file-header :is(button, [role="button"]),
-.file-header-menu :is(button, [role="menuitem"]),
-#options-menu :is(button, [role="menuitem"], [role="menuitemcheckbox"]) {
+#toolbar,
+#files-sidebar,
+.file-header-menu,
+#options-menu {
   cursor: default;
 }
 #toolbar :is(img, svg, a),

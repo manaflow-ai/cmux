@@ -76,25 +76,6 @@ body {
   }
 }
 
-/* Buttons and links are controls: the arrow, as in native apps. A real web link inside content
-   (`.selectable a[href]`) keeps the hand. */
-button,
-a,
-[role="button"],
-[role="link"],
-[role="tab"],
-[role="menuitem"],
-[role="option"],
-label,
-summary,
-select {
-  cursor: default;
-}
-
-.selectable a[href] {
-  cursor: pointer;
-}
-
 /* One tooltip, the native one's (CmuxNextDesign/Tooltip/TooltipPanel.swift): Base UI's tooltip
    (ui/Tooltip.tsx), a toolbar hint (ui/Toolbar.tsx) and the title tooltip that replaces WebKit's
    bubble on every first-party page (ui/titleTooltips.ts) all sit on the one tooltip surface
@@ -196,11 +177,14 @@ a {
   -webkit-user-drag: none;
 }
 
-/* Opt-in content selection. */
+/* Opt-in content selection: the I-beam over its text (a clickable thing in it still shows the hand,
+   below; zero specificity, so it never beats a surface's own cursor). */
 .selectable,
 .selectable * {
   -webkit-user-select: text;
   user-select: text;
+}
+:where(.selectable, .selectable *) {
   cursor: auto;
 }
 
@@ -213,12 +197,68 @@ textarea,
   cursor: text;
 }
 
-input[type="checkbox"],
-input[type="radio"],
-input[type="range"],
-input[type="color"],
-input[type="button"],
-input[type="submit"] {
+input[type="range"] {
+  cursor: default;
+}
+
+/* Everything clickable shows the pointing hand, its label and icons too; a disabled one keeps the
+   arrow (Leo 2026-10-21: "LOTS OF AREAS LIKE THAT SHOULD BE CHANGING MY CURSOR INDICATOR TO
+   CLICKABLE"; this replaces the R139 arrow on buttons and links). Zero specificity (:where), so a
+   surface's own cursor still wins: text in a field, a resize or drag cursor, zoom-in on an image.
+   A surface never sets `default` or `auto` on a clickable element (clickable-cursor.test.ts); a
+   clickable div gets a role instead of a cursor rule. */
+:where(
+    button,
+    a[href],
+    [role="button"],
+    [role="link"],
+    [role="menuitem"],
+    [role="menuitemcheckbox"],
+    [role="menuitemradio"],
+    [role="tab"],
+    [role="option"],
+    [role="switch"],
+    [role="checkbox"],
+    [role="radio"],
+    summary,
+    label[for],
+    label:has(input[type="checkbox"], input[type="radio"]),
+    select
+  ),
+:where(
+    button,
+    a[href],
+    [role="button"],
+    [role="link"],
+    [role="menuitem"],
+    [role="menuitemcheckbox"],
+    [role="menuitemradio"],
+    [role="tab"],
+    [role="option"],
+    [role="switch"],
+    [role="checkbox"],
+    [role="radio"],
+    summary,
+    label[for],
+    label:has(input[type="checkbox"], input[type="radio"])
+  )
+  * {
+  cursor: pointer;
+}
+input:is(
+    [type="checkbox"],
+    [type="radio"],
+    [type="button"],
+    [type="submit"],
+    [type="reset"],
+    [type="color"],
+    [type="file"]
+  ) {
+  cursor: pointer;
+}
+:where(:disabled, [aria-disabled="true"]),
+:where(:disabled, [aria-disabled="true"]) *,
+input:disabled {
   cursor: default;
 }
 
