@@ -145,7 +145,8 @@ fn posix_command(script: &str) -> String {
     format!("{POSIX_PREFIX}{}'", script.replace('\'', "'\\''"))
 }
 
-/// The script inside an [`ssh_argv`] command string (tests and diagnostics).
+/// The script inside an [`ssh_argv`] command string (the tests' fake ssh reads it).
+#[cfg(test)]
 pub(crate) fn script_of(command: &str) -> Option<String> {
     let quoted = command.strip_prefix(POSIX_PREFIX)?.strip_suffix('\'')?;
     Some(quoted.replace("'\\''", "'"))
