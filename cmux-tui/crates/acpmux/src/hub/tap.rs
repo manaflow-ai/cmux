@@ -11,6 +11,9 @@ use super::*;
 /// headers_ms and ttft_ms): every `message_start`, and the first `content_block_delta` after it.
 const RAW_STREAM_EVENT: &str = "claude.stream_event";
 
+/// A raw Claude `control_response` line.
+const RAW_CONTROL_RESPONSE: &str = "claude.control_response";
+
 /// The `session/update` kinds that show the model at work: what it says or does (a message, a
 /// thought, a tool call and its progress, a plan), a compaction (the model summarizing) and a
 /// subagent's progress.
@@ -111,7 +114,11 @@ impl Hub {
                     let mut kind = method.clone();
                     let timing = method == RAW_STREAM_EVENT
                         && params.as_ref().is_some_and(|p| times_request(p, &awaiting_first_delta));
-                    if method == RAW_STREAM_EVENT && !timing {
+                    // Claude Code's whole /context answer (its grid, every MCP tool) is not
+                    // logged either: the breakdown translated from it follows.
+                    let context = method == RAW_CONTROL_RESPONSE
+                        && params.as_ref().is_some_and(crate::claude_stdio::is_context_answer);
+                    if (method == RAW_STREAM_EVENT && !timing) || context {
                         // Kept nowhere: the entry counts as logged, so the host drops it.
                         tap_hub.touch(&tap_session);
                         return true;
