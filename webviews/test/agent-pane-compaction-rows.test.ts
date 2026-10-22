@@ -6,7 +6,9 @@
 import { expect, test } from "bun:test";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { compactTokens } from "../src/agent-session/acpmux/conversation/CompactionNote";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { CompactionNote, compactTokens } from "../src/agent-session/acpmux/conversation/CompactionNote";
 
 const CHAT = "0190a000-0000-7000-8000-0000000000c7";
 const START = Date.UTC(2026, 9, 18, 9, 0, 0);
@@ -453,4 +455,83 @@ test("a compaction an older page noted as failed after a forced Stop is the newe
   const { client, rows } = await connect(fakeDaemon(record(steps), 3));
   await client.loadOlder();
   expect(compactions(rows())).toEqual(["completed"]);
+});
+
+// Leo, 2026-10-21: "And why the hell does it show that it's supposedly compacting multiple times?"
+// His chat's 15 compactions, replayed from its acpmux log through the client before #22727, drew 51
+// rows with up to 5 spinning at once; since #22727 and #22791 they draw 15, never more than one
+// spinning. These pin that against the ways the same events reach the pane again.
+const spinners = (rows: AcpmuxRow[]) =>
+  rows
+    .filter((row) => row.kind === "compaction" && row.compaction)
+    .map((row) => renderToStaticMarkup(createElement(CompactionNote, { compaction: row.compaction! })))
+    .join("")
+    .split('class="cv-spinner"').length - 1;
+const compactionSteps = (prompt: string, preTokens: number): Step[] => [
+  ["mux", "user_message", { text: prompt }],
+  ["mux", "turn_started", {}],
+  ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+  ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+  ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+  [
+    "in",
+    "compaction",
+    update({ sessionUpdate: "compaction", state: "completed", trigger: "auto", preTokens, postTokens: 25_000 }),
+  ],
+  ["mux", "turn_result", { status: "completed" }],
+];
+
+test("one compaction is one row after its events reach the pane again", async () => {
+  const events = record(compactionSteps("go on", 352_000));
+  const daemon = fakeDaemon(events.slice(0, 3));
+  const { rows } = await connect(daemon);
+  const compactions = () =>
+    rows()
+      .filter((row) => row.kind === "compaction")
+      .map((row) => [row.seq, row.compaction?.state]);
+  expect(compactions()).toEqual([[3, "running"]]);
+  expect(spinners(rows())).toBe(1);
+  daemon.push(events.slice(3));
+  expect(compactions()).toEqual([[3, "completed"]]);
+  // A resubscribe sends what the pane already has again, with the same seqs.
+  daemon.push(events);
+  expect(compactions()).toEqual([[3, "completed"]]);
+  expect(spinners(rows())).toBe(0);
+  // A reconnect attaches afresh: the whole record, or a page that starts among the running notes.
+  const again = await connect(fakeDaemon(events));
+  expect(
+    again
+      .rows()
+      .filter((row) => row.kind === "compaction")
+      .map((row) => row.compaction?.state),
+  ).toEqual(["completed"]);
+  const paged = await connect(fakeDaemon(events, 3));
+  await paged.client.loadOlder();
+  expect(
+    paged
+      .rows()
+      .filter((row) => row.kind === "compaction")
+      .map((row) => row.compaction?.state),
+  ).toEqual(["completed"]);
+});
+
+test("two compactions are two rows, and only one spins at a time", async () => {
+  const events = [...record(compactionSteps("go on", 352_000)), ...record(compactionSteps("next", 353_000), 300)];
+  const daemon = fakeDaemon(events.slice(0, 1));
+  const { rows } = await connect(daemon);
+  let most = 0;
+  for (const event of events.slice(1)) {
+    daemon.push([event]);
+    most = Math.max(most, spinners(rows()));
+  }
+  expect(most).toBe(1);
+  expect(
+    rows()
+      .filter((row) => row.kind === "compaction")
+      .map((row) => [row.seq, row.compaction?.state]),
+  ).toEqual([
+    [3, "completed"],
+    [302, "completed"],
+  ]);
+  expect(spinners(rows())).toBe(0);
 });
