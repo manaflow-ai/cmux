@@ -35,10 +35,14 @@ final class AgentActivityPageService {
         AgentActivityPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: makeSource())
     }
 
-    /// Shows a lane's chat where ``AgentChatJump`` says it lives.
+    /// Shows a lane's chat where ``AgentChatJump`` says it lives. Back returns
+    /// to where the person jumped from, so a pick is never a dead end.
     func jump(to lane: AgentActivityLane) {
-        switch AgentChatJump.decide(lane: lane, shownIn: services.agentTabs.tab(showing: lane.id),
-                                    hasWorkspace: { [services] in services.workspace(id: $0) != nil }) {
+        let jump = AgentChatJump.decide(lane: lane, shownIn: services.agentTabs.tab(showing: lane.id),
+                                        hasWorkspace: { [services] in services.workspace(id: $0) != nil })
+        // The next settled location is its own step, even within one workspace.
+        services.locationTrail.noteJump()
+        switch jump {
         case .revealTab(let key):
             if !services.revealTab(key, intent: .raise) { openInFocusedPane(lane.id) }
         case .openInWorkspace(let workspaceID, let session):
@@ -58,7 +62,8 @@ final class AgentActivityPageService {
         services.showJumpWindow(nsWindow, .raise)
         guard window.content?.workspace.id != workspaceID else { return open(session, in: window) }
         // It has to mount that workspace's panes first.
-        services.windows.afterNextContent(in: window, showing: workspaceID) { [weak self] in
+        services.windows.afterNextContent(in: window, showing: workspaceID) { [weak self, weak window] in
+            guard let window else { return }
             self?.open(session, in: window)
         }
     }

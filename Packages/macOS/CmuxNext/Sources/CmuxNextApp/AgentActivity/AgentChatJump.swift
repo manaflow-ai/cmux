@@ -22,6 +22,9 @@ enum AgentChatJump: Equatable {
     static func decide(lane: AgentActivityLane, shownIn tab: String?,
                        hasWorkspace: (String) -> Bool) -> AgentChatJump {
         if let tab { return .revealTab(tab) }
+        if let workspaceID = lane.workspaceID, hasWorkspace(workspaceID) {
+            return .openInWorkspace(workspaceID: workspaceID, session: lane.id)
+        }
         return .openInFocusedPane(session: lane.id)
     }
 }
