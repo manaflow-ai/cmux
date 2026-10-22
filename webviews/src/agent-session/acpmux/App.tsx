@@ -6004,6 +6004,12 @@ function AcpmuxPane() {
             )
               await client.setConfig(String(configId), String(value));
           },
+          // A switch that is likely next (a hover over a chat's row in the host's lists): its newest
+          // page is read now, so the switch draws it from memory (direct.ts `prefetch`).
+          "chat.prefetch": async ({ sessionId, sessionIds }) => {
+            const ids = Array.isArray(sessionIds) ? sessionIds : [sessionId];
+            for (const id of ids) if (id) client.prefetch(String(id));
+          },
           "chat.select": async ({ sessionId }) => {
             harnessSwitch.cancel();
             return persistSession(await client.select(String(sessionId)));

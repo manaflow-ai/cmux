@@ -2312,6 +2312,15 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
 
     /// The layer the hit row's soft mask masks (the cell's fill container), for a copy of that mask elsewhere in the
     /// window to draw its image the same way up (MenuHighlight); nil in the thread view or without a visible cell.
+    /// cmux (u9489): the row layer a context-menu highlight of `h` lives in, so the highlight moves
+    /// with its row when the transcript scrolls, grows (a sent message) or reflows (a pane resize);
+    /// nil in the thread view or without a visible cell (the highlight stays in this view's coordinates).
+    func highlightAnchor(_ h: Hit) -> CALayer? {
+        guard !threadOpen else { return nil }
+        for case let cell as RowCell in collection.visibleCells where cell.spec?.key == h.key { return cell.layer }
+        return nil
+    }
+
     func softMaskOwner(_ h: Hit) -> CALayer? {
         guard !threadOpen else { return nil }
         for case let cell as RowCell in collection.visibleCells where cell.spec?.key == h.key { return cell.fillContainer }
