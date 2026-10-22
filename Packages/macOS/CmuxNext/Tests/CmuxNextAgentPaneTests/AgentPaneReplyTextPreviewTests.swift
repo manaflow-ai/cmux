@@ -203,6 +203,70 @@ struct AgentPaneReplyTextPreviewTests {
         }
     }
 
+    /// Counts each time the host looks up this Mac's folders, which every path lookup does first.
+    @MainActor private final class Lookups {
+        var count = 0
+    }
+
+    private static func ask(_ model: AgentPaneModel, _ method: String, _ params: [String: Any]) async -> [String: Any] {
+        await model.respond(to: AgentPaneRequest(body: ["method": method, "params": params]))
+    }
+
+    /// Every path request of a chat on another machine: an image's thumbnail, Open of a file or a
+    /// folder, and the text preview. Each is refused before any lookup of the path here (a file of
+    /// the same spelling on this Mac is not the agent's), for a secret name and a missing one too.
+    private static func expectNothingLooksHere(_ rig: Rig, _ label: String) async throws {
+        let lookups = Lookups()
+        let project = rig.project.path
+        rig.model.workspaceRoots = {
+            lookups.count += 1
+            return [project]
+        }
+        let shot = rig.project.appendingPathComponent("shot.png")
+        try Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]).write(to: shot)
+        let sshConfig = rig.home.appendingPathComponent(".ssh/config")
+        try "Host *\n".write(to: sshConfig, atomically: true, encoding: .utf8)
+        let reports = rig.outside.appendingPathComponent("reports", isDirectory: true)
+        try FileManager.default.createDirectory(at: reports, withIntermediateDirectories: true)
+
+        for path in [shot.path, sshConfig.path, rig.outside.appendingPathComponent("gone.png").path] {
+            let reply = await ask(rig.model, "image.load", ["src": path])
+            #expect(errorCode(reply) == AgentPaneReplyError.pathOutsideRoots.rawValue, "\(label) image.load \(path): \(reply)")
+            #expect((reply["value"] as? [String: Any])?["src"] == nil, "\(label) image.load \(path)")
+        }
+        for path in [reports.path + "/", shot.path, sshConfig.path] {
+            let reply = await ask(rig.model, "link.openPath", ["path": path])
+            #expect(errorCode(reply) == AgentPaneReplyError.pathOutsideRoots.rawValue, "\(label) link.openPath \(path): \(reply)")
+        }
+        for path in [shot.path, sshConfig.path] {
+            let reply = await ask(rig.model, "link.preview", ["path": path])
+            #expect((reply["value"] as? [String: Any])?["remote"] as? Bool == true, "\(label) link.preview \(path): \(reply)")
+        }
+        #expect(lookups.count == 0, "\(label): the host looked up a remote chat's path here")
+    }
+
+    @Test func aRemoteChatsImagesAndOpensNeverTouchThisMac() async throws {
+        let rig = try Self.rig()
+        defer { try? FileManager.default.removeItem(at: rig.folder) }
+        // `open` would show any outside path; a remote chat still gets nothing from this Mac.
+        rig.model.replyLinks.settings = { AgentPaneReplySetting(outsideRoots: .open, remoteImages: .click) }
+        rig.model.remoteChat = true
+        try await Self.expectNothingLooksHere(rig, "remoteChat")
+    }
+
+    @Test func aRemoteWireAloneRefusesToo() async throws {
+        let rig = try Self.rig()
+        defer { try? FileManager.default.removeItem(at: rig.folder) }
+        rig.model.replyLinks.settings = { AgentPaneReplySetting(outsideRoots: .open, remoteImages: .click) }
+        // The connection is to another machine's acpmux, before the model has marked the chat remote.
+        let wire = AgentPaneRelayedAllowTests.RemoteWire()
+        let id = try await rig.model.transport.open(.remote(AgentPaneRemoteRoute(machine: "host") { wire }))
+        defer { rig.model.transport.close(connection: id) }
+        #expect(rig.model.transport.remoteWire)
+        #expect(!rig.model.remoteChat)
+        try await Self.expectNothingLooksHere(rig, "remoteWire")
+    }
+
     @Test func aWholeOneLineFileLongerThanTheCapReadsAsCut() {
         let line = String(repeating: "y", count: AgentPaneReplyTextPreview.maximumLineLength + 1)
         let data = Data(line.utf8)

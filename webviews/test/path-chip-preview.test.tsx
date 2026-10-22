@@ -149,13 +149,15 @@ test("a text file's hover card shows its first lines from the host's bounded rea
   await view.done();
 });
 
-test("a folder's card has its name and Open but reads nothing", async () => {
+test("a folder's card has its name and Open, and only asks whether the chat is on this Mac", async () => {
   const path = "/Users/you/src/atlas-web/src/";
   const view = await renderChip(path, { paths: { [path]: { place: "root", folder: true } } }, () => undefined);
   await view.act(async () => view.chip.focus());
+  await view.until(() => view.calls.length > 0);
   expect(view.card()?.textContent).toContain("src");
   expect(view.card()?.querySelector("pre, img")).toBeNull();
-  expect(view.calls).toEqual([]);
+  expect(view.card()?.querySelector(".cv-link-preview__open")).not.toBeNull();
+  expect(view.calls).toEqual([{ method: "link.preview", params: { path } }]);
   await view.done();
 });
 
@@ -168,7 +170,7 @@ test("an image the host refuses keeps the plain file card: name, path and Open, 
     () => undefined,
   );
   await view.act(async () => view.chip.focus());
-  await view.until(() => view.calls.some((call) => call.method === "link.preview"));
+  await view.until(() => view.calls.some((call) => call.method === "image.load"));
   const card = view.card()!;
   expect(card.textContent).toContain("before.png");
   expect(card.textContent).toContain(path);
@@ -177,8 +179,8 @@ test("an image the host refuses keeps the plain file card: name, path and Open, 
   expect(card.querySelector(".cv-path-preview__note")).toBeNull();
   expect(card.querySelector(".cv-link-preview__open")).not.toBeNull();
   expect(view.calls).toEqual([
-    { method: "image.load", params: { src: path } },
     { method: "link.preview", params: { path } },
+    { method: "image.load", params: { src: path } },
   ]);
   await view.done();
 });
@@ -207,5 +209,36 @@ test("in a chat on another machine the card says so and offers no Open of a loca
   );
   expect(card.querySelector("pre, img")).toBeNull();
   expect(card.querySelector(".cv-link-preview__open")).toBeNull();
+  await view.done();
+});
+
+test("an image in a chat on another machine never asks the host for a thumbnail", async () => {
+  const path = "/Users/you/shots/after.png";
+  const view = await renderChip(path, { paths: { [path]: { place: "root", folder: false } } }, ({ method }) =>
+    // A host that would draw a same-named file on this Mac if asked.
+    method === "link.preview" ? { remote: true } : method === "image.load" ? { src: PNG } : undefined,
+  );
+  await view.act(async () => view.chip.focus());
+  await view.until(() => view.card()?.querySelector(".cv-path-preview__note"));
+  const card = view.card()!;
+  expect(card.querySelector("img, pre")).toBeNull();
+  expect(card.querySelector(".cv-link-preview__open")).toBeNull();
+  expect(view.calls).toEqual([{ method: "link.preview", params: { path } }]);
+  await view.done();
+});
+
+test("a folder in a chat on another machine offers no Open of a same-named folder here", async () => {
+  const path = "/tmp/reports/";
+  const view = await renderChip(
+    path,
+    { paths: { [path]: { place: "outside", folder: true } }, policy: { outsideRoots: "open" } },
+    ({ method }) => (method === "link.preview" ? { remote: true } : undefined),
+  );
+  await view.act(async () => view.chip.focus());
+  await view.until(() => view.card()?.querySelector(".cv-path-preview__note"));
+  const card = view.card()!;
+  expect(card.textContent).toContain("reports");
+  expect(card.querySelector(".cv-link-preview__open")).toBeNull();
+  expect(view.calls).toEqual([{ method: "link.preview", params: { path } }]);
   await view.done();
 });
