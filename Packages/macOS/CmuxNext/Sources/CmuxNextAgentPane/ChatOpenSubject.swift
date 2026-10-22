@@ -28,6 +28,15 @@ public nonisolated struct ChatOpenSubject: Equatable, Sendable {
         }
     }
 
+    /// Whether `key` is a chat-index key Open Chat can resume: `<index harness>:<id>`, a known
+    /// harness and a non-empty id with no path characters.
+    public static func isResumeKey(_ key: String) -> Bool {
+        guard key.count <= 512, let colon = key.firstIndex(of: ":") else { return false }
+        let harness = String(key[..<colon]), id = key[key.index(after: colon)...]
+        return ["claude-code", "codex", "opencode", "gemini", "pi", "cursor-agent"].contains(harness)
+            && !id.isEmpty && !id.contains("/") && !id.contains("\0")
+    }
+
     /// Whether `key` names a chat acpmux can show without running it (View Only, acpmux
     /// `hub/watch.rs`): a Claude Code or Codex index key, `claude-code:<id>` or `codex:<id>`.
     public static func isWatchable(key: String) -> Bool {

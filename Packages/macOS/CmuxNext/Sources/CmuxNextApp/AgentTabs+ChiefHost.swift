@@ -14,10 +14,12 @@ enum AgentPaneHostKind: Equatable {
 
     /// The acpmux that runs `record`'s session: the record says who owns it, so a restored tab
     /// attaches to the same daemon.
-    init(_ record: AgentSessionRef, localHost: String?, chiefHost: String?) {
+    /// `namedChiefHosts`: the hosts of the home's named Chiefs (`c/<id>`), whose subagents run in
+    /// the same Chief home acpmux (a tab of one was classed as another machine's and refused).
+    init(_ record: AgentSessionRef, localHost: String?, chiefHost: String?, namedChiefHosts: Set<String> = []) {
         if let localHost, record.host == localHost {
             self = .local
-        } else if let chiefHost, record.host == chiefHost {
+        } else if let chiefHost, record.host == chiefHost || namedChiefHosts.contains(record.host) {
             self = .chief
         } else {
             self = .remote
@@ -29,6 +31,9 @@ enum AgentPaneHostKind: Equatable {
 /// (`ChiefHome.acpmuxHome`, as HomeBrainHost starts it).
 struct ChiefHomeAcpmux {
     let host: String
+    /// The hosts (`chief:<home id>`) of the home's named Chiefs (`c/<id>`), which run their
+    /// subagents in this home's own acpmux.
+    let namedHosts: Set<String>
     let paneHost: any AgentPaneHostProviding
     /// This Mac's tabs' host: a session the Chief host runs (an older subagent tab recorded
     /// with this Mac's host) attaches to the Chief home's acpmux, any other to `local`.
@@ -45,8 +50,10 @@ struct ChiefHomeAcpmux {
          ownHost: @escaping @Sendable (AcpmuxEnvironment?) -> any AgentPaneHostProviding = { AcpmuxHost(environment: $0) }) {
         let host = Self.host(muxHome: home.muxHome)
         self.host = host
-        // optchat-chief `brain::parent_tag`: optchat-chief:<home id>.
-        let tag = "optchat-chief:" + host.dropFirst("chief:".count)
+        let named = Self.namedHosts(home: home)
+        namedHosts = named
+        // optchat-chief `brain::parent_tag`: optchat-chief:<home id>, for the Chief and each named one.
+        let tags = Set(([host] + named).map { "optchat-chief:" + $0.dropFirst("chief:".count) })
         let environment = Self.environment(home: home)
         // One daemon: the Chief's new sessions are this Mac's, so their tabs attach like any chat
         // and the app's own handoff heals that daemon. A subagent started before the move
@@ -57,7 +64,7 @@ struct ChiefHomeAcpmux {
             let own = ownHost(environment)
             let sessionsHome = home.acpmuxHome
             let router: @Sendable (any AgentPaneHostProviding) -> any AgentPaneHostProviding = { local in
-                AcpmuxChiefSessionRouter(local: local, chief: own, chiefEnvironment: environment, sessionsHome: sessionsHome, parentTag: tag)
+                AcpmuxChiefSessionRouter(local: local, chief: own, chiefEnvironment: environment, sessionsHome: sessionsHome, parentTags: tags)
             }
             paneHost = router(local)
             localRouter = router
@@ -73,13 +80,18 @@ struct ChiefHomeAcpmux {
         }
         let chief = AcpmuxHost(environment: environment, startsDaemons: false, healReplaced: healReplaced)
         paneHost = chief
-        localRouter = { local in AcpmuxChiefSessionRouter(local: local, chief: chief, chiefEnvironment: environment, parentTag: tag) }
+        localRouter = { local in AcpmuxChiefSessionRouter(local: local, chief: chief, chiefEnvironment: environment, parentTags: tags) }
     }
 
     /// The acpmux of the Chief home `home` (its socket is `socketPath`), nil without one.
     static func environment(home: ChiefHome) -> AcpmuxEnvironment? {
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
         return AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bin, environment: ["ACPMUX_HOME": home.acpmuxHome.path])
+    }
+
+    /// The hosts of the named Chiefs of `home` (each `c/<id>` folder, cmux-tui chief_brains.rs).
+    static func namedHosts(home: ChiefHome) -> Set<String> {
+        []
     }
 
     /// `chief:<home id>` of the Chief home `muxHome`. The id is optchat-chief

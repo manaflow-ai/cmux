@@ -32,6 +32,19 @@ extension AgentPaneRequest {
         switch method {
         case "ready":
             self = params?["reconnect"] as? Bool == true ? .reconnect : .ready
+        case "chat.resumeKey":
+            if let session = params?["session"] as? String, !session.isEmpty, let key = params?["key"] as? String,
+               ChatOpenSubject.isResumeKey(key) {
+                self = .resumeKey(session: session, key: key)
+            } else {
+                self = .unsupported(method)
+            }
+        case "chat.resumeKey.get":
+            if let session = params?["session"] as? String, !session.isEmpty {
+                self = .resumeKeyGet(session: session)
+            } else {
+                self = .unsupported(method)
+            }
         case "chat.missing":
             if let session = params?["session"] as? String, !session.isEmpty {
                 self = .missingChat(session: session, reason: params?["reason"] as? String ?? "unknown")

@@ -14,6 +14,9 @@ public nonisolated struct AcpmuxSessionCensus: Sendable, Equatable {
     /// A Home Chief session is in a turn. Chief sessions are never counted
     /// above (and never ended by a quit).
     public var chiefInTurn: Bool
+    /// Sessions a client (an open tab's pane, a CLI attach) is attached to now: ending the
+    /// daemon would cut that client off.
+    public var attached: Int
 
     /// The tag key on every Home Chief turn and compactor session (value:
     /// the home id), agreed with the chief lane. Untagged Chief sessions are
@@ -22,11 +25,12 @@ public nonisolated struct AcpmuxSessionCensus: Sendable, Equatable {
     public static let chiefNamePrefix = "optchat-"
     public static let chiefCompactorPresetPrefix = "optchat-compact-"
 
-    public init(live: Int = 0, inTurn: Int = 0, inTurnNames: [String] = [], chiefInTurn: Bool = false) {
+    public init(live: Int = 0, inTurn: Int = 0, inTurnNames: [String] = [], chiefInTurn: Bool = false, attached: Int = 0) {
         self.live = live
         self.inTurn = inTurn
         self.inTurnNames = inTurnNames
         self.chiefInTurn = chiefInTurn
+        self.attached = attached
     }
 
     /// The census of one `_acpmux/sessions` result.

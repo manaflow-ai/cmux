@@ -23,15 +23,17 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
     /// its own: the tab attaches there, never to a daemon that lacks the chat (which says
     /// "This chat isn't available").
     ///
-    /// - Parameter sessionsHome: the Chief home's `ACPMUX_HOME`; defaults to `environment`'s.
+    /// - Parameters:
+    ///   - sessionsHome: the Chief home's `ACPMUX_HOME`; defaults to `environment`'s.
+    ///   - parentTags: the `mux.parent` tags of the home's Chiefs (`optchat-chief:<home id>`).
     public init(local: any AgentPaneHostProviding, chief: any AgentPaneHostProviding,
-                chiefEnvironment environment: AcpmuxEnvironment?, sessionsHome: URL? = nil, parentTag: String) {
+                chiefEnvironment environment: AcpmuxEnvironment?, sessionsHome: URL? = nil, parentTags: Set<String>) {
         let socket = environment?.socketPath
         let kept = sessionsHome ?? environment?.home
         self.init(local: local, chief: chief) { session in
             if let socket, FileManager.default.fileExists(atPath: socket),
                let listing = try? await AcpmuxStatusClient.sessions(socketPath: socket, deadline: .seconds(2)) {
-                return Self.owns(listing.value, session: session, parentTag: parentTag)
+                return Self.owns(listing.value, session: session, parentTags: parentTags)
             }
             return Self.keeps(session: session, home: kept)
         }
@@ -47,9 +49,16 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
 
     /// Whether `_acpmux/sessions` result `listing` has `session` tagged `mux.parent` = `parentTag`.
     public static func owns(_ listing: [String: Any], session: String, parentTag: String) -> Bool {
+        owns(listing, session: session, parentTags: [parentTag])
+    }
+
+    /// Whether `listing` has `session` tagged `mux.parent` with one of `parentTags` (the Chief's
+    /// and each named Chief's of the home, which share its acpmux).
+    public static func owns(_ listing: [String: Any], session: String, parentTags: Set<String>) -> Bool {
         let rows = listing["sessions"] as? [[String: Any]] ?? []
         return rows.contains { row in
-            row["sessionId"] as? String == session && (row["tags"] as? [String: Any])?["mux.parent"] as? String == parentTag
+            guard row["sessionId"] as? String == session, let tag = (row["tags"] as? [String: Any])?["mux.parent"] as? String else { return false }
+            return parentTags.contains(tag)
         }
     }
 

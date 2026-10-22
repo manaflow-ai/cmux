@@ -94,6 +94,11 @@ final class AgentTabStore {
     var launchImages = AgentPaneLaunchImages(directory: nil)
     /// New chats' typed text from before they have a session, kept across a relaunch (cx-z5vd).
     var unsentDrafts = AgentUnsentDrafts(file: nil)
+    /// The chat-index key of each session a tab showed: a missing chat's Resume opens it.
+    var resumeKeys = AgentChatResumeKeys(file: nil)
+    /// The hosts of the Chief home's named Chiefs (`ChiefHomeAcpmux/namedHosts`): their tabs attach
+    /// like the Chief's.
+    var namedChiefHosts: Set<String> = []
     /// "This chat runs on <machine>" for tabs whose session another Mac's acpmux runs.
     var notices: [String: AgentTabElsewhereView] = [:]
     /// A provisional tab's id -> the store's id once the creation answered (``AgentTabStore/rekey(_:to:)``): one page.
@@ -292,7 +297,7 @@ final class AgentTabStore {
         let key = resolve(key)
         if let view = views[key] { return view }
         guard let (record, store) = lookup(key) else { return nil }
-        let kind = AgentPaneHostKind(record, localHost: localHost, chiefHost: chiefHost)
+        let kind = AgentPaneHostKind(record, localHost: localHost, chiefHost: chiefHost, namedChiefHosts: namedChiefHosts)
         // A Chief subagent runs on this Mac too, in the Chief home's acpmux.
         let local = kind != .remote
         // A tab recorded for this Mac in another machine's tree with no chat yet (saved before
@@ -393,6 +398,7 @@ final class AgentTabStore {
         }
         model.onSessionHarness = { [weak self] session in self.map { $0.sendSession(session, for: $0.resolve(provisional)) } }
         unsentDrafts.wire(model) { [weak self] in self?.resolve(provisional) ?? provisional }
+        model.resumeKeys = resumeKeys
         model.onOpenTab = { [weak self] request in
             BenchSpans.mark("bridge.tab.open")
             guard let self else { return }

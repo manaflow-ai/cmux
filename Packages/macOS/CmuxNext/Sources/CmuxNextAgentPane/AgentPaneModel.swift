@@ -70,6 +70,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var remoteChat = false
     /// Logs each missing-chat view the page reports (`chat.missing`).
     @ObservationIgnored let missingChatLog = AgentPaneMissingChatLog()
+    /// The chat-index keys of the sessions the page showed (`chat.resumeKey`), set by the app.
+    @ObservationIgnored public var resumeKeys: AgentChatResumeKeys?
     @ObservationIgnored public var onOpenChat: ((String) -> Void)? // `chats.open`: the app's shared Open Chat path
     @ObservationIgnored public var onOpenChatInTerminal: ((String) -> Void)? // `chats.openInTerminal`: a row's right-click menu
     @ObservationIgnored public var onWatchChat: ((String) -> Void)? // `chats.watch`: View Only from a row's right-click menu
@@ -262,6 +264,11 @@ public final class AgentPaneModel {
         case .ready, .reconnect:
             return await AgentPaneHandshakeReply.reply(to: request, in: self)
         case .persistSession(let id): adoptSession(id); return AgentPaneReply.success()
+        case .resumeKey(let session, let key):
+            resumeKeys?.set(key, for: session)
+            return AgentPaneReply.success()
+        case .resumeKeyGet(let session):
+            return AgentPaneReply.success(["key": resumeKeys?.key(for: session).map { $0 as Any } ?? NSNull()])
         case .missingChat(let session, let reason):
             missingChatLog.record(session: session, reason: reason, tabSession: sessionId, remote: remoteChat)
             return AgentPaneReply.success()

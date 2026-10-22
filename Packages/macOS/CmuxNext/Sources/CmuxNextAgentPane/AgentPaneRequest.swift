@@ -17,6 +17,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `chat.missing` with `{session, reason}`: the page says this tab's chat isn't available
     /// (`notListedAtOpen`, `leftListWhileShown`); the host logs it, so the views can be counted.
     case missingChat(session: String, reason: String)
+    /// `chat.resumeKey` with `{session, key}`: the chat-index key (`claude-code:<id>`) of the
+    /// acpmux session the page shows, kept so a later missing-chat Resume opens that exact chat.
+    case resumeKey(session: String, key: String)
+    /// `chat.resumeKey.get` with `{session}`: answers `{key}`, the kept chat-index key or null.
+    case resumeKeyGet(session: String)
     /// A new chat's typed text before it has a session (`chat.unsentDraft`, cx-z5vd): the App
     /// keeps it with the tab, so a relaunch opens the chat with it.
     case unsentDraft(String)
