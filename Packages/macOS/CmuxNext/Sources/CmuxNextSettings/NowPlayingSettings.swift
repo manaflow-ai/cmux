@@ -4,10 +4,15 @@
 /// The Now Playing player in cmux.json: `sidebar.nowPlaying.enabled` shows the sidebar card (off by
 /// default; a tab playing sound shows its speaker in the tab strip), and `tabs.newTabNowPlaying`
 /// shows the New Tab page's player (on by default; its menu's Hide Now Playing turns it off).
+/// `media.pictureInPicture.enabled` offers cmux's own Picture in Picture for a page's video (on by
+/// default): the tab and card menus, the palette, the CLI and MCP action, the card's and the media
+/// hub's buttons. Off, all of them are gone; a site's own video controls are not cmux's and stay.
 public nonisolated struct NowPlayingSettings: Sendable, Equatable {
     public var enabled = NowPlayingSettings.enabledDefault
     /// `tabs.newTabNowPlaying`: the New Tab page's player (its menu's Hide Now Playing turns it off).
     public var newTab = NowPlayingSettings.newTabDefault
+    /// `media.pictureInPicture.enabled`: cmux's Picture in Picture entry points for a page's video.
+    public var pictureInPicture = NowPlayingSettings.pictureInPictureDefault
 
     public init() {}
 
@@ -21,6 +26,12 @@ public nonisolated struct NowPlayingSettings: Sendable, Equatable {
         if let value = root.value(at: newTabPath) {
             if let bool = value.boolValue { settings.newTab = bool } else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: newTabPath.joined(separator: "."), message: "expected true or false"))
+            }
+        }
+        if let value = root.value(at: pictureInPicturePath) {
+            if let bool = value.boolValue { settings.pictureInPicture = bool } else {
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: pictureInPicturePath.joined(separator: "."),
+                                                      message: "expected true or false"))
             }
         }
         return settings
