@@ -117,8 +117,12 @@ def session(run, browser, round_no: int, log, budgets_path: str | None = None):
                 browser.act("selectSurfaceByNumber", index=1)
                 _sleep(phase_settle)
                 after = browser.instance.memory()["mb"]
-                run.record(name, round_no, row, (after - before) / tabs, before_mb=before, after_mb=after, count=tabs,
-                           **({"note": f"{unpainted} of {tabs} tabs never painted"} if unpainted else {}))
+                # A tab that never painted is not a hidden tab's cost: the row stays unmeasured this
+                # round (evaluate counts it incomplete) and keeps the delta for the log.
+                per_tab = (after - before) / tabs
+                run.record(name, round_no, row, None if unpainted else per_tab, before_mb=before, after_mb=after,
+                           count=tabs, **({"note": f"{unpainted} of {tabs} tabs never painted",
+                                           "unpainted_mb": round(per_tab, 3)} if unpainted else {}))
 
         _sleep(phase_settle)
         got = browser.instance.window(idle, per_pid=True)
@@ -137,12 +141,15 @@ def session(run, browser, round_no: int, log, budgets_path: str | None = None):
             log(f"  pid {row['pid']:>6} {row['kind'][:24]:<24} {row['footprint_mb']:>8.1f} MB "
                     f"{row['rss_mb'] or 0:>8.1f} MB rss {row['cpu_pct'] or 0:>6.2f}% "
                     f"{row['wakeups_per_s'] or 0:>7.1f} wk/s")
-        browser.hide()
-        _sleep(10)
-        got = browser.instance.window(idle)
-        run.record(name, round_no, "budget-idle-cpu-app-hidden", got["cpu_pct"], kinds=got["kinds"])
-        run.record(name, round_no, "budget-idle-wakeups-app-hidden", got["wakeups_per_s"], kinds=got["kinds"])
-        browser.unhide()
+        if browser.hide():
+            _sleep(10)
+            got = browser.instance.window(idle)
+            run.record(name, round_no, "budget-idle-cpu-app-hidden", got["cpu_pct"], kinds=got["kinds"])
+            run.record(name, round_no, "budget-idle-wakeups-app-hidden", got["wakeups_per_s"], kinds=got["kinds"])
+            browser.unhide()
+        else:  # a visible app's idle is not the hidden app's: leave the rows unmeasured this round
+            for row in ("budget-idle-cpu-app-hidden", "budget-idle-wakeups-app-hidden"):
+                run.record(name, round_no, row, None, note="the app did not hide")
     except Exception as error:  # noqa: BLE001 - a failed session is logged, the run goes on
         run.record(name, round_no, "session-error", None, note=f"{type(error).__name__}: {error}"[:400])
     finally:

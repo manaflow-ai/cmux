@@ -242,8 +242,9 @@ class Browser:
             time.sleep(0.02)  # bench: waiting for LaunchServices to start the app
         raise RuntimeError(f"{self.name}: no app process within {timeout} s")
 
-    def hide(self):
-        self.helper.run("hide", str(self.instance.pid))
+    def hide(self) -> bool:
+        """True once NSRunningApplication accepted the hide."""
+        return self.helper.run("hide", str(self.instance.pid)).returncode == 0
 
     def unhide(self):
         self.helper.run("unhide", str(self.instance.pid))
