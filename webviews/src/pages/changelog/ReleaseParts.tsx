@@ -305,14 +305,23 @@ export function ChangesFold({
   );
 }
 
+const pullURL = (pr: number) => `https://github.com/manaflow-ai/cmux/pull/${pr}`;
+
 function ChangeList({ changes }: { changes: ChangeItem[] }) {
   return (
     <ul>
       {changes.map((c, i) => (
         <li key={c.pr ?? `t${i}`}>
-          <span>{c.title}</span>
+          {c.pr === undefined ? (
+            <span>{c.title}</span>
+          ) : (
+            // The title is a link too (Leo 2026-10-21: "more colored links? not just the #").
+            <a className="cl-change-link" href={pullURL(c.pr)} rel="noreferrer">
+              <span>{c.title}</span>
+            </a>
+          )}
           {c.pr !== undefined && (
-            <a className="cl-pr" href={`https://github.com/manaflow-ai/cmux/pull/${c.pr}`} rel="noreferrer">
+            <a className="cl-pr" href={pullURL(c.pr)} rel="noreferrer">
               #{c.pr}
             </a>
           )}

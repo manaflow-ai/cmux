@@ -356,9 +356,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     let drawn = Self.foldingDone(Self.treeOrder(Self.workspaceIDs(members), parents: o.sessionTree?.parents),
                                                  workspace: { if case let .workspace(ws) = members[$0] { ws } else { nil } }, fold: fold, options: o)
                     for (position, (childIndex, depth)) in drawn.enumerated() {
-                        if childIndex == Self.doneFoldIndex {
-                            Self.appendDoneFold(fold, count: depth, open: o.openDoneFolds.contains(fold), parent: index, color: group.color,
-                                                last: position == drawn.count - 1, to: &rows, y: &y, metrics: m)
+                        if childIndex < 0 {
+                            Self.appendFold(childIndex, fold, count: depth, parent: index, color: group.color, last: position == drawn.count - 1,
+                                            options: o, to: &rows, y: &y, metrics: m)
                             continue
                         }
                         let member = members[childIndex]
@@ -404,7 +404,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     y += m.groupBottomPadding
                 }
             }
-            // Group by Folder lists groups and document items (links, tabs, apps) as they are.
+            // Group by Folder lists groups, document items and every folder's rows as they are: no Done fold, no row limit.
             func isGroup(_ entry: (node: SidebarNode, children: [SidebarWorkspace])) -> Bool {
                 if case .workspace = entry.node { false } else { true }
             }
@@ -415,11 +415,11 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 let tree = Self.treeRows(nodes.map { $0.node }, tree: o.sessionTree, filtering: filtering)
                 let treeRow = Dictionary(tree.map { ($0.index, $0) }, uniquingKeysWith: { first, _ in first })
                 let drawn = Self.foldingDone(tree.map { ($0.index, $0.depth) },
-                                             workspace: { if case let .workspace(ws) = nodes[$0].node { ws } else { nil } }, fold: fold, options: o)
+                                             workspace: { if case let .workspace(ws) = nodes[$0].node { ws } else { nil } }, fold: fold,
+                                             limits: { !isGroup(nodes[$0]) }, options: o)
                 for (index, depth) in drawn {
-                    guard index == Self.doneFoldIndex else { emit(index, nodes[index], tree: treeRow[index] ?? TreeRow(index: index, depth: depth)); continue }
-                    Self.appendDoneFold(fold, count: depth, open: o.openDoneFolds.contains(fold), parent: nil, color: nil, last: false,
-                                        to: &rows, y: &y, metrics: m)
+                    guard index < 0 else { emit(index, nodes[index], tree: treeRow[index] ?? TreeRow(index: index, depth: depth)); continue }
+                    Self.appendFold(index, fold, count: depth, parent: nil, color: nil, last: false, options: o, to: &rows, y: &y, metrics: m)
                 }
                 openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
                 continue

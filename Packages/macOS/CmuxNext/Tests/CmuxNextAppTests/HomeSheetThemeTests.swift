@@ -20,14 +20,16 @@ import Testing
                                     "\(type(of: sheet)) paints a surface over the system sheet background")
             #expect(ThemedOverlayColorsTests.same(fill, surface), "\(type(of: sheet)): \(fill) vs \(surface)")
         }
-        // New Message's suggestion list (a page now, no sheet) lets the popup surface show.
+        // New Message's suggestion list (a page now, no sheet) floats over the page on the shared
+        // overlay glass, not the solid popup surface (Leo 2026-10-21: "STOP DOING SOLID").
         let suggestions = HomeRecipientSuggestionsView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
         scope.root(suggestions)
         suggestions.applyColors()
         #expect((suggestions.table.backgroundColor.usingColorSpace(.sRGB)?.alphaComponent ?? 1) < 0.01)
         #expect(suggestions.scroll.borderType == .noBorder)
-        let list = try #require(suggestions.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)))
-        #expect(ThemedOverlayColorsTests.same(list, surface))
+        #expect((suggestions.layer?.backgroundColor?.alpha ?? 0) == 0, "the list paints a fill over its glass")
+        #expect(suggestions.subviews.first === suggestions.glass, "the glass sits under the rows")
+        #expect(!suggestions.glass.isCard && suggestions.glass.frame == suggestions.bounds)
     }
 
     @Test func homeFieldsDrawTheThemeNotTheSystemBezel() throws {

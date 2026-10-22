@@ -71,10 +71,11 @@ export function SpanNews({ view, ctx }: { view: ReleaseView; ctx: PartsContext }
           <ul>
             {fixed.map((item, index) => (
               <li key={`${item.id}-${index}`}>
-                <span>
+                <span className="cl-row-text">
                   <span className="cl-row-title">{item.title}</span>
                   {item.summary && <span className="cl-row-summary"> {firstParagraph(item.summary)}</span>}
                 </span>
+                <RowActions item={item} ctx={ctx} />
               </li>
             ))}
           </ul>
