@@ -5,7 +5,8 @@ import Foundation
 /// under the Priority view's states (`SidebarStatusSection`), each in manual order. A header names its section and
 /// count; a folded section keeps the count (Needs you never folds). Rows move as their state changes, except the
 /// active row (`SidebarGrouping.held`). The list draws every row of a section: the Done fold (`SidebarLayout+DoneFold`,
-/// `sidebar.doneFold`) does not apply inside status sections, so a workspace marked Done shows under its state.
+/// `sidebar.doneFold`) and Show more (`sidebar.groupRowLimit`) do not apply inside status sections, so a workspace marked
+/// Done shows under its state and a long section lists every row.
 nonisolated extension SidebarLayout {
     /// The rows of `sections`' computers (the pinned area and the document's sections lay out as before), from `y`;
     /// `spaced` puts the section spacing above them.

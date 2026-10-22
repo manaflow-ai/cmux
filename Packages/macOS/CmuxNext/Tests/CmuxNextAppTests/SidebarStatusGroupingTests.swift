@@ -165,6 +165,19 @@ import Testing
         #expect(!sidebar.view.list.displayed.rows.contains { if case .doneFold = $0.key { true } else { false } })
     }
 
+    /// Show more (`sidebar.groupRowLimit`) does not apply inside status sections, as the Done fold does not: a section
+    /// of 14 rows with a limit of 10 lists all 14 and no "Show N more" row.
+    @Test func aStatusSectionShowsEveryRowPastTheRowLimit() {
+        let rows = (0..<14).map { Self.agent("w\($0)", working: true) }
+        var o = SidebarLayoutOptions()
+        o.rowLimit = 10
+        o.foldsDone = true
+        o.grouping.setByStatus(true)
+        let keys = SidebarLayout.make(sections: Sidebar.sections(rows), metrics: .standard, options: o).rows.map(\.key)
+        #expect(keys == [.status(.working)] + rows.map { .workspace($0.id) }, "\(keys)")
+        #expect(!keys.contains { if case .showMore = $0 { true } else { false } })
+    }
+
     /// The sections are the Priority classifier's (`AgentPriorityRanking.state` through `SidebarLaneStatus`), not one
     /// of the sidebar's own: acpmux lanes in, the rows the row feed maps, laid out under their states.
     @Test func theSectionsComeFromThePriorityClassifier() throws {
