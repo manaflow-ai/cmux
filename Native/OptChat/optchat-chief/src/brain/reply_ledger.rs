@@ -75,8 +75,8 @@ impl Brain {
 
     /// The owner took `op` under `key` in `conversation`: the messages it
     /// answers leave the ledger. A post with text (or an attachment) answers
-    /// the messages it names (`answers`, `reply_to`); a Chief's post that
-    /// names none (a `send`, a retry turn's reply) answers every message a
+    /// the messages it names (`answers`, `reply_to`); a Chief's own post (a
+    /// `send`, a turn's reply, a retry turn's reply) answers every message a
     /// turn has seen. The host's own notices and the desk's voice answer
     /// nothing.
     pub(super) fn reply_posted(&mut self, conversation: &str, key: &str, op: &Op) {
@@ -107,11 +107,9 @@ impl Brain {
         self.state.awaiting = awaiting
             .into_iter()
             .filter(|a| {
-                if named.is_empty() {
-                    !chief_post || self.reply_queued(&a.id)
-                } else {
-                    !named.contains(&a.id)
-                }
+                // Kept unless the post names it, or it is the Chief's own
+                // post and a turn has seen the message.
+                !(named.contains(&a.id) || (chief_post && !self.reply_queued(&a.id)))
             })
             .collect();
         if self.state.awaiting.len() != before {
