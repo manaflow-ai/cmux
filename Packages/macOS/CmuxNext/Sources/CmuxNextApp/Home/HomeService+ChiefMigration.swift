@@ -71,7 +71,7 @@ extension HomeService {
             let onHosted = cloudChiefs.hosted?.mainConversation == id.rawValue
             if onHosted || (hostedChief.isCopyNotice && isLocalChief && hostedChief.pending) { return notice }
         }
-        return (isLocalChief ? (HomeBrainHost.agentsDisabledNotice() ?? settleNotice) : nil) ?? migrationNotice
+        return (isLocalChief ? (HomeBrainHost.agentsDisabledNotice() ?? replyNotice ?? settleNotice) : nil) ?? migrationNotice
     }
 
     /// What Home shows when it cannot show conversations.
