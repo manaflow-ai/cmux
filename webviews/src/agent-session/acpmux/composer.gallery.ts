@@ -960,11 +960,15 @@ export default agentPaneEntry({
         const receipt = steer?.querySelector('.cv-user__read[data-read="true"]');
         if (!receipt) throw new Error("the read steer shows no read check");
         receipt.setAttribute("data-gallery-target", "steer-read");
-        // Bring the steer in whole and let the scroll end first: the hover's own scroll-into-view
-        // would put the tooltip away (titleTooltips dismisses on scroll) and never bring it back.
+        // Bring the steer in whole before hovering, and let that scroll reach titleTooltips first: a
+        // scroll that lands after the pointer (the hover's own scroll-into-view, when the row sits
+        // at the scroller's edge) puts the tooltip away and never brings it back.
+        const scroller = ctx.document.querySelector(".acpmux-scroll");
+        const top = scroller?.scrollTop;
+        let scrolled = false;
+        scroller?.addEventListener("scroll", () => (scrolled = true), { once: true });
         receipt.scrollIntoView({ block: "center" });
-        const scrolled = performance.now();
-        await ctx.waitFor(() => performance.now() - scrolled > 250);
+        if (scroller && scroller.scrollTop !== top) await ctx.waitFor(() => scrolled);
         await ctx.hover({ selector: '[data-gallery-target="steer-read"]' });
         await ctx.waitFor(
           () =>

@@ -644,6 +644,7 @@
   align-items: center;
   justify-content: center;
   width: var(--cv-meta-row);
+  height: var(--cv-meta-row);
   color: var(--cv-text-dim);
 }
 .cv-user__read.is-unread {
