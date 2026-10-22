@@ -64,7 +64,6 @@
   border-radius: 9px;
   background: transparent;
   color: var(--page-text-3);
-  cursor: default;
   /* Only on hover or keyboard focus (u2441), an opacity fade as every hover button; clickable
      while it fades in. */
   opacity: 0;
@@ -116,7 +115,6 @@
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
-  cursor: default;
 }
 .wn-card-primary:hover { background: var(--page-selection); }
 
@@ -195,7 +193,6 @@
   color: var(--page-text);
   font-size: var(--text-detail);
   font-weight: 500;
-  cursor: default;
 }
 .wn-pop-all:hover { text-decoration: underline; text-underline-offset: 3px; }
 :is(.wn-card-close, .wn-card-primary, .wn-pop-all, .wn-pop-media):focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }

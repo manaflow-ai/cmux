@@ -81,7 +81,6 @@
   font-size: 12px;
   font-weight: 400;
   white-space: nowrap;
-  cursor: default;
 }
 
 .ve-button:hover:not(:disabled) {
@@ -378,7 +377,6 @@
   background: none;
   color: inherit;
   font: inherit;
-  cursor: default;
 }
 
 .ve-crumb:hover {

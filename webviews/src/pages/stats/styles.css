@@ -57,7 +57,6 @@
   font: inherit;
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
-  cursor: default;
 }
 
 .stats-range.is-selected {

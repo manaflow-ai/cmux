@@ -56,7 +56,6 @@
   color: var(--page-text-2);
   font: inherit;
   text-align: start;
-  cursor: default;
 }
 
 .ds-sidebar-row:hover {
@@ -160,7 +159,6 @@
   color: inherit;
   font: inherit;
   white-space: nowrap;
-  cursor: default;
 }
 
 .ds-button:disabled {
@@ -252,7 +250,6 @@
   background: transparent;
   color: var(--page-text-2);
   font: inherit;
-  cursor: default;
 }
 
 .ds-row-reset:hover:not(:disabled) {
@@ -301,7 +298,6 @@
   border: 0;
   border-radius: 9px;
   background: var(--page-separator);
-  cursor: default;
 }
 
 .ds-switch[aria-checked="true"] {

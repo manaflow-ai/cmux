@@ -49,7 +49,6 @@ body,
   border-radius: 6px;
   background: transparent;
   color: var(--page-text-2);
-  cursor: default;
 }
 .hc-icon-button:hover {
   background: var(--page-hover);
@@ -65,7 +64,6 @@ body,
   font: inherit;
   font-size: var(--text-detail);
   font-weight: 600;
-  cursor: default;
 }
 /* The quiet hover is for outline buttons only: a filled button keeps its fill under the pointer. */
 .hc-text-button:not(.primary, .danger):hover:not(:disabled) {
@@ -426,7 +424,6 @@ body,
   color: var(--page-text);
   font: inherit;
   font-size: var(--text-detail);
-  cursor: default;
 }
 .hc-reaction:hover {
   border-color: var(--hc-line-strong);
@@ -609,7 +606,6 @@ body,
   border-radius: 6px;
   background: transparent;
   font-size: var(--text-heading);
-  cursor: default;
 }
 .hc-emoji-cell:hover,
 .hc-emoji-cell:focus-visible {
@@ -644,7 +640,6 @@ body,
   color: var(--page-text);
   font: inherit;
   text-align: start;
-  cursor: default;
 }
 .hc-pick-row:hover,
 .hc-pick-row:focus-visible {

@@ -50,7 +50,6 @@
   color: var(--page-text-2);
   padding: 2px 6px;
   border-radius: 5px;
-  cursor: default;
 }
 
 .history-menu-button:hover:not(:disabled) {
@@ -105,7 +104,6 @@
   white-space: nowrap;
   color: var(--page-text-2);
   border-bottom: 2px solid transparent;
-  cursor: default;
 }
 
 .history-chip.selected {

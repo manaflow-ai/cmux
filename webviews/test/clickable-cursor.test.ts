@@ -263,12 +263,6 @@ function withoutNot(selector: string): string {
 /// (`button:not(:disabled)` and `button:not(:is(:where(:disabled)))` are enabled buttons).
 const DISABLED = { test: (selector: string) => DISABLED_STATE.test(withoutNot(selector)) };
 
-/// The sheets and sources the guards hold to the rule: the agent pane, the shared ui components
-/// and the shared page sheets. The other pages' cleanups follow in their own change, which holds
-/// every sheet to it.
-const inScope = (file: string) =>
-  /^(agent-session|ui|pages\/shared)\//.test(file) || file === "markdown-task-checkbox.css";
-
 type Rule = { file: string; line: number; selectors: string[]; body: string };
 
 const blank = (text: string) => text.replace(/[^\n]/g, " ");
@@ -330,7 +324,7 @@ test("no stylesheet sets the arrow or auto on a clickable element", () => {
     .sort((a, b) => a.line - b.line)[0];
   expect(uiFirst?.selectors.join(", ")).toStartWith(":where(.ui-popup, .ui-tooltip, .ui-toolbar, .ui-button,");
   const offenders: string[] = [];
-  for (const rule of styleRules().filter((rule) => inScope(rule.file))) {
+  for (const rule of styleRules()) {
     if (!/(^|[;\s{])cursor\s*:\s*(default|auto)\b/.test(rule.body)) continue;
     for (const selector of rule.selectors)
       if (!DISABLED.test(selector) && targetsClickable(selector, classes))
@@ -357,7 +351,7 @@ test("a clickable element whose rule resets every property sets its cursor again
         }),
     );
   const offenders: string[] = [];
-  for (const rule of rules.filter((rule) => inScope(rule.file))) {
+  for (const rule of rules) {
     if (!/(^|[;\s{])all\s*:\s*(unset|initial|revert)/.test(rule.body) || SETS_A_CURSOR.test(rule.body)) continue;
     for (const selector of rule.selectors) {
       if (DISABLED.test(selector) || !targetsClickable(selector, classes)) continue;
@@ -373,7 +367,6 @@ test("a clickable element whose rule resets every property sets its cursor again
 // way (AgentIntegrations' <summary> kept the arrow so). A variant (`disabled:cursor-default`) is fine.
 test("no clickable element carries a cursor-default or cursor-auto utility class", () => {
   const offenders = clickableClassNames()
-    .filter(({ file }) => inScope(file))
     .filter(({ value }) => /(^|\s)cursor-(default|auto)(?![\w-])/.test(value))
     .map(({ file, line, value }) => `${file}:${line} ${value}`);
   expect(offenders).toEqual([]);

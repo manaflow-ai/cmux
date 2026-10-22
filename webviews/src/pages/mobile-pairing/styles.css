@@ -141,7 +141,6 @@
   background: var(--page-elevated);
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
-  cursor: default;
 }
 
 .pairing-button.is-primary {

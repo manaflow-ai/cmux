@@ -58,7 +58,6 @@
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
   font-variant-numeric: tabular-nums;
-  cursor: default;
 }
 
 .cu-segment-button.is-selected {
