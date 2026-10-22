@@ -146,8 +146,15 @@ pub fn load_budget(host: &str) -> Budget {
 
 /// The override file's bytes: only a regular file (a FIFO or a device would
 /// block the read) of at most [`MAX_FILE_BYTES`]; `None` keeps the defaults.
+/// Unix opens it without blocking and checks the open file, so a FIFO swapped in
+/// after a check never blocks the read.
 pub fn read_override(path: &Path) -> Option<Vec<u8>> {
-    let meta = std::fs::metadata(path).ok()?;
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::custom_flags(&mut options, libc::O_NONBLOCK);
+    let mut file = options.open(path).ok()?;
+    let meta = file.metadata().ok()?;
     if !meta.is_file() || meta.len() > MAX_FILE_BYTES {
         tracing::warn!(
             "{}: not a regular file of at most 64 KiB; using the defaults",
@@ -156,7 +163,7 @@ pub fn read_override(path: &Path) -> Option<Vec<u8>> {
         return None;
     }
     let mut bytes = Vec::new();
-    std::fs::File::open(path).ok()?.take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes).ok()?;
+    (&mut file).take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes).ok()?;
     (bytes.len() as u64 <= MAX_FILE_BYTES).then_some(bytes)
 }
 
