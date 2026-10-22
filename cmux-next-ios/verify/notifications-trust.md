@@ -44,22 +44,34 @@ Mac's pinned identity key.
 
 In this order; the first failure rejects the reply and reports why:
 
-1. It opens: sealed to this Mac's box key, for this Mac's device id.
-2. The phone it names is the one the Worker stamped as the sender, is on the
-   Mac's paired list with that identity key, and is neither denied nor
-   removed.
+1. It opens: sealed to this Mac's box key, for this Mac's device id, the
+   sender the Worker stamped and the item's id.
+2. The phone it names is on the Mac's paired list with that identity key, and
+   is neither denied nor removed (checked on every reply).
 3. The phone's identity signature verifies over the canonical reply.
-4. It has not expired (`expiresAt` after now and at most 10 minutes ahead).
-5. Its id and nonce were never seen (a spent set kept until the expiry
-   passes, on disk so a restart does not forget it).
+4. It has not expired: `expiresAt` is after now, at most 600 s after
+   `issuedAt`, and at most 660 s after the Mac's clock (60 s for a phone clock
+   that runs ahead).
+5. Its id and nonce were never seen. Spent ids and nonces are kept on disk
+   until they expire, each id with its outcome; a repeat of a settled id
+   answers that first outcome again (so a lost ack never turns into a false
+   "applied"), and a file that can't be read applies nothing (fail closed).
 6. Its target is still pending: the question or permission is waiting with
-   that permission id (an Allow or an answer carries the acpmux signature,
-   which acpmux checks again against its decision nonce, daemon run and
-   option); a text reply's session exists; a terminal reply's tab exists and
-   its notification is still in the ledger.
+   that permission id (an Allow carries the acpmux signature, which acpmux
+   checks again against its decision nonce, daemon run and option); a text
+   reply's session exists; a terminal reply's notification is still in the
+   ledger on that tab, asked for replies, is at most 15 minutes old, and the
+   program that posted it (its process-group leader and executable, recorded
+   by the daemon when it was posted) still holds the terminal.
 
 Then hostd applies it on its own connection, the same request the phone would
-send over the link, through the same policy.
+send over the link, through the same policy. A reply hostd can't settle yet
+(its app has not sent its keys or paired list, a service is not reachable) is
+neither spent nor acknowledged: it stays queued and is tried again.
+
+Every outcome the Mac reports is signed by its identity key; the phone takes
+"applied" or a refusal only with that signature, checked against the key it
+pinned. The service alone can't make the phone believe a reply was applied.
 
 ## The phone (`push-fallback-ios`)
 
@@ -73,25 +85,62 @@ send over the link, through the same policy.
   Retry. Attachments stay on the link.
 - **When.** Only after the link missed its 4 s budget (or the cold-launch
   budget), or failed mid-send. "Couldn't reach <Mac>" shows only when the
-  mailbox also failed (no box key from that Mac, or the service is out of
-  reach). When the Mac's host was online, the phone asks once, 3 s later,
-  whether it applied the reply, and shows its refusal ("This was already
-  answered.", "Your reply arrived too late.").
+  mailbox also failed. The phone then asks after 1, 2, 4 and 8 s what the Mac
+  did; it shows the Mac's signed refusal, "<Mac> didn't pick up your reply in
+  time" when it expired, or "Not confirmed by <Mac>" while nothing signed came
+  back.
+- **A reply's window.** 540 s from when the person made it. Retry re-seals it
+  with the same window, never a new one; past it, the phone says the reply is
+  too old.
 - **Terminal input needs the device unlocked.** The terminal Reply action is
   an `authenticationRequired` text action: iOS asks for Face ID or the
   passcode before it hands the text to cmux, on the lock screen too. It is
   offered only for a notification whose poster asked for a reply
   (`notify --reply`, `replyable`), it carries that notification's ledger id,
-  and it is text only, at most 4096 bytes.
+  and it is text only, at most 4096 bytes. The long-press view has no
+  composer for a terminal, and the App Group outbox refuses terminal text
+  (anything there may have been written while the phone was locked); the app
+  drops any it finds.
+- **Which pushes act.** Once a Mac proved a box key after this phone gave it a
+  push key, the phone acts on no unsealed push that names that Mac: it shows
+  the generic banner, no buttons, and a tap only opens the app. A sealed push
+  is opened again from its box when a button is pressed (the service
+  extension keeps the box beside the content it wrote), so content the
+  service made up is never what an answer is built from. A push older than 15
+  minutes keeps its text and tap but loses its buttons.
 - **Keys.** The push key is a Secure Enclave key-agreement key (a software key
   on the simulator), readable after the first unlock so the service extension
   can open pushes on a locked phone. It and the trust record (each paired
-  Mac's pinned identity key and its signed box key) live in the keychain group
-  `<team>.<app bundle id>.push`, shared with
-  `CmuxMobileNotificationService`. Removing a Mac forgets its entry;
-  "Remove This iPhone from My Macs" and account deletion delete the key.
-- **A forged or unopened push** keeps the generic banner ("cmux", "New
-  notification from <Mac>") and has no buttons that act.
+  Mac's pinned identity key, its box key and the box key's signature) live in
+  the keychain group `<team>.<app bundle id>.push`, shared with
+  `CmuxMobileNotificationService`. Before each reply the box key's signature
+  is checked again against the identity key pinned for that Mac (`MacPins`,
+  the app's own store), so a changed keychain entry can't redirect replies.
+  Removing a Mac forgets its entry; "Remove This iPhone from My Macs" and
+  account deletion delete the key.
+
+## Residual risks
+
+- **Availability.** The service can delay, drop or reorder replies and
+  pushes, and fill a Mac's queue (32 pending, 60 posts a minute per user)
+  with replies the Mac then rejects, for up to 10 minutes. The phone says
+  "Not confirmed" or "Couldn't reach"; nothing wrong is applied.
+- **First pairing.** Trust is set on first use: a service that sat in the
+  middle of a phone's *first* pairing with a Mac could pin its own identity
+  and box keys, then read that phone's mailbox replies and forge its sealed
+  pushes. Later pairings are checked against the pin. Binding pairing to the
+  transport keys (channel binding) is the follow-up already noted in
+  `phone-approvals.md`.
+- **Phones without a push key.** An older app (or one whose push key did not
+  verify) gets plain content, readable by the service and APNs, as in PR A.
+  Every phone with a key gets only boxes.
+- **What the service still sees.** Kinds, ids, sizes, timing, the target Mac
+  and its name.
+- **Terminal text.** A program can word a notification to invite a harmful
+  reply. The reply is text the person typed, goes only to the program that
+  posted that notification while it still holds its terminal, and needs the
+  device unlocked; an agent's reply waits for the agent's prompt where the
+  daemon supports it (`send-expect-agent-v1`).
 
 ## Recommendation for #13742 (draft, not posted)
 
@@ -107,26 +156,38 @@ send over the link, through the same policy.
 >    few seconds, the reply goes through the cmux service, sealed to the Mac's
 >    key and signed by the phone's Secure Enclave key. The Mac applies it only
 >    when the signature is a paired phone's, the target is still pending, it
->    has not expired (10 minutes at most) and it was never applied before. An
->    Allow or an answer still needs Face ID and the acpmux approval signature,
->    as in the app. The service can delay or drop a reply, and sees its size,
->    timing and target Mac. It can't read, change, forge or replay one.
-> 2. **Terminal input from a notification.** Any program in a cmux terminal
->    can raise a notification (OSC 9, 777, 99). Replying sends the text to that
->    terminal as typed input, including from the lock screen after the device
->    is unlocked (Face ID or passcode). A program can word a notification to
->    invite a dangerous reply; the reply is text the person typed, never text
->    the notification supplies, and it only goes to the terminal that asked.
+>    is at most 9 minutes old from when the person sent it (a Retry doesn't
+>    extend that), and it was never applied before. An Allow still needs Face
+>    ID and the acpmux approval signature, as in the app; question answers
+>    never take this path. The Mac signs what it did with each reply, so the
+>    phone shows "applied" only on the Mac's word. The service can delay,
+>    drop or flood replies (up to 10 minutes, then they expire), and sees
+>    their size, timing and target Mac. It can't read, change, forge or
+>    replay one, or claim one was applied.
+> 2. **Terminal input from a notification.** A program in a cmux terminal that
+>    asks for replies (`cmux notify --reply`) gets a Reply button. The text
+>    goes as typed input only to the program that posted that notification,
+>    only while that same process still holds the terminal, within 15
+>    minutes, and only after the device is unlocked (Face ID or passcode),
+>    from the lock screen too. Nothing typed into the long-press view reaches
+>    a terminal. A program can word its notification to invite a harmful
+>    reply; what is sent is only what the person typed.
 >
-> Sealed payloads (the Mac encrypts notification content to the phone) only
-> narrow what the service and Apple see, and need no decision.
+> Sealed payloads (the Mac encrypts notification content to the phone, and the
+> phone ignores unsealed pushes from that Mac) only narrow what the service
+> and Apple see and can steer, and need no decision.
+>
+> Residual risks: a service in the middle of a phone's first pairing with a
+> Mac could read its replies (trust on first use, as pairing already is);
+> phones with an older app still get plain content; the service controls
+> availability.
 >
 > **Recommendation: approve both,** with these limits kept as tests: a reply
-> is at most 4 KB of text, valid 10 minutes, applied once, only to the
-> question, permission, session or terminal it names, and only from a phone
-> the Mac paired; terminal replies need device unlock; Allow and answers need
-> Face ID. Reply "approve the notification fallback" or "keep replies on the
-> live link only".
+> is at most 4 KB of text, valid 9 minutes from when it was made, applied
+> once, only to the question, permission, session or terminal program it
+> names, and only from a phone the Mac pairs now; terminal replies need
+> device unlock and the posting program; Allow needs Face ID. Reply "approve
+> the notification fallback" or "keep replies on the live link only".
 
 ## Verification
 

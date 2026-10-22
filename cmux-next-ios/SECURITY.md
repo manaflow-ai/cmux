@@ -812,18 +812,23 @@ Held for #13742 (`verify/notifications-trust.md`). Wire format: PROTOCOL.md
 | Threat | What stops it | What's left |
 | --- | --- | --- |
 | The Worker (or someone holding a stolen Stack token) forges a reply | the Mac opens only what is sealed to its box key and signed by a paired phone's identity key (Secure Enclave); the Worker-stamped sender must be that phone | none: a token alone signs nothing |
-| A replayed or late reply | one-time id and nonce, a spent set kept on disk until expiry, `expiresAt` at most 10 minutes ahead; an Allow or answer also spends acpmux's own decision nonce | none beyond the window |
-| A reply applied to something else | it names one session, permission, conversation or terminal notification, and hostd checks it is still pending; an Allow or answer is bound by the acpmux approval signature to that prompt, option and daemon run | none |
+| A replayed, late or re-issued reply | one-time id and nonce, kept on disk with each id's outcome until expiry (an unreadable store applies nothing); `expiresAt` at most 600 s after `issuedAt` and 660 s after the Mac's clock; the phone's window is 540 s from when the person made it and a Retry keeps it; an Allow also spends acpmux's own decision nonce | none beyond the window |
+| A reply applied twice (link and mailbox, or a lost ack) | the link's `reply_id` and the mailbox id share one spent store; a repeat answers the first outcome; a text prompt carries one `promptId` with `resend: true` on both paths, which acpmux runs once, also across a restart | none |
+| A reply applied to something else | it names one session, permission, conversation or terminal notification, and hostd checks it is still pending; an Allow is bound by the acpmux approval signature to that prompt, option and daemon run; a Deny with no option takes only a reject | none |
+| The Worker claims a reply was applied | every outcome is signed by the Mac identity key; the phone takes it only with a signature that checks against its pin, else says "Not confirmed" | none |
 | A removed or refused phone | the Mac checks its current paired list and denied list on every reply | a removal not yet on the Mac (the Mac app was off) applies when it next starts |
-| The Worker or APNs reads notification content | sealed pushes (ECIES to the phone's push key, signed by the Mac identity key); the generic banner names only the Mac | kinds, ids, sizes, timing and the target Mac stay visible |
-| A forged sealed push (fake question) | the service extension checks the Mac identity signature against the key pinned at pairing; a bad one keeps the generic banner | none |
-| The Worker withholds or delays replies | the phone polls the item's state and says "Couldn't reach <Mac>" with Retry | availability only |
-| Lock-screen input into a terminal | the Reply action is `authenticationRequired` (device unlock), the text is what the person typed, it goes only to the notifying terminal, at most 4 KB, and only for a notification of the person's session; Allow and answers still need Face ID | a program's notification can invite a harmful reply: the person reads what they send |
+| The Worker or APNs reads notification content | sealed pushes (ECIES to the phone's push key, signed by the Mac identity key); the generic banner names only the Mac; when every paired phone has a key the content never leaves in clear, also when one box failed | phones without a push key (older apps) get plain content; kinds, ids, sizes, timing and the target Mac stay visible |
+| A forged push steers an answer (fake question, swapped labels, fake terminal Reply) | the phone acts on no unsealed push from a Mac that seals to it; a sealed push is opened again from its box before a button acts; answers are bound to the live option's label | before the first pairing with that Mac (trust on first use) |
+| A replayed old push | `postedAt` in the box; past 15 minutes its buttons stop acting | none |
+| A changed box key in the shared keychain | the box key's signature is checked against the app's own pin before each reply is sealed | none |
+| Lock-screen input into a terminal | the Reply action is `authenticationRequired` (device unlock) and offered only when the poster asked for replies; the long-press view has no terminal composer and the outbox refuses terminal text; the Mac requires `reply: true`, a row at most 15 minutes old, and that the posting process (pid and executable, recorded at post time) still holds the terminal; an agent's reply waits at its prompt (`send-expect-agent-v1`) | a program's notification can invite a harmful reply: the person reads what they send |
+| Queue flooding | 32 pending per Mac, 60 posts a minute per user, 10-minute expiry | a token holder can delay real replies for up to 10 minutes |
 | A lost, unlocked phone | the same as the app itself; removing the phone from the Mac (or the account) ends its replies | none new |
 
-Policy: the `daemon` lane adds `notification-reply` with only `notification`
-and `text` (`policy.rs` tests refuse every other field and over-long text);
-hostd's mailbox applies a reply through the same policy as a link request.
+Policy: the `daemon` lane adds `notification-reply` with only `notification`,
+`text` and `reply_id` (`policy.rs` tests refuse every other field and
+over-long text); hostd's mailbox applies a reply through the same policy as a
+link request.
 
 ## Decisions for the person
 
