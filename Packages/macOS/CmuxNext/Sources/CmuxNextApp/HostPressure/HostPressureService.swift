@@ -39,7 +39,7 @@ final class HostPressureService {
     @ObservationIgnored private var forceObservation: Task<Void, Never>?
     @ObservationIgnored private var subscribers = 0
     @ObservationIgnored private var running = false
-    @ObservationIgnored private var terminationObserver: (any NSObjectProtocol)?
+    @ObservationIgnored private var quitObservation: Task<Void, Never>?
     /// The last start or stop hop: each waits for the one before, so a window closing and
     /// another opening reach the monitor in order.
     @ObservationIgnored private var lifecycle: Task<Void, Never>?
@@ -58,9 +58,11 @@ final class HostPressureService {
                 self?.forced = force == .off ? nil : force
             }
         }
-        terminationObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil,
-                                                                     queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.stop() }
+        // task-owner: the service (cancelled in stop()); event-driven (the app's quit notification)
+        quitObservation = Task { [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: NSApplication.willTerminateNotification) {
+                self?.stop()
+            }
         }
     }
 
@@ -97,8 +99,8 @@ final class HostPressureService {
     func stop() {
         forceObservation?.cancel()
         forceObservation = nil
-        terminationObserver.map(NotificationCenter.default.removeObserver)
-        terminationObserver = nil
+        quitObservation?.cancel()
+        quitObservation = nil
         subscribers = 0
         if running { stopMonitor() }
     }

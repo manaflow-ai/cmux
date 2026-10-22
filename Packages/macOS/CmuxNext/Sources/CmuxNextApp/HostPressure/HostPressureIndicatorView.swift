@@ -97,9 +97,19 @@ final class HostPressureIndicatorView: NSView {
     }
 
     @objc private func togglePopover() {
-        if popover.isShown { return popover.close() }
+        popover.isShown ? popover.close() : openPopover()
+    }
+
+    func openPopover() {
+        guard level != .normal else { return }
         popover.content.update(level: level, verdict: service?.verdict)
         popover.show(relativeTo: button)
+    }
+
+    var isPopoverShown: Bool { level != .normal && popover.isShown }
+
+    func closePopover() {
+        if isPopoverShown { popover.close() }
     }
 
     private func makePopover() -> HostPressurePopover {

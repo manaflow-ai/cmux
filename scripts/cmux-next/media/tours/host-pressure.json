@@ -1,0 +1,23 @@
+{
+  "title": "Host pressure indicator and popover",
+  "steps": [
+    {"title": "Launch: a normal host shows nothing", "wait": 2},
+    {"title": "Warning: the still gauge after the toolbar band",
+     "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "hostPressure.force", "value": "warning"}}, "wait": 2,
+     "optional": "debug.tunables is DEBUG only"},
+    {"title": "The warning's popover: the load against its limit, turns, processes and the busiest sessions",
+     "rpc": {"method": "debug.host_pressure", "params": {"action": "open"}}, "wait": 2,
+     "optional": "debug.host_pressure is DEBUG only"},
+    {"title": "Closed", "rpc": {"method": "debug.host_pressure", "params": {"action": "close"}}, "wait": 1, "shot": false,
+     "optional": "debug.host_pressure is DEBUG only"},
+    {"title": "Critical: the triangle, with the cosmic-gray incident's numbers",
+     "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "hostPressure.force", "value": "critical"}}, "wait": 2,
+     "optional": "debug.tunables is DEBUG only"},
+    {"title": "The critical popover: acpmux's reasons and the busiest sessions with Stop",
+     "rpc": {"method": "debug.host_pressure", "params": {"action": "open"}}, "wait": 2,
+     "optional": "debug.host_pressure is DEBUG only"},
+    {"title": "Back to the host's real level",
+     "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "hostPressure.force", "value": "off"}}, "wait": 1, "shot": false,
+     "optional": "debug.tunables is DEBUG only"}
+  ]
+}
