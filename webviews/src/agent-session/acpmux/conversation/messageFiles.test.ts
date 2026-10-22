@@ -121,7 +121,12 @@ test("options, variables, Windows paths and reference links stay as written", ()
 });
 
 test("a name after a letter outside ASCII is part of a word, never split", () => {
-  for (const text of ["/tmp/x/a.png then über.png", "/tmp/x/a.md and naïve_notes.md", "/tmp/ü/a.png"])
+  for (const text of [
+    "/tmp/x/a.png then über.png",
+    "/tmp/x/a.md and naïve_notes.md",
+    "/tmp/ü/a.png",
+    "/tmp/x/a.png 𐐀b.png",
+  ])
     expect(messageFileText(text, "/repo")).toBe(text);
 });
 
@@ -135,6 +140,7 @@ test("a file's first spelling is the one its chip falls back to", () => {
 test("a home folder starts the folder of the names after it", () => {
   expect(messageFileText("in ~/: shot.png", "/repo")).toBe("in ~/: ~/shot.png");
   expect(messageFileText("Wrote shot.png", "~")).toBe("Wrote ~/shot.png");
+  expect(messageFileText("Wrote shot.png", "/")).toBe("Wrote /shot.png");
 });
 
 test("a message naming many files is read once", () => {

@@ -40,7 +40,8 @@ const MENTION = new RegExp(
 );
 /// A letter or digit outside ASCII (`ü`, `ï`): a name next to one is part of a word. Checked
 /// around each match rather than in `MENTION`, which the `u` flag makes many times slower.
-const WORD_CHAR = /[\p{L}\p{N}]/u;
+const WORD_BEFORE = /[\p{L}\p{N}]$/u;
+const WORD_AFTER = /^[\p{L}\p{N}]/u;
 /// A run of text without a space longer than this is no file name (and would make `MENTION` slow).
 const LONGEST_WORD = 512;
 const LONG_WORD = new RegExp(String.raw`(\S{${LONGEST_WORD + 1},})`);
@@ -129,7 +130,9 @@ function prose(text: string, state: Folder): string {
   return text.replace(
     MENTION,
     (match, full?: string, dotted?: string, relative?: string, bare?: string, at?: number) => {
-      if (WORD_CHAR.test(text[at! - 1] ?? "") || WORD_CHAR.test(text[at! + match.length] ?? "")) return match;
+      const end = at! + match.length;
+      if (WORD_BEFORE.test(text.slice(Math.max(0, at! - 2), at)) || WORD_AFTER.test(text.slice(end, end + 2)))
+        return match;
       if (full) {
         startsFolder(full, state);
         claim(full, state);
@@ -184,6 +187,8 @@ function fullMention(written: string, state: Folder): string | undefined {
 /// (`/tmp/a.png`, `/tmp/x/`; not `/usr` or `and / or`). Sentence punctuation after it is not part of it.
 function startsFolder(written: string, state: Folder): void {
   const path = written.replace(/[.,;:!?]+$/, "");
+  // A slash alone is a separator ("a.png / b.png"), never the root folder.
+  if (path === "/") return;
   if (!/^(?:~|\/)/.test(path) || !(/\.[A-Za-z0-9]{1,12}$/.test(path) || path.endsWith("/"))) return;
   const parent = parentOf(path);
   if (!parent) return;
@@ -201,6 +206,7 @@ function parentOf(path: string): string | undefined {
 /// An absolute or home folder without its trailing slash; undefined for anything else.
 function folderOf(folder: string | undefined): string | undefined {
   const trimmed = folder?.trim().replace(/\/+$/, "");
+  if (trimmed === "" && folder?.trim().startsWith("/")) return "/";
   return trimmed && /^(?:~$|~\/|\/)/.test(trimmed) ? trimmed : undefined;
 }
 
@@ -213,7 +219,7 @@ function claim(written: string, state: Folder): void {
 /// `name` (relative, `./` or `../` allowed) inside `folder`, with `.` and `..` resolved; a line
 /// suffix stays.
 export function joinPath(folder: string, name: string): string {
-  const parts = folder.split("/");
+  const parts = folder === "/" ? [""] : folder.split("/");
   for (const part of name.split("/")) {
     if (part === "" || part === ".") continue;
     if (part === "..") {

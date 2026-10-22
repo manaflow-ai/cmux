@@ -236,3 +236,11 @@ test("a web image draws once too: its placeholder loads it, then its mention is 
   expect(body.querySelectorAll(".cv-received__pics .cv-thumb img")).toHaveLength(1);
   expect(body.querySelector<HTMLAnchorElement>("a.is-image-mention")!.getAttribute("href")).toBe(url);
 });
+
+test("a web image in another machine's message is its link: nothing is loaded for it", async () => {
+  const url = "https://example.com/shots/remote.png";
+  const text = `[agent-message-style] Shot: ![remote](${url}) and ${url}`;
+  const asked = await render({ sessionId: undefined, remote: true, text, raw: text }, []);
+  expect(asked.some((call) => call.method === "image.load")).toBe(false);
+  expect(host.querySelector(".cv-received__body .cv-thumb, .cv-received__pics")).toBeNull();
+});

@@ -150,6 +150,8 @@ export function ReplyImage({
     ) : (
       <ElsewhereChip path={local} host={scope.host} label={alt || undefined} />
     );
+  // A web image in another machine's message is its link: the pane loads nothing for that message.
+  if (scope?.host !== undefined) return <>{fallback}</>;
   if (local && mediaKind(local)) return <ReplyMedia path={local} alt={alt} fallback={fallback} />;
   if (!local && isRemoteMedia(src)) return <RemoteMedia url={src} alt={alt} fallback={fallback} />;
   const host = local ? undefined : remoteImageHost(src);
@@ -189,8 +191,8 @@ function LocalImage({
   useMarkShown(strip ? shownIn : undefined, src, state.kind === "shown");
   if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} path={path} thumb={thumb} />;
   // In a message's strip, an image the pane will not show draws nothing: its chip in the text says so.
-  if (strip && (denied || place === "missing" || state.kind === "failed" || (place === "outside" && !loadable)))
-    return null;
+  // In a message's strip only a shown image draws: its mention stays a chip until then.
+  if (strip) return null;
   if (denied) return <span className="cv-chip-plain">{alt || pathName(path)}</span>;
   const outside = place === "outside";
   // An outside image the host may still show waits in its frame: the lock is for one it refused.
