@@ -29,7 +29,9 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import contextlib
 import dataclasses
+import fcntl
 import json
 import os
 import re
@@ -105,6 +107,13 @@ SHELL = ["bash", "--noprofile", "--norc", "-eo", "pipefail"]
 STOPPING = threading.Event()
 RUNNING: set[int] = set()
 RUNNING_LOCK = threading.Lock()
+# Steps that install packages with apt-get hold the dpkg and apt list locks, so
+# two at once fail ("Could not get lock /var/lib/dpkg/lock-frontend"). They take
+# turns, host-wide, so concurrent guard runs on one runner host wait too. Not
+# "cmux-": tests rewrite the workflows' fixed /tmp/cmux-* paths.
+APT_GET = re.compile(r"\bapt-get\b")
+APT_LOCK = Path("/tmp/ci-guards-apt.lock")
+APT_TURN = threading.Lock()
 
 
 def stop_running() -> None:
@@ -361,6 +370,25 @@ def run_steps(
     return results
 
 
+@contextlib.contextmanager
+def apt_turn(step: Step):
+    """Hold the host-wide apt turn while a step that runs apt-get runs."""
+    if not APT_GET.search(step.run):
+        yield
+        return
+    with APT_TURN:
+        try:
+            handle = APT_LOCK.open("a")
+        except OSError:
+            # Another user's lock file: the in-process turn and apt-get's own
+            # DPkg::Lock::Timeout still apply.
+            yield
+            return
+        with handle:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            yield
+
+
 def run_step(step: Step, cwd: Path, env: dict[str, str], log_path: Path) -> tuple[int, str]:
     """Run one step in its own session and reap whatever it leaves behind.
 
@@ -369,7 +397,7 @@ def run_step(step: Step, cwd: Path, env: dict[str, str], log_path: Path) -> tupl
     the pipe open and the runner would wait on it forever. Actions ends a job
     by killing its process tree; this does the same per step.
     """
-    with log_path.open("w+", errors="replace") as out:
+    with log_path.open("w+", errors="replace") as out, apt_turn(step):
         if STOPPING.is_set():
             return 130, "not started: interrupted"
         proc = subprocess.Popen(

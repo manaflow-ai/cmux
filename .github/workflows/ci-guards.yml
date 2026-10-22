@@ -988,8 +988,8 @@ jobs:
         run: |
           set -euo pipefail
           if ! command -v tesseract >/dev/null && [ "${GITHUB_ACTIONS:-}" = true ] && command -v apt-get >/dev/null; then
-            sudo apt-get update -qq || sudo apt-get update -qq
-            sudo apt-get install -y -qq --no-install-recommends tesseract-ocr tesseract-ocr-eng >/dev/null
+            sudo apt-get -o DPkg::Lock::Timeout=300 update -qq || sudo apt-get -o DPkg::Lock::Timeout=300 update -qq
+            sudo apt-get -o DPkg::Lock::Timeout=300 install -y -qq --no-install-recommends tesseract-ocr tesseract-ocr-eng >/dev/null
           fi
           python3 tests/test_ci_pr_media_privacy.py -v SeededTermEndToEndTests
 
@@ -1594,8 +1594,8 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}
         run: |
           if ! command -v zsh >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y zsh
+            sudo apt-get -o DPkg::Lock::Timeout=300 update
+            sudo apt-get -o DPkg::Lock::Timeout=300 install -y zsh
           fi
           python3 tests/test_issue_15067_bash_watcher_churn.py
           python3 tests/test_issue_1138_sidebar_pr_polling.py
