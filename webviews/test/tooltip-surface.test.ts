@@ -1,7 +1,8 @@
-// Leo, 2026-10-14: tooltips are frosted glass, not a solid box: a strong backdrop blur under a tint
-// dense enough that the text reads over anything, a one-device-pixel rim and a small tight shadow,
-// the opaque popup surface under Reduce Transparency; one surface for pages and the native tooltip
-// (CmuxNextDesign/Tooltip/TooltipSurface.swift). The first tooltip of a group fades in over the
+// Leo, 2026-10-14: tooltips are glass, not a solid box; 2026-10-21: "WHERE IS THE GLASS EVERYWHERE,
+// all these hover tooltips and hover previews". A tooltip is the liquid glass every glass surface
+// is (`.ui-glass`, ui/glass/glass.css): the page's surface at 60% over the shared blur, the glass
+// rim as its one edge and a small tight shadow; the opaque popup surface under Reduce Transparency.
+// The first tooltip of a group fades in over the
 // popup-open time (120 ms) rising 2px, a warm neighbor's is there at once, and each fades out over
 // the popup-close time (80 ms); Reduce Motion keeps the fade and drops the rise.
 //
@@ -18,7 +19,7 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 await requireBrowserLane("tooltip-surface.test.ts", async () => {
   setDefaultTimeout(120_000);
   const source = path.resolve(import.meta.dir, "../src");
-  const css = ["pages/shared/desktop.css", "ui/popupSurface.css", "ui/ui.css"]
+  const css = ["pages/shared/desktop.css", "ui/popupSurface.css", "ui/ui.css", "ui/glass/glass.css"]
     .map((file) => fs.readFileSync(path.join(source, file), "utf8"))
     .join("\n")
     .replace(/^@import .*$/gm, "");
@@ -38,11 +39,12 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
   // A dark and a light theme as the host sets them (WebTheme.swift); a test adds the host's tint
   // (--cmux-tooltip-tint) where it needs one.
   const themes = {
-    dark: { popup: "rgb(52, 49, 68)", text: "rgb(224, 222, 244)" },
-    light: { popup: "rgb(255, 255, 255)", text: "rgb(36, 41, 47)" },
+    dark: { surface: "rgb(30, 30, 46)", popup: "rgb(52, 49, 68)", text: "rgb(224, 222, 244)" },
+    light: { surface: "rgb(250, 250, 250)", popup: "rgb(255, 255, 255)", text: "rgb(36, 41, 47)" },
   };
   const theme = (name: keyof typeof themes, extra = "") =>
-    `--cmux-popup-surface:${themes[name].popup};--cmux-text:${themes[name].text};` +
+    `--cmux-surface-solid:${themes[name].surface};--cmux-popup-surface:${themes[name].popup};` +
+    `--cmux-text:${themes[name].text};` +
     `--cmux-separator:rgba(128, 128, 128, 0.25);${extra}`;
 
   let browser: Browser;
@@ -163,6 +165,7 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
       const style = getComputedStyle(tip);
       return {
         background: style.backgroundColor,
+        border: style.borderTopColor,
         blur: style.backdropFilter,
         // The rim's width (Chromium draws a border under 1px as 1px; WebKit, the app's engine, keeps it).
         rim: style.getPropertyValue("--tooltip-rim-width").trim(),
@@ -170,40 +173,52 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
       };
     });
 
-  test("the tooltip is frosted glass with the host's tint, a device-pixel rim and a tight shadow", async () => {
-    const tint = "rgba(52, 49, 68, 0.9)";
-    const page = await open(theme("dark", `--cmux-tooltip-tint:${tint}`));
+  test("the tooltip is the liquid glass: the page's surface at 60% over the blur, its rim and a tight shadow", async () => {
+    const page = await open(theme("dark", "--cmux-tooltip-tint:rgba(52, 49, 68, 0.9)"));
     await hoverAndWait(page, "b0");
     const surface = await surfaceOf(page);
+    // The glass tint (--glass-tint), never the denser tooltip frost or the solid popup surface.
+    const tint = await page.evaluate((color) => {
+      const probe = document.createElement("div");
+      probe.style.background = `color-mix(in srgb, ${color} 60%, transparent)`;
+      document.body.append(probe);
+      const value = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return value;
+    }, themes.dark.surface);
     expect(surface.background).toBe(tint);
-    expect(surface.blur).toBe("blur(24px) saturate(1.6)");
+    expect(surface.blur).toBe("blur(20px) saturate(1.4)");
+    // The glass rim is the one edge: the border keeps its width, clear.
+    expect(surface.border).toBe("rgba(0, 0, 0, 0)");
     // One device pixel at 2x.
     expect(surface.rim).toBe("0.5px");
-    expect(surface.shadow.replace(/^rgba\(0, 0, 0, ([\d.]+)\)/, "color(srgb 0 0 0 / $1)")).toBe(
-      "color(srgb 0 0 0 / 0.07) 0px 1px 2px 0px",
-    );
+    // The rim (an inset hairline), then elevation 1.
+    expect(surface.shadow).toContain("inset");
+    expect(surface.shadow).toContain("0px 1px 2px 0px");
     await page.close();
   });
+
+  /** Applies the Reduce Transparency media blocks' rules (Chromium has no emulation of the setting). */
+  const reduceTransparency = (page: Page) =>
+    page.evaluate(() => {
+      const blocks = [...document.styleSheets]
+        .flatMap((sheet) => [...sheet.cssRules])
+        .filter(
+          (rule): rule is CSSMediaRule =>
+            rule instanceof CSSMediaRule && rule.conditionText.includes("prefers-reduced-transparency"),
+        );
+      if (!blocks.length) throw new Error("no Reduce Transparency block");
+      const style = document.createElement("style");
+      style.textContent = blocks.flatMap((block) => [...block.cssRules].map((rule) => rule.cssText)).join("\n");
+      document.head.append(style);
+    });
 
   test("Reduce Transparency draws the opaque popup surface, unblurred", async () => {
     for (const reduce of ["host", "system"] as const) {
       const opened = await open(theme("dark", "--cmux-tooltip-tint:rgba(52, 49, 68, 0.9)"));
       if (reduce === "host")
         await opened.evaluate(() => document.documentElement.setAttribute("data-reduce-transparency", ""));
-      else
-        await opened.evaluate(() => {
-          // Chromium has no prefers-reduced-transparency emulation: apply the media block's values.
-          const sheet = [...document.styleSheets].flatMap((s) => [...s.cssRules]);
-          const block = sheet.find(
-            (rule) => rule instanceof CSSMediaRule && rule.conditionText.includes("prefers-reduced-transparency"),
-          ) as CSSMediaRule | undefined;
-          const root =
-            block &&
-            ([...block.cssRules].find((rule) => (rule as CSSStyleRule).selectorText === ":root") as CSSStyleRule);
-          if (!root) throw new Error("no Reduce Transparency block");
-          for (const name of Array.from(root.style))
-            document.documentElement.style.setProperty(name, root.style.getPropertyValue(name));
-        });
+      else await reduceTransparency(opened);
       await hoverAndWait(opened, "b0");
       const surface = await surfaceOf(opened);
       expect({ reduce, background: surface.background, blur: surface.blur }).toEqual({
@@ -261,11 +276,14 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
     return `rgb(${fill.join(", ")})`;
   };
 
-  test("the tooltip's text keeps 4.5:1 over pure black and pure white, light and dark, glass and opaque", async () => {
+  // Glass over its page (the theme's surface: what a tooltip sits on); the opaque surface of Reduce
+  // Transparency over anything (pure black and pure white).
+  test("the tooltip's text keeps 4.5:1: glass over its page, opaque over pure black and pure white", async () => {
     const seen: Record<string, number> = {};
     for (const name of ["dark", "light"] as const) {
-      for (const backdrop of ["#000", "#fff"]) {
+      for (const backdrop of [themes[name].surface, "#000", "#fff"]) {
         for (const reduce of [false, true]) {
+          if (!reduce && backdrop !== themes[name].surface) continue;
           const body = `<div style="position:fixed;inset:0;z-index:-1;background:${backdrop}"></div>${toolbar}`;
           const page = await open(theme(name, `--cmux-tooltip-tint:${hostTint(name)}`), body);
           if (reduce) await page.evaluate(() => document.documentElement.setAttribute("data-reduce-transparency", ""));
