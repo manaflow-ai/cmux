@@ -2094,6 +2094,11 @@ export default agentPaneEntry({
       snapshot: chat(groupedShellRows),
       play: openGroupedShells,
     },
+    "worked-for-mid-transcript": {
+      note: "Mid-transcript, scrolled up from the latest row: Worked for, a command group and a thought each open and close under their header, which stays where it was clicked (the recording's state; no play).",
+      checks: shellDisclosureChecks,
+      snapshot: chat([...longChatRows.slice(-9), ...turnFoldRows, ...longChatRows.slice(0, 9)]),
+    },
     "worked-for-opening": {
       note: "Play: open Worked for and hold its fold halfway: the rows below slide down from where they were, the steps it shows fade in and the chevron turns. With animations off or under Reduce Motion it opens at once.",
       checks: shellDisclosureChecks,
