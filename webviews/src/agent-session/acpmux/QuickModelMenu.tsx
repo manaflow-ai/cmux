@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AgentMark } from "../shared/AgentMark";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
 import type { Choice } from "./ComposerPickers";
@@ -125,11 +125,12 @@ function QuickMenuSpacer({ rows, separators }: TabExtent) {
   return (
     <div className="acpmux-quick-spacer" aria-hidden="true" inert>
       <div className="ui-menu-group-label">{"\u00a0"}</div>
+      {/* A separator after each of the first rows: back to back, their margins would collapse. */}
       {Array.from({ length: rows }, (_, index) => (
-        <div key={`row${index}`} className="ui-menu-item acpmux-quick-item" />
-      ))}
-      {Array.from({ length: separators }, (_, index) => (
-        <div key={`separator${index}`} className="ui-separator" />
+        <Fragment key={index}>
+          <div className="ui-menu-item acpmux-quick-item" />
+          {index < separators && <div className="ui-separator" />}
+        </Fragment>
       ))}
     </div>
   );
@@ -187,6 +188,12 @@ export function QuickModelMenu({
   // re-render with the same filter (a streaming reply hands over new families) keeps the row the
   // keyboard moved to, so Enter picks it.
   const popup = useRef<HTMLDivElement | null>(null);
+  // Another tab or filter starts at its top: the held height keeps a tall tab's scroll range, which
+  // could leave a short tab's rows above the view.
+  const body = useRef<HTMLDivElement | null>(null);
+  const toTop = () => {
+    if (body.current) body.current.scrollTop = 0;
+  };
   const focusedFor = useRef<string | undefined>(undefined);
   useLayoutEffect(() => {
     const node = popup.current;
@@ -231,6 +238,7 @@ export function QuickModelMenu({
       if (next) {
         event.preventDefault();
         setTab(next.id);
+        toTop();
       }
       return;
     }
@@ -243,11 +251,14 @@ export function QuickModelMenu({
     } else if (families && event.key === "Backspace" && query) {
       event.preventDefault();
       setQuery(query.slice(0, -1));
+      toTop();
     } else if (event.key.length === 1 && (/\S/.test(event.key) || (families && query))) {
       event.preventDefault();
       // Typing filters the list in place, Claude Code style; without a rail it searches the full picker.
-      if (families) setQuery(query + event.key);
-      else {
+      if (families) {
+        setQuery(query + event.key);
+        toTop();
+      } else {
         onOpenChange(false);
         onMore(event.key);
       }
@@ -264,7 +275,20 @@ export function QuickModelMenu({
       });
       return { rows: Math.max(most.rows, extent.rows), separators: Math.max(most.separators, extent.separators) };
     },
-    { rows: 0, separators: 0 },
+    // A typed filter: up to FILTER_ROWS matches from every searched tab (or its one note row), no
+    // separators. It can be taller than any one tab's list.
+    {
+      rows: Math.max(
+        1,
+        Math.min(
+          FILTER_ROWS,
+          (families?.list ?? [])
+            .filter((family) => !family.starred && !family.note)
+            .reduce((count, family) => count + family.models.length + family.more.length, 0),
+        ),
+      ),
+      separators: 0,
+    },
   );
   const currentValue = families ? rowValue({ family: families.current ?? "", id: current ?? "" }) : (current ?? "");
   const list = (
@@ -450,6 +474,7 @@ export function QuickModelMenu({
                   onClick={() => {
                     setTab(family.id);
                     setQuery("");
+                    toTop();
                   }}
                 >
                   {family.starred ? (
@@ -464,7 +489,7 @@ export function QuickModelMenu({
                 </button>
               ))}
             </fieldset>
-            <div className="acpmux-quick-body">
+            <div className="acpmux-quick-body" ref={body}>
               <div className="acpmux-quick-list">{list}</div>
               <QuickMenuSpacer {...tallest} />
             </div>
