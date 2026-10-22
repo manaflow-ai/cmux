@@ -41,6 +41,27 @@ import Testing
         #expect(plan.chunks.last?.end == "-1")
     }
 
+    @Test func aChunkOfTheDensestColorOutputFitsInOneCommandBlock() {
+        // tmux 3.7 writes 55 bytes per cell from `capture-pane -e` when every cell
+        // changes bold, italic, underline, strikethrough and its 24-bit foreground,
+        // background and underline colors. The stream resets on a block over the
+        // parser's limit, so a chunk of such cells must stay under it.
+        let measuredBytesPerCell = 55
+        for width in [80, 200, 500, 1_000] {
+            let historySize = 100_000
+            let plan = RemoteTmuxPaneHistoryPlan(historySize: historySize, paneWidth: width)
+            for chunk in plan.chunks {
+                let top = chunk.start == "-" ? historySize : -(Int(chunk.start) ?? 0)
+                let bottom = -(Int(chunk.end) ?? 0)
+                let bytes = (top - bottom + 1) * width * measuredBytesPerCell
+                #expect(
+                    bytes < RemoteTmuxControlStreamParser.defaultMaximumCommandBlockBytes,
+                    "width \(width): chunk \(chunk.captureArguments) can be \(bytes) bytes"
+                )
+            }
+        }
+    }
+
     @Test func aPaneWithNoHistoryNeedsNoChunk() {
         let plan = RemoteTmuxPaneHistoryPlan(historySize: 0, paneWidth: 80)
         #expect(plan.chunks.isEmpty)
@@ -151,6 +172,69 @@ import Testing
         #expect(await reseed.value == .failed)
     }
 
+    @Test(.timeLimit(.minutes(1))) func historyOverTheByteBudgetKeepsTheNewestRows() async throws {
+        // Each history row here is 10 bytes with its CR LF; a 40-byte budget holds four.
+        let fixture = attachedConnection(fullHistoryByteBudget: 40)
+        defer { fixture.close() }
+
+        var seeds: [RemoteTmuxPaneSeed] = []
+        let token = fixture.connection.addObserver(onPaneSeed: { paneID, seed in
+            if paneID == 7 { seeds.append(seed) }
+        })
+        defer { fixture.connection.removeObserver(token) }
+
+        let reseed = Task { await fixture.connection.reseedPaneWithFullHistory(paneId: 7) }
+        try await waitForPendingCommands(on: fixture.connection) { !$0.isEmpty }
+        // 40 rows on a 10,000-column pane read as two chunks (32 rows is the minimum).
+        fixture.reply(number: 40, lines: ["40 10000 0"])
+        try await waitForPendingCommands(on: fixture.connection) { kinds in
+            kinds.contains { if case .paneState = $0 { return true } else { return false } }
+        }
+        replyToSeedQueue(fixture, history: [["row-0001", "row-0002", "row-0003"], ["row-0004", "row-0005", "row-0006"]])
+
+        #expect(await reseed.value == .loaded(historyRows: 4, truncated: true))
+        let painted = String(decoding: try #require(seeds.last).snapshot, as: UTF8.self)
+        let rows = try #require(painted.components(separatedBy: "\u{1b}[H\u{1b}[2J").last)
+        #expect(rows == ["row-0003", "row-0004", "row-0005", "row-0006", "screen"].joined(separator: "\r\n"))
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aHistoryChunkThatCannotBeHeldFailsTheLoad() async throws {
+        // 64 bytes holds the clears and the screen but not this history chunk.
+        let fixture = attachedConnection(pendingPaneSeedByteLimit: 64)
+        defer { fixture.close() }
+
+        let reseed = Task { await fixture.connection.reseedPaneWithFullHistory(paneId: 7) }
+        try await waitForPendingCommands(on: fixture.connection) { !$0.isEmpty }
+        fixture.reply(number: 40, lines: ["20 80 0"])
+        try await waitForPendingCommands(on: fixture.connection) { kinds in
+            kinds.contains { if case .paneState = $0 { return true } else { return false } }
+        }
+        replyToSeedQueue(fixture, history: [(1...20).map { String(format: "history-row-%04d", $0) }])
+
+        // Painting the screen without those rows would leave a hole the find bar
+        // calls a complete load.
+        #expect(await reseed.value == .failed)
+    }
+
+    /// Answers every queued seed command, history chunks in order, starting at
+    /// command 41.
+    private func replyToSeedQueue(_ fixture: Fixture, history: [[String]]) {
+        var number = 41
+        var chunks = history[...]
+        for kind in fixture.connection.pendingCommandKindsForTesting {
+            let lines: [String]
+            switch kind {
+            case .paneAltScreen: lines = ["0"]
+            case .capturePaneHistory: lines = chunks.popFirst() ?? []
+            case .capturePane: lines = ["screen"]
+            case .paneState: lines = [Self.paneStateLine(cursorX: 0, cursorY: 0)]
+            default: lines = []
+            }
+            fixture.reply(number: number, lines: lines)
+            number += 1
+        }
+    }
+
     // MARK: - Fixture
 
     private func waitForPendingCommands(
@@ -178,11 +262,16 @@ import Testing
             + "mouse_sgr_flag=0,mouse_utf8_flag=0"
     }
 
-    private func attachedConnection() -> Fixture {
+    private func attachedConnection(
+        pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes,
+        fullHistoryByteBudget: Int = RemoteTmuxControlConnection.maximumFullHistoryBytes
+    ) -> Fixture {
         let connection = RemoteTmuxControlConnection(
             host: RemoteTmuxHost(destination: "full-history.test"),
-            sessionName: "work"
+            sessionName: "work",
+            pendingPaneSeedByteLimit: pendingPaneSeedByteLimit
         )
+        connection.fullHistorySeeds.byteBudget = fullHistoryByteBudget
         let pipe = Pipe()
         let writer = RemoteTmuxControlPipeWriter(
             handle: pipe.fileHandleForWriting,
