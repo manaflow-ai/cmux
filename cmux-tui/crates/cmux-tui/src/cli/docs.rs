@@ -152,9 +152,13 @@ pub(super) const GUIDES: &[Guide] = &[
         the undo removes the folders the run added); with \
         --cookies it imports its sign-ins once the person allows it on the panel cmux shows, \
         and that has no undo. History and passwords come in only from Import from Browser... \
-        in cmux. `cmux setup status` lists every peer with connected and outdated, every \
-        harness, the MCP wiring, Computer Use, the Cloud machine, notifications and the \
-        imported browsers. Every `cmux setup` command prints one JSON object: state is ok, \
+        in cmux. `cmux setup tailnet [--owner LOGIN]` serves this machine to the person's \
+        other machines over Tailscale (what `cmux host enable` does; undo `cmux host disable \
+        --json`); until Tailscale runs it names the person's one step (kind install, start, \
+        sign_in, approve or wait), and a tagged node with no owner is kind owner. \
+        `cmux setup status` lists every peer with connected and outdated, every \
+        harness, the MCP wiring, Computer Use, the Cloud machine, notifications, the \
+        imported browsers and the tailnet. Every `cmux setup` command prints one JSON object: state is ok, \
         changed, planned, needs_user, failed or not_applicable.",
     },
     Guide {
@@ -182,9 +186,9 @@ pub(super) const GUIDES: &[Guide] = &[
         that task: run its command. Words left in capitals (HOST, FOLDER, BROWSER, EMAIL) are \
         the person's to fill in, so ask for them. Remote machines: `cmux setup machine HOST` adds \
         a Mac on the tailnet or any ssh host as an agent peer, and `cmux acp host doctor NAME \
-        [--fix]` checks or repairs one; `cmux host ticket new` mints a single-use `cmux host \
-        join` line that adds a machine without ssh; `cmux host enable` serves this machine over \
-        Tailscale.",
+        [--fix]` checks or repairs one; `cmux host ticket new` mints a single-use line that \
+        installs cmux on another machine and joins it (`cmux host join`) without ssh; `cmux \
+        setup tailnet` serves this machine over Tailscale.",
     },
 ];
 

@@ -57,18 +57,26 @@ What only you can do: signing in to cmux, and allowing the new machine on the ca
 ## Serve this machine to the person's other machines over Tailscale
 
 ```text
-Let my other machines reach this one over Tailscale: run `cmux host status --json`, and if it is not serving, `cmux host enable --json`. If Tailscale is signed out, tell me to run `tailscale up`.
+Let my other machines reach this one over Tailscale: run `cmux setup tailnet`, tell me the one Tailscale step it names for me (install, start, sign in or approve), and run it again once I have done it. If it asks for my tailnet login, ask me. Tell me the undo.
 ```
 
-What only you can do: signing in to Tailscale (`tailscale up`) when it is not signed in.
+What only you can do: installing Tailscale, signing in to it (`tailscale up`, a browser sign-in), and an admin approving the device when the tailnet requires it.
+
+## Use cmux from an iPhone: pair the cmux iOS app with this Mac
+
+```text
+Set up the cmux iPhone app with this Mac: run `cmux settings get phone.allowConnections` and, if it is off, `cmux settings set phone.allowConnections true`. Then run `cmux cloud open-mobile-pairing` and tell me to scan its QR code with the cmux app, or to sign in there with the same cmux account.
+```
+
+What only you can do: installing the cmux iPhone app (TestFlight invite while it is in beta) and signing in there with the same cmux account, or scanning the QR code on the Mobile Pairing page.
 
 ## Add another machine with one pasted line (a single-use pairing ticket)
 
 ```text
-Give me a one-line command to add my other machine: run `cmux host ticket new --json` and give me the `cmux host join` line it prints, to paste on that machine. It works once, within 15 minutes.
+Give me one line to paste on my other machine so it can use this one: run `cmux host ticket new --json` and give me its `install_command` (or its `join_command` when cmux is already installed there). If its `url` starts with ws://, tell me what to forward first. It works once, within 15 minutes; tell me how to revoke it.
 ```
 
-What only you can do: pasting the `cmux host join` line on the other machine.
+What only you can do: pasting the line on the other machine.
 
 ## Give Claude Code and Codex the cmux MCP server outside cmux (chats cmux starts have it)
 

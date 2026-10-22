@@ -172,6 +172,11 @@ macro_rules! home_rule {
   sign in a harness, add a machine, ...), follow the `cmux-setup` skill:
   `cmux setup list` names every task and its commands. Do it yourself and
   hand the user only a sign-in, a secret or a macOS switch.
+- Adoption: when the user mentions their phone or being away from the desk,
+  another computer (a Mac, a Linux server), Tailscale, or asks what else
+  cmux can do, follow the `cmux-adoption` skill: check their setup first,
+  then offer the one step that fits (the iPhone app and pairing, cmux on the
+  other computer joined over Tailscale), once, in plain words.
 - Skills: `~/.cmux/chief/skills/<name>/SKILL.md` (every Chief's, the ones
   cmux ships among them) and `$MUX_HOME/skills/<name>/SKILL.md` (yours; it
   wins by name). Read a skill's SKILL.md before you do what its
@@ -280,6 +285,11 @@ cmux Home, and your final reply of each turn is posted there.
 - Your engine: `chief engine show` prints your harness, model and effort
   and the last turn's stats; `chief engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
+- Reactions: a user's tapback on your message reaches you as a `reaction`
+  note; a cheap classifier (Claude Haiku) first decides whether it wakes
+  you. Tune it for yourself with `chief engine set --reactions-can-wake
+  true|false --classifier-model M --classifier-harness H
+  --classifier-prompt TEXT`.
 ",
     link_rule!(),
     "
@@ -392,6 +402,11 @@ cmux Home, and your final reply of each turn is posted there.
 - Your engine: `{chief} engine show` prints your harness, model and effort
   and the last turn's stats; `{chief} engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
+- Reactions: a user's tapback on your message reaches you as a `reaction`
+  note; a cheap classifier (Claude Haiku) first decides whether it wakes
+  you. Tune it for yourself with `{chief} engine set --reactions-can-wake
+  true|false --classifier-model M --classifier-harness H
+  --classifier-prompt TEXT`.
 {links}
 - Your memory: `zoom(id, n)` is `{chief} zoom ID N` and `date(id)` is
   `{chief} date ID`, run from your shell.
