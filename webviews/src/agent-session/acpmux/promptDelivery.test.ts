@@ -2,7 +2,7 @@
 // sending, then delivered once acpmux took it, read once the agent started on it, or failed with the
 // hop it stopped at. A send with no answer says so and then fails, Retry sends the same prompt id
 // again with `resend` (acpmux runs a prompt id once), and a late acceptance still lands.
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -23,8 +23,13 @@ afterAll(() => {
     else delete scope[key];
 });
 
+/// Yields until `done()` holds; fails after 2 s.
 const settle = async (done: () => boolean) => {
-  for (let tries = 0; tries < 100 && !done(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+  const deadline = performance.now() + 2_000;
+  while (!done()) {
+    if (performance.now() > deadline) throw new Error(`timed out waiting for ${done.toString()}`);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
 };
 
 type Row = {
@@ -178,8 +183,6 @@ test("a prompt the connection dropped before acpmux took it goes back to its sen
 test("a sender that still holds its prompt gets no second copy as a failed row", async () => {
   const { AcpmuxDirectClient, deliveryTiming } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
-  const timing = { ...deliveryTiming };
-  Object.assign(deliveryTiming, { slowMs: 10, failMs: 30 });
   class SilentHost extends MockAcpmuxSocket {
     constructor() {
       super(() => Promise.resolve());
@@ -196,15 +199,18 @@ test("a sender that still holds its prompt gets no second copy as a failed row",
     undefined,
     () => new SilentHost() as unknown as WebSocket,
   );
+  // The delivery deadlines on a fake clock: the test runs past the fail deadline without waiting it out.
+  jest.useFakeTimers();
   try {
     void client.send("held here", [], undefined, () => undefined).catch(() => undefined);
     const mine = () => rows.find((row) => row.text === "held here");
-    await settle(() => mine()?.delivery?.slow === true);
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    jest.advanceTimersByTime(deliveryTiming.slowMs);
+    expect(mine()?.delivery?.slow).toBe(true);
+    jest.advanceTimersByTime(deliveryTiming.failMs - deliveryTiming.slowMs);
     expect(mine()?.failed).toBeFalsy();
     expect(mine()?.delivery?.state).toBe("sending");
   } finally {
-    Object.assign(deliveryTiming, timing);
+    jest.useRealTimers();
     client.close?.();
   }
 });

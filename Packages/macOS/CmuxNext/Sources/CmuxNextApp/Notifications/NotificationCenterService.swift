@@ -31,6 +31,9 @@ final class NotificationCenterService {
     /// The daemon session the dismissed ids belong to: ids restart with a
     /// new session, so the dismissals apply only within this one.
     var dismissedHighlightSession: String?
+    /// Marked-unread rings the user dismissed: per tab id, the
+    /// ``TabModel/markedUnreadGeneration`` hidden. Marking the tab again rings again.
+    var dismissedMarks: [String: UInt64] = [:]
     @ObservationIgnored weak var services: AppServices?
     /// Bumped when a window's settled focus changes: the viewed-tab rules
     /// (`followViewedProgramStatus`) re-read which tabs are viewed.
@@ -289,11 +292,22 @@ final class NotificationCenterService {
             agentFinished[tab.id] = nil
             if Self.flashesOnEntry(trigger, DesignSettings.shared.attention) { entryReads.insert(tab.id) }
         }
+        readMark(trigger, tab: tab)
         guard tab.hasUnread else { return }
         guard NotificationPolicy(prefs: preferences).clears(trigger, for: source(of: tab)) else { return }
         note("\(trigger.rawValue) read \(tab.id)")
         if Self.flashesOnEntry(trigger, DesignSettings.shared.attention) { entryReads.insert(tab.id) }
         acknowledge(tab)
+    }
+
+    /// Going into a pane (a click or a key) reads its tab's Mark as Unread, as it reads an unread
+    /// notification: the ring both draw goes with it. Focus alone keeps the mark (a tab marked
+    /// while viewed stays marked until it is viewed again, ``clearTabMarks(entering:)``).
+    private func readMark(_ trigger: NotificationTrigger, tab: TabModel) {
+        guard tab.markedUnread, trigger == .click || trigger == .keystroke, let services else { return }
+        note("\(trigger.rawValue) read mark \(tab.id)")
+        if Self.flashesOnEntry(trigger, DesignSettings.shared.attention) { entryReads.insert(tab.id) }
+        try? TabUnreadMark.set(false, tab: tab, daemon: services.daemon)
     }
 
     /// Whether reading a pane by `trigger` flashes its ring as it goes: going
@@ -336,10 +350,17 @@ final class NotificationCenterService {
         }
     }
 
-    /// An agent chat's turn ended: ring the panes that show its tab until the person goes in.
+    /// An agent chat's turn ended: with `AgentTurnRing` on (Debug, off by default), ring the panes
+    /// that show its tab until the person goes in. Off, nothing rings: acpmux reads a turn that
+    /// ends in a shown chat at once, as before #22678.
     func agentTurnEnded(session: String) {
         guard let services else { return }
-        for workspace in services.daemon.store.workspaces {
+        agentTurnEnded(session: session, in: services.daemon.store.workspaces)
+    }
+
+    func agentTurnEnded(session: String, in workspaces: [WorkspaceModel], rings: Bool = AgentTurnRing.tunable.value) {
+        guard rings else { return }
+        for workspace in workspaces {
             for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) where tab.agentSession?.session == session {
                 agentFinishGeneration &+= 1
                 agentFinished[tab.id] = agentFinishGeneration

@@ -85,6 +85,17 @@ nonisolated enum AcpmuxPaneMethods {
         // `peerSessionId` only picks one of that chat's paused pairs; acpmux resumes no pair the
         // chat is not in, and only for a connection that proved the person key (hub/person.rs).
         "_acpmux/agent_pair_resume",
+        // A chat's background processes (direct.ts listProcesses, tailProcess; the Inspector and an
+        // opened background task note): read only, like `_acpmux/events`. acpmux serves them only to
+        // this Mac's clients (server/processes.rs).
+        "_acpmux/process/list", "_acpmux/process/tail",
+        // Stop one (direct.ts killProcess) or send a chat's running work to the background (Ctrl-B,
+        // backgroundWork) of a chat in the pane's scope: they stop or move work like `_acpmux/kill`,
+        // so no gesture. A kill names its chat; acpmux stops only that chat's process.
+        "_acpmux/process/kill", "_acpmux/process/background",
+        // The composer's Account menu (direct.ts routes, setChatRoute): read the routes, and pick
+        // one for a chat in the pane's scope. Adding or changing a route stays the unix socket's.
+        "_acpmux/route/list", "_acpmux/chat/route.set",
     ]
 
     /// Notifications (no `id`).
@@ -181,6 +192,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
         "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/watch_take_over",
+        "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New

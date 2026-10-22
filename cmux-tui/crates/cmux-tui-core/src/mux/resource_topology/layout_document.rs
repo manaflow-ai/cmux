@@ -247,11 +247,9 @@ fn parse_layout_rows(
                     )
                     .map_err(anyhow::Error::new)?;
                     let slot = state.resource_indexes.splits.get(&id).copied();
-                    anyhow::ensure!(
-                        slot.is_some() && slot == current_first,
-                        "layout row 1 id must be the column's current row 1 id ({id})"
-                    );
-                    current_first.expect("checked above")
+                    current_first.filter(|first| slot == Some(*first)).with_context(|| {
+                        format!("layout row 1 id must be the column's current row 1 id ({id})")
+                    })?
                 }
             }
         } else {

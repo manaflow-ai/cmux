@@ -1,14 +1,14 @@
 // l10n-allow-file: test fixture prompts, PR titles and subagent names, not shipped UI.
 // The wheel in the gutters of the floating bottom stack scrolls the transcript (Leo 2026-10-20: "if
 // it's not in the composer it should just scroll"), beside every part of it, not only the composer's
-// card: most parts are bands the pane's width wide whose card, bar or pill is inset in them, and the
+// card: most parts are bands the pane's width wide whose card or bar is inset in them, and the
 // band passes the pointer through to the transcript under it. What the part draws still takes the
 // pointer, and the wheel over it scrolls nothing (the stack is a no-scroll zone). (bottomStack.css,
 // wheelPassThrough.ts)
 //
 // One chat with every part the stack can show at once: a question waiting for an answer (the asks
 // stack), the pull request dock (three PRs), an error card (the chat menu's Edit CLAUDE.md, which
-// the browser host refuses), the agents pill (two subagents running), the queued prompts and the
+// the browser host refuses), the tray of running work (two subagents), the queued prompts and the
 // composer's card; then the dictation notice in the error card's place (the mic, which the browser
 // host refuses too). The page is the pane's dev entry with its browser host, talking JSON-RPC to a
 // stand-in acpmux (support/papercutChat.ts). Real Chromium and WebKit (the app's engine) with real
@@ -125,8 +125,8 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
       running: true,
       extra,
       session: { steering: true, queuePaused: false, queued: queue.length, queue },
-      // The chat's end is the running turn's calls; the stack's last part to arrive is the pill.
-      ready: ".acpmux-agents-pill",
+      // The chat's end is the running turn's calls; the stack's last part to arrive is the tray.
+      ready: ".acpmux-running-tray",
     });
     // The first load can run Vite's dependency optimizer and reload mid-compile.
     current = browsers.values().next().value;
@@ -230,11 +230,28 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
     expect({ name, scrollsDown: down > 100 }).toEqual({ name, scrollsDown: true });
   }
 
+  /// A part that is its own box in the stack, inset by its margin (`part`): the stack's gutter beside
+  /// it reaches the transcript and the wheel there scrolls it; the box takes the pointer, and the
+  /// wheel over it moves the transcript not at all.
+  async function expectInsetBox(page: Page, name: string, part: string) {
+    const box = (await page.locator(`.acpmux-dock > ${part}`).boundingBox())!;
+    const y = box.y + box.height / 2;
+    expect({ name, gutter: await reaches(page, box.x - 8, y, part) }).toEqual({ name, gutter: "transcript" });
+    expect({ name, box: ["band", "part"].includes(await reaches(page, box.x + 4, y, part)) }).toEqual({
+      name,
+      box: true,
+    });
+    const over = await wheelAt(page, box.x + 4, y, -300);
+    expect({ name, boxScrolls: Math.abs(over) >= 2 }).toEqual({ name, boxScrolls: false });
+    const beside = await wheelAt(page, box.x - 8, y, -300);
+    expect({ name, gutterScrollsUp: beside < -100 }).toEqual({ name, gutterScrollsUp: true });
+  }
+
   async function open(height = 1000) {
     const page = await pane!.open({ width: 900, height });
     await page.locator(".acpmux-asks-stack").waitFor({ timeout: 20_000 });
     await page.locator(".acpmux-pr-dock").waitFor({ timeout: 20_000 });
-    await page.locator(".acpmux-agents-pill").waitFor({ timeout: 20_000 });
+    await page.locator(".acpmux-running-tray").waitFor({ timeout: 20_000 });
     await page.locator(".acpmux-composer-queue").waitFor({ timeout: 20_000 });
     // Up from the latest message, so the transcript can scroll either way.
     expect(await wheelAt(page, 450, 80, -1500)).toBeLessThan(0);
@@ -262,7 +279,7 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
           "acpmux-permission",
           "acpmux-pr-dock",
           "acpmux-host-error",
-          "acpmux-agents-pill-anchor",
+          "acpmux-running-tray",
           "acpmux-composer",
         ]);
 
@@ -274,7 +291,6 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
           ".acpmux-instructions-notice",
           ".acpmux-instructions-notice > .acpmux-host-error-card",
         );
-        await expectGutter(page, "agents pill", ".acpmux-agents-pill-anchor", ".acpmux-agents-pill");
         await expectGutter(
           page,
           "queue",
@@ -284,17 +300,13 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
         );
         await expectGutter(page, "card", ".acpmux-composer", ".acpmux-composer > .acpmux-composer-box", "transcript");
 
-        // The empty room right of a pull request's chip and right of the agents pill.
+        // The empty room right of a pull request's chip.
         const chip = (await page.locator(".acpmux-pr-dock__chip").first().boundingBox())!;
         await expectEmptyRoom(page, "right of a chip", ".acpmux-pr-dock", chip.x + chip.width + 16, chip.y + 13);
-        const pill = (await page.locator(".acpmux-agents-pill").boundingBox())!;
-        await expectEmptyRoom(
-          page,
-          "right of the pill",
-          ".acpmux-agents-pill-anchor",
-          pill.x + pill.width + 40,
-          pill.y + pill.height / 2,
-        );
+
+        // The tray of running work is its own box, inset by its margin: beside it is the stack's own
+        // gutter, which passes through as the composer's does, and the tray takes the pointer.
+        await expectInsetBox(page, "tray", ".acpmux-running-tray");
 
         // The error card's own buttons still take a click.
         await page.locator(".acpmux-instructions-notice button[data-notice-action=dismiss]").click();
@@ -303,30 +315,7 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
         // The dictation notice, an error card that is its own box (inset by its margin).
         await page.locator(".acpmux-mic").first().click();
         await page.locator(".acpmux-dock > .acpmux-dictation-notice").waitFor({ timeout: 10_000 });
-        const notice = (await page.locator(".acpmux-dock > .acpmux-dictation-notice").boundingBox())!;
-        const noticeY = notice.y + notice.height / 2;
-        // Beside it is the dock's own gutter, which passes through as the composer's does.
-        expect(await reaches(page, notice.x - 8, noticeY, ".acpmux-dictation-notice")).toBe("transcript");
-        expect(await reaches(page, notice.x + 4, noticeY, ".acpmux-dictation-notice")).toBe("band");
-        expect(Math.abs(await wheelAt(page, notice.x + 4, noticeY, -300))).toBeLessThan(2);
-        expect(await wheelAt(page, notice.x - 8, noticeY, -300)).toBeLessThan(-100);
-        await page.close();
-      });
-
-      test("the agents pill opens its list, which takes the pointer over the transcript", async () => {
-        current = browsers.get(name);
-        const page = await open();
-        await page.locator(".acpmux-agents-pill").click();
-        const list = page.getByRole("dialog", { name: "Agents" });
-        await list.waitFor({ timeout: 10_000 });
-        const box = (await list.boundingBox())!;
-        const [x, y] = [box.x + box.width / 2, box.y + box.height / 2];
-        expect(await reaches(page, x, y, ".acpmux-agents-list")).toBe("part");
-        expect(Math.abs(await wheelAt(page, x, y, -300))).toBeLessThan(2);
-        // Beside the pill, under the list's side, the transcript still scrolls.
-        const { y: pillY, gutter } = await points(page, ".acpmux-agents-pill-anchor", ".acpmux-agents-pill");
-        expect(await reaches(page, gutter, pillY, ".acpmux-agents-pill-anchor")).toBe("band");
-        expect(await wheelAt(page, gutter, pillY, -300)).toBeLessThan(-100);
+        await expectInsetBox(page, "dictation notice", ".acpmux-dictation-notice");
         await page.close();
       });
 

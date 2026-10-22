@@ -7,8 +7,8 @@ public import Foundation
 ///   policy's ``category`` turned off: nothing animates; every change
 ///   applies in one frame.
 /// - Reduce Motion: movement (position, size, scale, scroll) is instant;
-///   opacity changes stay as a short crossfade (hover feedback is
-///   instant); loops stop.
+///   opacity changes stay as a short crossfade, at most `MotionFade.crossfade`
+///   (`MotionScale.quick`, 80 ms; hover feedback is instant); loops stop.
 /// - `normal`: every time constant is 1.5x the `fast` token.
 /// - A live resize (a window edge under the pointer): movement is instant,
 ///   so each frame lays out at the window's size and nothing springs toward
@@ -92,7 +92,8 @@ public nonisolated struct MotionPolicy: Sendable, Equatable {
     }
 
     /// Seconds that stand in for `token` when only a timed API exists (NSWindow
-    /// frames): the spring's 95% time. 0 when movement does not animate.
+    /// frames): the spring's visible end (within 0.5%, `perceivedDuration`).
+    /// 0 when movement does not animate.
     public func duration(_ token: MotionSpring) -> TimeInterval {
         animatesMovement ? spring(token).perceivedDuration : 0
     }

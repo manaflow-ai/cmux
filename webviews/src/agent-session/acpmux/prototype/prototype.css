@@ -125,7 +125,7 @@ body {
   border-radius: 8px;
   background: none;
   text-align: left;
-  transition: background-color 0.5s;
+  transition: background-color var(--cmux-motion-quick);
 }
 .proto-workspace svg {
   flex: none;
@@ -669,7 +669,7 @@ body {
   height: 7px;
   border-radius: 50%;
   background: color-mix(in srgb, var(--dot) 45%, transparent);
-  transition: transform 0.15s;
+  transition: transform var(--cmux-motion-micro);
 }
 .proto-space-dot:hover i {
   background: color-mix(in srgb, var(--dot) 75%, transparent);
@@ -703,7 +703,7 @@ body {
   backdrop-filter: blur(40px) saturate(1.2);
   box-shadow: var(--elevation-2);
   overflow: hidden;
-  animation: proto-mini-in 0.2s ease-out;
+  animation: proto-mini-in var(--cmux-motion-standard) ease-out;
 }
 @keyframes proto-mini-in {
   from {

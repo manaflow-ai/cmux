@@ -42,6 +42,7 @@ import argparse
 import glob
 import json
 import os
+import plistlib
 import re
 import shutil
 import select
@@ -152,7 +153,9 @@ def bundle_root(tag):
 
 def app_binary(tag):
     if tag in APPS:
-        return os.path.join(APPS[tag], "Contents/MacOS/cmux DEV")
+        # A Release build names its executable differently; the bundle says which.
+        with open(os.path.join(APPS[tag], "Contents/Info.plist"), "rb") as info:
+            return os.path.join(APPS[tag], "Contents/MacOS", plistlib.load(info)["CFBundleExecutable"])
     matches = glob.glob(f"{DERIVED}/cmux-{tag}/Build/Products/Debug/cmux DEV*.app/Contents/MacOS/cmux DEV")
     if not matches:
         raise SystemExit(f"no tagged app for {tag} under {DERIVED}/cmux-{tag}")

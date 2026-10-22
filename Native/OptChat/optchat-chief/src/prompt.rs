@@ -185,7 +185,7 @@ macro_rules! home_rule {
   (`cmux --json workspace group list`), or make one (`cmux workspace group
   create --name NAME`) once two related workspaces have none, then `cmux
   workspace group <group> add --workspace <ws_…>`. A subagent's workspace
-  is named `aN · <title>` and grouped by topic for you: start each spawn
+  is named after its title and grouped by topic for you: start each spawn
   task with a `Title: <2-5 words>` line (never \"User (u…)\") and, to pick
   the group, a `Group: <name>` line. Home stays on top, ungrouped. Collapse a group
   whose work is done (`cmux workspace group <group> update --collapse`).
@@ -455,6 +455,8 @@ report.
 - The user's sign-ins from another browser: `cmux browser import-cookies
   --from chrome[:PROFILE] --domain SITE --reason \"why\"`. Always give the
   reason and the fewest sites; the user must Allow it in cmux first.
+  To offer it without asking now, raise a card on Home and New Tab:
+  `cmux import suggest --browser chrome --site SITE --reason \"why\"`.
 - Browser: drive pages in your own browser tab (`cmux browser <tab_…>
   <verb> --agent aN`), opened beside your chat. Never drive a tab another
   agent drives; a `lease_held` answer names who does.

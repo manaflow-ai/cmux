@@ -140,6 +140,12 @@ pub fn has_env_refs(env: &BTreeMap<String, String>) -> bool {
     env.values().any(|v| is_reference(v))
 }
 
+/// Whether any env value names a Keychain item, so resolving it reads the
+/// secret store.
+pub fn has_keychain_refs(env: &BTreeMap<String, String>) -> bool {
+    env.values().any(|v| v.contains("${keychain:"))
+}
+
 /// The system secret store: `security` on macOS, `secret-tool` elsewhere.
 /// The value goes only to the caller; nothing is logged.
 pub fn keychain_lookup(service: &str, account: Option<&str>) -> Result<String, String> {

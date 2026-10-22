@@ -597,7 +597,7 @@ code {
   height: 14px;
   border-radius: 50%;
   background: var(--page-elevated);
-  transition: transform 0.15s ease;
+  transition: transform var(--cmux-motion-micro) ease;
 }
 
 .apps-switch.on .apps-switch-knob {

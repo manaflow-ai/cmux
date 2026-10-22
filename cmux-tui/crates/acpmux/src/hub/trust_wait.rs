@@ -284,11 +284,13 @@ impl Hub {
         // The task ended (it settled its card itself): nothing is left for the guard to await.
         guard.task = None;
         // A card withdrawn because another start trusted the folder still lets this one go on;
-        // one withdrawn after Not now is declined too.
+        // one withdrawn after Not now is declined too. A card the person answered goes by its
+        // own answer: Trust on it wins over a Not now on another start's card.
         if let Some(decided) = self.trusted_now(&paths, &key, &family, web).await {
             return Ok(decided);
         }
-        if self.trust_waits.declined_recently(&key) {
+        let answered = outcome.pointer("/outcome/optionId").and_then(Value::as_str).is_some();
+        if !answered && self.trust_waits.declined_recently(&key) {
             return Err(declined(&key));
         }
         self.trust_card_answered(&paths, &key, &outcome).await?;

@@ -7,7 +7,9 @@
 //! `cmux agent message` and every tool built on it, `agents_chat_send` included (the cmux
 //! daemon's delivery pump); and a prompt one sub-session family member sends another
 //! (`subsession_message`, `subsessions.rs`): cmux-subsessions `send_message` and
-//! `start_session`'s first prompt. Both count toward the same pair. Only a sender that is a
+//! `start_session`'s first prompt; and a prompt a session sends another from inside itself
+//! with no provenance of its own (`session_message`, `prompt_provenance.rs`: `acpmux send`).
+//! All count toward the same pair. Only a sender that is a
 //! session of this daemon counts: the person's `cmux agent message` (sender `cli`), a terminal,
 //! or any other address passes untouched.
 //!
@@ -392,7 +394,8 @@ impl Hub {
         self.agent_pairs.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// The sending session of an agent message (`agent_message`) or of a cmux-subsessions
+    /// The sending session of an agent message (`agent_message`), of a prompt a session sent from
+    /// inside itself (`session_message`, `acpmux send`), or of a cmux-subsessions
     /// `send_message` or `start_session` (`subsession_message`): a session of this daemon, by
     /// its exact id (the cmux daemon writes it `acp:<id>`). `None` for any other prompt, for a
     /// sender that is no session here (the person's `cli`, a terminal, another actor), and for
@@ -400,7 +403,10 @@ impl Hub {
     fn agent_message_sender(&self, provenance: Option<&Value>) -> Option<Arc<Session>> {
         let p = provenance?;
         let kind = p.get("kind").and_then(Value::as_str);
-        if !matches!(kind, Some("agent_message" | super::subsessions::PROVENANCE_KIND)) {
+        if !matches!(
+            kind,
+            Some("agent_message" | "session_message" | super::subsessions::PROVENANCE_KIND)
+        ) {
             return None;
         }
         if p.get("msgId").and_then(Value::as_str).is_some_and(|id| id.ends_with(".withdrawn")) {

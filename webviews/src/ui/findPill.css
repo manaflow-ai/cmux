@@ -150,7 +150,7 @@
 }
 .find-pill__button[aria-pressed="true"] {
   background: color-mix(in srgb, var(--agent-accent, var(--cmux-accent)) 20%, transparent);
-  color: var(--agent-accent, var(--cmux-accent));
+  color: var(--agent-lit-glyph, var(--cmux-lit-glyph, var(--agent-accent, var(--cmux-accent))));
 }
 
 /* The replace row (the code editor's Replace): the capsule grows into a rounded panel of two rows. */

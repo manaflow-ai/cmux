@@ -19,13 +19,13 @@ type PlainDrawingPool = { highlighter?: unknown; isInitialized(): boolean };
  * (already in the bundle; no WASM, no grammar) right away. The pool replaces it with its own when
  * its start-up finishes, and the colors arrive as the workers answer. `@pierre/diffs` is pinned
  * (package.json); diff-paint-perf.test.ts fails if a new version stops drawing rows before the
- * workers start. Resolves `drawn` when it handed the instance over, `ready` when the pool was up
- * first, and `unsupported` when the pool no longer keeps its instance where this reads it.
+ * workers start. The themes are the pool's own (the ones it draws plain rows with), not the
+ * viewer's options, which may have changed since the pool was created. Resolves `drawn` when it
+ * handed the instance over, `ready` when the pool was up first, `stopped` when the pool was shut
+ * down (the viewer unmounted) and `unsupported` when the pool no longer keeps its instance where
+ * this reads it.
  */
-export async function drawPlainBeforeWorkers(
-  pool: WorkerPool,
-  options: ReturnType<typeof workerHighlighterOptions>,
-): Promise<PlainBeforeWorkers> {
+export async function drawPlainBeforeWorkers(pool: WorkerPool): Promise<PlainBeforeWorkers> {
   const target = pool as unknown as PlainDrawingPool;
   if (!("highlighter" in target)) {
     return "unsupported";
@@ -33,11 +33,16 @@ export async function drawPlainBeforeWorkers(
   if (pool.isInitialized() || target.highlighter != null) {
     return "ready";
   }
-  const themes = await resolveThemes(getThemes(options.theme as Parameters<typeof getThemes>[0]));
+  const themes = await resolveThemes(getThemes(pool.getDiffRenderOptions().theme));
   const highlighter = await createHighlighter({ themes, langs: [], engine: createJavaScriptRegexEngine() });
   if (target.isInitialized() || target.highlighter != null) {
     highlighter.dispose();
     return "ready";
+  }
+  // Shut down while this was built (the viewer unmounted): nothing would replace or dispose it.
+  if (poolStopped(pool)) {
+    highlighter.dispose();
+    return "stopped";
   }
   target.highlighter = highlighter;
   // The pool replaces it with its own once the workers are up (or clears it when terminated)
@@ -55,7 +60,13 @@ export async function drawPlainBeforeWorkers(
   return "drawn";
 }
 
-export type PlainBeforeWorkers = "drawn" | "ready" | "unsupported";
+export type PlainBeforeWorkers = "drawn" | "ready" | "stopped" | "unsupported";
+
+/** The pool was terminated (`terminate()`), not failed: it has no workers and no instance. */
+function poolStopped(pool: WorkerPool): boolean {
+  const stats = pool.getStats();
+  return stats.managerState === "waiting" && !stats.workersFailed;
+}
 
 export function WorkerRenderOptionsSync({
   codeViewRef,
@@ -65,22 +76,18 @@ export function WorkerRenderOptionsSync({
   highlighterOptions: ReturnType<typeof workerHighlighterOptions>;
 }) {
   useWorkerRenderOptionsSync(highlighterOptions, codeViewRef);
-  useDrawPlainBeforeWorkers(highlighterOptions, codeViewRef);
+  useDrawPlainBeforeWorkers(codeViewRef);
   return null;
 }
 
-function useDrawPlainBeforeWorkers(
-  highlighterOptions: ReturnType<typeof workerHighlighterOptions>,
-  codeViewRef: React.MutableRefObject<CodeViewHandle<any> | null>,
-): void {
+function useDrawPlainBeforeWorkers(codeViewRef: React.MutableRefObject<CodeViewHandle<any> | null>): void {
   const workerPool = useWorkerPool();
-  const options = useRef(highlighterOptions);
   useEffect(() => {
     if (!workerPool) {
       return;
     }
     let active = true;
-    drawPlainBeforeWorkers(workerPool, options.current)
+    drawPlainBeforeWorkers(workerPool)
       .then((outcome) => {
         // Read by diff-paint-perf.test.ts, as the pool's counters are (worker-pool.ts).
         document.documentElement.dataset.cmuxDiffPlainBeforeWorkers = outcome;

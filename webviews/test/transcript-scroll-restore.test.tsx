@@ -1,7 +1,7 @@
 // cx-6bgzj: a chat reopens where the reader left it. The transcript reports where it rests once a
 // scroll settles (a row and the offset into it, or nothing at the latest message) and opens at such a
 // place after a relaunch, a crash or a reload instead of at the latest message.
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
@@ -78,7 +78,22 @@ const turns = Array.from({ length: 30 }, (_, index) => [
 ]).flat();
 
 type Anchor = { rowId: string; offset: number } | null;
-const settle = () => new Promise((resolve) => setTimeout(resolve, SCROLL_ANCHOR_SETTLE_MS + 50));
+/// A scroll, then the pause after it on a fake clock: one report once the scroll has rested
+/// SCROLL_ANCHOR_SETTLE_MS, and none a moment before.
+async function scrollAndRest(scroller: HTMLElement, top: number, anchors: Anchor[]) {
+  jest.useFakeTimers();
+  try {
+    const reported = anchors.length;
+    scroller.scrollTop = top;
+    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    await act(async () => void jest.advanceTimersByTime(SCROLL_ANCHOR_SETTLE_MS - 1));
+    expect(anchors.length).toBe(reported);
+    await act(async () => void jest.advanceTimersByTime(1));
+    expect(anchors.length).toBe(reported + 1);
+  } finally {
+    jest.useRealTimers();
+  }
+}
 
 test("a scrolled-up chat reports where it rests and reopens there, not at the latest message", async () => {
   const rows = turnView(turns, new Set());
@@ -102,9 +117,7 @@ test("a scrolled-up chat reports where it rests and reopens there, not at the la
 
     // The reader scrolls up and stops: one report, a row and how far into it.
     const resting = Math.round(latest / 3);
-    scroller().scrollTop = resting;
-    await act(async () => void scroller().dispatchEvent(new dom.window.Event("scroll")));
-    await act(settle);
+    await scrollAndRest(scroller(), resting, anchors);
     const anchor = anchors.at(-1);
     expect(anchor).toBeTruthy();
     expect(rows.some((row) => row.id === anchor!.rowId)).toBe(true);
@@ -127,9 +140,7 @@ test("a scrolled-up chat reports where it rests and reopens there, not at the la
     expect(scroller().scrollTop).toBe(resting);
 
     // Back at the latest message: the place is forgotten, so the next open follows the reply.
-    scroller().scrollTop = latest;
-    await act(async () => void scroller().dispatchEvent(new dom.window.Event("scroll")));
-    await act(settle);
+    await scrollAndRest(scroller(), latest, anchors);
     expect(anchors.at(-1)).toBeNull();
   } finally {
     await act(async () => root.unmount());

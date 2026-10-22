@@ -14,18 +14,24 @@ import Observation
 /// on those sessions' lanes, the parents another machine's daemon listed for the chats a chat there
 /// started (``RemoteAgentSessionLinks``, a Cloud VM chat's children), the pull request of each session folder's branch (`gh pr view`, as the
 /// chat header's chip reads it) and each pull request a session opened (acpmux `pullRequests`,
-/// `gh pr view <url>`). Off, it leaves `SidebarSessionTree.state` nil.
+/// `gh pr view <url>`). Off, it leaves `SidebarSessionTree.state` nil. The pull request reads also
+/// run while only the Priority view is on (`sidebar.priorityView.enabled`), for its Red CI
+/// (``checksFailing(_:)``); the tree then stays off.
 @MainActor
 public final class SidebarSessionTreeFeed {
     public static let shared = SidebarSessionTreeFeed()
 
     private var task: Task<Void, Never>?
-    private let pullRequests = SidebarPullRequestStore()
+    /// Also read by ``checksFailing(_:)``, the Priority view's Red CI.
+    let pullRequests = SidebarPullRequestStore()
 
     /// What one pass reads: the tree, and the folders and pull request URLs it shows.
     nonisolated struct Pass: Equatable, Sendable {
         var state: SidebarSessionTreeState
         var asks: Set<String>
+        /// The session tree is on (`sidebar.sessionTree`): the pass writes `SidebarSessionTree.state`.
+        /// Off, the pass runs only for the pull request badges and the Priority view's Red CI.
+        var showsTree = true
     }
 
     /// Follows the setting, the lanes and every machine's `workspaces` from now on. `localHost` is
@@ -38,14 +44,25 @@ public final class SidebarSessionTreeFeed {
         // task-owner: the app (one feed for the app's life); event-driven (Observation)
         task = Task {
             for await pass in ObservationStream({ () -> Pass? in
-                guard DesignSettings.shared.sidebarSections.sessionTree else { return nil }
-                return Self.pass(Self.chats(workspaces()), lanes: lanes.lanes, remoteParents: remote.parents, localHost: localHost,
-                                 pullRequests: pullRequests.answers)
+                let sections = DesignSettings.shared.sidebarSections
+                guard Self.readsPullRequests(sections) || Self.readsBadges(sections) else { return nil }
+                var pass = Self.pass(Self.chats(workspaces()), lanes: lanes.lanes, remoteParents: remote.parents, localHost: localHost,
+                                     pullRequests: pullRequests.answers)
+                pass.showsTree = sections.sessionTree
+                return pass
             }) {
-                if tree.state != pass?.state { tree.state = pass?.state }
+                Self.publish(pass, to: tree)
                 if let pass { pullRequests.refresh(pass.asks) } else { pullRequests.stop() }
             }
         }
+    }
+
+    /// `pass` into `tree`: the badges whenever the feed runs, the tree itself only while it shows.
+    static func publish(_ pass: Pass?, to tree: SidebarSessionTree) {
+        let state = pass?.showsTree == true ? pass?.state : nil
+        if tree.state != state { tree.state = state }
+        let badges = pass?.state.pullRequests ?? [:]
+        if tree.pullRequests != badges { tree.pullRequests = badges }
     }
 
     /// Each workspace's agent chat tabs, in model order.
@@ -71,6 +88,7 @@ public final class SidebarSessionTreeFeed {
             }
         }
         var state = SidebarSessionTreeState()
+        var agentStates: [SidebarWorkspaceID: SidebarAgentState] = [:]
         var asks: Set<String> = []
         for (id, ids) in remote {
             if let parent = ids.lazy.compactMap({ remoteParents[$0].flatMap { owner[$0] } }).first(where: { $0 != id }) {
@@ -82,10 +100,13 @@ public final class SidebarSessionTreeFeed {
             if let parent = shown.lazy.compactMap({ $0.spawnedBy.flatMap { owner[$0] } }).first(where: { $0 != id }) {
                 state.parents[id] = parent
             }
+            // The strongest of its agents' states: one waiting on you outranks one still running.
+            if let state = shown.map({ Self.state($0.state) }).max() { agentStates[id] = state }
             let wanted = Self.asks(shown)
             asks.formUnion(wanted)
             state.pullRequests[id] = Self.badge(wanted, answers: pullRequests)
         }
+        state.states = agentStates
         return Pass(state: state, asks: asks)
     }
 
@@ -105,6 +126,16 @@ public final class SidebarSessionTreeFeed {
         var seen: Set<String> = []
         let items = asks.compactMap { answers[$0] }.filter { seen.insert($0.url).inserted }.map(Self.item)
         return SidebarPullRequestBadge.combining(items: items)
+    }
+
+    /// A lane's state in the tree's terms: acpmux's `input` waits on the person; a lost agent counts as failed.
+    static func state(_ lane: AgentActivityLane.State) -> SidebarAgentState {
+        switch lane {
+        case .input: .blocked
+        case .failed, .lost: .failed
+        case .working: .running
+        case .idle: .idle
+        }
     }
 
     /// The badge color of one pull request; nil for a closed one, which the badge leaves out.
@@ -174,14 +205,7 @@ final class SidebarPullRequestStore {
         if pruned.count != answers.count { answers = pruned } // a set always notifies the tree's observation
         asked = asked.filter { kept.contains($0.key) }
         failures = failures.filter { kept.contains($0.key) }
-        if freshness > .zero, asks.contains(where: inFlight) {
-            recheck.scheduleIfIdle(after: freshness) { @MainActor [weak self] in
-                guard let self else { return }
-                refresh(shown, onlyInFlight: true)
-            }
-        } else {
-            recheck.cancel()
-        }
+        scheduleRecheck()
         let stale = asks.filter { key in
             !asking.contains(key) && !isSettled(key) && (!onlyInFlight || inFlight(key)) && asked[key].map { ContinuousClock.now - $0 >= wait(key) } ?? true
         }
@@ -200,6 +224,7 @@ final class SidebarPullRequestStore {
             guard let self else { return }
             asking.remove(folder)
             if answers[folder] != answer { answers[folder] = answer }
+            scheduleRecheck()
         }
     }
 
@@ -222,6 +247,21 @@ final class SidebarPullRequestStore {
                 failures[url] = nil
                 if answers[url] != answer { answers[url] = answer }
             }
+            scheduleRecheck()
+        }
+    }
+
+    /// Keeps the recheck pending while the tree shows an open or draft pull request, else stops it.
+    /// It runs on every refresh and again when an answer lands: the first answer is what makes a
+    /// shown pull request open, and the store reads it again then without waiting for the tree.
+    private func scheduleRecheck() {
+        if freshness > .zero, shown.contains(where: inFlight) {
+            recheck.scheduleIfIdle(after: freshness) { @MainActor [weak self] in
+                guard let self else { return }
+                refresh(shown, onlyInFlight: true)
+            }
+        } else {
+            recheck.cancel()
         }
     }
 

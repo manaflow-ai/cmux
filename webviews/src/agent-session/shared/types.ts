@@ -26,6 +26,9 @@ export type AgentSessionTheme = {
   softText: string;
   accent: string;
   accentSoft: string;
+  /// A lit (pressed, on) control's glyph or label: the accent lifted to at least the muted text's
+  /// contrast (`ThemeTokens.litGlyph`); without it, `accent`.
+  litGlyph?: string;
   /// Labels on the accent; the cmux-next pane sends it, others fall back to white.
   accentText?: string;
   /// Glyphs on `accent` where it fills a control (Send); without it, `accentText`.

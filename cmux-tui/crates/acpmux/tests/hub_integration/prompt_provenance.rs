@@ -3,7 +3,8 @@
 //! `user_message` carries it as `_meta.provenance`, a queued prompt keeps it until it runs, a
 //! steer records it, and an edit of the waiting prompt drops it. Only the unix socket may
 //! send it, except the app pane's reply in place: from a chat here, to the chat that sent it
-//! the message `replyTo` names.
+//! the message `replyTo` names. A prompt from inside another session that names none gets that
+//! session as its sender (`session_message`).
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -412,6 +413,47 @@ async fn a_steer_records_its_provenance() {
     assert_eq!(steered.pointer("/_meta/provenance"), Some(&p), "{steered}");
     let own = c.user_message(&session, "p-turn").await;
     assert!(own.pointer("/_meta/provenance").is_none(), "{own}");
+}
+
+/// A connection that proved it runs inside session `id` with the caller token acpmux put in that
+/// session's env (`hub/person.rs` (a)): the agent there running `acpmux send`.
+async fn open_in_session(hub: &Arc<Hub>, id: &str) -> Client {
+    let mut c = Client::open(hub);
+    let token = acpmux::hub::person::caller_token(id);
+    let caller = json!({"callerSession": {"sessionId": id, "token": token}});
+    c.call("initialize", json!({"protocolVersion": 1, "_meta": {"acpmux": caller}})).await;
+    c
+}
+
+#[tokio::test]
+async fn a_prompt_sent_from_inside_another_session_records_that_session_as_its_sender() {
+    let hub = hub();
+    let mut person = Client::open(&hub);
+    let sender = person.new_session(json!({"harness": "fake"})).await;
+    let receiver = person.new_session(json!({"harness": "fake"})).await;
+    let name = hub.resolve(&sender).unwrap().meta().name;
+    let mut lane = open_in_session(&hub, &sender).await;
+    lane.call("session/prompt", prompt(&receiver, "p-lane", "report from the lane", None)).await;
+    // A prompt to the sender's own session, and the person's prompt, are no one else's message.
+    lane.call("session/prompt", prompt(&sender, "p-self", "a note to itself", None)).await;
+    person
+        .call("session/prompt", prompt(&receiver, "p-person", "the person's own words", None))
+        .await;
+    // A provenance the sender gives is checked as before and is the one recorded.
+    let given = provenance(&receiver);
+    lane.call("session/prompt", prompt(&receiver, "p-given", "hi", Some(&given))).await;
+
+    let from_lane = person.user_message(&receiver, "p-lane").await;
+    assert_eq!(from_lane["text"], "report from the lane", "{from_lane}");
+    let stamped =
+        json!({"kind": "session_message", "from": sender, "fromName": name, "to": receiver});
+    assert_eq!(from_lane.pointer("/_meta/provenance"), Some(&stamped), "{from_lane}");
+    let own = person.user_message(&sender, "p-self").await;
+    assert!(own.pointer("/_meta/provenance").is_none(), "{own}");
+    let theirs = person.user_message(&receiver, "p-person").await;
+    assert!(theirs.pointer("/_meta/provenance").is_none(), "{theirs}");
+    let kept = person.user_message(&receiver, "p-given").await;
+    assert_eq!(kept.pointer("/_meta/provenance"), Some(&given), "{kept}");
 }
 
 // A steer names its pasted blocks (`_meta.cmux.pasted`) as a prompt does: UTF-16 ranges of its

@@ -744,3 +744,24 @@ async fn a_resume_acts_only_on_the_named_sessions_pairs() {
     assert_eq!(resumed["resumed"], 1, "{resumed}");
     c.wait_ran(&b, "p2").await;
 }
+
+/// `acpmux send` run inside a session (its caller token, no provenance of its own) is that
+/// session's message (`session_message`), so a lane repeating itself to another is paused too.
+#[tokio::test]
+async fn a_session_repeating_itself_with_acpmux_send_is_paused() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let (a, b) = (c.new_session().await, c.new_session().await);
+    let mut lane = Client::as_session(&hub, &a).await;
+    let send = |id: &str, text: &str| {
+        json!({"sessionId": &b, "prompt": [{"type": "text", "text": text}],
+               "_meta": {"acpmux": {"promptId": id}}})
+    };
+    let first = lane.reply("session/prompt", send("s1", "Please check the build, run 1")).await;
+    assert!(first.get("error").is_none(), "{first}");
+    let second = lane.reply("session/prompt", send("s2", "please  check the BUILD, run 2")).await;
+    assert!(second.get("error").is_none(), "{second}");
+    let third = lane.reply("session/prompt", send("s3", "Please check the build, run 3")).await;
+    assert!(held(&third), "the third near-identical message is held: {third}");
+    assert!(!c.ran(&b, "s3").await, "a held message does not run");
+}

@@ -4,6 +4,7 @@
 // commands. Real Chromium from Playwright.
 import path from "node:path";
 import type { Browser, Page } from "playwright";
+import { installPaintedFrames } from "./paintedFrames";
 import { warmViteServer } from "./warmDevServer";
 
 export const PAPERCUT_CHAT = "0190a000-0000-7000-8000-00000000fc01";
@@ -145,6 +146,7 @@ export async function papercutPane(
   await warmViteServer(vite, "/");
   const open = async (viewport = { width: 900, height: 700 }): Promise<Page> => {
     const page = await browser().newPage({ viewport });
+    await installPaintedFrames(page);
     const { port } = vite.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon.port}/`;
     await page.goto(
@@ -153,8 +155,29 @@ export async function papercutPane(
     await (
       options.ready ? page.locator(options.ready).first() : page.getByText(`Answer ${options.turns}:`, { exact: false })
     ).waitFor({ timeout: 120_000 });
-    // Rows place by their drawn heights a frame after they mount.
-    await page.waitForTimeout(500);
+    // Rows place by their drawn heights a frame after they mount: wait until no animation runs and
+    // the transcript has held its scroll position over three painted frames.
+    await page.evaluate(async () => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+      const finite = () =>
+        document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity);
+      for (let tries = 0; tries < 20; tries++) {
+        await Promise.all(finite().map((animation) => animation.finished.catch(() => undefined)));
+        await new Promise<void>((resolve) => {
+          let last = -1;
+          let still = 0;
+          window.cmuxAfterPaint(() => {
+            const top = scroller?.scrollTop ?? 0;
+            still = top === last ? still + 1 : 0;
+            last = top;
+            if (still < 2) return true;
+            resolve();
+            return false;
+          });
+        });
+        if (finite().every((animation) => animation.playState !== "running")) return;
+      }
+    });
     return page;
   };
   const close = async () => {

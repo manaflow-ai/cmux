@@ -94,7 +94,8 @@ await requireBrowserLane("popup-reduce-motion.test.ts", async () => {
         await page.getByRole("button", { name: "Open demo menu" }).click();
         const popup = page.locator(".ui-popup").first();
         await popup.waitFor();
-        await page.waitForTimeout(300); // the open settles
+        // The open settles: its fade-in has run to the end.
+        await popup.evaluate((element) => Promise.all(element.getAnimations({ subtree: true }).map((a) => a.finished)));
         await page.evaluate(() => {
           const faded: string[] = [];
           (window as unknown as { faded: string[] }).faded = faded;
@@ -147,7 +148,12 @@ await requireBrowserLane("popup-reduce-motion.test.ts", async () => {
         const forget = () => page.evaluate(() => ((window as unknown as { faded: string[] }).faded.length = 0));
         await page.getByRole("button", { name: "Open demo dialog" }).click();
         await page.locator(".ui-dialog").waitFor();
-        await page.waitForTimeout(300);
+        // Both fades start as the dialog opens; a transition that never runs leaves the wait to time out.
+        await page
+          .waitForFunction(() => new Set((window as unknown as { faded: string[] }).faded).size === 2, undefined, {
+            timeout: 5_000,
+          })
+          .catch(() => {});
         expect(await faded()).toEqual(["backdrop", "dialog"]);
         await forget();
         await page.keyboard.press("Escape");
