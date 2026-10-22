@@ -3,7 +3,7 @@
 // dim. A pointer over a dot shows its name over it; a pick shows the picked name for a moment, then
 // fades it. Native radios carry the names (the browser owns arrows and focus) and fill each dot's
 // hit target, larger than the dot. The row never changes size or place, so nothing shifts. The
-// composer's look dots (newtab/PageDots.tsx; Leo 2026-10-22) are the same dots
+// composer's look dots (newtab/PageDots.tsx, LookSwitch.tsx; Leo 2026-10-22) are the same dots
 // (DotSwitch) over other options.
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { ChoiceGroup } from "../../../ui/ChoiceGroup";
@@ -46,6 +46,7 @@ export function DotSwitch<Option extends string>({
   name,
   radioName,
   className = "nt-style",
+  nameAside = false,
   onPick,
   onCancel,
   onPointerPick = () => onCancel(),
@@ -59,6 +60,8 @@ export function DotSwitch<Option extends string>({
   /// The radios' group name; unset, one of the switch's own.
   radioName?: string;
   className?: string;
+  /// The name shows after the row, not over the dot (a chat's bottom area has no room over it).
+  nameAside?: boolean;
   onPick(option: Option): void;
   /// Escape or Return in the group.
   onCancel(): void;
@@ -98,8 +101,11 @@ export function DotSwitch<Option extends string>({
 
   useLayoutEffect(() => {
     const option = shown && group.current?.querySelector<HTMLElement>(`[data-style="${shown}"]`);
-    if (option && label.current) label.current.style.left = `${option.offsetLeft + option.offsetWidth / 2}px`;
-  }, [shown]);
+    if (option && label.current)
+      label.current.style.left = nameAside
+        ? `${group.current!.offsetWidth}px`
+        : `${option.offsetLeft + option.offsetWidth / 2}px`;
+  }, [shown, nameAside]);
 
   return (
     <ChoiceGroup label={groupLabel} className={className} onSubmit={onCancel} onCancel={onCancel}>

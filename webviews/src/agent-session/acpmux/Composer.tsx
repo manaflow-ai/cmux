@@ -63,7 +63,7 @@ import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { useComposerSettings } from "./composerSettings";
 import { useComposerLook, useQuietRow } from "./composerLook";
-import { ComposerLookSwitch } from "./ComposerLookSwitch";
+import { LookSwitch } from "./LookSwitch";
 import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
 import {
@@ -1431,7 +1431,6 @@ export function Composer({
       onBlur={blur}
       onContextMenuCapture={openChipMenu}
     >
-      <ComposerLookSwitch className="nt-style acpmux-look-dots" onCancel={() => field.current?.focus()} />
       {remote.note && (
         <p className="acpmux-composer-remote-note" role="note">
           {t(remote.note)}
@@ -1762,6 +1761,8 @@ export function Composer({
           ) : null
         }
         chromeItems={chrome.all}
+        // The look dots in the bottom area, on hover (LookSwitch.tsx); the Quick Composer has none.
+        {...(onOpenInWindow ? {} : { bottom: <LookSwitch onDone={() => field.current?.focus()} /> })}
       />
     </form>
   );
