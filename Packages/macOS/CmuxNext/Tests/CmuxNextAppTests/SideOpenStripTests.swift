@@ -154,9 +154,12 @@ import Testing
         let (services, pane) = try Self.pane()
         defer { pane.teardown() }
         let outbound = OutboundTab.begin(in: pane)
-        services.daemon.store.apply(snapshot: Self.tree(left: [Self.home, Self.link]))
         outbound.made(Self.link)
+        // The move answers before the source pane's tabs ever listed the tab: the hold waits for it.
         outbound.finish(moved: true)
+        #expect(Self.listed(pane) == [Self.home])
+        #expect(OutboundTab.count(in: pane) == 1, "a landed move let go before its tab was ever listed")
+        services.daemon.store.apply(snapshot: Self.tree(left: [Self.home, Self.link]))
         #expect(Self.listed(pane) == [Self.home], "the tab came back into the left strip before its pane dropped it")
         #expect(OutboundTab.count(in: pane) == 1)
         services.daemon.store.apply(snapshot: Self.tree(left: [Self.home], right: [Self.link]))
@@ -190,6 +193,9 @@ import Testing
         // The same id under another surface while the hold lasts.
         services.daemon.store.apply(snapshot: Self.tree(left: [Self.home, reused], ids: [reused: id]))
         #expect(Self.listed(pane) == [Self.home, reused], "a reused id was hidden as the outbound tab")
+        // Back under its first surface without leaving the pane: still the reused tab, never held again.
+        services.daemon.store.apply(snapshot: Self.tree(left: [Self.home, Self.link], ids: [Self.link: id]))
+        #expect(Self.listed(pane) == [Self.home, Self.link], "a reused id was held again under its first surface")
         // Dropped, then listed again under its first surface: still another tab.
         services.daemon.store.apply(snapshot: Self.tree(left: [Self.home]))
         _ = Self.listed(pane)

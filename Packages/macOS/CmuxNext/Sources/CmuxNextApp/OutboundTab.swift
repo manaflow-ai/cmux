@@ -21,7 +21,9 @@ final class OutboundTab {
     /// How long an open that has not named its tab holds back the pane's new tabs.
     static let answerLimit: Duration = .seconds(2)
     /// The most a landed move holds the tab while the source pane still lists it: the hold ends as soon
-    /// as the pane's tabs drop it (``prune(_:)``), so this only caps a store that never does.
+    /// as the pane's tabs drop it (``prune(_:)``), so this only caps a store that never does. The move's
+    /// answer and the pane's tabs come from one store, so a tab still listed here this long after the
+    /// move landed is in this pane, and shows rather than stay hidden for good.
     static let landLimit: Duration = .seconds(10)
     /// How long a named tab (or an open never named) stays out without its move finishing: past every
     /// wait of the opens (30 s), so a hung move never hides a tab for good.
@@ -79,18 +81,27 @@ final class OutboundTab {
         return answering && !known.contains(tab.id)
     }
 
-    /// Whether `tab` is the one first listed under its id (by its surface then), not an id reused.
+    /// Whether `tab` is the one first listed under its id (by its surface then), not an id reused: an id
+    /// listed under another surface is released for good.
     private func first(_ tab: TabModel) -> Bool {
-        if let surface = seen[tab.id] { return surface == tab.surface }
-        seen[tab.id] = tab.surface
-        return true
+        guard let surface = seen[tab.id] else {
+            seen[tab.id] = tab.surface
+            return true
+        }
+        if surface != tab.surface { released.insert(tab.id) }
+        return surface == tab.surface
     }
 
-    /// Releases held ids `tabs` no longer lists; true when a landed move holds nothing listed.
+    /// Releases held ids `tabs` no longer lists. True once a landed move is over here: the chat it
+    /// waited on has left, or its own tab was listed and every id it held has left since. A tab this pane
+    /// never listed yet keeps the hold (its first listing may still come) until ``landLimit``.
     private func prune(_ tabs: [TabModel]) -> Bool {
         let listed = Set(tabs.map(\.id))
         for id in seen.keys where !listed.contains(id) { released.insert(id) }
-        return landed && !tabs.contains { hides($0, among: tabs) }
+        guard landed else { return false }
+        if let holding { return !listed.contains(holding) }
+        let mine = seen.contains { $0.value == surface || names.contains($0.key) }
+        return mine && seen.keys.allSatisfy(released.contains)
     }
 
     /// The tab `pane` shows or waits to select: never the open's (made unselected).
