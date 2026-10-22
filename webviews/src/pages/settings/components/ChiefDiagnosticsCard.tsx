@@ -68,9 +68,6 @@ export function ChiefDiagnosticsCard() {
   return (
     <section className="group chief-diagnostics ui-glass" data-card="chief-diagnostics">
       <h3 className="group-title">{t("chief.diagnostics.title")}</h3>
-      <p className="row-help" data-intro="">
-        {t("chief.diagnostics.intro")}
-      </p>
       <div className="rows">
         <div className="row chief-diagnostic" data-diagnostic="chief">
           <div className="row-main">
@@ -138,13 +135,12 @@ function BackendRow({
           {failed?.detail && <div className="row-help">{failed.detail}</div>}
           {failed?.fix && <div className="row-help">{format("chief.backend.fix", failed.fix)}</div>}
         </div>
-        <span
+        <output
           className="row-help chief-diagnostic-status"
-          role="status"
           data-ok={check?.state === "checking" ? undefined : String(ok)}
         >
           {status}
-        </span>
+        </output>
         <button
           type="button"
           className="button"

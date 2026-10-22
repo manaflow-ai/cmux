@@ -86,6 +86,6 @@ test("each Check is named for its backend, and its answer is announced", async (
     .map((id) => document.getElementById(id)!.textContent)
     .join(" ");
   expect(name).toBe("Check Codex");
-  expect(codex.querySelector(".chief-diagnostic-status")!.getAttribute("role")).toBe("status");
+  expect(codex.querySelector(".chief-diagnostic-status")!.tagName).toBe("OUTPUT");
   page.unmount();
 });
