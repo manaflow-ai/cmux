@@ -8,7 +8,7 @@ import { installDom } from "./testDom";
 
 const restore = installDom();
 afterAll(() => restore());
-const { renderPage, settle } = await import("./testing");
+const { renderPage, settle, ops } = await import("./testing");
 
 test("General lists the spaces and Browser the browser profiles, with no open-in-window link", async () => {
   // The old section route (`#/settings/rooms`, `app settings rooms`) opens General.
@@ -120,5 +120,41 @@ test("Machines offers Add Server…, which opens the Add Server card through the
   await settle();
   const run = page.provider.log.filter((entry) => entry.op === "cmux.app.action.run").at(-1)!;
   expect(run.params).toEqual({ action: "server.addServer", args: {} });
+  page.unmount();
+});
+
+// A machine's color (appearance.machineColors): each Machines row shows the color its marks draw in
+// (the sidebar row, the tab badge), a well that picks another, and Automatic, which takes the pick
+// back. The map is keyed by the machine's color key (its name trimmed and lowercased, as the app
+// keys it), and a write keeps every other machine's pick.
+test("a machine row picks its color and Automatic takes the pick back", async () => {
+  const page = await renderPage({
+    path: "/settings/machines",
+    mock: { values: { "appearance.machineColors": { "big-red": "cyan" } } },
+  });
+  const row = () => page.container.querySelector<HTMLElement>('[data-card="machines"] [data-host-row="ssh:build"]')!;
+  const well = () => row().querySelector<HTMLInputElement>('input[type="color"]')!;
+  // Automatic: the well shows the color the app draws, and there is nothing to take back.
+  expect(well().value).toBe("#7f5fa8");
+  expect(row().querySelector("[data-machine-color-reset]")).toBeNull();
+  // The card draws the row: no plain map editor for it below.
+  expect(page.container.querySelector('.row[data-row-key="appearance.machineColors"]')).toBeNull();
+
+  await act(async () => {
+    well().value = "#12ab34";
+    well().dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await settle();
+  expect(ops(page.provider, "cmux.settings.set")).toEqual([
+    { key: "appearance.machineColors", value: { "big-red": "cyan", "build-mac": "#12ab34" } },
+  ]);
+
+  await act(async () => row().querySelector<HTMLButtonElement>("[data-machine-color-reset]")!.click());
+  await settle();
+  expect(ops(page.provider, "cmux.settings.set").at(-1)).toEqual({
+    key: "appearance.machineColors",
+    value: { "big-red": "cyan" },
+  });
+  expect(row().querySelector("[data-machine-color-reset]")).toBeNull();
   page.unmount();
 });
