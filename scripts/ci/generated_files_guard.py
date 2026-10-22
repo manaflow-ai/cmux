@@ -314,13 +314,21 @@ def check(repo: Path, base_rev: str, head_rev: str, exports) -> tuple[list[str],
     errors += rule_changes(base, head, base_tracked)
     errors += hand_edits(base, changed)
     missing = [p for p in uncovered_generated(head, repo) if p not in head.baseline]
-    # A file this change added is already reported above; the rest went generated without being added.
+    # A file this change added is already reported above. The rest are this change's when it touched the
+    # file or uncovered one the base covered (a dropped baseline line, a narrowed generator); otherwise the
+    # base tracks it uncovered already, which is the base's red and only a note here.
     added = {path for status, path in changed if status == "A"}
-    for path in missing:
-        if path not in added:
-            errors.append(f"{path}: tracked and generated ({why_generated(head, repo, path)}), but neither a "
-                          f"committed generator in {MANIFEST} nor {BASELINE} lists it.")
+    touched = {path for _, path in changed}
     notes = []
+    for path in missing:
+        if path in added:
+            continue
+        message = (f"{path}: tracked and generated ({why_generated(head, repo, path)}), but neither a "
+                   f"committed generator in {MANIFEST} nor {BASELINE} lists it.")
+        if path in touched or path in base.baseline or base.covered(path):
+            errors.append(message)
+        else:
+            notes.append(f"{message} The base has it uncovered too (the base's red, not this change's).")
     tracked_now = set(tracked_files(repo))
     stale = sorted(p for p in head.baseline if p not in tracked_now)
     if stale:
