@@ -85,7 +85,11 @@ test("a lost prompt goes again under its id only in its own chat, and each of tw
   expect(slot.take("s-2", "fix it", [])).toBeUndefined();
   slot.keep("s-1", "p-a", "fix it", []);
   slot.keep("s-1", "p-b", "and test it", []);
+  slot.keep("s-2", "p-d", "deploy it", []);
   expect(slot.take("s-1", "and test it", [])).toBe("p-b");
+  // The chat's other lost prompt still goes again under its own id, and another chat's stays.
+  expect(slot.take("s-1", "fix it", [])).toBe("p-a");
+  expect(slot.take("s-2", "deploy it", [])).toBe("p-d");
   // A prompt the host sent again after all is not kept.
   slot.keep("s-1", "p-c", "ship it", []);
   slot.forget("p-c");

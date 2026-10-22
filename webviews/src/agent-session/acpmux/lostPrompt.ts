@@ -105,12 +105,18 @@ export function lostPromptSlot() {
     forgetShown(shows: (sessionId: string, promptId: string) => boolean): void {
       for (const [key, id] of kept) if (shows(JSON.parse(key)[0], id)) this.forget(id);
     },
-    /// The lost prompt's id when this send is that prompt. Only the next send may take one: a
-    /// later "continue" is a new prompt, not the lost one.
+    /// The lost prompt's id when this send is that prompt. Each lost prompt goes again once, and
+    /// the chat's other lost prompts stay for theirs; a send in the chat that is none of them ends
+    /// them all, so a later "continue" is a new prompt, not the lost one. Other chats keep theirs.
     take(sessionId: string, text: string, attachmentIds: readonly string[]): string | undefined {
-      const taken = kept.get(keyOf(sessionId, text, attachmentIds));
-      kept.clear();
-      return taken;
+      const key = keyOf(sessionId, text, attachmentIds);
+      const taken = kept.get(key);
+      if (taken !== undefined) {
+        kept.delete(key);
+        return taken;
+      }
+      for (const other of kept.keys()) if (JSON.parse(other)[0] === sessionId) kept.delete(other);
+      return undefined;
     },
   };
 }
