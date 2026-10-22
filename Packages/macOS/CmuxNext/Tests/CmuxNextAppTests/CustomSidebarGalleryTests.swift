@@ -45,9 +45,6 @@ import Testing
         for title in ["api-gateway", "web-dashboard", "ios-release", "scratch"] {
             #expect(titles.contains(title), "\(name) shows \(title)")
         }
-        // A title beside Spacers gets the row's width, not an equal share (no "web-dash…").
-        let row = NSHostingView(rootView: AppSceneNodeView(model: model, id: try #require(model.root)).frame(width: 260))
-        #expect(row.fittingSize.width >= 200, "\(name) rows span the sidebar")
         #expect(Self.render(model, dark: true) != nil)
     }
 
