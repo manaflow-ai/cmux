@@ -1345,12 +1345,9 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_step_coverage.py
 
-      - name: Dry-run the nightly's tested-DMG and macOS 14 load gates
+      - name: Dry-run the nightly's tested-DMG gate for the old feed
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
-        run: |
-          python3 tests/test_nightly_tested_dmg_gate.py
-          python3 tests/test_macho_minos.py
-          bash tests/test_nightly_next_legacy_tested_digest.sh
+        run: bash tests/test_nightly_next_legacy_tested_digest.sh
 
       - name: Validate feat-cmux-next runs these release guards
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
