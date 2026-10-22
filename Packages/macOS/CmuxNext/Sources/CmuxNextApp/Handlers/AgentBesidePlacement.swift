@@ -158,7 +158,7 @@ enum AgentBesidePlacement {
 extension AgentBesidePlacement {
     /// A person's click (``ActionInvocation/besideTakesFocus``): the focus goes to `surface`'s tab once
     /// it lands (once it left pane `awayFrom`, a tab made there and moved), unless they acted after
-    /// `generation`; its close gives the focus back to pane `chat` (``LinkOpener/returnPane(closing:in:)``).
+    /// `generation`; the close that empties its pane gives the focus back to pane `chat` (``LinkOpener/returnPane(closing:in:emptiesPane:)``).
     @MainActor static func focus(_ surface: SurfaceID, returningTo chat: LayoutPaneID?, awayFrom pane: String? = nil,
                                  in content: WorkspaceContentController, generation: UInt64?, services: AppServices) {
         if let chat { services.linkOpener.returnFocus(of: surface, to: chat, in: content) }
