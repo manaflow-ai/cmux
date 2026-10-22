@@ -30,7 +30,8 @@ extension SidebarListViewComponents {
         switch row.key {
         case let .workspace(id):
             SidebarGroupKeys(list: self).setFocus(nil)
-            guard !model.isPlaceholder(id) else {
+            // A control-click is a right-click: its menu (`menu(for:)`) neither selects nor switches.
+            guard !model.isPlaceholder(id), !flags.contains(.control) else {
                 self.press = nil
                 return
             }
@@ -49,10 +50,13 @@ extension SidebarListViewComponents {
                 // on mouse-up if no drag happens.
                 press.deferredClick = id
             } else if SidebarTunables.multiView.value {
-                // Multi-view (Leo, item D): a press selects nothing; the release on this row navigates, a drag
-                // moves the row and leaves the shown workspace where it is.
+                // The multi-view prototype (#23437): a press selects nothing; the release on this row navigates.
                 press.clickOnRelease = id
             } else {
+                // A click switches at once, on the press (Lawrence 2026-10-21: a switch on the release read as lag).
+                // Leo 2026-10-21 ("MOUSE DOWN DRAGGING ... SHOULDN'T BE IMMEDIATELY FOCUSING"): if the press becomes
+                // a drag, `beginDrag` puts the shown workspace and the selection back.
+                press.switchedOnPress = (model.activeWorkspaceID, model.selection)
                 model.click(id)
             }
             // The fill moves now, on the two rows (a switch drew it already, `SidebarSameTurn`).
@@ -73,7 +77,7 @@ extension SidebarListViewComponents {
                 press.activatedOnPress = true
                 model.send(.activateItem(id, opensWorkspace: event.modifierFlags.contains(.option)))
             }
-        case .section, .emptySection, .folder, .block:
+        case .section, .emptySection, .emptyGroup, .folder, .block, .doneFold, .showMore, .status:
             break
         }
         self.press = press
@@ -141,6 +145,16 @@ extension SidebarListViewComponents {
             // A link opens its page, a tab shows, an app opens, as in the band.
             guard !press.activatedOnPress else { break }
             model.send(.activateItem(LayoutItemID(item), opensWorkspace: event.modifierFlags.contains(.option)))
+        case let .status(section):
+            model.toggleStatusSection(section)
+        case let .doneFold(fold):
+            if openDoneFolds.remove(fold) == nil { openDoneFolds.insert(fold) }
+        case let .showMore(list):
+            if openShowMore.remove(list) == nil { openShowMore.insert(list) }
+        case let .emptyGroup(group):
+            // The group's empty row makes a workspace in it, as the header's + does; the new row lays the list out.
+            onGroupEditorItem?(group, "workspaceGroup.newWorkspace")
+            return syncRowStates()
         case .emptySection, .folder, .block:
             break
         }

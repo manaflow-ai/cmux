@@ -31,6 +31,12 @@
       "de": "Tab is the standard German UI word for a tab (Apple and browsers use it), spelled as in English."
     }
   },
+  "store.feature.category.layout": {
+    "source": "Layout",
+    "identityLocales": {
+      "de": "Layout is the standard German UI term; cmux NEXT's German strings use it for the same window and pane layout features (menu.folder.layout, settings.diff.layout, layout.title)."
+    }
+  },
   "store.feature.category.chief": {
     "source": "Chief",
     "identityLocales": {

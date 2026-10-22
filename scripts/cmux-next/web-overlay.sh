@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Point a running Debug or NIGHTLY cmux-next at live web code, without an app build or relaunch
+# Point a running Debug, NIGHTLY or NEXT DEV cmux-next at live web code, without an app build or relaunch
 # (plans/cmux-next/web-live-reload.md). It edits web-dev.json next to cmux-next.json, which the
 # app watches (WebDevOverride.swift); every open page and agent pane reloads on a change.
 #
@@ -10,6 +10,10 @@
 #                        # a remote slot declared in web-dev.json ("slot": {"host": H, "port": N}):
 #                        # tunnel to it; when it does not answer, fall back to --local
 #   web-overlay.sh server URL | off   # any loopback server; off also stops what `server` started
+#   web-overlay.sh follow PR [--port N] [--fork]
+#                        # serve that pull request's head: fetch it with git into a checkout this
+#                        # script keeps, run the dev server there; again moves to the newest push.
+#                        # A head on no branch of the repo (a fork) runs only with --fork
 #   web-overlay.sh fleet [--ref SHA | --working-tree] [--tag T] [--workspace ID] [--submitter LOGIN]
 #                        # build the app on the fleet (cmux-ci; the Linux pool for cmux-next; tag
 #                        # web-overlay, workspace web-overlay:$USER) and install its web bundles
@@ -41,7 +45,8 @@ PANE="Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
 PAGES="Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"
 APP="Resources/markdown-viewer/webviews-app"
 
-usage() { sed -n 2,30p "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+# The comment block at the top of this file, up to `set`.
+usage() { awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit "${1:-0}"; }
 # What `server --local` and `server --slot` started (pid files, the dev server's log).
 state="${CMUX_WEB_SLOT_STATE_DIR:-$HOME/Library/Caches/cmux-next/web-slot}"
 DEFAULT_PORT=4200
@@ -126,10 +131,11 @@ install_from() {
   install_dirs "$1/$PANE" "$1/$PAGES" "$1/$APP" "$(git -C "$ROOT" rev-parse HEAD)"
 }
 
-# A built cmux .app: its module bundles and its viewer folder hold the same files.
+# A built cmux .app: its module bundles and its viewer folder hold the same files. $2 is the
+# commit it was built from when known (DEV builds carry no CMUXCommit).
 install_app() {
-  local res="$1/Contents/Resources" commit
-  commit="$(/usr/libexec/PlistBuddy -c "Print CMUXCommit" "$1/Contents/Info.plist" 2>/dev/null || echo unknown)"
+  local res="$1/Contents/Resources" commit="${2:-}"
+  [[ -n "$commit" ]] || commit="$(/usr/libexec/PlistBuddy -c "Print CMUXCommit" "$1/Contents/Info.plist" 2>/dev/null || echo unknown)"
   install_dirs "$res/CmuxNext_CmuxNextAgentPane.bundle/Contents/Resources/agent-pane" \
     "$res/CmuxNext_CmuxNextPages.bundle/Contents/Resources/pages" "$res/markdown-viewer/webviews-app" "$commit"
 }
@@ -152,6 +158,18 @@ live_pid() {
   return 0
 }
 
+# Whether the server listening on 127.0.0.1:$1 is the dev server this script started (a process of
+# its group), not another program's that answers the same paths.
+ours_listens() {
+  local leader pid
+  leader="$(live_pid dev-server)"
+  [[ -n "$leader" ]] || return 1
+  for pid in $(lsof -nP -t -iTCP:"$1" -sTCP:LISTEN 2>/dev/null); do
+    [[ "$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')" == "$leader" ]] && return 0
+  done
+  return 1
+}
+
 # Stops what `server` started (the local dev server, the slot tunnel).
 stop_started() {
   local name pid
@@ -163,7 +181,7 @@ stop_started() {
     fi
     rm -f "$state/$name.pid"
   done
-  rm -f "$state/dev-server.tree"
+  rm -f "$state/dev-server.tree" "$state/follow.pr"
 }
 
 # A field of web-dev.json's "slot" (host or port), empty when unset.
@@ -208,7 +226,10 @@ start_local() {
     ( cd "$tree/webviews" && CMUX_WEBVIEWS_DEV_PORT="$port" exec nohup bun run dev ) </dev/null >"$state/dev-server.log" 2>&1 &
     echo $! >"$state/dev-server.pid" )
   echo "$tree:$port" >"$state/dev-server.tree"
-  answers "$port" 60 || { echo "the dev server did not start; see $state/dev-server.log" >&2; exit 1; }
+  # A server that another process holds the port for answers too; only ours, still running, counts.
+  if ! answers "$port" 60 || ! ours_listens "$port"; then
+    echo "the dev server did not start; see $state/dev-server.log" >&2; exit 1
+  fi
   echo "dev server: http://127.0.0.1:$port/ from $tree (log: $state/dev-server.log)"
 }
 
@@ -271,6 +292,54 @@ case "$cmd" in
         ;;
     esac
     ;;
+  follow)
+    # A reviewer runs exactly the head under review: the PR's head ref comes from git (no GitHub
+    # API), into one checkout of this repo that the script keeps; the dev server serves it, so a
+    # later push is a checkout of the files that changed and Vite hot-reloads them.
+    pr="${1:-}"; [[ "$pr" =~ ^[0-9]+$ ]] || usage 1; shift
+    port="$(slot_field port)"; port="${port:-$DEFAULT_PORT}" fork=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --port) port="$2"; shift 2 ;;
+        --fork) fork=1; shift ;;
+        *) usage 1 ;;
+      esac
+    done
+    remote=origin tree="$state/follow" repo="$ROOT"
+    # Fetch into the repo that owns the checkout, which another clone may have made.
+    [[ -e "$tree/.git" ]] && repo="$tree"
+    git -C "$repo" fetch -q "$remote" "refs/pull/$pr/head"
+    head="$(git -C "$repo" rev-parse FETCH_HEAD)"
+    # The dev server runs the head's own code (its Vite config and dev-server plugins) on this Mac.
+    # A branch of the repo needs push access; a fork's head is anyone's code, so it needs --fork
+    # after reading it.
+    if [[ -z "$fork" ]] && ! git -C "$repo" ls-remote --heads "$remote" | awk '{print $1}' | grep -qx "$head"; then
+      echo "#$pr's head $head is not on a branch of $remote (a fork?): its dev server would run its code here." >&2
+      echo "Read its webviews/ changes, then run \`web-overlay.sh follow $pr --fork\`." >&2
+      exit 1
+    fi
+    if [[ -e "$tree/.git" ]]; then
+      # Only this script writes here; a stray edit would block the move, so the head always wins.
+      git -C "$tree" checkout -q --force --detach "$head"
+    else
+      mkdir -p "$state"
+      git -C "$ROOT" worktree prune --expire now  # a deleted checkout stays registered until pruned
+      git -C "$ROOT" worktree add -q --detach "$tree" "$head"
+    fi
+    # The files on disk are this head now, so status names it even if a step below fails.
+    echo "$pr $head" >"$state/follow.pr"
+    # Another program's server on the port would serve its own files, not this head.
+    if answers "$port" && ! ours_listens "$port"; then
+      echo "127.0.0.1:$port answers, but not from a server this script started; stop it or use --port N" >&2
+      exit 1
+    fi
+    # A push that changes the lockfile needs its packages (a no-op when they are current).
+    [[ -d "$tree/webviews/node_modules" ]] && (cd "$tree/webviews" && bun install --frozen-lockfile >/dev/null)
+    start_local "$tree" "$port"
+    echo "$pr $head" >"$state/follow.pr"  # start_local clears it when it replaces another server
+    point_at "$port"
+    echo "following #$pr at $head; run \`web-overlay.sh follow $pr\` again after a push"
+    ;;
   install)
     [[ -n "${1:-}" ]] || usage 1
     install_from "$(cd "$1" && pwd)"
@@ -301,13 +370,16 @@ case "$cmd" in
         *) usage 1 ;;
       esac
     done
-    args+=(--tag "$tag")
+    # The overlay takes only web bundles, so the build needs no cmux backend: a remote backend
+    # would also require this checkout's HEAD to be the built ref.
+    args+=(--tag "$tag" --backend-mode local)
     ci="${CMUX_CI:-$HOME/.local/bin/cmux-ci}"
     [[ -x "$ci" ]] || { echo "no cmux-ci client at $ci (CMUX_CI names another)" >&2; exit 1; }
     if [[ -n "$working_tree" ]]; then
       args+=(--working-tree)
     else
-      args+=(--ref "${ref:-$(git -C "$ROOT" rev-parse HEAD)}" --workspace "$workspace")
+      ref="${ref:-$(git -C "$ROOT" rev-parse HEAD)}"
+      args+=(--ref "$ref" --workspace "$workspace")
     fi
     out="$(mktemp -d "${TMPDIR:-/tmp}/web-overlay-fleet.XXXXXX")"
     trap 'rm -rf "$out"' EXIT
@@ -324,7 +396,7 @@ case "$cmd" in
     fi
     app="$(find "$out/bundle" -maxdepth 2 -name '*.app' -type d | head -1)"
     [[ -n "$app" ]] || { echo "job $job returned no app bundle" >&2; exit 1; }
-    install_app "$app"
+    install_app "$app" "$ref"
     ;;
   off)
     set_key enabled false
@@ -334,6 +406,7 @@ case "$cmd" in
       pid="$(live_pid "$name")"
       [[ -n "$pid" ]] && echo "running: $name (pid $pid)"
     done
+    [[ -n "$(live_pid dev-server)" && -f "$state/follow.pr" ]] && echo "following: #$(cat "$state/follow.pr")"
     echo "web-dev.json: $web_dev"
     cat "$web_dev" 2>/dev/null || echo "(none: the app serves its bundled pages)"
     echo "overlay: $overlay"

@@ -27,6 +27,8 @@ export const CATEGORY_CARDS = [
   "density",
   "importSuggestions",
   "channels",
+  "webUpdates",
+  "voiceInput",
 ] as const;
 
 /** A non-schema part a category draws (host lists, the theme studio, file actions). */

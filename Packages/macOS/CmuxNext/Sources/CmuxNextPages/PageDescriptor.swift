@@ -175,9 +175,10 @@ public extension PageDescriptor {
     /// The App Store page (react-pages.md 3). Install, update, Remove, `set` and allowing a scope pass
     /// the host's native sheet before they reach the owner (the app's ConfirmingPageProvider); Open
     /// runs the registry action `app.open` (a host verb, cx-hnmbt.13).
+    /// Its icons are the host's drawings (``AppsPageNativeOps/glyphPrefix``).
     static let apps = PageDescriptor(
         id: "cmux.apps", resource: "apps", namespaces: ["cmux.apps."], nativeOps: [PageNativeOp.actionRun],
-        actions: ["app.open"])
+        actions: ["app.open"], dynamicPrefixes: [AppsPageNativeOps.glyphPrefix])
 
     /// The CodeRouter page (coordinator decision: a separate page for the CodeRouter dashboard;
     /// Settings > Accounts links to it). Its ops are the CodeRouter app's `coderouter.*` family;
@@ -195,10 +196,16 @@ public extension PageDescriptor {
 
     /// The changelog page (R114): signed release notes, read only. Its only native op runs a
     /// highlight's "Try it", and only for an action in ``changelogTryItActions``: the signed
-    /// notes may name an action id, never a command or a URL.
+    /// notes may name an action id, never a command or a URL. Its one network source is the
+    /// nightly reels' folder (``changelogReelSource``), so the update's reel plays in the page.
     static let changelog = PageDescriptor(
         id: "cmux.changelog", resource: "changelog", namespaces: ["cmux.changelog."],
-        nativeOps: [PageNativeOp.actionRun], actions: changelogTryItActions)
+        nativeOps: [PageNativeOp.actionRun], actions: changelogTryItActions,
+        csp: PageCSP(media: [changelogReelSource]))
+
+    /// Where the nightly publishes each build's reel (`ReleaseMediaStore.reelBase`): the changelog
+    /// page's `media-src`, a folder, so nothing else on that host plays.
+    static let changelogReelSource = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/nightly-next/"
 
     /// The actions a changelog "Try it" may run (compiled in, reviewed with each addition).
     static let changelogTryItActions: Set<String> = [

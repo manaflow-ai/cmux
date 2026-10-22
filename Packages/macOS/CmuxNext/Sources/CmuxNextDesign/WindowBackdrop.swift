@@ -58,8 +58,9 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// The frost radius Ghostty.app uses for the glass styles where Liquid
     /// Glass is missing.
     public static let glassFallbackBlurRadius = 20
-    /// The most a workspace's own tint covers its art: at 1 the window turns opaque and hides it.
-    public static let maximumWorkspaceTint = 0.95
+    /// The most a tint over art covers it (window, workspace or pane Opacity): at 1 the window
+    /// turns opaque and hides the art, so Opacity reaches 100% everywhere (2026-10-21).
+    public static let maximumWorkspaceTint = 1.0
 
     /// The backdrop for one resolved opacity and blur.
     ///
@@ -112,7 +113,7 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
                 texture: BackdropTexture = .default, tintOpacity workspaceTint: Double? = nil) {
         let resolvedSelection = selection ?? art.map(BackdropSelection.art)
         let opacity = if resolvedSelection != nil, let workspaceTint {
-            min(workspaceTint, Self.maximumWorkspaceTint)
+            min(max(workspaceTint, 0), Self.maximumWorkspaceTint)
         } else if resolvedSelection == nil || tokens.backgroundOpacity < 1 {
             tokens.backgroundOpacity
         } else {
