@@ -2348,7 +2348,7 @@
     },
     "layout.linkPlacement" : {
       "default" : "split-right",
-      "description" : "Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from an agent chat, Home or another page opens as a tab in its own pane.",
+      "description" : "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one.",
       "enum" : [
         "split-right",
         "new-column",
@@ -3393,12 +3393,6 @@
       "default" : true,
       "description" : "On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only.",
       "title" : "Show All Chats on New Tab",
-      "type" : "boolean"
-    },
-    "sidebar.showLocalMachine" : {
-      "default" : false,
-      "description" : "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too.",
-      "title" : "Mark This Mac's Workspaces",
       "type" : "boolean"
     },
     "sidebar.showProfileControl" : {

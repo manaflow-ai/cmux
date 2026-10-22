@@ -2497,6 +2497,268 @@
         }
       }
     },
+    "settings.sessions.allowFullAccess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Full-Access Modes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح بأوضاع الوصول الكامل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoli načine punog pristupa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillad tilstande med fuld adgang"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vollzugriffsmodi erlauben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir modos de acceso total"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser les modes d’accès complet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti le modalità con accesso completo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルアクセスモードを許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតរបៀបចូលប្រើពេញលេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 접근 모드 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillat moduser med full tilgang"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zezwalaj na tryby pełnego dostępu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir modos de acesso total"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить режимы полного доступа"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตโหมดสิทธิ์เต็ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tam erişim modlarına izin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити режими повного доступу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép chế độ toàn quyền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许完全访问模式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許完整存取模式"
+          }
+        }
+      }
+    },
+    "settings.sessions.allowFullAccess.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off, cmux won't switch an agent into a mode that skips approvals."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند الإيقاف، لن يحوّل cmux أي وكيل إلى وضع يتخطى الموافقات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada je isključeno, cmux neće prebaciti agenta u način koji preskače odobrenja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når den er slået fra, skifter cmux ikke en agent til en tilstand, der springer godkendelser over."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgeschaltet versetzt cmux keinen Agenten in einen Modus, der Freigaben überspringt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si está desactivado, cmux no cambiará un agente a un modo que omite las aprobaciones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé, cmux ne fait passer aucun agent dans un mode qui ignore les approbations."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se disattivato, cmux non passa un agente a una modalità che salta le approvazioni."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフにすると、cmux は承認をスキップするモードにエージェントを切り替えません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលបិទ cmux នឹងមិនប្ដូរភ្នាក់ងារទៅរបៀបដែលរំលងការអនុម័តទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끄면 cmux는 승인을 건너뛰는 모드로 에이전트를 전환하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når den er av, bytter ikke cmux en agent til en modus som hopper over godkjenninger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po wyłączeniu cmux nie przełączy agenta w tryb pomijający zatwierdzenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado, o cmux não muda um agente para um modo que pula aprovações."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если выключено, cmux не переключит агента в режим без подтверждений."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อปิด cmux จะไม่สลับเอเจนต์ไปยังโหมดที่ข้ามการอนุมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalıyken cmux bir ajanı onayları atlayan bir moda geçirmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Якщо вимкнено, cmux не перемкне агента в режим без підтверджень."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi tắt, cmux sẽ không chuyển tác tử sang chế độ bỏ qua phê duyệt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭后，cmux 不会将智能体切换到跳过审批的模式。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉後，cmux 不會將代理切換到略過核准的模式。"
+          }
+        }
+      }
+    },
     "settings.sidebar.nowPlaying.enabled": {
       "extractionState": "manual",
       "localizations": {
@@ -79613,138 +79875,6 @@
         }
       }
     },
-    "settings.category.chief": {
-      "comment": "Settings sidebar: the category with every Chief setting (the Chiefs list, Chief Chat, Chief Pet). Chief is a product name, keep it untranslated.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief"
-          }
-        }
-      }
-    },
     "settings.category.privacy": {
       "extractionState": "manual",
       "localizations": {
@@ -80003,6 +80133,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "實驗性"
+          }
+        }
+      }
+    },
+    "settings.category.chiefPet": {
+      "comment": "Settings sidebar: category of the floating Chief pet (Chief is a product name; keep it untranslated).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief Pet"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "رفيق Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief ljubimac"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief-kæledyr"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief-Begleiter"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mascota Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compagnon Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mascotte Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief ペット"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សត្វចិញ្ចឹម Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 펫"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief-kjæledyr"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zwierzak Chief"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mascote Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Питомец Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สัตว์เลี้ยง Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief evcil hayvanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Улюбленець Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thú cưng Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 宠物"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 寵物"
           }
         }
       }
@@ -114261,6 +114523,268 @@
         }
       }
     },
+    "settings.agents.subsessions.answerQuestions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Let Sessions Answer Their Sub-sessions' Questions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح للجلسات بالإجابة عن أسئلة جلساتها الفرعية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoli sesijama da odgovaraju na pitanja svojih podsesija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lad sessioner besvare deres undersessioners spørgsmål"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungen dürfen Fragen ihrer Untersitzungen beantworten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir que las sesiones respondan las preguntas de sus subsesiones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser les sessions à répondre aux questions de leurs sous-sessions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti alle sessioni di rispondere alle domande delle loro sottosessioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションがサブセッションの質問に答えることを許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតឱ្យវគ្គឆ្លើយសំណួររបស់វគ្គរងរបស់វា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션이 하위 세션의 질문에 답하도록 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La økter svare på spørsmålene fra underøktene sine"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozwalaj sesjom odpowiadać na pytania swoich podsesji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir que sessões respondam às perguntas de suas subsessões"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить сеансам отвечать на вопросы своих вложенных сеансов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตให้เซสชันตอบคำถามของเซสชันย่อยของตน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturumların alt oturumlarının sorularını yanıtlamasına izin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити сеансам відповідати на запитання своїх вкладених сеансів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép phiên trả lời câu hỏi của các phiên con"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许会话回答其子会话的问题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許工作階段回答其子工作階段的問題"
+          }
+        }
+      }
+    },
+    "settings.agents.subsessions.answerQuestions.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عندما يطرح وكيل في جلسة فرعية سؤالًا، يمكن للجلسة التي بدأتها أن تجيب، وتُظهر الإجابة من قدّمها. طلبات الأذونات تنتظرك دائمًا. عند الإيقاف: أنت وحدك من يجيب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada agent u podsesiji postavi pitanje, sesija koja ju je pokrenula može odgovoriti, a odgovor pokazuje ko ga je dao. Zahtjevi za dozvole uvijek čekaju na vas. Isključeno: odgovarate samo vi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en agent i en undersession stiller et spørgsmål, kan den session, der startede den, svare, og svaret viser, hvem der gav det. Anmodninger om tilladelse venter altid på dig. Fra: kun du svarer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stellt ein Agent in einer Untersitzung eine Frage, kann die Sitzung antworten, die sie gestartet hat, und die Antwort zeigt, von wem sie kommt. Berechtigungsanfragen warten immer auf dich. Aus: Nur du antwortest."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando un agente de una subsesión hace una pregunta, la sesión que la inició puede responder, y la respuesta muestra quién la dio. Las solicitudes de permiso siempre te esperan. Desactivado: solo respondes tú."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand un agent d'une sous-session pose une question, la session qui l'a démarrée peut répondre, et la réponse indique qui l'a donnée. Les demandes d'autorisation vous attendent toujours. Désactivé : vous seul répondez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando un agente in una sottosessione fa una domanda, la sessione che l'ha avviata può rispondere e la risposta mostra chi l'ha data. Le richieste di autorizzazione aspettano sempre te. Disattivato: rispondi solo tu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブセッションのエージェントが質問すると、そのサブセッションを開始したセッションが答えられ、回答には誰が答えたかが表示されます。権限のリクエストは常にあなたを待ちます。オフ:あなただけが答えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេលភ្នាក់ងារក្នុងវគ្គរងសួរសំណួរ វគ្គដែលបានចាប់ផ្ដើមវាអាចឆ្លើយបាន ហើយចម្លើយបង្ហាញថាអ្នកណាជាអ្នកឆ្លើយ។ សំណើសិទ្ធិតែងតែរង់ចាំអ្នក។ បិទ៖ មានតែអ្នកទេដែលឆ្លើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 세션의 에이전트가 질문하면 그 하위 세션을 시작한 세션이 답할 수 있고, 답변에는 누가 답했는지 표시됩니다. 권한 요청은 항상 사용자를 기다립니다. 끄면 사용자만 답합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en agent i en underøkt stiller et spørsmål, kan økten som startet den svare, og svaret viser hvem som ga det. Tillatelsesforespørsler venter alltid på deg. Av: bare du svarer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy agent w podsesji zada pytanie, sesja, która ją uruchomiła, może odpowiedzieć, a odpowiedź pokazuje, kto jej udzielił. Prośby o uprawnienia zawsze czekają na ciebie. Wyłączone: odpowiadasz tylko ty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando um agente em uma subsessão faz uma pergunta, a sessão que a iniciou pode responder, e a resposta mostra quem a deu. Pedidos de permissão sempre esperam por você. Desativado: só você responde."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда агент во вложенном сеансе задаёт вопрос, ответить может сеанс, который его запустил, и в ответе видно, кто его дал. Запросы разрешений всегда ждут вас. Выкл.: отвечаете только вы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเอเจนต์ในเซสชันย่อยถามคำถาม เซสชันที่เริ่มเซสชันย่อยนั้นตอบได้ และคำตอบจะแสดงว่าใครเป็นผู้ตอบ คำขอสิทธิ์จะรอคุณเสมอ ปิด: มีเพียงคุณที่ตอบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir alt oturumdaki ajan soru sorduğunda, onu başlatan oturum yanıtlayabilir ve yanıt kimin verdiğini gösterir. İzin istekleri her zaman sizi bekler. Kapalı: yalnızca siz yanıtlarsınız."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли агент у вкладеному сеансі ставить запитання, відповісти може сеанс, що його запустив, і у відповіді видно, хто її дав. Запити дозволів завжди чекають на вас. Вимк.: відповідаєте лише ви."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi tác tử trong phiên con đặt câu hỏi, phiên đã bắt đầu nó có thể trả lời và câu trả lời cho biết ai đã trả lời. Yêu cầu quyền luôn chờ bạn. Tắt: chỉ bạn trả lời."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子会话中的智能体提问时，启动它的会话可以回答，回答会显示是谁给出的。权限请求始终等待你处理。关闭：只有你回答。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子工作階段中的代理程式提問時，啟動它的工作階段可以回答，回答會顯示是誰給的。權限要求一律等你處理。關閉：只有你回答。"
+          }
+        }
+      }
+    },
     "settings.agents.subsessions.enabled": {
       "extractionState": "manual",
       "localizations": {
@@ -115305,268 +115829,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "工作區列為「工作中」「等待輸入」「錯誤」和「完成」分別顯示圖示。關閉時，列在工作時顯示載入指示器，準備好供你查看時顯示藍點。"
-          }
-        }
-      }
-    },
-    "settings.sidebar.showLocalMachine": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mark This Mac's Workspaces"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تمييز مساحات عمل هذا الـ Mac"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Označi radne prostore ovog Maca"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Marker denne Macs arbejdsområder"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Arbeitsbereiche dieses Macs kennzeichnen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Marcar los espacios de trabajo de este Mac"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Signaler les espaces de travail de ce Mac"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Contrassegna gli spazi di lavoro di questo Mac"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この Mac のワークスペースにも印を付ける"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "សម្គាល់កន្លែងធ្វើការរបស់ Mac នេះ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 Mac의 작업 공간 표시"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Merk denne Macens arbeidsområder"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Oznaczaj obszary robocze tego Maca"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Marcar os espaços de trabalho deste Mac"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Отмечать рабочие пространства этого Mac"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ทำเครื่องหมายพื้นที่ทำงานของ Mac เครื่องนี้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu Mac'in çalışma alanlarını işaretle"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Позначати робочі простори цього Mac"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đánh dấu không gian làm việc của máy Mac này"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "标记这台 Mac 的工作区"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "標記這台 Mac 的工作區"
-          }
-        }
-      }
-    },
-    "settings.sidebar.showLocalMachine.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "عندما تكون مساحات العمل على أكثر من حاسوب، تعرض مساحة العمل الموجودة على حاسوب آخر أيقونة ذلك الحاسوب بلونه. عند التشغيل، تعرض مساحات عمل هذا الـ Mac أيقونته أيضًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kada su radni prostori na više računara, radni prostor na drugom računaru prikazuje ikonu tog računara u njegovoj boji. Kada je uključeno, i radni prostori ovog Maca prikazuju njegovu ikonu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Når arbejdsområder ligger på mere end én computer, viser et arbejdsområde på en anden computer den computers ikon i dens farve. Slået til viser denne Macs arbejdsområder også dens ikon."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Liegen Arbeitsbereiche auf mehr als einem Computer, zeigt ein Arbeitsbereich auf einem anderen Computer dessen Symbol in seiner Farbe. Eingeschaltet zeigen auch die Arbeitsbereiche dieses Macs sein Symbol."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Con espacios de trabajo en más de un ordenador, un espacio de trabajo en otro ordenador muestra el icono de ese ordenador en su color. Activado, los espacios de trabajo de este Mac también muestran su icono."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lorsque des espaces de travail se trouvent sur plusieurs ordinateurs, un espace de travail sur un autre ordinateur affiche l'icône de cet ordinateur dans sa couleur. Activé, les espaces de travail de ce Mac affichent aussi son icône."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Con spazi di lavoro su più di un computer, uno spazio di lavoro su un altro computer mostra l'icona di quel computer nel suo colore. Se attivo, anche gli spazi di lavoro di questo Mac mostrano la sua icona."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "複数のコンピュータにワークスペースがあるとき、別のコンピュータ上のワークスペースにはそのコンピュータのアイコンがその色で表示されます。オンにすると、この Mac のワークスペースにもアイコンが表示されます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "នៅពេលកន្លែងធ្វើការនៅលើកុំព្យូទ័រច្រើនជាងមួយ កន្លែងធ្វើការនៅលើកុំព្យូទ័រផ្សេងបង្ហាញរូបតំណាងរបស់កុំព្យូទ័រនោះតាមពណ៌របស់វា។ ពេលបើក កន្លែងធ្វើការរបស់ Mac នេះក៏បង្ហាញរូបតំណាងរបស់វាដែរ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "작업 공간이 여러 컴퓨터에 있을 때, 다른 컴퓨터의 작업 공간에는 해당 컴퓨터의 아이콘이 그 색으로 표시됩니다. 켜면 이 Mac의 작업 공간에도 아이콘이 표시됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Når arbeidsområder ligger på mer enn én datamaskin, viser et arbeidsområde på en annen datamaskin den maskinens ikon i dens farge. Når det er på, viser også denne Macens arbeidsområder ikonet."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gdy obszary robocze są na więcej niż jednym komputerze, obszar roboczy na innym komputerze pokazuje ikonę tego komputera w jego kolorze. Po włączeniu obszary robocze tego Maca też pokazują jego ikonę."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Com espaços de trabalho em mais de um computador, um espaço de trabalho em outro computador mostra o ícone desse computador na cor dele. Ativado, os espaços de trabalho deste Mac também mostram o ícone dele."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Когда рабочие пространства есть на нескольких компьютерах, рабочее пространство на другом компьютере показывает значок этого компьютера в его цвете. Если включено, рабочие пространства этого Mac тоже показывают его значок."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เมื่อมีพื้นที่ทำงานบนคอมพิวเตอร์มากกว่าหนึ่งเครื่อง พื้นที่ทำงานบนคอมพิวเตอร์เครื่องอื่นจะแสดงไอคอนของเครื่องนั้นด้วยสีของมัน เมื่อเปิด พื้นที่ทำงานของ Mac เครื่องนี้จะแสดงไอคอนของมันด้วย"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Çalışma alanları birden fazla bilgisayardayken, başka bir bilgisayardaki çalışma alanı o bilgisayarın simgesini kendi renginde gösterir. Açıkken bu Mac'in çalışma alanları da simgesini gösterir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Коли робочі простори є на кількох комп'ютерах, робочий простір на іншому комп'ютері показує значок цього комп'ютера в його кольорі. Якщо ввімкнено, робочі простори цього Mac теж показують його значок."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Khi không gian làm việc nằm trên nhiều máy tính, không gian làm việc trên máy khác hiển thị biểu tượng của máy đó theo màu của nó. Khi bật, không gian làm việc của máy Mac này cũng hiển thị biểu tượng của nó."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "当工作区分布在多台电脑上时，其他电脑上的工作区会以该电脑的颜色显示它的图标。打开后，这台 Mac 的工作区也会显示它的图标。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "當工作區分佈在多台電腦上時，其他電腦上的工作區會以該電腦的顏色顯示它的圖示。開啟後，這台 Mac 的工作區也會顯示它的圖示。"
           }
         }
       }
@@ -135642,127 +135904,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from an agent chat, Home or another page opens as a tab in its own pane."
+            "value": "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "المكان الذي يظهر فيه رابط أو ملف تنقر عليه مع Command في طرفية أو صفحة متصفح. يستخدم «تقسيم إلى اليمين» اللوحة الموجودة على اليمين، أو ينشئ واحدة. ما تفتحه من محادثة وكيل أو الصفحة الرئيسية أو صفحة أخرى يُفتح كعلامة تبويب في لوحته."
+            "value": "المكان الذي يظهر فيه رابط أو ملف تفتحه من طرفية أو محادثة وكيل أو الصفحة الرئيسية أو صفحة. يستخدم «تقسيم إلى اليمين» اللوحة الموجودة على اليمين، أو ينشئ واحدة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gdje se pojavljuje link ili fajl na koji kliknete uz Command u terminalu ili na stranici preglednika. Podijeli desno koristi okno s desne strane ili ga pravi. Ono što otvorite iz chata s agentom, Početne ili druge stranice otvara se kao kartica u istom oknu."
+            "value": "Gdje se pojavljuje link ili fajl koji otvorite iz terminala, chata s agentom, Početne ili stranice. Podijeli desno koristi okno s desne strane ili ga pravi."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvor et link eller en fil, du Kommando-klikker på i en terminal eller en browserside, vises. Opdel til højre bruger ruden til højre eller opretter en. Det, du åbner fra en agentchat, Hjem eller en anden side, åbner som en fane i samme rude."
+            "value": "Hvor et link eller en fil, du åbner fra en terminal, en agentchat, Hjem eller en side, vises. Opdel til højre bruger ruden til højre eller opretter en."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wo ein Link oder eine Datei erscheint, die du in einem Terminal oder auf einer Browserseite mit gedrückter Befehlstaste anklickst. „Rechts teilen“ nutzt den Bereich rechts oder legt einen an. Was du aus einem Agent-Chat, Home oder einer anderen Seite öffnest, öffnet sich als Tab im selben Bereich."
+            "value": "Wo ein Link oder eine Datei erscheint, die du aus einem Terminal, einem Agent-Chat, Home oder einer Seite öffnest. „Rechts teilen“ nutzt den Bereich rechts oder legt einen an."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dónde aparece un enlace o archivo en el que haces clic con Comando en una terminal o una página del navegador. Dividir a la derecha usa el panel de la derecha o crea uno. Lo que abres desde un chat de agente, Inicio u otra página se abre como pestaña en su propio panel."
+            "value": "Dónde aparece un enlace o archivo que abres desde una terminal, un chat de agente, Inicio o una página. Dividir a la derecha usa el panel de la derecha o crea uno."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Où s’affiche un lien ou un fichier sur lequel vous cliquez avec Commande dans un terminal ou une page du navigateur. Diviser à droite utilise le panneau de droite ou en crée un. Ce que vous ouvrez depuis une discussion d’agent, l’Accueil ou une autre page s’ouvre dans un onglet de son propre panneau."
+            "value": "Où s’affiche un lien ou un fichier que vous ouvrez depuis un terminal, une discussion d’agent, l’Accueil ou une page. Diviser à droite utilise le panneau de droite ou en crée un."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dove appare un link o un file su cui fai clic con Comando in un terminale o in una pagina del browser. Dividi a destra usa il riquadro a destra o ne crea uno. Ciò che apri da una chat con un agente, Home o un’altra pagina si apre come scheda nel suo riquadro."
+            "value": "Dove appare un link o un file che apri da un terminale, una chat con un agente, Home o una pagina. Dividi a destra usa il riquadro a destra o ne crea uno."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナルやブラウザのページで Command キーを押しながらクリックしたリンクやファイルを表示する場所です。「右に分割」は右側のペインを使い、なければ作成します。エージェントチャット、ホーム、その他のページから開いたものは、そのペインのタブとして開きます。"
+            "value": "ターミナル、エージェントチャット、ホーム、ページから開いたリンクやファイルを表示する場所です。「右に分割」は右側のペインを使い、なければ作成します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កន្លែងដែលតំណ ឬឯកសារដែលអ្នកចុចជាមួយ Command នៅក្នុងស្ថានីយ ឬទំព័រកម្មវិធីរុករក បង្ហាញ។ «បំបែកទៅស្តាំ» ប្រើផ្ទាំងនៅខាងស្តាំ ឬបង្កើតផ្ទាំងថ្មី។ អ្វីដែលអ្នកបើកពីការជជែកជាមួយភ្នាក់ងារ ទំព័រដើម ឬទំព័រផ្សេងទៀត បើកជាថេបនៅក្នុងផ្ទាំងរបស់វាផ្ទាល់។"
+            "value": "កន្លែងដែលតំណ ឬឯកសារដែលអ្នកបើកពីស្ថានីយ ការជជែកជាមួយភ្នាក់ងារ ទំព័រដើម ឬទំព័រមួយ បង្ហាញ។ «បំបែកទៅស្តាំ» ប្រើផ្ទាំងនៅខាងស្តាំ ឬបង្កើតផ្ទាំងថ្មី។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "터미널이나 브라우저 페이지에서 Command 클릭한 링크나 파일이 나타나는 위치입니다. 오른쪽으로 분할은 오른쪽 패널을 사용하거나 새로 만듭니다. 에이전트 채팅, 홈 또는 다른 페이지에서 연 항목은 해당 패널의 탭으로 열립니다."
+            "value": "터미널, 에이전트 채팅, 홈 또는 페이지에서 연 링크나 파일이 나타나는 위치입니다. 오른쪽으로 분할은 오른쪽 패널을 사용하거나 새로 만듭니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvor en lenke eller fil du Kommando-klikker på i en terminal eller en nettleserside, vises. Del til høyre bruker ruten til høyre, eller lager en. Det du åpner fra en agentchat, Hjem eller en annen side, åpnes som en fane i samme rute."
+            "value": "Hvor en lenke eller fil du åpner fra en terminal, en agentchat, Hjem eller en side, vises. Del til høyre bruker ruten til høyre, eller lager en."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gdzie pojawia się link lub plik kliknięty z klawiszem Command w terminalu lub na stronie przeglądarki. Podziel w prawo używa panelu po prawej albo go tworzy. To, co otworzysz z czatu z agentem, strony głównej lub innej strony, otwiera się jako karta w tym samym panelu."
+            "value": "Gdzie pojawia się link lub plik otwarty z terminala, czatu z agentem, strony głównej lub strony. Podziel w prawo używa panelu po prawej albo go tworzy."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Onde aparece um link ou arquivo em que você clica com Command em um terminal ou em uma página do navegador. Dividir à Direita usa o painel à direita ou cria um. O que você abre em um chat de agente, no Início ou em outra página abre como aba no próprio painel."
+            "value": "Onde aparece um link ou arquivo que você abre em um terminal, um chat de agente, a Início ou uma página. Dividir à Direita usa o painel à direita ou cria um."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Где появляется ссылка или файл, по которым вы щёлкнули с Command в терминале или на странице браузера. «Разделить вправо» использует панель справа или создаёт её. То, что вы открываете из чата с агентом, «Главной» или другой страницы, открывается вкладкой в той же панели."
+            "value": "Где появляется ссылка или файл, открытые из терминала, чата с агентом, «Главной» или страницы. «Разделить вправо» использует панель справа или создаёт её."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ตำแหน่งที่ลิงก์หรือไฟล์ที่คุณกด Command ค้างแล้วคลิกในเทอร์มินัลหรือหน้าเบราว์เซอร์จะแสดง แยกไปทางขวาจะใช้แผงทางขวา หรือสร้างขึ้นใหม่ สิ่งที่คุณเปิดจากแชทเอเจนต์ หน้าหลัก หรือหน้าอื่นจะเปิดเป็นแท็บในแผงเดียวกัน"
+            "value": "ตำแหน่งที่ลิงก์หรือไฟล์ที่คุณเปิดจากเทอร์มินัล แชทเอเจนต์ หน้าหลัก หรือหน้าเพจจะแสดง แยกไปทางขวาจะใช้แผงทางขวา หรือสร้างขึ้นใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bir terminalde veya tarayıcı sayfasında Command ile tıkladığınız bağlantı ya da dosyanın göründüğü yer. Sağa Böl, sağdaki bölmeyi kullanır veya bir tane oluşturur. Ajan sohbetinden, Ana Sayfa'dan veya başka bir sayfadan açtığınız şey kendi bölmesinde bir sekme olarak açılır."
+            "value": "Bir terminalden, ajan sohbetinden, Ana Sayfa'dan veya bir sayfadan açtığınız bağlantı ya da dosyanın göründüğü yer. Sağa Böl, sağdaki bölmeyi kullanır veya bir tane oluşturur."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Де з’являється посилання або файл, на які ви клацнули з Command у терміналі чи на сторінці браузера. «Розділити праворуч» використовує панель праворуч або створює її. Те, що ви відкриваєте з чату з агентом, «Головної» чи іншої сторінки, відкривається вкладкою в тій самій панелі."
+            "value": "Де з’являється посилання або файл, відкриті з термінала, чату з агентом, «Головної» чи сторінки. «Розділити праворуч» використовує панель праворуч або створює її."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nơi liên kết hoặc tệp bạn Command-click trong terminal hoặc trang trình duyệt xuất hiện. Chia sang phải dùng ngăn bên phải, hoặc tạo một ngăn mới. Những gì bạn mở từ cuộc trò chuyện với tác tử, Trang chủ hoặc trang khác sẽ mở thành thẻ trong chính ngăn đó."
+            "value": "Nơi liên kết hoặc tệp bạn mở từ terminal, cuộc trò chuyện với tác tử, Trang chủ hoặc một trang xuất hiện. Chia sang phải dùng ngăn bên phải, hoặc tạo một ngăn mới."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在终端或浏览器页面中按住 Command 点按的链接或文件显示的位置。“向右拆分”使用右侧的窗格，没有则新建一个。从智能体聊天、主页或其他页面打开的内容，会在其所在窗格中以标签页打开。"
+            "value": "从终端、智能体聊天、主页或页面打开的链接或文件显示的位置。“向右拆分”使用右侧的窗格，没有则新建一个。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在終端機或瀏覽器頁面中按住 Command 點按的連結或檔案顯示的位置。「向右分割」使用右側的窗格，沒有則新建一個。從代理程式聊天、首頁或其他頁面打開的內容，會在其所在窗格中以分頁打開。"
+            "value": "從終端機、代理程式聊天、首頁或頁面打開的連結或檔案顯示的位置。「向右分割」使用右側的窗格，沒有則新建一個。"
           }
         }
       }
@@ -150102,268 +150364,6 @@
         }
       }
     },
-    "settings.sessions.allowFullAccess": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Allow Full-Access Modes"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "السماح بأوضاع الوصول الكامل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dozvoli načine punog pristupa"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tillad tilstande med fuld adgang"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vollzugriffsmodi erlauben"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Permitir modos de acceso total"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Autoriser les modes d’accès complet"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Consenti le modalità con accesso completo"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フルアクセスモードを許可"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "អនុញ្ញាតរបៀបចូលប្រើពេញលេញ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "전체 접근 모드 허용"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tillat moduser med full tilgang"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zezwalaj na tryby pełnego dostępu"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Permitir modos de acesso total"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Разрешить режимы полного доступа"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "อนุญาตโหมดสิทธิ์เต็ม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tam erişim modlarına izin ver"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Дозволити режими повного доступу"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cho phép chế độ toàn quyền"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "允许完全访问模式"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "允許完整存取模式"
-          }
-        }
-      }
-    },
-    "settings.sessions.allowFullAccess.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Off, cmux won't switch an agent into a mode that skips approvals."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "عند الإيقاف، لن يحوّل cmux أي وكيل إلى وضع يتخطى الموافقات."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kada je isključeno, cmux neće prebaciti agenta u način koji preskače odobrenja."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Når den er slået fra, skifter cmux ikke en agent til en tilstand, der springer godkendelser over."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ausgeschaltet versetzt cmux keinen Agenten in einen Modus, der Freigaben überspringt."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Si está desactivado, cmux no cambiará un agente a un modo que omite las aprobaciones."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Désactivé, cmux ne fait passer aucun agent dans un mode qui ignore les approbations."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se disattivato, cmux non passa un agente a una modalità che salta le approvazioni."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "オフにすると、cmux は承認をスキップするモードにエージェントを切り替えません。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ពេលបិទ cmux នឹងមិនប្ដូរភ្នាក់ងារទៅរបៀបដែលរំលងការអនុម័តទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "끄면 cmux는 승인을 건너뛰는 모드로 에이전트를 전환하지 않습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Når den er av, bytter ikke cmux en agent til en modus som hopper over godkjenninger."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Po wyłączeniu cmux nie przełączy agenta w tryb pomijający zatwierdzenia."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Desativado, o cmux não muda um agente para um modo que pula aprovações."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Если выключено, cmux не переключит агента в режим без подтверждений."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เมื่อปิด cmux จะไม่สลับเอเจนต์ไปยังโหมดที่ข้ามการอนุมัติ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kapalıyken cmux bir ajanı onayları atlayan bir moda geçirmez."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Якщо вимкнено, cmux не перемкне агента в режим без підтверджень."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Khi tắt, cmux sẽ không chuyển tác tử sang chế độ bỏ qua phê duyệt."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "关闭后，cmux 不会将智能体切换到跳过审批的模式。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "關閉後，cmux 不會將代理切換到略過核准的模式。"
-          }
-        }
-      }
-    },
     "settings.sidebar.priorityView.enabled": {
       "extractionState": "manual",
       "localizations": {
@@ -151015,138 +151015,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "優先檢視開啟時側邊欄鈴鐺的狀態。關閉時側邊欄維持不變。"
-          }
-        }
-      }
-    },
-    "settings.category.chiefPet": {
-      "comment": "Settings sidebar: category of the floating Chief pet (Chief is a product name; keep it untranslated).",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief Pet"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "رفيق Chief"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief ljubimac"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief-kæledyr"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief-Begleiter"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mascota Chief"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Compagnon Chief"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mascotte Chief"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief ペット"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "សត្វចិញ្ចឹម Chief"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief 펫"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief-kjæledyr"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zwierzak Chief"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mascote Chief"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Питомец Chief"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "สัตว์เลี้ยง Chief"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief evcil hayvanı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Улюбленець Chief"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thú cưng Chief"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief 宠物"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief 寵物"
           }
         }
       }
@@ -153644,6 +153512,666 @@
         }
       }
     },
+    "settings.category.chief": {
+      "comment": "Settings sidebar: the category with every Chief setting (the Chiefs list, Chief Chat, Chief Pet). Chief is a product name, keep it untranslated.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.inspector": {
+      "comment": "Settings > Appearance > Agent Chat: the row choosing how the Inspector (the chat's right-hand panel) opens",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المراقِب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspektor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspektør"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspektor"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspector"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspector"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspecteur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ispettore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インスペクタ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ្នកត្រួតពិនិត្យ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인스펙터"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspektør"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspektor"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspetor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Инспектор"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัวตรวจสอบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denetçi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Інспектор"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trình kiểm tra"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检查器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檢閱器"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.inspector.help": {
+      "comment": "Settings > Appearance > Agent Chat > Inspector: help for the Push / Overlay choice",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مكان فتح المراقِب على يمين المحادثة. «دفع» يضيّق المحادثة بجانبه، و«تراكب» يظهر فوق المحادثة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdje se Inspektor otvara desno od razgovora. Guranje sužava razgovor pored njega; Preklapanje ga prikazuje preko razgovora."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor Inspektøren åbner til højre for chatten. Skub gør chatten smallere ved siden af den; Overlejring lægger den over chatten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wo sich der Inspektor rechts vom Chat öffnet. „Verschieben“ macht den Chat daneben schmaler, „Überlagern“ legt ihn über den Chat."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dónde se abre el Inspector a la derecha del chat. Desplazar estrecha el chat a su lado; Superponer lo coloca encima del chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Où l’Inspecteur s’ouvre à droite du chat. Pousser rétrécit le chat à côté ; Superposer le place par-dessus le chat."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dove si apre l’Ispettore a destra della chat. Sposta restringe la chat accanto; Sovrapponi lo mostra sopra la chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットの右側にインスペクタを開く方法。「押し出す」はチャットを狭めて横に並べ、「重ねる」はチャットの上に表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងដែលអ្នកត្រួតពិនិត្យបើកនៅខាងស្ដាំការជជែក។ រុញ ធ្វើឱ្យការជជែកតូចនៅក្បែរវា; ត្រួតលើ បង្ហាញវានៅលើការជជែក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 오른쪽에 인스펙터를 여는 방식입니다. 밀어내기는 채팅을 옆으로 좁히고, 겹치기는 채팅 위에 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor Inspektøren åpnes til høyre for chatten. Skyv gjør chatten smalere ved siden av; Overlegg legger den over chatten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdzie Inspektor otwiera się po prawej stronie czatu. Przesuń zwęża czat obok niego; Nakładka wyświetla go nad czatem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onde o Inspetor abre à direita do chat. Empurrar estreita o chat ao lado; Sobrepor o coloca sobre o chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как Инспектор открывается справа от чата. «Сдвиг» сужает чат рядом с ним, «Поверх» показывает его над чатом."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตำแหน่งที่ตัวตรวจสอบเปิดทางขวาของแชท ดัน จะทำให้แชทแคบลงข้างๆ ส่วน ซ้อนทับ จะแสดงทับแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denetçinin sohbetin sağında nasıl açılacağı. İt, sohbeti yanında daraltır; Üstte, sohbetin üzerinde açar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Як Інспектор відкривається праворуч від чату. «Зсув» звужує чат поруч, «Поверх» показує його над чатом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nơi Trình kiểm tra mở ở bên phải cuộc trò chuyện. Đẩy thu hẹp cuộc trò chuyện bên cạnh; Phủ lên hiển thị trên cuộc trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检查器在对话右侧的打开方式。“推开”会让对话变窄并排显示；“叠放”会盖在对话上方。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檢閱器在對話右側的開啟方式。「推開」會讓對話變窄並排顯示；「疊放」會蓋在對話上方。"
+          }
+        }
+      }
+    },
+    "settings.choice.agentChatInspectorPush": {
+      "comment": "Settings > Agent Chat > Inspector choice: the Inspector pushes the chat aside, which narrows",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "دفع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guranje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skub"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verschieben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Push"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desplazar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pousser"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sposta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "押し出す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រុញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "밀어내기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skyv"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przesuń"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empurrar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сдвиг"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İt"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зсув"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đẩy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推開"
+          }
+        }
+      }
+    },
+    "settings.choice.agentChatInspectorOverlay": {
+      "comment": "Settings > Agent Chat > Inspector choice: the Inspector lies over the chat",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تراكب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preklapanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overlejring"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Überlagern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overlay"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superponer"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superposer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sovrapponi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重ねる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រួតលើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "겹치기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overlegg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nakładka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sobrepor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поверх"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ้อนทับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Üstte"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поверх"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phủ lên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "叠放"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "疊放"
+          }
+        }
+      }
+    },
     "settings.sessions.promptSuggestions": {
       "extractionState": "manual",
       "localizations": {
@@ -154295,534 +154823,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "輸入使其已讀時閃爍"
-          }
-        }
-      }
-    },
-    "settings.agentPane.display.inspector": {
-      "comment": "Settings > Appearance > Agent Chat: the row choosing how the Inspector (the chat's right-hand panel) opens",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "المراقِب"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inspektor"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inspektør"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inspektor"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inspector"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inspector"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inspecteur"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ispettore"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "インスペクタ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "អ្នកត្រួតពិនិត្យ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "인스펙터"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inspektør"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inspektor"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inspetor"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Инспектор"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ตัวตรวจสอบ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denetçi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Інспектор"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Trình kiểm tra"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "检查器"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "檢閱器"
-          }
-        }
-      }
-    },
-    "settings.agentPane.display.inspector.help": {
-      "comment": "Settings > Appearance > Agent Chat > Inspector: help for the Push / Overlay choice",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مكان فتح المراقِب على يمين المحادثة. «دفع» يضيّق المحادثة بجانبه، و«تراكب» يظهر فوق المحادثة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gdje se Inspektor otvara desno od razgovora. Guranje sužava razgovor pored njega; Preklapanje ga prikazuje preko razgovora."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hvor Inspektøren åbner til højre for chatten. Skub gør chatten smallere ved siden af den; Overlejring lægger den over chatten."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wo sich der Inspektor rechts vom Chat öffnet. „Verschieben“ macht den Chat daneben schmaler, „Überlagern“ legt ihn über den Chat."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dónde se abre el Inspector a la derecha del chat. Desplazar estrecha el chat a su lado; Superponer lo coloca encima del chat."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Où l’Inspecteur s’ouvre à droite du chat. Pousser rétrécit le chat à côté ; Superposer le place par-dessus le chat."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dove si apre l’Ispettore a destra della chat. Sposta restringe la chat accanto; Sovrapponi lo mostra sopra la chat."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "チャットの右側にインスペクタを開く方法。「押し出す」はチャットを狭めて横に並べ、「重ねる」はチャットの上に表示します。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "កន្លែងដែលអ្នកត្រួតពិនិត្យបើកនៅខាងស្ដាំការជជែក។ រុញ ធ្វើឱ្យការជជែកតូចនៅក្បែរវា; ត្រួតលើ បង្ហាញវានៅលើការជជែក។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "채팅 오른쪽에 인스펙터를 여는 방식입니다. 밀어내기는 채팅을 옆으로 좁히고, 겹치기는 채팅 위에 표시합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hvor Inspektøren åpnes til høyre for chatten. Skyv gjør chatten smalere ved siden av; Overlegg legger den over chatten."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gdzie Inspektor otwiera się po prawej stronie czatu. Przesuń zwęża czat obok niego; Nakładka wyświetla go nad czatem."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Onde o Inspetor abre à direita do chat. Empurrar estreita o chat ao lado; Sobrepor o coloca sobre o chat."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Как Инспектор открывается справа от чата. «Сдвиг» сужает чат рядом с ним, «Поверх» показывает его над чатом."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ตำแหน่งที่ตัวตรวจสอบเปิดทางขวาของแชท ดัน จะทำให้แชทแคบลงข้างๆ ส่วน ซ้อนทับ จะแสดงทับแชท"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denetçinin sohbetin sağında nasıl açılacağı. İt, sohbeti yanında daraltır; Üstte, sohbetin üzerinde açar."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Як Інспектор відкривається праворуч від чату. «Зсув» звужує чат поруч, «Поверх» показує його над чатом."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nơi Trình kiểm tra mở ở bên phải cuộc trò chuyện. Đẩy thu hẹp cuộc trò chuyện bên cạnh; Phủ lên hiển thị trên cuộc trò chuyện."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "检查器在对话右侧的打开方式。“推开”会让对话变窄并排显示；“叠放”会盖在对话上方。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "檢閱器在對話右側的開啟方式。「推開」會讓對話變窄並排顯示；「疊放」會蓋在對話上方。"
-          }
-        }
-      }
-    },
-    "settings.choice.agentChatInspectorPush": {
-      "comment": "Settings > Agent Chat > Inspector choice: the Inspector pushes the chat aside, which narrows",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "دفع"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Guranje"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Skub"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verschieben"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Push"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Desplazar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pousser"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sposta"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "押し出す"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "រុញ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "밀어내기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Skyv"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przesuń"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Empurrar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сдвиг"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ดัน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "İt"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Зсув"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đẩy"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "推开"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "推開"
-          }
-        }
-      }
-    },
-    "settings.choice.agentChatInspectorOverlay": {
-      "comment": "Settings > Agent Chat > Inspector choice: the Inspector lies over the chat",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تراكب"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preklapanje"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Overlejring"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Überlagern"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Overlay"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Superponer"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Superposer"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sovrapponi"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重ねる"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ត្រួតលើ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "겹치기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Overlegg"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nakładka"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sobrepor"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Поверх"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ซ้อนทับ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Üstte"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Поверх"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Phủ lên"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "叠放"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "疊放"
           }
         }
       }
@@ -156534,264 +156534,264 @@
         }
       }
     },
-    "settings.agents.subsessions.answerQuestions": {
+    "settings.sidebar.showLocalMachine": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Let Sessions Answer Their Sub-sessions' Questions"
+            "value": "Mark This Mac's Workspaces"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "السماح للجلسات بالإجابة عن أسئلة جلساتها الفرعية"
+            "value": "تمييز مساحات عمل هذا الـ Mac"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dozvoli sesijama da odgovaraju na pitanja svojih podsesija"
+            "value": "Označi radne prostore ovog Maca"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lad sessioner besvare deres undersessioners spørgsmål"
+            "value": "Marker denne Macs arbejdsområder"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sitzungen dürfen Fragen ihrer Untersitzungen beantworten"
+            "value": "Arbeitsbereiche dieses Macs kennzeichnen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permitir que las sesiones respondan las preguntas de sus subsesiones"
+            "value": "Marcar los espacios de trabajo de este Mac"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Autoriser les sessions à répondre aux questions de leurs sous-sessions"
+            "value": "Signaler les espaces de travail de ce Mac"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Consenti alle sessioni di rispondere alle domande delle loro sottosessioni"
+            "value": "Contrassegna gli spazi di lavoro di questo Mac"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッションがサブセッションの質問に答えることを許可"
+            "value": "この Mac のワークスペースにも印を付ける"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "អនុញ្ញាតឱ្យវគ្គឆ្លើយសំណួររបស់វគ្គរងរបស់វា"
+            "value": "សម្គាល់កន្លែងធ្វើការរបស់ Mac នេះ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "세션이 하위 세션의 질문에 답하도록 허용"
+            "value": "이 Mac의 작업 공간 표시"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "La økter svare på spørsmålene fra underøktene sine"
+            "value": "Merk denne Macens arbeidsområder"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pozwalaj sesjom odpowiadać na pytania swoich podsesji"
+            "value": "Oznaczaj obszary robocze tego Maca"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permitir que sessões respondam às perguntas de suas subsessões"
+            "value": "Marcar os espaços de trabalho deste Mac"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Разрешить сеансам отвечать на вопросы своих вложенных сеансов"
+            "value": "Отмечать рабочие пространства этого Mac"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "อนุญาตให้เซสชันตอบคำถามของเซสชันย่อยของตน"
+            "value": "ทำเครื่องหมายพื้นที่ทำงานของ Mac เครื่องนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Oturumların alt oturumlarının sorularını yanıtlamasına izin ver"
+            "value": "Bu Mac'in çalışma alanlarını işaretle"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Дозволити сеансам відповідати на запитання своїх вкладених сеансів"
+            "value": "Позначати робочі простори цього Mac"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cho phép phiên trả lời câu hỏi của các phiên con"
+            "value": "Đánh dấu không gian làm việc của máy Mac này"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "允许会话回答其子会话的问题"
+            "value": "标记这台 Mac 的工作区"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "允許工作階段回答其子工作階段的問題"
+            "value": "標記這台 Mac 的工作區"
           }
         }
       }
     },
-    "settings.agents.subsessions.answerQuestions.help": {
+    "settings.sidebar.showLocalMachine.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer."
+            "value": "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عندما يطرح وكيل في جلسة فرعية سؤالًا، يمكن للجلسة التي بدأتها أن تجيب، وتُظهر الإجابة من قدّمها. طلبات الأذونات تنتظرك دائمًا. عند الإيقاف: أنت وحدك من يجيب."
+            "value": "عندما تكون مساحات العمل على أكثر من حاسوب، تعرض مساحة العمل الموجودة على حاسوب آخر أيقونة ذلك الحاسوب بلونه. عند التشغيل، تعرض مساحات عمل هذا الـ Mac أيقونته أيضًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kada agent u podsesiji postavi pitanje, sesija koja ju je pokrenula može odgovoriti, a odgovor pokazuje ko ga je dao. Zahtjevi za dozvole uvijek čekaju na vas. Isključeno: odgovarate samo vi."
+            "value": "Kada su radni prostori na više računara, radni prostor na drugom računaru prikazuje ikonu tog računara u njegovoj boji. Kada je uključeno, i radni prostori ovog Maca prikazuju njegovu ikonu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Når en agent i en undersession stiller et spørgsmål, kan den session, der startede den, svare, og svaret viser, hvem der gav det. Anmodninger om tilladelse venter altid på dig. Fra: kun du svarer."
+            "value": "Når arbejdsområder ligger på mere end én computer, viser et arbejdsområde på en anden computer den computers ikon i dens farve. Slået til viser denne Macs arbejdsområder også dens ikon."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stellt ein Agent in einer Untersitzung eine Frage, kann die Sitzung antworten, die sie gestartet hat, und die Antwort zeigt, von wem sie kommt. Berechtigungsanfragen warten immer auf dich. Aus: Nur du antwortest."
+            "value": "Liegen Arbeitsbereiche auf mehr als einem Computer, zeigt ein Arbeitsbereich auf einem anderen Computer dessen Symbol in seiner Farbe. Eingeschaltet zeigen auch die Arbeitsbereiche dieses Macs sein Symbol."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cuando un agente de una subsesión hace una pregunta, la sesión que la inició puede responder, y la respuesta muestra quién la dio. Las solicitudes de permiso siempre te esperan. Desactivado: solo respondes tú."
+            "value": "Con espacios de trabajo en más de un ordenador, un espacio de trabajo en otro ordenador muestra el icono de ese ordenador en su color. Activado, los espacios de trabajo de este Mac también muestran su icono."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quand un agent d'une sous-session pose une question, la session qui l'a démarrée peut répondre, et la réponse indique qui l'a donnée. Les demandes d'autorisation vous attendent toujours. Désactivé : vous seul répondez."
+            "value": "Lorsque des espaces de travail se trouvent sur plusieurs ordinateurs, un espace de travail sur un autre ordinateur affiche l'icône de cet ordinateur dans sa couleur. Activé, les espaces de travail de ce Mac affichent aussi son icône."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quando un agente in una sottosessione fa una domanda, la sessione che l'ha avviata può rispondere e la risposta mostra chi l'ha data. Le richieste di autorizzazione aspettano sempre te. Disattivato: rispondi solo tu."
+            "value": "Con spazi di lavoro su più di un computer, uno spazio di lavoro su un altro computer mostra l'icona di quel computer nel suo colore. Se attivo, anche gli spazi di lavoro di questo Mac mostrano la sua icona."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サブセッションのエージェントが質問すると、そのサブセッションを開始したセッションが答えられ、回答には誰が答えたかが表示されます。権限のリクエストは常にあなたを待ちます。オフ:あなただけが答えます。"
+            "value": "複数のコンピュータにワークスペースがあるとき、別のコンピュータ上のワークスペースにはそのコンピュータのアイコンがその色で表示されます。オンにすると、この Mac のワークスペースにもアイコンが表示されます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "នៅពេលភ្នាក់ងារក្នុងវគ្គរងសួរសំណួរ វគ្គដែលបានចាប់ផ្ដើមវាអាចឆ្លើយបាន ហើយចម្លើយបង្ហាញថាអ្នកណាជាអ្នកឆ្លើយ។ សំណើសិទ្ធិតែងតែរង់ចាំអ្នក។ បិទ៖ មានតែអ្នកទេដែលឆ្លើយ។"
+            "value": "នៅពេលកន្លែងធ្វើការនៅលើកុំព្យូទ័រច្រើនជាងមួយ កន្លែងធ្វើការនៅលើកុំព្យូទ័រផ្សេងបង្ហាញរូបតំណាងរបស់កុំព្យូទ័រនោះតាមពណ៌របស់វា។ ពេលបើក កន្លែងធ្វើការរបស់ Mac នេះក៏បង្ហាញរូបតំណាងរបស់វាដែរ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "하위 세션의 에이전트가 질문하면 그 하위 세션을 시작한 세션이 답할 수 있고, 답변에는 누가 답했는지 표시됩니다. 권한 요청은 항상 사용자를 기다립니다. 끄면 사용자만 답합니다."
+            "value": "작업 공간이 여러 컴퓨터에 있을 때, 다른 컴퓨터의 작업 공간에는 해당 컴퓨터의 아이콘이 그 색으로 표시됩니다. 켜면 이 Mac의 작업 공간에도 아이콘이 표시됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Når en agent i en underøkt stiller et spørsmål, kan økten som startet den svare, og svaret viser hvem som ga det. Tillatelsesforespørsler venter alltid på deg. Av: bare du svarer."
+            "value": "Når arbeidsområder ligger på mer enn én datamaskin, viser et arbeidsområde på en annen datamaskin den maskinens ikon i dens farge. Når det er på, viser også denne Macens arbeidsområder ikonet."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gdy agent w podsesji zada pytanie, sesja, która ją uruchomiła, może odpowiedzieć, a odpowiedź pokazuje, kto jej udzielił. Prośby o uprawnienia zawsze czekają na ciebie. Wyłączone: odpowiadasz tylko ty."
+            "value": "Gdy obszary robocze są na więcej niż jednym komputerze, obszar roboczy na innym komputerze pokazuje ikonę tego komputera w jego kolorze. Po włączeniu obszary robocze tego Maca też pokazują jego ikonę."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quando um agente em uma subsessão faz uma pergunta, a sessão que a iniciou pode responder, e a resposta mostra quem a deu. Pedidos de permissão sempre esperam por você. Desativado: só você responde."
+            "value": "Com espaços de trabalho em mais de um computador, um espaço de trabalho em outro computador mostra o ícone desse computador na cor dele. Ativado, os espaços de trabalho deste Mac também mostram o ícone dele."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Когда агент во вложенном сеансе задаёт вопрос, ответить может сеанс, который его запустил, и в ответе видно, кто его дал. Запросы разрешений всегда ждут вас. Выкл.: отвечаете только вы."
+            "value": "Когда рабочие пространства есть на нескольких компьютерах, рабочее пространство на другом компьютере показывает значок этого компьютера в его цвете. Если включено, рабочие пространства этого Mac тоже показывают его значок."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เมื่อเอเจนต์ในเซสชันย่อยถามคำถาม เซสชันที่เริ่มเซสชันย่อยนั้นตอบได้ และคำตอบจะแสดงว่าใครเป็นผู้ตอบ คำขอสิทธิ์จะรอคุณเสมอ ปิด: มีเพียงคุณที่ตอบ"
+            "value": "เมื่อมีพื้นที่ทำงานบนคอมพิวเตอร์มากกว่าหนึ่งเครื่อง พื้นที่ทำงานบนคอมพิวเตอร์เครื่องอื่นจะแสดงไอคอนของเครื่องนั้นด้วยสีของมัน เมื่อเปิด พื้นที่ทำงานของ Mac เครื่องนี้จะแสดงไอคอนของมันด้วย"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bir alt oturumdaki ajan soru sorduğunda, onu başlatan oturum yanıtlayabilir ve yanıt kimin verdiğini gösterir. İzin istekleri her zaman sizi bekler. Kapalı: yalnızca siz yanıtlarsınız."
+            "value": "Çalışma alanları birden fazla bilgisayardayken, başka bir bilgisayardaki çalışma alanı o bilgisayarın simgesini kendi renginde gösterir. Açıkken bu Mac'in çalışma alanları da simgesini gösterir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Коли агент у вкладеному сеансі ставить запитання, відповісти може сеанс, що його запустив, і у відповіді видно, хто її дав. Запити дозволів завжди чекають на вас. Вимк.: відповідаєте лише ви."
+            "value": "Коли робочі простори є на кількох комп'ютерах, робочий простір на іншому комп'ютері показує значок цього комп'ютера в його кольорі. Якщо ввімкнено, робочі простори цього Mac теж показують його значок."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Khi tác tử trong phiên con đặt câu hỏi, phiên đã bắt đầu nó có thể trả lời và câu trả lời cho biết ai đã trả lời. Yêu cầu quyền luôn chờ bạn. Tắt: chỉ bạn trả lời."
+            "value": "Khi không gian làm việc nằm trên nhiều máy tính, không gian làm việc trên máy khác hiển thị biểu tượng của máy đó theo màu của nó. Khi bật, không gian làm việc của máy Mac này cũng hiển thị biểu tượng của nó."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "子会话中的智能体提问时，启动它的会话可以回答，回答会显示是谁给出的。权限请求始终等待你处理。关闭：只有你回答。"
+            "value": "当工作区分布在多台电脑上时，其他电脑上的工作区会以该电脑的颜色显示它的图标。打开后，这台 Mac 的工作区也会显示它的图标。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "子工作階段中的代理程式提問時，啟動它的工作階段可以回答，回答會顯示是誰給的。權限要求一律等你處理。關閉：只有你回答。"
+            "value": "當工作區分佈在多台電腦上時，其他電腦上的工作區會以該電腦的顏色顯示它的圖示。開啟後，這台 Mac 的工作區也會顯示它的圖示。"
           }
         }
       }
