@@ -101,8 +101,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     let tuiSelection = TerminalSelectionController()
     /// A vertical drag in a full-screen app scrolls the app (T-SCROLL-12).
     private let tuiScroll = TerminalTUIScrollController()
-    /// A tap in a full-screen app focuses the terminal (not one that stops a fling).
-    private lazy var tuiTap = UITapGestureRecognizer(target: self, action: #selector(terminalTapped))
+    /// A tap in a full-screen app: a click when the app asked for the mouse,
+    /// and it focuses the terminal (not a tap that stops a fling).
+    private lazy var tuiTap = UITapGestureRecognizer(target: self, action: #selector(tuiTapped(_:)))
     private var documentRows: Int { document?.rowCount ?? 0 }
     /// First absolute row of the document (content y 0).
     private var originRow: Int { document?.originRow ?? 0 }
@@ -2116,6 +2117,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     // MARK: Keyboard
+
+    @objc private func tuiTapped(_ tap: UITapGestureRecognizer) {
+        // A tap that ends a selection only ends it, as in the shell.
+        if selection.selection == nil, tuiSelection.selection == nil, model.isTUI, surface.superview === tuiHost {
+            surface.click(at: tap.location(in: surface))
+        }
+        terminalTapped()
+    }
 
     @objc private func terminalTapped() {
         // A tap outside the menu ends a selection, like iOS text.

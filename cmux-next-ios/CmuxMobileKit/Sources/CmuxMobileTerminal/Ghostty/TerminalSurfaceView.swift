@@ -609,8 +609,8 @@ final class TerminalSurfaceView: UIView {
     /// The composer's draft as one paste (bracketed when the program asked
     /// for it), then Return as its own keystroke a moment later
     /// (`ComposerSubmit`, Codex QA F1).
-    func sendText(_ text: String, pressReturn: Bool) {
-        perform(ComposerSubmit(text: text, pressReturn: pressReturn))
+    func sendText(_ text: String, pressReturn: Bool, fullScreenApp: Bool = false) {
+        perform(ComposerSubmit(text: text, pressReturn: pressReturn, fullScreenApp: fullScreenApp))
     }
 
     func perform(_ submit: ComposerSubmit) {
@@ -618,6 +618,8 @@ final class TerminalSurfaceView: UIView {
             switch step {
             case .paste(let draft):
                 perform([.paste(draft)])
+            case .type(let draft):
+                perform([.text(draft)])
             case .enter where submit.delaysEnter:
                 Task { @MainActor [weak self] in
                     try? await ContinuousClock().sleep(for: ComposerSubmit.enterDelay)
