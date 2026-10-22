@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
@@ -44,6 +45,14 @@ import WebKit
 /// far. Check those (or `debug.toast`) instead of looking for the toast in
 /// the PNG.
 enum DebugWindowSnapshot {
+    /// The control route, `debug.window_snapshot`.
+    static func controlMethod(services: AppServices) -> ControlMethod {
+        .async("debug.window_snapshot") { [weak services] call in
+            guard let services = await MainActor.run(body: { services }) else { return .null }
+            return await captureAsync(call.params, services: services)
+        }
+    }
+
     @MainActor
     static func capture(_ params: [String: JSONValue], services: AppServices) async -> JSONValue {
         guard let window = window(params, services: services) else { return .object(["error": .string("no such window")]) }
