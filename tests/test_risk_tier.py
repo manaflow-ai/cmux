@@ -1,5 +1,7 @@
 """risk_tier.py grades a pull request low, normal or high, and holds only high (for a person) and takebacks."""
+import contextlib
 import importlib.util
+import io
 import os
 import subprocess
 import sys
@@ -349,119 +351,159 @@ RS = "cmux-tui/crates/cmux-tui-core/src/history.rs"
 CLEANUP = "        std::fs::remove_dir_all(&dir).unwrap();"
 
 
-class RustTestModuleTests(unittest.TestCase):
-    """A delete inside a Rust `#[cfg(test)] mod` is test code, like a file under tests/."""
+def hunk(old, new, lines):
+    """A unified diff hunk at these start lines; each line is (" ", "+" or "-") + text."""
+    return f"@@ -{old},{sum(l[0] != '+' for l in lines)} +{new},{sum(l[0] != '-' for l in lines)} @@\n" + "\n".join(lines)
 
-    def tier(self, patch, sources=None, path=RS):
-        return risk.classify([path], {path: patch}, sources).tier
+
+def context(text):
+    return [" " + line for line in text.split("\n")]
+
+
+class RustTestModuleTests(unittest.TestCase):
+    """A delete inside a Rust `#[cfg(test)] mod` is test code, like a file under tests/. Where that
+    can't be known, an added delete counts and a removed one doesn't pay for another."""
+
+    def tier(self, patch, sources=None, base_sources=None, path=RS):
+        return risk.classify([path], {path: patch}, sources, base_sources).tier
 
     def around(self, opening):
-        """A hunk adding the cleanup line below these context lines, then a closing brace."""
-        return "@@ -1,2 +1,3 @@\n" + "\n".join(" " + line for line in opening.split("\n")) + f"\n+{CLEANUP}\n }}"
+        """A hunk from line 1 adding the cleanup line below these lines, then a closing brace."""
+        return hunk(1, 1, context(opening) + ["+" + CLEANUP, " }"])
 
     def test_a_delete_in_an_inline_test_module_is_not_new(self):
-        patch = ("@@ -40,6 +40,12 @@ fn load() {\n }\n \n #[cfg(test)]\n mod tests {\n     use super::*;\n"
-                 "+\n+    #[test]\n+    fn cleans_up() {\n+        let dir = tempdir();\n+" + CLEANUP + "\n+    }\n }")
-        self.assertEqual(self.tier(patch), "normal")
-        # Attributes and doc comments between, a pub(crate) module, the attribute on the module's line.
+        self.assertEqual(self.tier(hunk(1, 1, context("fn load() {}\n\n#[cfg(test)]\nmod tests {\n    use super::*;")
+                                         + ["+", "+    #[test]", "+    fn cleans_up() {", "+        let dir = tempdir();",
+                                            "+" + CLEANUP, "+    }", " }"])), "normal")
         for opening in ("#[cfg(test)]\n/// Tests.\n\n#[allow(dead_code)]\npub(crate) mod tests {",
                         "#[cfg(test)] mod tests {", "#[cfg( test )]\n#[path = \"x\"]\nmod tests {",
-                        "#[cfg(all(test, unix))]\nmod tests {", "#[cfg(all(target_os = \"macos\", not(ci), test))]\nmod tests {"):
+                        "#[cfg(all(test, unix))]\nmod tests {", "#[cfg(all(target_os = \"macos\", not(windows), test))]\nmod tests {"):
             with self.subTest(opening=opening):
                 self.assertEqual(self.tier(self.around(opening)), "normal")
+        # A new file whose test module holds the cleanup.
+        self.assertEqual(self.tier("@@ -0,0 +1,4 @@\n+#[cfg(test)]\n+mod tests {\n+" + CLEANUP + "\n+}"), "normal")
 
     def test_the_same_delete_outside_the_test_module_is_new(self):
         # After the module closes, in the same hunk.
-        patch = ("@@ -1,5 +1,9 @@\n #[cfg(test)]\n mod tests {\n     fn helper() { let s = \"}\"; }\n }\n"
-                 "+\n+fn prune(dir: &Path) {\n+" + CLEANUP + "\n+}\n fn other() {}")
+        patch = hunk(1, 1, context("#[cfg(test)]\nmod tests {\n    fn helper() { let s = \"}\"; }\n}")
+                     + ["+", "+fn prune(dir: &Path) {", "+" + CLEANUP, "+}", " fn other() {}"])
         self.assertEqual(self.tier(patch), "high")
         # Another hunk of the file, with no module above it.
-        two = ("@@ -1,3 +1,4 @@\n #[cfg(test)]\n mod tests {\n+" + CLEANUP + "\n }\n"
-               "@@ -80,2 +81,3 @@ fn prune() {\n     let x = 1;\n+" + CLEANUP + "\n }")
-        self.assertEqual(self.tier(two), "high")
-        # `#[cfg(test)]` on something else, or a plain `mod tests`, is product code.
+        self.assertEqual(self.tier(self.around("#[cfg(test)]\nmod tests {") + "\n"
+                                   + hunk(80, 81, context("fn prune() {\n    let x = 1;") + ["+" + CLEANUP, " }"])), "high")
+        # `#[cfg(test)]` on something else, a plain `mod tests`, or a cfg that isn't test-only, is product code.
         for opening in ("#[cfg(test)]\nfn helper() {}\nmod store {", "mod tests {", "#[cfg(not(test))]\nmod tests {",
                         "#[cfg(any(test, unix))]\nmod tests {", "#[cfg(all(unix, feature = \"test\"))]\nmod tests {",
-                        "#[cfg_attr(\n    test,\n    allow(dead_code))]\nmod tests {"):
+                        "#[cfg(all(unix /*,test,*/))]\nmod tests {", "#[cfg(all(unix, feature = \"a,test,b\"))]\nmod tests {",
+                        "#[cfg(all(any(test, unix), test2))]\nmod tests {",
+                        "#[cfg_attr(\n    test,\n    allow(dead_code))]\nmod tests {", "#[cfg(test)]\nmod tests\n{"):
             with self.subTest(opening=opening):
                 self.assertEqual(self.tier(self.around(opening)), "high")
 
     def test_braces_in_strings_chars_and_comments_do_not_close_the_module(self):
-        body = ['#[cfg(test)]', 'mod tests {', "    fn a<'a>(x: &'a str) -> char { '}' }",
-                '    // } a comment', '    /* } /* nested } */ } */', '    const S: &str = "}\\"}";',
+        body = ["#[cfg(test)]", "mod tests {", "    fn a<'a>(x: &'a str) -> char { '}' }",
+                "    // } a comment", "    /* } /* nested } */ } */", '    const S: &str = "}\\"}";',
                 '    const R: &str = r#"} "} "#;', '    const M: &str = "line one }', '    } line two";',
-                '    fn b() { if true { match 1 { _ => {} } } }']
-        patch = "@@ -1,10 +1,11 @@\n" + "\n".join(" " + line for line in body) + "\n+" + CLEANUP + "\n }"
+                "    fn b() { if true { match 1 { _ => {} } } }"]
+        patch = hunk(1, 1, context("\n".join(body)) + ["+" + CLEANUP, " }"])
         self.assertEqual(self.tier(patch), "normal")
-        # Code after the brace that closes the module is product code.
-        self.assertEqual(self.tier("@@ -1,2 +1,2 @@\n #[cfg(test)]\n-mod tests { fn a() {} }\n+mod tests { fn a() {} } fn b() {"
-                                   + CLEANUP.strip() + " }"), "high")
         # Unbalanced on purpose: one brace too many closes the module before the delete.
         self.assertEqual(self.tier(patch.replace("{} } } }", "{} } } } }")), "high")
 
-    def test_a_module_that_opens_above_the_hunk_needs_the_file_at_the_head(self):
+    def test_a_raw_string_ends_at_its_quote_even_after_a_backslash(self):
+        patch = hunk(1, 1, context("#[cfg(test)]\nmod tests {\n    const S: &str = r\"\\\";\n}\nfn prune(dir: &Path) {")
+                     + ["+" + CLEANUP, " }"])
+        self.assertEqual(self.tier(patch), "high")
+
+    def test_code_on_the_lines_that_close_or_open_the_module_is_product_code(self):
+        # The module closes and a product function opens on one line.
+        patch = hunk(1, 1, context("#[cfg(test)]\nmod tests {\n} fn prune(dir: &Path) {") + ["+" + CLEANUP, " }"])
+        self.assertEqual(self.tier(patch), "high")
+        for line in ("mod tests { fn a() {} } fn b() { " + CLEANUP.strip() + " }",
+                     "mod tests { } " + CLEANUP.strip()):
+            with self.subTest(line=line):
+                self.assertEqual(self.tier(hunk(1, 1, [" #[cfg(test)]", "+" + line])), "high")
+
+    def test_a_hunk_that_starts_below_line_1_needs_the_file_on_its_side(self):
         source = "\n".join(["fn prune() {}", "", "#[cfg(test)]", "mod tests {", "    use super::*;", "",
                             "    #[test]", "    fn one() {", "        let dir = tempdir();", "    }", "",
                             "    #[test]", "    fn two() {", "        let dir = tempdir();", CLEANUP, "    }", "}", "",
                             "fn after() {", CLEANUP, "}"])
-        patch = ("@@ -9,3 +9,9 @@ mod tests {\n         let dir = tempdir();\n     }\n+\n+    #[test]\n+    fn two() {\n"
-                 "+        let dir = tempdir();\n+" + CLEANUP + "\n+    }\n }")
-        # The hunk alone shows no module: count it.
+        patch = hunk(9, 9, context("        let dir = tempdir();\n    }")
+                     + ["+", "+    #[test]", "+    fn two() {", "+        let dir = tempdir();", "+" + CLEANUP, "+    }", " }"])
+        # Unknown without the file, as when the read fails or the cap is reached: it counts.
         self.assertEqual(self.tier(patch), "high")
         self.assertEqual(self.tier(patch, {RS: source}), "normal")
         # A file whose lines don't match the patch, or the same line after the module, still counts.
         self.assertEqual(self.tier(patch, {RS: source.replace("fn two", "fn three")}), "high")
-        after = "@@ -16,3 +18,4 @@\n \n fn after() {\n+" + CLEANUP + "\n }"
+        after = hunk(16, 18, context("\nfn after() {") + ["+" + CLEANUP, " }"])
         self.assertEqual(self.tier(after, {RS: source}), "high")
 
-    def test_a_removed_test_module_delete_does_not_pay_for_a_new_product_delete(self):
-        patch = ("@@ -1,4 +1,4 @@\n #[cfg(test)]\n mod tests {\n-" + CLEANUP + "\n }\n"
-                 "@@ -20,2 +20,3 @@ fn prune() {\n     let x = 1;\n+" + CLEANUP + "\n }")
+    def test_the_file_overrules_a_hunk_that_starts_inside_a_string(self):
+        # Read alone, this hunk sees a test module in the middle of a multi-line string.
+        source = "\n".join(["const DOC: &str = \"", "#[cfg(test)]", "mod tests {", "\";", "fn prune() {", CLEANUP, "}"])
+        patch = hunk(2, 2, context("#[cfg(test)]\nmod tests {\n\";\nfn prune() {") + ["+" + CLEANUP, " }"])
         self.assertEqual(self.tier(patch), "high")
+        self.assertEqual(self.tier(patch, {RS: source}), "high")
 
-    def test_a_declared_test_module_file_is_test_code(self):
-        lib = "cmux-tui/crates/cmux-tui-core/src/history.rs"
-        declare = "@@ -1,2 +1,4 @@\n use std::fs;\n+#[cfg(test)]\n+mod cleanup_checks;\n fn load() {}"
-        for child in ("cmux-tui/crates/cmux-tui-core/src/history/cleanup_checks.rs",
-                      "cmux-tui/crates/cmux-tui-core/src/history/cleanup_checks/mod.rs"):
-            with self.subTest(child=child):
-                patches = {lib: declare, child: "@@ -0,0 +1 @@\n+" + CLEANUP}
-                self.assertEqual(risk.classify([lib, child], patches).tier, "normal")
-        mod = "cmux-tui/crates/cmux-tui-core/src/lib.rs"
-        child = "cmux-tui/crates/cmux-tui-core/src/cleanup_checks.rs"
-        patches = {mod: declare, child: "@@ -0,0 +1 @@\n+" + CLEANUP}
-        self.assertEqual(risk.classify([mod, child], patches).tier, "normal")
-        # Without `#[cfg(test)]`, or with a #[path], the declared file is product code.
-        for declaration in ("+mod cleanup_checks;", "+#[cfg(test)]\n+#[path = \"x.rs\"]\n+mod cleanup_checks;"):
-            with self.subTest(declaration=declaration):
-                patches = {mod: f"@@ -1 +1,3 @@\n use std::fs;\n{declaration}", child: "@@ -0,0 +1 @@\n+" + CLEANUP}
-                self.assertEqual(risk.classify([mod, child], patches).tier, "high")
+    def test_a_removed_test_cleanup_does_not_pay_for_a_new_product_delete(self):
+        base = "\n".join(["#[cfg(test)]", "mod tests {", "    fn a() {", CLEANUP, "    }", "}", "fn prune() {",
+                          "    let x = 1;", "}"])
+        head = base.replace("fn prune() {\n    let x = 1;", "fn prune() {\n    let x = 1;\n" + CLEANUP)
+        head = head.replace("    fn a() {\n" + CLEANUP, "    fn a() {\n" + CLEANUP + " // again")
+        patch = (hunk(3, 3, context("    fn a() {") + ["-" + CLEANUP, "+" + CLEANUP + " // again", "     }"]) + "\n"
+                 + hunk(7, 7, context("fn prune() {\n    let x = 1;") + ["+" + CLEANUP, " }"]))
+        for sources, base_sources in ((None, None), ({RS: head}, None), ({RS: head}, {RS: base})):
+            with self.subTest(head=sources is not None, base=base_sources is not None):
+                self.assertEqual(self.tier(patch, sources, base_sources), "high")
 
-    def test_rust_sources_reads_only_rust_product_files_with_an_open_delete(self):
+    def test_an_edited_rust_delete_is_not_new_when_the_base_shows_it_was_product_code(self):
+        base = "\n".join(["use std::fs;", "", "fn prune(dir: &Path) {", "    fs::remove_dir_all(dir).ok();", "}"])
+        head = base.replace("remove_dir_all(dir).ok()", "remove_dir_all(dir)?")
+        patch = hunk(3, 3, context("fn prune(dir: &Path) {") + ["-    fs::remove_dir_all(dir).ok();",
+                                                                  "+    fs::remove_dir_all(dir)?;", " }"])
+        self.assertEqual(self.tier(patch, {RS: head}, {RS: base}), "normal")
+        # Without the base file, a removed line below line 1 can't be shown to be product code.
+        self.assertEqual(self.tier(patch, {RS: head}), "high")
+
+    def test_a_declared_test_module_file_is_still_graded_as_product_code(self):
+        # `#[cfg(test)] mod cleanup;` inside `mod nested` names nested/cleanup.rs, and a #[path] can make the
+        # same file product code: a declaration exempts no file.
+        lib = "cmux-tui/crates/cmux-tui-core/src/lib.rs"
+        child = "cmux-tui/crates/cmux-tui-core/src/cleanup.rs"
+        patches = {lib: hunk(1, 1, context("pub mod cleanup;\nmod nested {") + ["+    #[cfg(test)]", "+    mod cleanup;", " }"]),
+                   child: "@@ -0,0 +1 @@\n+" + CLEANUP}
+        self.assertEqual(risk.classify([lib, child], patches).tier, "high")
+
+    def test_pr_mode_reads_rust_files_that_add_or_remove_a_delete_on_their_side(self):
         calls = []
 
-        def fake(args, attempts=3):
+        def fake_run(args, attempts=3):
             calls.append(args[-1])
             return "fn x() {}\n"
 
-        patches = {RS: "@@ -1 +1,2 @@\n fn x() {}\n+" + CLEANUP,
-                   "cmux-tui/crates/a/src/b.rs": "@@ -1 +1,2 @@\n fn x() {}\n+    let y = 1;",
-                   "cmux-tui/crates/a/tests/c.rs": "@@ -1 +1,2 @@\n fn x() {}\n+" + CLEANUP,
-                   "cmux-tui/crates/a/src/d.rs": "@@ -1,2 +1,3 @@\n #[cfg(test)]\n mod t {\n+" + CLEANUP + "\n }"}
-        original, risk.gh_run = risk.gh_run, fake
-        try:
-            self.assertEqual(set(risk.rust_sources("o/r", HEAD, patches)), {RS, "cmux-tui/crates/a/src/d.rs"})
-        finally:
-            risk.gh_run = original
-        self.assertEqual(sorted(calls), [f"repos/o/r/contents/cmux-tui/crates/a/src/d.rs?ref={HEAD}",
-                                         f"repos/o/r/contents/{RS}?ref={HEAD}"])
+        def fake_json(*args):
+            return {"sha": "b" * 40} if "compare" in args[1] else {"head": {"sha": HEAD}, "base": {"sha": "c" * 40}}
 
-    def test_the_file_at_the_head_overrules_a_string_that_opens_above_the_hunk(self):
-        # The hunk alone reads a test module out of the middle of a multi-line string.
-        source = "\n".join(["const DOC: &str = \"", "#[cfg(test)]", "mod tests {", "\";", "fn prune() {", CLEANUP, "}"])
-        patch = "@@ -2,4 +2,5 @@\n #[cfg(test)]\n mod tests {\n \";\n fn prune() {\n+" + CLEANUP + "\n }"
-        self.assertEqual(self.tier(patch), "normal")
-        self.assertEqual(self.tier(patch, {RS: source}), "high")
+        entries = [
+            {"filename": RS, "status": "modified", "patch": hunk(1, 1, [" fn x() {}", "+" + CLEANUP])},
+            {"filename": "cmux-tui/crates/a/src/b.rs", "status": "modified", "patch": hunk(1, 1, [" fn x() {}", "+    let y = 1;"])},
+            {"filename": "cmux-tui/crates/a/tests/c.rs", "status": "modified", "patch": hunk(1, 1, [" fn x() {}", "+" + CLEANUP])},
+            {"filename": "cmux-tui/crates/a/src/new.rs", "status": "renamed", "previous_filename": "cmux-tui/crates/a/src/old.rs",
+             "patch": hunk(5, 5, [" fn x() {", "-" + CLEANUP, " }"])},
+        ]
+        saved = risk.gh_run, risk.gh_json, risk.gh_items
+        risk.gh_run, risk.gh_json, risk.gh_items = fake_run, fake_json, lambda endpoint: entries
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / "out"
+                with contextlib.redirect_stdout(io.StringIO()):
+                    risk.main(["pr", "--repo", "o/r", "--number", "1", "--github-output", str(out)])
+                self.assertIn("tier=high", out.read_text())
+        finally:
+            risk.gh_run, risk.gh_json, risk.gh_items = saved
+        self.assertEqual(sorted(calls), sorted([f"repos/o/r/contents/{RS}?ref={HEAD}",
+                                                f"repos/o/r/contents/cmux-tui/crates/a/src/old.rs?ref={'b' * 40}"]))
 
 
 class RecentRevertTests(unittest.TestCase):

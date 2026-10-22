@@ -212,15 +212,17 @@ class Grade:
 
 
 HUNK = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
-# A Rust test module is test code, like a file under tests/: `#[cfg(test)] mod name { ... }` inline,
-# or `#[cfg(test)] mod name;` declaring name.rs. Attributes before the item are read on its line or the
-# lines above; a multi-line attribute ends the search, so that module counts as product code.
+# A Rust test module is test code, like a file under tests/: `#[cfg(test)] mod name { ... }`. Its
+# attributes are read on its own line or the lines above; a multi-line attribute ends the search,
+# so that module counts as product code. A file that `#[cfg(test)] mod name;` declares is not
+# exempt: the same file can also be reached as product code (`#[path]`, an enclosing module).
 RUST_ATTRIBUTE = re.compile(r"#\s*\[([^\[\]]*)\]\s*")
-# cfg(test), or cfg(all(..., test, ...)): compiled only for tests. Read with whitespace removed; a
-# predicate nested deeper than one level of parentheses doesn't match, so that module counts.
-RUST_CFG_ARGUMENT = r"(?:[^(),]|\([^()]*\))*"
-RUST_TEST_CFG = re.compile(rf"cfg\((?:test|all\((?:{RUST_CFG_ARGUMENT},)*test(?:,{RUST_CFG_ARGUMENT})*\))\)")
-RUST_MOD = re.compile(r"(?:pub\s*(?:\([^)]*\))?\s*)?mod\s+(\w+)\s*([{;])")
+# Only these test cfgs, read with whitespace removed: cfg(test), or cfg(all(...)) with a bare `test`
+# beside identifiers, not(identifier) and key="simple value". Anything else (any, comments, other
+# strings, deeper nesting) counts as product code.
+RUST_CFG_ARGUMENT = r'(?:[A-Za-z_]\w*|not\([A-Za-z_]\w*\)|[A-Za-z_]\w*="[\w.+-]*")'
+RUST_TEST_CFG = re.compile(rf"cfg\((?:test|all\((?:{RUST_CFG_ARGUMENT},)*test(?:,{RUST_CFG_ARGUMENT})*,?\))\)")
+RUST_MOD = re.compile(r"(?:pub\s*(?:\([^)]*\))?\s*)?mod\s+\w+\s*\{")
 RUST_RAW_STRING = re.compile(r'(?<![A-Za-z0-9_])b?r(#*)"')
 RUST_CHAR = re.compile(r"'(?:\\[^']*|[^\\'])'")
 
@@ -231,12 +233,15 @@ class RustBraces:
     def __init__(self) -> None:
         self.depth = 0
         self.comments = 0  # nested /* */ depth
-        self.closing: str | None = None  # what ends the open string: '"' or '"' plus a raw string's hashes
+        self.string = False  # inside an ordinary string, where a backslash escapes
+        self.raw: str | None = None  # inside a raw string: the '"' plus hashes that end it
 
     def in_code(self) -> bool:
-        return not self.comments and self.closing is None
+        return not self.comments and not self.string and self.raw is None
 
-    def feed(self, line: str) -> None:
+    def feed(self, line: str, floor: int | None = None) -> bool:
+        """Read one line. True when a closing brace on it brings the depth to `floor` or below."""
+        closed = False
         i = 0
         while i < len(line):
             if self.comments:
@@ -245,66 +250,63 @@ class RustBraces:
                     i += 2
                 else:
                     i += 1
-            elif self.closing == '"':
+            elif self.string:
                 if line[i] == "\\":
                     i += 2
                     continue
-                self.closing = None if line[i] == '"' else self.closing
+                self.string = line[i] != '"'
                 i += 1
-            elif self.closing is not None:
-                if line.startswith(self.closing, i):
-                    i += len(self.closing)
-                    self.closing = None
+            elif self.raw is not None:
+                if line.startswith(self.raw, i):
+                    i += len(self.raw)
+                    self.raw = None
                 else:
                     i += 1
             elif line.startswith("//", i):
-                return
+                break
             elif line.startswith("/*", i):
                 self.comments, i = 1, i + 2
             elif raw := RUST_RAW_STRING.match(line, i):
-                self.closing, i = '"' + raw.group(1), raw.end()
+                self.raw, i = '"' + raw.group(1), raw.end()
             elif line[i] == '"':
-                self.closing, i = '"', i + 1
+                self.string, i = True, i + 1
             elif line[i] == "'":
                 char = RUST_CHAR.match(line, i)  # else a lifetime or a label
                 i = char.end() if char else i + 1
             else:
-                self.depth += {"{": 1, "}": -1}.get(line[i], 0)
+                if line[i] == "{":
+                    self.depth += 1
+                elif line[i] == "}":
+                    self.depth -= 1
+                    closed |= floor is not None and self.depth <= floor
                 i += 1
+        return closed
 
 
-def rust_test_lines(lines: list[tuple[int, str]]) -> tuple[set[int], set[str]]:
-    """Of consecutive Rust source lines (number, text), the numbers of those inside a
-    `#[cfg(test)] mod name { ... }` and the names that `#[cfg(test)] mod name;` declares. Lines
-    before the first one are unknown, so a module that opens before them isn't seen."""
-    braces, inside, declared = RustBraces(), set(), set()
-    test_attribute = has_path = False
+def rust_test_lines(lines: list[str]) -> set[int]:
+    """Of a Rust file's lines from its first line on, the indexes of those inside a
+    `#[cfg(test)] mod name { ... }`. The lines that open and close the module count as product
+    code: code can sit before or after the module on them."""
+    braces, inside = RustBraces(), set()
+    test_attribute = False
     module_depth: int | None = None  # the depth outside the open test module
-    for number, text in lines:
+    for index, text in enumerate(lines):
+        opened = False
         if module_depth is None and braces.in_code():
             rest = text.strip()
             while attribute := RUST_ATTRIBUTE.match(rest):
-                body = "".join(attribute.group(1).split())
-                test_attribute |= RUST_TEST_CFG.fullmatch(body) is not None
-                has_path |= body.startswith("path")
+                test_attribute |= RUST_TEST_CFG.fullmatch("".join(attribute.group(1).split())) is not None
                 rest = rest[attribute.end():]
-            item = RUST_MOD.match(rest)
-            if item and test_attribute:
-                if item.group(2) == "{":
-                    module_depth = braces.depth
-                elif not has_path:
-                    declared.add(item.group(1))
+            if test_attribute and RUST_MOD.match(rest):
+                module_depth, opened = braces.depth, True
             # Blank lines, comments and attribute-only lines keep looking for the item.
-            if item or (rest and not rest.startswith("//")):
-                test_attribute = has_path = False
-        if module_depth is not None:
-            inside.add(number)
-        braces.feed(text)
-        if module_depth is not None and braces.depth <= module_depth:
-            # The line that closes the module may go on with product code: it counts.
-            inside.discard(number)
+            if rest and not rest.startswith("//"):
+                test_attribute = False
+        if braces.feed(text, module_depth) and module_depth is not None:
             module_depth = None
-    return inside, declared
+        elif module_depth is not None and not opened:
+            inside.add(index)
+    return inside
 
 
 def patch_hunks(patch: str) -> list[list[tuple[str, int | None, int | None, str]]]:
@@ -327,36 +329,40 @@ def patch_hunks(patch: str) -> list[list[tuple[str, int | None, int | None, str]
     return hunks
 
 
-def rust_test_side(path: str, patch: str, sign: str, source: str | None = None) -> tuple[set[tuple[int, int]], set[str]]:
-    """Of the lines on one side of a Rust patch ("+" the head, "-" the base), the (hunk, index)
-    of those inside a test module, and the test modules declared. A hunk alone shows a module only
-    if the module opens in it, and can't tell a string that opens above it from code. So on the head
-    side, `source` (the file at the head) decides for each hunk whose every line matches it."""
-    if not path.endswith(".rs"):
-        return set(), set()
+def rust_test_roles(patch: str, sign: str, source: str | None = None) -> dict[tuple[int, int], bool]:
+    """For the lines on one side of a Rust patch ("+" the head, "-" the base), keyed (hunk, index):
+    True in a test module, False in product code. A line is missing when that can't be known: a
+    hunk shows a module only if the whole file up to it is there, so each hunk is read against
+    `source` (the file on that side) when every line of it matches, else on its own only when it
+    starts at line 1, else not at all."""
     whole = source.splitlines() if source else []
-    whole_inside, declared = rust_test_lines(list(enumerate(whole, 1)))
-    found = set()
+    whole_tests = rust_test_lines(whole)
+    roles = {}
     for h, hunk in enumerate(patch_hunks(patch)):
-        side = [(i, entry) for i, entry in enumerate(hunk) if entry[0] in (" ", sign)]
-        if sign == "+" and whole and all(new is not None and 0 < new <= len(whole)
-                                         and whole[new - 1].rstrip() == text.rstrip() for _, (_, _, new, text) in side):
-            found |= {(h, i) for i, (_, _, new, _) in side if new in whole_inside}
-            continue
-        inside, names = rust_test_lines([(i, entry[3]) for i, entry in side])
-        declared |= names
-        found |= {(h, i) for i in inside}
-    return found, declared
+        side = [(i, (old if sign == "-" else new), text) for i, (kind, old, new, text) in enumerate(hunk)
+                if kind in (" ", sign)]
+        if whole and all(n is not None and 0 < n <= len(whole) and whole[n - 1].rstrip() == text.rstrip()
+                         for _, n, text in side):
+            roles |= {(h, i): n - 1 in whole_tests for i, n, _ in side}
+        elif side and side[0][1] == 1:
+            tests = rust_test_lines([text for _, _, text in side])
+            roles |= {(h, i): k in tests for k, (i, _, _) in enumerate(side)}
+    return roles
 
 
 def delete_lines(patch: str, sign: str, path: str = "", source: str | None = None) -> list[str]:
     """The code lines a patch adds (sign "+") or removes ("-") that delete files or rows, with
-    whitespace collapsed. Comment lines don't count, nor do lines in a Rust test module."""
-    tests = rust_test_side(path, patch, sign, source)[0]
+    whitespace collapsed. Comment lines don't count. In a Rust file (`source` is the file on that
+    side), an added line counts unless it is known to be in a test module, and a removed line
+    counts only if it is known to be product code: a removed test cleanup must not pay for a new
+    product delete."""
+    roles = rust_test_roles(patch, sign, source) if path.endswith(".rs") else None
     found = []
     for h, hunk in enumerate(patch_hunks(patch)):
         for i, (kind, _, _, text) in enumerate(hunk):
-            if kind != sign or text.startswith(sign * 2) or (h, i) in tests:
+            if kind != sign or text.startswith(sign * 2):
+                continue
+            if roles is not None and (roles.get((h, i)) is not False if sign == "-" else roles.get((h, i)) is True):
                 continue
             code = " ".join(text.split())
             if code.startswith(("//", "#", "--", "*", "/*")):
@@ -371,32 +377,16 @@ def in_delete_scope(path: str) -> bool:
     return classify_path(path)[0] != "low" and not any(matches(path, p) for p in DELETE_SCOPE_EXCLUDED + GENERATED)
 
 
-def declared_test_files(patches: dict[str, str], sources: dict[str, str]) -> set[str]:
-    """The files of the Rust test modules that a patch's head side or a fetched file declares
-    (`#[cfg(test)] mod name;`): name.rs or name/mod.rs in the declaring module's folder."""
-    found = set()
-    for path, patch in patches.items():
-        names = rust_test_side(path, patch, "+", sources.get(path))[1]
-        folder = Path(path).parent if Path(path).name in ("mod.rs", "lib.rs", "main.rs") else Path(path).with_suffix("")
-        for name in names:
-            found |= {(folder / f"{name}.rs").as_posix(), (folder / name / "mod.rs").as_posix()}
-    return found
-
-
-def new_delete_files(patches: dict[str, str], sources: dict[str, str] | None = None) -> set[str]:
+def new_delete_files(patches: dict[str, str], sources: dict[str, str] | None = None,
+                     base_sources: dict[str, str] | None = None) -> set[str]:
     """The product-code files that gain a delete of files or rows. A delete line the pull request
     also removes, in the same file or another, was moved; a file that removes as many delete lines
-    as it adds was edited. Neither is new. `sources` holds Rust files at the head, which tell
-    whether an added line sits in a test module that opens above its hunk."""
-    sources = sources or {}
-    tests = declared_test_files(patches, sources)
-
-    def scoped(path: str) -> bool:
-        return in_delete_scope(path) and path not in tests
-
+    as it adds was edited. Neither is new. `sources` and `base_sources` hold Rust files at the head
+    and at the merge base (keyed by the head path), which place a line in or out of a test module."""
+    sources, base_sources = sources or {}, base_sources or {}
     # Only product code can be the source of a move: a cleanup line taken out of a test, a doc or a
     # script and put into product code is a new delete there.
-    removed = {path: Counter(delete_lines(patch, "-", path) if scoped(path) else [])
+    removed = {path: Counter(delete_lines(patch, "-", path, base_sources.get(path)) if in_delete_scope(path) else [])
                for path, patch in patches.items()}
     added = {path: delete_lines(patch, "+", path, sources.get(path)) for path, patch in patches.items()}
     unmatched: dict[str, list[str]] = {}
@@ -410,7 +400,7 @@ def new_delete_files(patches: dict[str, str], sources: dict[str, str] | None = N
                 removed[source][line] -= 1
     flagged = set()
     for path, lines in unmatched.items():
-        if not scoped(path):
+        if not in_delete_scope(path):
             continue
         # A delete line still removed here was rewritten: each one pays for one added line.
         if len(lines) > sum(removed[path].values()):
@@ -432,12 +422,13 @@ def added_privileged_trigger(path: str, patch: str) -> bool:
     return False
 
 
-def classify(files: list[str], patches: dict[str, str] | None = None,
-             sources: dict[str, str] | None = None) -> Grade:
+def classify(files: list[str], patches: dict[str, str] | None = None, sources: dict[str, str] | None = None,
+             base_sources: dict[str, str] | None = None) -> Grade:
     """The highest tier of any changed path, raised to high by a new delete of user data or a new
-    privileged workflow trigger. `sources` holds Rust files at the head (see new_delete_files)."""
+    privileged workflow trigger. `sources` and `base_sources`: Rust files at the head and the merge
+    base (see new_delete_files)."""
     patches = patches or {}
-    deleting = new_delete_files(patches, sources)
+    deleting = new_delete_files(patches, sources, base_sources)
     rank = 0
     reasons: dict[str, list[str]] = {}
     for path in files:
@@ -623,24 +614,31 @@ def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
     return {number: sorted(set(paths)) for number, paths in found.items()}
 
 
-# At most this many Rust files are read at the head per grading; the rest count on their hunks alone.
+# At most this many Rust files are read on each side per grading. A file past the cap is graded on
+# its hunks alone, which errs toward high.
 MAX_RUST_SOURCES = 20
 
 
-def rust_sources(repo: str, head_sha: str, patches: dict[str, str]) -> dict[str, str]:
-    """The Rust product files that add a delete, read at the head: the whole file shows whether a
-    line sits in a test module, where a hunk may start inside the module or inside a string. A file
-    past the cap or that can't be read is graded on its hunks alone."""
-    wanted = [path for path, patch in sorted(patches.items())
-              if path.endswith(".rs") and in_delete_scope(path) and delete_lines(patch, "+")]
+def rust_sources(repo: str, ref: str, paths: dict[str, str]) -> dict[str, str]:
+    """{key: the Rust file at `ref`} for paths given as {key: path at ref}. A file that can't be
+    read is left out, so its lines are graded on their hunks alone."""
     sources = {}
-    for path in wanted[:MAX_RUST_SOURCES]:
+    for key, path in sorted(paths.items())[:MAX_RUST_SOURCES]:
         try:
-            sources[path] = gh_run(["gh", "api", "-H", "Accept: application/vnd.github.raw+json",
-                                    f"repos/{repo}/contents/{quote(path)}?ref={head_sha}"])
+            sources[key] = gh_run(["gh", "api", "-H", "Accept: application/vnd.github.raw+json",
+                                   f"repos/{repo}/contents/{quote(path)}?ref={ref}"])
         except (subprocess.CalledProcessError, UnicodeDecodeError):
-            print(f"::warning::couldn't read {printable(path)} at the head; its hunks alone grade it")
+            print(f"::warning::couldn't read {printable(path)} at {ref[:12]}; its hunks alone grade it")
     return sources
+
+
+def merge_base_of(repo: str, pr: dict) -> str:
+    """The commit the pull request's patches are relative to; the base tip if it can't be read."""
+    try:
+        return gh_json("api", f"repos/{repo}/compare/{pr['base']['sha']}...{pr['head']['sha']}",
+                       "--jq", "{sha: .merge_base_commit.sha}")["sha"] or pr["base"]["sha"]
+    except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError):
+        return pr["base"]["sha"]
 
 
 def pr_mode(args: argparse.Namespace) -> int:
@@ -651,16 +649,19 @@ def pr_mode(args: argparse.Namespace) -> int:
     # A rename moves the old path too: grade both ends.
     files += [f["previous_filename"] for f in entries if f.get("previous_filename")]
     pr = gh_json("api", base)
-    grade = classify(files, patches, rust_sources(args.repo, pr["head"]["sha"], patches))
+    # Rust product files that add or remove a delete: read on that side, they place each line in or
+    # out of a test module.
+    rust = {e["filename"]: e for e in entries if e["filename"].endswith(".rs") and in_delete_scope(e["filename"])}
+    adds = {path: path for path in rust if delete_lines(patches[path], "+")}
+    removes = {path: e.get("previous_filename") or path for path, e in rust.items()
+               if e.get("status") != "added" and delete_lines(patches[path], "-")}
+    # The patches' line numbers are relative to the merge base, not the base branch's tip.
+    merge_base = merge_base_of(args.repo, pr) if removes or args.repo_dir else pr["base"]["sha"]
+    grade = classify(files, patches, rust_sources(args.repo, pr["head"]["sha"], adds),
+                     rust_sources(args.repo, merge_base, removes))
     undone: dict[int, list[str]] = {}
     if args.repo_dir:
         unread: list[str] = []
-        # The patches' line numbers are relative to the merge base, not the base branch's tip.
-        try:
-            merge_base = gh_json("api", f"repos/{args.repo}/compare/{pr['base']['sha']}...{pr['head']['sha']}",
-                                 "--jq", "{sha: .merge_base_commit.sha}")["sha"] or pr["base"]["sha"]
-        except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError):
-            merge_base = pr["base"]["sha"]
         try:
             undone = recent_reverts(entries, args.repo_dir, merge_base, int(args.number), unread=unread)
         except Exception as error:  # The takeback check informs the grade; it never crashes it.
