@@ -38,7 +38,7 @@
   --cv-edge: var(--page-edge, 18px);
   /* Resolved where it is used: 100% is the pane's width there. */
   --cv-inset: max(var(--cv-edge), calc((100% - var(--cv-column)) / 2));
-  --cv-font: system-ui;
+  --cv-font: var(--font-ui);
   /* Code follows the terminal font; a chat or Markdown viewer code font (chatDisplay.ts) sets
      --cv-mono in front of it. */
   --cv-mono-default: var(--cmux-diff-code-font-family, ui-monospace, "SF Mono", Menlo, monospace);
@@ -195,6 +195,7 @@
   font-size: var(--text-caption);
   line-height: 1.25;
   text-align: center;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 /* A Chief subagent's first message: the Chief's view as one collapsed line above the task, with its
@@ -213,6 +214,7 @@
   font-size: var(--text-detail);
   line-height: 18px;
   color: var(--cv-text-muted);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-user__context > details > summary {
   display: flex;
@@ -270,6 +272,7 @@
   font-size: var(--text-detail);
   line-height: 18px;
   color: var(--cv-text-muted);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-user__bubble--collapsed {
   display: -webkit-box;
@@ -288,6 +291,7 @@
   line-height: 18px;
   color: var(--cv-text-muted);
   cursor: pointer;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-user__expand:hover {
   color: var(--agent-text);
@@ -324,6 +328,7 @@
   white-space: nowrap;
   user-select: none;
   cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-user__more:hover {
   color: var(--cv-text);
@@ -349,6 +354,7 @@
   font-size: var(--text-detail);
   text-align: start;
   cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-user__paste:hover {
   background: color-mix(in srgb, var(--agent-text) 8%, var(--agent-control));
@@ -481,6 +487,7 @@
   white-space: nowrap;
   font-size: var(--text-body);
   font-weight: 600;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .acpmux-artifact-versions {
   display: inline-flex;
@@ -493,6 +500,7 @@
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
   color: var(--agent-muted);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-artifact-tabs {
   display: inline-flex;
@@ -509,6 +517,7 @@
   line-height: 24px;
   color: var(--agent-muted);
   cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-artifact-tab:hover:not([aria-pressed="true"]) {
   color: var(--agent-text);
@@ -628,6 +637,7 @@
   line-height: var(--cv-meta-row);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 /* At the end of another agent's message line its age comes straight before Copy. */
 .cv-received-actions .cv-user__time {
@@ -638,6 +648,7 @@
   color: var(--cv-text-dim);
   font-size: var(--text-caption);
   line-height: var(--cv-meta-row);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .cv-user__read {
   display: inline-flex;
@@ -662,6 +673,7 @@
   font-variant-numeric: tabular-nums;
   text-align: center;
   color: var(--cv-text-muted);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 /* The prompt open for editing: the bubble's place and shape, its text editable, Cancel and Send under it. */
 .cv-user__edit {
@@ -706,6 +718,7 @@
   color: var(--cv-text);
   box-shadow: inset 0 0 0 1px var(--cv-rule);
   cursor: default;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 .cv-user__edit-button:hover {
   background: var(--cv-faint-rule);
@@ -1231,6 +1244,7 @@ pre.cv-math-source {
   font-family: var(--cv-font);
   font-size: var(--text-control);
   line-height: 20px;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 /* Like the composer card, its rim clears under appearance.borders = none (composer-edges.test.ts). */
 :root[data-borders="none"] .acpmux-ask { border-color: transparent; }
@@ -1307,6 +1321,7 @@ pre.cv-math-source {
   font-size: var(--text-detail);
   line-height: 22px;
   cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-ask-action:hover {
   background: color-mix(in srgb, var(--cv-fg) 7%, transparent);
@@ -1341,6 +1356,7 @@ pre.cv-math-source {
   padding-inline: 18px 4px;
   color: var(--cv-text-dim);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-ask-details p,
 .acpmux-ask-details ul {
@@ -1362,6 +1378,7 @@ pre.cv-math-source {
   padding-inline-start: 18px;
   color: var(--cv-text-dim);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 @media (prefers-reduced-motion: reduce) {
   .acpmux-ask-chevron {
@@ -1909,6 +1926,7 @@ pre.cv-math-source {
   color: var(--cv-text-dim);
   font-size: var(--text-detail);
   white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* Quick commands end before the hint shows. */
 @media (prefers-reduced-motion: no-preference) {
@@ -1978,6 +1996,7 @@ pre.cv-math-source {
   color: var(--cv-text);
   background: color-mix(in srgb, var(--agent-text, var(--cv-text)) 10%, transparent);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
+  letter-spacing: var(--text-control--letter-spacing);
 }
 .cv-received__name.is-plain {
   cursor: pointer;
@@ -2047,6 +2066,7 @@ button.cv-received__name:focus-visible {
   color: var(--cv-text-dim);
   font-size: var(--text-control);
   cursor: pointer;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 .cv-received__more:hover,
 .cv-received__more:focus-visible {
@@ -2094,6 +2114,7 @@ button.cv-received__name:focus-visible {
   color: var(--cv-text-muted);
   font-size: var(--text-caption);
   line-height: 14px;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .cv-mcp-call__body {
   margin: 0;
@@ -2194,6 +2215,7 @@ button.cv-received__name:focus-visible {
   line-height: var(--text-detail--line-height);
   color: var(--cv-text-muted);
   cursor: pointer;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-output-more:hover {
   color: var(--cv-text);
@@ -2216,6 +2238,7 @@ button.cv-received__name:focus-visible {
   color: var(--cv-text-muted);
   font-family: var(--cv-font);
   font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 /* Debug Settings `agentPane.debug.turnActionsPlacement` "right": the earlier row at the column's
    right edge, the actions after the time. */
@@ -2319,6 +2342,7 @@ button.cv-received__name:focus-visible {
   cursor: pointer;
   font-size: var(--text-detail);
   color: var(--cv-text-dim);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-turn-note__summary::-webkit-details-marker {
   display: none;
@@ -2738,6 +2762,7 @@ button.cv-received__name:focus-visible {
   font: inherit;
   font-size: var(--text-detail);
   cursor: pointer;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-turn-preview-load:hover {
   background: color-mix(in srgb, var(--agent-text) 6%, transparent);
@@ -3127,6 +3152,7 @@ button.cv-received__name:focus-visible {
   background: var(--cv-card-fill);
   box-shadow: inset 0 0 0 1px var(--cv-card-ring);
   font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .cv-plan__items {
   margin: 0;
@@ -3209,6 +3235,7 @@ button.cv-received__name:focus-visible {
   padding-inline-start: 2px;
   font-size: var(--text-body);
   color: var(--cv-text-muted);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .cv-activity__label {
   min-width: 0;
@@ -3237,6 +3264,7 @@ button.cv-received__name:focus-visible {
   font-family: var(--cv-font);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-bgtask__detail {
   flex: 1;
@@ -3276,6 +3304,7 @@ button.cv-received__name:focus-visible {
   font-size: var(--text-detail);
   color: var(--cv-text-dim);
   overflow-wrap: anywhere;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 /* ---------- A paused agent pair (AgentPairNote.tsx) ---------- */
@@ -3298,6 +3327,7 @@ button.cv-received__name:focus-visible {
   padding-left: 22.5px;
   font-size: var(--text-detail);
   color: var(--cv-text-dim);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-agent-pair__toggle {
   all: unset;
@@ -3318,6 +3348,7 @@ button.cv-received__name:focus-visible {
   list-style: none;
   font-size: var(--text-detail);
   color: var(--cv-text-dim);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-agent-pair__held li {
   display: -webkit-box;
@@ -3418,6 +3449,7 @@ button.cv-received__name:focus-visible {
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   color: var(--cv-text-muted);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-user__pending-clock {
   display: inline-flex;
@@ -3446,6 +3478,7 @@ button.cv-received__name:focus-visible {
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-message__note.is-failed {
   color: var(--agent-danger);
@@ -3479,6 +3512,7 @@ button.cv-received__name:focus-visible {
   color: var(--cv-text-muted);
   cursor: pointer;
   opacity: 0;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-received:hover .cv-received__reply,
 .cv-received:focus-within .cv-received__reply {

@@ -17,6 +17,7 @@ import themes from "virtual:cmux-gallery/themes";
 import webThemeBootstrap from "virtual:cmux-gallery/web-theme";
 import type { StageContext } from "./context";
 import { emulateMedia } from "./media";
+import { installUiFont } from "./uiFont";
 import "./frame.css";
 import revision from "virtual:cmux-gallery/revision";
 
@@ -103,6 +104,7 @@ const bootstrap = document.createElement("script");
 bootstrap.textContent = webThemeBootstrap;
 document.head.append(bootstrap);
 bootstrap.remove();
+installUiFont();
 (window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(
   webThemePayload(tokens, deriveAppTheme(theme, env.accent)),
 );

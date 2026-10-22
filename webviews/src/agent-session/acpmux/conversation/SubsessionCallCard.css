@@ -36,6 +36,7 @@
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   min-width: 0;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-subsession__doing {
   overflow: hidden;

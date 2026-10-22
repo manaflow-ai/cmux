@@ -54,4 +54,5 @@
   text-align: right;
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-detail--letter-spacing);
 }

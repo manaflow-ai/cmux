@@ -35,7 +35,7 @@
   --warning: var(--cmux-app-warning, light-dark(rgba(166, 104, 0, 1), rgba(255, 196, 77, 1)));
   --motion-hover: var(--cmux-motion-quick, 80ms);
   --motion-focus: var(--cmux-motion-quick, 80ms);
-  font: 13px/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font: 13px/1.4 var(--font-ui);
 }
 
 /* The native bootstrap's html rule (!important) wins; this matches it for the dev server. */
@@ -458,6 +458,7 @@ mark {
   line-height: 12px;
   white-space: nowrap;
   pointer-events: none;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .field.number[data-inherited] {
@@ -669,6 +670,7 @@ mark {
 .font-option-tag {
   color: var(--muted-text);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .font-option-check {
@@ -1001,6 +1003,7 @@ mark {
   color: var(--text);
   font-size: var(--text-caption);
   pointer-events: none;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .backdrop-tile[aria-pressed="true"] .backdrop-thumb {
@@ -1050,6 +1053,7 @@ mark {
   color: var(--muted-text);
   font-size: var(--text-title);
   border-style: dashed;
+  letter-spacing: var(--text-title--letter-spacing);
 }
 
 /* Your images (backgrounds plan phase 3): what they take, Show in Finder, and a remove
@@ -1137,6 +1141,7 @@ mark {
   font-size: var(--text-detail);
   white-space: nowrap;
   text-overflow: ellipsis;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 /* Folder lists (picker.pinned, files.roots). */
@@ -1218,6 +1223,7 @@ mark {
 .appearance-bar-question {
   font-size: var(--text-detail);
   white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 /* Agents > Chiefs (ChiefsCard.tsx): one row per Chief, a button that opens its editor. */
@@ -1289,6 +1295,7 @@ mark {
   margin: 0 0 10px;
   color: var(--muted-text);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .density-tiles {
@@ -1413,6 +1420,7 @@ mark {
 .density-notice {
   color: var(--muted-text);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .density-import {

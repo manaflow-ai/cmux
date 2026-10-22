@@ -16,7 +16,7 @@
   flex-direction: column;
   background: var(--agent-page-bg);
   color: var(--agent-text);
-  font: 12px/18px system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  font: 12px/18px var(--font-ui);
   -webkit-font-smoothing: antialiased;
 }
 

@@ -304,6 +304,7 @@
   color: var(--cv-text-muted);
   font: inherit;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 button.cv-thumb {
   appearance: none;
@@ -366,6 +367,7 @@ button.cv-thumb:focus-visible {
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-li__images {
   display: block;

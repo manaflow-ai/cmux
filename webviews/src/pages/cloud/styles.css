@@ -26,7 +26,7 @@ body {
   margin: 0;
   background: transparent;
   color: var(--cloud-text);
-  font: 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font: 13px var(--font-ui);
   -webkit-font-smoothing: antialiased;
   user-select: none;
 }
@@ -796,6 +796,7 @@ select {
   line-height: 1.45;
   color: var(--cloud-text-2);
   text-wrap: pretty;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .cloud-store-cta {
@@ -908,12 +909,14 @@ select {
 .cloud-store-benefit-title {
   font-size: var(--text-body);
   font-weight: 600;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .cloud-store-benefit-body {
   font-size: var(--text-detail);
   line-height: 1.4;
   color: var(--cloud-text-2);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .cloud-store-sizes-header {
@@ -932,6 +935,7 @@ select {
   font-size: var(--text-detail);
   color: var(--cloud-text-2);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .cloud-store-availability .cloud-dot {
@@ -977,11 +981,13 @@ select {
   font-size: var(--text-heading);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-heading--letter-spacing);
 }
 
 .cloud-store-tier-unit {
   font-size: var(--text-caption);
   color: var(--cloud-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .cloud-store-tier-hint {
@@ -990,6 +996,7 @@ select {
   font-size: var(--text-detail);
   line-height: 1.4;
   color: var(--cloud-text-2);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .cloud-store-tier-footer {

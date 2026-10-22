@@ -64,6 +64,7 @@
   font-weight: 400;
   font-size: var(--text-detail);
   color: var(--cv-text-muted);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-subagents__time,
 .cv-subagent__time {
@@ -228,6 +229,7 @@ button.cv-subagent > :last-child {
   color: var(--cv-text-muted);
   cursor: pointer;
   user-select: none;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-subagent-of__pill:hover {
   color: var(--cv-text);
@@ -302,6 +304,7 @@ button.cv-subagent > :last-child {
   white-space: nowrap;
   cursor: default;
   user-select: none;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-agents-pill:hover,
 .acpmux-agents-pill[aria-expanded="true"] {
@@ -329,6 +332,7 @@ button.cv-subagent > :last-child {
   font-family: var(--cv-font);
   font-size: var(--text-control);
   line-height: 18px;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-agents-list ul {
   margin: 0;
@@ -344,6 +348,7 @@ button.cv-subagent > :last-child {
   color: var(--agent-muted);
   font-size: var(--text-detail);
   font-weight: 600;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-agents-list__row {
   all: unset;
@@ -400,6 +405,7 @@ button.cv-subagent > :last-child {
 }
 .acpmux-agents-list__state {
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-agents-list__row[data-status="failed"] .acpmux-agents-list__state {
   color: var(--agent-danger);
@@ -408,6 +414,7 @@ button.cv-subagent > :last-child {
   flex: none;
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* A subagent's own pane: where the chat's composer would be, the line naming the chat that takes
    messages (SubagentPaneFooter.tsx). */
@@ -419,6 +426,7 @@ button.cv-subagent > :last-child {
   color: var(--cv-text-muted);
   text-align: center;
   user-select: none;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 /* ---------- The tray of running work above the composer (SubagentTray.tsx) ---------- */
@@ -435,6 +443,7 @@ button.cv-subagent > :last-child {
   font-family: var(--cv-font);
   font-size: var(--text-control);
   line-height: 18px;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 /* Past five lines the list scrolls in place; the stack never scrolls the transcript. */
 .acpmux-running-tray__list {

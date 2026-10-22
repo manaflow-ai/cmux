@@ -43,7 +43,7 @@ export function ChangedFilesTree({
   const filesRef = useRef(byDisplay);
   filesRef.current = byDisplay;
   const [measureStats] = useState(() =>
-    createTextMeasure('system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif'),
+    createTextMeasure('"Inter", system-ui, -apple-system, BlinkMacSystemFont, sans-serif'),
   );
   const statsSpriteSheet = useMemo(
     () =>

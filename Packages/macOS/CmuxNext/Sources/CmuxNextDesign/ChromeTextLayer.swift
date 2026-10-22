@@ -156,6 +156,8 @@ nonisolated public final class ChromeTextLayer: CALayer {
         // does not rebuild the line.
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
+            // The UI font's tracking at this size (`BundledFonts.kern`; 0 for other faces).
+            .kern: BundledFonts.kern(for: font),
             NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true,
         ]
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: string, attributes: attributes))

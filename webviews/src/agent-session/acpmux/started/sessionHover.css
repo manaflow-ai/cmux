@@ -32,6 +32,7 @@
   line-height: var(--text-body--line-height);
   text-align: start;
   cursor: pointer;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .acpmux-session-hover:hover {
   background: color-mix(in srgb, var(--agent-text) 4%, transparent);
@@ -57,6 +58,7 @@
   line-height: var(--text-caption--line-height);
   white-space: nowrap;
   text-overflow: ellipsis;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-session-hover {

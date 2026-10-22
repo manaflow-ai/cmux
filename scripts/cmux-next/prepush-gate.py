@@ -27,6 +27,9 @@ Also on every push, whatever it changes: "Ghostty-default keys" (check-ghostty-r
 exported default keymap keeps Ghostty's split keys (schemas/keybindings/ghostty-reserved-keys.json),
 and the push removes no reserved entry. CMUX_NEXT_CHECKS_SKIP_REASON does not skip it; only a
 `Ghostty-defaults-OK: <the user's words>` trailer on a pushed commit does (Lawrence 2026-10-20).
+Also on every push: "Leo's bans" (check-leo-bans.py): the UI font stays Inter, bundled, with its
+calculated tracking (schemas/type-scale/leo-bans.json), and no webviews stylesheet names the system
+font. It is not skippable either; only a `Leo-order: <Leo's words>` trailer changes the pin.
 
 Not here (they stay on CI and the fleet): generated-file freshness (gen-*.py --check), god files,
 the app size cap, script tests, Swift and Rust builds and tests.
@@ -108,6 +111,10 @@ RESERVED_SCRIPT = SCRIPTS + "/check-ghostty-reserved-keys.py"
 RESERVED_LIST = "schemas/keybindings/ghostty-reserved-keys.json"
 RESERVED_SURFACES = "plans/cmux-next/action-surfaces.json"
 RESERVED_OK = re.compile(r"^Ghostty-defaults-OK:\s*\S", re.MULTILINE)
+
+# The UI font is Inter with its calculated tracking (Leo 2026-10-21, ask-52da478628).
+LEO_BANS_CHECK = "Leo's bans (Inter UI font and tracking, schemas/type-scale/leo-bans.json)"
+LEO_BANS_SCRIPT = SCRIPTS + "/check-leo-bans.py"
 
 # Reviewed escapes the CI scanners honor, per ast-grep rule (same line or the comment block above).
 ESCAPES = {
@@ -457,6 +464,31 @@ def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None
     return fresh
 
 
+def leo_bans(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """What head adds to Leo's bans (LEO_BANS_CHECK) over base: findings base does not have, and a
+    pin change in base..head with no `Leo-order:` trailer."""
+    trusted = trusted_scripts / Path(LEO_BANS_SCRIPT).name if trusted_scripts else None
+    if trusted and trusted.is_file():
+        script = trusted.read_bytes()
+    else:
+        result = subprocess.run(["git", "-C", str(repo), "show", f"{head}:{LEO_BANS_SCRIPT}"], capture_output=True)
+        if result.returncode != 0:
+            return []  # a commit older than this check
+        script = result.stdout
+    with tempfile.TemporaryDirectory(prefix="cmux-leo-bans-") as tmp:
+        check = Path(tmp) / "check.py"
+        check.write_bytes(script)
+
+        def findings(*args: str) -> list[str]:
+            code, out = run(["python3", "-I", str(check), "--repo", str(repo), *args], Path(tmp), timeout=600)
+            if code == 124:
+                return [f"check-leo-bans.py {' '.join(args)}: {out}"]
+            return [line for line in out.splitlines() if line.strip() and not line.startswith("leo bans:")]
+
+        base_lines = set(findings("--rev", base))
+        return [line for line in findings("--rev", head, "--base", base) if line not in base_lines]
+
+
 def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
          trusted_scripts: Path | None = None) -> list[tuple[str, list[str]]]:
     """[(check, new findings)] that head adds over base."""
@@ -464,6 +496,9 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     if only is None or "reserved" in only:
         fresh = reserved_keys(repo, base, head, trusted_scripts)
         reserved = [(RESERVED_CHECK, fresh)] if fresh else []
+    if only is None or "leo-bans" in only:
+        fresh = leo_bans(repo, base, head, trusted_scripts)
+        reserved += [(LEO_BANS_CHECK, fresh)] if fresh else []
     changed = changed_files(repo, base, head)
     if not changed:
         return reserved
@@ -554,7 +589,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pre-push", action="store_true", help="read pre-push stdin (the hook)")
     parser.add_argument("--trusted-scripts-dir", help="installed reviewed checker snapshot (required with --pre-push)")
     parser.add_argument("--commits", help="CI: check each non-merge commit of RANGE against its first parent")
-    parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,swiftlint,reserved")
+    parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,swiftlint,reserved,leo-bans")
     parser.add_argument("--timings", action="store_true")
     args = parser.parse_args(argv)
     repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").decode().strip())
@@ -598,6 +633,9 @@ def main(argv: list[str] | None = None) -> int:
     if skip and any(name == RESERVED_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {RESERVED_CHECK}. Changing a Ghostty-default "
               "shortcut needs the user's explicit OK, quoted in a `Ghostty-defaults-OK: <the user's words>` commit trailer.")
+    elif skip and any(name == LEO_BANS_CHECK for name, _ in found_any):
+        print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {LEO_BANS_CHECK}. The UI font and its "
+              "tracking change only by Leo's order, quoted in a `Leo-order: <Leo's words>` commit trailer.")
     elif skip:
         print(f"prepush-gate: SKIPPED by CMUX_NEXT_CHECKS_SKIP_REASON={skip!r}. Say so in your report; "
               "CI still names the commit.")

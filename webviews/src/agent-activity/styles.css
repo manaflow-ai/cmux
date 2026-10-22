@@ -15,6 +15,7 @@
   color-scheme: light dark;
   font-size: var(--text-body);
   color: var(--cmux-text, CanvasText);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 * {
@@ -52,6 +53,7 @@ nav strong {
   font-size: var(--text-title);
   line-height: var(--text-title--line-height);
   font-weight: 600;
+  letter-spacing: var(--text-title--letter-spacing);
 }
 
 nav input {
@@ -65,6 +67,7 @@ nav input {
   background: var(--activity-well);
   font-size: var(--text-control);
   outline: none;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 
 nav input:focus {
@@ -89,6 +92,7 @@ nav input:focus {
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
   cursor: default;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 
 .segment input {
@@ -132,6 +136,7 @@ section h3 {
   line-height: var(--text-caption--line-height);
   font-weight: 600;
   color: var(--activity-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .connection {
@@ -139,6 +144,7 @@ section h3 {
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   color: var(--activity-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .session {
@@ -180,17 +186,20 @@ section h3 {
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   font-weight: 500;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .session-text small {
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   color: var(--activity-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .status {
   font-size: var(--text-caption);
   color: var(--activity-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .status.live {
@@ -236,6 +245,7 @@ section h3 {
   background: transparent;
   font-size: var(--text-control);
   cursor: default;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 
 .preview {
@@ -293,6 +303,7 @@ section h3 {
   padding: 4px 14px;
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .event.bad {
@@ -379,6 +390,7 @@ section h3 {
   line-height: var(--text-title--line-height);
   font-weight: 600;
   color: var(--cmux-text, CanvasText);
+  letter-spacing: var(--text-title--letter-spacing);
 }
 
 .empty span {

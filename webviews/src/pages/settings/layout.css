@@ -379,6 +379,7 @@
   margin-top: 14px;
   color: var(--muted-text);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .theme-tokens-row,
@@ -482,6 +483,7 @@
   gap: 4px;
   color: var(--muted-text);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .token-tuner-slider input {
@@ -522,6 +524,7 @@
   gap: 8px;
   color: var(--muted-text);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .token-tuner-contrast[data-contrast-low] {
@@ -682,6 +685,7 @@
 .theme-empty {
   padding: 6px;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .theme-count {
@@ -833,6 +837,7 @@
   margin: 0;
   color: var(--muted-text);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .chief-pet-preview {
@@ -923,6 +928,7 @@
   color: var(--text);
   font-size: var(--text-body);
   font-weight: 600;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .chief-pet-choice-art {
@@ -940,12 +946,14 @@
 .chief-pet-choice strong {
   font-size: var(--text-body);
   font-weight: 600;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .chief-pet-choice-help {
   color: var(--muted-text);
   font-size: var(--text-caption);
   line-height: 1.35;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 /* An accent's swatch: the color it gives the app theme (AccentPicker draws it, and Art Color's hue

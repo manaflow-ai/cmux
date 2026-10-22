@@ -35,6 +35,7 @@
   font-size: var(--text-detail);
   font-weight: var(--weight-emphasis, 600);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-needs-you-count .acpmux-needs-you-dot {
   width: 6px;
@@ -58,6 +59,7 @@
   line-height: 18px;
   outline: none;
   overscroll-behavior: contain;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-needs-you {
@@ -96,11 +98,13 @@
   line-height: 18px;
   text-align: center;
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-needs-you-note {
   margin: 8px 12px 0;
   color: var(--agent-muted);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-needs-you-empty {
   display: flex;
@@ -137,6 +141,7 @@
   color: var(--agent-muted);
   font-size: var(--text-detail);
   white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-needs-you-avatar {
   flex: none;
@@ -171,6 +176,7 @@
   background: color-mix(in srgb, var(--agent-text) 7%, transparent);
   font-size: var(--text-caption);
   line-height: 16px;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-needs-you-item[data-kind="approval"] .acpmux-needs-you-kind,
 .acpmux-needs-you-item[data-kind="decision"] .acpmux-needs-you-kind,
@@ -227,6 +233,7 @@
   line-height: 16px;
   white-space: nowrap;
   text-overflow: ellipsis;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 /* A command: as the ask's card shows one. */
 .acpmux-needs-you-detail[data-code] {
@@ -276,6 +283,7 @@
   font-size: var(--text-detail);
   text-align: left;
   cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-needs-you-answer::before {
   content: counter(acpmux-needs-you-option);
@@ -320,6 +328,7 @@
   white-space: nowrap;
   text-overflow: ellipsis;
   cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-needs-you-ask-about:hover,
 .acpmux-needs-you-side-send:hover:not(:disabled) {
@@ -342,6 +351,7 @@
   margin: 6px 0 0 24px;
   color: var(--agent-danger, var(--agent-text));
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-needs-you-side {
   margin: 8px 0 0 24px;
@@ -359,6 +369,7 @@
   margin: 0;
   color: var(--agent-muted);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-needs-you-side-form {
   display: flex;
@@ -379,6 +390,7 @@
   caret-color: var(--cmux-caret, var(--agent-text));
   font: inherit;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-needs-you-side-field:focus {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 40%, transparent);
@@ -393,10 +405,11 @@
   height: 34px;
   padding: 0 12px 0 13px;
   border-radius: 9px;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-family: var(--font-ui);
   font-size: var(--text-control);
   font-weight: var(--weight-emphasis, 600);
   white-space: nowrap;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-needs-you-pill__chevron {
   flex: none;
