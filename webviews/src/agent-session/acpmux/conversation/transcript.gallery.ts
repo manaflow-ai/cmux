@@ -81,6 +81,29 @@ const groupedShellRows = [
   summary(2.4, { id: "gallery-shell-group-summary", status: "completed", toolCount: 2 }),
 ];
 
+const LONG_CP =
+  "cp /private/tmp/claude-501/-Users-leo-Projects/scratch/transcript/before-after/ellipsis-before.png /Users/leo/Projects/cmux/docs/media/ellipsis-after.png";
+const LONG_SEND =
+  "acpmux send --no-wait coord-deputy '[transcript-parity] tool rows use the full width and end in an ellipsis at the right edge'";
+const longCommandRows = [
+  user("Copy the screenshots over and tell the coordinator", 3, { id: "gallery-long-commands-user" }),
+  activity(
+    [LONG_CP, LONG_SEND].map((command, at) =>
+      tool("Run", "execute", "completed", {
+        command,
+        output: "",
+        exitCode: 0,
+        startedAt: minutesAgo(2.9 - at * 0.1),
+        endedAt: minutesAgo(2.85 - at * 0.1),
+      }),
+    ),
+    2.8,
+    { id: "gallery-long-commands-activity" },
+  ),
+  assistant("Copied both screenshots and sent the coordinator the merge.", 2.6, { id: "gallery-long-commands-answer" }),
+  summary(2.6, { id: "gallery-long-commands-summary", status: "completed", toolCount: 2 }),
+];
+
 /// One call in the gallery's log: a host bridge call, or `acpmux <method>` for a request the page
 /// sent to the in-page mock daemon (mock.ts).
 type GalleryCall = {
@@ -532,6 +555,49 @@ const envShell = (command: string) =>
     startedAt: minutesAgo(1.9),
     endedAt: minutesAgo(1.88),
   });
+
+/// An ended turn with one call per run, none a shell: a finished fetch and a failed one (Leo,
+/// 2026-10-21: "only show the green/red checkmark + time on hover for ours"). A running call keeps
+/// its spinner (transcript-codex-turn.test.tsx).
+const loneToolCalls = () =>
+  chat([
+    user("Read the API docs and the reference.", 3),
+    activity(
+      [
+        tool("Fetch https://example.com/docs", "fetch", "completed", {
+          startedAt: minutesAgo(2.9),
+          endedAt: minutesAgo(2.88),
+        }),
+      ],
+      2.9,
+    ),
+    assistant("The docs page loaded; the API reference is next.", 2.8),
+    activity(
+      [
+        tool("Fetch https://example.com/api", "fetch", "failed", {
+          startedAt: minutesAgo(2.7),
+          endedAt: minutesAgo(2.69),
+        }),
+      ],
+      2.7,
+    ),
+    assistant("The reference page is gone; the docs cover what we need.", 2.6),
+    summary(2.6, { status: "completed", toolCount: 2, durationMs: 24_000 }),
+  ]);
+
+/// Opens the turn's Worked for and its folded run ("Searched the web"). At rest the finished
+/// call's check and time are hidden and keep their room; the failure's red word shows.
+const loneToolMetaAtRest = async (ctx: PlayContext) => {
+  await openGroupedRun(ctx);
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-tool .cv-command__ok"));
+  const view = ctx.document.defaultView!;
+  for (const node of ctx.document.querySelectorAll(".cv-tool .cv-command__ok, .cv-tool .cv-command__time"))
+    if (view.getComputedStyle(node).opacity !== "0") throw new Error("a finished call's check or time shows at rest");
+  const failed = ctx.find({ selector: ".cv-tool__failed" });
+  const style = view.getComputedStyle(failed);
+  if (style.opacity !== "1" || style.color === view.getComputedStyle(failed.parentElement!).color)
+    throw new Error("the failed call's mark is not red at rest");
+};
 
 /// A quiet turn under a second with no answer, a sub-second answer, then a 5s one (sub-second-turns).
 const subSecondTurns = () =>
@@ -1491,6 +1557,25 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.defaultView!.getComputedStyle(ok()).opacity === "1");
       },
     },
+    "tool-hover-meta-lone": {
+      note: "Calls that are not shells, at rest: a finished fetch shows no check or time, a failed one says failed in red. Play: open Worked for and its run.",
+      snapshot: loneToolCalls(),
+      play: loneToolMetaAtRest,
+    },
+    "tool-hover-meta-lone-hovered": {
+      note: "The same calls with the finished fetch pointed at: its green check and run time fade in; the failure stays as it was. Play: open Worked for and its run, hover the fetch.",
+      snapshot: loneToolCalls(),
+      play: async (ctx) => {
+        await loneToolMetaAtRest(ctx);
+        const row = ctx.find({ selector: ".cv-tool:has(.cv-command__ok)" });
+        await ctx.hover({ selector: ".cv-tool:has(.cv-command__ok)" });
+        await ctx.waitFor(() =>
+          [...row.querySelectorAll(".cv-command__ok, .cv-command__time")].every(
+            (node) => getComputedStyle(node).opacity === "1",
+          ),
+        );
+      },
+    },
     "mcp-calls": {
       note: "MCP calls read as what they did: four sends to one chat are one line, the read names the chat.",
       snapshot: chat(
@@ -2252,6 +2337,18 @@ export default agentPaneEntry({
       checks: shellDisclosureChecks,
       snapshot: chat(groupedShellRows),
       play: openGroupedShells,
+    },
+    "long-commands-fill-row": {
+      note: 'Leo 2026-10-22, of Ran rows cut with an ellipsis about two thirds across: "shouldnt these also ellipsis later". Long commands (a cp of two long paths, an acpmux send) draw their whole first step and end in an ellipsis at the row\'s right edge, before the chevron; no 60-character cut. Play: open Worked for and the run; each command line is the whole step.',
+      checks: shellDisclosureChecks,
+      snapshot: chat(longCommandRows),
+      play: async (ctx) => {
+        await openWorked(ctx);
+        await openFoldedRun(ctx);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-command").length === 2);
+        const lines = [...ctx.document.querySelectorAll(".cv-command__line")].map((line) => line.textContent);
+        if (lines[0] !== LONG_CP) throw new Error(`the cp row reads ${lines[0]}, not the whole command`);
+      },
     },
     "fold-holds-clicked-line": {
       note: "Play: at the latest row, open Worked for, then a command, then close it; each line stays where it was clicked while its fold plays (height and opacity, the chevron turning).",
