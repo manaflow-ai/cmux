@@ -4,7 +4,6 @@ import CmuxNextChiefMemory
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextIcons
-import SwiftUI
 
 extension InternalPageID {
     /// The built-in Memory Inspector (memory-inspector-native-DESIGN.md): one pane tab per Chief.
@@ -153,7 +152,7 @@ final class ChiefMemoryPageService: InternalPageProvider {
             let scope: CmuxDialogScope = if let view = anchor.view { .tab(view) } else { .app }
             return await CmuxDialogCenter.shared.present(spec, in: scope).button == ChiefMemoryInspectorView.deleteButton
         }
-        let view = NSHostingView(rootView: ChiefMemoryInspectorView(model: model))
+        let view = ChiefMemoryInspectorView(model: model)
         anchor.view = view
         return view
     }
