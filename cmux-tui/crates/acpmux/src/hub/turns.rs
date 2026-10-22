@@ -1067,6 +1067,7 @@ impl Hub {
                     host_seq: None,
                 }),
                 remote: None,
+                watch_note: Default::default(),
             });
             self.store.delete(&session.id).map_err(|e| RpcError::internal(e.to_string()))?;
             // The files dropped into the chat go with it (`file_uploads.rs`), unless the chat

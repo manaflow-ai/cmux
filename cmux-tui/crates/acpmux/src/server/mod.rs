@@ -974,16 +974,17 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 return;
             }
             // Peers already filter to the interesting kinds and send a summary.
-            if rec.dir == "peer" {
-                let sid = remote
-                    .summary
-                    .get("sessionId")
-                    .cloned()
-                    .unwrap_or_else(|| Value::String(ev.session_id.clone()));
-                conn.send(&Message::notification(
-                    method::MUX_SESSION_CHANGED,
-                    json!({"sessionId": sid, "session": remote.summary, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer}),
-                ));
+            if rec.dir == "peer"
+                && let Some(params) = ev.watch_note.get_or_init(|| {
+                    let sid = remote
+                        .summary
+                        .get("sessionId")
+                        .cloned()
+                        .unwrap_or_else(|| Value::String(ev.session_id.clone()));
+                    Some(json!({"sessionId": sid, "session": &*remote.summary, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer}))
+                })
+            {
+                conn.send(&Message::notification(method::MUX_SESSION_CHANGED, params.clone()));
             }
             return;
         }
@@ -1000,11 +1001,13 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             return;
         }
         let Some(kind) = change_kind::session_change_kind(&rec.kind) else { return };
-        if let Ok(s) = hub.resolve(&ev.session_id) {
-            conn.send(&Message::notification(
-                method::MUX_SESSION_CHANGED,
-                json!({"sessionId": ev.session_id, "session": hub.session_summary(&s), "kind": kind, "recordKind": rec.kind, "seq": rec.seq}),
-            ));
+        // The first watcher to deliver this record builds the summary; the rest send that one.
+        let note = ev.watch_note.get_or_init(|| {
+            let s = hub.resolve(&ev.session_id).ok()?;
+            Some(json!({"sessionId": ev.session_id, "session": hub.session_summary(&s), "kind": kind, "recordKind": rec.kind, "seq": rec.seq}))
+        });
+        if let Some(params) = note {
+            conn.send(&Message::notification(method::MUX_SESSION_CHANGED, params.clone()));
         }
         // A watcher that is not attached still learns a permission is waiting.
         if is_permission_ask(&rec.kind) && !attached {

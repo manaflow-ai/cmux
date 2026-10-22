@@ -322,7 +322,8 @@ impl Hub {
                 msg: Value::Null,
                 host_seq: None,
             }),
-            remote: Some(RemoteRef { peer: peer.to_owned(), summary }),
+            remote: Some(RemoteRef { peer: peer.to_owned(), summary: Arc::new(summary) }),
+            watch_note: Default::default(),
         });
     }
 
@@ -453,8 +454,11 @@ impl Hub {
                             }),
                             remote: Some(RemoteRef {
                                 peer: peer.clone(),
-                                summary: removed.unwrap_or_else(|| json!({"sessionId": mux_id})),
+                                summary: Arc::new(
+                                    removed.unwrap_or_else(|| json!({"sessionId": mux_id})),
+                                ),
                             }),
+                            watch_note: Default::default(),
                         });
                         return;
                     }
@@ -489,7 +493,8 @@ impl Hub {
                             msg: Value::Null,
                             host_seq: None,
                         }),
-                        remote: Some(RemoteRef { peer: peer.clone(), summary }),
+                        remote: Some(RemoteRef { peer: peer.clone(), summary: Arc::new(summary) }),
+                        watch_note: Default::default(),
                     });
                 }
                 // A prompt this daemon forwarded was taken (`outbox.rs` `PeerAccepts`).
@@ -518,7 +523,11 @@ impl Hub {
                                 msg: params.clone(),
                                 host_seq: None,
                             }),
-                            remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null }),
+                            remote: Some(RemoteRef {
+                                peer: peer.clone(),
+                                summary: Arc::new(Value::Null),
+                            }),
+                            watch_note: Default::default(),
                         });
                     }
                 }
@@ -607,7 +616,8 @@ impl Hub {
                     let _ = self.events.send(HubEvent {
                         session_id: id,
                         record: Arc::new(record),
-                        remote: Some(RemoteRef { peer: peer.clone(), summary }),
+                        remote: Some(RemoteRef { peer: peer.clone(), summary: Arc::new(summary) }),
+                        watch_note: Default::default(),
                     });
                 }
             }

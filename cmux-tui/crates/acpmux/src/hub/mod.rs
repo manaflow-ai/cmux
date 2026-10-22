@@ -186,12 +186,23 @@ pub struct HubEvent {
     pub session_id: String,
     pub record: Arc<EventRecord>,
     pub remote: Option<RemoteRef>,
+    /// The `_acpmux/session_changed` params watchers get for this record, built by the first
+    /// connection that delivers it and shared by the rest (`server/mod.rs` `deliver`): one
+    /// summary per record, not one per watcher.
+    pub(crate) watch_note: Arc<std::sync::OnceLock<Option<Value>>>,
 }
 
+impl HubEvent {
+    pub fn new(session_id: String, record: EventRecord, remote: Option<RemoteRef>) -> Self {
+        Self { session_id, record: Arc::new(record), remote, watch_note: Default::default() }
+    }
+}
+
+/// Shared by every receiver too: a peer's summary is never copied per connection.
 #[derive(Debug, Clone)]
 pub struct RemoteRef {
     pub peer: String,
-    pub summary: Value,
+    pub summary: Arc<Value>,
 }
 
 /// A session that lives on a peer daemon.
@@ -921,11 +932,7 @@ impl Hub {
         ) {
             session.state_seq.fetch_add(1, Ordering::SeqCst);
         }
-        let _ = self.events.send(HubEvent {
-            session_id: session.id.clone(),
-            record: Arc::new(record.clone()),
-            remote: None,
-        });
+        let _ = self.events.send(HubEvent::new(session.id.clone(), record.clone(), None));
         (record, stored)
     }
 
