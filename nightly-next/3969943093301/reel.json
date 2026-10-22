@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "build": "3969943093301",
+  "notes": "notes/3969943093301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 22777,
+      "title": "cmux NEXT: signed web UI updates between app updates (every merge on NIGHTLY)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23851,
+      "title": "cmux NEXT Settings > Chief: Chiefs names models and efforts as people say them, on one glass card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23840,
+      "title": "cmux NEXT composer: line breaks copy and paste as lines, never <br />",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23777,
+      "title": "acpmux: Claude chats list Claude Code's own modes (Auto, Manual, Accept edits, Plan, Bypass permissions), no invented Normal/Full access",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23832,
+      "title": "cmux NEXT glass: the markdown link editor's one edge is the glass rim",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23578,
+      "title": "acpmux: delete a chat's uploads with it, and any upload after 30 days",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23547,
+      "title": "cmux NEXT sidebar: the Chief item wears the chosen pet character",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23790,
+      "title": "cmux NEXT browser: files dragged in from Finder drop into the Chromium page",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23805,
+      "title": "What's New: agent plumbing and its tests never read as news",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23824,
+      "title": "merge-compile-guard: its gh reads skip the gh guard's repeat throttle; a slow GitHub says so; a missing compile names the fleet compile-check",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23742,
+      "title": "cmux NEXT composer: Codex keeps its fast-mode bolt left of the mic; Claude's Fast mode stays in the model menu",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23732,
+      "title": "Agent chat: screenshots inline (glass thumbnails, before/after side by side); commits, hq#N, file:line link",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23833,
+      "title": "fix(acpmux): another agent's message reads \"name: first line\" in the sidebar and notifications",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23827,
+      "title": "ci(cmux-next): a PR compiles its head on the build fleet; Release and scheme compiles leave the PR's Mac queue",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23842,
+      "title": "webviews: the Jump glide may cover four times a frame's share, measured over 21 glides",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23420,
+      "title": "What's New: the Ledger uses the pane's width, pictures beside their changes in glass",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
