@@ -329,7 +329,7 @@ import { type ChatAccounts, ChatAccountsContext, readChatAccounts } from "./chat
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
-import { restartPrompt } from "./subagents/restart";
+import { restartOwner, restartPrompt, restartReaches } from "./subagents/restart";
 import {
   SUBAGENT_DONE,
   SUBAGENT_OF,
@@ -4598,6 +4598,13 @@ function AcpmuxPane() {
     ),
   );
   const stableBranches = useMemo(() => branchesFromKey(versionsKey), [versionsKey]);
+  const restartChat = restartOwner({
+    connected,
+    sessionId: snapshot.sessionId,
+    watching: Boolean(snapshot.summary?.watching),
+    readOnly: readOnlySubagent,
+    canSend: remoteComposer(snapshot).canSend,
+  });
   const turnActions = useMemo<TurnActions>(
     () => ({
       ...(stableBranches.size > 0 && {
@@ -4631,19 +4638,16 @@ function AcpmuxPane() {
               attachments: (await directClient.current?.promptAttachments(rowId)) ?? [],
             }))().catch(() => undefined),
       }),
-      // Restart sends a prompt as the composer would: never to a View Only chat (the composer takes
-      // it over first), never from a subagent's read-only pane, and only to the chat whose row was
-      // clicked (a row left over from a chat switch sends nothing).
-      ...(connected &&
-        snapshot.sessionId &&
-        !snapshot.summary?.watching &&
-        !readOnlySubagent && {
-          restartSubagent: ((owner: string) => (agent: Subagent) => {
-            if (sessionIdRef.current !== owner) return;
-            const text = restartPrompt(agent, translate);
-            if (text) void callNative("chat.send", { text }).catch(() => undefined);
-          })(snapshot.sessionId),
-        }),
+      // Restart sends a prompt as the composer would (restart.ts `restartOwner`, `restartReaches`):
+      // never to a View Only chat, from a subagent's read-only pane or where the composer cannot send,
+      // and only to the chat whose row was clicked, never to the next chat during a switch's hold.
+      ...(restartChat && {
+        restartSubagent: ((owner: string) => (agent: Subagent) => {
+          if (!restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)) return;
+          const text = restartPrompt(agent, translate);
+          if (text) void callNative("chat.send", { text }).catch(() => undefined);
+        })(restartChat),
+      }),
       ...(connected &&
         retryModels.length > 1 && {
           retryWith: {
@@ -4691,9 +4695,7 @@ function AcpmuxPane() {
       retryHarnessName,
       retryTop,
       catalog,
-      snapshot.sessionId,
-      snapshot.summary?.watching,
-      readOnlySubagent,
+      restartChat,
     ],
   );
   // Streaming text changes rows on every chunk; only the turn's tool calls change its files.

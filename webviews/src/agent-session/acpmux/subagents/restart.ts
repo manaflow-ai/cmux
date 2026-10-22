@@ -28,3 +28,27 @@ export function restartPrompt(agent: Pick<Subagent, "state" | "parent" | "prompt
     ? t("subagents.restartPromptKind", { ...values, kind: agent.kind })
     : t("subagents.restartPrompt", values);
 }
+
+/// What decides whether the shown chat offers Restart at all, as its composer would send.
+export type RestartChat = {
+  connected: boolean;
+  sessionId: string | undefined;
+  /// View Only: the composer takes the chat over before anything is sent.
+  watching: boolean;
+  /// A subagent's own read-only pane.
+  readOnly: boolean;
+  /// remoteEditing.ts `remoteComposer(...).canSend`: false for a remote Codex or opencode chat.
+  canSend: boolean;
+};
+
+/// The chat Restart's rows send to, or undefined when the shown chat offers no Restart.
+export function restartOwner(chat: RestartChat): string | undefined {
+  return chat.connected && !chat.watching && !chat.readOnly && chat.canSend ? chat.sessionId : undefined;
+}
+
+/// Whether a Restart from a row drawn for `owner` still reaches that chat: the pane still shows it
+/// (`shown`) and the client, which `chat.send` writes to, still has it selected (`selected`). During
+/// a switch's hold the pane draws the chat before while the client already names the next one.
+export function restartReaches(owner: string, shown: string | undefined, selected: string | undefined): boolean {
+  return owner === shown && owner === selected;
+}
