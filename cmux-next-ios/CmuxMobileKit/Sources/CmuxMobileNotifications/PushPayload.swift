@@ -121,7 +121,7 @@ public struct PushPayload: Codable, Sendable, Equatable {
                 sessionId: String? = nil, permissionId: String? = nil, conversationId: String? = nil, notificationId: String? = nil,
                 title: String? = nil, body: String? = nil, options: [PushOption] = [], questions: [PushQuestion] = [],
                 tail: [String] = [], state: State? = nil, previews: Bool = true, replyable: Bool = false,
-                decisionNonce: String? = nil, personInstance: String? = nil) {
+                decisionNonce: String? = nil, personInstance: String? = nil, postedAt: Int? = nil) {
         self.v = v
         self.mac = mac
         self.macName = macName
@@ -146,6 +146,7 @@ public struct PushPayload: Codable, Sendable, Equatable {
         self.replyable = replyable
         self.decisionNonce = decisionNonce
         self.personInstance = personInstance
+        self.postedAt = postedAt
     }
 
     enum CodingKeys: String, CodingKey {

@@ -179,7 +179,14 @@ extension LiveCoordinator {
     /// the service is out of reach, `refused` when the reply can't go this way).
     public func deliverViaMailbox(_ reply: PushReply, now: Date = Date()) async throws -> MailboxOutcome {
         guard let pairing, let push = pairing.push, let trust = push.trust(), trust.user == userID, trust.phone == pairing.phoneID,
-              let boxKey = trust.macs[reply.mac.lowercased()]?.boxKey else {
+              let mac = trust.macs[reply.mac.lowercased()] else {
+            throw PushReplyFailure(reason: .unreachable)
+        }
+        let boxKey: String
+        do {
+            boxKey = try MailboxReply.trustedBoxKey(mac, macID: reply.mac, pinnedIdentity: pairing.pins.key(for: reply.mac))
+        } catch {
+            log.error("mailbox: the Mac's box key doesn't check against its pinned key")
             throw PushReplyFailure(reason: .unreachable)
         }
         guard MailboxReply.supports(reply) else { throw PushReplyFailure(reason: .unreachable) }
@@ -198,11 +205,17 @@ extension LiveCoordinator {
                 throw PushReplyFailure(reason: .refused((error as? PhoneKeys.Failure)?.message ?? String(describing: error)))
             }
         }
+        guard let lifetime = Self.mailboxLifetime(reply, now: now) else {
+            throw PushReplyFailure(reason: .refused(String(localized: "This reply is too old to send. Open the chat to answer again.")))
+        }
         let sealed: String
         do {
-            let mailbox = try MailboxReply(reply: reply, phone: pairing.phoneID, nonce: UUID().uuidString.lowercased(), now: now,
-                                           approval: approval)
+            let mailbox = try MailboxReply(reply: reply, phone: pairing.phoneID, nonce: MailboxReply.newNonce(),
+                                           now: Self.mailboxIssuedAt(reply, now: now), approval: approval,
+                                           lifetime: lifetime)
             sealed = try mailbox.sealed(signature: try pairing.keys.signIdentity(mailbox.signedMessage), boxKey: boxKey)
+        } catch MailboxReply.Failure.tooLong {
+            throw PushReplyFailure(reason: .refused(String(localized: "That reply is too long to send without the link.")))
         } catch {
             throw PushReplyFailure(reason: .unreachable)
         }
@@ -210,6 +223,10 @@ extension LiveCoordinator {
             let delivered = try await api.postMailbox(macID: reply.mac, id: reply.id.uuidString.lowercased(), from: pairing.phoneID, sealed: sealed)
             log.info("push reply sent through the mailbox (\(delivered ? "delivered" : "queued", privacy: .public))")
             return delivered ? .delivered : .queued
+        } catch let failure as LiveAPI.Failure where failure.status == 409 {
+            // A retry of a reply the service already holds (its first blob): it is queued (PR B review 10).
+            log.info("push reply already in the mailbox")
+            return .queued
         } catch {
             log.error("mailbox post failed: \(String(describing: error), privacy: .public)")
             throw PushReplyFailure(reason: .unreachable)
@@ -219,6 +236,27 @@ extension LiveCoordinator {
     /// The mailbox's word on a reply; nil when the service can't say.
     public func mailboxState(of reply: PushReply) async -> LiveAPI.MailboxState? {
         try? await api.mailboxState(macID: reply.mac, id: reply.id.uuidString.lowercased())
+    }
+
+    /// What the Mac itself said about a mailbox reply (its signed ack, checked
+    /// against its pinned key); nil while that is not known, or when the
+    /// service's answer carries no valid signature (PR B security review M3).
+    public func signedMailboxOutcome(_ reply: PushReply, state: LiveAPI.MailboxState) -> (applied: Bool, reason: String?)? {
+        MailboxReply.verifiedOutcome(state: state.state, reason: state.reason, sig: state.sig, mac: reply.mac,
+                                     id: reply.id.uuidString.lowercased(), pinnedIdentity: pairing?.pins.key(for: reply.mac))
+    }
+
+    /// A reply is valid from when the person made it, never longer than its
+    /// first lifetime: a Retry re-seals with the same window, not a fresh one
+    /// (PR B security review M1).
+    nonisolated static func mailboxIssuedAt(_ reply: PushReply, now: Date) -> Date {
+        min(reply.createdAt, now)
+    }
+
+    /// The reply's window from when it was made; nil once it is over (the Mac would refuse it).
+    nonisolated static func mailboxLifetime(_ reply: PushReply, now: Date) -> TimeInterval? {
+        let left = MailboxReply.lifetime - now.timeIntervalSince(mailboxIssuedAt(reply, now: now))
+        return left >= 5 ? MailboxReply.lifetime : nil
     }
 
     /// `JSONValue` as the mailbox's canonical JSON (integers only: every number an approval carries is one).

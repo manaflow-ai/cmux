@@ -163,8 +163,9 @@ public struct LinkPairing: Sendable {
         let pinned = pins.key(for: macID)
         /// The key this Mac proved in this `auth`, pinned once the Mac lets this phone in.
         var proven: String?
-        /// The box key that key vouched for (sealed replies go to it).
+        /// The box key that key vouched for (sealed replies go to it), and its signature.
         var boxKey: String?
+        var boxSignature: String?
         do {
             while true {
                 guard let frame = try await channel.receive() else {
@@ -180,7 +181,8 @@ public struct LinkPairing: Sendable {
                     // The service extension opens this Mac's sealed pushes with the push key
                     // this `auth` sent, checked against the pinned identity key.
                     if let push, let user = keys.userID, let identity = proven ?? pinned {
-                        push.trust(mac: macID, identityKey: identity, boxKey: opened.sentPushKey ? boxKey : nil, user: user, phone: phoneID)
+                        push.trust(mac: macID, identityKey: identity, boxKey: opened.sentPushKey ? boxKey : nil,
+                                   boxSignature: boxSignature, user: user, phone: phoneID)
                     }
                     return .paired(macDevice: macID)
                 }
@@ -202,6 +204,7 @@ public struct LinkPairing: Sendable {
                 case .refused(let error): return .refused(error)
                 }
                 boxKey = Self.boxKey(value, mac: mac, identityKey: proven)
+                boxSignature = boxKey == nil ? nil : value["macBoxSignature"]?.stringValue?.lowercased()
                 let payload = LinkAuthPayload(mac: mac, phone: phoneID, nonce: nonce, identityKey: identity,
                                               approvalKey: approval, action: "pair")
                 let signature = try keys.signIdentity(payload.message)

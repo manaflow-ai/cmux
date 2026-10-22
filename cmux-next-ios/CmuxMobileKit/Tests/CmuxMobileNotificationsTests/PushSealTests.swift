@@ -228,8 +228,9 @@ struct SealVectors: Decodable {
         var p = Self.question
         p.previews = false
         #expect(PushBanner(payload: p) == PushBanner(title: "Claude has a question", body: "Mac mini"))
-        let terminal = PushPayload(mac: "m", macName: "Mac mini", kind: .terminal, place: "repo", title: "Build done", body: "exit 0")
-        #expect(PushBanner(payload: terminal) == PushBanner(title: "Build done", subtitle: "repo · Mac mini", body: "exit 0"))
+        // A program's own title never stands where an agent's would (review L6).
+        let terminal = PushPayload(mac: "m", macName: "Mac mini", kind: .terminal, place: "repo", title: "Claude needs permission", body: "exit 0")
+        #expect(PushBanner(payload: terminal) == PushBanner(title: "Terminal · repo", subtitle: "repo · Mac mini", body: "Claude needs permission: exit 0"))
         let bare = PushPayload(mac: "m", macName: "Mac mini", kind: .completed, agent: "Codex", place: "repo")
         #expect(PushBanner(payload: bare) == PushBanner(title: "Codex finished", body: "repo · Mac mini"))
         #expect(PushBanner.generic(macName: "Mac mini") == PushBanner(title: "cmux", body: "New notification from Mac mini"))
@@ -255,7 +256,7 @@ struct SealVectors: Decodable {
         let reply = PushReply(id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!, mac: "mac-1", kind: .completed,
                               sessionId: "s-1", action: .text("ship it", attachments: []))
         let mailbox = try MailboxReply(reply: reply, phone: "phone-1", nonce: "n1", now: Self.when)
-        #expect(mailbox.plaintext.canonical == #"{"action":{"text":"ship it","type":"text"},"expiresAt":1800000600,"id":"00000000-0000-0000-0000-000000000001","issuedAt":1800000000,"kind":"completed","mac":"mac-1","nonce":"n1","phone":"phone-1","target":{"sessionId":"s-1"},"v":1}"#)
+        #expect(mailbox.plaintext.canonical == #"{"action":{"text":"ship it","type":"text"},"expiresAt":1800000540,"id":"00000000-0000-0000-0000-000000000001","issuedAt":1800000000,"kind":"completed","mac":"mac-1","nonce":"n1","phone":"phone-1","target":{"sessionId":"s-1"},"v":1}"#)
         let signature = try phoneKey.signature(for: mailbox.signedMessage).rawRepresentation
         let sealed = try mailbox.sealed(signature: signature, boxKey: PushSignature.hex(macBox.publicKey.x963Representation))
         // What the Mac does: open, take `sig` out, check it over the rest.
@@ -270,7 +271,7 @@ struct SealVectors: Decodable {
     @Test func whatTheMailboxRefuses() throws {
         let long = PushReply(mac: "m", kind: .terminal, notificationId: "7", action: .text(String(repeating: "x", count: 4097), attachments: []))
         #expect(throws: MailboxReply.Failure.tooLong) { try MailboxReply(reply: long, phone: "p", nonce: "n", now: Self.when) }
-        let answer = PushReply(mac: "m", kind: .question, action: .option(0))
+        let answer = PushReply(mac: "m", kind: .question, action: .option(0, label: "A"))
         #expect(throws: MailboxReply.Failure.unsupported) { try MailboxReply(reply: answer, phone: "p", nonce: "n", now: Self.when) }
         #expect(!MailboxReply.supports(answer))
         let allow = PushReply(mac: "m", kind: .permission, action: .allow(optionID: "o"))
@@ -293,5 +294,122 @@ struct SealVectors: Decodable {
         #expect(PushActions().plan(for: silent).isEmpty)
         #expect(PushReply(payload: silent, button: .terminalReply, text: "yes") == nil)
         #expect(PushReply(payload: payload, button: .reply, text: "yes") == nil)
+    }
+}
+
+/// PR B security review H1, M3, L2, L4 and correctness review 1.
+@Suite struct PushTrustGateTests {
+    static let mac = SealedPushTests.mac
+
+    static func unsealed(_ payload: PushPayload) -> [AnyHashable: Any] { payload.userInfo }
+
+    @Test func anUnsealedPushFromAMacThatSealsActsOnNothing() throws {
+        let (keys, macKey, _) = try SealedPushTests.setUp()
+        // This Mac proved a box key: it seals.
+        keys.trust(mac: Self.mac, identityKey: PushSignature.hex(macKey.publicKey.x963Representation),
+                   boxKey: PushSignature.hex(P256.KeyAgreement.PrivateKey().publicKey.x963Representation), user: "u1", phone: SealedPushTests.phone)
+        let gate = PushTrustGate(trust: keys.trust(), keys: keys)
+        // The service made up a question with swapped labels: shown as a bare route, no buttons.
+        let forged = PushPayload(mac: Self.mac, kind: .question, eventId: "p-1", sessionId: "s-1", permissionId: "perm-1",
+                                 title: "Cancel deploy?", questions: [PushQuestion(question: "Cancel deploy?", options: [.init(label: "Cancel")])])
+        guard case .openOnly(let route) = gate.verdict(userInfo: Self.unsealed(forged)) else { Issue.record("acted on"); return }
+        #expect(route.questions.isEmpty && route.title == nil && route.sessionId == "s-1")
+        // A Mac that never sealed keeps PR A's behavior.
+        let other = PushPayload(mac: "mac-old", kind: .completed, sessionId: "s")
+        #expect(gate.verdict(userInfo: Self.unsealed(other)) == .trusted(other))
+    }
+
+    @Test func aSealedPushIsOpenedAgainFromItsBox() throws {
+        let (keys, macKey, pushKey) = try SealedPushTests.setUp()
+        let gate = PushTrustGate(trust: keys.trust(), keys: keys)
+        let raw = try SealedPushTests.sealedPush(macKey: macKey, pushKey: pushKey, payload: SealedPushTests.question)
+        // What the service extension leaves: the content it wrote, and the box as it came.
+        var forgedContent = PushPayload(mac: Self.mac, kind: .question, eventId: "p-1", sessionId: "s-1", permissionId: "perm-1",
+                                        questions: [PushQuestion(question: "x", options: [.init(label: "Swapped")])]).userInfo
+        forgedContent[PushTrustGate.sealedKey] = raw[PushPayload.userInfoKey]
+        guard case .trusted(let payload) = gate.verdict(userInfo: forgedContent, now: Date()) else { Issue.record("refused"); return }
+        // The box's options count, never the content beside it.
+        #expect(payload.questions.first?.options.map(\.label) == ["main"])
+        // A box signed by another key is refused outright.
+        var bad = forgedContent
+        bad[PushTrustGate.sealedKey] = try SealedPushTests.sealedPush(macKey: P256.Signing.PrivateKey(), pushKey: pushKey,
+                                                                      payload: SealedPushTests.question)[PushPayload.userInfoKey]
+        #expect(gate.verdict(userInfo: bad) == .refused)
+    }
+
+    @Test func anOldPushKeepsItsTapButLosesItsButtons() throws {
+        var payload = PushPayload(mac: "mac-old", kind: .completed, sessionId: "s", postedAt: 1_800_000_000)
+        let gate = PushTrustGate(trust: nil, keys: nil)
+        let now = Date(timeIntervalSince1970: 1_800_000_000 + PushTrustGate.maxAge + 1)
+        #expect(gate.verdict(userInfo: payload.userInfo, now: now) == .openOnly(payload))
+        payload.postedAt = 1_800_000_000 + 10
+        #expect(gate.verdict(userInfo: payload.userInfo, now: now) == .trusted(payload))
+    }
+
+    @Test func theBoxKeyIsCheckedAgainstThePinnedMacKeyBeforeSealing() throws {
+        let macKey = P256.Signing.PrivateKey()
+        let identity = PushSignature.hex(macKey.publicKey.x963Representation)
+        let box = PushSignature.hex(P256.KeyAgreement.PrivateKey().publicKey.x963Representation)
+        let signature = PushSignature.hex(try macKey.signature(for: PushSeal.joined("cmux-mobile-mac-box-v1", ["mac-1", box])).rawRepresentation)
+        let good = PushTrust.Mac(identityKey: identity, boxKey: box, boxSignature: signature)
+        #expect(try MailboxReply.trustedBoxKey(good, macID: "mac-1", pinnedIdentity: identity) == box)
+        // Another box key written into the shared keychain, a pin that differs, no signature: refused.
+        let swapped = PushTrust.Mac(identityKey: identity, boxKey: PushSignature.hex(P256.KeyAgreement.PrivateKey().publicKey.x963Representation),
+                                    boxSignature: signature)
+        #expect(throws: MailboxReply.Failure.untrustedBoxKey) { try MailboxReply.trustedBoxKey(swapped, macID: "mac-1", pinnedIdentity: identity) }
+        #expect(throws: MailboxReply.Failure.untrustedBoxKey) { try MailboxReply.trustedBoxKey(good, macID: "mac-1", pinnedIdentity: "04ff") }
+        #expect(throws: MailboxReply.Failure.untrustedBoxKey) {
+            try MailboxReply.trustedBoxKey(PushTrust.Mac(identityKey: identity, boxKey: box), macID: "mac-1", pinnedIdentity: identity)
+        }
+    }
+
+    @Test func onlyTheMacsOwnSignatureSaysAReplyWasApplied() throws {
+        let macKey = P256.Signing.PrivateKey()
+        let pin = PushSignature.hex(macKey.publicKey.x963Representation)
+        let sign = { (applied: Bool, reason: String?) in
+            PushSignature.hex(try macKey.signature(for: MailboxReply.ackMessage(mac: "mac-1", id: "r1", applied: applied, reason: reason)).rawRepresentation)
+        }
+        let applied = MailboxReply.verifiedOutcome(state: "applied", reason: nil, sig: try sign(true, nil), mac: "mac-1", id: "r1", pinnedIdentity: pin)
+        #expect(applied?.applied == true)
+        // The service says applied with no signature, or with the refusal's signature: not taken.
+        #expect(MailboxReply.verifiedOutcome(state: "applied", reason: nil, sig: nil, mac: "mac-1", id: "r1", pinnedIdentity: pin) == nil)
+        #expect(MailboxReply.verifiedOutcome(state: "applied", reason: nil, sig: try sign(false, "not_pending"), mac: "mac-1", id: "r1",
+                                             pinnedIdentity: pin) == nil)
+        let refused = MailboxReply.verifiedOutcome(state: "rejected", reason: "not_pending", sig: try sign(false, "not_pending"), mac: "mac-1",
+                                                   id: "r1", pinnedIdentity: pin)
+        #expect(refused?.applied == false && refused?.reason == "not_pending")
+    }
+
+    @Test func aNonceIsWhatTheMacTakes() {
+        let nonce = MailboxReply.newNonce()
+        // mailbox.rs: 16 to 128 letters or digits.
+        #expect(nonce.count == 32 && nonce.allSatisfy { $0.isLetter || $0.isNumber } && nonce == nonce.lowercased())
+    }
+
+    @Test func aSealedReplyOverTheServicesLimitIsRefusedOnThePhone() throws {
+        let macBox = P256.KeyAgreement.PrivateKey()
+        // 4096 bytes of quotes: escaped to twice that, then base64url.
+        let reply = PushReply(mac: "m", kind: .completed, sessionId: "s", action: .text(String(repeating: "\"", count: 4096), attachments: []))
+        let mailbox = try MailboxReply(reply: reply, phone: "p", nonce: MailboxReply.newNonce(), now: MailboxReplyTests.when)
+        let sealed = try mailbox.sealed(signature: Data(repeating: 1, count: 64), boxKey: PushSignature.hex(macBox.publicKey.x963Representation))
+        #expect(sealed.count <= MailboxReply.maxSealed)
+        // Control characters escape to six bytes each: over the limit, refused here.
+        let wide = PushReply(mac: "m", kind: .completed, sessionId: "s", action: .text(String(repeating: "\u{01}", count: 4096), attachments: []))
+        let big = try MailboxReply(reply: wide, phone: "p", nonce: MailboxReply.newNonce(), now: MailboxReplyTests.when)
+        #expect(throws: MailboxReply.Failure.tooLong) {
+            try big.sealed(signature: Data(repeating: 1, count: 64), boxKey: PushSignature.hex(macBox.publicKey.x963Representation))
+        }
+    }
+}
+
+/// PR B security review H2: a terminal reply never goes through the outbox.
+@Suite struct OutboxTerminalTests {
+    @Test func theOutboxRefusesTextIntoATerminal() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let outbox = PushOutbox(directory: dir)
+        let terminal = PushReply(mac: "m", kind: .terminal, notificationId: "7", action: .text("rm -rf ~", attachments: []))
+        #expect(throws: PushOutbox.Refused.self) { try outbox.put(terminal) }
+        try outbox.put(PushReply(mac: "m", kind: .completed, sessionId: "s", action: .text("ok", attachments: [])))
+        #expect(outbox.takeAll().count == 1)
     }
 }

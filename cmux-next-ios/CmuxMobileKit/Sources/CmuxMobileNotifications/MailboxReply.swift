@@ -11,14 +11,19 @@ public struct MailboxReply: Sendable, Equatable {
         /// This kind of reply can't go through the mailbox (a question's
         /// answers need the prompt the link reads).
         case unsupported
-        /// Text over the limit.
+        /// Text over the limit, or a sealed reply over the service's.
         case tooLong
+        /// The Mac's box key no longer checks against its pinned identity key.
+        case untrustedBoxKey
         /// An Allow from a push that carried no `decisionNonce` (an unsealed push).
         case unsigned
     }
 
-    /// At most this long a reply stays valid.
-    public static let lifetime: TimeInterval = 600
+    /// At most this long a reply stays valid: under the Mac's 600 s, so a
+    /// phone clock a little ahead is still accepted (PR B review 3).
+    public static let lifetime: TimeInterval = 540
+    /// The largest sealed reply the service takes (base64url characters, `MAX_MAILBOX_SEALED`).
+    public static let maxSealed = 16_384
     /// At most this many bytes of text.
     public static let maxTextBytes = 4096
 
@@ -77,8 +82,47 @@ public struct MailboxReply: Sendable, Equatable {
         guard let boxKey, let recipient = PushSignature.hexData(boxKey) else { throw Failure.noBoxKey }
         guard case .object(var object) = plaintext else { throw Failure.unsupported }
         object["sig"] = .string(PushSignature.hex(signature))
-        return try PushSeal.seal(Data(PushJSON.object(object).canonical.utf8), to: recipient,
-                                 context: PushSeal.replyContext(mac: mac, phone: phone, replyId: id))
+        let sealed = try PushSeal.seal(Data(PushJSON.object(object).canonical.utf8), to: recipient,
+                                       context: PushSeal.replyContext(mac: mac, phone: phone, replyId: id))
+        // The service refuses a larger one; say so here instead of "Couldn't reach" (review L2).
+        guard sealed.count <= Self.maxSealed else { throw Failure.tooLong }
+        return sealed
+    }
+
+    /// The Mac's box key, re-checked against its identity key (pinned at
+    /// pairing) before a reply is sealed to it: a keychain entry another
+    /// process changed can't redirect replies (review L4).
+    public static func trustedBoxKey(_ mac: PushTrust.Mac, macID: String, pinnedIdentity: String?) throws -> String {
+        guard let box = mac.boxKey else { throw Failure.noBoxKey }
+        guard let pinned = pinnedIdentity?.lowercased(), pinned == mac.identityKey.lowercased(), let signature = mac.boxSignature,
+              PushSignature.verify(key: pinned, signature: signature,
+                                   message: PushSeal.joined("cmux-mobile-mac-box-v1", [macID.lowercased(), box])) else {
+            throw Failure.untrustedBoxKey
+        }
+        return box
+    }
+
+    /// A one-time nonce as the Mac takes it: 32 lowercase hex digits (a UUID
+    /// without its dashes; PR B review 1).
+    public static func newNonce() -> String {
+        UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+    }
+
+    /// What the Mac's ack signature covers.
+    public static func ackMessage(mac: String, id: String, applied: Bool, reason: String?) -> Data {
+        PushSeal.joined("cmux-mobile-mailbox-ack-v1", [mac, id, applied ? "1" : "0", reason ?? ""])
+    }
+
+    /// The outcome the Mac signed, or nil when the signature is missing or
+    /// not the pinned Mac key's: the service could have made it up (review M3).
+    public static func verifiedOutcome(state: String, reason: String?, sig: String?, mac: String, id: String,
+                                       pinnedIdentity: String?) -> (applied: Bool, reason: String?)? {
+        guard let sig, let pinnedIdentity, state == "applied" || state == "rejected" else { return nil }
+        let applied = state == "applied"
+        let why = applied ? nil : reason
+        guard PushSignature.verify(key: pinnedIdentity, signature: sig, message: ackMessage(mac: mac, id: id, applied: applied, reason: why))
+        else { return nil }
+        return (applied, why)
     }
 
     /// Whether a reply of this kind can go through the mailbox at all.

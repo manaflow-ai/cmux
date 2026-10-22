@@ -178,6 +178,14 @@ public struct LiveAPI: Sendable {
         /// `queued`, `applied`, `rejected` or `expired`.
         public var state: String
         public var reason: String?
+        /// The Mac's identity signature over the outcome (`cmux-mobile-mailbox-ack-v1`).
+        public var sig: String?
+
+        public init(state: String, reason: String? = nil, sig: String? = nil) {
+            self.state = state
+            self.reason = reason
+            self.sig = sig
+        }
     }
 
     /// `POST /v1/devices/:mac/mailbox` (PROTOCOL.md "Reply mailbox"): a reply
