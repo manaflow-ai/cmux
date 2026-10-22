@@ -949,7 +949,7 @@ export default agentPaneEntry({
       },
     },
     "queued-paused": {
-      note: 'A turn failed with prompts queued: the note names the turn\'s error, and they wait under it, in order, until Resume. A prompt sent meanwhile runs now.',
+      note: "A turn failed with prompts queued: the note names the turn's error, and they wait under it, in order, until Resume. A prompt sent meanwhile runs now.",
       snapshot: (() => {
         const failed = steering(true);
         return {
