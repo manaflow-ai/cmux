@@ -203,6 +203,19 @@ class GuardsRunFromTheBase(unittest.TestCase):
         self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
         self.assertEqual(out["hookSpecificOutput"]["permissionDecisionReason"], "merge guard base v1")
 
+    def test_a_refusal_in_any_json_spacing_still_refuses(self):
+        """Codex review of #24265 (round 2): the loop matched `"permissionDecision": "deny"` as text, so a valid
+        refusal written with other spacing was merged into a warning and the red compile's refusal was lost."""
+        spaced = GUARD.replace("sys.stdout)", "sys.stdout, separators=(',', ':  '), indent=2)")
+        self.land_on_base("scripts/ci/merge_compile_guard.py", spaced % "base v1")
+        for command in ("gh pr merge 5 --squash",
+                        "gh pr merge 5 --squash; gh api -X PUT repos/manaflow-ai/cmux/pulls/5/update-branch"):
+            with self.subTest(command=command):
+                code, out, err = self.hook(command)
+                self.assertEqual(code, 0, err)
+                self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+                self.assertEqual(out["hookSpecificOutput"]["permissionDecisionReason"], "merge guard base v1")
+
     def old_base(self) -> str:
         """A commit on the base from before the launcher existed."""
         old = self.tmp / "old"
