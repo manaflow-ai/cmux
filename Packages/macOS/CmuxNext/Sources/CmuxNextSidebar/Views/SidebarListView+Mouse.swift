@@ -49,11 +49,15 @@ extension SidebarListViewComponents {
                 // Keep the multi-selection so it can be dragged; collapse it
                 // on mouse-up if no drag happens.
                 press.deferredClick = id
-            } else {
-                // Leo 2026-10-21: "MOUSE DOWN DRAGGING ON A WORKSPACE SHOULDN'T BE IMMEDIATELY FOCUSING". A press
-                // selects nothing; the release on this row navigates, a drag moves the row and leaves the shown
-                // workspace where it is (as `sidebar.multiView` did first, #23437).
+            } else if SidebarTunables.multiView.value {
+                // Multi-view (Leo, item D, #23437): a press selects nothing; the release on this row navigates.
                 press.clickOnRelease = id
+            } else {
+                // Lawrence 2026-10-21: "on mousedown, instantly switch". The press switches now; a drag puts back
+                // what was shown before (`restorePressSwitch`; Leo 2026-10-21: "MOUSE DOWN DRAGGING ON A WORKSPACE
+                // SHOULDN'T BE IMMEDIATELY FOCUSING", #23977).
+                press.switchedOnPress = (id, oldItem, oldSelection)
+                if oldItem != .workspace(id) || oldSelection != [id] { model.click(id) }
             }
             // The fill moves now, on the two rows (a switch drew it already, `SidebarSameTurn`).
             if !patchSelection(from: oldItem, oldSelection: oldSelection) { reload(animated: true) }
@@ -177,13 +181,17 @@ extension SidebarListViewComponents {
             let up = event.specialKey == .upArrow
             if flags == [.command, .option] {
                 model.moveSelection(up ? .up : .down)
+                // A move reorders rows: the reload lays them out and reveals the active row (close-focus.md).
+                reload(animated: true)
             } else if flags.isEmpty || flags == .shift {
+                let (oldItem, oldSelection) = (model.selectedItem, model.selection)
                 model.moveActive(by: up ? -1 : 1, extending: flags == .shift, visibleOrder: visibleWorkspaceOrder)
+                // A step is a selection change: the patch repaints the two rows and reveals the new one, as a click's
+                // does (I6); held arrow keys laid the whole list out on every repeat.
+                if !patchSelection(from: oldItem, oldSelection: oldSelection) { reload(animated: true) }
             } else {
                 return super.keyDown(with: event)
             }
-            // The reload reveals the new active row (close-focus.md).
-            reload(animated: true)
         case .carriageReturn?, .enter?:
             if let active = model.activeWorkspaceID { inlineRename.begin(.workspace(active)) }
         case .delete?, .deleteForward?:
