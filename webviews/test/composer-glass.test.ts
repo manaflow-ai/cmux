@@ -152,6 +152,13 @@ await requireBrowserLane("composer-glass.test.ts", async () => {
         await page.close();
       });
 
+  test("the plain top strip, bare text with no fill, frosts nothing under it", async () => {
+    const page = await open("light", { "data-top-strip": "plain" });
+    expect((await look(page, "strip")).backdrop).toBe("none");
+    expect((await look(page, "strip-composer")).backdrop, "the card under it is still glass").toContain("blur(");
+    await page.close();
+  });
+
   test("Reduce Transparency is the one case the box is opaque", async () => {
     for (const colorScheme of ["light", "dark"] as const) {
       const page = await open(colorScheme, { "data-reduce-transparency": "" });

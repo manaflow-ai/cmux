@@ -154,8 +154,9 @@
   /* glass-opaque-allow: a keyword (top, bottom, both) the lens reads, not a color */
   --glass-join: both;
 }
-/* The plain top strip draws the queue as bare text, with no fill: no glass under it either. */
-:root[data-top-strip="plain"] .acpmux-composer > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
+/* The plain top strip draws the strip and the queue as bare text, with no fill: no glass under them
+   either. */
+:root[data-top-strip="plain"] .acpmux-composer > :is(.acpmux-composer-strip, .acpmux-composer-queue, .acpmux-queue-foldbar) {
   --glass-refraction: 0px;
   --glass-blur: 0px;
   -webkit-backdrop-filter: none;
