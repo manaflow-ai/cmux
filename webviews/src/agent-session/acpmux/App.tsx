@@ -62,9 +62,9 @@ import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
-import { StyleSwitch } from "./newtab/StyleSwitch";
+import { PageDots } from "./newtab/PageDots";
 import { editedPageWidgets, editNewTabWidgets, shownPageWidgets } from "./newtab/pageWidgets";
-import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./newtab/templates";
+import { screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
@@ -7816,23 +7816,18 @@ function AcpmuxPane() {
           data-dock={!reviewing && !freshView && !diffView && !inspectorOpen ? "float" : undefined}
           data-summary={summaryCard.column ? "inline" : "popover"}
         >
-          {!harnessesOpen &&
-            showNewTab &&
-            !newTab.history &&
-            shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets).has("styleDots") && (
-              // The page's style, under it (on Minimal a widget, off by default: newtab/pageWidgets.ts);
-              // a pick shows in place at once.
-              <StyleSwitch
-                current={pageStyle(shownTemplate(newTab))}
-                onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
-                onPick={(style) =>
-                  pickNewTabStyle(style, {
-                    callNative,
-                    show: (next) => setNewTab((current) => current && { ...current, template: next }),
-                  })
-                }
-              />
-            )}
+          {!harnessesOpen && showNewTab && !newTab.history && (
+            // The page's dots, under it: the composer's two looks, then with the style dots on (on
+            // Minimal a widget, off by default: newtab/pageWidgets.ts) the page's other styles
+            // (newtab/PageDots.tsx); a pick shows in place at once.
+            <PageDots
+              template={shownTemplate(newTab)}
+              styleDots={shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets).has("styleDots")}
+              callNative={callNative}
+              show={(next) => setNewTab((current) => current && { ...current, template: next })}
+              onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
+            />
+          )}
           {harnessesOpen ? (
             <HarnessesScreen
               catalog={pickerCatalog}

@@ -65,6 +65,7 @@ import { usePopupHost } from "../../../ui/UiProvider";
 import { UI_ANCHOR_GAP } from "../../../ui/anchor";
 import { useComposerChrome } from "../composerChrome";
 import { useComposerSettings } from "../composerSettings";
+import { useComposerLook } from "../composerLook";
 import { ComposerFoot } from "../ComposerFoot";
 import { FastToggle, SpeedToggleHost, type SpeedTiers } from "../FastToggle";
 import { useRowFit } from "../composerRowFit";
@@ -399,7 +400,9 @@ export function NewTabScreen(props: Props) {
   // existing composer on the second one"): with the plain footer on, every template but Default
   // (the page's second dot) draws the chat composer's split, the mode, model and effort in a quiet
   // row under the box. Default keeps the chips in the box, as before the split.
-  const split = plainFooter && props.chips !== undefined && template !== "default";
+  // Codex's look (the page's second dot, composerLook.ts) keeps them in the box's row too.
+  const look = useComposerLook();
+  const split = plainFooter && look === "claude" && props.chips !== undefined && template !== "default";
   useRowFit(foot, split);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
   useMenuPressGuard();
@@ -1028,7 +1031,7 @@ export function NewTabScreen(props: Props) {
           bar with the agent's model chip, the mic and Send. The location strip with the project the
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
           composer location strip; newtab/screen.css). */}
-      <div ref={setComposer} className="nt-composer">
+      <div ref={setComposer} className="nt-composer" data-composer-look={look === "codex" ? "codex" : undefined}>
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
         {/* Above the box: the project strip (Cards draws it under the field). */}
         {!pill && <div className="nt-above">{folderStrip}</div>}
