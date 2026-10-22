@@ -91,7 +91,7 @@ let package = Package(
             dependencies: ["CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAuth"],
             resources: [.process("Resources")]
         ),
-        .target(name: "CmuxMobileSettings", dependencies: ["CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAuth", "CmuxMobileOnboarding", "CmuxMobileNotifications"]),
+        .target(name: "CmuxMobileSettings", dependencies: ["CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAuth", "CmuxMobileOnboarding"]),
         // Streamed browser tabs: a Mac browser page as H.264 video over the link's
         // `browser` service (VideoToolbox decode, rb input, rb.page chrome).
         .target(name: "CmuxMobileBrowserStream", dependencies: ["CmuxMobileDesign", "CmuxMobileTransport"]),
