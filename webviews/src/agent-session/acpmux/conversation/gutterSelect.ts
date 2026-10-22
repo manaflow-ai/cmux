@@ -8,12 +8,16 @@
 // selection starts, and making the gutter selectable would anchor at the thread's start instead.
 // So a press there is taken over: it starts nothing until the pointer moves, then selects from the
 // caret beside the press to the caret under the pointer, both read with x clamped into the column.
+// The press still takes focus off the composer as a press on the background always has (Leo
+// 2026-10-20, composerFocus.ts); a plain click selects nothing.
 //
 // Stop conditions: the window and scroll listeners are added on a gutter press and removed on
 // mouseup, on a move with the button up (released outside the page), on window blur, and when the
 // transcript unmounts; the frame request is cancelled with them. One caret hit test per animation
 // frame while the drag lasts, nothing per row. Edge scrolling repeats only while the pointer stays
 // above or below the view during the drag, and stops at the view's end.
+
+import { swallowsPress } from "../menuPressGuard";
 
 /// The column's left and right edges, and the view's box, in client coordinates.
 export type GutterGeometry = {
@@ -100,13 +104,15 @@ function measure(scroller: HTMLElement, thread: HTMLElement): GutterGeometry | u
   };
 }
 
-const editable = (element: Element | null): element is HTMLElement =>
-  element instanceof HTMLElement &&
-  (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element.isContentEditable);
-
 /// Installs gutter drag-to-select on the transcript's scroller. `thread` holds the rows; the
-/// selection's ends always lie inside it. Returns the uninstaller.
-export function installGutterSelect(scroller: HTMLElement, thread: HTMLElement): () => void {
+/// selection's ends always lie inside it. `onReaderScroll` is told of each step the drag scrolls the
+/// view by, so the transcript takes it as the reader's own scroll (it stops following the latest
+/// message) and does not pull the view back. Returns the uninstaller.
+export function installGutterSelect(
+  scroller: HTMLElement,
+  thread: HTMLElement,
+  onReaderScroll: () => void = () => {},
+): () => void {
   const doc = scroller.ownerDocument;
   const win = doc.defaultView ?? window;
   type Drag = {
@@ -133,7 +139,10 @@ export function installGutterSelect(scroller: HTMLElement, thread: HTMLElement):
     if (!current?.selecting) return;
     const step = edgeScrollStep(current.y, current.geometry.view);
     const before = scroller.scrollTop;
-    if (step !== 0) scroller.scrollTop = before + step;
+    if (step !== 0) {
+      onReaderScroll();
+      scroller.scrollTop = before + step;
+    }
     extend(current);
     // The pointer still past an edge keeps the view moving, one step a frame, until it comes back,
     // the view reaches its end, the button lifts or the window lets go.
@@ -165,10 +174,6 @@ export function installGutterSelect(scroller: HTMLElement, thread: HTMLElement):
     if (!current.selecting) {
       if (!pastThreshold(current.x - current.startX, current.y - current.startY)) return;
       current.selecting = true;
-      // As a drag in the column does, the selection takes the keyboard from a field (the composer),
-      // so Copy copies it.
-      const active = doc.activeElement;
-      if (editable(active)) active.blur();
     }
     event.preventDefault();
     if (!frame) frame = win.requestAnimationFrame(tick);
@@ -189,6 +194,8 @@ export function installGutterSelect(scroller: HTMLElement, thread: HTMLElement):
   }
   const onDown = (event: MouseEvent) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    // A press that only closes an open composer menu does nothing else (menuPressGuard.ts).
+    if (swallowsPress(doc)) return;
     // Only the empty gutter: the scroller, its spacer and the thread's own box, never a row, the
     // minimap, Find's bar or anything else drawn in the scroller.
     const target = event.target;
@@ -198,8 +205,11 @@ export function installGutterSelect(scroller: HTMLElement, thread: HTMLElement):
     const point = clampIntoColumn(event.clientX, event.clientY, geometry);
     const anchor = caretAt(doc, point.x, point.y);
     if (!inThread(anchor)) return;
-    // No native press: it would start no selection here, and would move focus off the composer.
+    // No native press: it would start no selection here. Focus leaves the composer (or a row) as
+    // the native press on the background moved it, to the page.
     event.preventDefault();
+    const active = doc.activeElement;
+    if (active instanceof HTMLElement && active !== doc.body) active.blur();
     stop();
     drag = {
       startX: event.clientX,

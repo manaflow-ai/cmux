@@ -4,8 +4,8 @@
 // on the left or right of the main pane/out of the chat portion column"). Pressed beside the first
 // message and dragged down into the third, the selection holds text from all three. As in a
 // document, a press left of a line starts at its start and one right of it at its end. A plain click
-// in the margin selects nothing and leaves focus where it was; a drag inside the column selects as
-// it always did. On base the margin drag selected nothing.
+// in the margin selects nothing and takes focus off the composer as a press on the background always
+// has; a drag inside the column selects as it always did. On base the margin drag selected nothing.
 //
 // Real Chromium and WebKit from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -141,7 +141,7 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       await page.close();
     });
 
-    test(`${name}: a click in the margin selects nothing and keeps focus where it was`, async () => {
+    test(`${name}: a click in the margin selects nothing and takes focus off the composer, as before`, async () => {
       const page = await open(name);
       // A field outside the transcript holds focus, as the composer does. Fixed, so it moves nothing.
       await page.evaluate(() => {
@@ -155,7 +155,8 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       await page.mouse.click(first.left / 2, first.top + 4);
       await page.evaluate(() => window.cmuxPaintFrame());
       expect(await selected(page)).toBe("");
-      expect(await page.evaluate(() => document.activeElement?.id)).toBe("composer-stand-in");
+      // A press on the background leaves the composer (Leo 2026-10-20, composerFocus.ts), as on base.
+      expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
       await page.close();
     });
 

@@ -3132,19 +3132,17 @@ export function VirtualTranscript({
     // The chat's own transcript only (a replay's sits in its own screen).
     const main = node?.closest(".acpmux-stage")?.parentElement?.closest<HTMLElement>(".acpmux-main");
     const removeWheel = node && main ? installWheelPassThrough(node, main) : undefined;
+    // A drag from the empty margins either side of the column selects text (gutterSelect.ts); the
+    // view it scrolls past an edge is the reader's scroll.
+    const removeGutter = node && thread.current ? installGutterSelect(node, thread.current, reader) : undefined;
     return () => {
       clearTimeout(settle.current);
       for (const name of inputs) node?.removeEventListener(name, reader);
       node?.removeEventListener("click", holdClicked, { capture: true });
       for (const name of releases) node?.removeEventListener(name, release);
       removeWheel?.();
+      removeGutter?.();
     };
-  }, []);
-  // A drag from the empty margins either side of the column selects text (gutterSelect.ts).
-  useEffect(() => {
-    const node = ref.current;
-    const host = thread.current;
-    return node && host ? installGutterSelect(node, host) : undefined;
   }, []);
   // A turn's footer (TurnFooter) shows for the turn the reader points at: anywhere after its prompt
   // to its footer. Marked on the mounted rows, so a hover renders nothing.
