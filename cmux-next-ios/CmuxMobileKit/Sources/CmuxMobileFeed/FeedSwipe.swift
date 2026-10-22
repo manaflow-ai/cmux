@@ -61,6 +61,7 @@ struct FeedSwipeRow<Content: View>: View {
     @State private var offset: CGFloat = 0
     @State private var dragStart: CGFloat?
     @State private var width: CGFloat = 0
+    @State private var height: CGFloat = 0
     /// A full swipe is armed: the row haptic fires as it arms (UIKit's
     /// generator, not `.sensoryFeedback`, whose per-row setup ran for every
     /// row that scrolled in).
@@ -69,8 +70,11 @@ struct FeedSwipeRow<Content: View>: View {
     }
 
     private var isOpen: Bool { offset != 0 }
+    /// This row's entry in ``RowSwipeActions``, unique to this Feed screen.
+    private var registrationKey: String { "feed.\(ObjectIdentifier(coordinator)).\(id)" }
     private var revealWidth: CGFloat { RowSwipeActionStyle.standard.revealWidth(count: actions.count) }
-    private var fullThreshold: CGFloat { max(width * 0.6, 160) }
+    /// Past the open row's resting reveal, so an open row never arms on a small drag.
+    private var fullThreshold: CGFloat { max(width * 0.6, 160, revealWidth + 40) }
 
     var body: some View {
         content
@@ -86,7 +90,7 @@ struct FeedSwipeRow<Content: View>: View {
                 if offset < 0 { actionStrip }
             }
             .clipped()
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { width = $0.width; height = $0.height }
             .gesture(HorizontalPan(isOpen: isOpen, onChange: dragChanged, onEnd: dragEnded))
             .onChange(of: coordinator.openID) { _, open in
                 if open != id, isOpen { withAnimation(.cmuxMobileSnappy) { offset = 0 } }
@@ -94,9 +98,15 @@ struct FeedSwipeRow<Content: View>: View {
             .onChange(of: coordinator.demoSerial) { runDemo() }
             // Open actions take a rightward swipe before the team drawer does.
             .onChange(of: isOpen) { _, open in
-                RowSwipeActions.shared.setOpen("feed.\(id)", close: open ? { [coordinator] in coordinator.openID = nil } : nil)
+                RowSwipeActions.shared.setOpen(registrationKey, close: open ? { [coordinator] in coordinator.openID = nil } : nil)
             }
-            .onDisappear { RowSwipeActions.shared.setOpen("feed.\(id)", close: nil) }
+            // A row scrolled away or left behind on another tab closes, so no open row
+            // outlives its registration (the drawer would open over it).
+            .onDisappear {
+                offset = 0
+                if coordinator.openID == id { coordinator.openID = nil }
+                RowSwipeActions.shared.setOpen(registrationKey, close: nil)
+            }
             .accessibilityActions {
                 ForEach(actions) { action in
                     Button(action.title, action: action.action)
@@ -117,7 +127,7 @@ struct FeedSwipeRow<Content: View>: View {
             ForEach(actions.reversed()) { action in
                 let isOutermost = action.id == actions.first?.id
                 let width = armed ? (isOutermost ? style.fullSwipeWidth(revealed: revealed) : 0) : each
-                RowSwipeActionButton(title: action.title, systemImage: action.systemImage, tint: action.tint, width: width) {
+                RowSwipeActionButton(title: action.title, systemImage: action.systemImage, tint: action.tint, width: width, maxHeight: height) {
                     perform(action)
                 }
                 .opacity(armed && !isOutermost ? 0 : 1)

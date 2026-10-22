@@ -479,7 +479,7 @@ struct PinnedGrid: View {
     /// Pushes `route`. Pins are buttons, not `NavigationLink`s: two links in
     /// one `List` row (the Cloud and Mac Chiefs side by side) both fire on a
     /// tap, which pushed the second Chief over the first.
-    var open: (ChiefRoute) -> Void = { _ in }
+    let open: (ChiefRoute) -> Void
     /// The Cloud Chief's pin: its menu lists the account's other chiefs.
     var cloud: ChiefSources?
     var newChief: (() -> Void)?

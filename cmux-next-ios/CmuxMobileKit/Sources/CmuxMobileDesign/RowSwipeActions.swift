@@ -49,8 +49,14 @@ public final class RowSwipeActions {
 
     /// A list's cells share one leading edge; the open row's cell is slid
     /// off it (its layout attributes slide with it, so they cannot tell).
+    /// Only a vertical list counts: no sideways scrolling, and rows (cells
+    /// nearly as wide as the list). A grid, a pager or a carousel has cells
+    /// at different edges by design.
     private static func hasOpenRow(_ collection: UICollectionView) -> Bool {
+        let width = collection.bounds.width
+        guard width > 1, collection.contentSize.width <= width + 1 else { return false }
         let cells = collection.visibleCells.filter { !$0.isHidden && $0.bounds.width > 1 }
+        guard !cells.isEmpty, cells.allSatisfy({ $0.bounds.width >= width * 0.8 }) else { return false }
         return hasSlidCell(cells.map(\.frame.minX))
     }
 
@@ -78,9 +84,10 @@ public final class RowSwipeActions {
     /// actions). The actions' own view stays in the hierarchy at full width
     /// after the row closes, so it says nothing about open rows.
     private static func isSlid(_ cell: UIView, from laidOut: CGRect) -> Bool {
-        if abs(cell.frame.minX - laidOut.minX) > 0.5 { return true }
-        guard let content = (cell as? UICollectionViewCell)?.contentView ?? (cell as? UITableViewCell)?.contentView else { return false }
-        return abs(content.frame.minX) > 0.5 || abs(content.transform.tx) > 0.5
+        if cell.frame.minX < laidOut.minX - 0.5 { return true }
+        // Only leftward: editing mode moves a table cell's content to the right.
+        guard let content = (cell as? UITableViewCell)?.contentView else { return false }
+        return content.frame.minX < -0.5 || content.transform.tx < -0.5
     }
 }
 
@@ -129,20 +136,25 @@ public struct RowSwipeActionButton: View {
     let tint: Color
     let width: CGFloat
     let style: RowSwipeActionStyle
+    /// The row's height: a row too short for the capsule and its title
+    /// (under 80 pt) shows the capsule alone, inset 8 pt top and bottom.
+    let maxHeight: CGFloat
     let action: () -> Void
 
-    public init(title: String, systemImage: String, tint: Color, width: CGFloat,
+    public init(title: String, systemImage: String, tint: Color, width: CGFloat, maxHeight: CGFloat = .infinity,
                 style: RowSwipeActionStyle = .standard, action: @escaping () -> Void) {
         self.title = title
         self.systemImage = systemImage
         self.tint = tint
         self.width = width
+        self.maxHeight = maxHeight
         self.style = style
         self.action = action
     }
 
     public var body: some View {
-        let height = min(style.buttonHeight, width)
+        let showsTitle = maxHeight >= 80
+        let height = min(style.buttonHeight, width, showsTitle ? .infinity : max(0, maxHeight - 16))
         let shown = style.buttonWidth > 0 ? min(1, width / style.buttonWidth) : 1
         Button(action: action) {
             VStack(spacing: style.titleGap) {
@@ -152,13 +164,15 @@ public struct RowSwipeActionButton: View {
                     .frame(width: width, height: height)
                     .background(tint, in: .capsule)
                     .opacity(width < 1 ? 0 : 1)
-                Text(title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .fixedSize()
-                    .frame(width: max(width, 1))
-                    .opacity(shown > 0.8 ? 1 : 0)
+                if showsTitle {
+                    Text(title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .frame(width: max(width, 1))
+                        .opacity(shown > 0.8 ? 1 : 0)
+                }
             }
             .contentShape(.rect)
         }

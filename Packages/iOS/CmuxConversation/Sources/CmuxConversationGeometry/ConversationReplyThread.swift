@@ -30,6 +30,9 @@ public struct ConversationReplyThread: Equatable, Sendable {
     /// it (Messages: the line ends pointing at the reply, short of it).
     public static let turnRadius: CGFloat = 12
     public static let run: CGFloat = 8
+    /// The room a row keeps for a straight line to a reply on the quote's
+    /// own side (between the gaps above and below it).
+    public static let minimumStraightRun: CGFloat = 12
 
     public init(
         quoteBody: CGRect,

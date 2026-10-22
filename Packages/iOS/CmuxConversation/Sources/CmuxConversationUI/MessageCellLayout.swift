@@ -397,7 +397,11 @@ extension MessageCellLayout {
             let bodyMinX = quote.isOutgoing ? frame.minX : frame.minX + t.tailWidth
             quoteTextFrame = CGRect(x: bodyMinX + 12, y: y + 7, width: bodyWidth - 24, height: textHeight)
             // The quote's tail hangs below it, and the thread line leaves from under the tail.
+            // A reply on the quote's own side (outside a group's avatar column) also needs
+            // room for the line that drops between them.
+            let straightLine = quote.isOutgoing == model.isOutgoing && !(model.isGroup && !quote.isOutgoing)
             y += h + Self.quoteTailDrop(quoteHeight: h, quoteBodyWidth: bodyWidth) + t.transcriptSpace(ConversationTranscriptMetrics.smallSpace)
+                + (straightLine ? ConversationReplyThread.minimumStraightRun : 0)
         }
 
         var senderNameFrame: CGRect?
@@ -593,6 +597,8 @@ extension MessageCellLayout {
 
         var threadPath: CGPath?
         if let quoteFrame, let quote = model.replyQuote {
+            let pieces = imageFrames + fileFrames + [bubbleFrame, emojiFrame, audioFrame, linkCardFrame].compactMap { $0 }
+            let replyTop = pieces.min { $0.minY < $1.minY } ?? primary
             // The thread line drops from under the quote and joins the reply.
             var quoteBody = quoteFrame
             quoteBody.size.width -= t.tailWidth
@@ -601,7 +607,8 @@ extension MessageCellLayout {
                 quoteBody: quoteBody,
                 quoteSide: quote.isOutgoing ? .trailing : .leading,
                 quoteTailDrop: Self.quoteTailDrop(quoteHeight: quoteFrame.height, quoteBodyWidth: quoteBody.width),
-                reply: primary,
+                // The reply's first piece of content: the line meets it, never crosses it.
+                reply: replyTop,
                 replySide: model.isOutgoing ? .trailing : .leading,
                 isGroup: model.isGroup,
                 avatarColumnCenter: margin + t.avatarSize / 2,

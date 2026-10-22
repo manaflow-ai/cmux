@@ -339,7 +339,9 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
     private var listRowOpenAtTouchDown = false
 
     private func noteTouchDown() {
-        listRowOpenAtTouchDown = !model.isOpen && RowSwipeActions.hasOpenListRow(in: contentController.view)
+        // Only where the drawer could open (closed, on a tab root): no tree walk elsewhere.
+        listRowOpenAtTouchDown = !model.isOpen && model.allowsInteractiveOpen
+            && RowSwipeActions.hasOpenListRow(in: contentController.view)
     }
 
     /// The drawer only opens from a tab root. Any navigation controller under

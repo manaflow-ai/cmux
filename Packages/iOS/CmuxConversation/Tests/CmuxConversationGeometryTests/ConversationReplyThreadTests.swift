@@ -50,12 +50,14 @@ import Testing
 
     @Test func aSameSideReplyGetsAStraightLineThatStopsAboveIt() {
         let quote = CGRect(x: 20, y: 0, width: 200, height: 34)
-        let reply = CGRect(x: 20, y: 50, width: 160, height: 36)
+        // The row's own spacing: the tail, the 6 pt small space, and the straight run's room.
+        let reply = CGRect(x: 20, y: 34 + tailDrop + 6 + Thread.minimumStraightRun, width: 160, height: 36)
         let thread = row(quote: quote, quoteSide: .leading, reply: reply, replySide: .leading)
         let box = thread.path.boundingBoxOfPath
         #expect(box.width < 0.01)
         #expect(box.minY >= quote.maxY + tailDrop)
         #expect(box.maxY <= reply.minY)
+        #expect(box.height >= 10, "a visible line, not a dot")
     }
 
     @Test func aGroupReplyThreadsDownTheAvatarColumnToTheRepliersAvatar() {
