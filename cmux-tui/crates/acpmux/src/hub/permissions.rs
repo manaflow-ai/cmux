@@ -146,6 +146,10 @@ impl Hub {
                         m.title_source = Some(super::titles::HARNESS.to_owned());
                     }
                 }
+                // Claude Code's /context breakdown, sent after each turn (`claude_stdio`).
+                if let Some(breakdown) = update.pointer("/_meta/acpmux/contextBreakdown") {
+                    m.context_breakdown = Some(breakdown.clone());
+                }
                 // Claude Code's system/init: its MCP servers, plugins and skills.
                 reported_tools = update
                     .pointer("/_meta/claude")
