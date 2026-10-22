@@ -452,6 +452,10 @@ class LocalizationDebtRatchetTests(unittest.TestCase):
         path = base / self.catalog.relative_to(self.root)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(catalog(strings), indent=2) + "\n", encoding="utf-8")
+        # The base's ratchet and metadata, unchanged by the pull request.
+        (base / "scripts").mkdir(exist_ok=True)
+        for name in MODULE.RULE_FILES:
+            (base / "scripts" / name).write_bytes((ROOT / "scripts" / name).read_bytes())
         base_baseline = self.root / "base-baseline.json"
         base_baseline.write_text(self.baseline.read_text(encoding="utf-8"), encoding="utf-8")
         return ["--base-root", str(base), "--base-baseline", str(base_baseline)]
@@ -500,6 +504,22 @@ class LocalizationDebtRatchetTests(unittest.TestCase):
         status, output = self.check(*base_arguments)
         self.assertEqual(status, 1, output)
         self.assertIn("identical 1 -> 2", output)
+        self.assertNotIn("warning", output)
+
+    def test_a_change_to_the_rules_gets_no_allowance_for_base_debt(self):
+        # Base debt is counted with the pull request's rules; if they differ from the base's
+        # (an omission record removed, a check tightened), newly flagged strings would look
+        # like the base's debt and the next push would go red.
+        self.write({"open": self.copied("Open")})
+        self.check("--write-baseline")
+        self.write({"open": self.copied("Open"), "close": self.copied("Close")})
+        base_arguments = self.write_base({"open": self.copied("Open"), "close": self.copied("Close")})
+        omissions = self.root / "base" / "scripts" / "localization-allowed-omissions.json"
+        omissions.write_bytes(omissions.read_bytes() + b"\n")
+        status, output = self.check(*base_arguments)
+        self.assertEqual(status, 1, output)
+        self.assertIn("identical 1 -> 2", output)
+        self.assertIn("changes localization-allowed-omissions.json", output)
         self.assertNotIn("warning", output)
 
     def test_the_base_tree_needs_the_bases_baseline(self):
