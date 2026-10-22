@@ -112,6 +112,15 @@ final class FakeDaemon: @unchecked Sendable {
         }
     }
 
+    /// A message already on the Mac (`parts` as the owner stores them), with
+    /// the bytes of its attachments by hash.
+    func seed(author: String, parts: [[String: Any]], bytes: [String: Data] = [:]) {
+        lock.withLock {
+            for (hash, data) in bytes { stored[hash] = data }
+            messages.append(message(author: author, text: "", client: "seed-\(messages.count + 1)", parts: parts))
+        }
+    }
+
     /// The approval the last `question.answer` carried.
     private(set) var lastApproval: [String: Any]?
     /// Event lines sent after the next reply (a Mac-side change).
