@@ -90,14 +90,14 @@ extension WindowController {
         return WorkspaceViewSet.half(of: window.convertToScreen(view.convert(view.bounds, to: nil)), at: edge, yDown: false)
     }
 
-    /// The edge of the shown workspace that one sidebar workspace dragged to `screenPoint` (screen coordinates) goes
-    /// beside: the nearest edge, when the point is within `besideEdgeBand` of the content from it. The drag takes it
-    /// where the layout has no split edge (`WorkspaceDragResolver.outcome`): Home's pinned dock takes no drop, and a
-    /// screen edge dock band would merge the workspace into a new dock of the shown one.
+    /// The edge of the workspace on screen under `screenPoint` (screen coordinates) that one sidebar workspace dragged
+    /// there goes beside: the nearest edge, when the point is within `besideEdgeBand` of the content from it. The drag
+    /// takes it where the layout has no split edge (`WorkspaceDragResolver.outcome`): Home's pinned dock takes no drop,
+    /// and a screen edge dock band would merge the workspace into a new dock of the shown one.
     func besideEdge(at screenPoint: CGPoint, dragging ids: [String], group: String?) -> TabDropEdge? {
-        guard SidebarTunables.multiView.value, group == nil, ids.count == 1, let content, ids.first != content.workspace.id,
-              let window = content.contentView.window else { return nil }
-        let view = content.contentView
+        guard SidebarTunables.multiView.value, group == nil, ids.count == 1, let target = content(atScreen: screenPoint),
+              ids.first != target.workspace.id, let window = target.contentView.window else { return nil }
+        let view = target.contentView
         let rect = window.convertToScreen(view.convert(view.bounds, to: nil))
         guard rect.width > 0, rect.height > 0, rect.contains(screenPoint) else { return nil }
         // Screen y runs up.
