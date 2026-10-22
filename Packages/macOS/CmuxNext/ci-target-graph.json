@@ -520,6 +520,7 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests",
       "targets": [
         "CmuxNextBrowser",
+        "CmuxNextDesign",
         "CmuxNextRemoteFetch"
       ],
       "packages": [],
@@ -975,6 +976,7 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextHomeEngineTests",
       "targets": [
         "CmuxNextDaemon",
+        "CmuxNextDesign",
         "CmuxNextHomeEngine"
       ],
       "packages": [
