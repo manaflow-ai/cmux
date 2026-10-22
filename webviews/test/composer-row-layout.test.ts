@@ -55,6 +55,8 @@ type Row = {
   /** The theme's --agent-text and --acpmux-base, resolved in the bar. */
   text: string;
   base: string;
+  /** The pane's secondary text color (--agent-muted), the ink of the mic, Send and Stop. */
+  muted: string;
 };
 
 await requireBrowserLane("composer-row-layout.test.ts", async () => {
