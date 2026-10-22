@@ -1,0 +1,10 @@
+.git
+**/.git
+node_modules
+**/node_modules
+target
+**/target
+artifacts
+**/artifacts
+DerivedData
+**/DerivedData
