@@ -123,13 +123,13 @@ public final class HomeSidebarSource {
         let listed = listed()
         let replies = inboxes.compactMap(\.reply)
         guard !replies.isEmpty else {
-            return HomeSidebarModel(rows: listed, pins: pins, me: me(), query: query, contacts: query.isEmpty ? [] : contacts(),
+            return HomeSidebarModel(rows: listed, pins: pins, me: me(), query: query, contacts: contacts(),
                                     unreadMarks: unreadMarks, chiefAvatars: chiefAvatars(), defaultChiefAvatar: defaultChiefAvatar(),
                                     chiefHarnesses: chiefHarnesses(), chiefRoster: chiefRoster(), now: now)
         }
         let owned = HomeInboxMapping.ordered(replies.map(\.rows))
         let list = HomeInboxMapping(owned: owned, listed: listed, pins: pins, unreadMarks: unreadMarks)
-        var model = HomeSidebarModel(ordered: list.rows, pinned: list.pinned, me: me(), query: query, contacts: query.isEmpty ? [] : contacts(),
+        var model = HomeSidebarModel(ordered: list.rows, pinned: list.pinned, me: me(), query: query, contacts: contacts(),
                                      unreadMarks: list.unreadMarks, chiefAvatars: chiefAvatars(), defaultChiefAvatar: defaultChiefAvatar(),
                                      chiefHarnesses: chiefHarnesses(), chiefRoster: chiefRoster(), now: now)
         model.cloudState = replies.compactMap(\.cloud).first { $0 != "not_asked" }

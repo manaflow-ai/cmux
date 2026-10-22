@@ -4,9 +4,10 @@ import AppKit
 import Testing
 
 /// The Home list's header (Leo 2026-10-19, "when the thing is compressed"): on the list with names,
-/// search, the Unread toggle and compose stay on one row at every width; only the search field's
-/// width changes; the row sits in the 52 pt band with no lone button above it. The avatar-only
-/// list shows no row (the user 2026-10-20, as Messages: `HomeNarrowSidebarTests`).
+/// search and the Unread toggle stay on one row at every width; only the search field's width
+/// changes; the row sits in the 52 pt band with no lone button above it. Compose is the chat's at
+/// every width (the user 2026-10-21, `HomeComposeAndTeamTests`). The avatar-only list shows no row
+/// (the user 2026-10-20, as Messages: `HomeNarrowSidebarTests`).
 @MainActor
 struct HomeSidebarHeaderTests {
     nonisolated static let widths: [CGFloat] = [180, 200, 220, 260, 300, 320, 480]
@@ -14,7 +15,8 @@ struct HomeSidebarHeaderTests {
     @Test(arguments: widths)
     func everythingStaysOnOneRow(_ width: CGFloat) {
         let h = HomeSidebarHeaderLayout(width: width, searchOpen: false)
-        let items = [h.search, h.filter, h.compose]
+        let items = [h.search, h.filter]
+        #expect(h.compose == .zero)
         #expect(Set(items.map(\.midY)).count == 1, "the row wraps at \(width)")
         #expect(items.allSatisfy { $0.height == HomeSidebarHeaderLayout.side })
         #expect(items.allSatisfy { $0.minX >= 0 && $0.maxX <= width }, "the row overflows \(width)")
@@ -31,8 +33,7 @@ struct HomeSidebarHeaderTests {
         let wide = HomeSidebarHeaderLayout(width: 400, searchOpen: false)
         #expect(wide.search.width - narrow.search.width == 200)
         #expect(narrow.filter.size == wide.filter.size)
-        #expect(narrow.compose.size == wide.compose.size)
-        #expect(wide.compose.maxX == 400 - HomeSidebarHeaderLayout.inset)
+        #expect(wide.filter.maxX == 400 - HomeSidebarHeaderLayout.inset)
     }
 
     /// The view follows the layout: the field and the quiet buttons on one row, the field's
@@ -47,15 +48,13 @@ struct HomeSidebarHeaderTests {
         #expect(field.focusRingType == .none)
         #expect(!field.isBezeled)
         #expect(!field.isHidden)
-        #expect(!home.compose.isHidden && !home.unreadToggle.isHidden)
-        #expect(home.compose.frame == home.header.compose)
+        #expect(home.compose.isHidden && !home.unreadToggle.isHidden)
         #expect(home.unreadToggle.frame == home.header.filter)
-        #expect(home.compose.frame.midY == home.unreadToggle.frame.midY)
-        #expect(home.searchCapsule.frame.midY == home.compose.frame.midY)
-        #expect(field.frame.midY == home.compose.frame.midY)
+        #expect(home.searchCapsule.frame.midY == home.unreadToggle.frame.midY)
+        #expect(field.frame.midY == home.unreadToggle.frame.midY)
         // MessagesLab's filter menu button is gone: the toggle is the filter.
         #expect(home.list.controller.filterButton.isHidden)
-        for button in [home.compose, home.unreadToggle] {
+        for button in [home.unreadToggle] {
             #expect((button.layer?.backgroundColor?.alpha ?? 0) == 0, "a header button has a pill at rest")
         }
     }
