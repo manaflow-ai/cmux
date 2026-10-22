@@ -39,23 +39,15 @@ export type Subagent = {
   /// The id Claude Code's Agent call answered with (`agentId: …`), which a SendMessage to it
   /// names (conversation/agentNames.ts).
   agentId?: string;
-  /// Nothing has named it yet (no name, task or description in what this fold read): `name` is a
-  /// short form of its id (``shortSubagentId``), drawn as "Subagent <short id>" (``subagentName``).
+  /// Nothing has named it yet (no name, task or description in what this fold read): `name` is
+  /// empty and its rows call it by its kind, else "Subagent" (``subagentName``), never by an id.
   unnamed?: boolean;
 };
 
-/// A short, readable form of a subagent's id for a subagent nothing named: the last part of a
-/// `<session>/<tool call>` id, without Claude's `toolu_` prefix, cut to 8 characters.
-export function shortSubagentId(id: string): string {
-  const last = id.split("/").filter(Boolean).at(-1) ?? id;
-  const bare = last.replace(/^(toolu|call|agent)_/i, "") || last;
-  return bare.length > 8 ? bare.slice(0, 8) : bare;
-}
-
-/// What a subagent is called in a row: its name, or "Subagent <short id>" when nothing named it
-/// (never its raw `<session>/<tool call>` id, which goes in the row's tooltip).
-export function subagentName(agent: Pick<Subagent, "name" | "unnamed">, t: Translate): string {
-  return agent.unnamed ? t("subagents.unnamed", { id: agent.name }) : agent.name;
+/// What a subagent is called in a row: its name; for one nothing named, its kind (Claude's
+/// subagent_type, "Explore"), else "Subagent". Never an id, short or raw: ids go in a tooltip.
+export function subagentName(agent: Pick<Subagent, "name" | "unnamed" | "kind">, t: Translate): string {
+  return agent.unnamed ? (agent.kind ?? t("subagents.unnamed")) : agent.name;
 }
 
 /// Why a subagent was stopped: the person stopped it (Stop on the turn, or on the subagent), or a
@@ -241,7 +233,7 @@ export class SubagentFold {
       agent = {
         id: change.id,
         parent,
-        name: name ?? shortSubagentId(change.id),
+        name: name ?? "",
         ...(name === undefined && { unnamed: true }),
         task: text(change.task),
         kind: text(change.kind),

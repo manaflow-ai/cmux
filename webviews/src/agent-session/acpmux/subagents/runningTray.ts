@@ -116,6 +116,7 @@ function doneLine(agent: Subagent, endedAt: number, cache: DoneLineCache, made: 
     agent.state,
     agent.name,
     agent.unnamed ? 1 : 0,
+    agent.kind ?? "",
     agent.agentId ?? "",
     agent.startedAt,
     endedAt,

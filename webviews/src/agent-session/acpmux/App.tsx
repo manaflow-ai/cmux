@@ -4928,7 +4928,16 @@ function AcpmuxPane() {
   );
   const agentsKey = freshAgents
     .map((agent) =>
-      [agent.id, agent.name, agent.state, agent.action ?? "", agent.endedAt ?? "", agent.agentId ?? ""].join("\u0000"),
+      [
+        agent.id,
+        agent.name,
+        agent.unnamed ? 1 : 0,
+        agent.kind ?? "",
+        agent.state,
+        agent.action ?? "",
+        agent.endedAt ?? "",
+        agent.agentId ?? "",
+      ].join("\u0000"),
     )
     .join("\u0001");
   // eslint-disable-next-line react-hooks/exhaustive-deps -- a new list only when an agent changes

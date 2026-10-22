@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { translate } from "../i18n";
-import { SUBAGENTS, SubagentFold, shortSubagentId, stopReasonOf, subagentName, subagentStops } from "./subagentFold";
+import { SUBAGENTS, SubagentFold, stopReasonOf, subagentName, subagentStops } from "./subagentFold";
 
 // session/update records as acpmux sends them: a subagent's own updates carry its id in
 // `_meta.acpmux.subagent`, spawns and state changes in `_meta.acpmux.subagents`.
@@ -208,17 +208,21 @@ test("a Claude Agent call's result gives its subagent the agentId a SendMessage 
 describe("a subagent's name in its rows", () => {
   const RAW = "01a15779-206b-72b0-96af-bdbe4868e19c/toolu_01H9Jk66ek2xu2m2SaOS09M1";
 
-  test("one nothing named reads by a short id, never its raw id", () => {
+  test("one nothing named reads by its kind, else as Subagent, never by any part of its id", () => {
     const fold = new SubagentFold();
     feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: RAW, parent: null }] });
-    const agent = fold.all()[0]!;
-    expect(agent).toMatchObject({ name: "01H9Jk66", unnamed: true });
-    expect(subagentName(agent, translate)).toBe("Subagent 01H9Jk66");
-    expect(shortSubagentId("plain")).toBe("plain");
-    expect(shortSubagentId("s/call_abcdefghijk")).toBe("abcdefgh");
+    feed(
+      fold,
+      { sessionUpdate: "subagent_spawned" },
+      { subagents: [{ id: "s/toolu_X", parent: null, kind: "Explore" }] },
+    );
+    const [plain, typed] = fold.all();
+    expect(plain).toMatchObject({ name: "", unnamed: true });
+    expect(subagentName(plain!, translate)).toBe("Subagent");
+    expect(subagentName(typed!, translate)).toBe("Explore");
   });
 
-  test("a later name, or its Agent call's description, replaces the id-made one", () => {
+  test("a later name, or its Agent call's description, names one nothing named", () => {
     const fold = new SubagentFold();
     feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "s/t1", parent: null, toolCallId: "t1" }] });
     feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "s/t2", parent: null }] });
@@ -250,4 +254,19 @@ describe("a subagent's name in its rows", () => {
     feed(fold, { sessionUpdate: "subagent_progress" }, { subagents: [{ id: "s/t3", task: "Another task" }] });
     expect(fold.all()[0]!.name).toBe("Read docs");
   });
+});
+
+test("a message to a subagent nothing named reads as the generic recipient, never its id", async () => {
+  const { agentNames, recipientName } = await import("../conversation/agentNames");
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "s/t8", parent: null, toolCallId: "t8" }] });
+  feed(fold, {
+    sessionUpdate: "tool_call_update",
+    toolCallId: "t8",
+    status: "completed",
+    content: [{ type: "content", content: { type: "text", text: "agentId: a39e817af38ddf5e7" } }],
+  });
+  const names = agentNames(fold.all());
+  expect(names.size).toBe(0);
+  expect(recipientName("a39e817af38ddf5e7", names)).toBeUndefined();
 });
