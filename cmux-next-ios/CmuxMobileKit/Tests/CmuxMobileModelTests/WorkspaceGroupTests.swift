@@ -348,6 +348,26 @@ import Testing
         await creator.settle()
     }
 
+    /// A tap queued behind a slow request does not expire before it is sent.
+    @Test func aQueuedEditWaitsForItsTurn() async {
+        let (store, creator, recorder, mac) = setup()
+        var now = Date(timeIntervalSince1970: 1_000)
+        store.now = { now }
+        recorder.holds = true
+        creator.setGroupCollapsed(red, on: mac, true)
+        creator.setGroupCollapsed(ws(store, "b").group!, on: mac, false)
+        await recorder.waitHeld(1)
+        now += 25
+        recorder.held.removeFirst().resume()
+        await recorder.waitHeld(1)
+        // The expand left 25 s after its tap; 10 s later it still holds.
+        now += 10
+        staleRefresh(store, mac: mac, collapsed: true)
+        #expect(ws(store, "b").group?.isCollapsed == false)
+        recorder.held.removeFirst().resume()
+        await creator.settle()
+    }
+
     /// A new group replaces an earlier move: refreshes show the Mac's group, not the earlier one.
     @Test func aNewGroupSupersedesAnEarlierMove() async {
         let (store, creator, _, mac) = setup()

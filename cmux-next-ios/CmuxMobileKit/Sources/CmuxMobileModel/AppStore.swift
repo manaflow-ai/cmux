@@ -56,7 +56,7 @@ public final class AppStore {
 
     /// Forgets the group edits not yet shown back (sign-out, another account).
     public func resetGroupEdits() {
-        groupEdits = PendingGroupEdits()
+        groupEdits.removeAll()
     }
     /// Placeholder id → the real workspace id once its creation succeeds, so
     /// a screen opened on the placeholder follows the real workspace.

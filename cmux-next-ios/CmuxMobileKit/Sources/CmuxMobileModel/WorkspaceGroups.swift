@@ -173,7 +173,8 @@ struct PendingGroupEdits: Sendable {
     private struct Edit: Sendable {
         var group: MacWorkspaceGroup?
         var generation: Int
-        var begunAt: Date
+        /// When its request left for the Mac (nil: queued behind earlier ones).
+        var sentAt: Date?
         var answeredAt: Date?
         /// False: the edit only marks the latest one (a new group, which
         /// the Mac names with its own id); refreshes show the Mac's group.
@@ -187,15 +188,30 @@ struct PendingGroupEdits: Sendable {
 
     /// The workspaces now show `group` (nil: no group); returns the edit's
     /// generation. It replaces any earlier edit of those workspaces.
-    mutating func begin(_ workspaceIDs: [String], group: MacWorkspaceGroup?, at date: Date, holds: Bool = true) -> Int {
+    mutating func begin(_ workspaceIDs: [String], group: MacWorkspaceGroup?, holds: Bool = true) -> Int {
         generation += 1
-        for id in workspaceIDs { edits[id] = Edit(group: group, generation: generation, begunAt: date, holds: holds) }
+        for id in workspaceIDs { edits[id] = Edit(group: group, generation: generation, holds: holds) }
         return generation
     }
 
-    /// The Mac accepted the edit: refreshes keep it until one shows it.
+    /// The edit's request left for the Mac (after the Mac's earlier group
+    /// requests): the unanswered window counts from here.
+    mutating func sent(_ workspaceIDs: [String], generation: Int, at date: Date) {
+        for id in workspaceIDs where edits[id]?.generation == generation { edits[id]?.sentAt = date }
+    }
+
+    /// The Mac accepted the edit: refreshes keep it until one shows it (a
+    /// non-holding edit is done).
     mutating func answered(_ workspaceIDs: [String], generation: Int, at date: Date) {
-        for id in workspaceIDs where edits[id]?.generation == generation { edits[id]?.answeredAt = date }
+        for id in workspaceIDs where edits[id]?.generation == generation {
+            if edits[id]?.holds == false { edits[id] = nil } else { edits[id]?.answeredAt = date }
+        }
+    }
+
+    /// Forgets every edit (sign-in); generations keep counting, so a request
+    /// from before never matches a later edit.
+    mutating func removeAll() {
+        edits.removeAll()
     }
 
     /// The Mac refused the edit: the workspaces it was still the latest edit
@@ -218,7 +234,7 @@ struct PendingGroupEdits: Sendable {
             let incoming = rows[index].group
             guard edit.holds else { continue }
             let expired = edit.answeredAt.map { now.timeIntervalSince($0) > Self.confirmWindow }
-                ?? (now.timeIntervalSince(edit.begunAt) > Self.unansweredWindow)
+                ?? edit.sentAt.map { now.timeIntervalSince($0) > Self.unansweredWindow } ?? false
             if expired || (edit.answeredAt != nil && Self.shows(incoming, edit.group)) {
                 edits[id] = nil
                 continue
@@ -283,7 +299,7 @@ extension WorkspaceCreator {
     public func place(_ workspace: Workspace, in group: MacWorkspaceGroup?) {
         guard canGroup(workspace), workspace.group?.id != group?.id, let grouper else { return }
         let old = store.updateWorkspace(workspace.id) { $0.group = group }
-        let generation = store.groupEdits.begin([workspace.id], group: group, at: store.now())
+        let generation = store.groupEdits.begin([workspace.id], group: group)
         let failure = group == nil ? "Couldn't remove \(workspace.title) from its group" : "Couldn't move \(workspace.title) to \(group?.displayName ?? "")"
         regroup([old].compactMap { $0 }, generation: generation, workspace: workspace, failure: failure) {
             try await grouper.place(workspace, in: group)
@@ -302,7 +318,7 @@ extension WorkspaceCreator {
         let old = store.updateWorkspace(workspace.id) { $0.group = pending }
         // Not held over refreshes (the Mac names the new group with its own
         // id), but it is the workspace's latest edit: earlier ones stop.
-        let generation = store.groupEdits.begin([workspace.id], group: pending, at: store.now(), holds: false)
+        let generation = store.groupEdits.begin([workspace.id], group: pending, holds: false)
         regroup([old].compactMap { $0 }, generation: generation, workspace: workspace, failure: "Couldn't make a group for \(workspace.title)") {
             try await grouper.moveToNewGroup(workspace, name: name, color: color)
         }
@@ -350,7 +366,7 @@ extension WorkspaceCreator {
         var changed = group
         change(&changed)
         let old = members.compactMap { ws in store.updateWorkspace(ws.id) { $0.group = removes ? nil : changed } }
-        let generation = store.groupEdits.begin(old.map(\.id), group: removes ? nil : changed, at: store.now())
+        let generation = store.groupEdits.begin(old.map(\.id), group: removes ? nil : changed)
         regroup(old, generation: generation, workspace: first, failure: failure) { try await work(grouper) }
     }
 
@@ -364,6 +380,7 @@ extension WorkspaceCreator {
         let previous = groupRequestTail[macID]
         let task = track(workspace.id) { [weak self] in
             await previous?.value
+            self?.store.groupEdits.sent(ids, generation: generation, at: self?.store.now() ?? Date())
             do {
                 try await work()
                 guard let self else { return }
