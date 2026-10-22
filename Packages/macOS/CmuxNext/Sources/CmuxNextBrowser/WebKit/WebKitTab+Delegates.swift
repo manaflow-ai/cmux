@@ -20,10 +20,6 @@ extension WebKitTab: WKNavigationDelegate {
             return
         }
 
-        if navigationAction.targetFrame?.isMainFrame ?? true {
-            mainFrameNavigationMayPlayVideo = (navigationAction.request.httpMethod?.uppercased() ?? "GET") == "GET"
-                && navigationAction.navigationType != .backForward
-        }
         let isUserLinkClick = navigationAction.navigationType == .linkActivated
         if isUserLinkClick, Self.isWebScheme(url) {
             switch LinkClick(navigationAction, in: self) {
@@ -58,7 +54,15 @@ extension WebKitTab: WKNavigationDelegate {
         applySiteSettings(to: preferences, for: navigationAction)
         guard navigationAction.targetFrame?.isMainFrame ?? true, let engine else { return decisionHandler(.allow, preferences) }
         navigationSourceSite = pageSite
-        engine.admitMainFrameLoad(url, in: self) { decisionHandler($0 ? .allow : .cancel, preferences) }
+        // Only this view's own main-frame load that goes ahead: a new window's action (no target
+        // frame) or a cancelled one leaves a load already under way as it was.
+        let ownLoad = navigationAction.targetFrame?.isMainFrame == true
+        let mayPlayVideo = (navigationAction.request.httpMethod?.uppercased() ?? "GET") == "GET"
+            && navigationAction.navigationType != .backForward
+        engine.admitMainFrameLoad(url, in: self) { [weak self] allowed in
+            if allowed, ownLoad { self?.mainFrameNavigationMayPlayVideo = mayPlayVideo }
+            decisionHandler(allowed ? .allow : .cancel, preferences)
+        }
     }
 
     public func webView(

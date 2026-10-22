@@ -49,8 +49,9 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// The site of the page that started the current main-frame navigation.
     @ObservationIgnored var navigationSourceSite: String?
     /// Whether the main frame's current navigation may become the video player
-    /// (`RemoteVideoPage`): a GET that is not a Back or Forward. A POST's video cannot be fetched
-    /// again, and a traversal must not add a back-list entry; both keep downloading.
+    /// (`RemoteVideoPage`): a GET that is not a Back or Forward, set when the load is allowed. A
+    /// POST's video cannot be fetched again, and a traversal must not add a back-list entry; both
+    /// keep downloading.
     @ObservationIgnored var mainFrameNavigationMayPlayVideo = false
     @ObservationIgnored public let mainFrameStatuses = MainFrameStatuses()
     /// The last right-click's hit (`WebKitContextHit`); the menu takes it.

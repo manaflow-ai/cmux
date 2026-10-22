@@ -24,7 +24,7 @@ import Testing
         let intents = Intents()
         let downloads = FileManager.default.temporaryDirectory
             .appendingPathComponent("cn-remote-video-dl-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: downloads) }
+        defer { Task.detached { try? FileManager.default.removeItem(at: downloads) } }
         let engine = WebKitEngine(downloadsDirectory: downloads)  // the tab holds its engine weakly
         let page = engine.makeWebKitTab()
         defer { page.close() }
@@ -112,11 +112,13 @@ import Testing
         }
     }
 
-    /// Records whether the tab handed a download to the app.
+    /// Records whether the tab started a download (one the gate refused does not count).
     final class Intents: BrowserTabDelegate {
         private(set) var downloaded = false
         func browserTab(_ tab: any BrowserTab, didRequest intent: BrowserTabIntent) {
-            if case .download = intent { downloaded = true }
+            guard case .download(let download) = intent else { return }
+            if case .blocked = download.status { return }
+            downloaded = true
         }
     }
 
