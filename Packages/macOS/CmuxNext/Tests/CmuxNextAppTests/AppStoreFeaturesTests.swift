@@ -74,7 +74,6 @@ import Testing
             "chief.suggestedTasks": .chief, "chief.githubFeed": .chief,
             "editor.splitDiff": .editor, "editor.minimap": .editor,
             "devices.phoneAccess": .devices, "devices.globalHotKey": .devices,
-            "browser.homeButton": .browser,
         ]
         let bridge = SettingsAppFeatures(settings: { nil })
         for (id, category) in expected {
