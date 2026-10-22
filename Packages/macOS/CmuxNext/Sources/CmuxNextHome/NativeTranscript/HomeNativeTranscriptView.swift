@@ -113,6 +113,10 @@ public final class HomeNativeTranscriptView: NSView {
     /// Automation (DEBUG socket): the transcript is this much narrower than this view (a pane's width
     /// change, as a divider drag or a live resize makes it). Zero in the product.
     public var debugTranscriptWidthTrim: CGFloat = 0 { didSet { needsLayout = true } }
+    /// A click on a header panel toggle (``setHeaderPanels(_:)``), by its id.
+    public var onHeaderPanel: (String) -> Void = { _ in }
+    /// The header's top-right panel toggles (HomeNativeTranscriptView+HeaderPanels.swift).
+    let headerPanels = HomeHeaderPanelBar()
     private var observers: [any NSObjectProtocol] = []
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
     private var cursorHold: HomeCursorRectHold?
