@@ -23,7 +23,7 @@ import { BackgroundMark } from "./BackgroundMark";
 import { toolDuration } from "./toolGroups";
 import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
 import { useBlockWrap } from "./blockWrap";
-import { Lines, lineCount, PreviewMore, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
+import { Lines, lineCount, PreviewMore, SIDEWAYS_SCROLLER, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
 import { cleanText } from "./mcpCalls";
 import { useFold } from "./fold";
 import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
@@ -180,7 +180,13 @@ function ToolOutput({ id, output, reveal }: { id: string; output: string; reveal
             <CopyButton text={shown.text ?? ""} label={t("turn.copy")} className="cv-codeblock__action" />
           )}
         </span>
-        <pre ref={body} className="cv-tool-output selectable" data-wrap={wrap} data-preview={preview.attribute}>
+        <pre
+          ref={body}
+          className="cv-tool-output selectable"
+          data-wrap={wrap}
+          data-preview={preview.attribute}
+          {...SIDEWAYS_SCROLLER}
+        >
           {shown.cut && (
             <span className="cv-output-cut" aria-hidden="true">
               …{"\n"}

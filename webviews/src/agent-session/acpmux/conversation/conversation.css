@@ -1021,12 +1021,18 @@
 .cv-edit-diff__copy {
   color: var(--cv-codeblock-actions);
 }
-/* Its rows scroll sideways in Pierre's own box (`[data-code]`); the body only cuts the preview. */
+/* Its rows scroll sideways in Pierre's own box (`[data-code]`); the body only cuts the preview.
+   Pierre keeps a lane for that box's scrollbar under the rows at all times, `--cv-lane` tall: a
+   cut preview shows eight rows and the lane under them, Pierre's box cut with it (`--cv-block-cut`,
+   sideways.ts PIERRE_BLOCK_CSS), and its bottom fade stops above the lane. */
 .cv-edit-diff__body {
+  --cv-lane: 6px;
+  --diffs-scrollbar-gutter-override: var(--cv-lane);
   overflow: hidden;
 }
 .cv-edit-diff__body[data-preview="cut"] {
-  max-height: calc(8 * var(--cmux-diff-line-height, 18px));
+  --cv-block-cut: calc(8 * var(--cmux-diff-line-height, 18px) + var(--cv-lane));
+  max-height: var(--cv-block-cut);
 }
 .cv-edit-diff > .cv-output-more {
   margin: 0;
@@ -1736,7 +1742,7 @@ pre.cv-math-source {
   overflow-wrap: anywhere;
 }
 .cv-shell__body[data-preview="cut"] {
-  max-height: calc(8 * 18px + 8px);
+  max-height: calc(8 * 18px + 8px + var(--cv-lane, 0px));
 }
 .cv-shell__exit {
   margin-top: 6px;
@@ -2085,7 +2091,7 @@ button.cv-received__name:focus-visible {
   box-shadow: none;
 }
 .cv-tool-output__box > .cv-tool-output[data-preview="cut"] {
-  max-height: calc(8 * 18px);
+  max-height: calc(8 * 18px + var(--cv-lane, 0px));
 }
 /* Wrap lines (and the hover-actions experiment's Copy) in its corner, on hover or focus. */
 .cv-tool-output__actions {
@@ -2107,7 +2113,12 @@ button.cv-received__name:focus-visible {
 /* A tool-call block's body (BlockParts.tsx): past eight lines its first ones fade out at the bottom
    (Show all N lines opens it), and an unwrapped line running past the right edge fades out there
    while more of it lies past (sideways.ts). A fade, never a hard edge; no transition, so it shows
-   and goes at once whatever the motion settings. */
+   and goes at once whatever the motion settings. Under unwrapped lines that run past the edge, the
+   box keeps a thin scrollbar thumb at rest (scrollers.ts SIDEWAYS_ATTRIBUTE), in a lane `--cv-lane`
+   tall at the bottom: a cut preview grows by it, and its bottom fade ends above it. */
+:is(.cv-shell__body, .cv-tool-output__box > .cv-tool-output) {
+  --cv-lane: var(--cmux-sideways-lane, 0px);
+}
 :is(.cv-edit-diff__body, .cv-shell__body, .cv-tool-output__box > .cv-tool-output)[data-preview="cut"] {
   --cv-fade-bottom: 28px;
 }
@@ -2119,7 +2130,12 @@ button.cv-received__name:focus-visible {
     [data-more-right]
   ) {
   mask-image:
-    linear-gradient(to bottom, #000 calc(100% - var(--cv-fade-bottom, 0px)), transparent),
+    linear-gradient(
+      to bottom,
+      #000 calc(100% - var(--cv-fade-bottom, 0px) - var(--cv-lane, 0px)),
+      transparent calc(100% - var(--cv-lane, 0px)),
+      #000 calc(100% - var(--cv-lane, 0px))
+    ),
     linear-gradient(to left, transparent, #000 var(--cv-fade-right, 0px));
   mask-composite: intersect;
 }

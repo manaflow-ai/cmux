@@ -369,7 +369,11 @@ test("the cuts are fades, a wrapped line hangs, and Pierre's rows get both", asy
   // The preview's bottom edge and the overflow's right edge fade out (a mask), never a hard edge.
   expect(rule(/\[data-preview="cut"\]/)).toMatch(/--cv-fade-bottom:\s*\d/);
   expect(rule(/\[data-more-right\]/)).toMatch(/--cv-fade-right:\s*\d/);
-  expect(css).toMatch(/mask-image:\s*linear-gradient\(to bottom[^;]*var\(--cv-fade-bottom/);
+  expect(css).toMatch(/mask-image:\s*linear-gradient\(\s*to bottom[^;]*var\(--cv-fade-bottom/);
+  // The fade ends above the sideways scrollbar's lane, which stays opaque under it.
+  expect(css).toMatch(
+    /linear-gradient\(\s*to bottom[^;]*transparent calc\(100% - var\(--cv-lane[^;]*#000 calc\(100% - var\(--cv-lane/,
+  );
   expect(css).toMatch(/linear-gradient\(to left[^;]*var\(--cv-fade-right/);
   // A wrapped line hangs: its second row starts further in than its first.
   expect(rule(/\[data-wrap="true"\] \.cv-line/)).toMatch(/text-indent:\s*-/);

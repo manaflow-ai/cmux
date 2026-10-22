@@ -7,7 +7,7 @@
 import type { ReactNode } from "react";
 import { useT } from "../i18n";
 import { useBlockWrap } from "./blockWrap";
-import { Lines, lineCount, PreviewMore, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
+import { Lines, lineCount, PreviewMore, SIDEWAYS_SCROLLER, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
 import { commandFolder } from "./commandFolder";
 import { CopyButton } from "./CopyButton";
 import { menuPartRef } from "./menuParts";
@@ -66,7 +66,13 @@ export function ShellBlock({
           {shown.text && <CopyButton text={shown.text} label={t("turn.copy")} />}
         </span>
       </div>
-      <pre ref={body} className="cv-shell__body selectable" data-wrap={wrap} data-preview={preview.attribute}>
+      <pre
+        ref={body}
+        className="cv-shell__body selectable"
+        data-wrap={wrap}
+        data-preview={preview.attribute}
+        {...SIDEWAYS_SCROLLER}
+      >
         {rest && (
           <span className="cv-shell__command">
             <Lines text={`$ ${rest}`} />
