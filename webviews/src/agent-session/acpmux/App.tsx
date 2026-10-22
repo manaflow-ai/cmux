@@ -3773,6 +3773,15 @@ function AcpmuxPane() {
   const [continuing, setContinuing] = useState(false);
   const [reviewReload, setReviewReload] = useState(0);
   useEffect(() => setContinuing(false), [snapshot.sessionId]);
+  // Each time the pane says a tab's chat isn't available, the app's log records the chat and why
+  // (`chat.missing`, os_log category agentPane), so the views can be counted (Lawrence 2026-10-21).
+  useEffect(() => {
+    if (!snapshot.missingSession) return;
+    void callNative("chat.missing", {
+      session: snapshot.missingSession,
+      reason: snapshot.missingReason ?? "unknown",
+    }).catch(() => undefined);
+  }, [snapshot.missingSession, snapshot.missingReason]);
   const stopContinuing = useCallback(() => setContinuing(false), []);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   /// The subagent whose own view the transcript shows (its line in a group opens it), or none.
