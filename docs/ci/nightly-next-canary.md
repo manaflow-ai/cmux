@@ -198,17 +198,24 @@ app's window (only the window, with `screencapture -l`) in three scenes:
 | --- | --- | --- |
 | `home` | `home.show` | the sidebar, the Chief chat and the Home composer under it, Home's New Tab |
 | `transcript` | a test-agent turn, `agent.openSessionWorkspace`, then `tab.focus` on its tab | the sidebar, the prompt and reply, the composer |
-| `composer` | `palette.newAgentChat` in the transcript's workspace | the sidebar and the new chat's composer |
+| `composer` | `palette.newAgentChat` in the transcript's workspace, its pane zoomed (`toggleSplitZoom`) | the sidebar and the new chat's composer |
 
 The driver captures them in that order. The transcript waits until the window
 shows the session's workspace and that pane's selected tab is the session's,
-no longer pending (`agent.openSessionWorkspace` itself switches nothing). The
-transcript and the new chat are in a workspace that is not Home, so no Chief
-column sits beside them, and their boxes stop left of the chat's Inspector:
-each box covers only the pane under test, so content beside an empty pane
-cannot pass it. A scene whose capture matches a scene it is `distinct_from`
-(32x20 SSIM at or above `max_scene_ssim`, 0.9) fails: the driver captured the
-previous scene again.
+no longer pending (`agent.openSessionWorkspace` itself switches nothing). A
+new chat docks at the left of the screen at half its width, so the driver
+zooms its pane and waits until the snapshot shows it zoomed. Both chats are in
+a workspace that is not Home, so no Chief column sits beside them. The smoke
+gives the app a scratch settings file (`CMUX_NEXT_CONFIG_FILE`) where a chat's
+Inspector pushes the chat aside instead of lying over it, and the boxes stop
+left of the Inspector: each box covers only the pane under test, so content
+beside an empty pane cannot pass it.
+
+A web page paints after it loads, so each scene is captured again every 2 s
+until the structural checks pass, for at most 20 s (`--paint-timeout`); the
+last capture is the one judged. A scene whose capture matches a scene it is
+`distinct_from` (the area right of the sidebar, 32x20 SSIM at or above
+`max_scene_ssim`, 0.9) fails: the driver captured the previous scene again.
 
 `visual_check.py` judges each capture against `scenes.json`. It fails a scene
 when the window is smaller than 600x400, blank, one flat tone or mostly black,
