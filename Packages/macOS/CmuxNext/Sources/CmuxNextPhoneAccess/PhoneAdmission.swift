@@ -23,6 +23,9 @@ public final class PhoneAdmission {
     private var denied: [String: ContinuousClock.Instant] = [:]
     /// One question per phone, however many connections it opens meanwhile.
     private var asking: [String: Task<Bool, Never>] = [:]
+    /// Bumped by every user change: an answer to a question asked before it saves nothing, since
+    /// the question carried no account and the list is now another user's.
+    private var generation = 0
     /// At most this many phones wait on a question at once; another new phone is turned away
     /// unasked (no hold), so a burst of devices cannot stack dialogs.
     static let questionCap = 2
@@ -54,6 +57,8 @@ public final class PhoneAdmission {
     func setUser(_ userID: String?) {
         phones.load(userID: userID)
         denied = [:]
+        asking = [:]
+        generation += 1
     }
 
     func decide(_ device: MobileHostPairRequest) async -> Bool {
@@ -67,12 +72,14 @@ public final class PhoneAdmission {
         }
         if let at = denied[id], at.duration(to: clock()) < Self.denialHold { return false }
         guard asking[id] != nil || asking.count < Self.questionCap else { return false }
+        let askedFor = generation
         // task-owner: the question, shared by this phone's connections; dropped once answered
         let question = asking[id] ?? Task { await ask(device) }
         asking[id] = question
         let allowed = await question.value
         // A late waiter must not drop a newer question for this phone.
         if asking[id] == question { asking[id] = nil }
+        guard generation == askedFor else { return false }
         guard allowed else {
             denied[id] = clock()
             return false
