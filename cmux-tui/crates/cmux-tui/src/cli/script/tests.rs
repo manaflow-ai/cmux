@@ -342,11 +342,11 @@ fn config_verbs_parse() {
     );
     assert_eq!(
         parse(&words(&["action", "hello", "who=me", "--args", r#"{"n":1}"#])).unwrap(),
-        Action::UserAction { action: "user.hello".into(), args: json!({ "who": "me", "n": 1 }) }
+        Action::Invoke { action: "user.hello".into(), args: json!({ "who": "me", "n": 1 }) }
     );
     assert_eq!(
         parse(&words(&["action", "user.hello"])).unwrap(),
-        Action::UserAction { action: "user.hello".into(), args: json!({}) }
+        Action::Invoke { action: "user.hello".into(), args: json!({}) }
     );
     assert!(parse(&words(&["action"])).is_err());
     assert!(parse(&words(&["check", "a", "b"])).is_err());
@@ -360,7 +360,7 @@ fn config_requests_and_reports() {
         Some(json!({ "id": "script-config-1", "cmd": "script-config-check", "path": "/c/s" }))
     );
     assert_eq!(
-        config_request(&Action::UserAction { action: "user.x".into(), args: json!({ "a": 1 }) }),
+        config_request(&Action::Invoke { action: "user.x".into(), args: json!({ "a": 1 }) }),
         Some(
             json!({ "id": "script-config-1", "cmd": "script-action-run", "action": "user.x", "args": { "a": 1 }, "context": { "origin": "cli" } })
         )
@@ -382,7 +382,7 @@ fn config_requests_and_reports() {
     let (json_out, _, _) = config_report(&Action::ConfigStatus, &report, OutputMode::Json);
     assert_eq!(serde_json::from_str::<Value>(&json_out.unwrap()).unwrap(), report["data"]);
     let ran = json!({ "ok": true, "data": { "value": { "hi": 1 } } });
-    let action = Action::UserAction { action: "user.x".into(), args: json!({}) };
+    let action = Action::Invoke { action: "user.x".into(), args: json!({}) };
     assert_eq!(
         config_report(&action, &ran, OutputMode::Json),
         (Some("{\"hi\":1}".into()), None, 0)
