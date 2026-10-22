@@ -36,7 +36,7 @@ export default agentPaneEntry({
     },
     tailscale: {
       note: "A chat on another machine that the tailnet no longer reaches.",
-      snapshot: failed("peer cmux16 unreachable: dial tcp cmux16.tail137216.ts.net:4717: i/o timeout"),
+      snapshot: failed("peer build-box unreachable: dial tcp build-box.tail0e5a.ts.net:4717: i/o timeout"),
     },
     typed: {
       note: "acpmux's typed reason (`errorCode`) wins over the words: a disk error whose text says only that it could not write.",

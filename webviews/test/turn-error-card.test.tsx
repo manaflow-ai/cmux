@@ -16,7 +16,7 @@ test("disk, tailnet, quit and start failures each name their cause", () => {
     ["agent process closed", "agent-exited"],
     ["agent process closed\nstderr: Error: ENOSPC: no space left on device, write", "disk-full"],
     ["write /var/acpmux/journal: disk quota exceeded", "disk-full"],
-    ["peer cmux16 unreachable: dial tcp cmux16.tail137216.ts.net:4717: i/o timeout", "tailscale"],
+    ["peer build-box unreachable: dial tcp build-box.tail0e5a.ts.net:4717: i/o timeout", "tailscale"],
     ["tailscale: not connected to the tailnet", "tailscale"],
     ["failed to spawn agent: spawn claude-code-acp ENOENT", "spawn-failed"],
     ["claude-code-acp: command not found", "spawn-failed"],
