@@ -88,8 +88,7 @@ await requireBrowserLane("inspector-subagents-wave-hold.test.ts", async () => {
     const crest = opacity.indexOf(Math.max(...opacity));
     expect(crest).toBeGreaterThan(0);
     expect(crest).toBeLessThan(opacity.length - 1);
-    for (let index = 1; index <= crest; index++)
-      expect(opacity[index]! - opacity[index - 1]!).toBeGreaterThan(0.02);
+    for (let index = 1; index <= crest; index++) expect(opacity[index]! - opacity[index - 1]!).toBeGreaterThan(0.02);
     for (let index = crest + 1; index < opacity.length; index++)
       expect(opacity[index - 1]! - opacity[index]!).toBeGreaterThan(0.02);
     for (const [index, value] of opacity.entries())
