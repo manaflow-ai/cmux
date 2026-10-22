@@ -1080,13 +1080,17 @@
    footer look the box keeps +, the prompt, the mic and Send or Stop, and the mode, model and effort
    sit in a quiet row under it. As Claude Code draws it (measured from its composer at 1x): the
    mode's text on the prompt's text edge, 16 px in from the box's side; the model and effort on the
-   right, their labels 8 px apart (each chip's 4 px hover inset, no gap), the last one 12 px in from
-   the box's right side; the row 28 px tall, 4 px under the box. No fill, no edge: the chips' rest,
+   right, the last one 12 px in from the box's right side; the row 28 px tall, 4 px under the box.
+   Each chip's hover pill sits 8 px out from its text on both sides, the inset of the native
+   selection pill (an NSMenu row's highlight, Codex's and ChatGPT's mode chip), not a 4 px sliver
+   hugging the label (Leo 2026-10-22: "the highlight pill is too small"). The row's padding is
+   counted from that inset, so the mode's text and the model's text stay where they were; only the
+   pill grows (test/composer-foot-pill-inset.test.ts). No fill, no edge: the chips' rest,
    hover, open, press and focus states are the bar's (above). Full access shows its shield, in the
    model chip's color as the quiet chip has it (Leo 2026-10-18, #21744): its "!" mark names the risk
    without the menu, and the menu keeps the warning color where the mode is chosen. */
 .acpmux-composer-foot {
-  --acpmux-row-inset: 4px;
+  --acpmux-row-inset: 8px;
   --acpmux-row-gap: 0px;
   --acpmux-row-group-gap: 0px;
   --acpmux-row-edge: 14px;
@@ -1189,7 +1193,13 @@
 }
 /* The context ring ends the quiet row, as Claude Code's does: the row's soft pill on hover and
    while its details are open, the row's outline under keyboard focus. */
-.acpmux-composer-foot .acpmux-context-ring { width: 24px; height: 24px; margin-inline-start: 8px; }
+/* The ring stays 12 px past the model's text and 10 px in from the row's end, whatever the chips'
+   pill inset: its margins give back what the inset took. */
+.acpmux-composer-foot .acpmux-context-ring {
+  width: 24px;
+  height: 24px;
+  margin-inline: calc(12px - var(--acpmux-row-inset)) calc(var(--acpmux-row-inset) - 4px);
+}
 .acpmux-composer-foot .acpmux-context-ring:not(:disabled):hover,
 .acpmux-composer-foot .acpmux-context-ring[aria-expanded="true"] { background: var(--acpmux-pill-hover); }
 .acpmux-composer-foot .acpmux-context-ring:focus-visible { outline-offset: 0; }
