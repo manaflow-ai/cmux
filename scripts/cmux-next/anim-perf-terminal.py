@@ -335,10 +335,64 @@ def profile(name, prepare, perform, undo):
     except OSError:
         print(f"  (no sample for {name})", flush=True)
         return
-    top = text.split("Sort by top of stack")
-    if len(top) > 1:
-        print(f"== sample {name}: heaviest frames (all threads, top of stack)", flush=True)
-        print("\n".join(top[1].splitlines()[:30]), flush=True)
+    print(f"== sample {name}: main thread, heaviest non-idle call paths", flush=True)
+    for line in main_thread_hot(text):
+        print(line, flush=True)
+
+
+IDLE = ("mach_msg2_trap", "mach_msg_trap", "__CFRunLoopServiceMachPort", "kevent", "__psynch_cvwait", "semaphore_wait")
+
+
+def main_thread_hot(text, limit=40):
+    """The main thread's call tree with idle waits removed: the deepest frames under 1 ms samples that hold at
+    least 2 % of the busy samples, so a profile names where a slow animation's main-thread time goes."""
+    import re
+    graph = text.split("Call graph:", 1)
+    if len(graph) < 2:
+        return ["  (no call graph)"]
+    lines = graph[1].splitlines()
+    node = re.compile(r"^([ +!:|]*)(\d+) (.*?)(?:  \(in [^)]*\).*)?$")
+    start = next((i for i, l in enumerate(lines) if "com.apple.main-thread" in l), None)
+    if start is None:
+        return ["  (no main thread)"]
+    head = node.match(lines[start])
+    base = len(head.group(1))
+    nodes = []  # (depth, count, symbol)
+    for line in lines[start + 1:]:
+        m = node.match(line)
+        if not m:
+            continue
+        depth = len(m.group(1))
+        if depth <= base:
+            break
+        nodes.append((depth, int(m.group(2)), m.group(3).strip()[:150]))
+    # Each node's busy samples: its own count less the idle waits under it (children by depth).
+    parents, busy_of = [], [0] * len(nodes)
+    for i, (depth, count, sym) in enumerate(nodes):
+        while parents and nodes[parents[-1]][0] >= depth:
+            parents.pop()
+        busy_of[i] = 0 if any(k in sym for k in IDLE) else count
+        nodes[i] = (depth, count, sym, parents[-1] if parents else None)
+        parents.append(i)
+    for i in range(len(nodes) - 1, -1, -1):
+        parent = nodes[i][3]
+        if parent is not None and any(k in nodes[i][2] for k in IDLE):
+            # the idle wait's samples leave every ancestor
+            j = parent
+            while j is not None:
+                busy_of[j] -= nodes[i][1]
+                j = nodes[j][3]
+    total = int(head.group(2))
+    busy = max(1, sum(b for i, b in enumerate(busy_of) if nodes[i][3] is None))
+    out = [f"  main thread samples {total}, busy {busy} (1 ms each)"]
+    threshold = max(2, busy // 50)
+    for i, (depth, count, sym, _) in enumerate(nodes):
+        if busy_of[i] < threshold:
+            continue
+        kids = [busy_of[j] for j in range(i + 1, len(nodes)) if nodes[j][3] == i]
+        if all(k < threshold for k in kids):
+            out.append(f"  {busy_of[i]:>6}  {100.0 * busy_of[i] / busy:5.1f}%  {sym}")
+    return out[:limit]
 
 
 def budgets():
