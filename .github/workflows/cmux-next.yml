@@ -3429,8 +3429,9 @@ jobs:
       # The settings exports (schemas/settings/settings-schema.json, docs/mdm)
       # are compared with a fresh export, never with a committed stamp of their
       # sources (Leo 2026-10-21: "just generate and don't commit"). Only when this
-      # event changed the settings sources: their stamp, derived at HEAD^1 (the
-      # merge commit's base tip, or a push's parent) and at HEAD, differs. The
+      # event changed the settings sources (their stamp, derived at HEAD^1, the
+      # merge commit's base tip or a push's parent, and at HEAD, differs) or an
+      # export itself. The
       # fresh export of a merge commit also holds the base's own unexported
       # changes, so any other event would go red for the base's staleness; that
       # is the base autofix's, which regenerates the exports after the merge.
@@ -3445,8 +3446,10 @@ jobs:
           set -euo pipefail
           base_stamp="$(python3 scripts/ci/defaults_guard.py source-stamp --ref "$(git rev-parse HEAD^1)")"
           head_stamp="$(python3 scripts/ci/defaults_guard.py source-stamp --ref HEAD)"
-          if [[ "$base_stamp" == "$head_stamp" ]]; then
-            echo "The settings sources did not change; any stale export is the base's (the base autofix regenerates it)."
+          # An event that changes an export itself is checked even with the sources unchanged (a merge
+          # can keep older exports while taking the base's sources).
+          if [[ "$base_stamp" == "$head_stamp" ]] && git diff --quiet HEAD^1 HEAD -- docs/mdm schemas/settings; then
+            echo "The settings sources and exports did not change; any stale export is the base's (the base autofix regenerates it)."
             exit 0
           fi
           scripts/cmux-next/regenerate-settings-exports.sh "$RUNNER_TEMP/settings-exports" | tee "$RUNNER_TEMP/settings-exported.txt"

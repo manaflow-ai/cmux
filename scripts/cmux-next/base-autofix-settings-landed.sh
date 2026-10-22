@@ -41,6 +41,13 @@ if ! made_stamp="$(python3 "$guard" source-stamp --ref "$made")" \
   exit 1
 fi
 if [[ "$made_stamp" != "$tip_stamp" ]]; then
+  # Back at the run's own sources (the Mac job made them at MADE_AT, whose sources the tip has left):
+  # nothing made exports for these sources, and the run's changes are the only thing that names them.
+  if [[ "$made" != "$run" ]] && run_stamp="$(python3 "$guard" source-stamp --ref "$run")" \
+    && [[ "$run_stamp" == "$tip_stamp" ]]; then
+    echo "::error::the settings sources at ${tip:0:12} are the ones this run had at ${run:0:12}, but its exports were made for ${made:0:12}'s; the next run makes them again"
+    exit 1
+  fi
   echo "::warning::a commit after ${made:0:12} changed the settings sources; the exports at ${tip:0:12} are the next run's work"
   exit 0
 fi
