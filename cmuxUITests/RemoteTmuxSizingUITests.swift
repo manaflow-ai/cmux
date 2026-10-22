@@ -1,6 +1,7 @@
 import XCTest
 import Foundation
 import Darwin
+import CoreGraphics
 
 /// End-to-end gate for remote-tmux mirror sizing, against a REAL tmux server.
 ///
@@ -87,6 +88,196 @@ final class RemoteTmuxSizingUITests: XCTestCase {
     }
 
     // MARK: scenarios
+
+    /// An external harness owns a throwaway virtual display and removes it
+    /// when requested. This exercises WindowServer's real display-removal
+    /// events, rather than posting a notification or manually resizing.
+    func testDisplayDisconnectRefreshesVisiblePaneGrids() throws {
+        struct DisplayHarness: Decodable {
+            let displayID: UInt32
+            let requestPath: String
+            let recordingPath: String?
+        }
+        let manifestPath = "/tmp/cmux-ui-test-tmux-display-harness.json"
+        guard let data = FileManager.default.contents(atPath: manifestPath) else {
+            throw XCTSkip("Display-disconnect harness is not running")
+        }
+        let harness = try JSONDecoder().decode(DisplayHarness.self, from: data)
+        // A retired virtual-display ID can make CGDisplayIsOnline return -1.
+        // Membership in the online inventory verifies actual removal.
+        func displayIsOnline() -> Bool {
+            var count: UInt32 = 0
+            XCTAssertEqual(CGGetOnlineDisplayList(0, nil, &count), .success)
+            var displays = [CGDirectDisplayID](repeating: 0, count: Int(count))
+            XCTAssertEqual(CGGetOnlineDisplayList(count, &displays, &count), .success)
+            return displays.prefix(Int(count)).contains(harness.displayID)
+        }
+        XCTAssertTrue(displayIsOnline(), "test display is not online")
+        try requireTmux()
+        let app = launchApp()
+        defer { app.terminate() }
+        try buildLabSession()
+        attachSession()
+        let windowID = try XCTUnwrap(mirrorWindowId)
+        let displays = try XCTUnwrap(socketJSON(method: "window.displays", params: [:])?["displays"] as? [[String: Any]])
+        let target = try XCTUnwrap(displays.first { ($0["display_id"] as? NSNumber)?.uint32Value == harness.displayID })
+        let displayIndex = try XCTUnwrap(target["index"] as? Int)
+        let moved = socketJSON(method: "window.display", params: [
+            "window_id": windowID, "display": "\(displayIndex)",
+        ])
+        XCTAssertEqual(moved?["ok"] as? Bool, true, "could not move onto test display: \(moved ?? [:])")
+        let remaining = displays.filter { ($0["display_id"] as? NSNumber)?.uint32Value != harness.displayID }
+        XCTAssertFalse(remaining.isEmpty, "disconnect harness needs a remaining display")
+        var windowSize = CGSize.zero
+        for display in remaining {
+            let frame = try XCTUnwrap(display["frame"] as? [String: Any])
+            windowSize.width = max(windowSize.width, CGFloat(try XCTUnwrap(frame["width"] as? Int)) + 200)
+            windowSize.height = max(windowSize.height, CGFloat(try XCTUnwrap(frame["height"] as? Int)) + 200)
+        }
+        let targetFrame = try XCTUnwrap(target["frame"] as? [String: Any])
+        XCTAssertLessThan(windowSize.width, CGFloat(try XCTUnwrap(targetFrame["width"] as? Int)),
+                          "disconnect harness needs a wider virtual display")
+        XCTAssertLessThan(windowSize.height, CGFloat(try XCTUnwrap(targetFrame["height"] as? Int)),
+                          "disconnect harness needs a taller virtual display")
+        setMirrorWindowSize(windowSize)
+        // Recenter after growing so the whole window is on the test display.
+        XCTAssertEqual(socketJSON(method: "window.display", params: [
+            "window_id": windowID, "display": "\(displayIndex)",
+        ])?["ok"] as? Bool, true)
+        try startRulers(window: 0)
+        try assertSettles(selectedWindow: 0, within: 10, context: "on the virtual display")
+        try assertWindowContentMatchesTmux(window: 0, context: "before display recording")
+        let before = try XCTUnwrap(pushedSize(window: 0))
+
+        var isRecording = false
+        if let path = harness.recordingPath {
+            let recording = socketJSON(method: "window.record.start", params: [
+                "window": windowID, "format": "gif", "max_seconds": 20,
+                "max_width": 1000, "out": path,
+            ])
+            XCTAssertEqual(recording?["ok"] as? Bool, true, "recording did not start: \(recording ?? [:])")
+            isRecording = recording?["ok"] as? Bool == true
+            _ = socketJSON(method: "window.record.note", params: ["text": "Removing the external display"])
+        }
+        defer {
+            if isRecording {
+                _ = socketJSON(method: "window.record.stop", params: [:])
+            }
+        }
+
+        try Data("disconnect".utf8).write(to: URL(fileURLWithPath: harness.requestPath))
+        let deadline = Date().addingTimeInterval(10)
+        while displayIsOnline(), Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        XCTAssertFalse(displayIsOnline(), "test display was not removed")
+        try assertSettles(selectedWindow: 0, within: 10, context: "after display removal")
+        try assertRootContentTracksWindow(context: "after display removal")
+        try assertClaimsWithinWindowCeiling(context: "after display removal")
+        let after = try XCTUnwrap(pushedSize(window: 0))
+        XCTAssertLessThan(after.cols, before.cols, "columns did not shrink after display removal")
+        XCTAssertLessThan(after.rows, before.rows, "rows did not shrink after display removal")
+        try assertWindowContentMatchesTmux(window: 0, context: "after display removal")
+        if isRecording {
+            _ = socketJSON(method: "window.record.note", params: ["text": "Display removed; tmux panes match the new size"])
+        }
+        print("Display disconnect: display \(harness.displayID) removed, tmux \(before.cols)x\(before.rows) -> \(after.cols)x\(after.rows)")
+    }
+
+    /// The middle window stays hidden through attach and its first claim.
+    func testNeverSelectedWindowReceivesItsInitialSizeClaim() throws {
+        try requireTmux()
+        let app = launchApp()
+        defer { app.terminate() }
+        try buildLabSession()
+        // Neither the default first tab nor the attach's final tab is @1.
+        mustRunTmux(["new-window", "-t", sessionName], "adding the third window")
+        mustRunTmux(["select-window", "-t", "\(sessionName):0"], "selecting the first window before attach")
+        attachSession()
+        let deadline = Date().addingTimeInterval(10)
+        var claimed = false
+        while Date() < deadline {
+            if let hidden = paneGridsWindows()?.first(where: { $0["window_id"] as? String == "@1" }) {
+                XCTAssertEqual(hidden["visible_for_sizing"] as? Bool, false, "@1 was selected")
+                if let claim = hidden["pushed"] as? [String: Any],
+                   let cols = claim["cols"] as? Int, let rows = claim["rows"] as? Int,
+                   cols > 1, rows > 1 {
+                    claimed = true
+                    break
+                }
+            }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        XCTAssertTrue(claimed, "never-selected @1 did not receive its initial claim")
+        let surfaces = try XCTUnwrap(socketJSON(method: "remote.tmux.pane_surfaces", params: [
+            "host": "e2e-shim-host", "session": sessionName,
+        ])?["panes"] as? [[String: Any]])
+        let hiddenPanes = surfaces.filter { $0["window_id"] as? String == "@1" }
+        XCTAssertFalse(hiddenPanes.isEmpty)
+        for pane in hiddenPanes { XCTAssertEqual(pane["on_screen"] as? Bool, false) }
+        try assertSettles(selectedWindow: 0, within: 10, context: "with @1 never selected")
+    }
+
+    /// Height-only growth and shrink must reflow stacked and nested panes.
+    func testHeightResizeSweepConvergesWithStackedPanes() throws {
+        try requireTmux()
+        let app = launchApp()
+        defer { app.terminate() }
+        try buildShapeZoo()
+        attachSession()
+        for name in ["rows3", "nested"] {
+            let window = try XCTUnwrap(windowId(named: name))
+            XCTAssertTrue(selectTab(named: name))
+            setMirrorWindowSize(CGSize(width: 1200, height: 900))
+            try assertSettles(selectedWindow: window, within: 10, context: "\(name) before height sweep")
+            try startRulers(window: window)
+            try assertWindowContentMatchesTmux(window: window, context: "\(name) before height recording")
+            var isRecording = false
+            if name == "rows3",
+               let data = FileManager.default.contents(atPath: "/tmp/cmux-ui-test-tmux-height-recording.path"),
+               let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) {
+                let recording = socketJSON(method: "window.record.start", params: [
+                    "window": try XCTUnwrap(mirrorWindowId), "format": "gif", "max_seconds": 60,
+                    "max_width": 1000, "out": path,
+                ])
+                XCTAssertEqual(recording?["ok"] as? Bool, true, "height recording did not start: \(recording ?? [:])")
+                isRecording = recording?["ok"] as? Bool == true
+                _ = socketJSON(method: "window.record.note", params: ["text": "Height 900; three stacked tmux panes"])
+                Thread.sleep(forTimeInterval: 0.4)
+            }
+            defer {
+                if isRecording { _ = socketJSON(method: "window.record.stop", params: [:]) }
+            }
+            setMirrorWindowSize(CGSize(width: 1200, height: 620))
+            try assertSettles(selectedWindow: window, within: 10, context: "\(name) at height 620")
+            try assertWindowContentMatchesTmux(window: window, context: "\(name) at height 620")
+            if isRecording {
+                _ = socketJSON(method: "window.record.note", params: ["text": "Height 620; three stacked tmux panes"])
+                Thread.sleep(forTimeInterval: 0.4)
+            }
+            var previous = try XCTUnwrap(pushedSize(window: window))
+            var previousHeight = 620
+            for height in [760, 900, 760, 620] {
+                setMirrorWindowSize(CGSize(width: 1200, height: CGFloat(height)))
+                try assertSettles(selectedWindow: window, within: 10, context: "\(name) at height \(height)")
+                let claim = try XCTUnwrap(pushedSize(window: window))
+                XCTAssertEqual(claim.cols, previous.cols)
+                if height > previousHeight { XCTAssertGreaterThan(claim.rows, previous.rows) }
+                else { XCTAssertLessThan(claim.rows, previous.rows) }
+                try assertRootContentTracksWindow(context: "\(name) at height \(height)")
+                try assertWindowContentMatchesTmux(window: window, context: "\(name) at height \(height)")
+                print("Height resize: \(name) height \(height), tmux \(claim.cols)x\(claim.rows)")
+                if isRecording {
+                    _ = socketJSON(method: "window.record.note", params: [
+                        "text": "Height \(height); tmux \(claim.cols) columns x \(claim.rows) rows",
+                    ])
+                    Thread.sleep(forTimeInterval: 0.4)
+                }
+                previous = claim
+                previousHeight = height
+            }
+        }
+    }
 
     /// Attach a session holding a 3-pane split window plus a single-pane
     /// window; the client must settle to one stable, coherent size.
@@ -311,11 +502,23 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         try buildLabSession()
         attachSession()
         setMirrorWindowSize(CGSize(width: 1000, height: 700))
+        let displays = try XCTUnwrap(socketJSON(method: "window.displays", params: [:])?["displays"] as? [[String: Any]])
+        let display = try XCTUnwrap(displays.first {
+            guard let frame = $0["frame"] as? [String: Any] else { return false }
+            return (frame["width"] as? Int ?? 0) > 1050 && (frame["height"] as? Int ?? 0) > 700
+        })
+        XCTAssertEqual(socketJSON(method: "window.display", params: [
+            "window_id": try XCTUnwrap(mirrorWindowId), "display": "\(try XCTUnwrap(display["index"] as? Int))",
+        ])?["ok"] as? Bool, true)
+        let frame = try XCTUnwrap(display["frame"] as? [String: Any])
+        let origin = Double(try XCTUnwrap(frame["x"] as? Int))
+            + (Double(try XCTUnwrap(frame["width"] as? Int)) - 1000) / 2
+        setMirrorWindowOrigin(x: origin)
         try assertSettles(selectedWindow: 0, within: 10, context: "before origin-only moves")
 
         let before = try XCTUnwrap(sizingCounters(), "sizing counters unavailable before moves")
         for move in 0..<50 {
-            setMirrorWindowOrigin(x: Double(20 + (move % 2) * 24))
+            setMirrorWindowOrigin(x: origin + Double((move % 2) * 24))
         }
         let after = try XCTUnwrap(sizingCounters(), "sizing counters unavailable after moves")
 
