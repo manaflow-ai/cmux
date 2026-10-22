@@ -46,33 +46,66 @@ class SettingsStampIsNotCommitted(unittest.TestCase):
 
 
 class ExportsAreComparedWithAFreshExport(unittest.TestCase):
-    """The generated files job exports the settings fresh when the event changed an export input,
-    and fails when the committed copies differ; staleness the base left is the base autofix's."""
+    """The generated files job exports the settings fresh only when the event changed the settings
+    sources (their derived stamps at HEAD^1 and HEAD differ), and fails when the committed copies
+    differ. Any other event leaves exports the base left stale to the base autofix: a PR that only
+    touched other Swift must not go red for the base's staleness (review of #23915)."""
 
-    def caused(self, *changed: str) -> int:
-        with tempfile.NamedTemporaryFile("w", suffix=".txt") as handle:
-            handle.write("\n".join(changed) + "\n")
-            handle.flush()
-            return subprocess.run([sys.executable, str(ROOT / "scripts/cmux-next/generated_outputs.py"), "caused",
-                                   "schemas/settings/settings-schema.json", "--changed", handle.name],
-                                  capture_output=True, text=True, check=False).returncode
-
-    def test_a_settings_source_change_owns_the_export(self):
-        self.assertEqual(self.caused("Packages/macOS/CmuxNext/Sources/CmuxNextSettings/TabsSetting.swift"), 0)
-
-    def test_an_unrelated_change_leaves_the_export_to_the_base(self):
-        self.assertEqual(self.caused("README.md", "schemas/settings/settings-schema.json"), 1)
-
-    def test_the_generated_files_job_exports_fresh_and_compares(self):
+    def step(self) -> str:
         workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8"))
         steps = [step for job in workflow["jobs"].values() for step in job.get("steps", [])
                  if step.get("id") == "settings"]
         self.assertEqual(len(steps), 1)
-        script = steps[0]["run"]
-        self.assertIn("generated_outputs.py caused schemas/settings/settings-schema.json", script)
+        return steps[0]["run"]
+
+    def test_the_check_runs_only_when_the_settings_sources_moved(self):
+        script = self.step()
+        self.assertIn('defaults_guard.py source-stamp --ref "$(git rev-parse HEAD^1)"', script)
+        self.assertIn("defaults_guard.py source-stamp --ref HEAD", script)
+        self.assertNotIn("generated_outputs.py caused", script)
+
+    def test_the_check_exports_fresh_and_compares(self):
+        script = self.step()
         self.assertIn("scripts/cmux-next/regenerate-settings-exports.sh", script)
         self.assertIn("grep -q '^regenerated: '", script)
 
+    def test_an_unchanged_source_stamp_exports_nothing(self):
+        """Run the step's own gate in a repository where HEAD changed only non-settings Swift."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            run = lambda *args: subprocess.run(args, cwd=repo, capture_output=True, text=True, check=True)
+            run("git", "init", "-q", "-b", "main")
+            run("git", "config", "user.email", "t@t")
+            run("git", "config", "user.name", "t")
+            (repo / "scripts/ci").mkdir(parents=True)
+            (repo / "scripts/ci/defaults_guard.py").write_text(
+                (ROOT / "scripts/ci/defaults_guard.py").read_text(encoding="utf-8"))
+            settings = repo / "Packages/macOS/CmuxNext/Sources/CmuxNextSettings"
+            settings.mkdir(parents=True)
+            (settings / "A.swift").write_text("// a\n")
+            tests_dir = repo / "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests"
+            tests_dir.mkdir(parents=True)
+            for name in ("ManagedPreferencesManifestTests.swift", "SettingsSchemaExportTests.swift"):
+                (tests_dir / name).write_text("// t\n")
+            other = repo / "Packages/macOS/CmuxNext/Sources/CmuxNextApp"
+            other.mkdir(parents=True)
+            (other / "B.swift").write_text("// b\n")
+            run("git", "add", "-A")
+            run("git", "commit", "-q", "-m", "base")
+            (other / "B.swift").write_text("// b, edited\n")
+            run("git", "commit", "-q", "-am", "other swift")
+            fake = repo / "scripts/cmux-next"
+            fake.mkdir(parents=True)
+            (fake / "regenerate-settings-exports.sh").write_text("#!/bin/sh\necho EXPORTED\n")
+            (fake / "regenerate-settings-exports.sh").chmod(0o755)
+            env = {"RUNNER_TEMP": tmp, "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"}
+            result = subprocess.run(["bash", "-c", self.step()], cwd=repo, env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertNotIn("EXPORTED", result.stdout)
+            (settings / "A.swift").write_text("// a, edited\n")
+            run("git", "commit", "-q", "-am", "settings swift")
+            result = subprocess.run(["bash", "-c", self.step()], cwd=repo, env=env, capture_output=True, text=True)
+            self.assertIn("EXPORTED", result.stdout)
 
 if __name__ == "__main__":
     unittest.main()
