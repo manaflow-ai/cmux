@@ -389,6 +389,7 @@ impl Mux {
                     sequence: direct_state.applied_sequence,
                     ended: false,
                     ended_at_ms: direct_state.ended_at_ms,
+                    wait: None,
                 },
             );
         }
