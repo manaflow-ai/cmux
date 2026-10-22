@@ -31,6 +31,7 @@ public nonisolated struct AppFeature: Sendable, Hashable, Identifiable {
         case editor
         case devices
         case browser
+        case layout
     }
 
     /// What the card shows above its name.

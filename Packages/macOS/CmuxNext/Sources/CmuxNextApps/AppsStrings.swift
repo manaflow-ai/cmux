@@ -32,6 +32,7 @@ nonisolated enum AppsStrings {
         case .editor: t("store.feature.category.editor", "Editor")
         case .devices: t("store.feature.category.devices", "Mac & Phone")
         case .browser: t("store.feature.category.browser", "Browser")
+        case .layout: t("store.feature.category.layout", "Layout")
         }
     }
     static var search: String { t("store.search", "Search apps") }

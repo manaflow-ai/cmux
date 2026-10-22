@@ -222,11 +222,14 @@ export type AcpmuxRow = {
   below?: boolean;
   /// The Codex-style live line (conversation/turns.ts `codexLiveTurn`, Thinking.tsx): the call in
   /// flight's start on this computer's clock, which its time counts from; whether `doing` is a raw
-  /// command line, which reads "Running <command>" (or "Running a command" when empty); no time
-  /// beside "Thinking" (the turn's line over its work has it); and the streaming text it waits
+  /// command line, which reads "Running <command>" (or "Running a command" when empty); whether
+  /// the agent still writes that command (`doingDraft`: a pending shell call with no command yet,
+  /// "Writing a command"); no time beside "Thinking" (`untimed`, the older layout's line, whose
+  /// "Working for" over the work timed the turn); and the streaming text it waits
   /// behind, by id and version, while that text still moves.
   doingAt?: number;
   doingShell?: boolean;
+  doingDraft?: boolean;
   untimed?: boolean;
   quietKey?: string;
   /// The call it names is a command, so the line leads with the terminal glyph (WorkingFor.tsx).
@@ -491,6 +494,9 @@ export type AcpmuxSnapshot = {
   /// page's first-paint report: a chat read cold fades in over the loading state, this one shows
   /// in one frame (AgentPaneView+Loading.swift).
   drewKeptTail?: true;
+  /// The selected chat's rows are in this snapshot (its attach page, or a kept tail), or none is
+  /// selected: the first-paint report may say the chat is on screen (App.tsx `chatDrawn`).
+  chatRead?: true;
   sessionId?: string;
   isWorking: boolean;
   /// The running turn's tokens so far, its model calls added up, subagents' included (direct.ts
