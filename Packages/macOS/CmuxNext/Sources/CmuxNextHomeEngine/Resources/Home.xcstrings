@@ -5931,6 +5931,18 @@
         }
       }
     },
+    "home.chief.noReply": {
+      "comment": "Home system notice in the Chief conversation when the person's last message has had no reply for some minutes (%lld: minutes, at least 2). The Chief host retries on its own.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No reply from the Chief for %lld min. It retries on its own and tells you if it cannot answer."
+          }
+        }
+      }
+    },
     "home.chief.organizing": {
       "comment": "Home notice while older cmux DEV builds still run their own Chief, so its history cannot be merged yet.",
       "extractionState": "manual",

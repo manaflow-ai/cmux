@@ -138,9 +138,9 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var now = Date(timeIntervalSince1970: 0)
     /// The workspace list is hidden (`sidebar.showProjects` off): no rows.
     public var hidesWorkspaces = false
-    /// Group by Folder (`sidebar.groupBy`): the only machine's loose rows
-    /// sit under a header per `SidebarWorkspace.folder`, in first-seen order.
-    public var groupsByFolder = false
+    /// `sidebar.groupBy`. Group by Folder: the only machine's loose rows sit under a header per
+    /// `SidebarWorkspace.folder`, in first-seen order. Group by Status: `SidebarLayout+Status`.
+    public var grouping = SidebarGrouping()
     /// `sidebar.sessionTree`: a workspace started by another's agent lists under it, and rows
     /// carry their pull requests and keycaps. Nil (off) draws the list as before.
     public var sessionTree: SidebarSessionTreeState?

@@ -5,7 +5,8 @@
 //! owner nor the wire changes: an old reader shows a plain Chief message,
 //! and the app's transcript labels a voiced one with its name.
 
-/// The front desk: answers at once while a turn works (`brain/desk.rs`).
+/// The front desk: the host's own notices, written without a model (the
+/// approval relay, `brain/control.rs`).
 pub const DESK: &str = "desk";
 
 const PREFIX: &str = "voice:";

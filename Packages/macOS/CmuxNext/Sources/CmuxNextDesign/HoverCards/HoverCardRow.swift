@@ -101,11 +101,16 @@ extension HoverCardAccessory {
 /// icon on the card's icon column, the text beside it on one leading edge, a colored status word
 /// and counts inline, and the trailing mark (a dot, a ring or bars) on the card's trailing edge.
 /// The row paints no fill: the card's overlay glass is the only surface.
+///
+/// The parts stand on the text's first baseline; the icon and the mark center on the middle of
+/// its first line's capitals (`NSFont.iconBaselineOffsetFromTop(iconHeight:)`), so a row whose
+/// text wraps keeps them on its first line (Lawrence 2026-10-21).
 @MainActor
 public final class HoverCardRowView: NSView {
     public static var iconSize: CGFloat { 13 }
 
-    public let icon = NSImageView()
+    public let icon: NSImageView
+    private let iconView = HoverCardIconView()
     public let statusLabel = ChromeLabel(labelWithString: "")
     public let textLabel = ChromeLabel(labelWithString: "")
     public let additionsLabel = ChromeLabel(labelWithString: "")
@@ -115,7 +120,10 @@ public final class HoverCardRowView: NSView {
     public private(set) var content = HoverCardRowContent(text: "")
 
     public init() {
+        icon = iconView
         super.init(frame: .zero)
+        iconView.line = textLabel
+        accessoryView.line = textLabel
         for label in [statusLabel, additionsLabel, deletionsLabel] {
             label.font = Typography.body
             label.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -127,12 +135,11 @@ public final class HoverCardRowView: NSView {
         textLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         accessoryView.setContentHuggingPriority(.required, for: .horizontal)
         accessoryView.setContentCompressionResistancePriority(.required, for: .horizontal)
-        icon.cell?.setAccessibilityElement(false) // decorative: the row's text says it (an image view answers through its cell)
         // The text and its counts read from the leading edge; the live mark sits at the trailing one.
         stack.setViews([icon, statusLabel, textLabel, additionsLabel, deletionsLabel], in: .leading)
         stack.setViews([accessoryView], in: .trailing)
         stack.orientation = .horizontal
-        stack.alignment = .centerY
+        stack.alignment = .firstBaseline
         stack.spacing = Metrics.space2
         stack.setCustomSpacing(Metrics.space1, after: additionsLabel)
         stack.setCustomSpacing(Metrics.space3, after: deletionsLabel)
@@ -215,6 +222,8 @@ public final class HoverCardAccessoryView: NSView {
     private let track = CAShapeLayer()
     private let mark = CAShapeLayer()
     public let percentLabel = ChromeLabel(labelWithString: "")
+    /// The row's text: on a first-baseline row the mark centers on its first line's capitals.
+    public weak var line: (any ShownText)?
 
     public var accessory: HoverCardAccessory? {
         didSet {
@@ -252,6 +261,11 @@ public final class HoverCardAccessoryView: NSView {
         case .bars?: NSSize(width: CGFloat(Self.maxBars) * (Self.barWidth + Self.barGap) - Self.barGap, height: Self.barsHeight)
         case nil: NSSize(width: 0, height: 0)
         }
+    }
+
+    public override var firstBaselineOffsetFromTop: CGFloat {
+        guard let font = line?.font else { return super.firstBaselineOffsetFromTop }
+        return font.iconBaselineOffsetFromTop(iconHeight: intrinsicContentSize.height)
     }
 
     /// The percentage's natural size, rounded up so its last digit is never clipped.

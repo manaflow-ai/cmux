@@ -98,8 +98,8 @@ public final class ThemeScope {
         }
     }
 
-    /// Gives this scope its own glass tint over art (a workspace's Opacity, cx-t2x.5), 0...0.95 so
-    /// the art always shows; nil follows the work's own tint.
+    /// Gives this scope its own glass tint over art (a workspace's Opacity, cx-t2x.5), 0...1; at
+    /// 1 the window is opaque and hides the art. nil follows the work's own tint.
     public func pinBackdropTint(_ tint: Double?) {
         ThemeRepaint.batch {
             // A non-finite tint (a hand-edited "nan") follows the work's.
@@ -112,8 +112,8 @@ public final class ThemeScope {
     }
 
     /// The window Opacity the user set (`appearance.backgroundOpacity`), as the tint over art for
-    /// this scope and every descendant without a workspace tint of its own: 0...0.95 like a
-    /// workspace's, so 100% covers the picture the most and the slider moves the window one way
+    /// this scope and every descendant without a workspace tint of its own: 0...1 like a
+    /// workspace's, so 100% covers the picture fully and the slider moves the window one way
     /// only (it fell back to the work's lighter tint at 100%). nil (unset) keeps the work's tint.
     public func setWindowBackdropTint(_ tint: Double?) {
         ThemeRepaint.batch {

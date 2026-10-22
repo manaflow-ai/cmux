@@ -19,8 +19,8 @@ import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
-import { GROUP_TAIL } from "./ToolGroupRow";
-import { isRunning, toolGroups } from "./toolGroups";
+import { tailStart } from "./ToolGroupRow";
+import { isDraftCall, isRunning, toolGroups } from "./toolGroups";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -405,7 +405,7 @@ function shapeTurn(
     return live
       ? liveTurn(user, turn, clockOffset, liveRuns, sessionStatus, lineBelow)
       : last
-        ? turn.map(endedPlan)
+        ? turn.flatMap(withoutDrafts).map(endedPlan)
         : settledWithoutSummary(turn);
   const summary = turn[end]!;
   const body = turn.slice(0, end);
@@ -462,15 +462,16 @@ function shapeTurn(
                 : Math.max(0, summary.at - from),
       });
       // Open, each run of its work folds into its summary line between the commentary, as in a
-      // running turn (codexRuns).
+      // running turn (codexRuns). A run that edited folds too: its edits stay in sight between the
+      // summary lines of the work around them (TurnRows.tsx `runStretches`).
       if (open)
         shaped.push(
-          ...(liveRuns ? mergeShortNotes(work) : work).map((row) => ({
+          ...(liveRuns ? mergeShortNotes(work) : work).flatMap(withoutDrafts).map((row) => ({
             ...row,
             id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
             settled: true,
             // A folded run draws otherwise, so its version moves (memos compare versions).
-            ...(liveRuns && row.kind === "activity" && !isEdit(row) && { foldRun: true, version: row.version * 4 + 3 }),
+            ...(liveRuns && row.kind === "activity" && { foldRun: true, version: row.version * 4 + 3 }),
           })),
         );
     }
@@ -500,8 +501,14 @@ function shapeTurn(
   });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)
   // draws as it came.
-  // A turn the agent started on its own while still working keeps its plan live.
-  shaped.push(...turn.slice(end + 1).map(live ? (row) => row : endedPlan));
+  // A turn the agent started on its own while still working keeps its plan live. Once it runs tools
+  // the Codex layout draws it as a running turn (a task notification's work, Leo 2026-10-21: four
+  // bare command rows stacked under "Worked for 1s"): its finished runs folded, the call in
+  // flight on the one live line under them, timed from the summary.
+  const tail = turn.slice(end + 1);
+  if (live && liveRuns && lineBelow && tail.some((row) => row.kind === "activity"))
+    shaped.push(...liveTurn(summary, tail, clockOffset, liveRuns, sessionStatus, lineBelow));
+  else shaped.push(...(live ? tail : tail.flatMap(withoutDrafts).map(endedPlan)));
   return shaped;
 }
 
@@ -601,7 +608,26 @@ const endedPlan = (row: AcpmuxRow): AcpmuxRow =>
 /// Its edits still close it as one card, which offers Undo.
 function settledWithoutSummary(turn: AcpmuxRow[]): AcpmuxRow[] {
   const rows = turn.filter((row) => row.kind !== "typing");
-  return [...rows.filter((row) => !isEdit(row)).map(endedPlan), ...editsCard(rows.filter(isEdit))];
+  return [
+    ...rows
+      .filter((row) => !isEdit(row))
+      .flatMap(withoutDrafts)
+      .map(endedPlan),
+    ...editsCard(rows.filter(isEdit)),
+  ];
+}
+
+/// An activity row without the calls it has nothing to show for yet (toolGroups.ts `isDraftCall`),
+/// or no row when they were all it held, so bare "Running a command" rows never stack up (Leo,
+/// 2026-10-21: they should replace each other, as Thinking does). A running turn's live line names
+/// the newest (codexLiveTurn); an ended turn's never got their input. Which calls it drops follows
+/// from the row's items, so its version stands.
+function withoutDrafts(row: AcpmuxRow): AcpmuxRow[] {
+  if (row.kind !== "activity") return [row];
+  const items = row.items ?? [];
+  const kept = items.filter((item) => !(item.tool && isDraftCall(item.tool)));
+  if (kept.length === items.length) return [row];
+  return kept.length ? [{ ...row, items: kept }] : [];
 }
 
 /// The live status. With `lineBelow` (the default in the app, Debug Settings
@@ -838,14 +864,14 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
   )
     return true;
   const kind = group.type === "mcp" ? "mcp" : group.kind;
-  const tail = kind === "mcp" || kind === "edits" || group.items.indexOf(item) >= group.items.length - GROUP_TAIL;
+  const tail = kind === "mcp" || kind === "edits" || group.items.indexOf(item) >= tailStart(group.items);
   if (!tail) return undefined;
   const key = `group:${kind}:${group.items[0]!.tool!.id || `${row.id}:${at}`}`;
   return { key, open: kind !== "mcp" && kind !== "edits" };
 }
 
 /// A running turn's runs as the Codex desktop app draws them (cx-ncc.108): each run folds into its
-/// summary line between the paragraphs ("Read files, ran commands", or one group's "Ran 3
+/// summary line between the paragraphs ("Read 6 files, ran 4 commands", or one group's "Ran 3
 /// commands"), the latest one too as its calls finish, and opens on a click. The call in flight and
 /// a thought still coming are not in the run: the turn's live line names them (WorkingFor.tsx
 /// `doing`, "Thinking") and each step replaces it in place. A call still running in an earlier run
@@ -856,7 +882,14 @@ function codexRuns(rows: AcpmuxRow[]): AcpmuxRow[] {
   while (latest > 0 && rows[latest]!.kind === STARTED_SESSIONS) latest -= 1;
   return rows.flatMap((row, index) => {
     if (row.kind !== "activity" || isEdit(row)) return [row];
-    if (index !== latest) return [{ ...row, settled: true, foldRun: true, version: row.version * 4 + 2 }];
+    // An earlier run draws no call that has nothing to show yet; its row comes with its input.
+    if (index !== latest)
+      return withoutDrafts(row).map((kept) => ({
+        ...kept,
+        settled: true,
+        foldRun: true,
+        version: row.version * 4 + 2,
+      }));
     // The latest run: what is happening now leaves it for the live line, so the run holds only
     // finished steps and never grows a stack of live rows (Leo 2026-10-20: "rows pile up instead
     // of replacing each other").

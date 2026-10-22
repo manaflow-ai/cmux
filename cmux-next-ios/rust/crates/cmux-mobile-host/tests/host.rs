@@ -45,17 +45,24 @@ fn options() -> DialOptions {
 
 /// A stand-in cmux-tui session socket: answers each request line with
 /// `{"id":..,"ok":true,"data":{"cmd":..}}`.
-fn fake_daemon(dir: &std::path::Path) {
+/// `browser_url`: the page the Mac's one browser tab shows (`list-workspaces`).
+fn fake_daemon(dir: &std::path::Path, browser_url: String) {
     let listener = tokio::net::UnixListener::bind(dir.join("main.sock")).unwrap();
     tokio::spawn(async move {
         while let Ok((stream, _)) = listener.accept().await {
+            let browser_url = browser_url.clone();
             tokio::spawn(async move {
                 let (read, mut write) = stream.into_split();
                 let mut lines = BufReader::new(read).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     let request: serde_json::Value = serde_json::from_str(&line).unwrap();
-                    let answer = serde_json::json!({"id": request["id"], "ok": true,
-                        "data": {"cmd": request["cmd"], "host": request["agent_session"]["host"]}});
+                    let mut data =
+                        serde_json::json!({"cmd": request["cmd"], "host": request["agent_session"]["host"]});
+                    if request["cmd"] == "list-workspaces" {
+                        data["workspaces"] = serde_json::json!([{"screens": [{"panes": [{"tabs": [
+                            {"surface": 9, "kind": "browser", "url": browser_url}]}]}]}]);
+                    }
+                    let answer = serde_json::json!({"id": request["id"], "ok": true, "data": data});
                     write.write_all(format!("{answer}\n").as_bytes()).await.unwrap();
                 }
             });
@@ -150,7 +157,9 @@ async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixtur
     let uploads = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("notes.md"), "# hello\n").unwrap();
     std::fs::write(outside.path().join("secret"), "nope").unwrap();
-    fake_daemon(sockets.path());
+    std::fs::write(root.path().join("shared page.html"), "<p>shared</p>").unwrap();
+    std::fs::write(outside.path().join("mac page.html"), "<p>the Mac opened this</p>").unwrap();
+    fake_daemon(sockets.path(), file_url(&outside.path().join("mac page.html")));
     fake_chief(sockets.path());
     let browser_launches = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let services = ServiceConfig {
@@ -233,6 +242,35 @@ async fn connect_with(
 }
 
 /// Everything the channel delivers until it closes, and the close code.
+/// A `file:` URL as a browser spells it (spaces escaped).
+fn file_url(path: &std::path::Path) -> String {
+    format!("file://{}", path.display()).replace(' ', "%20")
+}
+
+/// The reason a channel closed with.
+async fn close_reason(channel: &mut Channel) -> (String, String) {
+    loop {
+        match tokio::time::timeout(Duration::from_secs(10), channel.recv()).await.expect("in time") {
+            Some(ChannelEvent::Data(_)) => {}
+            Some(ChannelEvent::Closed(info)) => return (info.code, info.reason),
+            None => return ("none".into(), String::new()),
+        }
+    }
+}
+
+/// One rb message from the phone, as a stream frame.
+fn phone_rb(body: serde_json::Value) -> Bytes {
+    let control = serde_json::json!({"t": "service", "service": "rb/1", "body": body});
+    let mut out = Vec::new();
+    cmux_rd_proto::encode_stream_frame(
+        cmux_rd_proto::STREAM_CONTROL,
+        &serde_json::to_vec(&control).unwrap(),
+        &mut out,
+    )
+    .unwrap();
+    Bytes::from(out)
+}
+
 async fn drain(channel: &mut Channel) -> (Vec<u8>, String) {
     let mut bytes = Vec::new();
     loop {
@@ -479,20 +517,50 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
     assert_eq!(rd.control(&mut first).await["body"]["url"], "https://example.com/");
     // Video shards flow.
     rd.datagram(&mut first).await;
-    // A file: address never reaches the host; a web one does.
-    let mut out = Vec::new();
-    for url in ["file:///etc/passwd", "https://example.org/"] {
-        let body =
-            serde_json::json!({"t": "service", "service": "rb/1", "body": {"t": "rb.navigate", "url": url}});
-        cmux_rd_proto::encode_stream_frame(
-            cmux_rd_proto::STREAM_CONTROL,
-            &serde_json::to_vec(&body).unwrap(),
-            &mut out,
-        )
-        .unwrap();
+    // The phone's address bar: what the policy allows reaches the host (which
+    // answers rb.page); the rest is refused with a sentence, never sent on.
+    // Canonical, as hostd forwards a shared file at its resolved path.
+    let shared = file_url(&std::fs::canonicalize(fixture.root.join("shared page.html")).unwrap());
+    let not_shared = file_url(&fixture.outside.join("secret"));
+    for (url, refused) in [
+        (not_shared.as_str(), Some("This file isn't in a folder this Mac shares with your iPhone.")),
+        ("file:///etc/passwd", Some("This file isn't in a folder this Mac shares with your iPhone.")),
+        ("javascript:alert(1)", Some("Scripts can't run from your iPhone's address bar.")),
+        ("chrome://settings", Some("Browser settings and internal pages can't open from your iPhone.")),
+        (
+            "zoommtg://zoom.us/join",
+            Some("Links that open other apps on your Mac can't open from your iPhone."),
+        ),
+        ("data:text/html,<h1>hi</h1>", None),
+        (shared.as_str(), None),
+        ("https://example.org/", None),
+    ] {
+        first.send(phone_rb(serde_json::json!({"t": "rb.navigate", "url": url}))).await.unwrap();
+        let body = rd.control(&mut first).await["body"].clone();
+        match refused {
+            Some(reason) => {
+                assert_eq!(body["t"], "rb.navigate.refused", "{url}");
+                assert_eq!(body["url"], url);
+                assert_eq!(body["reason"], reason);
+            }
+            None => {
+                assert_eq!(body["t"], "rb.page", "{url}");
+                assert_eq!(body["url"], url);
+            }
+        }
     }
-    first.send(Bytes::from(out)).await.unwrap();
-    assert_eq!(rd.control(&mut first).await["body"]["url"], "https://example.org/");
+    // A link inside the page follows the same rules: the host's page to an
+    // unshared file never reaches the phone, and the host goes back.
+    first
+        .send(phone_rb(serde_json::json!({"t": "rb.find", "query": format!("goto:{not_shared}"),
+        "forward": true, "match_case": false, "next": false})))
+        .await
+        .unwrap();
+    let body = rd.control(&mut first).await["body"].clone();
+    assert_eq!(body["t"], "rb.navigate.refused");
+    assert_eq!(body["url"], not_shared.as_str());
+    let body = rd.control(&mut first).await["body"].clone();
+    assert_eq!((body["t"].as_str(), body["url"].as_str()), (Some("rb.page"), Some("https://example.org/")));
     // A second viewer of the same tab takes the host over, and the page stays.
     let mut second = link.open("browser", serde_json::json!({"tab": tab})).await.unwrap();
     let mut rd2 = RdReader::default();
@@ -504,7 +572,19 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
     assert_eq!(fixture.browser_launches.load(std::sync::atomic::Ordering::SeqCst), 1);
     second.close("eof", "").await;
     let mut refused = link.open("browser", serde_json::json!({"tab": "x", "url": "file:///"})).await.unwrap();
-    assert_eq!(drain(&mut refused).await.1, "forbidden");
+    assert_eq!(
+        close_reason(&mut refused).await,
+        ("forbidden".into(), "This file isn't in a folder this Mac shares with your iPhone.".into())
+    );
+    // A page one of the Mac's own browser tabs shows opens wherever it is.
+    let mac_page = file_url(&fixture.outside.join("mac page.html"));
+    let mut mac_tab = link.open("browser", serde_json::json!({"tab": "s9", "url": mac_page})).await.unwrap();
+    let mut rd3 = RdReader::default();
+    assert_eq!(rd3.control(&mut mac_tab).await["t"], "welcome");
+    rd3.control(&mut mac_tab).await;
+    rd3.control(&mut mac_tab).await;
+    assert_eq!(rd3.control(&mut mac_tab).await["body"]["url"], mac_page.as_str());
+    mac_tab.close("eof", "").await;
     let mut bad_tab = link.open("browser", serde_json::json!({"tab": "../x"})).await.unwrap();
     assert_eq!(drain(&mut bad_tab).await.1, "bad_request");
 

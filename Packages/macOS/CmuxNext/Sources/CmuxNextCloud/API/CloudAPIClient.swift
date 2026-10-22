@@ -76,6 +76,13 @@ public struct CloudAPIClient: Sendable {
         _ = try await send("POST", "/api/vm/\(id)/resume", timeout: .seconds(960), as: Ignored.self)
     }
 
+    /// `PUT /api/vm/{id}/idle-pause`: minutes of idle before the server
+    /// pauses the machine, one of ``CloudMachine/idlePauseChoices``; 0 is Off.
+    public func setIdlePause(_ id: String, minutes: Int) async throws {
+        let value: any Sendable = minutes == 0 ? "off" : minutes
+        _ = try await send("PUT", "/api/vm/\(id)/idle-pause", body: ["minutes": value], timeout: .seconds(30), as: Ignored.self)
+    }
+
     public func attachEndpoint(_ id: String, deviceFingerprint: String? = nil) async throws -> CloudAttachEndpoint {
         var body: [String: any Sendable] = ["transport": "cmux-remote"]
         if let deviceFingerprint { body["deviceFingerprint"] = deviceFingerprint }

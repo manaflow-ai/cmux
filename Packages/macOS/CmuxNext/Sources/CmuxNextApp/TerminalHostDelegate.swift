@@ -86,7 +86,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
             case .file(let url, isDirectory: false)?:
                 LinkRouter.shared.record("file:\(url.path)")
                 guard let services = self?.services else { return }
-                services.linkOpener.openFile(url, from: services.linkOpener.source(tab: request.tab?.id), cmdClick: true)
+                services.linkOpener.openFile(url, from: services.linkOpener.source(tab: request.tab?.id))
             case nil: break
             }
         }
@@ -131,25 +131,25 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
                 target: request.tab, arguments: ["url": .string(url.absoluteString)]))
             return
         }
-        LinkRouter.shared.open(url, otherTarget: request.other, explicit: request.option, source: request.tab?.id, cmdClick: true)
+        LinkRouter.shared.open(url, otherTarget: request.other, explicit: request.option, source: request.tab?.id)
     }
 
     /// Every surface's links go through ``LinkRouter`` (cx-ir3z4), wired here once: a Chief
     /// subagent's link runs `link.open`; a cmux link opens a browser tab on the default engine
-    /// where ``LinkOpener`` places it (a tab of the clicked view's pane; a terminal's Cmd-click by `layout.linkPlacement`). With no window it waits for one, never the system, which may be cmux
+    /// where ``LinkOpener`` places it (the pane right of the clicked tab's pane, or a new split). With no window it waits for one, never the system, which may be cmux
     /// itself as the default browser (a loop).
     private static func routeLinks(to services: AppServices) {
         let router = LinkRouter.shared
         router.routing = { [weak services] in services?.settings?.snapshot.linkRouting ?? .fallback }
         router.textEditor = { [weak services] in services?.settings?.snapshot.textEditor.application ?? "" }
         router.appLink = { [weak services] url in services.map { CmuxAppLinks.open(url, services: $0) } ?? false }
-        // A click in a chat or page view opens in the pane showing it (not the focused pane).
+        // A click in a chat or page view opens beside the pane showing it (not the focused pane).
         router.sourceTab = { [weak services] view in services?.linkOpener.source(containing: view)?.currentTabKey }
-        router.openInCmux = { [weak services] url, background, source, cmdClick in
+        router.openInCmux = { [weak services] url, background, source in
             guard let services else { return }
-            // A tab of the source pane; a terminal's Cmd-click where `layout.linkPlacement` says (LinkOpener).
+            // Beside the source pane (`layout.linkPlacement`, LinkOpener), never in its place.
             guard let pane = services.linkOpener.source(tab: source) else { services.externalOpen.perform(.browserTab(url)); return }
-            services.linkOpener.openWeb(url, from: pane, background: background, cmdClick: cmdClick)
+            services.linkOpener.openWeb(url, from: pane, background: background)
         }
     }
 

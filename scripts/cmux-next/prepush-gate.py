@@ -15,7 +15,7 @@ Layers (each one only on files the push changes under Packages/macOS/CmuxNext, c
                motion, scrollbars, state roots, process scan, Swift CLI, closed history, test
                notification centers, string tables, module resources, capability text, browser
                chrome icons, App Store review rules (also on cmux-next-ios/ changes), the perf
-               source guard
+               source guard, fleet host names in gallery fixtures (also on Packages/ changes)
   ast-grep     scripts/cmux-next/lint/ast-grep-rules: try!, blocking calls, raw font sizes, system
                dialogs, opaque glass (tree-sitter, so comments, strings and `case .alert` never match)
   swiftformat  --lint with scripts/cmux-next/lint/swiftformat.conf
@@ -27,6 +27,8 @@ Also on every push, whatever it changes: "Ghostty-default keys" (check-ghostty-r
 exported default keymap keeps Ghostty's split keys (schemas/keybindings/ghostty-reserved-keys.json),
 and the push removes no reserved entry. CMUX_NEXT_CHECKS_SKIP_REASON does not skip it; only a
 `Ghostty-defaults-OK: <the user's words>` trailer on a pushed commit does (Lawrence 2026-10-20).
+Also on every push, in any file: "Merge conflict markers": a file the push adds both a `<<<<<<< ` and
+a `>>>>>>> ` line to (c779988d57d, 2026-10-22, broke CmuxNextAppTests). Nothing skips it.
 
 Not here (they stay on CI and the fleet): generated-file freshness (gen-*.py --check), god files,
 the app size cap, script tests, Swift and Rust builds and tests.
@@ -101,10 +103,16 @@ SCANNERS = (
      ["python3", "-I", "{s}/check-app-store-rules.py", "--source", "{root}"], ("cmux-next-ios/",)),
     ("Perf source guard (no window capture or CATransaction.flush)",
      ["python3", "-I", "{s}/check-perf-source-guard.py", "{root}"], (PKG + "/",)),
+    ("No fleet host names in gallery fixtures",
+     ["python3", "-I", "{s}/check-fixture-host-names.py", "{root}"], ("Packages/", "webviews/src/")),
 )
 
 # Ghostty's default split keys stay Ghostty's (Lawrence 2026-10-20, after 2f3e1f95983).
 RESERVED_CHECK = "Ghostty-default keys (schemas/keybindings/ghostty-reserved-keys.json)"
+CONFLICT_CHECK = "Merge conflict markers"
+# An added line that opens or closes a conflict hunk (`=======` alone is a Markdown or RST rule).
+CONFLICT_OPEN = re.compile(r"^<{7} ")
+CONFLICT_CLOSE = re.compile(r"^>{7} ")
 RESERVED_SCRIPT = SCRIPTS + "/check-ghostty-reserved-keys.py"
 RESERVED_LIST = "schemas/keybindings/ghostty-reserved-keys.json"
 RESERVED_SURFACES = "plans/cmux-next/action-surfaces.json"
@@ -458,6 +466,32 @@ def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None
     return fresh
 
 
+def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
+    """`file:line` of each conflict marker the push adds, in any file of the repository.
+
+    2026-10-22: c779988d57d landed `<<<<<<< HEAD` in SidebarNowLineTests.swift and CmuxNextAppTests
+    stopped compiling; no scanner reads a test file. A file counts only when the push adds both an
+    opening and a closing marker to it, so a fixture that mentions one marker never matches.
+    """
+    diff = git(repo, "diff", "-U0", "--no-color", "--no-renames", "--no-ext-diff", base, head).decode("utf-8", "replace")
+    found: dict[str, list[tuple[int, str]]] = collections.defaultdict(list)
+    name, number = "", 0
+    for line in diff.splitlines():
+        if line.startswith("+++ "):
+            name = line[6:] if line.startswith("+++ b/") else ""
+        elif line.startswith("@@"):
+            match = re.search(r"\+(\d+)", line)
+            number = int(match.group(1)) if match else 0
+        elif line.startswith("+") and name:
+            text = line[1:]
+            if CONFLICT_OPEN.match(text) or CONFLICT_CLOSE.match(text):
+                found[name].append((number, text))
+            number += 1
+    return [f"{name}:{n}: {text}" for name, marks in sorted(found.items())
+            if any(CONFLICT_OPEN.match(t) for _, t in marks) and any(CONFLICT_CLOSE.match(t) for _, t in marks)
+            for n, text in marks]
+
+
 def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
          trusted_scripts: Path | None = None) -> list[tuple[str, list[str]]]:
     """[(check, new findings)] that head adds over base."""
@@ -465,6 +499,10 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     if only is None or "reserved" in only:
         fresh = reserved_keys(repo, base, head, trusted_scripts)
         reserved = [(RESERVED_CHECK, fresh)] if fresh else []
+    if only is None or "conflicts" in only:
+        markers = conflict_markers(repo, base, head)
+        if markers:
+            reserved.append((CONFLICT_CHECK, markers))
     changed = changed_files(repo, base, head)
     if not changed:
         return reserved
@@ -596,7 +634,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     skip = os.environ.get("CMUX_NEXT_CHECKS_SKIP_REASON", "").strip()
     print_findings(found_any, "prepush-gate: this push adds violations:")
-    if skip and any(name == RESERVED_CHECK for name, _ in found_any):
+    if skip and any(name == CONFLICT_CHECK for name, _ in found_any):
+        print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {CONFLICT_CHECK}: finish the merge "
+              "(keep one side of each hunk), then push.")
+    elif skip and any(name == RESERVED_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {RESERVED_CHECK}. Changing a Ghostty-default "
               "shortcut needs the user's explicit OK, quoted in a `Ghostty-defaults-OK: <the user's words>` commit trailer.")
     elif skip:

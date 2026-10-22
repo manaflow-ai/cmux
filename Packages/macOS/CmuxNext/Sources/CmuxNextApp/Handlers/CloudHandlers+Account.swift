@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
 
@@ -21,8 +22,9 @@ extension CloudHandlers {
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
             guard let session = target, session.daemon.connection != nil else {
                 // A new machine, or one still on its way: show its progress
-                // now. An ended app link connects again on this gesture.
-                if let target, target.appLink != nil { target.connect(origin: connectOrigin(for: invocation)) }
+                // now. An ended app link connects again on this gesture, and
+                // a paused machine resumes (idle auto-pause).
+                target?.attach(origin: connectOrigin(for: invocation))
                 creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession).start(in: window, existing: target)
                 return
             }
@@ -119,24 +121,20 @@ extension CloudHandlers {
         for session in machines.cloud {
             var row = AppControl.cloudMachineRow(session, machines)
             row["link_pid"] = .string(await session.link?.pid.map(String.init) ?? (session.appLink == nil ? "none" : "app server"))
+            // The daemon's whole handshake (ghostty commit, capabilities, pid, registry id, generation).
+            row.merge(CloudDiagnosticsReport.daemonDetails(session.daemon.store.connectionState, last: session.daemon.store.identity)) { kept, _ in kept }
             rows.append(.object(row))
         }
-        let report: CmuxNextSettings.JSONValue = .object([
-            "backend": .string(cloud.configuration.apiBaseURL.absoluteString),
-            "backend_kind": .string(String(describing: cloud.configuration.backend)),
-            "signed_in": .bool(cloud.isSignedIn),
-            "email": cloud.auth.user?.primaryEmail.map(CmuxNextSettings.JSONValue.string) ?? .null,
-            "team_id": cloud.auth.teamID.map(CmuxNextSettings.JSONValue.string) ?? .null,
-            "unavailable": cloud.unavailableReason.map(CmuxNextSettings.JSONValue.string) ?? .null,
-            "last_error": cloud.lastError.map(CmuxNextSettings.JSONValue.string) ?? .null,
-            "machines": .array(rows),
-        ])
-        let details = (try? DeterministicJSON().string(report.foundationObject, pretty: true)) ?? ""
-        return Diagnostics(summary: diagnosticsSummary(context), details: details)
+        let account = CloudDiagnosticsReport.Account(
+            backend: cloud.configuration.apiBaseURL.absoluteString, backendKind: String(describing: cloud.configuration.backend),
+            signedIn: cloud.isSignedIn, email: cloud.auth.user?.primaryEmail, teamID: cloud.auth.teamID,
+            teamName: cloud.auth.teams.first { $0.id == cloud.auth.teamID }?.displayName,
+            unavailable: cloud.unavailableReason, lastError: cloud.lastError)
+        return Diagnostics(summary: diagnosticsSummary(context, account), details: CloudDiagnosticsReport.details(account, machines: rows))
     }
 
     /// The first thing that needs the person, else that all is well.
-    private static func diagnosticsSummary(_ context: AppActionContext) -> String {
+    private static func diagnosticsSummary(_ context: AppActionContext, _ account: CloudDiagnosticsReport.Account) -> String {
         let cloud = context.services.cloud, machines = context.services.machines
         if let reason = cloud.unavailableReason { return reason }
         guard cloud.isSignedIn else { return CloudStrings.signInFirst }
@@ -146,6 +144,6 @@ extension CloudHandlers {
                 return "\(session.machine.title): \(CloudStrings.compatibility(compat))"
             }
         }
-        return CloudStrings.diagnosticsAllWell(cloud.auth.user?.primaryEmail ?? cloud.auth.teamID ?? "")
+        return CloudStrings.diagnosticsAllWell(CloudDiagnosticsReport.accountLabel(account))
     }
 }

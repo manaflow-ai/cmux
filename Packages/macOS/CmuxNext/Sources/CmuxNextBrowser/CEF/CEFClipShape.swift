@@ -12,6 +12,29 @@ nonisolated enum CEFClipShape {
         var radius: CGFloat
     }
 
+    /// Everything `path` is worked out from for one view: equal inputs give
+    /// the same shape, so a reader keeps the last shape while they hold
+    /// (`CEFHostView.clipShape`).
+    nonisolated struct Inputs: Equatable, Sendable {
+        var bounds: CGRect
+        var clips: [RoundedRect]
+        var cutouts: [CGRect]
+
+        init(bounds: CGRect, clips: [RoundedRect], cutouts: [CGRect] = []) {
+            self.bounds = bounds
+            self.clips = clips
+            self.cutouts = cutouts
+        }
+
+        /// `view`'s bounds and the clips and cutouts of its ancestors now.
+        @MainActor
+        init(around view: NSView) {
+            self.init(bounds: view.bounds, clips: CEFClipShape.clips(around: view), cutouts: CEFClipShape.cutouts(around: view))
+        }
+
+        var path: CGPath? { CEFClipShape.path(bounds: bounds, clips: clips, cutouts: cutouts) }
+    }
+
     /// `bounds` intersected with every clip that cuts into it (a rounded
     /// corner, or a square clip that does not hold all of `bounds`), or nil
     /// when none does (the page is a plain rectangle and the fork's

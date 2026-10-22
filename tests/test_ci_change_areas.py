@@ -4032,6 +4032,22 @@ def test_unchanged_build_inputs_skip_mac_compile_before_runner_allocation() -> N
 
     lookup = workflow_step_block("changes", "Look for an earlier run that compiled these inputs")
     assert "steps.unchanged_inputs.outputs.compile_admitted != 'true'" in lookup
+    # A feat-cmux-next pull request never routes macOS (next-route), so it
+    # spends no runs/jobs reads on a compile_admitted nothing consumes.
+    assert "steps.next-route.outputs.macos != 'false'" in lookup
+
+
+def test_pool_picker_reads_the_routes_the_job_outputs_carry() -> None:
+    # With next-route's macOS lanes off, the picker plans no Mac job and makes
+    # no API call; reading detect's raw route spent three per feat push.
+    picker = workflow_step_block("changes", "Choose the pull request macOS pool")
+    for env, step_output in (
+        ("RUN_MACOS", "steps.next-route.outputs.macos || steps.detect.outputs.macos"),
+        ("RUN_FULL_SUITE", "steps.next-route.outputs.full_suite || steps.suite.outputs.full_suite"),
+        ("RUN_SWIFT_PACKAGES", "steps.next-route.outputs.swift_packages || steps.detect.outputs.swift_packages"),
+        ("RUN_RELEASE_BUILD", "steps.next-route.outputs.release_build || steps.detect.outputs.release_build"),
+    ):
+        assert f"          {env}: ${{{{ {step_output} }}}}" in picker, env
 
 
 def test_published_fingerprint_artifact_is_the_one_the_lookup_reads() -> None:

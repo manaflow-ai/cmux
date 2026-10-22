@@ -252,7 +252,9 @@ final class CEFRuntime {
             try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, environment: environment) }
             state = .ready
             CEFStartSteps.shared.timed("ready_hooks") {
-                startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install(); onReady?()
+                startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install()
+                ChromiumPageTextAccessory.install { [weak self] view in self?.showsCmuxPage(in: view.window) ?? false }
+                onReady?()
             }
             self.trigger = trigger
             loadDuration = library.loadDuration

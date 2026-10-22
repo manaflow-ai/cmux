@@ -259,12 +259,33 @@ impl Multipath {
 impl MultipathControl {
     /// Add a path. It starts probing; until some path answers, datagrams go
     /// on every path.
+    ///
+    /// Path ids are 16 bits and the selector never takes one back, so the
+    /// next id the selector accepts is used. After all 65536 ids are used,
+    /// `add_path` logs, drops the path (its carrier) and returns an id that
+    /// names no live path, so `remove_path` and `on_probe` on it fail.
     pub fn add_path(&self, kind: PathKind, carrier: impl Underlay) -> PathId {
         let (id, waker) = {
             let mut shared = lock(&self.shared);
-            let id = PathId(shared.next_id);
-            shared.next_id = shared.next_id.wrapping_add(1);
-            shared.selector.add_path(id, kind).expect("path ids are never reused");
+            let mut accepted = None;
+            for _ in 0..=u16::MAX {
+                let id = PathId(shared.next_id);
+                shared.next_id = shared.next_id.wrapping_add(1);
+                if shared.selector.add_path(id, kind).is_ok() {
+                    accepted = Some(id);
+                    break;
+                }
+            }
+            let Some(id) = accepted else {
+                eprintln!("wireguard path not added: every path id was used");
+                // A retired id, so `remove_path` and `on_probe` on it fail
+                // instead of acting on a live path.
+                let live = |id: &PathId| shared.slots.iter().any(|slot| slot.id == *id);
+                return (0..=u16::MAX)
+                    .map(PathId)
+                    .find(|id| !live(id))
+                    .unwrap_or(PathId(shared.next_id));
+            };
             let carrier = Box::new(carrier);
             let probe = PathProbe::default();
             shared.slots.push(Slot {
@@ -462,7 +483,7 @@ impl Underlay for Multipath {
         let count = shared.slots.len();
         for step in 0..count {
             let index = (shared.next_poll + step) % count;
-            let slot = &mut shared.slots[index];
+            let Some(slot) = shared.slots.get_mut(index) else { continue };
             if slot.failed {
                 continue;
             }

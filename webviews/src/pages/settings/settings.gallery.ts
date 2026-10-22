@@ -951,6 +951,7 @@ export default settingsPageEntry({
     "pages/settings/components/SearchResults.tsx",
     "pages/settings/components/SectionActions.tsx",
     "pages/settings/components/SectionList.tsx",
+    "pages/settings/components/SectionRoute.tsx",
     "pages/settings/components/SectionView.tsx",
     "pages/settings/components/SettingRow.tsx",
     "pages/settings/components/SettingsApp.tsx",

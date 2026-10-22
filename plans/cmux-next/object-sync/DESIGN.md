@@ -368,6 +368,12 @@ Per stream: `confirmed {state, seq}`, loaded rows, `pending` intents (ordered), 
   append (no invariant can be broken by sending it later). The bubble shows "Waiting for network",
   and the intent TTL (24 h) still applies. This matches what people expect from Messages and what
   cnx's Chief outbox already does, but it relaxes U5, so Lawrence decides.
+- Taken exception, the Mac Chief mailbox (user request 2026-10-21, "handle the case if my macbook
+  is offline"; cmux-prompts logs/iphone-chief-DESIGN.md): `conversation.message.send` on a host's
+  `host:<h>/chief` stream with the host offline is kept by HostDO (one entry per idempotency key,
+  200 per host, 7 days) and answered `op.queued`; the next publisher gets the kept ops in order with
+  `to: "mailbox"`, and its `request-settled` removes each. The host dedupes by key, so a message is
+  delivered once. Every other offline op is still refused.
 
 ## 7. Who is authoritative for what
 
