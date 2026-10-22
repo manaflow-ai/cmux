@@ -29,6 +29,8 @@ final class SecondaryMacSubscription {
     let storedInstanceTag: String?
     /// Instance identity proven by authenticated host status on this client.
     let authenticatedInstanceTag: String?
+    /// Version proven on this client, retained when it becomes foreground.
+    let authenticatedMacAppVersion: String?
     /// Raw host capabilities reported by this secondary Mac.
     let supportedHostCapabilities: Set<String>
     /// Workspace action capabilities reported by this secondary Mac.
@@ -79,6 +81,7 @@ final class SecondaryMacSubscription {
         ticket: CmxAttachTicket,
         storedInstanceTag: String? = nil,
         authenticatedInstanceTag: String? = nil,
+        authenticatedMacAppVersion: String? = nil,
         supportedHostCapabilities: Set<String>,
         actionCapabilities: MobileWorkspaceActionCapabilities,
         displayName: String? = nil
@@ -89,6 +92,7 @@ final class SecondaryMacSubscription {
         self.ticket = ticket
         self.storedInstanceTag = storedInstanceTag
         self.authenticatedInstanceTag = authenticatedInstanceTag
+        self.authenticatedMacAppVersion = authenticatedMacAppVersion
         self.supportedHostCapabilities = supportedHostCapabilities
         self.actionCapabilities = actionCapabilities
         self.displayName = displayName
