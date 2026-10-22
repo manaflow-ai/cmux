@@ -5015,6 +5015,8 @@ function AcpmuxPane() {
         ? undefined
         : (path) => ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.files, cwd: path, mode: "open" })),
     onSaveEnvironment: environmentDraft ? () => savedEnvironmentHost(callNative).save(environmentDraft) : undefined,
+    // Quick Chat's panel has no room beside it for the side panel.
+    onOpenDocument: quick ? undefined : openArtifact,
   });
   // The running line's counts (conversation/WorkingFor.tsx), with the tray off (Debug Settings):
   // the subagents still running, the background commands that have not ended and the started chats

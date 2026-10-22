@@ -49,6 +49,7 @@ import { chatGallery } from "../summary/chatGallery";
 import { GalleryDialog } from "../summary/GalleryDialog";
 import { sessionSummary, type SessionSummary, type SummaryBackgroundTask } from "../summary/sessionSummary";
 import { waitingSubagents } from "../summary/SubagentStatusList";
+import type { Artifact } from "../conversation/artifactPreview";
 import type { TurnFile } from "../diff";
 import type { StartedSession } from "../started/startedSessions";
 import { ChangesSection, headerStatus, visibleChanges, type InspectorPullRequestStatus } from "./ChangesSection";
@@ -65,7 +66,7 @@ import {
   type InspectorSectionId,
   type InspectorSections,
 } from "./inspectorState";
-import { OutputsSection, outputLinks, type OutputLink } from "./OutputsSection";
+import { OutputsSection, outputArtifacts, outputLinks, type OutputArtifact, type OutputLink } from "./OutputsSection";
 import { inspectorLists, type InspectorProcess, type ProcessRegistry } from "./processes";
 import { ServersSection } from "./ServersSection";
 import { SubagentsSection, subagentCounts } from "./SubagentsSection";
@@ -125,6 +126,7 @@ export function useChatInspector({
   onOpenOutput,
   onOpenUrl,
   onOpenImage,
+  onOpenDocument,
   processes: registry,
   onStopProcess,
   subagents,
@@ -144,6 +146,8 @@ export function useChatInspector({
   /// Opens a web address in the browser beside the chat (a server's port, a pull request).
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
+  /// Opens a document the chat produced in the side panel beside the chat (App.tsx openArtifact).
+  onOpenDocument?: (artifact: Artifact) => void;
   /// acpmux's background-process registry for the chat: the App's one (App.tsx `processRegistry`),
   /// which the running line and the summary card read too, so it is listed once.
   processes?: ProcessRegistry;
@@ -260,6 +264,7 @@ export function useChatInspector({
         onOpenImage={onOpenImage}
         onOpenFolder={onOpenFolder}
         onSaveEnvironment={onSaveEnvironment}
+        onOpenDocument={onOpenDocument}
       />
     ),
   };
@@ -292,6 +297,7 @@ function InspectorPresence({
   onOpenImage,
   onOpenFolder,
   onSaveEnvironment,
+  onOpenDocument,
 }: {
   shown: boolean;
   snapshot: AcpmuxSnapshot;
@@ -320,6 +326,7 @@ function InspectorPresence({
   onOpenImage?: (src: string, alt: string) => void;
   onOpenFolder?: (path: string) => void;
   onSaveEnvironment?: () => Promise<unknown>;
+  onOpenDocument?: (artifact: Artifact) => void;
 }) {
   const { width, sections } = useInspectorState();
   const display = useChatDisplay();
@@ -335,6 +342,7 @@ function InspectorPresence({
   const made = useMemo(() => (drawn ? sessionSummary(rows, repository ?? null) : undefined), [drawn, rows, repository]);
   const links = useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]);
   const artifacts = useMemo(() => (drawn ? chatGallery(rows).length : 0), [drawn, rows]);
+  const documents = useMemo(() => (drawn ? outputArtifacts(rows) : []), [drawn, rows]);
   const views = subagents?.views;
   const asks = subagents?.asks;
   const agents = useMemo(() => (drawn ? [...subagentsIn(rows, views).values()] : []), [drawn, rows, views]);
@@ -373,6 +381,7 @@ function InspectorPresence({
         made={made}
         links={links}
         artifacts={artifacts}
+        documents={documents}
         rows={rows}
         agents={agents}
         waiting={waiting}
@@ -393,6 +402,7 @@ function InspectorPresence({
         onOpenImage={onOpenImage}
         onOpenFolder={onOpenFolder}
         onSaveEnvironment={onSaveEnvironment}
+        onOpenDocument={onOpenDocument}
       />
     </InspectorPanel>
   );
@@ -488,6 +498,7 @@ export function ChatInspector({
   made,
   links = [],
   artifacts = 0,
+  documents = [],
   rows = [],
   agents = [],
   waiting = new Set(),
@@ -506,6 +517,7 @@ export function ChatInspector({
   onOpenOutput,
   onOpenUrl,
   onOpenImage,
+  onOpenDocument,
   remoteControl,
   onSaveEnvironment,
   onOpenFolder,
@@ -518,6 +530,10 @@ export function ChatInspector({
   made?: Pick<SessionSummary, "outputs" | "pullRequests" | "scheduled">;
   links?: readonly OutputLink[];
   artifacts?: number;
+  /// The documents the chat produced (OutputsSection `outputArtifacts`).
+  documents?: readonly OutputArtifact[];
+  /// Opens a document in the side panel beside the chat.
+  onOpenDocument?: (artifact: Artifact) => void;
   /// The chat's rows, for its gallery.
   rows?: readonly AcpmuxRow[];
   agents?: readonly Subagent[];
@@ -712,12 +728,14 @@ export function ChatInspector({
           <TasksSection commands={commands} scheduled={scheduled} onStop={onStopProcess} />
         </InspectorSection>
       )}
-      {outputs.length + links.length + artifacts > 0 && (
+      {outputs.length + links.length + artifacts + (onOpenDocument ? documents.length : 0) > 0 && (
         <InspectorSection id="outputs" title={t("rail.outputs")} open={state.outputs} onOpenChange={fold("outputs")}>
           <OutputsSection
             files={outputs}
             links={links}
             artifacts={artifacts}
+            documents={documents}
+            onOpenDocument={onOpenDocument}
             onOpenFile={onOpenOutput}
             onOpenArtifacts={rows.length > 0 ? () => setGallery(true) : undefined}
           />
