@@ -153,13 +153,28 @@ export function lostDrafts<Draft extends { promptId: string }>() {
 /// A composer's prompt, by its text and its chips' ids in order.
 export type HeldPrompt = { text: string; attachmentIds: readonly string[] };
 
-/// The composer holds `restored` and nothing else: the lost prompt that came back, as it came
-/// back. Once the host sends that prompt again after all, such a draft goes (its next Send would
-/// run it a second time, under a new id); one the person edited or added to is theirs and stays.
-export function holdsOnly(composer: HeldPrompt, restored: HeldPrompt): boolean {
-  return (
-    composer.text === restored.text &&
-    composer.attachmentIds.length === restored.attachmentIds.length &&
-    composer.attachmentIds.every((id, index) => id === restored.attachmentIds[index])
-  );
+/// The composer without `restored`, the lost prompt that came back into it, or undefined when it
+/// no longer holds that prompt as it came back. Once the host sends the prompt again after all,
+/// its draft goes (its next Send would run it a second time, under a new id). `restore` puts a
+/// prompt that comes back first, ahead of what the composer held, separated by a blank line, so
+/// two prompts lost together come back as one draft: each goes as its own part, and what the
+/// person typed stays. A part they edited, or a chip of it they removed, is theirs and stays.
+export function withoutRestored(composer: HeldPrompt, restored: HeldPrompt): HeldPrompt | undefined {
+  if (!restored.text && restored.attachmentIds.length === 0) return undefined;
+  if (!restored.attachmentIds.every((id) => composer.attachmentIds.includes(id))) return undefined;
+  const attachmentIds = composer.attachmentIds.filter((id) => !restored.attachmentIds.includes(id));
+  if (!restored.text) return { text: composer.text, attachmentIds };
+  const gap = "\n\n";
+  const text = composer.text;
+  for (let at = text.indexOf(restored.text); at >= 0; at = text.indexOf(restored.text, at + 1)) {
+    const end = at + restored.text.length;
+    const starts = at === 0 || text.startsWith(gap, at - gap.length);
+    const ends = end === text.length || text.startsWith(gap, end);
+    if (!starts || !ends) continue;
+    // The part and one blank line beside it: the one after it, or before it when it is last.
+    const rest =
+      end < text.length ? text.slice(0, at) + text.slice(end + gap.length) : text.slice(0, Math.max(0, at - gap.length));
+    return { text: rest, attachmentIds };
+  }
+  return undefined;
 }

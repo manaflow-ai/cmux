@@ -5,12 +5,12 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import {
   clientWaiter,
-  holdsOnly,
   isLostConnection,
   lostDrafts,
   lostPrompt,
   lostPromptSlot,
   waitForResend,
+  withoutRestored,
 } from "./lostPrompt";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -330,15 +330,27 @@ test("a lost prompt the host sent again after all never comes back into its chat
   expect(drafts.take("s-b")).toEqual([]);
 });
 
-test("only a lost prompt's draft left as it came back is taken out once the host sent it after all", () => {
+test("a lost prompt the host sent after all leaves the composer; the person's own text and edits stay", () => {
   const restored = { text: "continue", attachmentIds: ["img-1"] };
-  expect(holdsOnly({ text: "continue", attachmentIds: ["img-1"] }, restored)).toBe(true);
-  // Edited, added to, or a chip changed: the person's draft now, so it stays.
-  expect(holdsOnly({ text: "continue please", attachmentIds: ["img-1"] }, restored)).toBe(false);
-  expect(holdsOnly({ text: "continue\n\nand test it", attachmentIds: ["img-1"] }, restored)).toBe(false);
-  expect(holdsOnly({ text: "continue", attachmentIds: [] }, restored)).toBe(false);
-  expect(holdsOnly({ text: "continue", attachmentIds: ["img-1", "img-2"] }, restored)).toBe(false);
-  expect(holdsOnly({ text: "continue", attachmentIds: ["img-2"] }, restored)).toBe(false);
+  expect(withoutRestored({ text: "continue", attachmentIds: ["img-1"] }, restored)).toEqual({ text: "", attachmentIds: [] });
+  // Two prompts lost together come back as one draft (`restore` puts each first): each part goes.
+  const both = { text: "and test it\n\ncontinue", attachmentIds: ["img-1", "img-2"] };
+  const second = withoutRestored(both, restored);
+  expect(second).toEqual({ text: "and test it", attachmentIds: ["img-2"] });
+  expect(withoutRestored(second!, { text: "and test it", attachmentIds: ["img-2"] })).toEqual({ text: "", attachmentIds: [] });
+  expect(withoutRestored(both, { text: "and test it", attachmentIds: ["img-2"] })).toEqual({
+    text: "continue",
+    attachmentIds: ["img-1"],
+  });
+  // What the person typed after it stays.
+  expect(withoutRestored({ text: "continue\n\nmy note", attachmentIds: ["img-1", "img-3"] }, restored)).toEqual({
+    text: "my note",
+    attachmentIds: ["img-3"],
+  });
+  // Edited, or a chip of it removed: the person's draft now, so it stays.
+  expect(withoutRestored({ text: "continue please", attachmentIds: ["img-1"] }, restored)).toBeUndefined();
+  expect(withoutRestored({ text: "please continue", attachmentIds: ["img-1"] }, restored)).toBeUndefined();
+  expect(withoutRestored({ text: "continue", attachmentIds: [] }, restored)).toBeUndefined();
   // Sent already: the composer is empty, nothing to take out.
-  expect(holdsOnly({ text: "", attachmentIds: [] }, restored)).toBe(false);
+  expect(withoutRestored({ text: "", attachmentIds: [] }, restored)).toBeUndefined();
 });
