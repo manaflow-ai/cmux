@@ -13,6 +13,24 @@ use std::time::Duration;
 
 use optchat_chief::voice;
 
+/// Turn 0 sits in a long tool call (no result, no turn end yet), as Claude
+/// Code does in a long `sleep` or build; later turns run the default.
+fn long_tool_script() -> Script {
+    let rest = default_script();
+    Box::new(move |turn, blocks| {
+        if turn > 0 {
+            return rest(turn, blocks);
+        }
+        vec![
+            serde_json::json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+            update(
+                "tool_call",
+                serde_json::json!({"toolCallId": "t0", "title": "Bash", "rawInput": {"command": "sleep 600"}, "_meta": {"claude": {"tool": "Bash"}}}),
+            ),
+        ]
+    })
+}
+
 /// A turn is running for `text`, held at the fake agent.
 fn running(h: &mut Harness, text: &str) {
     h.agents.hold(true);
@@ -49,12 +67,25 @@ fn prompt_text(h: &Harness, n: usize) -> String {
     serde_json::to_string(&h.agents.inner.lock().unwrap().prompts[n]).unwrap()
 }
 
+/// Steps one input if one comes soon, and fires due timers.
+fn tick(h: &mut Harness) {
+    if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+        h.brain.step(input);
+    }
+    if h.brain
+        .next_timer()
+        .is_some_and(|at| at <= std::time::Instant::now())
+    {
+        h.brain.on_timer();
+    }
+}
+
 /// Steps the brain until the fake agent saw `n` cancels.
 fn until_cancels(h: &mut Harness, n: usize) {
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     while h.agents.inner.lock().unwrap().cancels.len() < n {
         assert!(std::time::Instant::now() < deadline, "no cancel {n}");
-        h.step();
+        tick(h);
     }
 }
 
@@ -63,12 +94,12 @@ fn until_prompts(h: &mut Harness, n: usize) {
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     while h.agents.inner.lock().unwrap().prompts.len() < n {
         assert!(std::time::Instant::now() < deadline, "no prompt {n}");
-        h.step();
+        tick(h);
     }
 }
 
 #[test]
-fn a_message_that_waits_on_a_running_turn_posts_nothing_from_the_host() {
+fn mid_turn_a_message_that_waits_on_a_running_turn_posts_nothing_from_the_host() {
     let mut h = Harness::new(default_script());
     h.agents.inner.lock().unwrap().steering = true;
     h.brain.set_desk_grace(Some(Duration::from_millis(20)));
@@ -80,7 +111,7 @@ fn a_message_that_waits_on_a_running_turn_posts_nothing_from_the_host() {
 }
 
 #[test]
-fn a_steer_the_turn_reads_in_time_keeps_the_turn() {
+fn mid_turn_a_steer_the_turn_reads_in_time_keeps_the_turn() {
     let mut h = Harness::new(default_script());
     h.agents.inner.lock().unwrap().steering = true;
     h.brain.set_desk_grace(Some(Duration::from_millis(20)));
@@ -93,8 +124,8 @@ fn a_steer_the_turn_reads_in_time_keeps_the_turn() {
 }
 
 #[test]
-fn a_steer_left_unread_past_the_deadline_interrupts_and_the_next_turn_takes_it() {
-    let mut h = Harness::new(default_script());
+fn mid_turn_a_steer_left_unread_past_the_deadline_interrupts_and_the_next_turn_takes_it() {
+    let mut h = Harness::new(long_tool_script());
     {
         let mut inner = h.agents.inner.lock().unwrap();
         inner.steering = true;
@@ -105,7 +136,11 @@ fn a_steer_left_unread_past_the_deadline_interrupts_and_the_next_turn_takes_it()
     h.brain.set_desk_grace(Some(Duration::from_millis(20)));
     running(&mut h, "fix the sidebar");
     h.say("user_local", "stop, do the composer first");
-    h.agents.wait_steers(1);
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while h.agents.inner.lock().unwrap().steers.is_empty() {
+        assert!(std::time::Instant::now() < deadline, "no steer");
+        tick(&mut h);
+    }
     pass(&mut h, Duration::from_millis(100));
     until_cancels(&mut h, 1);
     h.agents.hold(false);
@@ -120,8 +155,8 @@ fn a_steer_left_unread_past_the_deadline_interrupts_and_the_next_turn_takes_it()
 }
 
 #[test]
-fn a_turn_that_cannot_be_steered_is_interrupted_at_once() {
-    let mut h = Harness::new(default_script());
+fn mid_turn_a_turn_that_cannot_be_steered_is_interrupted_at_once() {
+    let mut h = Harness::new(long_tool_script());
     // acpmux refuses the steer (steer.unavailable).
     h.agents.inner.lock().unwrap().steering = false;
     running(&mut h, "fix the sidebar");
