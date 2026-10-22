@@ -8,6 +8,9 @@
 //   - Codex: while a fast tier runs, a small outline bolt sits inside the model button, before the
 //     model's name, and the button's tooltip says Fast Mode; off, no bolt;
 //   - Claude: no bolt anywhere, on or off;
+//   - an option with a tier past Fast (Codex's Ultrafast) adds an Ultrafast checkbox row under Fast
+//     mode, checked while that tier runs: on picks it, off steps back to Fast; a two-state option
+//     has no such row;
 //   - neither draws an effort control of its own (#20946 brought one back): only the model button
 //     names the effort;
 //   - the button never says Fast in words;
@@ -197,6 +200,8 @@ const settle = () => act(async () => await new Promise((resolve) => setTimeout(r
 const chip = () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!;
 const menu = () => dom.window.document.querySelector<HTMLElement>(".acpmux-quick-menu");
 const fastRow = () => menu()?.querySelector<HTMLElement>('.acpmux-quick-fast[role="menuitemcheckbox"]') ?? null;
+const ultraRow = () =>
+  menu()?.querySelector<HTMLElement>('.acpmux-quick-ultrafast[role="menuitemcheckbox"]') ?? null;
 const rows = () =>
   [...(menu()?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])].map((item) =>
     item.textContent?.replace("✓", "").trim(),
@@ -253,6 +258,7 @@ test("Codex: no speed button in the box; Fast mode is the menu's last row, and a
   expect(boltGlyph()).toBeNull();
   await open();
   expect(rows().at(-1)).toBe("Fast mode");
+  expect(ultraRow()).toBeNull();
   expect(fastRow()!.getAttribute("aria-checked")).toBe("false");
   await toggleFast();
   expect(sent).toEqual(["fast-mode=on"]);
@@ -290,6 +296,27 @@ test("Codex: with a tier past Fast, any tier on shows the bolt and checks the ro
   expect(fastRow()!.getAttribute("aria-checked")).toBe("false");
   await toggleFast();
   expect(sent).toEqual(["fast-mode=standard", "fast-mode=fast"]);
+});
+
+test("Codex: a tier past Fast is an Ultrafast row under Fast mode; on picks it, off steps back to Fast", async () => {
+  sent.length = 0;
+  await render(snapshot({ options: threeTier, current: "fast" }, codex));
+  await open();
+  expect(rows().slice(-2)).toEqual(["Fast mode", "Ultrafast"]);
+  expect(fastRow()!.getAttribute("aria-checked")).toBe("true");
+  expect(ultraRow()!.getAttribute("aria-checked")).toBe("false");
+  await act(async () => ultraRow()!.click());
+  await settle();
+  expect(sent).toEqual(["fast-mode=ultrafast"]);
+
+  await render(snapshot({ options: threeTier, current: "ultrafast" }, codex));
+  await open();
+  expect(ultraRow()!.getAttribute("aria-checked")).toBe("true");
+  await act(async () => ultraRow()!.click());
+  await settle();
+  expect(sent).toEqual(["fast-mode=ultrafast", "fast-mode=fast"]);
+  // The button still never says it in words.
+  expect(chip().textContent).not.toMatch(/fast/i);
 });
 
 test("Claude: with a tier past Fast, any tier on checks the row, and a click goes back to off", async () => {

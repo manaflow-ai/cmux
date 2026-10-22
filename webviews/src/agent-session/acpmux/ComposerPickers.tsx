@@ -691,12 +691,24 @@ export function ComposerPickers({
       : undefined;
   // Fast mode is one checkbox row of the menu, after Account (Leo 2026-10-20, as Claude Code's), for
   // every harness that offers it. On is any tier past off; a click turns it off, or on at the
-  // option's first tier.
+  // option's first tier. An option with a tier past that one (Codex's Ultrafast) gets a second
+  // checkbox row under it: checked while that tier runs; on picks it, off steps back to Fast.
+  const ultraTier = fastOption?.options.find(
+    (option) => option.value !== fastMode?.offValue && option.value !== fastMode?.onValue,
+  )?.value;
   const quickFast: QuickMenuExtras["fast"] =
     fastMode && fastOffered
       ? {
           checked: fastRunning,
           onChange: (on) => fastMode.onPick(on ? fastMode.onValue : fastMode.offValue),
+          ...(ultraTier !== undefined
+            ? {
+                ultra: {
+                  checked: fastMode.currentValue === ultraTier,
+                  onChange: (on: boolean) => fastMode.onPick(on ? ultraTier : fastMode.onValue),
+                },
+              }
+            : {}),
         }
       : undefined;
   const quick: QuickMenuExtras = {
