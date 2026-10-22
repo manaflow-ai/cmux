@@ -6,13 +6,14 @@
 // GraphQL call (AgentReplyPullRequests.register) and marks them as being read, then asks
 // `pr.inspect` for each, which answers from that cache and starts no read of its own. While the
 // host is still reading, the next round waits WAIT_MS, doubling to MAX_WAIT_MS, up to ROUNDS
-// rounds (about two minutes); an address still being read then counts as not found. An answer is
-// kept for the page's life (the oldest past MAX_KEPT go, and a shown chip asks again);
-// resetReferenceExistence clears the timers.
+// rounds (about two minutes); an address still being read then stays unknown (the chip shows rule
+// d's repository) and is asked again when a chip for it mounts. An answer is kept for the page's
+// life (the oldest past MAX_KEPT go, and a shown chip asks again); resetReferenceExistence clears
+// the timers.
 import { useEffect, useSyncExternalStore } from "react";
 import { callChipHost } from "./host";
 
-type State = "yes" | "no" | "asking";
+type State = "yes" | "no" | "asking" | "unknown";
 
 const MAX_BATCH = 64;
 const MAX_RUNNING = 2;
@@ -63,7 +64,7 @@ async function run(batch: string[], started: number) {
     pending = reading;
     changed();
   }
-  for (const url of pending) known.set(url, "no");
+  for (const url of pending) known.set(url, "unknown");
   if (pending.length) changed();
 }
 
@@ -93,7 +94,7 @@ function trim() {
 function ask(urls: readonly string[]) {
   let added = false;
   for (const url of urls) {
-    if (known.has(url)) continue;
+    if (known.has(url) && known.get(url) !== "unknown") continue;
     known.set(url, "asking");
     queued.push(url);
     added = true;

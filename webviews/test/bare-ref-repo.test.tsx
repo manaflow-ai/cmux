@@ -51,7 +51,7 @@ const shell = (command: string, output: string, exitCode = 0) =>
 async function render(
   rows: Row[],
   existing: readonly string[],
-  { source, reading = 0 }: { source?: Row[]; reading?: number } = {},
+  { source, reading = 0, folder = FOLDER }: { source?: Row[]; reading?: number; folder?: string } = {},
 ) {
   resetLinkStore();
   resetPullRequestStore();
@@ -77,7 +77,7 @@ async function render(
         sourceRows={source}
         onToggleActivity={() => {}}
         expanded={new Set()}
-        githubRepository={FOLDER}
+        githubRepository={folder || undefined}
       />
     </UiProvider>,
   );
@@ -128,6 +128,8 @@ test("rule 1: an explicit owner/repo#N or address keeps its own repository", asy
 test("rules a and b: a turn keeps its own mention; a later turn takes the last one before it", async () => {
   const view = await render(
     [
+      user("Any news?"),
+      assistant("#5 is new."),
       user("Status of o/a#5?"),
       assistant("#5 merged."),
       user("And o/b#5?"),
@@ -140,11 +142,12 @@ test("rules a and b: a turn keeps its own mention; a later turn takes the last o
   // Prompts draw their text as written. The first reply keeps o/a (a later turn never rewrites
   // it); the last takes o/b, the one named last before its turn (rule b).
   expect(view.chips()).toEqual([
+    // Named only by later turns: rule c finds it in no candidate, so rule d stands.
+    ["#5", pr(FOLDER, 5)],
     ["#5", pr("o/a", 5)],
     ["o/b#5", pr("o/b", 5)],
     ["#5", pr("o/b", 5)],
   ]);
-  expect(inspected(view.calls)).toEqual([]);
 });
 
 test("rule a: a command in the turn names the number's repository (its output too)", async () => {
@@ -215,6 +218,21 @@ test("rules c, d and 3: the App's cache decides among the candidates, asked in o
   );
   expect(batches.map((call) => call.params.urls)).toEqual([urls]);
   expect(new Set(inspected(view.calls))).toEqual(new Set(urls));
+});
+
+test("rule c: the repositories linked last are the candidates, in a message's order too", async () => {
+  const links = ["o/a", "o/b", "o/c"].map((repo) => pr(repo, 1)).join(" ");
+  const view = await render([user(`See ${links}`), assistant("#9 is the fix.")], [pr("o/c", 9)]);
+  expect(view.chips()).toEqual([["#9", pr("o/c", 9)]]);
+});
+
+test("with no folder repository, a bare #N links only when the transcript names its repository", async () => {
+  const view = await render(
+    [user("Merge it"), shell(`gh pr merge ${pr("o/r", 5)}`, ""), assistant("#5 merged; #6 is unrelated.")],
+    [],
+    { folder: "" },
+  );
+  expect(view.chips()).toEqual([["#5", pr("o/r", 5)]]);
 });
 
 test("rule d: with no evidence and one candidate, the folder's repository, asking nothing", async () => {

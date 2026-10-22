@@ -375,12 +375,16 @@ function lineLabel(path: string, written: string): string | undefined {
   return line ? `${pathName(path)}:${line}` : undefined;
 }
 
+const NO_REPOSITORY = "-/-";
+
 function linkedGithubText(text: string, key: string, repository?: string, enabled = true): ReactNode[] {
   if (!enabled) return linkedText(text, key);
   // A pull request address, so the chip opens the pull request card (an issue redirects there);
   // a commit (`abc1234`, `owner/repo@abc1234`) opens its GitHub page. In reading order; a commit
   // inside a reference, a URL or a path (`https://x.test/app.js?v=3a7bd3e2`) is part of it.
-  const issues = githubReferences(text, repository, "pull", true);
+  // With no repository, a bare `#N` still goes to BareReferenceChip, which links it only when the
+  // transcript names its repository.
+  const issues = githubReferences(text, repository ?? NO_REPOSITORY, "pull", true);
   const commits = commitReferences(text, repository);
   const spans = commits.length ? textLinks(text) : [];
   const refs = [
@@ -409,7 +413,7 @@ function linkedGithubText(text: string, key: string, repository?: string, enable
         <BareReferenceChip
           key={`${key}-${index}`}
           number={reference.bare}
-          href={reference.href}
+          href={repository ? reference.href : undefined}
           text={reference.text}
         />
       );

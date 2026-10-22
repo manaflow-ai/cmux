@@ -7,7 +7,8 @@
 // 2. A bare `#N` takes
 //    a. the repository its own turn names for N: `manaflow-ai/cmux#24175` or its address, in the
 //       prompt or agent message that opened the turn, a reply, or a command and its output;
-//    b. else the repository the chat named N with last before the turn (else first after it);
+//    b. else the repository the chat named N with last before the turn (a later turn never
+//       changes an earlier turn's link);
 //    c. else the candidate that has pull request N, as the App's pull request cache says
 //       (chips/referenceExistence.ts): the folder's repository, then the ones the chat linked;
 //    d. else the folder's repository (or the transcript's, transcriptRepositories.ts).
@@ -80,7 +81,7 @@ function rowNamed(row: Pick<AcpmuxRow, "kind" | "text" | "items">): readonly Nam
 }
 
 /** What the transcript named up to a row: where it named each number, each repository by its
- *  lowercase name (its first spelling and the row that last named it), each turn's own numbers
+ *  lowercase name (its first spelling; the map's order is the order they were last named), each turn's own numbers
  *  and where it starts, by the id of the prompt that opened it ("" before the first), and the turn
  *  open at that row. A copy shares arrays and maps with its source, so they are replaced, never
  *  changed, except the open turn's, which `copy` copies. */
@@ -130,6 +131,8 @@ function read(reading: Reading, row: Pick<AcpmuxRow, "id" | "kind" | "text" | "i
   for (const { number, repo } of rowNamed(row)) {
     const key = repo.toLowerCase();
     const spelled = reading.repos.get(key)?.repo ?? repo;
+    // Deleted first, so the map's order is the order the repositories were last named, in a row too.
+    reading.repos.delete(key);
     reading.repos.set(key, { repo: spelled, at });
     if (number === undefined) continue;
     reading.mentions.set(number, [...(reading.mentions.get(number) ?? []), { at, repo: spelled }]);
@@ -171,7 +174,7 @@ export function referenceScopes(
   const tail = last >= 0 ? `${source[last]!.kind}:${JSON.stringify(rowNamed(source[last]!))}` : "";
   const evidenceKey = `${cache.generation}:${cache.prefixLength}:${tail}`;
   if (cache.evidence?.key !== evidenceKey) {
-    const linked = [...whole.repos.values()].sort((a, b) => b.at - a.at).map(({ repo }) => repo);
+    const linked = [...whole.repos.values()].map(({ repo }) => repo).reverse();
     cache.evidence = { key: evidenceKey, value: { mentions: whole.mentions, linked } };
     cache.scopes.clear();
   }
@@ -211,7 +214,7 @@ export function namedRepository(number: number, scope: ReferenceScope | null): s
   const mentions = scope.evidence.mentions.get(number) ?? [];
   let before: string | undefined;
   for (const mention of mentions) if (mention.at < scope.at) before = mention.repo;
-  return before ?? mentions[0]?.repo;
+  return before;
 }
 
 /** Rule c's candidates: `fallback` (rule d's) first, then the chat's repositories, latest first. */
