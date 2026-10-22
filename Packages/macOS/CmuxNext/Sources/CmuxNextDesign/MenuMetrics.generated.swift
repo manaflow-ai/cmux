@@ -12,8 +12,8 @@ public nonisolated struct MenuMetrics: Sendable {
     public static let highlightInset: CGFloat = 5
     /// The hover highlight's corner radius.
     public static let highlightRadius: CGFloat = 5
-    /// A separator's distance from the menu's edges, on both sides.
-    public static let separatorInset: CGFloat = 12
+    /// A separator's distance from the menu's edges, on both sides (AppKit's own menu separators, measured 2026-10-21).
+    public static let separatorInset: CGFloat = 15
     /// A checkmark or dash.
     public static let stateX: CGFloat = 10
     /// The icon column; also the text column of a menu with no icon.

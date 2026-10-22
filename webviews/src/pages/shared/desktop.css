@@ -449,7 +449,7 @@ input[type="submit"] {
 :root {
   --cmux-menu-highlight-inset: 5px; /* the hover highlight's distance from the menu's edges */
   --cmux-menu-highlight-radius: 5px; /* the hover highlight's corner radius */
-  --cmux-menu-separator-inset: 12px; /* a separator's distance from the menu's edges, on both sides */
+  --cmux-menu-separator-inset: 15px; /* a separator's distance from the menu's edges, on both sides (AppKit's own menu separators, measured 2026-10-21) */
   --cmux-menu-state-x: 10px; /* a checkmark or dash */
   --cmux-menu-icon-x: 22px; /* the icon column; also the text column of a menu with no icon */
   --cmux-menu-icon-size: 16px; /* an icon's side */

@@ -3,7 +3,7 @@
   "metrics": [
     { "name": "highlightInset", "pt": 5, "for": "the hover highlight's distance from the menu's edges" },
     { "name": "highlightRadius", "pt": 5, "for": "the hover highlight's corner radius" },
-    { "name": "separatorInset", "pt": 12, "for": "a separator's distance from the menu's edges, on both sides" },
+    { "name": "separatorInset", "pt": 15, "for": "a separator's distance from the menu's edges, on both sides (AppKit's own menu separators, measured 2026-10-21)" },
     { "name": "stateX", "pt": 10, "for": "a checkmark or dash" },
     { "name": "iconX", "pt": 22, "for": "the icon column; also the text column of a menu with no icon" },
     { "name": "iconSize", "pt": 16, "for": "an icon's side" },
