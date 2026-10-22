@@ -15,6 +15,7 @@ import { HarnessesCard } from "./HarnessesCard";
 import { APPEARANCE_CATEGORIES } from "../appearanceUndo";
 import { AppearanceBar } from "./AppearanceBar";
 import { MobileCard } from "./MobileCard";
+import { NoticesCard } from "./NoticesCard";
 import { ImportSuggestionsCard } from "./ImportSuggestionsCard";
 import { AdvancedInfo, BACKDROP_ROWS, Backdrops, TerminalInfo, useBackdropsShown } from "./HostCards";
 import { DENSITY_ROWS } from "../density";
@@ -51,6 +52,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   importSuggestions: () => <ImportSuggestionsCard />,
   channels: () => <ChannelsCard />,
   voiceInput: () => <VoiceInputCard />,
+  notices: () => <NoticesCard />,
 };
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */
