@@ -5,6 +5,9 @@
 // scrolls inside its own box past eight lines (.acpmux-md-field, markdownField.css); the edge with
 // more draft past it is marked (`data-fade-top`, `data-fade-bottom`) and faded with an alpha mask,
 // so whatever is behind the composer's glass shows through: nothing is painted over the text.
+// The attachment row above the prompt (.acpmux-attachments, composerAttachments.css) scrolls sideways
+// past the composer's width and fades the same way at the side with more chips past it
+// (`data-fade-left`, `data-fade-right`), with the prompt's band (`--acpmux-md-fade-band`).
 //
 // The pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux
 // (support/papercutChat.ts). Real Chromium and WebKit (the app's engine); CI fails the file when it
@@ -129,6 +132,88 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
       context.drawImage(image, 0, 0);
       return Array.from(context.getImageData(0, 0, 1, 1).data.slice(0, 3));
     }, png.toString("base64"));
+  }
+
+  const ROW = ".acpmux-composer .acpmux-attachments";
+  const CHIP = ".acpmux-composer .acpmux-attachment-pasted";
+
+  /// Pastes `count` texts of 30 lines each, every one a Pasted text chip (over pastedText.ts's 20
+  /// lines), so the attachment row holds `count` more chips.
+  async function pasteChips(page: Page, count: number) {
+    await page.locator(EDITABLE).click();
+    const held = await page.locator(CHIP).count();
+    for (let chip = held + 1; chip <= held + count; chip++) {
+      await page.evaluate(
+        ({ selector, chip }) => {
+          const data = new DataTransfer();
+          const lines = Array.from({ length: 30 }, (_, i) => `pasted ${chip} line ${i + 1}: the retry rules.`);
+          data.setData("text/plain", lines.join("\n"));
+          document
+            .querySelector(selector)!
+            .dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+        },
+        { selector: EDITABLE, chip },
+      );
+      await page.waitForFunction(({ selector, chip }) => document.querySelectorAll(selector).length === chip, {
+        selector: CHIP,
+        chip,
+      });
+    }
+    await settle(page);
+  }
+
+  /// The attachment row's scroll position, its edge marks, its bands and its computed mask, with the
+  /// prompt's own band (FADE_BAND_PX, MarkdownField.tsx) to measure them against.
+  const rowEdges = (page: Page) =>
+    page.evaluate(
+      ({ row, field }) => {
+        const node = document.querySelector<HTMLElement>(row)!;
+        const style = getComputedStyle(node) as CSSStyleDeclaration & { webkitMaskImage?: string };
+        const mask = style.maskImage && style.maskImage !== "" ? style.maskImage : (style.webkitMaskImage ?? "none");
+        const px = (name: string) => parseFloat(style.getPropertyValue(name) || "0");
+        return {
+          left: node.scrollLeft,
+          end: node.scrollWidth - node.clientWidth,
+          fadeLeft: node.hasAttribute("data-fade-left"),
+          fadeRight: node.hasAttribute("data-fade-right"),
+          bandLeft: px("--acpmux-attach-fade-left"),
+          bandRight: px("--acpmux-attach-fade-right"),
+          promptBand: parseFloat(
+            getComputedStyle(document.querySelector(field)!).getPropertyValue("--acpmux-md-fade-band"),
+          ),
+          mask,
+          webkitMask: style.webkitMaskImage ?? style.getPropertyValue("-webkit-mask-image"),
+        };
+      },
+      { row: ROW, field: FIELD },
+    );
+
+  /// Scrolls the attachment row to its start, its end, or a middle position where a chip crosses
+  /// each edge by a few pixels at least (no gap between chips sits at either edge).
+  async function scrollRow(page: Page, at: "start" | "middle" | "end") {
+    await page.evaluate(
+      ({ row, chip, at }) => {
+        const node = document.querySelector<HTMLElement>(row)!;
+        const end = node.scrollWidth - node.clientWidth;
+        if (at !== "middle") {
+          node.scrollLeft = at === "start" ? 0 : end;
+          return;
+        }
+        const covered = (x: number) =>
+          Array.from(node.querySelectorAll(chip)).some((element) => {
+            const rect = element.getBoundingClientRect();
+            return rect.left + 4 <= x && x <= rect.right - 4;
+          });
+        for (let left = Math.round(end / 2); left < end - 24; left += 4) {
+          node.scrollLeft = left;
+          const box = node.getBoundingClientRect();
+          if (covered(box.left + 1) && covered(box.right - 1)) return;
+        }
+        throw new Error("no scroll position puts a chip across both edges");
+      },
+      { row: ROW, chip: CHIP, at },
+    );
+    await settle(page);
   }
 
   for (const [name] of engines) {
@@ -286,6 +371,96 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         expect(faded[0]).toBeLessThan(60);
         expect(faded[1]).toBeGreaterThan(200);
         expect(faded[2]).toBeLessThan(60);
+        await page.close();
+      });
+
+      test("the attachment row fades at the side with more chips past it, by the prompt's band", async () => {
+        current = browsers.get(name);
+        const page = await pane!.open();
+
+        // Two chips fit: no edge marks, no mask.
+        await pasteChips(page, 2);
+        let seen = await rowEdges(page);
+        expect(seen.end).toBeLessThanOrEqual(0);
+        expect([seen.fadeLeft, seen.fadeRight, seen.mask]).toEqual([false, false, "none"]);
+
+        // Eight overflow the row. At its start only the right side fades, by the prompt's band.
+        await pasteChips(page, 6);
+        await scrollRow(page, "start");
+        seen = await rowEdges(page);
+        expect(seen.end).toBeGreaterThan(100);
+        expect(seen.promptBand).toBeGreaterThan(0);
+        expect([seen.fadeLeft, seen.fadeRight]).toEqual([false, true]);
+        expect([seen.bandLeft, seen.bandRight]).toEqual([0, seen.promptBand]);
+        expect(seen.mask).toContain("linear-gradient");
+        expect(seen.webkitMask).toContain("linear-gradient");
+
+        // In the middle both sides fade, each by the prompt's band.
+        await scrollRow(page, "middle");
+        seen = await rowEdges(page);
+        expect([seen.fadeLeft, seen.fadeRight]).toEqual([true, true]);
+        expect([seen.bandLeft, seen.bandRight]).toEqual([seen.promptBand, seen.promptBand]);
+
+        // At the end only the left side does.
+        await scrollRow(page, "end");
+        seen = await rowEdges(page);
+        expect([seen.fadeLeft, seen.fadeRight]).toEqual([true, false]);
+        expect([seen.bandLeft, seen.bandRight]).toEqual([seen.promptBand, 0]);
+        await page.close();
+      });
+
+      test("the attachment row's faded sides are see-through: what is behind the row shows", async () => {
+        current = browsers.get(name);
+        const page = await pane!.open();
+        await pasteChips(page, 8);
+        await scrollRow(page, "middle");
+        const seen = await rowEdges(page);
+        expect([seen.fadeLeft, seen.fadeRight]).toEqual([true, true]);
+
+        const box = (await page.locator(ROW).boundingBox())!;
+        const chip = (await page.locator(CHIP).first().boundingBox())!;
+        const y = chip.y + chip.height / 2;
+        const sides = [box.x + 1, box.x + box.width - 1];
+        // Nothing lies over the faded sides: a point in each hits the row's own chips.
+        const hits = await page.evaluate(
+          ({ row, sides, y }) => {
+            const node = document.querySelector(row)!;
+            return sides.map((x) => {
+              const hit = document.elementFromPoint(x, y);
+              return hit ? node.contains(hit) : false;
+            });
+          },
+          { row: ROW, sides, y },
+        );
+        expect(hits).toEqual([true, true]);
+
+        // The chips drawn solid red over a solid green composer: at each faded side the red is
+        // (nearly) gone and the green behind the row shows; mid-row it is solid red. A painted overlay
+        // would hide the green.
+        await page.addStyleTag({
+          content: `${CHIP}, ${CHIP} * { background: rgb(255, 0, 0) !important; color: rgb(255, 0, 0) !important; box-shadow: none !important; outline: none !important; }
+            .acpmux-composer-box { background: rgb(0, 255, 0) !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }`,
+        });
+        await settle(page);
+        // Mid-row: the point nearest the row's centre that is on a chip, not in the gap between two.
+        const middle = await page.evaluate(
+          ({ chip, center, y }) =>
+            [0, -12, 12, -24, 24]
+              .map((shift) => center + shift)
+              .find((x) => document.elementFromPoint(x, y)?.closest(chip)),
+          { chip: CHIP, center: box.x + box.width / 2, y },
+        );
+        expect(middle).toBeDefined();
+        const solid = await pixel(page, middle!, y);
+        expect(solid[0]).toBeGreaterThan(200);
+        expect(solid[1]).toBeLessThan(60);
+        expect(solid[2]).toBeLessThan(60);
+        for (const x of sides) {
+          const faded = await pixel(page, x, y);
+          expect(faded[0]).toBeLessThan(60);
+          expect(faded[1]).toBeGreaterThan(200);
+          expect(faded[2]).toBeLessThan(60);
+        }
         await page.close();
       });
 

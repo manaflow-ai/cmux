@@ -19,12 +19,20 @@ enum SplitRoomDecision {
 }
 
 extension AppServices {
-    /// Applies `layout.splitSizing` once a move that splits `pane` at `edge` landed, as a keyboard split
-    /// does (#22287). The changes are computed now, without `emptied` (the pane the move closes).
+    /// Applies the sizing a move that splits `pane` at `edge` lands with, once it landed: the ratios its
+    /// drop target previewed (`LayoutModel.dropSizingChanges`: `layout.splitSizing` as a keyboard split
+    /// does, #22287, and the close sizing of `emptied`, the pane the move closes). Computed now.
+    /// The returned closure sends them once, however many of the move's settle points call it.
     func splitSizing(for pane: PaneModel, edge: PaneEdge, emptying emptied: PaneModel?) -> @MainActor () -> Void {
         guard let controller = paneController(for: pane), let content = controller.workspace else { return {} }
-        let changes = content.layoutModel.splitSizingChanges(splitting: controller.layoutPaneID, axis: edge.splitAxis, removing: emptied.flatMap { $0 === pane ? nil : content.handles.paneIDs[$0.handle] })
-        return { [weak content] in content?.layoutModel.applySplitSizing(changes) }
+        let changes = content.layoutModel.dropSizingChanges(splitting: controller.layoutPaneID, zone: edge.dropZone,
+                                                            removing: emptied.flatMap { $0 === pane ? nil : content.handles.paneIDs[$0.handle] })
+        let sent = SizingSent()
+        return { [weak content] in
+            guard !sent.value else { return }
+            sent.value = true
+            content?.layoutModel.applySplitSizing(changes)
+        }
     }
 
     /// The decision for splitting `pane` on `edge`. `source` is the pane a moved tab leaves; when that
@@ -132,4 +140,9 @@ enum ToolSplitDecision {
 struct NewColumnSpawn {
     let width: Double
     let commit: @MainActor () -> Void
+}
+
+/// Whether a move's split sizing went out (`AppServices.splitSizing`).
+private final class SizingSent {
+    var value = false
 }

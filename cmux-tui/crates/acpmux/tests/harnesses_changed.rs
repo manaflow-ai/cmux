@@ -89,6 +89,20 @@ async fn a_new_profile_file_reaches_watchers_as_harnesses_changed() {
     tx.send(Message::request(1, method::MUX_WATCH, json!({"enabled": true})).to_line())
         .await
         .unwrap();
+    // The connection forwards changes once it has handled the watch request:
+    // a reload announced before that reaches no one, and none follows.
+    let watching = async {
+        while let Some(line) = rx.recv().await {
+            if let Ok(Message::Response { id, error, .. }) = Message::parse(&line)
+                && serde_json::to_value(&id).ok() == Some(json!(1))
+            {
+                assert!(error.is_none(), "{line}");
+                return;
+            }
+        }
+        panic!("the connection ended before it answered the watch request");
+    };
+    tokio::time::timeout(Duration::from_secs(10), watching).await.expect("no watch answer");
 
     std::fs::create_dir_all(&user).unwrap();
     write(
