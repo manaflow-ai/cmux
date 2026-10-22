@@ -21,6 +21,8 @@ extension SidebarListViewComponents {
             target = .group(id)
         case let .section(id)?, let .emptySection(id)?, let .folder(id, _)?:
             target = .section(id)
+        case let .doneFold(fold)?, let .showMore(fold)?:
+            target = fold.group.map(SidebarContextTarget.group) ?? .section(fold.section)
         case let .tab(workspace, tab)?:
             target = .tab(workspace, tab)
         case let .item(item)?:
