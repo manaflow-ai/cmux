@@ -119,7 +119,8 @@ enum TabHandlers {
         registry.bind("selectSurfaceByNumber", invoke: { invocation in
             guard let pane = ctx.paneController(invocation) else { return }
             guard let number = invocation["index"]?.intValue ?? ctx.refuse(RefusalStrings.indexRequired) else { return }
-            let ids = pane.orderedIDs
+            // The tabs the strip shows: a member of a collapsed group has no visible number.
+            let ids = pane.stripModel.visibleOrderedTabs.map(\.id)
             guard !ids.isEmpty else { return ctx.refuseQuietly(RefusalStrings.paneHasNoTabs) }
             // 9 always selects the last tab.
             pane.select(number >= 9 ? ids[ids.count - 1] : ids[min(number - 1, ids.count - 1)])
