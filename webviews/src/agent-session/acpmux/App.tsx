@@ -1720,6 +1720,7 @@ export function VirtualTranscript({
   needsYou,
   dock,
   queueWithdrawn,
+  queue,
   focusComposer,
   openAt,
   onAnchor,
@@ -1748,6 +1749,9 @@ export function VirtualTranscript({
   /// Prompts withdrawn from the queue (snapshot `queueWithdrawn`): no row comes for one whose card
   /// leaves the stack, so the view keeps no room for it.
   queueWithdrawn?: readonly string[];
+  /// The queue the stack's cards draw (snapshot `queue`): each change notes the queued prompts again
+  /// (`noteQueue`), whether or not it changes the stack's size.
+  queue?: readonly unknown[];
   /// Where a keyboard Jump to latest leaves focus, since the button hides (inert) once there.
   focusComposer?: () => void;
   onToggleActivity: (id: string) => void;
@@ -1820,8 +1824,8 @@ export function VirtualTranscript({
   const dockRef = useRef(dock);
   dockRef.current = dock;
   /// Notes the stack's queued prompts; called first by each size observer (the stack's, and the
-  /// view's, for a stack laid out under the transcript), so the render a size change makes knows.
-  /// A prompt the queue's fold hides (ComposerQueue `data-folded-ids`) is still queued: closing the
+  /// view's, for a stack laid out under the transcript), so the render a size change makes knows,
+  /// and by each change of the queue (below). A prompt the queue's fold hides (ComposerQueue `data-folded-ids`) is still queued: closing the
   /// fold is not its card leaving, and no room is kept under the last row for a prompt that stays
   /// queued (Leo 2026-10-21: the queue closed left a hole over the stack, then the rows dropped).
   const noteQueue = useCallback(() => {
@@ -1876,6 +1880,11 @@ export function VirtualTranscript({
     setDockCard(card(space));
     return () => observer.disconnect();
   }, [dock, noteQueue]);
+  // And each time the queue changes, in the commit that draws it. A change that leaves the stack's
+  // size as it was (a prompt the fold hides, or one an opened list's cap cuts off, run by another
+  // client) runs neither observer: still noted as queued, the next resize took it for a card that
+  // left then, and kept room above the stack for FLOOR_HOLD_MS that then glided away (#24182).
+  useLayoutEffect(() => noteQueue(), [queue, noteQueue]);
   const [width, setWidth] = useState(() => lastTranscriptBox.width);
   // The column's cap (layout.json `chatWidth`): a new one measures every row again.
   const chatWidth = useChatWidth();
@@ -6916,6 +6925,7 @@ function AcpmuxPane() {
                                                   // Quick Chat's panel stacks its composer below the transcript.
                                                   dock={quick ? undefined : dock}
                                                   queueWithdrawn={snapshot.queueWithdrawn}
+                                                  queue={quick ? undefined : snapshot.queue}
                                                   find={quick ? undefined : find}
                                                   sessionId={
                                                     childRows
