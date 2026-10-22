@@ -161,6 +161,9 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
             effort: !!card.querySelector(".acpmux-effort, .acpmux-model-detail"),
             mode: !!card.querySelector(".acpmux-access"),
           },
+          // The row starts with the harness's mark and name (ComposerHarness.tsx, Leo 2026-10-21).
+          harnessMark: rect(root.querySelector(".acpmux-composer-foot .acpmux-harness .agent-mark")),
+          harness: text(root.querySelector(".acpmux-composer-foot .acpmux-harness-name")),
           mode: text(root.querySelector(".acpmux-composer-foot .acpmux-mode-text")),
           // The mode button leads with its symbol, then its name (Leo 2026-10-21: Codex's "(!) Full access").
           modeSymbol: rect(root.querySelector(".acpmux-composer-foot .acpmux-access-trigger > svg:first-child")),
@@ -205,16 +208,21 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
         if (stage.sendAtRest) expect(at.send, "Send is in the box").not.toBeNull();
         else expect(at.send, "no Send with an empty draft").toBeNull();
         if (stage.plus) expect(at.plus, "+ is in the box").not.toBeNull();
-        // The mode on the left, its symbol on the prompt's text edge (16 px in from the box, Claude
-        // Code's), its name after it. A New Tab page before its chat starts may have no mode yet; the
-        // model button stays right.
+        // The harness on the left, its mark on the prompt's text edge (16 px in from the box, where
+        // Claude Code's footer starts with its project), its name after it; then the mode, its symbol
+        // and its name. A New Tab page before its chat starts may have no mode yet; the model button
+        // stays right.
+        expect(at.harnessMark, "the row starts with the harness's mark").not.toBeNull();
+        expect(
+          Math.abs(at.harnessMark!.left - (at.box.left + 16)),
+          "the harness's mark on the 16 px edge",
+        ).toBeLessThanOrEqual(3);
+        expect(at.harness, "the harness names itself").not.toBeNull();
+        expect(at.harness!.left, "the harness's name follows its mark").toBeGreaterThan(at.harnessMark!.right);
         if (stage.plus) expect(at.mode, "the mode names itself").not.toBeNull();
         if (at.mode) {
           expect(at.modeSymbol, "the mode draws its symbol").not.toBeNull();
-          expect(
-            Math.abs(at.modeSymbol!.left - (at.box.left + 16)),
-            "the mode's symbol on the 16 px edge",
-          ).toBeLessThanOrEqual(3);
+          expect(at.modeSymbol!.left, "the mode follows the harness").toBeGreaterThan(at.harness!.right);
           expect(at.mode.left, "the mode's name follows its symbol").toBeGreaterThan(at.modeSymbol!.right);
           expect(at.model!.left, "the model is right of the mode").toBeGreaterThan(at.mode.right + 40);
         }
