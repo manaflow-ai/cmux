@@ -40,7 +40,7 @@ struct AgentPaneTabRowHolesTests {
     private func holes(_ page: FakeChromiumPage, in view: AgentPaneView) -> [CGRect] {
         page.occlusionRects.map { rect -> CGRect in
             let local = view.convert(rect, from: page.contentView)
-            let top = view.isFlipped ? local.minY : view.bounds.maxY - local.maxY
+            let top = view.isFlipped ? local.minY - view.bounds.minY : view.bounds.maxY - local.maxY
             return CGRect(x: local.minX, y: top, width: local.width, height: local.height).integral
         }
         .sorted { $0.minX < $1.minX }
