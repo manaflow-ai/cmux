@@ -364,6 +364,8 @@ export class MockSettingsProvider {
       "cmux.settings.backdrop.workspace.preview": () => ({}),
       "cmux.settings.art.search": () => ({ results: this.museumArt }),
       "cmux.settings.art.use": () => ({ id: "" }),
+      "cmux.settings.web_updates.check": () => ({}),
+      "cmux.settings.web_updates.rollback": () => ({}),
       "cmux.settings.folders.add": (params) => {
         const key = String((params as { key: string }).key);
         const current = Array.isArray(this.values.get(key)) ? (this.values.get(key) as string[]) : [];
@@ -474,6 +476,8 @@ export class MockSettingsProvider {
       "cmux.settings.backdrop.workspace.preview",
       "cmux.settings.art.search",
       "cmux.settings.art.use",
+      "cmux.settings.web_updates.check",
+      "cmux.settings.web_updates.rollback",
       "cmux.settings.section.actions",
       "cmux.app.action.run",
       "cmux.app.clipboard.write",
@@ -627,7 +631,16 @@ export class MockSettingsProvider {
       { id: "default", title: "Default", subtitle: null, active: true },
       { id: "work", title: "Work", subtitle: null, active: false },
     ],
-    machines: [{ id: "ssh:build", title: "build-mac", subtitle: "cmux@build-mac", active: true }],
+    machines: [
+      {
+        id: "ssh:build",
+        title: "build-mac",
+        subtitle: "cmux@build-mac",
+        active: true,
+        color: "#7F5FA8",
+        color_key: "build-mac",
+      },
+    ],
     // A DEV build: the home.voiceInput tunable exists, on as Leo set it.
     voice_input: { on: true },
     browser_profiles: [
