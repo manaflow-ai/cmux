@@ -197,16 +197,61 @@ mod tests {
         assert_eq!(sniffed_type(b"BM\x36\0\0\0\0\0\0\0\x36\0\0\0"), Some("image/bmp"));
         assert_eq!(sniffed_type(b"II*\0\x08\0\0\0"), Some("image/tiff"));
         assert_eq!(sniffed_type(b"MM\0*\0\0\0\x08"), Some("image/tiff"));
-        assert_eq!(sniffed_type(b"\0\0\0\x18ftypheic\0\0\0\0"), Some("image/heic"));
-        assert_eq!(sniffed_type(b"\0\0\0\x18ftypmif1\0\0\0\0"), Some("image/heif"));
-        assert_eq!(sniffed_type(b"\0\0\0\x1cftypavif\0\0\0\0"), Some("image/avif"));
+        assert_eq!(sniffed_type(&ftyp(b"heic", &[b"mif1", b"heic"])), Some("image/heic"));
+        assert_eq!(sniffed_type(&ftyp(b"mif1", &[b"mif1", b"miaf"])), Some("image/heif"));
+        assert_eq!(sniffed_type(&ftyp(b"avif", &[b"avif", b"mif1", b"miaf"])), Some("image/avif"));
         assert_eq!(sniffed_type(b"%PDF-1.7\n"), Some("application/pdf"));
         // Text, a short or truncated header, another ISO brand, or nothing: no type.
         assert_eq!(sniffed_type(b"<svg xmlns='http://www.w3.org/2000/svg'/>"), None);
         assert_eq!(sniffed_type(b"\x89PNG"), None);
         assert_eq!(sniffed_type(b"BM"), None);
-        assert_eq!(sniffed_type(b"\0\0\0\x18ftypisom\0\0\0\0"), None);
+        assert_eq!(sniffed_type(&ftyp(b"isom", &[b"isom", b"mp41"])), None);
         assert_eq!(sniffed_type(b"\0\0\0\x18ftyp"), None);
         assert_eq!(sniffed_type(b""), None);
+    }
+
+    /// An ISO-BMFF `ftyp` box with `major` and `compatible` brands, its size its own length,
+    /// followed by the start of the next box (as a file's `meta` follows its `ftyp`).
+    fn ftyp(major: &[u8; 4], compatible: &[&[u8; 4]]) -> Vec<u8> {
+        let size = 16 + 4 * compatible.len() as u32;
+        let mut out = size.to_be_bytes().to_vec();
+        out.extend_from_slice(b"ftyp");
+        out.extend_from_slice(major);
+        out.extend_from_slice(&0u32.to_be_bytes());
+        for brand in compatible {
+            out.extend_from_slice(*brand);
+        }
+        out.extend_from_slice(b"\0\0\0\x08meta");
+        out
+    }
+
+    /// An HEIF file's type is its whole `ftyp` box (major and compatible brands, as libavif's
+    /// read.c reads it), never its major brand alone; a box cut short names no type.
+    #[test]
+    fn an_iso_media_files_type_comes_from_its_whole_ftyp_box() {
+        // AVIF named only among the compatible brands, behind an HEIF major brand.
+        assert_eq!(sniffed_type(&ftyp(b"mif1", &[b"mif1", b"avif", b"miaf"])), Some("image/avif"));
+        assert_eq!(sniffed_type(&ftyp(b"msf1", &[b"msf1", b"avis"])), Some("image/avif"));
+        // HEIC the same way.
+        assert_eq!(sniffed_type(&ftyp(b"mif1", &[b"mif1", b"heic"])), Some("image/heic"));
+        // A brand past the end of the box is the next box's, not this one's.
+        let mut outside = ftyp(b"mif1", &[b"mif1"]);
+        outside.truncate(20);
+        outside.extend_from_slice(b"avif");
+        assert_eq!(sniffed_type(&outside), Some("image/heif"));
+        // Cut short: 12 bytes of an AVIF header, a box longer than the file, a box shorter than
+        // its header, and compatible brands that are not whole.
+        assert_eq!(sniffed_type(b"\0\0\0\x18ftypavif"), None);
+        let whole = ftyp(b"avif", &[b"avif", b"mif1"]);
+        assert_eq!(sniffed_type(&whole[..20]), None);
+        assert_eq!(sniffed_type(b"\0\0\0\x08ftypavif\0\0\0\0"), None);
+        assert_eq!(sniffed_type(b"\0\0\0\x12ftypavif\0\0\0\0av"), None);
+        // A box that runs to the end of the file (size 0), and one with a 64-bit size.
+        assert_eq!(sniffed_type(b"\0\0\0\0ftypmif1\0\0\0\0mif1avif"), Some("image/avif"));
+        let mut large = 1u32.to_be_bytes().to_vec();
+        large.extend_from_slice(b"ftyp");
+        large.extend_from_slice(&28u64.to_be_bytes());
+        large.extend_from_slice(b"mif1\0\0\0\0heic");
+        assert_eq!(sniffed_type(&large), Some("image/heic"));
     }
 }
