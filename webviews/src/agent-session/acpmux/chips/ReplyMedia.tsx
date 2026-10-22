@@ -9,6 +9,8 @@
 // follows `agentPane.images.remote` like a web image: a placeholder with its site and Load
 // (click, the default), its link only (never), or at once (always). The host fetches it under
 // its network rules and plays a checked copy.
+// While the host doesn't yet know where the chat runs, `media.load` answers pending: the file keeps
+// showing as its name and asks again on the `locality` event (locality.ts).
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Dialog } from "../../../ui/Dialog";
 import { keyedIconProps } from "../../../ui/DialogButton";
@@ -16,6 +18,7 @@ import { useT } from "../i18n";
 import { Close, Expand } from "../conversation/icons";
 import { callChipHost } from "./host";
 import { usePathInfo, useReplyPolicy } from "./linkStore";
+import { isPending, localityGeneration, onLocalityChange, useLocalityGeneration } from "./locality";
 import { useNearViewport } from "../useNearViewport";
 import { isDeniedPath, linkPath, pathName } from "./paths";
 
@@ -47,29 +50,49 @@ export function isRemoteMedia(src: string): boolean {
 
 /// The host's answer per source, so a re-render or a second mention plays the same URL.
 const granted = new Map<string, string>();
+/// A new locality forgets the local files granted under the old one: the host decides them again.
+onLocalityChange(() => {
+  for (const source of granted.keys()) if (!webURL(source)) granted.delete(source);
+});
 
 /// Asks the host for the URL `source` plays by: at once when `auto`, else on `load()`.
 function useMediaLoad(source: string, auto: boolean) {
-  const [src, setSrc] = useState(() => granted.get(source));
+  const generation = useLocalityGeneration();
+  const [grant, setGrant] = useState(() => {
+    const url = granted.get(source);
+    return url ? { url, generation: localityGeneration() } : undefined;
+  });
   const [state, setState] = useState<"idle" | "loading" | "failed">("idle");
+  /// The locality a pending answer came under: asked again only under a new one.
+  const [pendingAt, setPendingAt] = useState<number>();
   const load = useCallback(() => {
     setState("loading");
+    const asked = localityGeneration();
     void callChipHost("media.load", { src: source }).then((reply) => {
       const url = (reply as { src?: unknown } | undefined)?.src;
-      // The gallery's fixture answers a data URL; the pane's CSP plays only its own media URLs.
-      if (typeof url === "string" && /^(cmux-agent:\/\/pane\/__media\/|data:(video|audio)\/)/.test(url)) {
-        granted.set(source, url);
-        setSrc(url);
+      if (isPending(reply)) {
+        setPendingAt(asked);
+        setState("idle");
+      } else if (typeof url === "string" && /^(cmux-agent:\/\/pane\/__media\/|data:(video|audio)\/)/.test(url)) {
+        // The gallery's fixture answers a data URL; the pane's CSP plays only its own media URLs.
+        if (asked === localityGeneration()) granted.set(source, url);
+        setGrant({ url, generation: asked });
         setState("idle");
       } else setState("failed");
     });
   }, [source]);
+  // A local file granted under another locality is the host's to decide again.
+  const stale = grant !== undefined && !webURL(source) && grant.generation !== generation;
+  const src = stale ? undefined : grant?.url;
   useEffect(() => {
-    if (auto && !src && state === "idle") load();
-  }, [auto, src, state, load]);
+    if (stale) setGrant(undefined);
+  }, [stale]);
+  useEffect(() => {
+    if (auto && !src && state === "idle" && pendingAt !== generation) load();
+  }, [auto, src, state, load, pendingAt, generation]);
   const fail = useCallback(() => {
     granted.delete(source);
-    setSrc(undefined);
+    setGrant(undefined);
     setState("failed");
   }, [source]);
   return { src, state, load, fail };

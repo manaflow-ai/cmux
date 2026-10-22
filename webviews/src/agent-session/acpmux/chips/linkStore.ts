@@ -1,9 +1,13 @@
 // What the host says about a reply's paths and links (`link.inspect`, decision D4): where each
 // path is (inside the session's folders, outside, on the deny list, missing) and the favicon and
 // title cmux already has for each URL. Requests from one render are batched into one call; the
-// answers are kept for the page's life. The host never fetches anything for this.
+// answers are kept for the page's life. The host never fetches anything for this. While the host
+// doesn't yet know where the chat runs it answers `{pending: true}` and looks at no path; those
+// paths stay asked, so they draw as they do while asked, and are asked again on the host's
+// `locality` event (locality.ts).
 import { useSyncExternalStore } from "react";
 import { callChipHost } from "./host";
+import { isPending, localityGeneration, onLocalityChange } from "./locality";
 
 export type PathPlace = "root" | "outside" | "denied" | "missing";
 export type PathInfo = { place: PathPlace; folder: boolean };
@@ -23,6 +27,8 @@ const paths = new Map<string, PathInfo | null>();
 const sites = new Map<string, SiteInfo | null>();
 /// Paths sent to the host and not answered yet.
 const asking = new Set<string>();
+/// Asked paths the host answered pending: still in `asking`, asked again when the locality changes.
+const pending = new Set<string>();
 let policy: ReplyPolicy = { outsideRoots: "confirm", remoteImages: "click" };
 let queuedPaths: string[] = [];
 let queuedUrls: string[] = [];
@@ -56,14 +62,19 @@ function flush() {
   policyAsked = true;
   const batchPaths = queuedPaths.splice(0, MAX_BATCH);
   const batchUrls = queuedUrls.splice(0, MAX_BATCH);
+  const asked = localityGeneration();
   inFlight = true;
   void callChipHost("link.inspect", { paths: batchPaths, urls: batchUrls })
     .then((reply) => {
       const value = (reply ?? {}) as Inspect;
-      for (const path of batchPaths) {
-        paths.set(path, value.paths?.[path] ?? null);
-        asking.delete(path);
-      }
+      // An answer about a locality that has changed since is asked again now.
+      if (asked !== localityGeneration()) queuedPaths.push(...batchPaths);
+      else if (isPending(reply)) for (const path of batchPaths) pending.add(path);
+      else
+        for (const path of batchPaths) {
+          paths.set(path, value.paths?.[path] ?? null);
+          asking.delete(path);
+        }
       for (const url of batchUrls) sites.set(url, value.sites?.[url] ?? null);
       if (value.policy) policy = { ...policy, ...value.policy };
     })
@@ -80,6 +91,7 @@ function ask(path?: string, url?: string) {
   if (paths.size + sites.size > MAX_KEPT) {
     paths.clear();
     asking.clear();
+    pending.clear();
     sites.clear();
     // Hooks that read a forgotten key re-render and ask for it again.
     changed();
@@ -97,6 +109,23 @@ function ask(path?: string, url?: string) {
     scheduleFlush();
   }
 }
+
+/// A new locality asks again what the host answered pending. Moving away from this Mac also asks
+/// again every path it answered: those answers were about this Mac's files.
+onLocalityChange((before) => {
+  const again = [...paths.keys()].filter(
+    (path) => pending.has(path) || (before.locality === "local" && !asking.has(path)),
+  );
+  pending.clear();
+  for (const path of again) {
+    paths.set(path, null);
+    asking.add(path);
+    queuedPaths.push(path);
+  }
+  if (!again.length) return;
+  changed();
+  scheduleFlush();
+});
 
 function subscribe(listener: () => void) {
   listeners.add(listener);
@@ -133,6 +162,7 @@ export function useReplyPolicy(): ReplyPolicy {
 export function resetLinkStore(): void {
   paths.clear();
   asking.clear();
+  pending.clear();
   sites.clear();
   queuedPaths = [];
   queuedUrls = [];

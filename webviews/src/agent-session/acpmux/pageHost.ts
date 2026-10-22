@@ -19,6 +19,7 @@ import { setTabRow } from "./header/tabRow";
 import { setFloatingState } from "./floatingState";
 import { configureNativeSidebarPreviewVariant } from "./sidebarPreview";
 import { setSessionStatus } from "./sessionStatus";
+import { setLocality } from "./chips/locality";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
@@ -139,6 +140,9 @@ export function applyHostEvent(event: HostEvent): void {
       return receiveTransportEvent(event.value as TransportEvent);
     case "models.catalog":
       return receiveModelCatalog(event.value);
+    case "locality":
+      // Direct, like toolCards: the chat's images and paths ask again (chips/locality.ts).
+      return setLocality(event.value);
   }
 }
 

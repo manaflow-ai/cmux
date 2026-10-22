@@ -9,17 +9,27 @@
 // A reply's own images (`thumb`) draw in a glass thumbnail of a fixed shape whatever their state
 // (waiting, Load image, unavailable, shown), so an image that loads never moves the reply; a click
 // opens it whole in the image viewer.
-import { useContext, useState, type ReactNode } from "react";
+// While the host doesn't yet know where the chat runs, `image.load` answers pending: the image
+// keeps its waiting look and asks again on the `locality` event (locality.ts).
+import { useContext, useEffect, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { ImageIcon, Lock } from "../conversation/icons";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { callChipHost } from "./host";
 import { DataUrlCache, IMAGE_CACHE_MAX_CHARS, IMAGE_CACHE_MAX_ENTRIES } from "./imageCache";
 import { usePathInfo, useReplyPolicy } from "./linkStore";
+import { isPending, localityGeneration, onLocalityChange, useLocalityGeneration } from "./locality";
 import { isRemoteMedia, mediaKind, RemoteMedia, ReplyMedia } from "./ReplyMedia";
 import { isDeniedPath, linkPath, pathName } from "./paths";
 
-type State = { kind: "idle" } | { kind: "loading" } | { kind: "shown"; src: string } | { kind: "failed" };
+/// `generation` is the locality an answer came under (locality.ts): a pending one, or a file this
+/// Mac read, is asked again under a new one.
+type State =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "pending"; generation: number }
+  | { kind: "shown"; src: string; generation: number }
+  | { kind: "failed" };
 
 /// A local image: an absolute path, a `file://` URL or a relative path (from the session's folder).
 export function localImageSource(src: string): string | undefined {
@@ -48,20 +58,29 @@ const loaded = new DataUrlCache(IMAGE_CACHE_MAX_ENTRIES, IMAGE_CACHE_MAX_CHARS, 
 /// Images the reader loaded with "Load image". They stay: loading one again would need another
 /// click (the host spends a gesture on each), so forgetting it would leave its placeholder.
 const clicked = new Map<string, string>();
+/// A new locality forgets the local files read under the old one: the host decides them again.
+onLocalityChange(() => {
+  loaded.forget((src) => localImageSource(src) !== undefined);
+});
 
 function useImageLoad(src: string, auto: boolean) {
+  const generation = useLocalityGeneration();
   const [state, setState] = useState<State>(() => {
     const known = clicked.get(src) ?? loaded.get(src);
-    return known ? { kind: "shown", src: known } : { kind: "idle" };
+    return known ? { kind: "shown", src: known, generation: localityGeneration() } : { kind: "idle" };
   });
   const load = (byClick: boolean) => {
     setState({ kind: "loading" });
+    const asked = localityGeneration();
     void callChipHost("image.load", { src }).then((reply) => {
       const data = (reply as { src?: unknown } | undefined)?.src;
-      if (typeof data === "string" && data.startsWith("data:image/")) {
+      if (isPending(reply)) {
+        started.delete(src);
+        setState({ kind: "pending", generation: asked });
+      } else if (typeof data === "string" && data.startsWith("data:image/")) {
         if (byClick) clicked.set(src, data);
-        else loaded.set(src, data);
-        setState({ kind: "shown", src: data });
+        else if (asked === localityGeneration()) loaded.set(src, data);
+        setState({ kind: "shown", src: data, generation: asked });
       } else {
         started.delete(src);
         setState({ kind: "failed" });
@@ -72,7 +91,18 @@ function useImageLoad(src: string, auto: boolean) {
     started.add(src);
     queueMicrotask(() => load(false));
   }
-  return { state, load: () => load(true) };
+  // Under a new locality, a pending answer and a file read on this Mac are the host's to decide
+  // again (also when the locality changed while the host was answering).
+  const stale =
+    state.kind === "pending" || (state.kind === "shown" && !clicked.has(src) && localImageSource(src) !== undefined);
+  const answeredAt = state.kind === "pending" || state.kind === "shown" ? state.generation : generation;
+  const again = stale && answeredAt !== generation;
+  useEffect(() => {
+    if (!again) return;
+    started.delete(src);
+    setState({ kind: "idle" });
+  }, [again, src]);
+  return { state: again ? ({ kind: "idle" } as State) : state, load: () => load(true) };
 }
 
 /// A shown image: a click opens it in the image viewer where the pane has one. `path` is the file
