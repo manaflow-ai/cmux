@@ -3,10 +3,11 @@ import CmuxNextDesign
 import Observation
 
 /// Each open group's members' line (cx-qno.17, cx-q5jw) as one view under
-/// the rows. The lines animate in the rows' own spring block (`RowMotion`),
-/// so a line's end tracks its group's last row in every frame and never runs
-/// past it (cx-ai79); a Core Animation spring beside the rows' AppKit spring
-/// drifted apart from them.
+/// the rows. The lines move on the rows' own springs (`RowMotion.animate`:
+/// the render server's `.move` spring, from the rows' begin time), so a
+/// line's end tracks its group's last row in every frame and never runs past
+/// it (cx-ai79); a spring of another kind beside the rows' drifted apart
+/// from them.
 @MainActor
 final class SidebarGroupLineViews {
     private var views: [GroupID: GroupLineView] = [:]
@@ -55,6 +56,13 @@ final class SidebarGroupLineViews {
         leavingViews.removeAll { $0.superview == nil }
         leavingViews += leaving.map(\.0)
         let changes = {
+            if animated {
+                // Frames on the render server with the rows (`SidebarDragSpring`); only fades run on AppKit's spring.
+                SidebarDragSpring.move(moves + leaving, in: list)
+                for (view, _) in moves where view.alphaValue != 1 { view.animator().alphaValue = 1 }
+                for (view, _) in leaving { view.animator().alphaValue = 0 }
+                return
+            }
             for (view, frame) in moves {
                 view.animator().frame = frame
                 view.animator().alphaValue = 1

@@ -40,10 +40,8 @@ final class SidebarChatHistoryViews {
                 moves.append((view, frame))
             }
         }
-        guard !moves.isEmpty else { return }
-        Motion.sidebar.animate(.move, in: list, {
-            for (view, frame) in moves { view.animator().frame = frame }
-        })
+        // On the render server's spring with the rows (`RowMotion.animate`), so a block moves as one with them.
+        SidebarDragSpring.move(moves, in: list)
     }
 
     /// Moves both blocks with the rows and the scroll offset (the list's viewport anchor step).
