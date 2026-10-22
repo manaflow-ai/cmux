@@ -1,0 +1,128 @@
+name: cmux-tui fuzz
+
+# libFuzzer targets for every cmux-tui parser of outside bytes
+# (cmux-tui/fuzz, its own Cargo workspace; plans/cmux-next/rust-panic-free.md
+# section 7). A pull request or push that touches the crates runs each target
+# for about 60 s; the nightly schedule runs each for 10 min. Crash inputs are
+# uploaded as an artifact; save one under cmux-tui/fuzz/regressions/<target>/
+# with its fix, and the replay step keeps it fixed.
+
+on:
+  pull_request:
+    paths:
+      - "cmux-tui/crates/**"
+      - "cmux-tui/vendor/crossterm/**"
+      - "cmux-tui/fuzz/**"
+      - "cmux-tui/rust-toolchain.toml"
+      - ".github/workflows/cmux-tui-fuzz.yml"
+  push:
+    branches:
+      - main
+      - feat-cmux-next
+    paths:
+      - "cmux-tui/crates/**"
+      - "cmux-tui/vendor/crossterm/**"
+      - "cmux-tui/fuzz/**"
+      - "cmux-tui/rust-toolchain.toml"
+      - ".github/workflows/cmux-tui-fuzz.yml"
+  schedule:
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: "Seconds per target"
+        required: false
+        default: "60"
+        type: string
+
+concurrency:
+  group: cmux-tui-fuzz-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  # libghostty-vt builds from the ghostty-next gitlink (see cmux-tui.yml).
+  CMUX_GHOSTTY_SRC: ""
+  GHOSTTY_ZIG_SOURCE: ghostty-next
+
+jobs:
+  fuzz:
+    name: fuzz (${{ matrix.group }})
+    # Fork pull requests get a small runner; the repository's own runs use Blacksmith.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}
+    # Pull requests and pushes: about 7 targets x 60 s plus the build. Nightly:
+    # about 7 targets x 600 s.
+    timeout-minutes: ${{ github.event_name == 'schedule' && 110 || 40 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: terminal and config
+            targets: ghostty_vt tui_input terminal_host_frame config_jsonc journal_segment output_store
+          - group: protocols and agents
+            targets: socket_line pane_protocol remote_protocol transport rd_proto acp_lines api_compat
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Init ghostty submodule
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty-next
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: cmux-tui/fuzz -> target
+          shared-key: cmux-tui-fuzz
+
+      - name: Build targets
+        working-directory: cmux-tui/fuzz
+        env:
+          TARGETS: ${{ matrix.targets }}
+        run: |
+          # shellcheck disable=SC2086 # TARGETS is a space-separated list
+          ./run.sh --build-only $TARGETS
+
+      # Every seed and every saved crash input must pass before fuzzing starts.
+      - name: Replay seeds and regressions
+        working-directory: cmux-tui/fuzz
+        env:
+          TARGETS: ${{ matrix.targets }}
+        run: |
+          # shellcheck disable=SC2086
+          ./run.sh --replay $TARGETS
+
+      - name: Fuzz
+        working-directory: cmux-tui/fuzz
+        env:
+          TARGETS: ${{ matrix.targets }}
+          SECONDS_PER_TARGET: ${{ github.event_name == 'schedule' && '600' || inputs.seconds || '60' }}
+          FUZZ_OUT: ${{ runner.temp }}/fuzz-out
+        run: |
+          # shellcheck disable=SC2086
+          ./run.sh --seconds "$SECONDS_PER_TARGET" $TARGETS
+
+      - name: Upload crash inputs and logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-tui-fuzz-crashes-${{ strategy.job-index }}
+          path: |
+            ${{ runner.temp }}/fuzz-out/artifacts
+            ${{ runner.temp }}/fuzz-out/logs
+          if-no-files-found: ignore
+          retention-days: 30

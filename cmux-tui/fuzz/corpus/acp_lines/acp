@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","id":1,"method":"session/prompt","params":{"sessionId":"s","prompt":[{"type":"text","text":"hi"}]}}
+{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"s"}}

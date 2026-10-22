@@ -1,0 +1,3 @@
+{"jsonrpc":"2.0","id":0,"result":{"userAgent":"codex/0.150.0"}}
+{"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"threadId":"t","turnId":"u","itemId":"i","delta":"x"}}
+{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"t","turn":{"id":"u","status":"completed"}}}

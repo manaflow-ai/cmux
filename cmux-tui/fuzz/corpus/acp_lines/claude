@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","session_id":"s","model":"m","tools":[]}
+{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"hi"},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}
+{"type":"result","subtype":"success","usage":{"input_tokens":1}}

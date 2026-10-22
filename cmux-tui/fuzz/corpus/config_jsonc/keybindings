@@ -1,0 +1,2 @@
+[ { "key": "cmd+d", "command": "split.right" }, // x
+ { "key": "", "command": "-a" } ]

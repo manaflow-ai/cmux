@@ -257,8 +257,8 @@ pub(crate) fn parse_csi_cursor_position(buffer: &[u8]) -> io::Result<Option<Inte
 
     let mut split = s.split(';');
 
-    let y = next_parsed::<u16>(&mut split)? - 1;
-    let x = next_parsed::<u16>(&mut split)? - 1;
+    let y = one_based(next_parsed::<u16>(&mut split)?)?;
+    let x = one_based(next_parsed::<u16>(&mut split)?)?;
 
     Ok(Some(InternalEvent::CursorPosition(x, y)))
 }
@@ -693,8 +693,8 @@ pub(crate) fn parse_csi_rxvt_mouse(buffer: &[u8]) -> io::Result<Option<InternalE
         next_parsed::<u8>(&mut split)?.checked_sub(32).ok_or_else(could_not_parse_event_error)?;
     let (kind, modifiers) = parse_cb(cb)?;
 
-    let cx = next_parsed::<u16>(&mut split)? - 1;
-    let cy = next_parsed::<u16>(&mut split)? - 1;
+    let cx = one_based(next_parsed::<u16>(&mut split)?)?;
+    let cy = one_based(next_parsed::<u16>(&mut split)?)?;
 
     Ok(Some(InternalEvent::Event(Event::Mouse(MouseEvent {
         kind,
@@ -702,6 +702,13 @@ pub(crate) fn parse_csi_rxvt_mouse(buffer: &[u8]) -> io::Result<Option<InternalE
         row: cy,
         modifiers,
     }))))
+}
+
+/// A 1-based terminal coordinate as 0-based. A report of 0 (or, in the X10
+/// encoding, a byte below 33) names no cell: it is a malformed event, not a
+/// panic on subtraction overflow (cmux patch, found by cmux-tui/fuzz tui_input).
+fn one_based(value: u16) -> io::Result<u16> {
+    value.checked_sub(1).ok_or_else(could_not_parse_event_error)
 }
 
 pub(crate) fn parse_csi_normal_mouse(buffer: &[u8]) -> io::Result<Option<InternalEvent>> {
@@ -719,8 +726,8 @@ pub(crate) fn parse_csi_normal_mouse(buffer: &[u8]) -> io::Result<Option<Interna
     // See http://www.xfree86.org/current/ctlseqs.html#Mouse%20Tracking
     // The upper left character position on the terminal is denoted as 1,1.
     // Subtract 1 to keep it synced with cursor
-    let cx = u16::from(buffer[4].saturating_sub(32)) - 1;
-    let cy = u16::from(buffer[5].saturating_sub(32)) - 1;
+    let cx = one_based(u16::from(buffer[4].saturating_sub(32)))?;
+    let cy = one_based(u16::from(buffer[5].saturating_sub(32)))?;
 
     Ok(Some(InternalEvent::Event(Event::Mouse(MouseEvent {
         kind,
@@ -749,8 +756,8 @@ pub(crate) fn parse_csi_sgr_mouse(buffer: &[u8]) -> io::Result<Option<InternalEv
     // See http://www.xfree86.org/current/ctlseqs.html#Mouse%20Tracking
     // The upper left character position on the terminal is denoted as 1,1.
     // Subtract 1 to keep it synced with cursor
-    let cx = next_parsed::<u16>(&mut split)? - 1;
-    let cy = next_parsed::<u16>(&mut split)? - 1;
+    let cx = one_based(next_parsed::<u16>(&mut split)?)?;
+    let cy = one_based(next_parsed::<u16>(&mut split)?)?;
 
     // When button 3 in Cb is used to represent mouse release, you can't tell which button was
     // released. SGR mode solves this by having the sequence end with a lowercase m if it's a

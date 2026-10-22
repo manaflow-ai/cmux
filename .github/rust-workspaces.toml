@@ -38,6 +38,10 @@ root = "workers/cmux-vm/cli"
 covered_by = ".github/workflows/cmux-vm-clients.yml"
 
 [[workspace]]
+root = "cmux-tui/fuzz"
+covered_by = ".github/workflows/cmux-tui-fuzz.yml"
+
+[[workspace]]
 root = "cmux-tui/relays/cloudflare-do"
 covered_by = ".github/workflows/cloudflare-relay.yml"
 

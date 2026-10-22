@@ -6,6 +6,11 @@ use crate::CompatError;
 /// The wildcard token. A literal member named `*` cannot be addressed.
 pub const WILDCARD: &str = "*";
 
+/// The most tokens a pointer may have: serde_json's nesting limit, so no
+/// message a peer can parse is deeper. The trie and the rewriter recurse once
+/// per token; an unbounded pointer overflowed the stack (cmux-tui/fuzz api_compat).
+pub const MAX_DEPTH: usize = 128;
+
 /// Parses an RFC 6901 pointer (`""` is the whole document) into tokens.
 pub fn parse(pointer: &str) -> Result<Vec<String>, CompatError> {
     if pointer.is_empty() {
@@ -14,6 +19,9 @@ pub fn parse(pointer: &str) -> Result<Vec<String>, CompatError> {
     let Some(rest) = pointer.strip_prefix('/') else {
         return Err(CompatError::BadPointer(pointer.to_owned()));
     };
+    if rest.split('/').count() > MAX_DEPTH {
+        return Err(CompatError::BadPointer(pointer.to_owned()));
+    }
     rest.split('/').map(|token| unescape(token, pointer)).collect()
 }
 

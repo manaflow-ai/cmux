@@ -2651,6 +2651,7 @@ use resource_connection::{
 };
 
 mod connection_frame;
+pub(crate) mod fuzz;
 #[cfg(test)]
 use connection_frame::write_vt_state_command_json;
 use connection_frame::{

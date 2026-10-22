@@ -34,6 +34,7 @@
 mod memory_budget;
 pub(crate) mod segments;
 pub(crate) mod snapshot;
+pub(crate) mod fuzz;
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};

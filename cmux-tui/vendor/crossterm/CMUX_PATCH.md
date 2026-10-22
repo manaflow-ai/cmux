@@ -25,3 +25,13 @@ only the classification, not wording, so the client can localize the reason.
 Regression coverage: `cmux-tui/crates/cmux-tui/tests/dead_tty_input.rs`. Remove
 this part of the patch when the Crossterm version used by cmux reports end of
 input.
+
+## Coordinate 0 in mouse and cursor position reports
+
+The Unix parser turned the 1-based coordinates of a mouse report (X10, rxvt
+and SGR encodings) and a cursor position report into 0-based ones with `- 1`.
+A report with coordinate 0, or an X10 byte below 33, overflowed: a panic in
+builds with overflow checks (cmux-tui dev builds) and column 65535 otherwise.
+The cmux patch reports such a sequence as a malformed event. Regression input:
+`cmux-tui/fuzz/regressions/tui_input/`. Remove this part when upstream
+Crossterm checks the subtraction.
