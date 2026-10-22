@@ -19,7 +19,7 @@ struct AttentionPalettePage {
     /// user's jump, ``AppServices/revealTab(_:intent:)``.
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         AgentPaneAttentionTabs.shared.onOpen = { [weak services = context.services] id in services?.revealTab(id) ?? false }
-        context.services.palette.sources.actionPages[id.rawValue] = { AttentionPalettePage().page() }
+        context.services.palette.sources.actionPages[id] = { AttentionPalettePage().page() }
         registry.bind(id, run: { _ in
             let page = AttentionPalettePage()
             guard !page.tabs.items.isEmpty else { throw ActionFailure(message: AttentionPaletteStrings.nothing) }
