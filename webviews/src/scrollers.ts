@@ -1,7 +1,6 @@
 // SCROLLBARS-THIN (was SCROLLBARS-FOLLOW-MACOS): every scrollbar in cmux is thin and shows only
 // while its element scrolls, whatever the macOS "Show scroll bars" setting (Leo 2026-10-12: "never a
-// permanent gray track"). A shown scroller (`SHOWN_SCROLLER_ATTRIBUTE`, the agent chat's transcript)
-// keeps its thumb, never a track, the whole time its content overflows (Leo 2026-10-21).
+// permanent gray track").
 //
 // Native page scrolling (`overflow: auto`) draws WebKit's overlay scrollers for "Automatically" and
 // "When scrolling", which already look that way. For "Always" WebKit draws a legacy bar with a gray
@@ -23,6 +22,23 @@ export type ScrollerStyle = "overlay" | "legacy";
 export const SCROLLING_ATTRIBUTE = "data-cmux-scrolling";
 /** How long a scroller stays after the last scroll step (AppKit's overlay fade starts about here). */
 export const SCROLLING_HIDE_MS = 800;
+
+/**
+ * On a scroller whose thin thumb stays drawn the whole time its content overflows, whatever the
+ * macOS setting: the agent chat's transcript (Leo 2026-10-21: "SCROLLBAR IT SHOULD FUCKING SHOW").
+ * The rules come after the legacy ones in `SCROLLER_ROOT_CSS`, and their `:root` prefix outranks
+ * them. The thumb never shows, hides and shows again as rows arrive or the view follows them. Its
+ * lane is always there (`overflow-y: scroll`, on no track; no thumb is drawn while the content
+ * fits), so the content never reflows as it starts to overflow. Its ink is
+ * `--cmux-shown-scroller-ink`, a registered percentage, so under `SCROLLER_FADE_ATTRIBUTE` it fades:
+ * out over `--cmux-scroller-fade-out` once the element stops scrolling (`SCROLLING_HIDE_MS`), in
+ * over `--cmux-scroller-fade-in` when it scrolls again. A scrollbar part takes no transition itself;
+ * the ink transitions on the element and the thumb repaints with it.
+ */
+export const SHOWN_SCROLLER_ATTRIBUTE = "data-cmux-shown-scroller";
+/** On `<html>` when shown scrollers fade out at rest instead (opt-in: Debug Settings
+    `agentPane.debug.scrollerFade`, the agent theme's `scrollerFade`). */
+export const SCROLLER_FADE_ATTRIBUTE = "data-cmux-scroller-fade";
 
 /** The host's answer; a page without a host (tests, the dev server) gets overlay. */
 export function scrollerStyle(root: Element | null = globalThis.document?.documentElement ?? null): ScrollerStyle {
@@ -180,29 +196,11 @@ export const PIERRE_TREES_SCROLLER_CSS = `
 }
 `;
 
-/** On a scroller whose thin thumb stays drawn while its content overflows, whatever the macOS
-    setting: the agent chat's transcript (Leo 2026-10-21: "SCROLLBAR IT SHOULD FUCKING SHOW").
-    Content that fits has no scrollbar (`overflow: auto`). */
-export const SHOWN_SCROLLER_ATTRIBUTE = "data-cmux-shown-scroller";
-/** On `<html>` when shown scrollers fade out at rest instead (opt-in: Debug Settings
-    `agentPane.debug.scrollerFade`, the agent theme's `scrollerFade`). */
-export const SCROLLER_FADE_ATTRIBUTE = "data-cmux-scroller-fade";
-
 /**
  * The one scrollbar style, for "Always" (WebKit draws overlay scrollers otherwise): a thin thumb in
  * the theme's text color (`--cmux-scroller-thumb`), on no track, hidden at rest and shown while the
  * element scrolls, while its thumb is dragged or under the pointer (where AppKit reveals an overlay
  * scroller too).
- *
- * A shown scroller (`SHOWN_SCROLLER_ATTRIBUTE`) draws the same thumb for every macOS setting and
- * keeps it at rest: it never shows, hides and shows again as rows arrive or the view follows them.
- * Its lane is always there (`overflow-y: scroll`, on no track; engines draw no thumb while the
- * content fits), so its content never reflows as it starts to overflow.
- * Its ink is `--cmux-shown-scroller-ink`, a registered percentage, so under
- * `SCROLLER_FADE_ATTRIBUTE` it fades: out over `--cmux-scroller-fade-out` once the element stops
- * scrolling (`SCROLLING_HIDE_MS`), in over `--cmux-scroller-fade-in` when it scrolls again. A
- * scrollbar part takes no transition itself; the ink transitions on the element and the thumb
- * repaints with it. The `:root` prefix outranks the legacy thumb rule above.
  */
 export const SCROLLER_ROOT_CSS = `
 :root {
