@@ -283,12 +283,15 @@ impl Hub {
     pub(super) async fn folder_ready(&self, session: &Arc<Session>) -> Result<(), RpcError> {
         self.care_restore_for(session).await;
         let meta = session.meta();
-        if tokio::fs::try_exists(&meta.cwd).await.unwrap_or(true) {
-            return Ok(());
+        // A folder that cannot be read (its permissions) fails at the start as before.
+        match tokio::fs::metadata(&meta.cwd).await {
+            Ok(m) if m.is_dir() => return Ok(()),
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Ok(()),
+            _ => {}
         }
         Err(RpcError::internal(format!(
             "session.folder_missing: the folder of {} ({}) no longer exists; it was moved or \
-             removed, so its agent cannot start until it is back",
+             removed (or a file took its place), so its agent cannot start until it is back",
             meta.name,
             meta.cwd.display()
         ))

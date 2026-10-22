@@ -332,8 +332,15 @@ async fn a_session_whose_folder_is_gone_keeps_the_message_and_names_the_folder()
         c.call(SEND_QUEUE, json!({"request": prompt(&id, "hi", "p-gone")})).await.unwrap();
     assert!(started.elapsed() < ACK, "send_queue took {:?}", started.elapsed());
     let delivery = queued["deliveryId"].as_str().unwrap().to_owned();
-    let status =
-        c.call(SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 1500})).await.unwrap();
+    // The first attempt's refusal, once it has run (its error is set).
+    let mut status = Value::Null;
+    for _ in 0..20 {
+        status =
+            c.call(SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 500})).await.unwrap();
+        if status["error"].is_string() {
+            break;
+        }
+    }
     assert!(matches!(status["status"].as_str(), Some("queued" | "delivering")), "{status}");
     let error = status["error"].as_str().unwrap_or_default();
     assert!(
