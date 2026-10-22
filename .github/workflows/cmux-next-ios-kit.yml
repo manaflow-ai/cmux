@@ -144,4 +144,23 @@ jobs:
           # (TerminalDevProbe, SILProfiler in emitIsolatingDestructor); the app builds
           # without coverage. arm64 only: the xcframework has no x86_64 simulator slice.
           xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" \
-            -enableCodeCoverage NO -derivedDataPath "$RUNNER_TEMP/dd-ios-sim" CODE_SIGNING_ALLOWED=NO -quiet
+            -enableCodeCoverage NO -derivedDataPath "$RUNNER_TEMP/dd-ios-sim" CODE_SIGNING_ALLOWED=NO -quiet \
+            -resultBundlePath "$RUNNER_TEMP/ios-sim.xcresult" || {
+            status=$?
+            # -quiet drops the failure messages: print the failed tests from the result bundle.
+            xcrun xcresulttool get test-results tests --path "$RUNNER_TEMP/ios-sim.xcresult" --compact 2>/dev/null |
+              python3 -c '
+          import json, sys
+          def walk(node, path):
+              if node.get("result") == "Failed" and node.get("nodeType") == "Test Case":
+                  print("FAILED:", " / ".join(path))
+              for child in node.get("children", []):
+                  if child.get("nodeType") == "Failure Message":
+                      print("   ", child.get("name"))
+                  else:
+                      walk(child, path + [child.get("name", "")])
+          for root in json.load(sys.stdin).get("testNodes", []):
+              walk(root, [root.get("name", "")])
+          ' || true
+            exit "$status"
+          }

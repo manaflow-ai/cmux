@@ -12,6 +12,10 @@ import Testing
 /// of its workspaces) moves the link and is remembered for the next launch.
 @MainActor
 @Suite(.serialized) struct MacSelectionTests {
+    /// Its own team: the remembered Mac is a process-wide default per team
+    /// (`cmuxMobile.live.mac.<team>`), and MacRemovalTests' coordinators on
+    /// team t1 run in parallel and move it.
+    static let team = "t-select"
     let host = "svc-\(UUID().uuidString.prefix(8).lowercased()).cmuxMobile.test"
     let userID = "user-\(UUID().uuidString)"
 
@@ -20,7 +24,7 @@ import Testing
         let snapshots = LiveSnapshotStore(directory: directory)
         let saved = Date(timeIntervalSince1970: 1_000)
         snapshots.save(LiveSnapshot(
-            teamID: "t1", teamName: "One",
+            teamID: Self.team, teamName: "One",
             macs: [MacDevice(id: "m1", name: "Studio", isOnline: true), MacDevice(id: "m2", name: "MacBook Pro", isOnline: true)],
             linkedMacID: "m1",
             workspaces: ["m1": .init(workspaces: [], savedAt: saved), "m2": .init(workspaces: [], savedAt: saved)]
@@ -40,7 +44,7 @@ import Testing
     }
 
     @Test func choosingAnotherOnlineMacMovesTheLink() async {
-        let key = "cmuxMobile.live.mac.t1"
+        let key = "cmuxMobile.live.mac.\(Self.team)"
         UserDefaults.standard.removeObject(forKey: key)
         defer { UserDefaults.standard.removeObject(forKey: key) }
         let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
