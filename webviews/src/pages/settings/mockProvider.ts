@@ -218,6 +218,10 @@ export class MockSettingsProvider {
       },
       "cmux.settings.agents.state": () => this.agents.state,
       "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
+      "cmux.settings.voice_input.set": (params) => {
+        if (this.host.voice_input) this.setHost({ ...this.host, voice_input: { on: params.on === true } });
+        return {};
+      },
       // Agents > Chiefs (ChiefsCard): the host's page relay to the Chief owner and harness center.
       "cmux.chief.profile.list": () => ({ chiefs: this.chiefs }),
       "cmux.chief.profile.avatar.get": (params) => ({ avatar: this.chiefAvatars.get(params.chief as string) ?? null }),
@@ -264,7 +268,18 @@ export class MockSettingsProvider {
           defaultHarness: "claude",
           harnesses: { claude: { displayName: "Claude Code" }, codex: { displayName: "Codex" } },
         },
-        models: { harnesses: [] },
+        // Codex's probed models, named as acpmux names them; Claude's are not probed (read off the id).
+        models: {
+          harnesses: [
+            {
+              harness: "codex",
+              models: [
+                { id: "gpt-6-astra", name: "GPT-6 Astra", efforts: ["low", "medium", "high"] },
+                { id: "gpt-6-astra-mini", name: "GPT-6 Astra Mini", efforts: ["low", "medium"] },
+              ],
+            },
+          ],
+        },
       }),
       "cmux.chief.backend.doctor": () => ({ ok: true, steps: [{ name: "prompt", ok: true }] }),
       "cmux.settings.theme.set": (params) => {
@@ -601,6 +616,8 @@ export class MockSettingsProvider {
       { id: "work", title: "Work", subtitle: null, active: false },
     ],
     machines: [{ id: "ssh:build", title: "build-mac", subtitle: "cmux@build-mac", active: true }],
+    // A DEV build: the home.voiceInput tunable exists, on as Leo set it.
+    voice_input: { on: true },
     browser_profiles: [
       { id: "p-default", name: "Default", color: null, icon: null, is_default: true, source: null },
       { id: "p-work", name: "Work", color: "green", icon: null, is_default: false, source: "Google Chrome · Work" },
