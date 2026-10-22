@@ -3,6 +3,7 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import QuartzCore
 import Testing
 
 /// Lawrence 2026-10-20 (calm-sidebar-movement): "my sidebar is moving too much and it shows me the
@@ -52,7 +53,11 @@ struct SidebarBackgroundChangeCalmTests {
         list.displayed.rows.compactMap { row -> String? in
             guard case .workspace = row.key, let view = list.rowViews[row.key] else { return nil }
             let target = list.frame(for: row)
-            let springs = (view.layer?.animationKeys() ?? []).contains { $0.hasPrefix("drag.position.") }
+            let springs = view.layer.map { layer in
+                (layer.animationKeys() ?? []).contains { key in
+                    (layer.animation(forKey: key) as? CASpringAnimation).map { $0.isAdditive && $0.keyPath == "position" } ?? false
+                }
+            } ?? false
             return springs || abs(view.frame.minY - target.minY) > 0.5 || view.alphaValue < 0.99
                 ? "\(row.key) at \(view.frame.minY), slot \(target.minY)\(springs ? ", springing" : "")" : nil
         }

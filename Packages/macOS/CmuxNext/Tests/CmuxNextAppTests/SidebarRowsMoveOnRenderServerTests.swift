@@ -22,19 +22,56 @@ struct SidebarRowsMoveOnRenderServerTests {
         return SidebarMapping.shared.sections(store.sidebarSections, machine: SidebarMachine(id: .local, name: "This Mac", kind: .local))
     }
 
-    /// The render server's position springs on `view`'s layer (`SidebarDragSpring` keys).
-    private static func positionSprings(_ view: NSView) -> Int {
-        (view.layer?.animationKeys() ?? []).filter { $0.hasPrefix("drag.position.") }.count
+    private static func ws(_ id: String) -> CmuxNextSidebar.SidebarWorkspace { CmuxNextSidebar.SidebarWorkspace(id: CmuxNextSidebar.WorkspaceID(id), title: id) }
+
+    /// The ungrouped workspaces `top`, then group Work (open, three members, so it draws its line).
+    private static func grouped(_ top: [String]) -> [CmuxNextSidebar.SidebarSection] {
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        let work = CmuxNextSidebar.SidebarGroup(id: GroupID("g-work"), name: "Work", color: .blue, workspaces: ["docs", "web", "api"].map(ws))
+        return [CmuxNextSidebar.SidebarSection(kind: .machine(machine), nodes: top.map { .workspace(ws($0)) } + [.group(work)])]
     }
 
-    private static func sizeSprings(_ view: NSView) -> Int {
-        (view.layer?.animationKeys() ?? []).filter { $0.hasPrefix("drag.size.") }.count
+    /// The render server's additive springs of `keyPath` on `view`'s layer (`SidebarDragSpring`). AppKit's spring
+    /// runs on the main thread and adds none.
+    private static func springs(_ view: NSView, _ keyPath: String) -> Int {
+        guard let layer = view.layer else { return 0 }
+        return (layer.animationKeys() ?? []).filter { key in
+            (layer.animation(forKey: key) as? CASpringAnimation).map { $0.isAdditive && $0.keyPath == keyPath } ?? false
+        }.count
     }
 
-    /// Workspaces 1 to `count` in a window on screen, the first selected, the list at its top, with new
-    /// workspace rows opening (`ui.animations.newWorkspace`, off by default) and Reduce Motion off.
+    private static func positionSprings(_ view: NSView) -> Int { springs(view, "position") }
+
+    private static func sizeSprings(_ view: NSView) -> Int { springs(view, "bounds.size") }
+
+    /// The rows and group lines that still carry a row move's spring.
+    private static func springing(_ list: SidebarListView) -> [String] {
+        list.subviews.filter { $0 is SidebarRowView || $0 is GroupLineView }.compactMap { view in
+            positionSprings(view) + sizeSprings(view) > 0 ? ((view as? SidebarRowView).map { "\($0.key)" } ?? "a group line") : nil
+        }
+    }
+
+    /// Each shown row and group line not at its layout frame or not opaque.
+    private static func offSlot(_ list: SidebarListView) -> [String] {
+        var off = list.rowViews.compactMap { key, view -> String? in
+            guard let row = list.displayed.row(for: key) else { return "\(key) has no row" }
+            return view.frame == list.frame(for: row) && view.alphaValue == 1 ? nil : "\(key) at \(view.frame) alpha \(view.alphaValue)"
+        }
+        let lines = SidebarGroupLine.lines(list.displayed.rows, colors: list.groups) { list.frame(for: $0) }
+        for line in lines where list.groupLineViews.shown[line.group].map({ $0.frame != line.frame || $0.alpha != 1 }) ?? true {
+            off.append("line \(line.group.rawValue)")
+        }
+        return off
+    }
+
+    /// Workspaces 1 to `count` in a window on screen (`sidebar(_:)`).
     private static func sidebar(count: Int) throws -> (SidebarModel, SidebarListView, NSWindow, restore: () -> Void) {
-        let start = sections(Array(1...count))
+        try sidebar(sections(Array(1...count)))
+    }
+
+    /// `start` in a window on screen, its first workspace selected, the list at its top, with new
+    /// workspace rows opening (`ui.animations.newWorkspace`, off by default) and Reduce Motion off.
+    private static func sidebar(_ start: [CmuxNextSidebar.SidebarSection]) throws -> (SidebarModel, SidebarListView, NSWindow, restore: () -> Void) {
         let model = SidebarModel(sections: start, activeWorkspaceID: try #require(start.first?.workspaces.first?.id))
         let sidebar = SidebarView(model: model, design: DesignSettings())
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 480)
@@ -47,11 +84,13 @@ struct SidebarRowsMoveOnRenderServerTests {
         sidebar.layoutSubtreeIfNeeded()
         sidebar.list.reload(animated: false)
         let kinds = DesignSettings.shared.enabledAnimations
+        let speed = DesignSettings.shared.animationSpeed
         DesignSettings.shared.enabledAnimations.insert(.newWorkspace)
         Motion.reduceMotionOverride = false
         return (model, sidebar.list, window, {
             Motion.reduceMotionOverride = nil
             DesignSettings.shared.enabledAnimations = kinds
+            DesignSettings.shared.animationSpeed = speed
             window.orderOut(nil)
         })
     }
@@ -133,5 +172,88 @@ struct SidebarRowsMoveOnRenderServerTests {
             let row = try #require(list.displayed.row(for: key))
             #expect(view.frame == list.frame(for: row) && view.alphaValue == 1, "\(key) did not end at its slot")
         }
+    }
+
+    /// Codex review of #24187: a change without motion mid-move (a reload without animation) put the frames at
+    /// their slots but left the springs on, so the rows kept drawing the old move's offsets over them.
+    @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    })
+    func aReloadWithoutMotionMidMoveShowsTheSlotsAtOnce() throws {
+        let (model, list, _, restore) = try Self.sidebar(Self.grouped((1...8).map { "w\($0)" }))
+        defer { restore() }
+        model.sections = Self.grouped(["new"] + (1...8).map { "w\($0)" })
+        list.reload(animated: true)
+        try #require(!Self.springing(list).isEmpty, "the insert did not move on the render server")
+
+        model.sections = Self.grouped(["new"] + (1...7).map { "w\($0)" })
+        list.reload(animated: false)
+
+        #expect(Self.springing(list).isEmpty, "still springing after a reload without motion: \(Self.springing(list))")
+        #expect(Self.offSlot(list).isEmpty, "not at their slots: \(Self.offSlot(list))")
+    }
+
+    /// Reduce Motion turned on mid-move: the next change snaps, the earlier move's springs with it.
+    @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    })
+    func reduceMotionMidMoveShowsTheSlotsAtOnce() throws {
+        let (model, list, _, restore) = try Self.sidebar(Self.grouped((1...8).map { "w\($0)" }))
+        defer { restore() }
+        model.sections = Self.grouped(["new"] + (1...8).map { "w\($0)" })
+        list.reload(animated: true)
+        try #require(!Self.springing(list).isEmpty, "the insert did not move on the render server")
+
+        Motion.reduceMotionOverride = true
+        model.sections = Self.grouped(["new", "newer"] + (1...8).map { "w\($0)" })
+        list.reload(animated: true)
+
+        #expect(Self.springing(list).isEmpty, "still springing under Reduce Motion: \(Self.springing(list))")
+        #expect(Self.offSlot(list).isEmpty, "not at their slots: \(Self.offSlot(list))")
+    }
+
+    /// Codex review of #24187: a reorder of opaque rows fades nothing, so AppKit's leg ended at once and the
+    /// display's sleep no longer reached the move: its springs stayed on. The springs' own leg keeps it tracked.
+    @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    })
+    func aReorderTheDisplaySleepsThroughEndsAtTheSlots() async throws {
+        let (model, list, _, restore) = try Self.sidebar(count: 12)
+        defer { restore() }
+        // The slower pace keeps the move running past the turns AppKit takes to end its empty group.
+        DesignSettings.shared.animationSpeed = .normal
+        model.sections = Self.sections([5, 1, 2, 3, 4] + Array(6...12))
+        list.reload(animated: true)
+        #expect(list.rowViews.values.allSatisfy { $0.alphaValue == 1 }, "a row fades: the reorder is not the case under test")
+        try await Task.sleep(for: .milliseconds(30))
+        try #require(!Self.springing(list).isEmpty, "the reorder ended before the display slept")
+
+        let workspace = NSWorkspace.shared.notificationCenter
+        workspace.post(name: NSWorkspace.screensDidSleepNotification, object: NSWorkspace.shared)
+        defer { workspace.post(name: NSWorkspace.screensDidWakeNotification, object: NSWorkspace.shared) }
+
+        #expect(Self.springing(list).isEmpty, "still springing with the display asleep: \(Self.springing(list))")
+        #expect(Self.offSlot(list).isEmpty, "not at their slots: \(Self.offSlot(list))")
+    }
+
+    /// Codex review of #24187: the display slept while an insert moved a group's line; the rows settled but the
+    /// line kept its spring.
+    @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    })
+    func aGroupLineTheDisplaySleepsThroughEndsAtItsRows() throws {
+        let (model, list, _, restore) = try Self.sidebar(Self.grouped(["w1", "w2"]))
+        defer { restore() }
+        model.sections = Self.grouped(["new", "w1", "w2"])
+        list.reload(animated: true)
+        let lines = list.subviews.compactMap { $0 as? GroupLineView }
+        try #require(lines.contains { Self.positionSprings($0) > 0 }, "the group's line did not move with its rows")
+
+        let workspace = NSWorkspace.shared.notificationCenter
+        workspace.post(name: NSWorkspace.screensDidSleepNotification, object: NSWorkspace.shared)
+        defer { workspace.post(name: NSWorkspace.screensDidWakeNotification, object: NSWorkspace.shared) }
+
+        #expect(Self.springing(list).isEmpty, "still springing with the display asleep: \(Self.springing(list))")
+        #expect(Self.offSlot(list).isEmpty, "not at their slots: \(Self.offSlot(list))")
     }
 }
