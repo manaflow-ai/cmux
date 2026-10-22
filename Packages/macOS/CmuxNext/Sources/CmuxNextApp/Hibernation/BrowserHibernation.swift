@@ -61,6 +61,9 @@ final class BrowserHibernation {
     private var freezeKeptAt: [String: ContinuousClock.Instant] = [:]
     /// Probes in a row each hidden page did not answer (`PageProbe.answered`).
     private var unanswered: [String: Int] = [:]
+    /// Pages whose last answer reported capture or Web Audio, which only the page's recorder
+    /// knows on Chromium: they stay awake while later probes go unanswered.
+    private var answeredBusy: Set<String> = []
     /// Probes in a row a page may leave unanswered before it counts as idle. One miss can be a
     /// load or a pause of a few seconds; three in a row (the freeze probes are `freezeSeconds`
     /// apart) mean a page busy the whole time, the one that costs the most to keep awake. A
@@ -204,6 +207,7 @@ final class BrowserHibernation {
         freezeProbing.remove(key)
         freezeKeptAt[key] = nil
         unanswered[key] = nil
+        answeredBusy.remove(key)
         hoveredAt[key] = nil
         awakeNeighbors.remove(key)
         snapshots.remove(key)
@@ -339,7 +343,8 @@ final class BrowserHibernation {
         let threshold = setting.freezeSeconds
         var recheck: Double?
         let candidates = hidden.filter { candidate in
-            guard !frozen.contains(candidate.key), !freezeProbing.contains(candidate.key),
+            // `probing`: the hibernation probe just started asks the same question.
+            guard !frozen.contains(candidate.key), !freezeProbing.contains(candidate.key), !probing.contains(candidate.key),
                   let tab = cache.browsers[candidate.key]?.tab, freezer(tab) != nil else { return false }
             if let kept = freezeKeptAt[candidate.key], let threshold {
                 let left = threshold - (now - kept).seconds
@@ -397,12 +402,16 @@ final class BrowserHibernation {
     }
 
     /// Counts a probe `key` did not answer, and clears the count on an answer. True while the
-    /// page still gets the benefit of the doubt (fewer than `unansweredLimit` in a row).
+    /// page still gets the benefit of the doubt: fewer than `unansweredLimit` in a row, or its
+    /// last answer reported capture or Web Audio. A probe that ends after a show counts nothing.
     private func doubts(_ key: String, _ probe: PageProbe) -> Bool {
         guard !probe.answered else {
             unanswered[key] = nil
+            if probe.capturing || probe.webAudio { answeredBusy.insert(key) } else { answeredBusy.remove(key) }
             return false
         }
+        guard hiddenAt[key] != nil else { return true }
+        if answeredBusy.contains(key) { return true }
         let count = (unanswered[key] ?? 0) + 1
         unanswered[key] = count
         return count < Self.unansweredLimit
