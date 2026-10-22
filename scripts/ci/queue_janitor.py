@@ -171,6 +171,7 @@ from pr_runner_pool import SNAPSHOT_BRANCH, SNAPSHOT_FILE, trusted_snapshot_arti
 import owned_pool_rescue as rescue  # noqa: E402
 import owned_warm_state  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
+import starved_labels  # noqa: E402
 
 
 API = "https://api.github.com"
@@ -2636,6 +2637,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         waits = pool_wait_p90(jobs_by_run, evidence_jobs)
         if waits:
             snapshot[WAIT_P90_KEY] = waits
+        # Fleet labels no runner is taking jobs from; the workflow's alert step
+        # (starved_labels.py) annotates them and keeps one issue per label.
+        snapshot["starved"] = starved_labels.starved(runs, jobs_by_run, now=now)
+        snapshot["unserved"] = starved_labels.unserved(runs, jobs_by_run, now=now)
         # Warm affinity on: which root runner kept a build of which main
         # commits (owned_warm_state.py). A failure leaves `warm` out, and the
         # picker then routes admission by the root label as before.
