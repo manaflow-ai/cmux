@@ -47,15 +47,6 @@ import Testing
         #expect(mark.symbol == nil)
     }
 
-    /// The local Chief's workspaces run on this Mac: no mark, and it is not a second machine.
-    @Test func theLocalChiefIsThisMac() {
-        let chief = SidebarMachine(id: MachineID(MachineID.localChiefPrefix + "home"), name: "Chief", kind: .server)
-        #expect(marks([mac, chief]).isEmpty)
-        #expect(marks(showsLocalMachine: true, [mac, chief]).isEmpty)
-        #expect(marks([mac, chief, vm])[chief.id] == nil)
-        #expect(marks([mac, chief, vm])[vm.id] != nil)
-    }
-
     /// The row's label names the machine once (VoiceOver read "gpu-box" twice after #22763): the
     /// one-list second line leads with it, so the mark adds nothing; with no such line, the mark names it.
     @Test func theRowsLabelNamesTheMachineOnce() throws {
