@@ -1071,9 +1071,10 @@ export class AcpmuxDirectClient {
   private promptOrder: Promise<void> = Promise.resolve();
   /// Prompts sent whose request is not written yet (`send`).
   private unwrittenPrompts = 0;
-  /// Those prompts by id, and the ones of them withdrawn from the queue (`removeQueued`) before
-  /// their request was written: acpmux never had those, so they are never written.
-  private unwrittenIds = new Set<string>();
+  /// Those prompts by id (a Retry can send one again before the first is written), and the ones of
+  /// them withdrawn from the queue (`removeQueued`) before their request was written: those are
+  /// never written.
+  private unwrittenIds = new Map<string, number>();
   private withdrawnUnwritten = new Set<string>();
   /// acpmux calls this connection local (`_meta.acpmux.origin: "local"`). Without that, a
   /// WebSocket connection is remote-origin to acpmux, which never pools for it.
@@ -3513,15 +3514,19 @@ export class AcpmuxDirectClient {
       if (written) return;
       written = true;
       this.unwrittenPrompts -= 1;
-      this.unwrittenIds.delete(promptId);
-      this.withdrawnUnwritten.delete(promptId);
+      const left = (this.unwrittenIds.get(promptId) ?? 1) - 1;
+      if (left > 0) this.unwrittenIds.set(promptId, left);
+      else {
+        this.unwrittenIds.delete(promptId);
+        this.withdrawnUnwritten.delete(promptId);
+      }
       resolveOrder();
     };
     // Prompts go to acpmux in the order they were sent, however long one's puts take.
     const earlier = this.unwrittenPrompts > 0 ? this.promptOrder : undefined;
     this.promptOrder = order;
     this.unwrittenPrompts += 1;
-    this.unwrittenIds.add(promptId);
+    this.unwrittenIds.set(promptId, (this.unwrittenIds.get(promptId) ?? 0) + 1);
     try {
       // A recording goes only to a harness that takes voice input; one moved to another
       // harness (a switch, a held prompt put back) goes as its transcript.
@@ -3906,8 +3911,11 @@ export class AcpmuxDirectClient {
   /// Withdraws a queued prompt before its turn starts; `removed` is false once it started.
   async removeQueued(promptId: string): Promise<{ removed: boolean }> {
     // A prompt still putting its images is not in acpmux's queue yet: the pane withdraws it, as
-    // acpmux's `queue_removed` would, and never writes it (`send`).
+    // acpmux's `queue_removed` would, and never writes it (`send`). An earlier copy acpmux did take
+    // (a Retry after a late answer) is withdrawn there too.
     if (this.unwrittenIds.has(promptId)) {
+      if (this.actingSessionId)
+        void this.request("_acpmux/queue_remove", { sessionId: this.actingSessionId, promptId }).catch(() => undefined);
       this.withdrawnUnwritten.add(promptId);
       // Nor does it fail while the puts finish.
       this.deliveries.get(promptId)?.timers.forEach(clearTimeout);
