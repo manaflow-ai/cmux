@@ -66,6 +66,8 @@ nonisolated struct AgentPaneReplyTextPreview: Equatable, Sendable {
             lines = Array(lines.prefix(maximumLines))
             cut = true
         }
+        // A line longer than the cap is cut too, even when the whole file was read.
+        if lines.contains(where: { $0.count > maximumLineLength }) { cut = true }
         return .success(Self(lines: lines.map { String($0.prefix(maximumLineLength)) }, truncated: cut))
     }
 }
@@ -77,7 +79,13 @@ extension AgentPaneModel {
     /// is opened, and a passive hover cannot ask. A deny-listed path is never read, checked again
     /// after symlinks and on the open handle. Every refusal of an outside path answers
     /// `pathOutsideRoots`, so the page learns nothing about a file it is not shown.
+    ///
+    /// A chat on another machine reads nothing here (the same guard as a reply image's,
+    /// ``loadReplyImage(_:)``): its agent names paths on that machine, and a file here with the
+    /// same spelling is not its file. It answers `{remote: true}`, so the card says where the file
+    /// is instead of showing nothing.
     func previewReplyPath(_ text: String) async -> [String: Any] {
+        guard !remoteChat, !transport.remoteWire else { return AgentPaneReply.success(["remote": true]) }
         let paths = replyPaths()
         guard let resolved = paths.resolve(text) else { return Self.replyFailure(.pathInvalid) }
         switch resolved.place {

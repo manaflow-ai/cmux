@@ -25,7 +25,8 @@ public import Foundation
 ///   `https://github.com/<owner>/<repo>/pull/<n>` is taken (``pullRequestURL(_:)``). Passive.
 /// - `link.preview {path}`: the first lines of a text file a path chip names, for its hover card
 ///   (``AgentPaneReplyTextPreview``): inside the roots, or outside them only under
-///   `agentPane.links.outsideRoots = open`; never a deny-listed path. Passive.
+///   `agentPane.links.outsideRoots = open`; never a deny-listed path. A chat on another machine
+///   reads nothing here and answers `{remote: true}`. Passive.
 public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case inspect(paths: [String], urls: [String])
     case openPath(String)

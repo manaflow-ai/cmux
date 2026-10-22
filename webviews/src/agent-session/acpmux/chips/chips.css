@@ -378,3 +378,9 @@ button.cv-thumb:focus-visible {
   white-space: pre;
   mask-image: linear-gradient(to bottom, #000 80%, transparent);
 }
+.cv-path-preview__note {
+  margin: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
