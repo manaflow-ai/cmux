@@ -39,6 +39,8 @@ public class HomeSheetController: NSViewController {
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 200))
         surface.frame = root.bounds
         surface.autoresizingMask = [.width, .height]
+        // The sheet is a window of its own: the vibrancy fallback blurs the window behind it.
+        surface.samplesBehindWindow = true
         root.addSubview(surface)
         stack.orientation = .vertical
         stack.alignment = .leading

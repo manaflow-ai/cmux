@@ -27,6 +27,7 @@ import Testing
             #expect(root.subviews.first === glass, "\(name): the glass sits under the content")
             #expect(glass.materialOverride == nil && !glass.isCard, "\(name) follows this Mac's material")
             #expect(glass.material == system, "\(name): \(glass.material) vs \(system)")
+            #expect(glass.samplesBehindWindow, "\(name)'s vibrancy blurs the window behind the sheet")
         }
         // New Message's suggestion list (a page now, no sheet) floats over the page on the shared
         // overlay glass, not the solid popup surface (Leo 2026-10-21: "STOP DOING SOLID").

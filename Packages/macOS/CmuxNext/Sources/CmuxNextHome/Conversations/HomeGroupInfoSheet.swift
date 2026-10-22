@@ -33,6 +33,8 @@ public final class HomeGroupInfoSheet: NSViewController {
         hosting.setAccessibilityIdentifier("cmux.home.groupInfo")
         hosting.translatesAutoresizingMaskIntoConstraints = false
         let root = NSView()
+        // The sheet is a window of its own: the vibrancy fallback blurs the window behind it.
+        surface.samplesBehindWindow = true
         root.addSubview(surface)
         root.addSubview(hosting)
         surface.translatesAutoresizingMaskIntoConstraints = false
