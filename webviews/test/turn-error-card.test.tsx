@@ -33,6 +33,11 @@ test("disk, tailnet, quit and start failures each name their cause", () => {
       "proxy-auth",
     ],
     ['Post "https://proxy.tail123.ts.net/oauth/token": dial tcp 100.101.102.103:443: i/o timeout', "tailscale"],
+    [
+      'OAuth token refresh failed: Post "https://proxy.tail123.ts.net/oauth/token": dial tcp 100.101.102.103:443: i/o timeout',
+      "tailscale",
+    ],
+    ["authentication failed: dial tcp proxy.tail123.ts.net:443: connect: connection refused", "tailscale"],
     ["API Error: 529 overloaded_error from https://proxy.tail123.ts.net/v1/messages", "rate-limited"],
     ["dial tcp proxy.tail123.ts.net:443: connect: connection refused", "tailscale"],
   ];

@@ -43,11 +43,16 @@ const AUTH = /\b40[13]\b|unauthori[sz]ed|forbidden|authenticat|\boauth\b/i;
 const DISK_FULL = /ENOSPC|no space left on device|disk (?:is )?full|out of disk space|disk quota exceeded|EDQUOT/i;
 /// A chat on another machine that its tailnet no longer reaches: the tailnet named, and a sign that
 /// it did not connect. A tailnet host that answered (a 401, a 529) is that answer, not Tailscale,
-/// even when its body says "logged out" (`answered`).
+/// even when its body says "logged out" (`ANSWERED`).
 const TAILSCALE = /tailscale|tailnet|\.ts\.net\b/i;
-/// URLs and tailnet host names, with their paths and ports (`answered`).
+/// URLs and tailnet host names, with their paths and ports: their words are not a host's answer.
 const ADDRESSES = /https?:\/\/\S+|\S+\.ts\.net\S*/gi;
-const TAILNET_DOWN = /not connected|logged out|needs login|is (?:down|stopped|offline)|no route|i\/o timeout/i;
+/// An HTTP refusal: a status or its reason phrase. Not "oauth" or "authentication", which name what
+/// was being attempted ("OAuth token refresh failed: … i/o timeout") rather than a reply.
+const ANSWERED = /\b40[13]\b|unauthori[sz]ed|forbidden/i;
+/// The connection itself failed, so no host answered whatever the rest of the message says.
+const DIAL_FAILED = /dial tcp|i\/o timeout|no route to host|connection refused|ECONNREFUSED|EHOSTUNREACH|ETIMEDOUT/i;
+const TAILNET_DOWN = /not connected|logged out|needs login|is (?:down|stopped|offline)|no route/i;
 /// The agent's process ended mid-turn (acpmux's "agent process closed", a signal, a broken pipe).
 const AGENT_EXITED =
   /agent process (?:closed|exited|died|ended)|(?:agent|process) exited (?:unexpectedly|with)|exited with (?:code|status|signal)|terminated by signal|\bSIG(?:KILL|TERM|SEGV|ABRT|BUS)\b|broken pipe|\bEPIPE\b/i;
@@ -96,10 +101,14 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   if (DISK_FULL.test(message)) return "disk-full";
   // Capacity and network first: their messages often mention authentication or keys in passing.
   if (RATE.test(message)) return "rate-limited";
-  // An HTTP sign-in refusal came from a host that answered: the tailnet reached it. Only the words
-  // outside addresses count: a request to `…/oauth/token` that timed out got no answer.
-  const answered = AUTH.test(message.replace(ADDRESSES, " "));
-  if (TAILSCALE.test(message) && !answered && (UNREACHABLE.test(message) || TAILNET_DOWN.test(message)))
+  // An HTTP refusal came from a host that answered: the tailnet reached it. A failed dial outranks
+  // it, and only the words outside addresses count (a request to `…/oauth/token` that timed out).
+  const answered = !DIAL_FAILED.test(message) && ANSWERED.test(message.replace(ADDRESSES, " "));
+  if (
+    TAILSCALE.test(message) &&
+    !answered &&
+    (DIAL_FAILED.test(message) || UNREACHABLE.test(message) || TAILNET_DOWN.test(message))
+  )
     return "tailscale";
   if (UNREACHABLE.test(message)) return "unreachable";
   const via = failureVia(message, route);
