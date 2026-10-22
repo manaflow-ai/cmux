@@ -68,10 +68,11 @@ final class FocusModeBadgeView: NSView {
     nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
+        // A lit chip in the theme's accent, never orange (Leo 2026-10-21: "the accent is never orange").
         performWithTheme {
-            layer?.backgroundColor = NSColor.systemOrange.withAlphaComponent(0.16).cgColor
-            label.textColor = NSColor.systemOrange
-            glyph.contentTintColor = NSColor.systemOrange
+            layer?.backgroundColor = Palette.accentFill.withAlphaComponent(0.16).cgColor
+            label.textColor = Palette.litGlyph
+            glyph.contentTintColor = Palette.litGlyph
         }
     }
 }
