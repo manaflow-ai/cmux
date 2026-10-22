@@ -41,18 +41,21 @@ struct SidebarWorkspaceItems {
     static func workspaceInfos(_ layout: SidebarLayoutDocument, refs: WorkspaceLayoutRefs) -> [LayoutItemRef: SidebarItemInfo] {
         var infos: [LayoutItemRef: SidebarItemInfo] = [:]
         for item in layout.sections.lazy.flatMap(\.items) where item.ref.kind == LayoutItemRef.workspaceKind && infos[item.ref] == nil {
-            if let (workspace, _) = refs.workspace(for: item.ref) { infos[item.ref] = workspaceInfo(workspace) }
+            if let (workspace, daemon) = refs.workspace(for: item.ref) {
+                infos[item.ref] = workspaceInfo(workspace, machine: MachineID(daemon.machineID))
+            }
         }
         return infos
     }
 
     /// A workspace's title and the glyph its row stands for (SidebarMapping.row, the one row
-    /// rule): the user's symbol (tinted) or emoji, else the user's stored image or the front
-    /// page's favicon, else none: text only, no kind glyph or agent brand
-    /// (WORKSPACE-ROWS-NO-DEFAULT-ICON), in the workspace's color, with the row's status.
-    /// The selection marks it active (SidebarModel.selectedItem).
-    static func workspaceInfo(_ workspace: WorkspaceModel) -> SidebarItemInfo {
-        let row = SidebarMapping.shared.row(workspace, machine: .local, showsUnread: false)
+    /// rule, on the workspace's own `machine`, so a Chief subagent's tile reads its task title
+    /// without the `a11 · ` id): the user's symbol (tinted) or emoji, else the user's stored image
+    /// or the front page's favicon, else the brand of the agent running in it, else none: text
+    /// only, no kind glyph (WORKSPACE-ROWS-NO-DEFAULT-ICON), in the workspace's color, with the
+    /// row's status. The selection marks it active (SidebarModel.selectedItem).
+    static func workspaceInfo(_ workspace: WorkspaceModel, machine: MachineID) -> SidebarItemInfo {
+        let row = SidebarMapping.shared.row(workspace, machine: machine, showsUnread: false)
         var info = glyphInfo(row, color: SidebarMapping.shared.color(workspace.color))
         info.activity = row.activity
         info.activityStyle = row.activityStyle
@@ -68,6 +71,10 @@ struct SidebarWorkspaceItems {
             info.favicon = image
             return info
         case .swatch?, nil:
+            // An agent workspace shows its harness's mark, never a letter tile (Leo 2026-10-22).
+            if let brand = row.agentBrand ?? row.kindBrand {
+                return SidebarItemInfo(title: row.title, symbol: "textformat", color: color, brand: brand)
+            }
             var info = SidebarItemInfo(title: row.title, symbol: "textformat", color: color)
             info.textOnly = true
             return info
