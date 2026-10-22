@@ -1,10 +1,11 @@
 //! The host's update lock (`host_lock.rs`) on a fake host ([`FakePeer`]):
-//! one update of a host at a time, an update whose lease went changes
-//! nothing more, and every update script reaches the daemon through the
+//! one update of a host at a time (by flock(1) or perl, never by neither),
+//! an update whose lease went changes nothing more, and every update
+//! script reaches the daemon through the
 //! home and socket `acpmux.service` sets ([`SERVICE_ENV`]), quoted or not.
 
 use super::*;
-use crate::cli::hosts::{lock_to_install, lock_updates};
+use crate::cli::hosts::{LockLost, lock_to_install, lock_updates, run};
 use std::process::Command;
 
 #[test]
@@ -69,6 +70,89 @@ fn an_update_whose_lock_connection_drops_changes_nothing_more() {
     // The lease is free for the next update at once.
     let next = lock_updates(&peer).unwrap();
     assert!(next.is_some(), "a lease whose process ended is free");
+}
+
+#[test]
+fn of_updates_that_start_at_once_one_takes_the_lock() {
+    let peer = FakePeer::new("lock-race");
+    let (home, start) = (&peer.home, std::sync::Barrier::new(8));
+    let locks: Vec<_> = std::thread::scope(|s| {
+        let tries: Vec<_> = (0..8)
+            .map(|_| {
+                s.spawn(|| {
+                    // Each its own connection to the one host; never
+                    // dropped, which would delete the home.
+                    let peer = std::mem::ManuallyDrop::new(FakePeer {
+                        home: home.clone(),
+                        after_copy: Default::default(),
+                        lease_ends_after_copy: Default::default(),
+                    });
+                    start.wait();
+                    lock_updates(&*peer).unwrap()
+                })
+            })
+            .collect();
+        tries.into_iter().filter_map(|t| t.join().unwrap()).collect()
+    });
+    assert_eq!(locks.len(), 1, "one update holds the lock");
+    drop(locks);
+    assert!(lock_updates(&peer).unwrap().is_some(), "and gave it back");
+}
+
+#[test]
+fn a_late_copy_of_an_update_whose_lease_went_never_lands_on_the_next_ones() {
+    // Review of #24304: copies ran unfenced to one staging path, so an
+    // update whose lease went could overwrite the binary the next update
+    // staged, between that update's check and its rename.
+    let peer = FakePeer::new("late-copy");
+    let staged = "~/.local/bin/.acpmux-new/acpmux";
+    std::fs::create_dir_all(peer.home.join(".local/bin/.acpmux-new")).unwrap();
+    peer.write("binaries/late", "the late update's binary");
+    peer.write("binaries/next", "the next update's binary");
+    let late = lock_updates(&peer).unwrap().expect("the lock is free");
+    peer.end_lease();
+    let next = lock_updates(&peer).unwrap().expect("a lease whose process ended is free");
+    next.fence(&peer).push(&peer.home.join("binaries/next"), staged).unwrap();
+    let Err(e) = late.fence(&peer).push(&peer.home.join("binaries/late"), staged) else {
+        panic!("the late copy landed")
+    };
+    assert!(e.is::<LockLost>(), "{e:#}");
+    assert_eq!(peer.read(".local/bin/.acpmux-new/acpmux"), "the next update's binary");
+}
+
+#[test]
+fn a_stale_lease_whose_pid_now_names_another_process_is_free() {
+    // Review of #24304: a lease a crash left named a pid that another
+    // process of the user had by then, so every update refused. The lease
+    // is the flock its process held, which ended with it.
+    let peer = FakePeer::new("stale-lease");
+    peer.write(".acpmux/update.owner", &format!("{} {}\n", "0".repeat(32), std::process::id()));
+    assert!(lock_updates(&peer).unwrap().is_some(), "the stale lease kept the lock");
+}
+
+#[test]
+fn without_flock_perl_locks_and_without_either_nothing_runs() {
+    // A host's tools without flock(1), as macOS has them.
+    let peer = FakePeer::new("perl-lock");
+    let bin = peer.home.join("lockbin");
+    std::fs::create_dir_all(&bin).unwrap();
+    for tool in ["/bin/sh", "/bin/mkdir", "/bin/cat", "/bin/mv", "/bin/rm", "/usr/bin/perl"] {
+        std::os::unix::fs::symlink(tool, bin.join(tool.rsplit('/').next().unwrap())).unwrap();
+    }
+    peer.write("path", &bin.display().to_string());
+    let lock = lock_updates(&peer).unwrap().expect("perl takes the lock");
+    assert!(lock_updates(&peer).unwrap().is_none(), "and holds it");
+    assert_eq!(run(&lock.fence(&peer), "echo ran").unwrap(), "ran");
+
+    // Review of #24304: with neither, the lock locked nothing and every
+    // step ran. Now no step runs and no lock is taken.
+    std::fs::remove_file(bin.join("perl")).unwrap();
+    let Err(e) = run(&lock.fence(&peer), "echo ran > ran") else { panic!("a step ran unlocked") };
+    assert!(format!("{e:#}").contains("neither flock nor perl"), "{e:#}");
+    assert!(!peer.exists("ran"));
+    drop(lock);
+    let Err(e) = lock_to_install(&peer) else { panic!("the lock was taken with neither") };
+    assert!(format!("{e:#}").contains("neither flock nor perl"), "{e:#}");
 }
 
 /// [`SERVICE_ENV`] with a fake `systemctl` whose `show` prints `printed`:

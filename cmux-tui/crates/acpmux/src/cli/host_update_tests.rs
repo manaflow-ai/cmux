@@ -229,8 +229,9 @@ impl Remote for FakePeer {
 
     fn spawn(&self, script: &str) -> Result<std::process::Child> {
         use std::process::Stdio;
-        let child = self.sh(script).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()?;
-        Ok(child)
+        let child =
+            self.sh(script).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        Ok(child.spawn()?)
     }
 
     fn push(&self, local: &Path, remote: &str) -> Result<()> {
@@ -341,7 +342,8 @@ impl FakePeer {
         }
     }
 
-    /// `script` under `sh` in the fake home, as [`Remote::exec`] runs it.
+    /// `script` under `sh` in the fake home, as [`Remote::exec`] runs it;
+    /// `$HOME/path`, when a test wrote one, is its PATH.
     fn sh(&self, script: &str) -> Command {
         let script = script
             .replace("/proc/", &format!("{}/", self.home.join("proc").display()))
@@ -352,7 +354,12 @@ impl FakePeer {
             .current_dir(&self.home)
             .env("HOME", &self.home)
             .env("XDG_RUNTIME_DIR", self.home.join("run"))
-            .env("PATH", format!("{}:/usr/bin:/bin", self.home.join("fakebin").display()))
+            .env(
+                "PATH",
+                std::fs::read_to_string(self.home.join("path")).unwrap_or_else(|_| {
+                    format!("{}:/usr/bin:/bin", self.home.join("fakebin").display())
+                }),
+            )
             .env_remove("ACPMUX_HOME")
             .env_remove("ACPMUX_SOCKET");
         command

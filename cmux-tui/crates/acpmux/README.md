@@ -791,8 +791,8 @@ not answer with the new build. A daemon that runs under a hand-written `acpmux*.
 moved to the standard `acpmux.service` (its home, socket and drop-ins carried over, agents kept).
 A cmux Cloud VM is never updated this way (`cloudMachine`): `cmux link machine update --to-bundled` owns it.
 One update of a host runs at a time: `host update`, `host setup` and `host enroll --fix` take the
-host's update lock (a lease in `~/.acpmux`, kept by the update's connection), and one that finds it
-held changes nothing (`host update`: `updateRunning`). Every step checks the lease on the host first,
+host's update lock (a lease in `~/.acpmux`, kept by the update's connection; it needs `flock` or
+`perl` on the host), and one that finds it held changes nothing (`host update`: `updateRunning`). Every step checks the lease on the host first,
 so an update whose connection dropped stops (`lockLost`). The updates reach the daemon through the
 `ACPMUX_HOME` and `ACPMUX_SOCKET` that `acpmux.service` and its drop-ins set.
 `--json` reports each peer's `outcome`: `updated`, `current`, `busy`, `needsBinary`,

@@ -4,14 +4,17 @@
 //!
 //! The lock is a lease on the host, checked on the host by every step: the
 //! file `update.owner` in [`REMOTE_HOME`] names the update that holds it (a
-//! random token) and the process that keeps it (a pid), and a lease whose
-//! process ended is free. An update keeps it with a script that runs for
-//! the update's length ([`lock_updates`]), so a dropped connection ends it.
-//! Every script an update runs is fenced ([`Fenced`]): under a flock on
-//! `update.lock` it first checks that the lease is still its own, and runs
-//! only then, so an update whose lease went (its connection dropped) changes
-//! nothing more, and no step of another update runs between that check and
-//! the step's end.
+//! random token), and the process that keeps it holds a flock on
+//! `update.lease` for its whole life, so the lease is free once that
+//! process ends, however it ends (the kernel drops the flock; a pid in a
+//! file could name another process by then). An update keeps it with a
+//! script that runs for the update's length ([`lock_updates`]), so a
+//! dropped connection ends it. Every script an update runs is fenced
+//! ([`Fenced`]): under a flock on `update.lock` it first checks that the
+//! lease is still its own, and runs only then, so an update whose lease
+//! went (its connection dropped) changes nothing more, and no step of
+//! another update runs between that check and the step's end. Its uploads
+//! go to names of its own and are moved in place by a fenced step.
 
 use super::{REMOTE_HOME, Remote, RemoteOut};
 use anyhow::{Context, Result, anyhow};
@@ -27,56 +30,59 @@ const UPDATE_RUNNING: &str = "ACPMUX_UPDATE_RUNNING";
 /// update's: it ran nothing.
 const LOCK_LOST: &str = "ACPMUX_UPDATE_LOCK_LOST";
 
-/// The lease file, in the acpmux home: `<token> <pid>`.
+/// The lease file, in the acpmux home: `<token> <pid>`, the pid for a
+/// person reading it (the flock on `update.lease` says whether it is held).
 pub(super) const OWNER: &str = "update.owner";
 
-/// `acpmux_lk SECONDS`: a flock on descriptor 9 (`update.lock`), waiting up
-/// to SECONDS (0: not at all), by util-linux's `flock(1)`, else perl's flock
-/// (macOS). A host with neither locks nothing; the lease still applies.
-const LOCK_FN: &str = r#"acpmux_lk() { if command -v flock >/dev/null 2>&1; then if [ "$1" = 0 ]; then flock -n 9; else flock -w "$1" 9; fi; elif command -v perl >/dev/null 2>&1; then perl -MFcntl=:flock -e 'open(my $f, ">&=", 9) or exit 1; $SIG{ALRM} = sub { exit 1 }; alarm($ARGV[0]); flock($f, $ARGV[0] ? LOCK_EX : LOCK_EX | LOCK_NB) or exit 1' "$1"; fi; }
+/// `acpmux_lk SECONDS FD`: a flock on descriptor FD, waiting up to SECONDS
+/// (0: not at all), by util-linux's `flock(1)`, else perl's flock (macOS).
+/// The flock stays with the shell's descriptor once the tool exits. A host
+/// with neither fails the script (exit 1) before it changes anything: two
+/// updates of it could not be kept apart.
+const LOCK_FN: &str = r#"acpmux_lk() { if command -v flock >/dev/null 2>&1; then if [ "$1" = 0 ]; then flock -n "$2"; else flock -w "$1" "$2"; fi; else perl -MFcntl=:flock -e 'open(my $f, ">&=", 0 + $ARGV[1]) or exit 1; $SIG{ALRM} = sub { exit 1 }; alarm($ARGV[0]); flock($f, $ARGV[0] ? LOCK_EX : LOCK_EX | LOCK_NB) or exit 1' "$1" "$2"; fi; }
+command -v flock >/dev/null 2>&1 || command -v perl >/dev/null 2>&1 || { echo "this host has neither flock nor perl, so acpmux cannot keep two updates of it apart: install one (util-linux's flock, or perl)" >&2; exit 1; }
 "#;
 
-/// Sets `$acpmux_o` to the lease (`<token> <pid>`); succeeds when its
-/// process runs (`kill -0`: a process of this user).
-fn lease_held() -> String {
+/// Opens `update.lock` as descriptor 9 (held by a step, or while the lease
+/// is taken) and `update.lease` as 8 (held by the lease's process).
+fn open_locks() -> String {
     format!(
-        r#"acpmux_o=$(cat {REMOTE_HOME}/{OWNER} 2>/dev/null); [ -n "${{acpmux_o#* }}" ] && [ "${{acpmux_o#* }}" != "$acpmux_o" ] && kill -0 "${{acpmux_o#* }}" 2>/dev/null"#
+        "mkdir -p {REMOTE_HOME} && exec 9>>{REMOTE_HOME}/update.lock 8>>{REMOTE_HOME}/update.lease"
     )
 }
 
 /// The script that takes and keeps the lease for `token`: under the flock
 /// (not waited for: one held means an update is at a step), a lease whose
-/// process runs is another update's; else this script's pid becomes the
-/// lease's, and it runs until its stdin closes (or its connection drops),
-/// then gives the lease back.
+/// flock is held is another update's; else this script holds that flock,
+/// writes the lease, and runs until its stdin closes (or its connection
+/// drops), then gives the lease back.
 fn hold_lease(token: &str) -> String {
-    let held = lease_held();
+    let open = open_locks();
     format!(
-        r#"mkdir -p {REMOTE_HOME} && exec 9>>{REMOTE_HOME}/update.lock || exit 1
-{LOCK_FN}acpmux_lk 0 || {{ echo {UPDATE_RUNNING}; exit 0; }}
-if {held}; then echo {UPDATE_RUNNING}; exit 0; fi
+        r#"{open} || exit 1
+{LOCK_FN}acpmux_lk 0 9 && acpmux_lk 0 8 || {{ echo {UPDATE_RUNNING}; exit 0; }}
 printf '%s %s\n' {token} $$ > {REMOTE_HOME}/{OWNER}.$$ && mv -f {REMOTE_HOME}/{OWNER}.$$ {REMOTE_HOME}/{OWNER} || exit 1
 exec 9>&-
 echo {UPDATE_LOCKED}
-cat >/dev/null
+cat >/dev/null 8>&-
 acpmux_o=$(cat {REMOTE_HOME}/{OWNER} 2>/dev/null); [ "${{acpmux_o%% *}}" != {token} ] || rm -f {REMOTE_HOME}/{OWNER}"#
     )
 }
 
 /// `script` fenced for the lease `token`: under the flock (waited for up to
 /// a minute: another update's step, or its lease being taken), it runs only
-/// while the lease is `token`'s and its process runs, else prints
-/// [`LOCK_LOST`] and exits 75. The script runs without the flock's
-/// descriptor, so a daemon it starts does not keep the flock.
+/// while the lease is `token`'s and its process holds its flock, else
+/// prints [`LOCK_LOST`] and exits 75. The script runs without either
+/// descriptor, so a daemon it starts keeps neither flock.
 fn fence(token: &str, script: &str) -> String {
-    let held = lease_held();
+    let open = open_locks();
     format!(
-        r#"mkdir -p {REMOTE_HOME} && exec 9>>{REMOTE_HOME}/update.lock && {{
-{LOCK_FN}acpmux_lk 60 && {held} && [ "${{acpmux_o%% *}}" = {token} ]
+        r#"{open} && {{
+{LOCK_FN}acpmux_lk 60 9 && ! acpmux_lk 0 8 && acpmux_o=$(cat {REMOTE_HOME}/{OWNER} 2>/dev/null) && [ "${{acpmux_o%% *}}" = {token} ]
 }} || {{ echo {LOCK_LOST}; echo "this update no longer holds the host's update lock, so it changes nothing more: another update may run" >&2; exit 75; }}
 {{
 {script}
-}} 9>&-"#
+}} 8>&- 9>&-"#
     )
 }
 
@@ -109,7 +115,7 @@ impl std::error::Error for LockLost {}
 pub(crate) fn unfence(script: &str) -> Option<&str> {
     const BODY: &str = "exit 75; }\n{\n";
     let start = script.find(BODY)? + BODY.len();
-    script.strip_suffix("\n} 9>&-")?.get(start..)
+    script.strip_suffix("\n} 8>&- 9>&-")?.get(start..)
 }
 
 /// A host whose every script is fenced for a lease ([`fence`]); a script
@@ -133,8 +139,16 @@ impl Remote for Fenced<'_> {
         Ok(out)
     }
 
+    /// Copies to a name of this lease's own (`<remote>.<token>`), then moves
+    /// it to `remote` in a fenced step: a copy that runs on after its lease
+    /// went lands beside, never on, what the update now holding the lease
+    /// staged. That step also clears what such copies left.
     fn push(&self, local: &Path, remote: &str) -> Result<()> {
-        self.inner.push(local, remote)
+        let staged = format!("{remote}.{}", self.token);
+        self.inner.push(local, &staged)?;
+        let left = format!("{remote}.{}", "?".repeat(self.token.len()));
+        super::run(self, &format!("mv -f {staged} {remote} && rm -f {left}"))?;
+        Ok(())
     }
 
     fn spawn(&self, script: &str) -> Result<Child> {
@@ -169,7 +183,7 @@ impl Drop for HostLock {
 /// --fix` while it installs or links the binary and while it restarts the
 /// daemon. Run their scripts
 /// through [`HostLock::fence`]. None while another update holds it; an error
-/// when the script did not run.
+/// when the script did not run, or the host can lock nothing ([`LOCK_FN`]).
 pub(crate) fn lock_updates(r: &dyn Remote) -> Result<Option<HostLock>> {
     let token = new_token()?;
     let mut child = r.spawn(&hold_lease(&token))?;

@@ -591,6 +591,10 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
         }
         Err(failure) => failure,
     };
+    // The lease went: nothing more runs there, a rollback neither.
+    if reason == "lockLost" {
+        return up.end(Outcome::Failed, &reason, why);
+    }
     // Refused before the daemon was touched: only the binary goes back.
     if restarted.refused {
         let mut why = why;
@@ -655,7 +659,7 @@ fn restart_checked(remote: &dyn Remote, script: &str, want: Option<&str>) -> Res
     };
     let out = match remote.exec(script, None) {
         Ok(out) => out,
-        Err(e) => return failed(None, false, "restartFailed", e.to_string()),
+        Err(e) => return failed(None, false, lock_lost_or(&e, "restartFailed"), e.to_string()),
     };
     let migrating = out.stdout.lines().find_map(|l| l.strip_prefix(MIGRATING)).map(str::to_owned);
     if !out.ok {
@@ -670,7 +674,7 @@ fn restart_checked(remote: &dyn Remote, script: &str, want: Option<&str>) -> Res
     }
     let status = match remote.exec(AWAIT_DAEMON, None) {
         Ok(out) => out.stdout.trim().to_owned(),
-        Err(e) => return failed(migrating, false, "noAnswer", e.to_string()),
+        Err(e) => return failed(migrating, false, lock_lost_or(&e, "noAnswer"), e.to_string()),
     };
     let Some(build) = answering_build(&status) else {
         let why = "the daemon did not answer within 20 s of its restart".to_owned();
