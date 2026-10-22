@@ -13,31 +13,124 @@ struct ClickableCursorTests {
     private final class RecordingButton: ClickableButton {
         var rects: [(rect: NSRect, cursor: NSCursor)] = []
         override func addCursorRect(_ rect: NSRect, cursor object: NSCursor) { rects.append((rect, object)) }
+
+        func recordedRects() -> [(rect: NSRect, cursor: NSCursor)] {
+            rects = []
+            resetCursorRects()
+            return rects
+        }
+    }
+
+    /// A window whose content holds `container` (clipping, 50 x 50) with `button` at `frame` in it.
+    private func host(_ button: NSView, at frame: NSRect) -> (window: NSWindow, container: NSView) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 50, height: 50))
+        container.clipsToBounds = true
+        window.contentView?.addSubview(container)
+        container.addSubview(button)
+        button.frame = frame
+        return (window, container)
     }
 
     @Test func anEnabledButtonRegistersThePointingHandOverItsBounds() {
-        let button = RecordingButton(frame: NSRect(x: 0, y: 0, width: 40, height: 20))
-        button.resetCursorRects()
-        #expect(button.rects.count == 1)
-        #expect(button.rects.first?.rect == button.bounds)
-        #expect(button.rects.first?.cursor === NSCursor.pointingHand)
+        let button = RecordingButton(frame: .zero)
+        let host = host(button, at: NSRect(x: 0, y: 0, width: 40, height: 20))
+        let rects = button.recordedRects()
+        #expect(rects.count == 1)
+        #expect(rects.first?.rect == button.bounds)
+        #expect(rects.first?.cursor === NSCursor.pointingHand)
+        withExtendedLifetime(host) {}
     }
 
     @Test func aDisabledButtonRegistersNoCursorAndKeepsTheArrow() {
-        let button = RecordingButton(frame: NSRect(x: 0, y: 0, width: 40, height: 20))
+        let button = RecordingButton(frame: .zero)
+        let host = host(button, at: NSRect(x: 0, y: 0, width: 40, height: 20))
         button.isEnabled = false
-        button.resetCursorRects()
-        #expect(button.rects.isEmpty)
+        #expect(button.recordedRects().isEmpty)
         #expect(ClickableButton.hoverCursor(isEnabled: false) == nil)
         #expect(ClickableButton.hoverCursor(isEnabled: true) === NSCursor.pointingHand)
+        withExtendedLifetime(host) {}
     }
 
     @Test func reEnablingAButtonRegistersTheHandAgain() {
-        let button = RecordingButton(frame: NSRect(x: 0, y: 0, width: 40, height: 20))
+        let button = RecordingButton(frame: .zero)
+        let host = host(button, at: NSRect(x: 0, y: 0, width: 40, height: 20))
         button.isEnabled = false
+        #expect(button.recordedRects().isEmpty)
         button.isEnabled = true
-        button.resetCursorRects()
-        #expect(button.rects.map(\.cursor) == [NSCursor.pointingHand])
+        #expect(button.recordedRects().map(\.cursor) == [NSCursor.pointingHand])
+        withExtendedLifetime(host) {}
+    }
+
+    /// A button its container clips claims the hand only over the part that shows.
+    @Test func aClippedButtonRegistersOnlyItsVisibleRect() {
+        let button = RecordingButton(frame: .zero)
+        let host = host(button, at: NSRect(x: 30, y: 0, width: 40, height: 20))
+        let rects = button.recordedRects()
+        #expect(rects.count == 1)
+        #expect(rects.first?.rect == NSRect(x: 0, y: 0, width: 20, height: 20))
+        #expect(rects.first?.rect == button.visibleRect)
+        withExtendedLifetime(host) {}
+    }
+
+    @Test func aButtonClippedOutOfViewRegistersNone() {
+        let button = RecordingButton(frame: .zero)
+        let host = host(button, at: NSRect(x: 60, y: 0, width: 40, height: 20))
+        #expect(button.recordedRects().isEmpty)
+        withExtendedLifetime(host) {}
+    }
+
+    @Test func aHiddenButtonOrOneUnderAHiddenAncestorRegistersNone() {
+        let button = RecordingButton(frame: .zero)
+        let host = host(button, at: NSRect(x: 0, y: 0, width: 40, height: 20))
+        button.isHidden = true
+        #expect(button.recordedRects().isEmpty)
+        button.isHidden = false
+        host.container.isHidden = true
+        #expect(button.recordedRects().isEmpty)
+        host.container.isHidden = false
+        #expect(button.recordedRects().count == 1)
+        withExtendedLifetime(host) {}
+    }
+
+    /// macOS 14's SwiftUI fallback: disabling under the pointer pops the hand, and re-enabling
+    /// under the still pointer pushes it again; every push has one pop.
+    @Test func theFallbackPushesAgainOnAReEnableUnderTheStillPointer() {
+        var hover = ClickableCursorHover()
+        #expect(hover.update(hovering: true, enabled: true) == .push)
+        #expect(hover.update(hovering: true, enabled: false) == .pop)
+        #expect(hover.update(hovering: true, enabled: true) == .push)
+        #expect(hover.update(hovering: true, enabled: true) == nil)
+        #expect(hover.update(hovering: false, enabled: true) == .pop)
+        #expect(hover.update(hovering: false, enabled: false) == nil)
+        #expect(hover.update(hovering: false, enabled: true) == nil)
+    }
+
+    @Test func theFallbackNeverPushesForADisabledViewAndPopsWhenTheViewGoesAway() {
+        var hover = ClickableCursorHover()
+        #expect(hover.update(hovering: true, enabled: false) == nil)
+        #expect(hover.update(hovering: true, enabled: true) == .push)
+        // `onDisappear` mid-hover.
+        #expect(hover.update(hovering: false, enabled: true) == .pop)
+        #expect(!hover.pushed)
+    }
+
+    @Test func theFallbackKeepsPushesAndPopsBalancedOverAnySequence() {
+        var hover = ClickableCursorHover()
+        var depth = 0
+        let steps: [(Bool, Bool)] = [(true, true), (true, false), (false, false), (true, false), (true, true), (true, true),
+                                     (false, true), (true, true), (true, false), (true, true), (false, false)]
+        for (hovering, enabled) in steps {
+            switch hover.update(hovering: hovering, enabled: enabled) {
+            case .push: depth += 1
+            case .pop: depth -= 1
+            case nil: break
+            }
+            #expect(depth == (hovering && enabled ? 1 : 0))
+        }
+        #expect(depth == 0)
     }
 
     /// The shared clickable buttons of this module are `ClickableButton`s.
@@ -63,7 +156,9 @@ struct ClickableCursorTests {
             ("CmuxNextAgentQuestion/AgentQuestionPillButton.swift", "class AgentQuestionPillButton: ClickableButton"),
             ("CmuxNextTerminal/TerminalRestartButton.swift", "class TerminalRestartButton: ClickableButton"),
             ("CmuxNextTerminal/TerminalRetryButton.swift", "class TerminalRetryButton: ClickableButton"),
-            ("CmuxNextTabs/NewTabButtonView.swift", "addCursorRect(bounds, cursor: .pointingHand)"),
+            ("CmuxNextBrowser/UI/ChromeButtons.swift", "class ChromeIconButton: ClickableButton"),
+            ("CmuxNextBrowser/UI/ChromeButtons.swift", "class ChromeTextButton: ClickableButton"),
+            ("CmuxNextTabs/NewTabButtonView.swift", "ClickableButton.cursorRect(of: self)"),
             ("CmuxNextDesign/GlassButtonStyle.swift", ".clickableCursor()"),
             ("CmuxNextFeed/Views/FeedButtonStyle.swift", ".clickableCursor()"),
             ("CmuxNextSettingsWindow/Views/SettingsStyle.swift", ".clickableCursor()"),
