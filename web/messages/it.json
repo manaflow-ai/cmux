@@ -5523,6 +5523,8 @@
     "errorInvalidCode": "Il codice non è valido. Controlla l'email e riprova.",
     "errorInvalidTotp": "Il codice a due fattori non è valido.",
     "errorSignUpNotAllowed": "Al momento non è possibile creare nuovi account.",
+    "errorEmailUnverified": "Questa email ha già un account, ma l'indirizzo non è ancora verificato. Accedi con il metodo che hai usato per registrarti, poi verifica la tua email per usare i codici di accesso.",
+    "useEmailPasswordInstead": "Accedi con email e password",
     "errorPasskey": "L'accesso con passkey non è stato completato. Riprova o usa un altro metodo.",
     "errorGeneric": "Si è verificato un errore. Riprova."
   },

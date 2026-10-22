@@ -1971,10 +1971,16 @@ def render_rate_limits(limits: Mapping[str, Mapping[str, int]]) -> str:
 
 
 class GitHub:
-    def __init__(self, token: str, repo: str) -> None:
+    """The Actions and GraphQL APIs. `token` is an App's when one was minted (its own budget, not
+    the GITHUB_TOKEN budget every workflow shares); `fallback_token` is the workflow's, which takes
+    over for the rest of the sweep once the App's is refused (401 or 403: expired, not permitted, or
+    out of budget). A cancel is idempotent, so the refused request is simply made again."""
+
+    def __init__(self, token: str, repo: str, fallback_token: str = "") -> None:
         self.repo = repo
         self._token = token
         self.calls = 0
+        self.fallback_token = fallback_token if fallback_token != token else ""
         # Rate limit resource ("core", "graphql") -> the newest response's values.
         self.rate_limits: dict[str, dict[str, int]] = {}
         self.headers = {
@@ -1998,6 +2004,14 @@ class GitHub:
                 return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as error:
             self.note_rate_limit(error.headers)
+            if error.code in (401, 403) and self.fallback_token:
+                print(f"queue-janitor: App token refused ({error.code}) on {path.split('?')[0]}; "
+                      "using the workflow token for the rest of the sweep", file=sys.stderr)
+                self.headers["Authorization"] = f"Bearer {self.fallback_token}"
+                # The snapshot download (download()) uses the same token.
+                self._token = self.fallback_token
+                self.fallback_token = ""
+                return self.request(method, path, body)
             raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.code})") from error
         except urllib.error.URLError as error:
             raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.reason})") from error
@@ -2223,7 +2237,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     orphan_age = dt.timedelta(minutes=orphan_minutes)
 
-    github = GitHub(token, args.repo)
+    github = GitHub(token, args.repo, fallback_token=os.environ.get("GH_FALLBACK_TOKEN") or "")
     now = utc_now()
     linux_only = linux_only_workflow_paths(args.workflows_dir)
     try:
