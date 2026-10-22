@@ -96,6 +96,15 @@ nonisolated enum SidebarActionCatalog: ActionCatalogGroup {
                 keywords: ["file explorer"], category: .sidebar, symbol: "square.and.arrow.up.on.square",
                 surfaces: [.contextMenu], requires: [.fileExplorerFocused], cliName: "sidebar open-in"
             ),
+            // u9489: a page cmux renders (HTML, SVG, Markdown) as its source in the code editor;
+            // the row shows only for such a file (FileExplorerSectionView).
+            ActionDescriptor(
+                id: "fileExplorerOpenAsText",
+                title: String(localized: "action.fileExplorerOpenAsText", defaultValue: "Open as Text", bundle: .module),
+                keywords: ["file explorer", "source", "editor", "monaco", "html", "text"], category: .sidebar,
+                symbol: "chevron.left.forwardslash.chevron.right", surfaces: [.contextMenu], requires: [.fileExplorerFocused],
+                cliName: "sidebar open-as-text"
+            ),
             ActionDescriptor(
                 id: "fileExplorerReveal",
                 title: String(localized: "action.fileExplorerReveal", defaultValue: "Reveal in Finder", bundle: .module),

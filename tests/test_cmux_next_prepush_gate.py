@@ -191,6 +191,29 @@ class PrePushGateTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_push_that_adds_conflict_markers_is_refused_even_with_a_skip_reason(self):
+        # c779988d57d (2026-10-22) landed an unresolved merge in a test file; no scanner reads tests.
+        before = self.remote_head()
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/MergedTests.swift",
+                   "struct T {\n<<<<<<< HEAD\n    let a = 1\n=======\n    let a = 2\n>>>>>>> abc1234 (other)\n}\n")
+        self.commit("unresolved merge")
+
+        result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="unrelated")
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the conflicted file must not reach origin")
+        self.assertIn("Merge conflict markers", output)
+        self.assertIn("MergedTests.swift:2: <<<<<<< HEAD", output)
+
+    def test_a_fixture_that_mentions_one_marker_passes(self):
+        self.write("docs/merging.md", "Git writes a line such as\n<<<<<<< HEAD\nat the top of a hunk.\n")
+        self.commit("docs mention a marker")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_push_that_touches_a_file_with_old_debt_passes(self):
         self.write(f"{PKG}/Sources/CmuxNextKit/Old.swift", OLD.replace('"old"', '"renamed"'))
         self.write(f"{PKG}/Sources/CmuxNextKit/Fresh.swift", NEW_CLEAN)
