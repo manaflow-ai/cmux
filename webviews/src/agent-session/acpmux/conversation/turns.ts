@@ -957,7 +957,9 @@ function codexRuns(rows: AcpmuxRow[]): AcpmuxRow[] {
 export const SHORT_NOTE_CHARS = 160;
 const TAKEAWAY_LINES = 3;
 /// A reply that reads as a takeaway, not narration of the work: over about three lines, or with a
-/// question, a list, a link, code or a second paragraph (Leo, 2026-10-21). Another agent's words
+/// question, a list, a link, a code block or a second paragraph (Leo, 2026-10-21). Inline code alone
+/// does not make one: narration names files and calls ("Reading `client.ts` next."), and that is
+/// the work Lawrence asked to collapse; a short note keeps the fold it had before. Another agent's words
 /// always are. Shared by the finished turn's folds (``takeawaysIn``) and the running turn's runs
 /// (``mergeShortNotes``).
 export function isTakeaway(row: AcpmuxRow): boolean {
@@ -968,7 +970,7 @@ export function isTakeaway(row: AcpmuxRow): boolean {
     Boolean(row.incoming) ||
     text.length > SHORT_NOTE_CHARS ||
     text.split("\n").length > TAKEAWAY_LINES ||
-    /\?|```|\n\s*\n|^\s*(?:[-*+]|\d+[.)])\s|\]\(|https?:\/\//m.test(text)
+    /\?|```|~~~|\n\s*\n|^\s*(?:[-*+]|\d+[.)])\s|\]\(|https?:\/\//m.test(text)
   );
 }
 const isShortNote = (row: AcpmuxRow | undefined) => row !== undefined && isReply(row) && !isTakeaway(row);
@@ -1024,17 +1026,30 @@ function partFoldFor(rows: readonly AcpmuxRow[], opener: number, index: number):
   let end = opener + 1;
   // The part ends where shapeTurn's does (turnParts): at the next accepted prompt, a drawn steer or
   // the turn's summary. A prompt not yet sent or refused, and a steer that draws nothing, sit in it.
-  const endsPart = (row: AcpmuxRow) =>
-    (opensTurn(row) && !isUnsent(row)) ||
-    (continuesTurn(row) && row.incoming?.kind !== "hidden") ||
-    row.kind === "turnSummary";
-  while (end < rows.length && !endsPart(rows[end]!)) end += 1;
+  // A summary a steer continued (shapedTurn drops it from the turn) does not end the part either.
+  const endsPart = (at: number) => {
+    const row = rows[at]!;
+    if (row.kind === "turnSummary") return !(row.continued && steerFollows(rows, at));
+    return (opensTurn(row) && !isUnsent(row)) || (continuesTurn(row) && row.incoming?.kind !== "hidden");
+  };
+  while (end < rows.length && !endsPart(end)) end += 1;
   const target = rows[index];
   const part = rows.slice(opener + 1, end).filter((row) => row.kind !== "user");
   const segment = foldSegments(rows[opener]!, part).find(
     (stretch) => stretch.rows.includes(target!) || stretch.after?.includes(target!),
   );
   return `${WORKED}-${(segment?.anchor ?? rows[opener]!).id}`;
+}
+
+/// A steer comes after `rows[at]` in its turn, before the next accepted prompt (shapedTurn drops a
+/// continued summary that one follows).
+function steerFollows(rows: readonly AcpmuxRow[], at: number): boolean {
+  for (let next = at + 1; next < rows.length; next += 1) {
+    const row = rows[next]!;
+    if (continuesTurn(row)) return true;
+    if (opensTurn(row) && !isUnsent(row)) return false;
+  }
+  return false;
 }
 
 /// Where to bring one message of the chat into view (a link's `message=<id>`, links.ts): the first

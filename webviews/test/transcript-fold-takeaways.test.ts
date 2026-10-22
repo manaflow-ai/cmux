@@ -206,3 +206,38 @@ test("a stopped turn says so on its last Worked for, also when its last stretch 
     "worked-u:cancelled",
   ]);
 });
+
+test("Find opens the right fold for a row after a summary a steer continued", () => {
+  const rows = [
+    row("u", "user"),
+    ran("tool1"),
+    answer("longA"),
+    row("cut", "turnSummary", { status: "cancelled", continued: true }),
+    ran("tool2"),
+    answer("longB"),
+    row("s1", "user", { text: "and the tests", steer: "landed" }),
+    ran("tool3"),
+    answer("longC"),
+    summary(),
+  ];
+  const folds = drawn(rows).filter((entry) => entry.startsWith("worked:"));
+  expect(folds).toEqual(["worked:worked-u", "worked:worked-longA", "worked:worked-s1"]);
+  expect(
+    turnFoldFor(
+      rows,
+      rows.findIndex((entry) => entry.id === "tool2"),
+    ),
+  ).toBe("worked-longA");
+  expect(
+    turnFoldFor(
+      rows,
+      rows.findIndex((entry) => entry.id === "tool3"),
+    ),
+  ).toBe("worked-s1");
+});
+
+test("a code block keeps a reply in sight; a note naming a file inline still folds", () => {
+  expect(isTakeaway(say("fence", "~~~\nbun test\n~~~"))).toBe(true);
+  expect(isTakeaway(say("ticks", "```\nbun test\n```"))).toBe(true);
+  expect(isTakeaway(say("inline", "Reading `client.ts` next."))).toBe(false);
+});
