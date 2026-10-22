@@ -46,6 +46,9 @@ export type StartedSession = {
   /// The title is one the chat was given (its title or name), not the first prompt or "New chat"
   /// standing in for one: only then can a reply name it by title.
   named?: boolean;
+  /// What its running turn does now (acpmux's doing line, sessionList.ts `doingLine`), for the tray;
+  /// only with `doing` asked for, so the transcript's cards do not redraw on each of its calls.
+  doing?: string;
 };
 
 export function startedState(entry: AcpmuxSessionEntry): StartedState {
@@ -121,7 +124,7 @@ function pullRequestTone(pr: SessionPullRequest): StartedPullRequests["tone"] {
 export function startedSessions(
   sessions: readonly AcpmuxSessionEntry[],
   chatId: string | undefined,
-  { exclude = new Set<string>() }: { exclude?: ReadonlySet<string> } = {},
+  { exclude = new Set<string>(), doing = false }: { exclude?: ReadonlySet<string>; doing?: boolean } = {},
 ): StartedSession[] {
   if (!chatId) return [];
   return sessions
@@ -139,6 +142,7 @@ export function startedSessions(
         ...(state === "idle" && entry.unread ? { unread: true } : {}),
         ...(pullRequests ? { pullRequests } : {}),
         ...(entry.createdAt !== undefined ? { createdAt: entry.createdAt } : {}),
+        ...(doing && entry.doing ? { doing: entry.doing } : {}),
       };
     })
     .sort((a, b) => (a.createdAt ?? Infinity) - (b.createdAt ?? Infinity));
