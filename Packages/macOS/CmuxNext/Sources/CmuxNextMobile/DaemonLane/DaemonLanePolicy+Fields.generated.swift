@@ -100,7 +100,7 @@ extension DaemonLanePolicy {
         "select-screen": ["delta", "index"],
         "select-tab": ["delta", "index", "pane"],
         "select-workspace": ["delta", "index"],
-        "send": ["bytes", "expect_foreground", "paste", "surface", "terminal_id", "text"],
+        "send": ["bytes", "expect_agent", "expect_foreground", "paste", "submit", "surface", "terminal_id", "text"],
         "send-key": ["keys", "surface"],
         "server-stats": ["include"],
         "set-cell-pixels": ["height_px", "width_px"],

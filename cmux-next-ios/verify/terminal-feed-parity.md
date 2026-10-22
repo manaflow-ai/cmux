@@ -75,6 +75,35 @@ Typing into a terminal from the Feed is a remote input path. It is restricted to
 
 See `cmux-next-ios/SECURITY.md`, "Terminal agents' texts and the Feed reply to a terminal agent".
 
-## 4. Live comparison over the real link
+## 4. Live comparison over the real link (2026-10-22)
 
-(Filled in by the live run below.)
+Setup:
+- **Mac.** A hidden, isolated rig on mini-cmux15, using `multimac/rig.py`: its own bundle id, config and credentials. It was launched with `open -g -j`, never activated, and the user's apps were not touched. The app is the fleet build of this branch at ca06d0647893, tag `cmux-mobile-e2e-ca06d064`.
+- **Agents.** Claude Code 2.1.308 and Codex 0.162.1, both started by typing their command into a cmux terminal tab of the rig through the rig's own CLI. Neither ran through acpmux.
+- **Accounts.** Claude is signed in with the mini's OAuth token. Codex uses the mini's API key; no mini has a Codex ChatGPT login.
+- **GUI chat for comparison.** acpmux's credit-free fake agent on the same Mac.
+- **Phone.** One headless iOS 26.5 simulator on the same mini, running the Demo build of this branch with DEBUG dev sign-in. It reached the Mac over the real link. Simulator.app was never opened, and the simulator was driven with AXe (accessibility element taps on that simulator only).
+- **Script.** `verify/terminal_feed_live.py`.
+- **Evidence** (git-ignored, `verify/evidence/terminal-feed-20261022/`):
+  - `claude/terminal-feed.mp4`, the full Claude run, about 2.5 min.
+  - `claude/shots/01..13`.
+  - `codex/codex-reply.mp4` and `codex/shots/`.
+  - Contact sheets `sheet-a.png`, `sheet-b.png` and `sheet-codex.png`.
+
+| Flow | Terminal agent card now | GUI chat card (same Feed) | Result |
+| --- | --- | --- | --- |
+| Prompt that edits a file | The edit approval card ("Needs approval: Edit"), with your prompt as the quote. After Allow in the terminal, "Answered in the terminal". The finished card shows the prompt quote plus Claude's whole markdown answer: heading MANGO, a bullet with inline code `calc.py:6`, `a * b` | The fake agent's turn shows its prompt quote and the answer preview | Same shape: quote, answer, Reply/Open/Copy/Share |
+| Reply from the Feed | Reply → type → Send. The text reached Claude's prompt in **0.83 s** and was submitted. The card says "Sent to the terminal" under your reply bubble. Claude's next turn ("PINEAPPLE") arrived as a new card quoting the reply | Reply sends `session/prompt` into the chat | The reply reached the agent, confirmed on the Mac screen |
+| Command needing permission | "Needs approval: Bash" with the prompt quote, answered in the terminal. Then the finished card (KIWI …) | "Needs permission: git push origin main" with Allow once / Deny | Terminal asks stay "Answer in Terminal" (the rich-push lane owns inline answers) |
+| AskUserQuestion | "Asked a question: AskUserQuestion" with the prompt quote and Answer in Terminal. After the answer, "Answered in the terminal", then the finished card (LEMON …) | `QuestionCard` with options | Options inline: rich-push-termq lane |
+| Error | "Failed", "Reported an error: Bash", plus the error text in a code block (`Exit code 127`, `command not found: swiftlint-not-installed`), with the prompt quote | The turn's error text | The error text is shown |
+| Finished turn | The whole answer, kind response, in the Finished filter | The answer preview | Terminal now shows more than the GUI card (the whole answer, not a 200-character preview) |
+| Codex | "Codex · tf-codex": the prompt quote and the whole answer (PAPAYA heading and a bullet). A Feed reply reached Codex's prompt in 0.09 s, and its answer (GUAVA) came back as a new card. The event carries the Codex session id | – | Same as Claude |
+
+Not in this run:
+- Inline answers to terminal asks. They belong to the rich-push lane.
+- Diffs and changed-file lists. No Feed card has them, GUI included; they live only in the chat transcript.
+
+Observations:
+- **Transition frame.** One frame of `codex/shots/02` shows the reply composer fading out over the new "Sent to the terminal" bubble. It is a transition frame, and the settled card is correct.
+- **GUI Deny (not this lane).** The GUI chat's permission card stayed open after the scripted Deny tap in step 6. The tap may have landed while the list was moving. `verify/multimac` covers GUI Deny over the real link.
