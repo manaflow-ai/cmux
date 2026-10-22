@@ -53,7 +53,7 @@ export function OptionsMenu({ rows }: { rows: OptionsRow[] }) {
           style={menuStyle}
           role="menu"
           tabIndex={-1}
-          className="acpmux-file-menu-list"
+          className="ui-popup ui-glass acpmux-file-menu-list"
           aria-label={t("changes.options")}
           onKeyDown={onKeyDown}
         >

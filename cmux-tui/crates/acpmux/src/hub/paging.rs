@@ -28,6 +28,10 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "queue_paused",
     "queue_resumed",
     "turn_started",
+    // The turn's agent has said nothing since its prompt, and then its model's first sign
+    // (`silent_turn.rs`).
+    "turn_silent",
+    "turn_heard",
     "turn_result",
     "permission_request",
     "permission_auto",
@@ -36,6 +40,9 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "permission_chat_allowance",
     "message_superseded",
     "failover",
+    // A policy narrower than approve-all that the chat's harness cannot keep
+    // (`policy_mode.rs`): the chat says so where it happened.
+    "policy_unenforced",
     "forked",
     "imported",
     "session_offer",
@@ -91,6 +98,21 @@ impl EventFilter {
         }
     }
 
+    /// True when no record with this `dir` and `kind` can match, so a store can
+    /// pass its line without parsing it. False means "parse and ask `matches`":
+    /// an `in` record's kind alone does not say whether it is an agent update,
+    /// except for the kinds that never are (raw harness lines, responses, load
+    /// replays and bookkeeping updates).
+    pub fn surely_skips(&self, dir: &[u8], kind: &[u8]) -> bool {
+        let Some(kinds) = &self.kinds else { return false };
+        !kinds.iter().any(|k| match k.as_str() {
+            "all" | "wire" => true,
+            "transcript" => transcript_may_match(dir, kind),
+            "mux" => dir == b"mux",
+            exact => kind == exact.as_bytes(),
+        })
+    }
+
     pub fn matches(&self, rec: &EventRecord) -> bool {
         let Some(kinds) = &self.kinds else { return true };
         kinds.iter().any(|k| match k.as_str() {
@@ -117,6 +139,23 @@ pub fn is_transcript(rec: &EventRecord) -> bool {
     rec.dir == "mux" && TRANSCRIPT_MUX_KINDS.contains(&rec.kind.as_str())
 }
 
+/// Whether a record with this `dir` and `kind` may be a transcript record
+/// (`is_transcript`); false only when it surely is not.
+fn transcript_may_match(dir: &[u8], kind: &[u8]) -> bool {
+    match dir {
+        b"mux" => TRANSCRIPT_MUX_KINDS.iter().any(|k| k.as_bytes() == kind),
+        // A live agent update's kind is its `sessionUpdate` (hub/tap.rs); a raw
+        // harness line keeps its `claude.` method and a reply is `response`.
+        b"in" => {
+            !kind.ends_with(b".replay")
+                && !kind.starts_with(b"claude.")
+                && kind != b"response"
+                && !NON_TRANSCRIPT_UPDATES.iter().any(|k| k.as_bytes() == kind)
+        }
+        _ => false,
+    }
+}
+
 /// Raw protocol traffic: requests, responses, replays and harness lines.
 fn is_wire(rec: &EventRecord) -> bool {
     let live_update = is_agent_update(rec) && !rec.kind.ends_with(".replay");
@@ -127,6 +166,41 @@ fn is_wire(rec: &EventRecord) -> bool {
 /// (`sessionId`, `seq`, `at`, `dir`, `kind`).
 fn record_bytes(rec: &EventRecord) -> usize {
     serde_json::to_string(&rec.msg).map_or(0, |msg| msg.len()) + rec.kind.len() + 120
+}
+
+/// The most JSON one page holds when the caller names no `maxBytes`, and the most it may
+/// name. A page's records are parsed trees until the reply is written, many times their
+/// JSON: one read of a whole 31 MB log held about 1 GB (huge-blue, 2026-10-21), and a 4 MiB
+/// page still grew the daemon by 95 MB. A longer read takes more pages through `hasMore`;
+/// the app's pages are 128 and 256 KiB. A page also goes out as one message, under
+/// `rpc::MAX_MESSAGE_BYTES`: 5000 records of a chat with long tool outputs were 32.8 MB.
+pub const DEFAULT_PAGE_BYTES: usize = 1 << 20;
+pub const MAX_PAGE_BYTES: usize = 4 << 20;
+
+/// A page's byte limit from `maxBytes`: [`DEFAULT_PAGE_BYTES`] when absent, at most
+/// [`MAX_PAGE_BYTES`].
+pub fn page_bytes(params: &Value) -> usize {
+    let asked = params.get("maxBytes").and_then(Value::as_u64);
+    asked
+        .map_or(DEFAULT_PAGE_BYTES, |b| usize::try_from(b).unwrap_or(usize::MAX))
+        .min(MAX_PAGE_BYTES)
+}
+
+/// The most JSON one record may hold in a page: a page always carries at least one record and
+/// goes out as one message, so a record must leave room under `rpc::MAX_MESSAGE_BYTES` for the
+/// reply around it.
+pub const MAX_RECORD_BYTES: usize = crate::rpc::MAX_MESSAGE_BYTES - (1 << 20);
+
+/// A record no message can carry goes as a stub with its kind and seq: what it left out, and how
+/// much. Also returns what the record adds to the page.
+fn fit(mut rec: EventRecord, bounded: bool) -> (EventRecord, usize) {
+    let bytes = record_bytes(&rec);
+    if !bounded || bytes <= MAX_RECORD_BYTES {
+        return (rec, bytes);
+    }
+    rec.msg = json!({"_meta": {"acpmux": {"omitted": {"bytes": bytes, "reason": "too_large"}}}});
+    let stub = record_bytes(&rec);
+    (rec, stub)
 }
 
 /// One page of a session's log, oldest first.
@@ -154,15 +228,16 @@ impl Hub {
         filter: &EventFilter,
     ) -> Result<EventPage> {
         let before = before.unwrap_or(u64::MAX);
+        let bounded = max_bytes.is_some();
         let mut page = EventPage::default();
         let mut bytes = 0usize;
         // Whether the page is full before `rec`: by count, or by size once it holds a record.
-        let mut full = |rec: &EventRecord, found: usize| {
+        let mut full = |rec_bytes: usize, found: usize| {
             if found == limit {
                 return true;
             }
             let Some(max) = max_bytes else { return false };
-            bytes += record_bytes(rec);
+            bytes += rec_bytes;
             found > 0 && bytes > max
         };
         if limit == 0 || !newest {
@@ -174,7 +249,8 @@ impl Hub {
                 if !filter.matches(&rec) {
                     return true;
                 }
-                if full(&rec, found) {
+                let (rec, rec_bytes) = fit(rec, bounded);
+                if full(rec_bytes, found) {
                     page.has_more = true;
                     return false;
                 }
@@ -185,11 +261,13 @@ impl Hub {
             return Ok(page);
         }
         let mut found = Vec::new();
-        self.store.scan_back(id, after, before, &mut |rec| {
+        let skip = |dir: &[u8], kind: &[u8]| filter.surely_skips(dir, kind);
+        self.store.scan_back(id, after, before, &skip, &mut |rec| {
             if !filter.matches(&rec) {
                 return true;
             }
-            if full(&rec, found.len()) {
+            let (rec, rec_bytes) = fit(rec, bounded);
+            if full(rec_bytes, found.len()) {
                 page.has_more = true;
                 return false;
             }
@@ -242,5 +320,14 @@ mod transcript_kind_tests {
         for kind in ["stopped", "exited", "resumed", "reopened", "host_started", "host_ended"] {
             assert!(is_transcript(&mux(kind)), "{kind} is not a transcript record");
         }
+    }
+
+    /// A chat client notes a policy its harness cannot keep where it was
+    /// logged, as it notes a failover.
+    #[test]
+    fn an_unenforced_policy_is_a_transcript_record() {
+        assert!(is_transcript(&mux("policy_unenforced")));
+        let transcript = EventFilter::parse(Some(&json!(["transcript"]))).unwrap();
+        assert!(!transcript.surely_skips(b"mux", b"policy_unenforced"));
     }
 }

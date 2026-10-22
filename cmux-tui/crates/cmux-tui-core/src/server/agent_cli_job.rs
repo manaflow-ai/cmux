@@ -175,7 +175,7 @@ fn prepare(socket: &Path, cli: &str) -> anyhow::Result<Vec<String>> {
         .map(|v| v.as_str().map(str::to_owned))
         .collect::<Option<Vec<_>>>()
         .ok_or(Failure::InvalidResponse)?;
-    if !(2..=6).contains(&argv.len())
+    if !(2..=9).contains(&argv.len())
         || !Path::new(&argv[0]).is_absolute()
         || argv.iter().any(|v| v.contains('\0'))
         || argv.iter().map(String::len).sum::<usize>() > 16 * 1024

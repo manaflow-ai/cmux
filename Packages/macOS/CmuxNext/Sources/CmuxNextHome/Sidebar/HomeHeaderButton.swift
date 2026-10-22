@@ -76,7 +76,7 @@ final class HomeHeaderButton: NSButton {
 
     /// The glyph's colour in the view's theme scope (also on a theme or appearance change).
     func applyTint() {
-        contentTintColor = performWithTheme { isOn ? Palette.accentFill : Palette.textSecondary }
+        contentTintColor = performWithTheme { isOn ? Palette.litGlyph : Palette.textSecondary }
         hover.refresh(animated: false)
     }
 

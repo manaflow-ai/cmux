@@ -28,9 +28,15 @@ nonisolated extension SidebarLayout {
         guard o.filterMatches == nil, o.gap == nil, gapY == nil, o.excludedGroup == nil, o.excludedItem == nil,
               !o.showWorkspaceTabs, !o.groupsByFolder, !o.hidesWorkspaces,
               let headerIndex = position(of: .group(group.id)) else { return false }
+        // The chat history's blocks sit at places the full layout leaves (`pinnedChatsY`, `earlierChatsY`); a splice
+        // moves the rows but not those places, so with history shown the list is laid out again.
+        guard pinnedChatsY == nil, earlierChatsY == nil else { return false }
         // A nested group or a group holding subgroups (remote-groups-DESIGN.md slice 2): its block holds other groups'
         // rows, so the full layout places them.
-        guard group.parent == nil,
+        // A group holding workspaces marked Done draws them behind its "Done (N)" row (`foldingDone`): laid out again.
+        // So does one longer than the row limit (its "Show N more" row).
+        guard group.parent == nil, !(o.foldsDone && group.workspaces.contains { $0.taskStatus == .done }),
+              o.rowLimit == 0 || group.members.count <= o.rowLimit + 1,
               !section.nodes.contains(where: { if case let .group(child) = $0 { child.parent == group.id } else { false } }) else { return false }
         let m = o.minimal ? base.minimal : base
         let header = rows[headerIndex]

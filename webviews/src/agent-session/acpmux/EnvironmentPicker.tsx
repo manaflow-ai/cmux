@@ -7,12 +7,14 @@ import {
   type ConnectKind,
   type Environment,
   type EnvironmentKind,
+  type OffloadKind,
   type SavedEnvironment,
   environmentDigit,
   environmentForDigit,
   orderEnvironments,
 } from "./environments";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
+import { machineColor } from "./machineColor";
 
 const SECTION_LABELS = {
   local: "composer.envLocal",
@@ -38,7 +40,8 @@ export type SavedEnvironmentRows = {
 /// Cloud Machine (the host's create flow) with what one gives, so a cloud machine is one click away
 /// even before the first. New environment at the bottom holds the SSH… connect flow. ⌥⌘1–9 also
 /// work while the composer it heads has focus. On the New Tab page it also lists the saved
-/// environments (`saved`) first.
+/// environments (`saved`) first. A started chat's picker lists only where it runs and its move
+/// (`offload`): Move to Cloud from this Mac, Bring Back Local from a Cloud machine.
 export function EnvironmentPicker({
   label,
   menu,
@@ -50,6 +53,8 @@ export function EnvironmentPicker({
   onConnect,
   saved,
   onOpen,
+  offload,
+  onOffload,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -65,6 +70,9 @@ export function EnvironmentPicker({
   saved?: SavedEnvironmentRows;
   /// The list opened: the host reads the machines again, so each one's status is current.
   onOpen?(): void;
+  /// A started chat's move, run by `onOffload`.
+  offload?: OffloadKind;
+  onOffload?(kind: OffloadKind): void;
 }) {
   // A picked saved environment is the current row: every machine row is then a change.
   const currentRow = saved?.current !== undefined ? SAVED + saved.current : current;
@@ -118,11 +126,30 @@ export function EnvironmentPicker({
     value: string;
     text: string;
     detail?: string;
-    kind: "ssh" | "cloud" | "saved";
+    kind: "local" | "ssh" | "cloud" | "saved";
     icon?: React.ReactNode;
     run(): void;
   };
   const actions: Action[] = [
+    ...(offload && onOffload
+      ? [
+          offload === "move"
+            ? {
+                value: ACTION + offload,
+                text: t("composer.moveToCloud"),
+                detail: t("composer.moveToCloudDetail"),
+                kind: "cloud" as const,
+                run: () => onOffload(offload),
+              }
+            : {
+                value: ACTION + offload,
+                text: t("composer.bringBackLocal"),
+                detail: t("composer.bringBackLocalDetail"),
+                kind: "local" as const,
+                run: () => onOffload(offload),
+              },
+        ]
+      : []),
     ...(onConnect
       ? [
           {
@@ -172,7 +199,8 @@ export function EnvironmentPicker({
     ...actions.map((action) => action.value),
   ];
   const cloudShown = shown.some((environment) => environment.kind === "cloud");
-  const firstNew = actions.find((action) => action.kind !== "cloud");
+  const localShown = shown.some((environment) => environment.kind === "local");
+  const firstNew = actions.find((action) => action.kind !== "cloud" && action.kind !== "local");
 
   const latest = useRef({ ordered, current: currentRow, onPick, onOpen });
   latest.current = { ordered, current: currentRow, onPick, onOpen };
@@ -232,16 +260,20 @@ export function EnvironmentPicker({
   const row = (value: string) => {
     const action = actions.find((candidate) => candidate.value === value);
     if (action) {
-      // The cloud action heads its section only when no cloud machine does; the first other action
-      // heads New environment.
+      // The cloud action heads its section only when no cloud machine does, as Bring Back Local
+      // heads Local when this Mac isn't listed; the first other action heads New environment.
       const section =
         action.kind === "cloud"
           ? action === actions[0] && !cloudShown
             ? t(SECTION_LABELS.cloud)
             : undefined
-          : action === firstNew
-            ? t("composer.newEnvironment")
-            : undefined;
+          : action.kind === "local"
+            ? localShown
+              ? undefined
+              : t(SECTION_LABELS.local)
+            : action === firstNew
+              ? t("composer.newEnvironment")
+              : undefined;
       const first = section && savedShown.length === 0 && shown.length === 0 && action === actions[0];
       return (
         <span
@@ -292,7 +324,7 @@ export function EnvironmentPicker({
         data-first-section={sectionStart && index === 0 && savedShown.length === 0 ? "" : undefined}
         data-current={environment.id === currentRow ? "" : undefined}
       >
-        <EnvironmentIcon kind={environment.kind} />
+        <EnvironmentIcon kind={environment.kind} name={environment.label} />
         <span className="acpmux-menu-text acpmux-location-name">
           <span className="acpmux-menu-label">{environment.label}</span>
         </span>
@@ -347,7 +379,8 @@ export function EnvironmentPicker({
           onCommand={(event) => {
             if (event.key === "Escape") escaped.current = true;
             if (event.key === "Tab") event.preventDefault();
-            // Return runs an action (New Cloud Machine creates a machine; Open Cloud…, SSH…) only
+            // Return runs an action (New Cloud Machine creates a machine; Move to Cloud moves the
+            // chat; Open Cloud…, SSH…) only
             // once the arrow keys or the pointer reached it, never when Base UI highlighted it on its
             // own: a search that leaves no machine moves that highlight onto the first action.
             if (event.key === "Enter" && autoHighlighted.current?.startsWith(ACTION)) {
@@ -425,11 +458,15 @@ function PencilIcon() {
   );
 }
 
-export function EnvironmentIcon({ kind }: { kind: EnvironmentKind }) {
+/// A machine's icon: its kind's shape. Another machine draws in its own color (machineColor), so
+/// it reads the same in the chip, this list and the chat's Environment line; this Mac stays quiet
+/// (Leo 2026-10-20: another machine is the news).
+export function EnvironmentIcon({ kind, name }: { kind: EnvironmentKind; name?: string }) {
   return (
     <svg
       className="acpmux-icon acpmux-location-icon acpmux-env-icon ui-ghost-icon"
       data-kind={kind}
+      style={name && kind !== "local" ? { color: machineColor(name) } : undefined}
       width={14}
       height={14}
       viewBox="0 0 16 16"

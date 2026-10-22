@@ -22,6 +22,9 @@ Status 2026-10-14: partly built. What exists:
   (`codex_app_server/background.rs`) reports them as
   `background_task_update`, and `process/kill` calls
   `thread/backgroundTerminals/terminate`.
+- `process/background` (Ctrl-B): Claude Code's `background_tasks` control
+  request moves a chat's foreground work to the background; the shells it
+  moved are listed with origin `user_backgrounded`.
 
 Not built yet: `process/watch`, Codex's output and its
 `thread/backgroundTerminals/list` at session load, and the per-session
@@ -96,6 +99,20 @@ harness itself exited. Its last output is kept and its command is shown with
   reads it (peers are refused). Claude Code does not need to stream the
   output.
 - To stop a task, acpmux sends Claude Code's `stop_task` control request.
+- To move running work to the background (Ctrl-B), acpmux sends Claude
+  Code's `background_tasks` control request (2.1.305): with `tool_use_id`
+  only the task that tool call started, without it every foreground task,
+  as Claude Code's own Ctrl-B does. Its answer carries `backgrounded`
+  (Claude Code's SDK reads a missing one as true). The moved shells then
+  come as task events like any other, and the translator gives the ones
+  that were in the foreground at the request origin `user_backgrounded`.
+  The hub waits 10 s for the answer and passes that wait to the translator
+  (`timeoutMs`). The marks go again when the answer says nothing moved, when
+  that wait ends unanswered, or when the turn ends first, so a shell Claude
+  Code moves later on its own stays `auto_backgrounded`. A shell that already
+  moved, or that another request moved or still waits on, keeps its mark: of
+  two Ctrl-Bs close together, the second's `backgrounded: false` leaves the
+  first's shell the person's.
 
 **Codex** (`codex app-server`, through the `cmux-codex-acp` bridge):
 
@@ -145,7 +162,8 @@ process's command line and its kill never leave the machine.
 | `_acpmux/process/list` (request, built) | `{sessionId?}` (none: every chat whose processes this daemon has read since it started) | `{processes: [Process]}` |
 | `_acpmux/process/tail` (request, built) | `{processId, fromByte?, maxBytes?}` (default: the last 64 KiB; at most 1 MiB) | `{data (base64), fromByte, nextByte, eof}`; `eof`: the process ended and `nextByte` is the file's end; a missing file is empty data |
 | `_acpmux/process/watch` (request) | `{processId}` | `{}`; then `_acpmux/process/output` notifications `{processId, data (base64), atByte}`, the same shape as v2's `terminal_output_chunk`, until `unwatch` or the process ends |
-| `_acpmux/process/kill` (request, built) | `{processId, signal?: "term" \| "kill"}` | `{}`; the outcome arrives as a `process_update` |
+| `_acpmux/process/kill` (request, built) | `{processId, sessionId?, signal?: "term" \| "kill"}`; a named `sessionId` must be the process's chat (the agent pane names it, and its host allows only a chat in the pane's scope) | `{}`; the outcome arrives as a `process_update` |
+| `_acpmux/process/background` (request, built) | `{sessionId, toolCallId?}` (none: every foreground task) | `{backgrounded: bool}`; false when no turn runs or nothing ran in the foreground. Claude Code (a claude-stdio harness, whatever its name) only: any other chat is refused with invalid params (Codex moves long commands to the background itself). Every session summary says which chats it takes (`backgroundsWork`). Claude Code's error is the request's error. What moved arrives as `process_update`s, origin `user_backgrounded` |
 | `_acpmux/process_update` (notification, built) | `{process: Process}` | |
 
 **Migration:**
@@ -180,6 +198,15 @@ process's command line and its kill never leave the machine.
 - **Sidebar:** a chat row shows a running process even when no turn runs.
 - **Slash commands:** `/ps` and `/stop` (the names Codex uses) map to list
   and kill.
+- **Ctrl-B:** while a Claude Code turn runs, Ctrl-B in the chat sends
+  `process/background {sessionId}`, as Ctrl-B does in Claude Code itself; a
+  running tool row's own button may name its `toolCallId`. On
+  `backgrounded: true` the turn goes on and the moved work shows up as
+  running rows (origin `user_backgrounded`); `false` means nothing ran in
+  the foreground. Offer it only where the chat's session summary says
+  `backgroundsWork` (a Claude Code chat whatever its harness is named, the
+  `cmux` model router's profile too), never by the harness's name; other
+  harnesses are refused. The CLI is `acpmux process background SESSION [--tool-call ID]`.
 - **SHOW LEO:** a new visual, so it is shown to Leo before merging.
 
 ## Tests (behavior, at the hub boundary)
@@ -190,7 +217,17 @@ process's command line and its kill never leave the machine.
   `killed` by the person; a harness exit marks running processes `lost`; Web
   and Peer connections are refused; `process/tail` returns the output file's
   bytes, pages with `fromByte`/`maxBytes`, says `eof` after the shell ends,
-  reads a missing file as empty, and refuses unknown ids.
+  reads a missing file as empty, and refuses unknown ids;
+  `process/background` sends `background_tasks` with and without
+  `tool_use_id`, answers Claude Code's `backgrounded`, lists the moved shell
+  `user_backgrounded`, answers false with no turn running without asking,
+  turns Claude Code's refusal into an error, leaves no mark when Claude Code
+  never answers or the turn ends first, keeps the first of two requests'
+  shell the person's when the second answers false, and refuses a chat of another
+  agent (Codex too, in `codex_processes.rs`) and Web and Peer connections.
+  A chat's summary says `backgroundsWork` by its harness's kind: the
+  `cmux` router profile (claude-stdio) yes, and Ctrl-B moves its work; an
+  ACP agent named `claude-acp` no, and it is refused.
 - To build: after a daemon restart an adopted host's processes are listed
   again.
 - Built (`tests/hub_integration/codex_processes.rs`, the fake Codex

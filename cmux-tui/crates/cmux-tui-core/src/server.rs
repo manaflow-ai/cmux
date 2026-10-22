@@ -261,7 +261,7 @@ mod terminal_resources;
 mod terminal_snapshot;
 use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
 mod capabilities;
-pub use capabilities::build_capabilities;
+pub use capabilities::{build_capabilities, static_capabilities};
 mod daemon_build;
 pub use daemon_build::{
     BuildStamp, DAEMON_BUILD_CAPABILITY, DaemonBuild, install_build_stamp, install_daemon_build,
@@ -1748,6 +1748,9 @@ enum Command {
     CloudInboxList(cloud_conversations::InboxListParams),
     /// `cloud-requests-list`: the person's message requests (no fields).
     CloudRequestsList(cloud_conversations::NoParams),
+    /// `cloud-selfhost-info` (`cloud-selfhost-v1`): the self-hosted chat
+    /// server's identity of the person (no fields).
+    CloudSelfhostInfo(cloud_conversations::NoParams),
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
     CloudConversationHistory(cloud_conversations::HistoryParams),
     CloudConversationThread(cloud_conversations::ThreadParams),

@@ -1,0 +1,224 @@
+name: cmux-next fast gates
+
+# Four push-time checks, in fail mode, on a pull request merged with its base
+# (scripts/ci/cmux_next_fast_gates.py). On 2026-10-21 four base reds landed
+# through checks that only warn on a pull request or only run on push: webviews
+# lint/format and switch-fetches (ci-web's react-apps-check warns on a pull
+# request; `web lint (fast)` in cmux-next-web.yml fails only on push), a
+# self-merge past its own red defaults-snapshot, and direct pushes that tripped
+# the crash ratchet. feat-cmux-next has no required checks.
+#
+# The job posts `cmux-next/fast-gates` on the PR head with the description
+# `base <sha>`, the merge's first parent. A merger (next-autoland, gh-merge-green,
+# the hq merge hook) takes it as fresh when it is success, its base is an ancestor
+# of the current tip, and the commits since touch none of the PR's files and no
+# check path (scripts/ci/check-paths.txt); otherwise it dispatches this workflow
+# with pr=N on feat-cmux-next, which merges the PR head into the current tip and
+# runs the gates again, plus the webviews checks (a check that landed after the
+# PR's CI runs before it merges). No paths filter: every pull request gets a
+# status. About two minutes on Linux.
+#
+# Three jobs, so pull request code never runs next to a write token: `resolve`
+# names the head and base without running any checked-out code (a dispatch
+# refuses a fork head or another base before anything is fetched), `gates` runs
+# the PR's code with contents: read only, and `post` writes the status from
+# resolve's outputs and the gates job's result, never from anything gates wrote.
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number into feat-cmux-next, merged with the current tip and gated
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fast-gates-${{ github.event.pull_request.number || inputs.pr }}
+  cancel-in-progress: true
+
+jobs:
+  resolve:
+    name: resolve head and base
+    # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      head_sha: ${{ steps.resolve.outputs.head_sha }}
+      base: ${{ steps.resolve.outputs.base }}
+      post: ${{ steps.resolve.outputs.post }}
+    steps:
+      # A pull request's merge commit and both parents; only git reads it here.
+      - name: Checkout the merge ref
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+
+      # Runs no checked-out code: git rev-parse on the merge ref, or the GitHub API
+      # on dispatch, which refuses a fork head, a closed pull request
+      # or another base before the gates job fetches anything.
+      - name: Resolve the head and the base
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR: ${{ inputs.pr }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BRANCH: feat-cmux-next
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+            if [[ ! "$PR" =~ ^[0-9]{1,7}$ ]]; then
+              echo "::error::pr must be a pull request number (digits only)"
+              exit 1
+            fi
+            read -r state head_repo base_ref head < <(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" \
+              --jq '[.state, (.head.repo.full_name // "deleted"), .base.ref, .head.sha] | @tsv')
+            if [[ "$head_repo" != "$GITHUB_REPOSITORY" ]]; then
+              echo "::error::#$PR comes from $head_repo; dispatch gates only pull requests from $GITHUB_REPOSITORY"
+              exit 1
+            fi
+            if [[ "$base_ref" != "$BRANCH" || "$state" != open ]]; then
+              echo "::error::#$PR is $state into $base_ref; dispatch gates only open pull requests into $BRANCH"
+              exit 1
+            fi
+            base=$(gh api "repos/$GITHUB_REPOSITORY/branches/$BRANCH" --jq .commit.sha)
+            post=true
+          else
+            [[ "$(git rev-parse HEAD^2)" == "$PR_HEAD" ]] || { echo "::error::the merge ref is not on the pull request head $PR_HEAD; push again or dispatch"; exit 1; }
+            head=$PR_HEAD
+            base=$(git rev-parse HEAD^1)
+            # A fork pull request's token cannot write statuses.
+            post=false
+            if [[ "$PR_REPO" == "$GITHUB_REPOSITORY" ]]; then post=true; fi
+          fi
+          [[ "$head" =~ ^[0-9a-f]{40}$ && "$base" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::could not resolve the head and base"; exit 1; }
+          { echo "head_sha=$head"; echo "base=$base"; echo "post=$post"; } >> "$GITHUB_OUTPUT"
+          echo "head $head, base $base"
+
+  fast-gates:
+    name: fast gates
+    needs: resolve
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    # The pull request's code runs here: no write permission of any kind.
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # A pull request's merge commit and both parents. A dispatch fetches
+          # the PR head and the tip itself and deepens until they meet.
+          fetch-depth: 2
+
+      - name: Merge with the base
+        id: prepare
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR: ${{ inputs.pr }}
+          HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          BASE: ${{ needs.resolve.outputs.base }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+            python3 scripts/ci/cmux_next_fast_gates.py prepare --event workflow_dispatch --pr "$PR" --head "$HEAD_SHA" --base "$BASE" --output "$GITHUB_OUTPUT"
+          else
+            python3 scripts/ci/cmux_next_fast_gates.py prepare --event pull_request --head "$HEAD_SHA" --base "$BASE" --output "$GITHUB_OUTPUT"
+          fi
+
+      # Web lint installs node_modules only in the web folders the diff touches
+      # (scripts/web_lint_prepush.py), and the webviews checks gate (a dispatch
+      # only) installs webviews'; without either none of this runs.
+      - name: Setup Bun
+        if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      # A dispatch runs on feat-cmux-next's ref, so a cache it saved would sit in
+      # the base branch's scope after pull request code (bun install scripts)
+      # ran: a dispatch only restores.
+      - name: Cache Bun package cache
+        if: ${{ github.event_name == 'pull_request' && (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
+
+      - name: Restore the Bun package cache (dispatch)
+        if: ${{ github.event_name == 'workflow_dispatch' && (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
+
+      # `vp check` runs on Node and needs ^22.18 or ^24.11; bun still installs.
+      - name: Setup Node
+        if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      # prepush-gate.py downloads its pinned tools (sha256 checked) once per lock.
+      # A dispatch only restores them, as with the Bun cache above.
+      - name: Cache the pinned lint tools
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/cmux-lint-tools
+          key: cmux-lint-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/cmux-next/lint-tools.lock') }}
+
+      - name: Restore the pinned lint tools (dispatch)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/cmux-lint-tools
+          key: cmux-lint-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/cmux-next/lint-tools.lock') }}
+
+      - name: Fast gates on the merge
+        id: gates
+        env:
+          BASE: ${{ needs.resolve.outputs.base }}
+          WEB: ${{ steps.prepare.outputs.web }}
+          CHECKS: ${{ steps.prepare.outputs.checks }}
+        run: python3 scripts/ci/cmux_next_fast_gates.py run --base "$BASE" --web "$WEB" --checks "$CHECKS" --summary "$GITHUB_STEP_SUMMARY"
+
+  # Writes the status from resolve's outputs and the gates job's result only; it
+  # checks nothing out and reads nothing the gates job wrote.
+  post:
+    name: post cmux-next/fast-gates
+    needs: [resolve, fast-gates]
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      statuses: write
+    steps:
+      - name: Post the cmux-next/fast-gates status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONTEXT: cmux-next/fast-gates
+          HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          BASE: ${{ needs.resolve.outputs.base }}
+          GATES: ${{ needs.fast-gates.result }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ && "$BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no head or base sha to report"; exit 1; }
+          state=failure
+          if [[ "$GATES" == success ]]; then state=success; fi
+          # gh api prints GitHub's message on an error (curl -f hid the reason for a 403).
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
+            -f state="$state" -f context="$CONTEXT" -f target_url="$TARGET_URL" -f description="base $BASE" > /dev/null
+          echo "$CONTEXT: $state on $HEAD_SHA (base $BASE)"
