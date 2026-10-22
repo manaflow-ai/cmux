@@ -953,7 +953,7 @@ export default agentPaneEntry({
       snapshot: steerMarks(),
     },
     "steer-read-hover": {
-      note: "Play: hover the steer the agent read: the same row as any prompt (age, two checks, Copy, Retry, Pin), and the check's tooltip says who read it. No Steered or Steering text anywhere in the transcript.",
+      note: "Play: hover the steer the agent read: the same row as any prompt (two checks, age, Copy, Retry, Fork), and the check's tooltip says who read it. No Steered or Steering text anywhere in the transcript.",
       snapshot: steerMarks(),
       play: async (ctx) => {
         const steer = ctx.find({ text: "Use the cache dir, not tmp" }).closest(".cv-user");
