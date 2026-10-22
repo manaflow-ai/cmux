@@ -48,6 +48,8 @@ struct RowMotion {
         passOver(in: list, from: old, to: layout)
         for (view, end) in leaving { view.closingEnd = end }
         let opens = appearing.map(\.0.opens)
+        list.rowMoves &+= 1
+        let move = list.rowMoves
         Motion.sidebar.animate(.move, in: list, {
             moves()
             lines.changes()
@@ -65,8 +67,25 @@ struct RowMotion {
             // A row reopened since keeps clipping until its own open ends.
             for ((view, _), open) in zip(appearing, opens) where view.opens == open { view.clipsToBounds = false }
             for (view, _) in leaving where !list.rowViews.values.contains(where: { $0 === view }) { Self.closed(view, in: list) }
+            if list.rowMoves == move { Self.land(list) }
             list.pruneOffscreen()
         })
+    }
+
+    /// Puts every row and group line exactly on its layout frame once the last move ended. AppKit's
+    /// SwiftUI spring writes the frame each display frame and stops within its rest tolerance, not on
+    /// the target: rows stayed half a point off on a 1x screen (aws-m4pro-8), a fraction on Retina.
+    /// A drag, a settling drop or a card's flight owns the frames until it ends.
+    static func land(_ list: SidebarListView) {
+        guard list.drag == nil, list.settling == nil, list.landing == nil else { return }
+        Motion.withoutAnimation {
+            for (key, view) in list.rowViews where view.closingEnd == nil {
+                guard let row = list.displayed.row(for: key) else { continue }
+                let target = list.frame(for: row)
+                if view.frame != target { view.frame = target }
+            }
+            list.groupLineViews.land()
+        }
     }
 
     /// Moves every row by `dy` at once, with the scroll offset (the anchor step of
@@ -116,11 +135,14 @@ struct RowMotion {
         }
         view.opens += 1
         let open = view.opens
+        list.rowMoves &+= 1
+        let move = list.rowMoves
         Motion.sidebar.animate(.move, in: list, {
             view.animator().frame = target
             view.animator().alphaValue = 1
-        }, settleAtSleep: Self.settle(list), completion: { [view] in
+        }, settleAtSleep: Self.settle(list), completion: { [view, weak list] in
             if view.opens == open { view.clipsToBounds = false }
+            if let list, list.rowMoves == move { Self.land(list) }
         })
     }
 

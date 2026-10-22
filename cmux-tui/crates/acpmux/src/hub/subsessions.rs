@@ -36,7 +36,8 @@
 //!   Claude Code's or Codex's trust, or an agent-home folder, counts only
 //!   for a parent in full access.
 //! - It runs the parent's effective permission policy (one the parent does
-//!   not name is the daemon default; one acpmux cannot parse is `ask`).
+//!   not name is the daemon default, which the child follows as its parent
+//!   does; one acpmux cannot parse is `ask`).
 //! - On the same harness family it starts in the parent's current mode (the
 //!   start gate's inherit rule), on another family in the person's default
 //!   start mode only when the parent runs with full access. A child that
@@ -615,9 +616,16 @@ impl Hub {
         } else {
             None
         };
-        // Always the caller's effective policy: one it does not name is the
-        // daemon default, never the child harness's own default.
-        let policy = Some(self.effective_policy(pm).await);
+        // The caller's own policy. A caller that names none runs the daemon
+        // default, and so does its child: the default as the child's own
+        // would narrow it (`policy_mode.rs`) and start the child of a caller
+        // in full access in an asking mode. A child harness default laxer
+        // than the caller's is held to the caller's (`hold_subsession`).
+        let policy = if pm.permission_policy.is_some() {
+            Some(self.effective_policy(pm).await)
+        } else {
+            None
+        };
         let request = NewRequest {
             harness: Some(harness),
             name: Some(name),
@@ -771,9 +779,13 @@ impl Hub {
     /// One family row for the tools: the session's place, state and last reply.
     pub fn subsession_row(&self, s: &Session, with_reply: bool) -> Value {
         let mut summary = self.session_summary(s);
-        // Masked before its cut (`TurnInfo::masked_preview`), for `turn.prompt` and `doing`.
+        // Masked before their cut (`TurnInfo::masked_preview`, `doing`), for `turn` and `doing`.
         if let Some(t) = s.turn().filter(|t| summary["turn"]["turnId"] == t.turn_id.as_str()) {
             summary["turn"]["prompt"] = json!(t.masked_preview);
+            t.doing.mask_into(&mut summary["turn"]);
+        }
+        if summary["waitingPrompt"].is_string() {
+            summary["waitingPrompt"] = json!(super::subsession_send::masked_waiting_prompt(s));
         }
         let pick = |k: &str| summary.get(k).cloned().unwrap_or(Value::Null);
         let mut row = json!({
@@ -811,20 +823,15 @@ impl Hub {
                 row[key] = json!(crate::secret_scan::mask(text));
             }
         }
-        // The last turn's text, and the running turn's prompt again (a turn that changed
-        // between the two reads above): a parent may have pasted a key into it.
-        for pointer in ["/lastTurn/errorText", "/lastTurn/prompt", "/turn/prompt"] {
+        // The last turn's text, and the running turn's again (a turn that changed between the
+        // two reads above): a parent may have pasted a key into it, and what it does now is a
+        // tool call's title, often a command with its arguments.
+        let turn_text = ["/turn/prompt", "/turn/activity", "/turn/planStep"];
+        for pointer in ["/lastTurn/errorText", "/lastTurn/prompt"].into_iter().chain(turn_text) {
             if let Some(slot) = row.pointer_mut(pointer)
                 && let Some(text) = slot.as_str()
             {
                 *slot = json!(crate::secret_scan::mask(text));
-            }
-        }
-        // What the running turn does now is a tool call's title, often a command with its
-        // arguments.
-        for key in ["activity", "planStep"] {
-            if let Some(text) = row["turn"][key].as_str() {
-                row["turn"][key] = json!(crate::secret_scan::mask(text));
             }
         }
         row

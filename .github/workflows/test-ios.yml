@@ -490,6 +490,12 @@ jobs:
       # and 2026-09-23 never went quiet for more than 45 s, and no single test
       # took longer than 44 s; three hung runs went quiet for 353-1152 s.
       TEST_SILENCE_SECONDS: "180"
+      # swift-packages-linux.yml runs CMUXMobileCore, CmuxSyncStore,
+      # CmuxMobilePairedMac and CmuxMobileShellModel on Linux for every
+      # feat-cmux-next pull request that touches Packages/, so such a pull
+      # request runs them here only with the full-ci label; pushes, dispatches
+      # and other bases still run them on the Mac.
+      MAC_RUNS_LINUX_PACKAGES: ${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
     steps:
       - name: Verify GitHub-hosted route
         env:
@@ -570,7 +576,7 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
 
       - name: Run CMUXMobileCore package tests
-        if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CMUXMobileCore' }}
+        if: ${{ (inputs.swift_package == '' && env.MAC_RUNS_LINUX_PACKAGES == 'true') || inputs.swift_package == 'CMUXMobileCore' }}
         run: |
           set -euo pipefail
           args=(--package-path Packages/Shared/CMUXMobileCore)
@@ -586,7 +592,7 @@ jobs:
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CMUXMobileCore}"
 
       - name: Run CmuxSyncStore package tests
-        if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxSyncStore' }}
+        if: ${{ (inputs.swift_package == '' && env.MAC_RUNS_LINUX_PACKAGES == 'true') || inputs.swift_package == 'CmuxSyncStore' }}
         run: |
           set -euo pipefail
           # Local-first sync store (raw SQLite3). Headless SwiftPM, no GhosttyKit
@@ -604,7 +610,7 @@ jobs:
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxSyncStore}"
 
       - name: Run CmuxMobilePairedMac package tests
-        if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxMobilePairedMac' }}
+        if: ${{ (inputs.swift_package == '' && env.MAC_RUNS_LINUX_PACKAGES == 'true') || inputs.swift_package == 'CmuxMobilePairedMac' }}
         run: |
           set -euo pipefail
           args=(--package-path Packages/iOS/CmuxMobilePairedMac)
@@ -620,7 +626,7 @@ jobs:
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobilePairedMac}"
 
       - name: Run CmuxMobileShellModel package tests
-        if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxMobileShellModel' }}
+        if: ${{ (inputs.swift_package == '' && env.MAC_RUNS_LINUX_PACKAGES == 'true') || inputs.swift_package == 'CmuxMobileShellModel' }}
         run: |
           set -euo pipefail
           # Pure shell-model queue and ordering regressions live in this package.
