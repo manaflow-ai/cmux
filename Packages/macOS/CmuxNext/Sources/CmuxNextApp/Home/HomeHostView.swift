@@ -140,8 +140,7 @@ final class HomeHostView: NSView {
         // The stop button (HomeHostView+StopAll): a click, Esc and Cmd-. stop the Chief; Option-click stops all agents.
         let registry = services.registry
         wireStopButton(registry)
-        // A cmux app link (a workspace, pane, tab, chat or Chief subagent): opened here, through link.open,
-        // as model output (the Chief wrote it): it only reveals what is open (media safety R8).
+        // A cmux app link (a workspace, pane, tab, chat or Chief subagent): link.open as model output (R8: reveal only).
         // An attachment or a path link opens in cmux on the right of Home, never in Finder (a
         // folder in a Files tab); right-click has Open With (HomeFileActions).
         let fileActions = HomeFileActions(services: services)
