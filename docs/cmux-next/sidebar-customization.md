@@ -116,11 +116,44 @@ function decorateRows() {
 globalThis.__cmuxAppExports = { renderCard, decorateRows }
 ```
 
+## Replace the whole sidebar: `cmux.sidebar/1`
+
+The default sidebar is minimal. For a fully custom one, add a `sidebar` export: its view replaces
+the workspace list. The titlebar row, the sections and the footer stay native.
+
+```json
+"implements": { "cmux.sidebar/1": { "export": "sidebar" } },
+"scopes": { "workspace:read": "Rows", "agent:read": "Status", "notification:read": "Unread" }
+```
+
+A classic `~/.config/cmux/sidebars/<name>.js` script works as it is in `main.js`: `sidebar(fn)`
+sets the export, and `data.workspaces()` gives the classic rows (`id`, `title`, `selected`,
+`unread`, `status` (`working`, `needs-attention`, `idle`), `agents`, plus every new field).
+
+```js
+sidebar(() => LazyVStack({ spacing: 2 }, [
+  ForEach({ items: () => data.workspaces() ?? [], key: (w) => w.id }, (w) =>
+    HStack({ spacing: 6 }, [
+      Circle().fill(() => (w().unread > 0 ? "accent" : "clear")).frame({ width: 6, height: 6 }),
+      Text(() => w().title).lineLimit(1),
+      Spacer(),
+    ]).padding(4).onTap(() => cmux("workspace.select", { workspace_id: w().id }))),
+]))
+```
+
+- **Speed.** The script runs in the app host, never on the app's main thread. It runs again only
+  when its data changes (no timer). A change sends only the props that changed, and cmux redraws
+  only those nodes. Use `LazyVStack` for long lists.
+- **Errors.** While the script loads, or after it fails, the native list shows. Fix the file and
+  save, and the custom sidebar comes back.
+- **Turning it off.** Remove the export (or the folder), and the native list returns at once.
+- **Examples.** See [`examples/custom-sidebars/`](../../examples/custom-sidebars/).
+
 ## Coming from classic cmux
 
 | Classic | cmux-next |
 | --- | --- |
-| `~/.config/cmux/sidebars/<name>.js` replaces the whole sidebar | `~/.config/cmux/customize/main.js` redraws the hover card and decorates rows; the sidebar stays native |
+| `~/.config/cmux/sidebars/<name>.js` replaces the whole sidebar | `~/.config/cmux/customize/main.js` replaces the list (`cmux.sidebar/1`), redraws the hover card and decorates rows |
 | `sidebar(fn)` | `globalThis.__cmuxAppExports = { renderCard, decorateRows }` |
 | `data.workspaces()` | `ctx.card` for the hovered row, `cmux.live("workspace.list", {})` for every row |
 | `agents[i].sinceEpoch` (seconds) | `ctx.card.statusSinceMs` and `facts[i].sinceMs` (milliseconds) |

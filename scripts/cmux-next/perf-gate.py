@@ -90,21 +90,26 @@ BUDGET = {
     # Per workspace switch (and per theme switch).
     # The sidebar repaints the old and new selected row or tile only: no row configure, no band layout (cx-8w027.17).
     "switch": {"workspace_applies": 0, "topology_sends": 1, "pane_snapshots": 0, "list_reloads": 0, "row_configures": 0,
-               "band_updates": 0},
+               "band_updates": 0, "custom_sidebar_mounts": 0},
     "switch_selection_patches": 1,
     # Whole phase (40 Next Tab ops at 16 panes x 3 tabs).
-    "tabs": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
+    "tabs": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0, "custom_sidebar_mounts": 0},
     # Per split+close pair (cx-8w027.14, measured 2 / 2 / 1.9-2.5): one apply and one topology each
     # for the split and the close (the new tab is named by its client-minted id; topologies carry no
     # surfaces, so the daemon's confirm sends none); snapshots: the new pane's mount and the shell's
     # titles (0-1.5, the shell's timing); the confirm re-runs only that tab's strip item.
     "split": {"workspace_applies": 2, "topology_sends": 2, "pane_snapshots": 3},
     # Whole status window (4 tickers x 4 ticks/s x 5 s).
-    "status": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
+    "status": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0, "custom_sidebar_mounts": 0},
     # Per pane focus move (16 panes x 3 tabs): the old pane loses its ring, the new pane gets it; nothing
     # else re-runs (speed-of-sound-DESIGN.md 3.2: O(what changed on screen)).
     "pane_focus": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 2, "list_reloads": 0,
                    "row_configures": 0, "band_updates": 0, "pane_chrome_updates": 2},
+    # Whole custom sidebar window (plans/cmux-next/custom-sidebar-DESIGN.md): with a script on, the
+    # same status ticks reach the script's scene in the app host, never the native list; the
+    # window's one mount happened before the window. Without a script every scenario above holds
+    # custom_sidebar_mounts at 0 (no mount, no VM, no view).
+    "custom_sidebar": {"list_reloads": 0, "custom_sidebar_mounts": 0, "workspace_applies": 0},
     # Per restored pane, from the relaunched app's first answer until the restore settled: one
     # snapshot when the pane mounts on its restored tabs, no re-run as the restore goes on (cx-8w027.23).
     "restore": {"pane_snapshots": 1},
@@ -131,7 +136,8 @@ NEW_ROW_BUDGET_MS = FRAME_BUDGET_MS
 # session per activation (user 2026-10-21, msg 9674/9682).
 ACTIVATION_MAX_RESYNCS = 64
 ACTIVATION_BUDGET_MS = 8
-SCENARIOS = ["workspaces", "theme", "drag", "tabs", "pane_focus", "split", "relaunch", "new_workspaces", "activation", "status"]
+SCENARIOS = ["workspaces", "theme", "drag", "tabs", "pane_focus", "split", "relaunch", "new_workspaces", "activation", "status",
+             "custom_sidebar"]
 
 ROOT = os.path.abspath(os.path.join(HERE, "../.."))
 # The source guard's rule lives in check-perf-source-guard.py, which CI and the pre-push gate run alone.
@@ -195,7 +201,9 @@ class App:
                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
                "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1440,900",
                "CMUX_NEXT_CONFIG_FILE": self.config, "CMUX_NEXT_GHOSTTY_CONFIG": ghostty,
-               "CMUX_NEXT_CHIEF_ISOLATED": "1", "CMUX_NEXT_CHIEF_HOME": os.path.join(self.scratch, "chief")}
+               "CMUX_NEXT_CHIEF_ISOLATED": "1", "CMUX_NEXT_CHIEF_HOME": os.path.join(self.scratch, "chief"),
+               # The user's own customize app stays out of the gate; custom_sidebar writes its script here.
+               "CMUX_CUSTOMIZE_DIR": os.path.join(self.scratch, "customize")}
         # --hang-ms: the main-thread watchdog samples every stall over N ms (debug.hangs), for a late frame's cause.
         if os.environ.get("PERF_GATE_HANG_MS"):
             env["CMUX_NEXT_HANG_THRESHOLD_MS"] = os.environ["PERF_GATE_HANG_MS"]
@@ -1031,6 +1039,68 @@ class Gate:
               f" (budget {BUDGET['status']})", "status")
         check(measured.get("row_patches", 0) > 0, f"the ticks reach the sidebar as row patches ({measured.get('row_patches', 0)})",
               "status")
+
+    def custom_sidebar(self):
+        custom_sidebar_window(self)
+
+
+CUSTOM_SIDEBAR_MANIFEST = {
+    "$schema": "https://cmux.dev/schemas/cmux-app/2.json", "manifestVersion": 2, "id": "local/customize",
+    "name": {"en": "perf gate sidebar"}, "version": "1.0.0", "description": "perf gate custom sidebar",
+    "engines": {"cmux": "^2.0"}, "repository": "https://github.com/local/customize", "runtime": {"main": "main.js"},
+    "implements": {"cmux.sidebar/1": {"export": "sidebar"}},
+    "scopes": {"workspace:read": "rows", "agent:read": "status", "notification:read": "unread"},
+    "activation": ["onInterface:cmux.sidebar/1"], "files": ["main.js"],
+}
+# A classic-style sidebar: unread dot, title, status per workspace, keyed, lazy.
+CUSTOM_SIDEBAR_SCRIPT = """
+sidebar(() => LazyVStack({ spacing: 2 }, [
+  ForEach({ items: () => data.workspaces() ?? [], key: (w) => w.id }, (w) =>
+    HStack({ spacing: 6 }, [
+      Circle().fill(() => (w().unread > 0 ? "accent" : "clear")).frame({ width: 6, height: 6 }),
+      Text(() => w().title).lineLimit(1),
+      Spacer(),
+      Text(() => w().status).color("secondary"),
+    ]).padding(4).onTap(() => cmux("workspace.select", { workspace_id: w().id }))),
+]))
+"""
+
+
+def custom_sidebar_window(gate):
+    """Installs a custom sidebar script, waits for the window's mount, then runs the status ticks:
+    the native list does no work and nothing remounts. The script runs in the app host; its main-
+    thread cost per update is CustomSidebarPerfTests' p95 budget (1 ms at 500 workspaces)."""
+    app = gate.app
+    folder = os.path.join(app.scratch, "customize")
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, "main.js"), "w") as f:
+        f.write(CUSTOM_SIDEBAR_SCRIPT)
+    with open(os.path.join(folder, "cmux-app.json"), "w") as f:
+        json.dump(CUSTOM_SIDEBAR_MANIFEST, f)
+    try:
+        mounted = wait(lambda: app.counters(reset=False).get("custom_sidebar_mounts", 0) >= 1, 30)
+        if not mounted:
+            # The GUI host's daemon may run without the app host; the zero-cost budgets above still gate.
+            warn("the custom sidebar did not mount in 30 s (no app host?); its window is skipped", "custom_sidebar")
+            return
+        shown = wait(lambda: app.counters(reset=False).get("custom_sidebar_shown", 0) >= 1, 30)
+        check(shown, "the custom sidebar's first scene replaced the list", "custom_sidebar")
+        app.quiet_counters()
+        loop = ("while :; do for p in 5 25 45 65 85; do "
+                "printf '\\033]7501;state=working:progress=%d\\033\\\\' $p; sleep 0.25; done; done")
+        for i in range(2):
+            app.cli("workspace", "create", "--name", f"perf custom {i}", "--shell", loop)
+        time.sleep(3.0)  # test script: the measured window while the tickers print
+        measured = app.counters()
+        report["phases"]["custom_sidebar"] = {"counters": {k: v for k, v in measured.items() if k != "sources"}}
+        breaches = over(measured, BUDGET["custom_sidebar"])
+        check(not breaches, f"status ticks under a custom sidebar: {breach_text(breaches, measured['sources']) or 'all 0'}"
+              f" (budget {BUDGET['custom_sidebar']})", "custom_sidebar")
+    finally:
+        for name in ("main.js", "cmux-app.json"):
+            path = os.path.join(folder, name)
+            if os.path.exists(path):
+                os.unlink(path)
 
 
 def cols(value):

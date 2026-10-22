@@ -28,7 +28,7 @@ public struct AppSceneView: View {
             case .disconnected(let reason):
                 AppSceneFailureRow(reason: reason, symbol: "bolt.horizontal", tone: \.tertiary)
             case .loading, .ready:
-                if let root = model.scene.root { AppSceneNodeView(model: model, id: root) }
+                if let root = model.root { AppSceneNodeView(model: model, id: root) }
             }
         }
         .environment(\.appBundleDirectory, bundleDirectory)

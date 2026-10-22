@@ -33,7 +33,8 @@ import Testing
         // The rows mount is the service's first and only mount; the sidebar one never comes.
         let first = await transport.nextMount()
         #expect(first == "cmux.sidebar.rows/1")
-        #expect(service.customSidebar == nil)
+        #expect(service.customSidebarKey == nil)
+        #expect(service.makeCustomSidebar() == nil)
         #expect(transport.interfaces == ["cmux.sidebar.rows/1"], "no custom sidebar mount: \(transport.interfaces)")
     }
 
@@ -41,9 +42,12 @@ import Testing
         let transport = CustomSidebarTransport(apps: [try Self.record(implements: ["cmux.sidebar/1": "sidebar"])])
         let client = await Self.listed(transport)
         let service = SidebarCustomizationService(client: client) { _ in true }
+        #expect(service.customSidebarKey == "local/customize#cmux.sidebar/1@1.0.0")
+        #expect(transport.interfaces.isEmpty, "nothing mounts until a window's sidebar asks")
+        let content = try #require(service.makeCustomSidebar())
+        defer { content.release() }
         let first = await transport.nextMount()
         #expect(first == "cmux.sidebar/1")
-        let content = try #require(service.customSidebar)
         #expect(transport.surfaces == ["customSidebar"])
         // The first scene arrives: the content is ready and shows the script's view.
         let mountID = try #require(transport.mountIDs.first)

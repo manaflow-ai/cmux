@@ -13,6 +13,12 @@ public protocol SidebarCustomization: AnyObject {
     var rowDecorations: [String: SidebarRowDecoration] { get }
     /// Runs when `rowDecorations` changed.
     var onRowDecorationsChange: (() -> Void)? { get set }
+    /// Names the user's custom sidebar (`cmux.sidebar/1`) that replaces the workspace list, and
+    /// changes when its script reloads; nil (the default, and with no script) keeps the native
+    /// list and costs nothing. Observable.
+    var customSidebarKey: String? { get }
+    /// Mounts the custom sidebar for one window; nil with no script. The caller releases it.
+    func makeCustomSidebar() -> (any SidebarCustomContent)?
 }
 
 /// One mounted custom view (a hover card): its view, whether its first scene arrived, and why it

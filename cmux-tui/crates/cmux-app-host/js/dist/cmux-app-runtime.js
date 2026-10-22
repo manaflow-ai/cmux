@@ -447,8 +447,42 @@
   var cmux = createCmux(() => {
     return;
   });
+  var agentStatus = (a) => {
+    const state = a.state ?? a.status ?? "idle";
+    return state === "blocked" ? "needs_input" : state === "done" ? "ended" : state === "working" ? "working" : "idle";
+  };
+  function classicWorkspaces(workspaces, agents, notifications) {
+    const unread = new Map;
+    for (const n of notifications)
+      if (!n.read && n.workspace_id)
+        unread.set(n.workspace_id, (unread.get(n.workspace_id) ?? 0) + 1);
+    const byWorkspace = new Map;
+    for (const a of agents) {
+      const ws = a.workspace_id ?? a.workspace;
+      if (!ws)
+        continue;
+      const list = byWorkspace.get(ws);
+      if (list)
+        list.push(a);
+      else
+        byWorkspace.set(ws, [a]);
+    }
+    return workspaces.map((w) => {
+      const own = (byWorkspace.get(w.id) ?? []).map((a) => ({ ...a, status: agentStatus(a) }));
+      const status = own.some((a) => a.status === "needs_input") ? "needs-attention" : own.some((a) => a.status === "working") ? "working" : "idle";
+      return { ...w, title: w.title ?? w.name ?? "", selected: w.focused === true, unread: unread.get(w.id) ?? 0, agents: own, status };
+    });
+  }
   var definitions = {
-    workspaces: () => live("workspace.list", {}),
+    workspaces: () => {
+      const ws = live("workspace.list", {});
+      const agents = data().agents;
+      const notifications = data().notifications;
+      return computed(() => {
+        const list = ws();
+        return list === undefined ? undefined : classicWorkspaces(list, agents() ?? [], notifications() ?? []);
+      });
+    },
     agents: () => live("agent.list", {}),
     notifications: () => live("notification.list", {}),
     workspaceCount: () => {
@@ -457,11 +491,11 @@
     },
     selectedId: () => {
       const ws = data().workspaces;
-      return computed(() => (ws() ?? []).find((w) => w.focused)?.id ?? null);
+      return computed(() => (ws() ?? []).find((w) => w.selected)?.id ?? null);
     },
     selectedTitle: () => {
       const ws = data().workspaces;
-      return computed(() => (ws() ?? []).find((w) => w.focused)?.name ?? "");
+      return computed(() => (ws() ?? []).find((w) => w.selected)?.title ?? "");
     },
     unreadTotal: () => {
       const ns = data().notifications;

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": { "en": "My sidebar" },
+  "version": "1.0.0",
+  "description": "A custom sidebar that replaces the workspace list.",
+  "engines": { "cmux": "^2.0" },
+  "repository": "https://github.com/local/customize",
+  "runtime": { "main": "main.js" },
+  "implements": { "cmux.sidebar/1": { "export": "sidebar" } },
+  "scopes": {
+    "workspace:read": "List the workspaces.",
+    "agent:read": "Show which agents work or wait.",
+    "notification:read": "Show unread counts."
+  },
+  "activation": ["onInterface:cmux.sidebar/1"],
+  "files": ["main.js"]
+}

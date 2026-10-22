@@ -17,6 +17,8 @@ import Foundation
 /// - `band_updates`: top/footer band content recomputes.
 /// - `main_ns`: main-thread time spent in the measured paths, nanoseconds.
 /// - `mirror_ns`: main-thread time in `SidebarMirror` calls (request encode, the Rust call, reading the reply), nanoseconds.
+/// - `custom_sidebar_mounts`: custom sidebars (`cmux.sidebar/1`) installed in a window; 0 with no script.
+/// - `custom_sidebar_shown`: times a custom sidebar's first scene replaced the list.
 nonisolated enum SidebarPerfCounters {
     enum Counter: String, CaseIterable, Sendable {
         case rebuilds
@@ -32,6 +34,8 @@ nonisolated enum SidebarPerfCounters {
         case bandUpdates = "band_updates"
         case mainNanoseconds = "main_ns"
         case mirrorNanoseconds = "mirror_ns"
+        case customSidebarMounts = "custom_sidebar_mounts"
+        case customSidebarShown = "custom_sidebar_shown"
     }
 
     private static let counts = Mutex<[Counter: Int]>([:])

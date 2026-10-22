@@ -21,6 +21,10 @@ final class SidebarBridge {
     /// The rows and selection observations, also run in the turn the window shows a workspace.
     private(set) lazy var sameTurn = SidebarSameTurn(view: container.sidebarView)
     private var widthObservation: Task<Void, Never>?
+    /// Follows the user's custom sidebar script (`cmux.sidebar/1`); see SidebarBridge+CustomSidebar.
+    var customSidebarObservation: Task<Void, Never>?
+    /// This window's custom sidebar mount and the script version it shows.
+    var customSidebarMount: (key: String, content: any SidebarCustomContent)?
     /// Item presentation for sidebar sections (SidebarBridge+Sections).
     var sectionsObservation: Task<Void, Never>?
     /// The window's app sections (no All chats: it is on the New Tab page, cx-n0i9).
@@ -96,6 +100,7 @@ final class SidebarBridge {
         observe()
         observeSections()
         observeCards()
+        observeCustomSidebar()
     }
 
     func teardown() {
@@ -105,6 +110,8 @@ final class SidebarBridge {
         sectionsObservation?.cancel()
         appSections?.releaseAll()
         cardsObservation?.cancel()
+        customSidebarObservation?.cancel()
+        releaseCustomSidebar()
         // The update surface pages cancel their subscriptions (cx-urd.61.2).
         container.sidebarView.updateSurfaces = nil
     }

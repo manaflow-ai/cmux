@@ -1,0 +1,16 @@
+{
+  "name": "cmux.sidebar/1",
+  "version": 1,
+  "docs": "A custom sidebar that replaces the workspace list (honored from the user's own local/customize app only; plans/cmux-next/custom-sidebar-DESIGN.md). The render export returns a view; the titlebar row, sections and footer stay native. Classic `sidebar(fn)` scripts set this export through the compat layer. Data comes from live catalog reads (`data.workspaces()` and friends); scene ops leave only when a prop's value changed.",
+  "props": {},
+  "methods": {
+    "render": "scene"
+  },
+  "events": [],
+  "options": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "status": "draft: shapes are refined with the first implementing app before the interface is public"
+}

@@ -33,10 +33,15 @@ public final class SidebarView: NSView {
     var titlebarHeight: CGFloat { titlebarHeightOverride ?? Metrics.titlebarHeight }
     let list: SidebarListView
     let scrollView = SidebarScrollView()
+    /// The user's custom sidebar (`cmux.sidebar/1`) in place of the list once its first scene
+    /// is ready; nil (the default) keeps the native list. The App mounts one per window.
+    public var customSidebar: (any SidebarCustomContent)? {
+        didSet { installCustomSidebar(replacing: oldValue) }
+    }
     private(set) lazy var spacePaging = SidebarSpacePaging(host: self)
     /// Hosts the list's scroll view and fades rows out at its top or bottom
     /// while more are hidden there.
-    private lazy var edgeFade = ScrollEdgeFadeView(scrollView: scrollView)  // built in setup (no IUO)
+    lazy var edgeFade = ScrollEdgeFadeView(scrollView: scrollView)  // built in setup (no IUO)
     /// No rubber band while every row fits.
     private var scrollFit: ScrollFitElasticity?
     let profileBar: ProfileBarView
@@ -330,6 +335,7 @@ public final class SidebarView: NSView {
         footerBand.layoutFooter(visibleSlots)
         footerBand.placeSpaces(top: y, height: spacesHeight)
         edgeFade.frame = listFrame
+        layoutCustomSidebar(in: listFrame)
         layoutEditBar(over: listFrame)
         scrollView.tile()
         syncListSize()
