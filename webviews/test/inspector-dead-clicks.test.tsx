@@ -325,7 +325,9 @@ const bashRow: AcpmuxRow = {
   version: 1,
   at: 1,
   kind: "activity",
-  items: [{ kind: "tool", text: "", tool: { id: "call-pytest", title: "pytest -x", kind: "execute", status: "pending" } }],
+  items: [
+    { kind: "tool", text: "", tool: { id: "call-pytest", title: "pytest -x", kind: "execute", status: "pending" } },
+  ],
 };
 const taskProcesses = [
   { id: "s/1", toolCallId: "call-pytest", command: "pytest -x", startedAt: started - 60_000, state: "running" },
