@@ -33,19 +33,28 @@ nonisolated struct AgentPanePromptRelay: Sendable {
 
     /// Records the decided prompt in `box` on disk before it goes (a prompt with no promptId gets
     /// one here, so acpmux can tell its resend from a new prompt), forgotten at the reply to
-    /// `relayID`. Returns its promptId, or nil when it is not kept.
+    /// `relayID`. A promptId this daemon got from the relay before is the pane's Retry: it goes
+    /// marked `resend` (which the page may not send), so acpmux also finds a first copy in the
+    /// chat's log, which outlives a daemon restart, and runs it at most once. Returns its
+    /// promptId, or nil when it is not kept.
     @concurrent func record(_ box: AgentPaneTransport.FrameBox, ids: AcpmuxRequestIds, relayID: Int?) async -> String? {
         guard let text = box.encoded(id: nil),
               var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
               var params = object["params"] as? [String: Any], let session = params["sessionId"] as? String else { return nil }
         var meta = params["_meta"] as? [String: Any] ?? [:]
         var acpmux = meta["acpmux"] as? [String: Any] ?? [:]
-        let promptId: String
-        if let named = acpmux["promptId"] as? String, !named.isEmpty {
-            promptId = named
-        } else {
+        var promptId = acpmux["promptId"] as? String ?? ""
+        var rewrite = false
+        if promptId.isEmpty {
             promptId = UUID().uuidString.lowercased()
             acpmux["promptId"] = promptId
+            rewrite = true
+        }
+        if journal.sendsAgain(daemon: daemon, promptId: promptId) {
+            acpmux["resend"] = true
+            rewrite = true
+        }
+        if rewrite {
             meta["acpmux"] = acpmux
             params["_meta"] = meta
             object["params"] = params

@@ -3349,8 +3349,8 @@ export class AcpmuxDirectClient {
   /// `steer`: into the running turn, read when the agent's current step ends; an agent that
   /// cannot steer queues it behind the turn. Nothing sent stops the turn: only Stop does (Leo
   /// 2026-10-20), so no send carries `_meta.acpmux.interrupt`. No send carries
-  /// `_meta.acpmux.resend` either: only the host marks a prompt a resend (#22881), and it refuses
-  /// a page frame that does.
+  /// `_meta.acpmux.resend` either: the host refuses a page frame that does, and marks a resend
+  /// itself (#22881, AgentPanePromptRelay.swift).
   async send(
     input: string,
     attachments: ComposerAttachment[] = [],
@@ -3690,8 +3690,9 @@ export class AcpmuxDirectClient {
 
   /// Retry on a prompt that was not sent: its bubble goes and the same prompt goes again, under the
   /// same prompt id, so a copy acpmux did take answers as that one and runs no second turn (acpmux runs
-  /// a prompt id once). It carries no `resend`: the host refuses that from the page (#22881), and a
-  /// failed row never outlives its connection, so the daemon that may hold the first copy is the same.
+  /// a prompt id once). It carries no `resend`: the host refuses that from the page (#22881) and marks
+  /// a prompt id it sent the daemon before a resend itself, so acpmux also finds a first copy in the
+  /// chat's log after a daemon restart.
   /// `ticket`: the gesture a trust refusal kept for this prompt (heldPrompt.ts).
   async retryPrompt(rowId: string, ticket?: string): Promise<string | undefined> {
     const failed = this.failedPrompts.get(rowId);
