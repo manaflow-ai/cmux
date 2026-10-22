@@ -2735,7 +2735,7 @@ fn start_local_owner_event_loop_with_completion(
     let thread = std::thread::spawn(move || {
         while let Ok(event) = events.recv() {
             let mux = weak_mux.upgrade();
-            dispatch_local_owner_event(&event, move || {
+            let reload = move || {
                 if let Some(mux) = mux {
                     let request = mux.begin_config_reload_application();
                     let config = config::load();
@@ -2744,6 +2744,10 @@ fn start_local_owner_event_loop_with_completion(
                         mux.complete_config_reload_application(request);
                     }
                 }
+            };
+            // A panic drops this one reload; later reloads still apply.
+            let _ = cmux_panic_log::supervise::catch("config reload", || {
+                dispatch_local_owner_event(&event, reload);
             });
         }
     });

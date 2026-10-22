@@ -85,7 +85,9 @@ impl ActionWatch {
 
 /// Starts the watcher thread for the life of the process.
 pub(super) fn spawn(global: GlobalArgs, output: Output) {
-    let started = std::thread::Builder::new().name("cmux-mcp-actions".into()).spawn(move || {
+    // A panic restarts the watcher (cmux-panic-log `supervise`).
+    let restart = cmux_panic_log::supervise::OnPanic::Restart;
+    let started = cmux_panic_log::supervise::spawn("cmux-mcp-actions", restart, move || {
         let params = json!({"names": [CATALOG_CHANGED], "include_heartbeats": false});
         let mut watch = ActionWatch::default();
         let mut delay = FIRST_RETRY;

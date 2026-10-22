@@ -74,16 +74,62 @@ fn is_test_thread(thread: &str) -> bool {
     }
 }
 
-/// Debug builds only: panic a worker thread when the test asks for it.
+/// Debug builds only: panic a worker thread when the test asks for it, or
+/// end the owner by a fatal path that no panic hook sees (`abort`,
+/// `stack_overflow`, `oom`) once the test opens the FIFO named by
+/// `CMUX_TUI_TEST_OWNER_FATAL_TRIGGER` for writing
+/// (tests/terminal_host_recovery/owner_fatal.rs).
 #[cfg(debug_assertions)]
 fn panic_for_test() {
-    if std::env::var(TEST_PANIC_ENV).as_deref() != Ok("thread") {
+    let Ok(kind) = std::env::var(TEST_PANIC_ENV) else { return };
+    if kind == "thread" {
+        let _ = std::thread::Builder::new()
+            .name(TEST_PANIC_THREAD.into())
+            // crash-allow: debug-only test trigger for the owner panic log
+            .spawn(|| panic!("cmux-tui test owner panic"));
         return;
     }
-    let _ = std::thread::Builder::new()
-        .name(TEST_PANIC_THREAD.into())
-        // crash-allow: debug-only test trigger for the owner panic log
-        .spawn(|| panic!("cmux-tui test owner panic"));
+    let Some(trigger) = std::env::var_os("CMUX_TUI_TEST_OWNER_FATAL_TRIGGER") else { return };
+    let _ = std::thread::Builder::new().name("owner-fatal-test".into()).spawn(move || {
+        // Opening a FIFO for reading blocks until the test opens it for
+        // writing: the test decides the moment (after its terminals run).
+        let _ = std::fs::File::open(&trigger);
+        fatal_for_test(&kind);
+    });
+}
+
+/// The fatal paths a release owner can still take: each ends the process at
+/// once with SIGABRT, and no hook, destructor or supervisor runs.
+#[cfg(debug_assertions)]
+fn fatal_for_test(kind: &str) {
+    #[cfg(unix)]
+    // SAFETY: setrlimit with a valid rlimit that outlives the call; no core
+    // file, so the abort ends the owner at once on a loaded build host.
+    unsafe {
+        let limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        libc::setrlimit(libc::RLIMIT_CORE, &limit);
+    }
+    match kind {
+        // crash-allow: debug-only test trigger for the owner's fatal paths
+        "abort" => std::process::abort(),
+        "stack_overflow" => {
+            // Rust's guard page handler prints "has overflowed its stack" and aborts.
+            #[allow(unconditional_recursion, reason = "the test overflows the stack on purpose")]
+            fn recurse(depth: u64) -> u64 {
+                let frame = std::hint::black_box([depth; 64]);
+                recurse(depth + 1).wrapping_add(frame[0])
+            }
+            std::hint::black_box(recurse(0));
+        }
+        "oom" => {
+            // An allocation the system refuses: `handle_alloc_error` aborts
+            // ("memory allocation of N bytes failed"), as a real OOM does.
+            let bytes = std::hint::black_box(1_usize << 46);
+            let buffer = Vec::<u8>::with_capacity(bytes);
+            std::hint::black_box(buffer);
+        }
+        _ => {}
+    }
 }
 
 #[cfg(unix)]

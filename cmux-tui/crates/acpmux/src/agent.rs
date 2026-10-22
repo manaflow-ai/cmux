@@ -296,7 +296,8 @@ impl ChildAgent {
             let pending = pending.clone();
             let tap = tap.clone();
             let agent_for_exit = agent.clone();
-            tokio::spawn(async move {
+            let (inbound_on_panic, pending_on_panic) = (inbound.clone(), pending.clone());
+            let reader = async move {
                 let mut lines = BufReader::new(stdout).lines();
                 // The leader can exit while a descendant still holds stdout
                 // open; watch it so its exit is reported regardless.
@@ -466,6 +467,24 @@ impl ChildAgent {
                 let _ = inbound
                     .send(Inbound::Exited { pid: agent_for_exit.pid, code, host_seq: None })
                     .await;
+            };
+            // A panic in the reader would leave every request to this agent
+            // waiting forever on a reply no one reads. End the agent the way
+            // its exit does: requests fail, the session sees the exit.
+            let (agent, inbound, pending) = (agent.clone(), inbound_on_panic, pending_on_panic);
+            tokio::spawn(async move {
+                if cmux_panic_log::supervise::catch_future("acpmux agent reader", reader)
+                    .await
+                    .is_err()
+                {
+                    agent.kill().await;
+                    for (_, tx) in pending.lock().await.map.drain() {
+                        let _ = tx.send(Err(RpcError::internal("agent reader failed")));
+                    }
+                    let code = agent.wait_exit().await;
+                    let exited = Inbound::Exited { pid: agent.pid, code, host_seq: None };
+                    let _ = inbound.send(exited).await;
+                }
             });
         }
         Ok(agent)
@@ -936,7 +955,8 @@ impl ChildAgent {
     /// Read `link`'s entries: log each, act on it, then acknowledge it.
     fn start_reader(self: &Arc<Self>, link: Arc<crate::agent_host::link::Link>) {
         let reader = self.clone();
-        tokio::spawn(async move {
+        let agent = self.clone();
+        let read = async move {
             let Some(hosted) = reader.hosted.as_ref() else { return };
             let mut entries = link.entries.lock().await;
             while let Some((h, entry)) = entries.recv().await {
@@ -973,6 +993,17 @@ impl ChildAgent {
             let mut p = reader.pending.lock().await;
             for (_, tx) in p.map.drain() {
                 let _ = tx.send(Err(RpcError::internal("agent process closed")));
+            }
+        };
+        tokio::spawn(async move {
+            // A panic stops the reader like an entry it could not log: the
+            // link is broken and the next request reattaches to the host.
+            if cmux_panic_log::supervise::catch_future("acpmux agent host reader", read)
+                .await
+                .is_err()
+                && let Some(hosted) = agent.hosted.as_ref()
+            {
+                hosted.broken.store(true, Ordering::SeqCst);
             }
         });
     }

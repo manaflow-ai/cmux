@@ -14,9 +14,15 @@
 //! `message`, `location` (`file:line:col`), `thread`, `at_ms`, `test`
 //! (true for a debug test panic, which the app never sends) and
 //! `backtrace` (at most [`MAX_BACKTRACE_BYTES`]).
+//!
+//! [`supervise`] holds the boundaries that catch a panic and keep the daemon
+//! serving: supervised worker threads, per-connection and per-request
+//! catches, and a future wrapper for tokio tasks.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
+
+pub mod supervise;
 
 /// Largest backtrace kept per line.
 pub const MAX_BACKTRACE_BYTES: usize = 16 * 1024;
@@ -43,12 +49,7 @@ pub fn install_with_opener(
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let thread = std::thread::current().name().unwrap_or("unnamed").to_string();
-        let message = info
-            .payload()
-            .downcast_ref::<&str>()
-            .map(|text| (*text).to_string())
-            .or_else(|| info.payload().downcast_ref::<String>().cloned())
-            .unwrap_or_else(|| "non-text panic payload".to_string());
+        let message = supervise::payload_message(info.payload());
         let location = info.location().map(ToString::to_string).unwrap_or_default();
         let backtrace = std::backtrace::Backtrace::force_capture().to_string();
         let test = is_test_thread(&thread);

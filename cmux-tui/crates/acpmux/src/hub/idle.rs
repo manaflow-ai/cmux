@@ -55,7 +55,13 @@ impl Hub {
         if !self.idle_reaper.swap(true, Ordering::SeqCst) {
             let weak = Arc::downgrade(self);
             let wake = self.idle_wake.clone();
-            tokio::spawn(async move { Self::idle_reaper_loop(weak, wake).await });
+            // Runs once per daemon (the flag above): a panic restarts it.
+            let run = move || Self::idle_reaper_loop(weak.clone(), wake.clone());
+            tokio::spawn(cmux_panic_log::supervise::restarting(
+                "acpmux idle reaper",
+                run,
+                tokio::time::sleep,
+            ));
         }
         self.idle_wake.notify_one();
     }

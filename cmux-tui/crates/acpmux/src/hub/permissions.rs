@@ -6,10 +6,30 @@ use super::*;
 impl Hub {
     // ------------------------------------------------------------- inbound
 
+    /// The session's actor. It owns the one receiver of the agent's
+    /// messages: a panic on one message must not drop it (the agent would
+    /// wait forever on its permission answer), so the loop goes on with the
+    /// next message.
     pub(super) async fn inbound_loop(
         self: Arc<Self>,
         session: Arc<Session>,
         mut rx: mpsc::Receiver<Inbound>,
+    ) {
+        loop {
+            let items = self.clone().inbound_items(session.clone(), &mut rx);
+            if cmux_panic_log::supervise::catch_future("acpmux session inbound", items)
+                .await
+                .is_ok()
+            {
+                return;
+            }
+        }
+    }
+
+    async fn inbound_items(
+        self: Arc<Self>,
+        session: Arc<Session>,
+        rx: &mut mpsc::Receiver<Inbound>,
     ) {
         while let Some(item) = rx.recv().await {
             match item {

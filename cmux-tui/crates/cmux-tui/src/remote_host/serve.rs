@@ -180,7 +180,14 @@ pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
     let mut threads = Vec::new();
     for listener in listeners {
         let host = Arc::clone(&host);
-        threads.push(std::thread::spawn(move || accept_loop(&host, &listener)));
+        // A panic restarts this listener's loop (cmux-panic-log `supervise`).
+        let restart = cmux_panic_log::supervise::OnPanic::Restart;
+        let name = "cmux-host-accept";
+        match cmux_panic_log::supervise::spawn(name, restart, move || accept_loop(&host, &listener))
+        {
+            Ok(thread) => threads.push(thread),
+            Err(e) => eprintln!("cmux host: cannot start a listener thread: {e}"),
+        }
     }
     for thread in threads {
         let _ = thread.join();

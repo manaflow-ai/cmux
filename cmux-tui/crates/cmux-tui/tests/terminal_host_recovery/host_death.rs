@@ -426,6 +426,9 @@ mod owner_idle_exit;
 #[path = "host_replacement.rs"]
 mod host_replacement;
 
+#[path = "owner_fatal.rs"]
+mod owner_fatal;
+
 #[path = "program_status_rehost.rs"]
 mod program_status_rehost;
 
