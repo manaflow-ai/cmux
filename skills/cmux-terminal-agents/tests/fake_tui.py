@@ -1,0 +1,169 @@
+#!/usr/bin/env python3
+"""A fake Claude-Code-like TUI for the cmux-terminal-agents tests.
+
+It reads raw terminal input from a FIFO (each `cmux terminal write` is one
+chunk) and keeps its rendered screen in a file the fake cmux returns for
+`screen read`. It models the failures seen with real agent TUIs:
+
+  --swallow-ms N   a bracketed paste renders into the composer N ms after the
+                   paste ends; a CR that arrives before that (in the same
+                   write as the paste, or right after it) is dropped.
+  --ready-ms N     input that arrives in the first N ms after launch is lost
+                   (the TUI is still starting, as with a real cold start).
+  --ignore-enter   CR never submits (a stuck composer).
+
+Submitted prompts are appended to <dir>/<term>.submitted (one JSON per line)
+and every input event to <dir>/<term>.events.
+"""
+
+import argparse
+import json
+import os
+import select
+import time
+
+RULE = "─" * 40
+
+
+class Tui:
+    def __init__(self, a):
+        self.a = a
+        self.start = time.monotonic()
+        self.transcript = ["Claude Code Fake Agent"]
+        self.composer = ""
+        self.pending = None  # (render_at, text) of a paste not yet rendered
+        self.busy_until = 0.0
+        self.menu = False
+        self.screen_path = os.path.join(a.dir, a.term + ".screen")
+        self.submitted = os.path.join(a.dir, a.term + ".submitted")
+        self.events = os.path.join(a.dir, a.term + ".events")
+        if a.prompt:
+            self.submit(a.prompt)
+        self.render()
+
+    def log(self, **ev):
+        ev["t_ms"] = int((time.monotonic() - self.start) * 1000)
+        with open(self.events, "a") as f:
+            f.write(json.dumps(ev) + "\n")
+
+    def render(self):
+        lines = list(self.transcript)
+        if self.menu:
+            lines += ["Do you want to proceed?", "❯ 1. Yes", "  2. No", "Esc to cancel"]
+        else:
+            lines += [RULE] + [("❯ " if i == 0 else "  ") + l for i, l in enumerate((self.composer or "").split("\n"))] + [RULE]
+            status = "  esc to interrupt" if time.monotonic() < self.busy_until else "  ? for shortcuts"
+            lines.append(status)
+        tmp = self.screen_path + ".tmp"
+        with open(tmp, "w") as f:
+            f.write("\n".join(lines) + "\n")
+        os.replace(tmp, self.screen_path)
+
+    def submit(self, text):
+        self.log(ev="submit", text=text)
+        with open(self.submitted, "a") as f:
+            f.write(json.dumps({"text": text}) + "\n")
+        for i, l in enumerate(text.split("\n")):
+            self.transcript.append(("❯ " if i == 0 else "  ") + l)
+        if text.strip() == "menu":
+            self.menu = True
+        else:
+            self.busy_until = time.monotonic() + self.a.busy_ms / 1000
+            self.answer_pending = True
+        self.composer = ""
+
+    def tick(self):
+        now = time.monotonic()
+        changed = False
+        if self.pending and now >= self.pending[0]:
+            self.composer += self.pending[1]
+            self.pending = None
+            self.log(ev="paste_rendered")
+            changed = True
+        if getattr(self, "answer_pending", False) and now >= self.busy_until:
+            self.answer_pending = False
+            self.transcript.append("⏺ READY")
+            changed = True
+        return changed
+
+    def enter(self):
+        if self.a.ignore_enter:
+            self.log(ev="cr_ignored", reason="ignore-enter")
+            return
+        if self.pending:
+            self.log(ev="cr_swallowed", reason="paste not rendered yet")
+            return
+        if self.composer.strip():
+            self.submit(self.composer)
+
+    def feed(self, data):
+        now = time.monotonic()
+        if (now - self.start) * 1000 < self.a.ready_ms:
+            self.log(ev="lost_before_ready", bytes=len(data))
+            return
+        i = 0
+        while i < len(data):
+            if data.startswith(b"\x1b[200~", i):
+                end = data.find(b"\x1b[201~", i)
+                end = len(data) if end < 0 else end
+                text = data[i + 6:end].decode(errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+                prev = self.pending[1] if self.pending else ""
+                self.pending = (time.monotonic() + self.a.swallow_ms / 1000, prev + text)
+                self.log(ev="paste", chars=len(text))
+                i = end + 6
+                continue
+            b = data[i:i + 1]
+            if b == b"\x1b":
+                if data.startswith(b"\x1b[", i) and i + 2 < len(data):
+                    i += 3  # arrow keys: ignored
+                    continue
+                self.log(ev="esc")
+                if self.menu:
+                    self.menu = False
+                    self.transcript.append("cancelled")
+                elif time.monotonic() < self.busy_until:
+                    self.busy_until = 0
+                    self.answer_pending = False
+                    self.transcript.append("Interrupted")
+            elif b in (b"\r", b"\n"):
+                self.log(ev="cr")
+                self.enter()
+            elif self.menu and b.isdigit():
+                self.menu = False
+                self.transcript.append(f"chose {b.decode()}")
+                self.log(ev="choose", option=b.decode())
+            elif b == b"\x7f":
+                self.composer = self.composer[:-1]
+            else:
+                self.composer += b.decode(errors="replace")
+            i += 1
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--dir", required=True)
+    p.add_argument("--term", required=True)
+    p.add_argument("--swallow-ms", type=int, default=0)
+    p.add_argument("--ready-ms", type=int, default=0)
+    p.add_argument("--busy-ms", type=int, default=800)
+    p.add_argument("--ignore-enter", action="store_true")
+    p.add_argument("--prompt", default="")
+    a = p.parse_args()
+    fifo = os.path.join(a.dir, a.term + ".in")
+    fd = os.open(fifo, os.O_RDWR)  # RDWR: no EOF when a writer closes
+    tui = Tui(a)
+    while True:
+        r, _, _ = select.select([fd], [], [], 0.03)
+        changed = tui.tick()
+        if r:
+            data = os.read(fd, 65536)
+            if data:
+                tui.feed(data)
+                tui.tick()
+                changed = True
+        if changed or time.monotonic() < tui.busy_until + 0.1:
+            tui.render()
+
+
+if __name__ == "__main__":
+    main()
