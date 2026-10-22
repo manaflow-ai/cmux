@@ -9,8 +9,9 @@ import CmuxNextWakeups
 /// for that round trip, so the tab showed up on the left before its pane came in on the right. Its
 /// pane's strip leaves it out until it has left (or the chat has), so it first shows where it lands.
 /// The daemon's echo can list the tab before its answer names it: until then every tab the pane did
-/// not have when the open began is left out (not a stand-in or a tab the pane waits to select), for at
-/// most ``answerLimit``.
+/// not have when the open began is left out, for at most ``answerLimit``, but the one the pane shows or
+/// waits to select (a person's Cmd-T meanwhile). The open's own stand-in (a page tab's, which shows
+/// until the daemon's tab replaces it) stays out as long as it is listed.
 @MainActor
 final class OutboundTab {
     /// How long an open that has not named its tab holds back the pane's new tabs.
@@ -31,8 +32,10 @@ final class OutboundTab {
     private let known: Set<String>
     /// The tab's surface, once the open names it.
     private(set) var surface: SurfaceID?
-    /// Or its id (an agent tab's stand-in, which the store's tab replaces: `AgentTabStore.aliases`).
-    private var named: String?
+    /// Or its ids: an agent tab's stand-in, then the store's tab that replaces it (``rekeyed(_:to:)``).
+    private var names: Set<String> = []
+    /// The open's own stand-ins (provisional tabs it made here, unselected).
+    private var own: Set<String> = []
     /// Left out only while the pane still holds this tab (the chat docking away from the tab).
     private var holding: String?
     private var answering = true
@@ -52,18 +55,29 @@ final class OutboundTab {
     }
 
     /// Whether `tab` of `pane`'s tabs stays out of its strip now.
-    func hides(_ tab: TabModel, among tabs: [TabModel], aliases: [String: String]) -> Bool {
+    func hides(_ tab: TabModel, among tabs: [TabModel]) -> Bool {
         if let holding, !tabs.contains(where: { $0.id == holding }) { return false }
-        if surface != nil || named != nil {
-            return tab.surface == surface || named.map { tab.id == $0 || aliases[$0] == tab.id } == true
-        }
-        guard answering, !known.contains(tab.id), !ProvisionalTab.isProvisional(tab.id) else { return false }
-        return tab.surface != pane?.pendingSelectSurface && tab.id != pane?.pendingSelectTab
+        if own.contains(tab.id) { return true }
+        if surface != nil || !names.isEmpty { return tab.surface == surface || names.contains(tab.id) }
+        return answering && !known.contains(tab.id) && !shownByPane(tab)
     }
 
-    /// `opened`, what the open returned, passed on; an open refused at once leaves the pane's tabs alone.
+    /// The tab `pane` shows or waits to select: never the open's (made unselected).
+    private func shownByPane(_ tab: TabModel) -> Bool {
+        guard let pane else { return false }
+        return tab.surface == pane.pendingSelectSurface || tab.id == pane.pendingSelectTab || tab.id == pane.stripModel.selectedID?.rawValue
+    }
+
+    /// Keeps the open's stand-ins listed now (provisional, new and not the pane's) out until they go.
+    private func latchStandIns() {
+        guard let pane else { return }
+        own.formUnion(pane.pane.tabs.filter { !known.contains($0.id) && ProvisionalTab.isProvisional($0.id) && !shownByPane($0) }.map(\.id))
+    }
+
+    /// `opened`, what the open returned, passed on (its stand-in, made now, stays out); an open refused at
+    /// once leaves the pane's tabs alone.
     func started(_ opened: Bool) -> Bool {
-        if !opened { finish(moved: false) }
+        if opened { latchStandIns() } else { finish(moved: false) }
         return opened
     }
 
@@ -75,11 +89,19 @@ final class OutboundTab {
 
     /// Same, by tab id: an agent tab's stand-in, then the store's tab that replaces it.
     func made(key: String) {
-        named = key
+        names.insert(key)
+        if let real = pane?.services.agentTabs.aliases[key] { names.insert(real) }
         didName()
     }
 
+    /// The store made provisional tab `key` as `real` (``AgentTabStore/rekey(_:to:)``): an open that
+    /// holds `key` holds `real` too, before the pane lists it.
+    static func rekeyed(_ key: String, to real: String) {
+        for tab in open.values.joined() where tab.names.contains(key) { tab.names.insert(real) }
+    }
+
     private func didName() {
+        latchStandIns()
         answering = false
         timer.schedule(after: Self.backstop) { @MainActor [weak self] in self?.end() }
         pane?.syncStripFromStore()
@@ -115,7 +137,7 @@ final class OutboundTab {
     /// The ids of `pane`'s tabs that are on their way out.
     static func hidden(in pane: PaneController) -> Set<String> {
         guard let opens = open[ObjectIdentifier(pane)]?.filter({ $0.pane === pane }), !opens.isEmpty else { return [] }
-        let tabs = pane.pane.tabs, aliases = pane.services.agentTabs.aliases
-        return Set(tabs.filter { tab in opens.contains { $0.hides(tab, among: tabs, aliases: aliases) } }.map(\.id))
+        let tabs = pane.pane.tabs
+        return Set(tabs.filter { tab in opens.contains { $0.hides(tab, among: tabs) } }.map(\.id))
     }
 }

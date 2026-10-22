@@ -104,4 +104,29 @@ import Testing
         #expect(Self.listed(pane) == [Self.home, Self.link], "a tab whose move failed stayed hidden")
         #expect(OutboundTab.hidden(in: pane).isEmpty)
     }
+
+    /// A file or page opened to the side shows a stand-in tab in its pane at once (an unselected
+    /// provisional tab, until the daemon's tab replaces it): it stays out of the left strip too, before
+    /// and after the open names the daemon's tab.
+    @Test func theOpensOwnStandInNeverShowsInTheLeftPanesStrip() throws {
+        let (services, pane) = try Self.pane()
+        defer { pane.teardown() }
+        services.linkOpener.placement = { .splitRight }
+        let standIn = ProvisionalTab()
+        var placed: (@MainActor (SurfaceID) -> Void)?
+        let opened = services.linkOpener.open(from: pane, cmdClick: true) { target, then in
+            services.daemon.store.intend(.createTab(pane: target.pane.handle, provisional:
+                TabSnapshot(surface: standIn.surface, tabResourceID: ResourceID(rawValue: standIn.id), title: "page")),
+                                         transaction: .generate())
+            placed = then
+            return true
+        }
+        #expect(opened)
+        #expect(pane.pane.tabs.contains { $0.id == standIn.id }, "the stand-in is not in the pane")
+        #expect(Self.listed(pane) == [Self.home], "the open's stand-in showed in the left pane's strip")
+        let then = try #require(placed)
+        then(Self.link)
+        #expect(Self.listed(pane) == [Self.home], "the open's stand-in showed in the left pane's strip once named")
+    }
 }
+
