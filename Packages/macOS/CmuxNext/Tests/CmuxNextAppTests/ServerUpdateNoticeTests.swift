@@ -67,6 +67,22 @@ struct ServerUpdateNoticeTests {
         #expect(center.supports("tab-groups-v1", kind: .cmuxTUI, host: .local))
     }
 
+    /// A cmux-tui of another build that serves everything the app uses still gets a notice, with no
+    /// feature list: the restart is how the update reaches it (shown when its quiet restart cannot run).
+    @Test func anotherBuildWithNothingMissingIsAPlainNotice() throws {
+        let center = Self.coordinator(FakeRestarter(next: Self.newDaemon()))
+        let otherBuild = ServerHandshake(kind: .cmuxTUI, host: .local, build: "old1234", protocolVersion: 12, capabilities: Self.app)
+        center.report(otherBuild, appCapabilities: Self.app, bundledBuild: "new5678")
+        let notice = try #require(center.notices.first)
+        #expect(notice.missingCapabilities.isEmpty)
+        #expect(notice.gainedFeatures.isEmpty)
+        #expect(notice.toastMessage.contains("cmux-tui"))
+        // Unknown bundled build: nothing to compare.
+        let unknown = Self.coordinator(FakeRestarter(next: Self.newDaemon()))
+        unknown.report(otherBuild, appCapabilities: Self.app, bundledBuild: nil)
+        #expect(unknown.notices.isEmpty)
+    }
+
     /// Reporting skew never restarts anything: only a confirmed restart does.
     @Test func skewAloneNeverRestarts() {
         let restarter = FakeRestarter(next: Self.newDaemon())

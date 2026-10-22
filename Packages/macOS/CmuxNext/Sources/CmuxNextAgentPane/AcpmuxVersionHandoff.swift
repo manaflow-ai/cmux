@@ -6,19 +6,40 @@ import CmuxNextCompat
 /// After an update: hand a running acpmux daemon of another build off to the
 /// bundled build (plans/cmux-next/durable-sessions.md section 3), and one whose
 /// executable was replaced with the app's bundle whatever its build
-/// (``replaced(pid:)``). Only a daemon that runs its agents under agent hosts
-/// (`_acpmux/status` `agentHosts`) is handed off: its SIGTERM detaches every
-/// agent and the new daemon adopts them. An older daemon would end its agents,
-/// so it keeps running until it exits on its own.
+/// (``replaced(pid:)``). A daemon that runs its agents under agent hosts
+/// (`_acpmux/status` `agentHosts`) detaches every agent at its SIGTERM and the new
+/// daemon adopts them. A daemon without agent hosts ends its agents when it stops, but
+/// each chat's session, log and resume id stay on disk and its next prompt resumes it.
+/// Either way a running turn or a waiting permission could be cut, so with the
+/// `agent.replaceStaleAcpmuxWhenQuiet` Debug Settings toggle (on by default) the handoff
+/// waits for a moment when no session has either (``AcpmuxQuietHandoff``). A daemon with
+/// agent hosts waits no longer than ``AcpmuxQuietHandoff/cap``, nor at all when it runs a
+/// replaced bundle (no chat can use it). Off, as before: one with agent hosts is handed
+/// off at once, one without keeps running until it exits on its own. Never `endAgents`.
 nonisolated enum AcpmuxVersionHandoff {
     enum Decision: Equatable, Sendable {
         case keep(String)
         case restart
+        /// Restart it once its sessions are quiet: ask them first.
+        case restartWhenQuiet
+    }
+
+    /// What ``handOffIfStale(_:environment:quietWait:)`` did.
+    enum Outcome: Equatable, Sendable {
+        /// It keeps running: the same build, or a restart would lose what it runs.
+        case kept
+        /// It is stale but busy: it is handed off at a quiet moment (``AcpmuxQuietHandoff``).
+        case waitingForQuiet
+        /// It stopped: start the bundled daemon.
+        case stopped
     }
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
     /// Bundled builds this app process already handed off to: never twice.
     private static let handedOff = Mutex<Set<String>>([])
+    /// The bundled acpmux's build by its file's identity (path, inode, size, mtime): asked once
+    /// per file, and again after an update replaced it.
+    private static let bundledBuilds = Mutex<[String: String]>([:])
 
     /// `acpmux 0.1.0 (<build>)` -> `<build>`.
     static func build(fromVersion version: String) -> String? {
@@ -29,13 +50,21 @@ nonisolated enum AcpmuxVersionHandoff {
         return build.isEmpty ? nil : build
     }
 
-    static func decide(_ running: String?, _ bundled: String?, _ agentHosts: Bool, replaced: Bool = false) -> Decision {
-        if replaced { return agentHosts ? .restart : .keep("its agents would end: no agent hosts") }
-        guard let running else { return .keep("running build unknown") }
-        guard let bundled else { return .keep("bundled build unknown") }
-        if running == bundled { return .keep("same build") }
-        guard agentHosts else { return .keep("its agents would end: no agent hosts") }
-        return .restart
+    /// - Parameters:
+    ///   - whenQuiet: hand off at a quiet moment, also a daemon without agent hosts.
+    ///   - quiet: whether its sessions are quiet (``AcpmuxQuietHandoff/quiet(sessions:)``); nil when not asked yet.
+    ///   - overdue: it has agent hosts and waited for quiet past the cap.
+    static func decide(_ running: String?, _ bundled: String?, _ agentHosts: Bool, replaced: Bool = false,
+                       whenQuiet: Bool = false, quiet: Bool? = nil, overdue: Bool = false) -> Decision {
+        if !replaced {
+            guard let running else { return .keep("running build unknown") }
+            guard let bundled else { return .keep("bundled build unknown") }
+            if running == bundled { return .keep("same build") }
+        }
+        guard whenQuiet else { return agentHosts ? .restart : .keep("its agents would end: no agent hosts") }
+        if agentHosts && (replaced || overdue) { return .restart }
+        guard let quiet else { return .restartWhenQuiet }
+        return quiet ? .restart : .keep("a turn runs or a permission waits")
     }
 
     /// Whether daemon `pid` runs an executable whose file is gone: the app's bundle was replaced
@@ -68,9 +97,11 @@ nonisolated enum AcpmuxVersionHandoff {
     }
     #endif
 
-    /// The bundled acpmux's build (`<executable> --version`).
+    /// The bundled acpmux's build (`<executable> --version`), asked again once its file changed.
     static func bundledBuild(_ environment: AcpmuxEnvironment) async -> String? {
-        await Task.detached {
+        let stamp = fileStamp(environment.executable)
+        if let stamp, let known = bundledBuilds.withLock({ $0[stamp] }) { return known }
+        let asked = await Task.detached { () -> String? in
             let process = Process()
             process.executableURL = environment.executable
             process.arguments = ["--version"]
@@ -82,15 +113,28 @@ nonisolated enum AcpmuxVersionHandoff {
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             // concurrency-allow: same detached task; the process has closed its output
             process.waitUntilExit()
-            return build(fromVersion: String(decoding: data, as: UTF8.self))
+            return Self.build(fromVersion: String(decoding: data, as: UTF8.self))
         }.value
+        if let stamp, let asked { bundledBuilds.withLock { $0[stamp] = asked } }
+        return asked
     }
 
-    /// Hands the daemon described by `status` off when it runs another build or
-    /// a replaced bundle's executable, and keeps its agents across a restart.
-    /// Returns true when it stopped that daemon, so the caller starts the
-    /// bundled one.
-    static func handOffIfStale(_ status: AcpmuxStatus, environment: AcpmuxEnvironment) async -> Bool {
+    /// The identity of the file at `url` (symlinks resolved): its path, inode, size and modification time.
+    static func fileStamp(_ url: URL) -> String? {
+        let path = url.resolvingSymlinksInPath().path
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path) else { return nil }
+        let inode = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0
+        let size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
+        let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        return "\(path)|\(inode)|\(size)|\(modified)"
+    }
+
+    /// Hands the daemon described by `status` off when it runs another build or a replaced
+    /// bundle's executable; its agent hosts keep its agents across the restart. With
+    /// `quietWait` (the toggle on) it waits for a quiet moment as the type says: a busy daemon
+    /// is kept, `quietWait` notes since when, and that does not use up this build's handoff.
+    @concurrent static func handOffIfStale(_ status: AcpmuxStatus, environment: AcpmuxEnvironment,
+                                           quietWait: AcpmuxQuietHandoff? = nil) async -> Outcome {
         let bundled = await bundledBuild(environment)
         #if DEBUG
         let swapped = status.pid.map { swapsOverride(runningPath: executablePath(pid: $0),
@@ -103,19 +147,39 @@ nonisolated enum AcpmuxVersionHandoff {
         #else
         let isReplaced = status.pid.map(Self.replaced(pid:)) ?? false
         #endif
-        guard decide(status.build, bundled, status.agentHosts, replaced: isReplaced) == .restart, let pid = status.pid else {
-            return false
+        guard let pid = status.pid else { return .kept }
+        let key = bundled ?? "pid \(pid)"
+        let home = environment.home.standardizedFileURL.path
+        // A memory store keeps no session on disk to resume from: never without agent hosts.
+        let whenQuiet = quietWait != nil && !status.memoryStore
+        let overdue = quietWait?.overdue(home: home, pid: pid) ?? false
+        var decision = decide(status.build, bundled, status.agentHosts, replaced: isReplaced,
+                              whenQuiet: whenQuiet, overdue: overdue)
+        if decision == .restartWhenQuiet {
+            // A busy daemon does not use up this build's handoff.
+            guard !handedOff.withLock({ $0.contains(key) }) else { return .kept }
+            let quiet = await AcpmuxQuietHandoff.quiet(socketPath: environment.socketPath)
+            decision = decide(status.build, bundled, status.agentHosts, replaced: isReplaced,
+                              whenQuiet: true, quiet: quiet, overdue: overdue)
+            if case .keep(let why) = decision {
+                logger.info("acpmux \(pid) runs build \(status.build ?? "?", privacy: .public); handed off when quiet: \(why, privacy: .public)")
+                quietWait?.deferred(home: home, pid: pid)
+                return .waitingForQuiet
+            }
         }
-        guard handedOff.withLock({ $0.insert(bundled ?? "pid \(pid)").inserted }) else { return false }
-        logger.info("acpmux \(pid) runs build \(status.build ?? "?", privacy: .public)\(isReplaced ? " from a replaced bundle" : "", privacy: .public); handing off to \(bundled ?? "?", privacy: .public)")
+        guard decision == .restart else { return .kept }
+        guard handedOff.withLock({ $0.insert(key).inserted }) else { return .kept }
+        logger.info("acpmux \(pid) runs build \(status.build ?? "?", privacy: .public)\(isReplaced ? " from a replaced bundle" : "", privacy: .public)\(status.agentHosts ? "" : " without agent hosts", privacy: .public); handing off to \(bundled ?? "?", privacy: .public)")
         do {
+            // Never `endAgents`: agents under agent hosts keep running, and every chat's session,
+            // log and queue stay on disk for the next daemon.
             try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home)
         } catch {
             logger.error("acpmux handoff request failed: \(String(describing: error), privacy: .public)")
-            return false
+            return .kept
         }
         // The old daemon holds its lock until it exits; the new one needs it.
-        return await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
+        return await AgentPaneProcessExit(pid: pid).event(within: .seconds(15)) ? .stopped : .kept
     }
 }
 
@@ -137,7 +201,12 @@ public nonisolated struct AgentPaneProcessExit: Sendable {
     }
 
     /// True at the exit; false when `timeout` passes first. A nil `timeout` waits for the exit only.
-    public func event(within timeout: Duration?) async -> Bool {
+    /// `armed` runs once the exit watch is resumed and before the check for an exit that came
+    /// first, so a signal sent there cannot end the process unseen. The watch's registration with
+    /// the kernel may still be in flight then: a caller that must signal only the process it
+    /// found registers its own watch first (``AcpmuxUnresponsiveWatch/signal(_:_:process:)``).
+    /// It returns the answer when there is nothing to wait for (nil: wait).
+    public func event(within timeout: Duration?, armed: () -> Bool? = { nil }) async -> Bool {
         let pid = self.pid
         return await withCheckedContinuation { continuation in
             let once = Once()
@@ -160,6 +229,10 @@ public nonisolated struct AgentPaneProcessExit: Sendable {
             }
             source.setEventHandler { finish(true) }
             source.resume()
+            if let answer = armed() {
+                finish(answer)
+                return
+            }
             if kill(pid, 0) != 0 && errno == ESRCH { finish(true) }
         }
     }

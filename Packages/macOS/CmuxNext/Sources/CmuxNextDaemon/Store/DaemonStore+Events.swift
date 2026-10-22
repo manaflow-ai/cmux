@@ -300,11 +300,12 @@ extension DaemonStore {
 
         case .sessionState(let item): session.apply(item, in: self); return .none
         case .terminalRegistryChanged, .bookmarksChanged, .historyChanged, .keybindingsChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,
-             .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown: // .unknown: the `apps-*` events of apps-v1
+             .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown, // .unknown: the `apps-*` events of apps-v1
+             .client: // another client came or went (`QuietDaemonUpdate` retries on it)
             sideEvents.deliver(event, envelope: envelope)
             return .none
 
-        case .scrollChanged, .bell, .frontendProjectionChanged, .client:
+        case .scrollChanged, .bell, .frontendProjectionChanged:
             return .none
         }
     }

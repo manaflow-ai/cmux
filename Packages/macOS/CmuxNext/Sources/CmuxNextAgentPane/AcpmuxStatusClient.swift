@@ -255,15 +255,18 @@ nonisolated struct AcpmuxStatus: Sendable, Equatable {
     var chiefMuxHome: String?
     /// The daemon's `ACPMUX_HOME`; nil from a daemon that does not report it.
     var home: String?
+    /// Its sessions live only in memory (`store.mode` `memory`): a restart loses them.
+    var memoryStore: Bool
 
     init(webURL: String? = nil, build: String? = nil, pid: Int32? = nil, agentHosts: Bool = false,
-         chiefMuxHome: String? = nil, home: String? = nil) {
+         chiefMuxHome: String? = nil, home: String? = nil, memoryStore: Bool = false) {
         self.webURL = webURL
         self.build = build
         self.pid = pid
         self.agentHosts = agentHosts
         self.chiefMuxHome = chiefMuxHome
         self.home = home
+        self.memoryStore = memoryStore
     }
 
     init(_ result: [String: Any]) {
@@ -273,6 +276,7 @@ nonisolated struct AcpmuxStatus: Sendable, Equatable {
         agentHosts = (result["agentHosts"] as? Bool) ?? false
         chiefMuxHome = result["chiefMuxHome"] as? String
         home = result["home"] as? String
+        memoryStore = ((result["store"] as? [String: Any])?["mode"] as? String) == "memory"
     }
 
     /// Whether the daemon runs from `home`. One of another home on this app's socket (an

@@ -58,6 +58,9 @@ extension DaemonConnection {
         handoffHold?.removeValue(forKey: key)?.resume()
     }
 
+    /// Requests of this connection in flight now (a quiet update waits for none, `QuietDaemonUpdate`).
+    public var requestsInFlight: Int { inFlight }
+
     func requestStarted() { inFlight += 1 }
 
     func requestEnded() {
