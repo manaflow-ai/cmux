@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 public import CmuxNextFiles
 import Quartz
 import UniformTypeIdentifiers
@@ -117,7 +118,7 @@ public final class FileActionsMenu {
     public func openWithItem(forFileNamed name: String, isDirectory: Bool = false,
                              resolve: @escaping @MainActor @Sendable () async -> URL?) -> NSMenuItem {
         let row = NSMenuItem(title: FileActionStrings.openWith, action: nil, keyEquivalent: "")
-        row.image = NSImage(systemSymbolName: "arrow.up.forward.app", accessibilityDescription: nil)
+        row.image = NSImage.menuSymbol("arrow.up.forward.app")
         let submenu = NSMenu(title: FileActionStrings.openWith)
         let loading = NSMenuItem(title: FilesStrings.loading, action: nil, keyEquivalent: "")
         loading.isEnabled = false
@@ -202,6 +203,6 @@ private func menuRow(_ title: String, _ symbol: String?, _ run: @escaping @MainA
     let item = NSMenuItem(title: title, action: #selector(RowTarget.fire(_:)), keyEquivalent: "")
     item.target = target
     item.representedObject = target
-    if let symbol { item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
+    if let symbol { item.image = NSImage.menuSymbol(symbol) }
     return item
 }
