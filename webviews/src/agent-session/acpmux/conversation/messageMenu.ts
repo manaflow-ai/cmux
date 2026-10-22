@@ -34,6 +34,9 @@ export type MessageMenuReport = Partial<MessageMenuTarget> & {
   /// Save Image As…, Quick Look and Show in Finder act on it (imageMenuActions.ts).
   image?: true;
   part?: MenuPart;
+  /// The message's More button (MessageActions.tsx MessageMore), in CSS px: the host opens the
+  /// menu a right-click on the message opens under it, now (the report is the right-click's).
+  popUp?: { left: number; top: number; right: number; bottom: number };
 };
 
 /// Whether acpmux can fork the chat at all here: it serves forks, the pane is connected and the
@@ -229,6 +232,29 @@ export function setMessageMenuSource(next: MessageSource | undefined) {
 
 type Handler = { postMessage(body: unknown): void };
 
+const webkitHandler = () =>
+  (window as unknown as { webkit?: { messageHandlers?: Record<string, Handler | undefined> } }).webkit
+    ?.messageHandlers?.[MESSAGE_MENU_HANDLER];
+/// Where reports go: the handler `installMessageMenuReporter` was given.
+let menuHandler: () => Handler | undefined = () => undefined;
+
+/// Whether a host shows this page's message menu (its More button would do nothing without one).
+export const hasMessageMenuHost = () => menuHandler() !== undefined;
+
+/// More (…) on row `rowId`'s action row: asks the host for the menu a right-click on that message
+/// opens, with the same report, shown under `anchor`. False when the row is not a message or no
+/// host shows the menu.
+export function openMessageMenu(rowId: string, anchor: Element): boolean {
+  const message = source?.(rowId);
+  const handler = menuHandler();
+  if (!message || !handler) return false;
+  reportedImage = undefined;
+  reportedPicture = undefined;
+  const { left, top, right, bottom } = anchor.getBoundingClientRect();
+  handler.postMessage({ ...message, popUp: { left, top, right, bottom } } satisfies MessageMenuReport);
+  return true;
+}
+
 let reportedImage: HTMLElement | undefined;
 let reportedPicture: HTMLImageElement | undefined;
 
@@ -255,10 +281,9 @@ export function openReportedImage(): boolean {
 /// stops the event still reports). Returns the remover.
 export function installMessageMenuReporter(
   doc: Document,
-  handler: () => Handler | undefined = () =>
-    (window as unknown as { webkit?: { messageHandlers?: Record<string, Handler | undefined> } }).webkit
-      ?.messageHandlers?.[MESSAGE_MENU_HANDLER],
+  handler: () => Handler | undefined = webkitHandler,
 ): () => void {
+  menuHandler = handler;
   const report = (event: Event) => {
     const target = event.target as Element | null;
     const rowId = target?.closest?.("[data-row-id]")?.getAttribute("data-row-id");
@@ -281,7 +306,10 @@ export function installMessageMenuReporter(
     handler()?.postMessage(body);
   };
   doc.addEventListener("contextmenu", report, true);
-  return () => doc.removeEventListener("contextmenu", report, true);
+  return () => {
+    doc.removeEventListener("contextmenu", report, true);
+    if (menuHandler === handler) menuHandler = () => undefined;
+  };
 }
 
 /// The selected transcript text when the right-click is inside the selection; nothing for a

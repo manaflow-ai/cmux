@@ -1214,6 +1214,12 @@ fn connection(conn: UnixStream, served: &Served) {
                                 compactor_speed: field("compactor_speed"),
                                 compactor_harness: field("compactor_harness"),
                                 compactor_model: field("compactor_model"),
+                                reactions: Box::new(crate::brain::ReactionFields {
+                                    classifier_harness: field("classifier_harness"),
+                                    classifier_model: field("classifier_model"),
+                                    classifier_prompt: field("classifier_prompt"),
+                                    reactions_can_wake: field("reactions_can_wake"),
+                                }),
                             }))
                         }
                         _ => None,

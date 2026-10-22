@@ -85,9 +85,27 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         superview?.needsLayout = true
     }
 
+    /// A resync arrived while the view was out of a window or hidden (its own flag or an
+    /// ancestor's: a parked workspace, a collapsed group); it runs when the view shows again.
+    private var owesResync = false
+
+    /// Checks the indicator again (the app came back, a window became main, the Mac woke). Only
+    /// an indicator on screen does the work now: an activation costs what shows, not every row
+    /// and tab of the session (user 2026-10-21, Cmd-Tab lag with many workspaces).
     public func statusIndicatorResync() {
+        guard window != nil, !isHiddenOrHasHiddenAncestor else {
+            owesResync = true
+            return
+        }
+        owesResync = false
+        StatusIndicatorAppearance.resyncs &+= 1
         if let window { isWindowVisible = window.occlusionState.contains(.visible) }
         refresh()
+    }
+
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        if owesResync, !isHiddenOrHasHiddenAncestor { statusIndicatorResync() }
     }
 
     private func refresh() {
@@ -129,6 +147,7 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        owesResync = false
         observeOcclusion()
         if let window { isWindowVisible = window.occlusionState.contains(.visible) }
         refresh()

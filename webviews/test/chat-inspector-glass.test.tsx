@@ -44,6 +44,7 @@ await requireBrowserLane("chat-inspector-glass.test.tsx", async () => {
         </div>
       </InspectorPanel>,
     );
+    expect(panel).toContain('class="ui-glass ui-glass-floats acpmux-chat-inspector"');
     const page = await browser!.newPage();
     // The host's tokens on an opaque window: a solid page and theme surface, so only the panel's own
     // material decides whether the transcript behind it shows.
