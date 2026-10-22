@@ -31,6 +31,8 @@ final class RemoteTmuxFindWindowModel {
         didSet { if options != oldValue { runSearch() } }
     }
     private(set) var results: [RemoteTmuxFindWindowResult] = []
+    /// Between ``open()`` and ``close()``.
+    private(set) var isOpen = false
     private(set) var selectedIndex = 0
     /// Why the query can't run (a regex that does not compile).
     private(set) var queryError: String?
@@ -64,6 +66,7 @@ final class RemoteTmuxFindWindowModel {
     /// Snapshots the panes, starts reading their text and runs the current query.
     func open() {
         close()
+        isOpen = true
         candidates = environment.candidates()
         paneCount = candidates.count
         settledPaneCount = 0
@@ -91,6 +94,7 @@ final class RemoteTmuxFindWindowModel {
 
     /// Stops reading and matching.
     func close() {
+        isOpen = false
         readTasks.forEach { $0.cancel() }
         readTasks = []
         searchTask?.cancel()

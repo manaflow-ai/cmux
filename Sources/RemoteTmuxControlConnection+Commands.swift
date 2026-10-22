@@ -4,7 +4,7 @@ import Foundation
 extension RemoteTmuxControlConnection {
     /// How many lines of pane history `capture-pane` seeds onto a freshly mounted
     /// (or reconnected) mirror surface. Clamped by the remote pane's `history-limit`.
-    private static let scrollbackCaptureLines = 5_000
+    static let attachSeedHistoryRows = 5_000
 
     /// Sends a tmux command on the control stream (newline-terminated).
     @discardableResult
@@ -314,7 +314,7 @@ extension RemoteTmuxControlConnection {
         // comes from LIVE %output (which already carries real soft-wraps), not from
         // the seed — so `-J`'s only upside (pre-attach rejoin-on-grow) isn't worth
         // corrupting every TUI seed. Capture faithful visual rows instead.
-        let captureCommand = "capture-pane -p -e -S -\(Self.scrollbackCaptureLines) -t %\(paneId)"
+        let captureCommand = "capture-pane -p -e -S -\(Self.attachSeedHistoryRows) -t %\(paneId)"
         // Query the pane's terminal STATE; tmux exposes it all as formats. Sent
         // after capture-pane so it applies on top of the painted rows (the seed
         // escapes are built in `paneStateSeedSequence`). See the doc comment for why
