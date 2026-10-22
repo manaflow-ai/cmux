@@ -36,6 +36,7 @@ import {
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
 import { chatColumnOf, useChatWidth, type ChatColumn } from "../chatWidth";
+import { HEADER_GLYPH } from "../header/ChatHeaderTools";
 import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
 import { useT } from "../i18n";
@@ -210,7 +211,7 @@ export function useChatInspector({
         title={label}
         onClick={toggle}
       >
-        <Icon name="pane.split.right" size={15} />
+        <Icon name="pane.split.right" size={HEADER_GLYPH} />
       </button>
     ),
     panel: (
