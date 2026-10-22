@@ -54,8 +54,8 @@ pub trait Workspaces: Send + Sync {
     fn place(&self) -> String;
     /// The public id (`ws_…`) and session name of workspace `key`, so the
     /// Chief and the user can list, move and pin it with the cmux CLI
-    /// (`cmux --session <session> workspace <ws_…> move --index 0`); None
-    /// when this place cannot name it.
+    /// (`cmux workspace <ws_…> move --index 0`); None when this place cannot
+    /// name it.
     fn locate(&self, _key: &str) -> Option<WorkspaceRef> {
         None
     }
@@ -71,12 +71,11 @@ pub struct WorkspaceRef {
 }
 
 impl WorkspaceRef {
-    /// The CLI command that moves this workspace to the top of its session.
+    /// The CLI command that moves this workspace to the top of its session. It names no
+    /// `--session`: the workspace is in the session a cmux terminal and the Chief's turns
+    /// already reach (the user's, or a server host's own), like any other (a423).
     pub fn move_to_top(&self) -> String {
-        format!(
-            "cmux --session {} workspace {} move --index 0",
-            self.session, self.id
-        )
+        format!("cmux workspace {} move --index 0", self.id)
     }
 }
 
@@ -477,8 +476,16 @@ impl AppWorkspaces {
 
 /// The session daemon where subagent workspaces are made, None when this host has no cmux
 /// app (then a cloud install's own daemon holds them). `owner` is the host's `--daemon-socket`.
+///
+/// With the app it is the app's own daemon (`CMUX_APP_DAEMON_SOCKET`, the link the app keeps
+/// at `state/app-daemon.sock`): the session that holds the user's own workspaces (a423,
+/// Lawrence 2026-10-21: "all workspaces must be the same"). A subagent's workspace is then an
+/// ordinary workspace there, made with the same daemon ops, grouped by its topic and owned by
+/// that daemon like any other; only its chat tab names the Chief home's acpmux as its host.
+/// It used to be the Chief's owner daemon (`cmux-chief-<id>`, hq-6d 2026-10-09), which the
+/// app showed apart under a "Chief" header.
 pub fn subagent_daemon(owner: &str, env: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
-    AppWorkspaces::resolve(owner, env).map(|_| PathBuf::from(owner))
+    AppWorkspaces::resolve(owner, env).map(|app| app.daemon)
 }
 
 /// The Markdown link that names subagent `id` (`[a1](cmux://chief/<home id>/session/<session>)`):
@@ -836,6 +843,11 @@ pub struct DaemonWorkspaces {
     pub host_name: String,
     /// The subagent harness, shown on the tab.
     pub harness: Option<String>,
+    /// Whether `daemon` is the app's own daemon, the user's session: its sidebar groups and
+    /// order are the personal ones (`workspace_group.*`, `workspace.place`, what `cmux
+    /// workspace group <g> add` sends), not the daemon's older shared groups, which the app
+    /// does not show for that session (a423).
+    pub personal: bool,
 }
 
 impl DaemonWorkspaces {
@@ -947,11 +959,10 @@ impl Workspaces for DaemonWorkspaces {
     }
 
     fn place(&self) -> String {
-        // The Chief home's own owner daemon (tabs on `chief:<home id>`): the app shows it
-        // as the Chief's machine row.
+        // The app's daemon (tabs on `chief:<home id>`, the Chief home's acpmux): the user's
+        // own session, beside the workspaces the user made (a423).
         if self.host.starts_with("chief:") {
-            return "the Chief's own cmux session on this Mac (the cmux app shows it under the Chief)"
-                .to_owned();
+            return "your cmux session on this Mac, beside your own workspaces".to_owned();
         }
         format!(
             "the cmux session on {0} (a cmux app shows it only while connected to {0})",

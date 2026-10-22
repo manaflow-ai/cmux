@@ -15,6 +15,9 @@ use std::sync::{Arc, Mutex};
 use optchat_chief::workspaces::{DaemonWorkspaces, Workspaces};
 use serde_json::{Value, json};
 
+/// Marks a fake that is the app's own daemon (the user's session), with personal groups.
+const PERSONAL: &str = "test-personal-session";
+
 fn serve(
     listener: UnixListener,
     capabilities: Vec<&'static str>,
@@ -33,6 +36,33 @@ fn serve(
                     let Ok(line) = line else { return };
                     let req: Value = serde_json::from_str(&line).unwrap();
                     requests.lock().unwrap().push(req.clone());
+                    // cmux.protocol/2 resource ops: the personal groups and placements of the
+                    // app's session (what `cmux workspace group <g> add` sends).
+                    if req["type"] == "request" {
+                        let personal = capabilities.contains(&PERSONAL);
+                        let result = match req["operation"].as_str().unwrap() {
+                            _ if !personal => None,
+                            "workspace_group.list" => Some(json!([
+                                {"id": "grp_user_sidebar", "name": "Sidebar & Tabs", "index": 0, "room_id": "default"}
+                            ])),
+                            "workspace_group.create" => {
+                                Some(json!({"id": "grp_new", "name": req["params"]["name"]}))
+                            }
+                            "workspace.place" => Some(json!({"group_id": req["params"]["group"]})),
+                            _ => None,
+                        };
+                        let answer = match result {
+                            Some(result) => {
+                                json!({"protocol": "cmux.protocol/2", "type": "response", "id": req["id"], "ok": true, "result": result})
+                            }
+                            None => {
+                                json!({"protocol": "cmux.protocol/2", "type": "response", "id": req["id"], "ok": false,
+                                "error": {"code": "operation.unsupported", "message": "unsupported", "retryable": false}})
+                            }
+                        };
+                        let _ = writeln!(out, "{answer}");
+                        continue;
+                    }
                     // The real daemon (server.rs workspace_mutation) refuses a mutation_id
                     // without its origin, and an origin without its mutation_id.
                     if req.get("mutation_id").is_some() != req.get("origin").is_some() {
@@ -120,6 +150,7 @@ fn workspaces_refusing(
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("cmux.sock");
     let requests = Arc::new(Mutex::new(Vec::new()));
+    let capabilities_personal = caps.contains(&PERSONAL);
     serve(
         UnixListener::bind(&socket).unwrap(),
         caps,
@@ -131,6 +162,7 @@ fn workspaces_refusing(
         host: "install:inst_test".into(),
         host_name: "cmux-lawrence".into(),
         harness: Some("claude-sr".into()),
+        personal: capabilities_personal,
     };
     (w, requests, dir)
 }
@@ -344,4 +376,62 @@ fn an_app_started_chief_makes_subagent_workspaces_in_the_users_session() {
     );
     let no_app = |_: &str| None;
     assert_eq!(subagent_daemon(owner, &no_app), None);
+}
+
+/// a423: in the user's session (the app's daemon) a subagent workspace joins a sidebar group
+/// the way a workspace the user groups does (`cmux workspace group <g> add`): the session's
+/// personal group by that name (any case) through `workspace.place`, never the daemon's older
+/// shared groups (`move-workspace-to-group`), which the app does not show for that session.
+#[test]
+fn in_the_users_session_a_subagent_workspace_joins_a_personal_group() {
+    let mut caps = GROUPED.to_vec();
+    caps.push(PERSONAL);
+    let (w, requests, _dir) = workspaces(caps);
+    open_in(&w, "Sidebar & tabs").unwrap();
+    let ops = |op: &str| -> Vec<Value> {
+        requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r["operation"] == op)
+            .cloned()
+            .collect()
+    };
+    assert!(
+        ops("workspace_group.create").is_empty(),
+        "the user's group is reused"
+    );
+    let placed = ops("workspace.place");
+    assert_eq!(placed.len(), 1, "{:?}", requests.lock().unwrap());
+    assert_eq!(placed[0]["params"]["group"], "grp_user_sidebar");
+    assert_eq!(
+        placed[0]["params"]["workspace"],
+        "ws_cbd7f86ef04cb1b8d1f2f7a235d6538e"
+    );
+    assert!(placed[0]["idempotency_key"].is_string());
+    assert!(commands(&requests, "move-workspace-to-group").is_empty());
+    assert!(commands(&requests, "create-workspace-group").is_empty());
+
+    // A topic the session has no group for gets a new personal group.
+    let mut caps = GROUPED.to_vec();
+    caps.push(PERSONAL);
+    let (w, requests, _dir) = workspaces(caps);
+    open_in(&w, "Performance").unwrap();
+    let created: Vec<Value> = requests
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|r| r["operation"] == "workspace_group.create")
+        .cloned()
+        .collect();
+    assert_eq!(created.len(), 1);
+    assert_eq!(created[0]["params"]["name"], "Performance");
+    let placed: Vec<Value> = requests
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|r| r["operation"] == "workspace.place")
+        .cloned()
+        .collect();
+    assert_eq!(placed[0]["params"]["group"], "grp_new");
 }
