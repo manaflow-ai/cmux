@@ -322,6 +322,13 @@ routes on network change (T3's best idea, Part I 1.4):
 Targets map: Freestyle VM → 3 (2 as fallback); Mac mini / other MacBook → 1 then 2; Linux server → 2
 (1 when it runs tailscaled + `cmux host serve`).
 
+Tailnet policy (cmuxterm-hq #2982, 75bc7f7, live 2026-10-21, a459): the Cloud Chief tag,
+`chief-dev-vm` (`tag:lawrence-devvm`) and per-agent VMs (`tag:agent-cloud`) reach
+`tag:mac-mini-cluster` on 22/5900/8787/31415, cmux17-24 by IP on 22/5900 and `tag:macbuilder` on
+22/5900; cmux16 stays blocked. So from a cloud VM a mini is reachable by SSH (route 2) only; the
+`cmux host serve` port (7319) is not in the policy, so route 1 from cloud to a mini fails until it
+is added. SSH keys for user `chief` exist only on cloud-chief and chief-dev-vm.
+
 ## 14. Auth, version skew
 
 - Auth: SSH identity or tailnet WhoIs owner, checked per connection before any protocol byte;
