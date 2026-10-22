@@ -86,7 +86,7 @@ export function ReplyMedia({ path, alt, fallback }: { path: string; alt: string;
   const near = useNearViewport(frame);
   const { src, state, fail } = useMediaLoad(path, near && loadable);
   const name = alt || pathName(path);
-  if (src) return <MediaPlayer src={src} kind={kind} name={name} onError={fail} />;
+  if (src) return <MediaPlayer src={src} kind={kind} name={name} path={path} onError={fail} />;
   if (state === "failed" && fallback) return <>{fallback}</>;
   return (
     <span ref={setFrame} className={`cv-media is-${kind}`}>
@@ -124,11 +124,14 @@ function MediaPlayer({
   src,
   kind,
   name,
+  path,
   onError,
 }: {
   src: string;
   kind: "video" | "audio";
   name: string;
+  /// The file it plays: its right-click menu's Copy, Save As… and Reveal in Finder act on it.
+  path?: string;
   onError(): void;
 }) {
   const t = useT();
@@ -136,14 +139,17 @@ function MediaPlayer({
   const close = useRef<HTMLButtonElement>(null);
   if (kind === "audio")
     return (
-      <span className="cv-media is-audio">
-        <span className="cv-media__name">{name}</span>
+      <span className="cv-media is-audio" data-path={path}>
+        {/* The name drags out as the file itself (conversation/dragOut.ts). */}
+        <span className="cv-media__name" draggable={Boolean(path)}>
+          {name}
+        </span>
         {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- an agent's recording has no captions */}
         <audio src={src} controls preload="metadata" aria-label={name} onError={onError} />
       </span>
     );
   return (
-    <span className="cv-media is-video">
+    <span className="cv-media is-video" data-path={path}>
       {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- an agent's recording has no captions */}
       <video
         src={src}

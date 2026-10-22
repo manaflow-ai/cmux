@@ -153,16 +153,15 @@ import Testing
         #expect(ran, "an in-app palette, menu, or keyboard run still reaches the handler")
     }
 
-    /// Raw app screenshots can include a browser page. Automation must use
-    /// the browser host's guarded capture, which masks secrets in every frame,
-    /// instead of bypassing it through the generic action socket. Design mode
-    /// also snapshots selected page regions into a composer, so only a person
-    /// may enable that capture path.
-    @Test func appScreenshotsAreRefusedOverTheSocket() async {
+    /// Raw browser page screenshots bypass the browser host's guarded capture,
+    /// which masks secrets in every frame, so automation must use the browser
+    /// REPL instead of the generic action socket. Design mode also snapshots
+    /// selected page regions into a composer, so only a person may enable that
+    /// capture path.
+    @Test func browserScreenshotsAreRefusedOverTheSocket() async {
         let registry = ActionRegistry.standard()
         registry.context = [.browserFocused, .webViewFocused]
         let ids: [ActionID] = [
-            "window.screenshot", "pane.screenshot", "tab.screenshot",
             "browserScreenshotPage", "browserScreenshotSection",
             "devtools.captureScreenshot", "devtools.captureFullPageScreenshot", "devtools.captureNodeScreenshot",
             "toggleBrowserDesignMode",
@@ -183,6 +182,33 @@ import Testing
         }
         #expect(ran.isEmpty)
         for id in ids { #expect(registry.descriptor(for: id)?.isPersonOnly == true) }
+    }
+
+    /// An agent sees the app: `cmux window|pane|tab screenshot` run for every
+    /// caller (Leo 2026-10-21: "cmux only lets a person run the window
+    /// screenshot action. doesnt seem right"). An automation run's image has
+    /// every web page the app does not own painted over
+    /// (`ScreenshotPrivacyMask`), so it shows no browser pixels.
+    @Test func appScreenshotsRunForEveryCaller() async throws {
+        let registry = ActionRegistry.standard()
+        let ids: [ActionID] = ["window.screenshot", "pane.screenshot", "tab.screenshot"]
+        var ran: [(ActionID, ActionOrigin)] = []
+        for id in ids { registry.bind(id, invoke: { ran.append((id, $0.origin)) }) }
+        let router = ControlRouter(identity: testIdentity(), executor: RegistryControlBridge(registry: registry), settings: nil,
+                                   configuration: .loadTolerant)
+        router.updateCatalog(RegistryControlBridge.catalog(from: registry))
+
+        for id in ids {
+            #expect(registry.descriptor(for: id)?.isPersonOnly == false, "\(id)")
+            for origin: JSONValue in ["cli", "mcp", "script", .null] {
+                let result = await router.handle(ControlRequest(method: "action.run", params: [
+                    "action": .string(id.rawValue), "origin": origin,
+                ]))
+                #expect((try? result.get()) != nil, "\(id) from \(origin): \(result)")
+            }
+        }
+        #expect(ran.count == ids.count * 4)
+        #expect(ran.allSatisfy { $0.1 != .user }, "an automation run is never the person's, so its image is masked")
     }
 
     @Test func toolPermissionActionsRequireAPersonInTheApp() async {
