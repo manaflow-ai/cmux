@@ -115,11 +115,12 @@ Five everyday commands, three groups for the rest:
 | --- | --- |
 | `acpmux` | Open the TUI. Starts the daemon if needed. |
 | `new [-m harness[/model]] [-n name] [--cwd dir] [--policy p] [prompt]` | Create a session. Opens the TUI unless `-d`. |
-| `send NAME "text" [--steer\|--no-steer] [--no-wait] [-q]` | Prompt and stream the reply. With `--no-wait` it steers into a running turn by default (read at the agent's next tool boundary, never stopping it); it queues when the agent does not steer. |
+| `send NAME "text" [--steer\|--no-steer] [--no-wait] [-q]` | Prompt and stream the reply. With `--no-wait` it hands the message to this daemon and returns at once with a delivery id, for a session here or on a peer ([the outbox](#messages-to-other-sessions-the-outbox)); it steers into a running turn by default (read at the agent's next tool boundary, never stopping it) and queues when the agent does not steer. `--supersede KEY` replaces the sender's own prompt still queued under KEY (never one whose turn started); with `--no-wait` it prints `replaced N queued` once delivered (`?` from a daemon that predates it) and `--json` adds `replaced` and `replacedPromptIds`. The sender is the agent (`--from`, or the session `send` runs in) or, for anything else, the person. |
+| `send --status ID` | A `--no-wait` delivery's state: `queued`, `delivering` (attempt n), `delivered` (the target's turn, steered or queued), `held` (a paused agent pair holds it until the person resumes the pair) or `failed` (the last error). |
 | `ls` | Sessions on every host, as `host/name` for remote ones. |
 | `attach [NAME] [--plain]` | TUI on one session, or a plain text stream. |
 | `web [--no-open] [--rotate-token]` | Print the dashboard URL and open it; `--rotate-token` replaces the token first. |
-| `host setup HOST` / `host update [--all] [--if-idle] [--binary-dir DIR]` / `host add NAME URL` / `host ls` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…`. |
+| `host setup HOST` / `host update [--all] [--if-idle] [--binary-dir DIR]` / `host add NAME [URL]` / `host ls` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…` (default `ssh://NAME`: the machine's one daemon as your ssh config reaches it). `ls` names an `ssh://` entry with a user or another port as not the canonical endpoint. |
 | `host enroll HOST [--harness ID]… [--reverse]` / `host doctor NAME\|HOST [--fix] [--reverse]` | Add a machine step by step (reach, install, daemon, harness, peer, peer-back, identity), one JSON line per step with `--json`; `peer-back` (this machine as the host's peer) runs only with `--reverse`; `doctor` changes nothing without `--fix`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
 | `daemon run\|status\|shutdown\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
@@ -149,7 +150,8 @@ acpmux run -m codex --cwd ~/proj "fix the failing test"      # new session, send
 acpmux exec -m claude "one-shot"                              # same, and the session is deleted afterwards
 acpmux --json run -m claude --policy approve-all "..."       # {"sessionId","name","reply","stopReason","permissions",…}
 acpmux ensure NAME -m codex --cwd DIR                         # the session if it exists, else create it
-acpmux send NAME --no-wait "..."                              # queue and return; prints "queued behind 1 running turn"
+acpmux send NAME --no-wait "..."                              # hand it over and return at once; prints the delivery id
+acpmux send --status ID                                       # queued, delivering, delivered, held or failed
 acpmux send NAME --timeout 120 --on-permission deny|fail "…"  # cancel after 120 s (exit 3); answer prompts without a human
 acpmux wait                                                   # until any session on any host resolves (turn ended or needs a permission)
 acpmux wait NAME… --until ready|permission|closed|done|running [--all] [--timeout 300] [--print] [--notify]
@@ -189,9 +191,15 @@ unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 session load or new, config replay): past it the request fails with code -32000 and
 `data.reason` `deadline_exceeded` (`data.wait` `agent_start`), the agent is ended, the
 session stays open, and the log gets `agent_start_timed_out`.
-`silentTurnMs` (default 90000; 0 turns it off): a turn whose agent sends nothing at all
-for that long after its prompt (a stalled model) logs `turn_silent` {turnId, silentMs}
-once, so a client can say the model has not answered.
+`silentTurnMs` (default 90000; 0 turns it off): a turn whose model shows no sign of work
+(no message, thought, tool call, plan, compaction or request, and no harness line only a
+responding model produces, such as Claude's stream and thinking or Codex's moderation
+notice; the agent's own usage and turn notices do not count) for that long after its
+prompt (a stalled model) logs `turn_silent` {turnId, silentMs} once, so a client can say
+the model has not answered. The model's first sign after it logs `turn_heard` {turnId}.
+Files dropped into a chat (`_acpmux/file_put`, under `<home>/uploads/<session>/`) are
+deleted with the chat (`_acpmux/kill` with purge) and once older than `uploadsMaxAgeDays`
+(default 30; 0 keeps them), checked at the daemon's start and daily.
 
 A chat whose harness never titles it (Claude Code's `-p` stream-json has no title
 event) gets a 3-6 word title once, after its first completed turn, logged as `titled`.
@@ -826,6 +834,39 @@ fallback instead of failing over into a launcher that dies at once. When a subro
 known, the launcher instead becomes a copy of `claude` routed through that server, but only when
 `claude` is acpmux's own adapter: `claude-sr` never becomes an ACP adapter, and the pool never
 falls back onto one.
+
+### Messages to other sessions: the outbox
+
+`acpmux send --no-wait NAME` is how one session (or a person, or a script) messages another,
+here or on any peer, and it acks within a second whatever the target is doing:
+
+1. **Enqueue.** The CLI sends `_acpmux/send_queue {request}` to its own daemon: the
+   `session/prompt` params it would have sent, with a prompt id. The daemon checks that the
+   target is a session here, one a peer lists, or one on a peer that is down now, records the
+   delivery in `outbox.json` beside the sessions, and answers `{deliveryId, target, status}`.
+   Only the unix socket may queue.
+2. **Ack.** That answer is the ack: the message is the daemon's to deliver from then on, across
+   a restart too. The CLI waits half a second more for a target that takes it at once, so a local
+   send still prints `steered` or `queued`.
+3. **Deliver.** In the background the daemon sends the prompt over its own connection, as the
+   sender's session when the sender proved one, so every rule of a direct send applies; a peer's
+   session is forwarded as usual. An attempt ends on the target's `_acpmux/prompt_accepted`,
+   which a peer now passes back as soon as it takes the prompt, not when its turn ends.
+4. **Retry and dedupe.** A connection error, a peer that is down and a target that does not
+   answer within 120 s are tried again after 2 s, 5 s, 10 s, 30 s, 1, 2, 5, 10 and 15 minutes (about
+   34 minutes in all), always with the same prompt id and `resend`, so a target that took an
+   earlier attempt answers with that one and never runs it twice. Sending the same prompt id
+   again returns the first delivery. A refusal (no such session, the folder's trust, a bad
+   prompt, a full agent pair) fails the delivery at once. A paused agent pair leaves it `held`:
+   the target's daemon runs it when the person resumes the pair, so it is never sent again from
+   here. `--no-wait` prints a refusal or a hold that comes within half a second as its error, as
+   a direct send did.
+5. **Status.** `acpmux send --status ID` (`_acpmux/send_status {deliveryId, waitMs?}`) reads it.
+   Delivered, held and failed deliveries are kept for a day.
+
+Before this, a `--no-wait` send to a peer waited for the peer's whole turn: the forwarded
+`session/prompt` answers only when the target's turn (or a steer's step) ends, and the peer's
+`_acpmux/prompt_accepted` was dropped on the way back.
 
 ## Claude Code: native stdio backend
 

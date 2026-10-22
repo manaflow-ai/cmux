@@ -110,7 +110,7 @@ export default agentPaneEntry({
   },
   variants: {
     rest: {
-      note: "At rest mid-thread. Full height (the default): the rail spans the transcript, each prompt a longer tick and each reply a shorter one set in, at its place in the chat, under a bar for the view. Compact: every tick the same 6 px, the prompts on screen brighter.",
+      note: "At rest mid-thread. Off (the default): no minimap, the left edge empty. Full height: the rail spans the transcript, each prompt a longer tick and each reply a shorter one set in, at its place in the chat, under a bar for the view. Compact: every tick the same 6 px, the prompts on screen brighter.",
       snapshot: chat(rows, { title: "Thread minimap at rest" }),
       play: async (ctx) => {
         if (!ctx.document.querySelector('[data-tick="8"]')) return;

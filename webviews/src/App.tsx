@@ -48,6 +48,8 @@ import type { DiffSource } from "./diff/generated/protocol";
 import { createDiffWorkerPoolOptions } from "./worker-pool";
 import {
   adjacentItemId,
+  itemScrollAnchor,
+  itemScrollTarget,
   keepStuckHeaderInView,
   presentedItem,
   scrollTargetForItem,
@@ -248,7 +250,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   // the reader is on under them. Reordering straight off `streamComplete` moved the text out from
   // under whoever was already reading a long diff. The handlers are filled in below, where the
   // code view and its measurements exist; they are only ever called from the hook's effects.
-  const kindOrderHandlers = useRef<KindOrderHandlers>({ anchor: () => "", restore: () => {} });
+  const kindOrderHandlers = useRef<KindOrderHandlers>({ anchor: () => null, restore: () => {} });
   const grouped = useKindOrder({
     enabled: state.options.groupByKind,
     ready: state.streamComplete,
@@ -473,8 +475,10 @@ export function App({ config, initialStatus }: ConfigProps) {
     );
   }, [latestState, visibleItemsRef]);
   // What useKindOrder measures and restores around a reorder of the file column: the file under
-  // the viewport, and a scroll that puts it back there. A reader who has not scrolled into the
-  // diff has no anchor, and nothing to keep.
+  // the viewport with how far into it the reader is, and a scroll that puts that place back. The
+  // offset is what keeps their line: a reorder moves whole files past each other and changes no
+  // file's own height, so without it a reader 800 pixels into a long file was thrown back to its
+  // first line. A reader who has not scrolled into the diff has no anchor, and nothing to keep.
   //
   // In a layout effect, and syncing the list itself, because useKindOrder is called above (it
   // decides the order `visibleItems` is built in) and measures in a passive effect. Every layout
@@ -484,9 +488,13 @@ export function App({ config, initialStatus }: ConfigProps) {
   useLayoutEffect(() => {
     visibleItemsRef.current = visibleItems;
     kindOrderHandlers.current = {
-      anchor: () => (codeViewScrollTopRef.current > 0 ? currentVisibleItemId() : ""),
-      restore: (itemId) =>
-        codeViewRef.current?.scrollTo({ type: "item", id: itemId, align: "start", behavior: "instant" }),
+      anchor: () =>
+        codeViewScrollTopRef.current > 0
+          ? itemScrollAnchor(currentVisibleItemId(), codeViewScrollTopRef.current, (itemId) =>
+              codeViewRef.current?.getInstance()?.getTopForItem(itemId),
+            )
+          : null,
+      restore: (anchor) => codeViewRef.current?.scrollTo(itemScrollTarget(anchor)),
     };
   }, [currentVisibleItemId, visibleItems, visibleItemsRef]);
   const jumpAdjacentFile = useCallback(
