@@ -311,7 +311,33 @@ test("a reader who scrolls while a fold plays moves every row alike: no row slid
     // A scroll mid-fold places the rows again; none of them changed place relative to the line.
     scroller().scrollTop = Math.max(0, scroller().scrollTop - 120);
     await act(async () => render());
-    expect(slides()).toEqual([]);
+    // (A copy of a row the scroll unmounted goes on with its slide: it is no row of the transcript.)
+    expect(slides().filter((slide) => slide.id !== "")).toEqual([]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a row that mounts mid-fold joins the slide part way, on the fold's clock", async () => {
+  const { root, render } = mount(new Set());
+  try {
+    await act(async () => render());
+    await act(async () => line(10).click());
+    const first = slides().find((slide) => slide.id === "t10-answer");
+    expect(first).toBeDefined();
+    played = [];
+    // Later in the fold, the row is drawn again as a new element (the virtualizer remounted it).
+    skew += 60;
+    const answer = dom.window.document.querySelector<HTMLElement>('[data-row-id="t10-answer"]')!;
+    const again = answer.cloneNode(true) as HTMLElement;
+    answer.replaceWith(again);
+    await act(async () => render());
+    const joined = played.find((one) => one.node === again && typeof one.keyframes[0]?.translate === "string");
+    expect(joined).toBeDefined();
+    expect(parseFloat(String(joined!.keyframes[0]!.translate).split(" ")[1]!)).toBe(first!.from);
+    expect(Number(joined!.options.delay)).toBeLessThanOrEqual(-60);
+    // React's own element goes back before it unmounts.
+    again.replaceWith(answer);
   } finally {
     await act(async () => root.unmount());
   }

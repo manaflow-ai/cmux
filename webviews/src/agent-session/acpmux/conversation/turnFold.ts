@@ -8,9 +8,9 @@
 // - closing, a drawn copy of the rows it hides fades out under the rows sliding up over it.
 // The line itself and every row above it never move here: VirtualTranscript holds the clicked line
 // in place (foldAnchor.ts) by moving the offset, and the motion reads each row's place below the
-// line, so it plays on top of that hold and a reader who scrolls meanwhile scrolls every row alike. Reduce Motion, the host's animation
-// switches (`data-agent-motion="off"`, a 0 ms token) and a page with no Web Animations open and
-// close at once: nothing here runs.
+// line, so it plays on top of that hold and a reader who scrolls meanwhile scrolls every row alike.
+// Reduce Motion, the host's animation switches (`data-agent-motion="off"`, a 0 ms token) and a page
+// with no Web Animations open and close at once: nothing here runs.
 import { foldMotion, foldMs } from "./fold";
 import { FOLD_SETTLE_MS } from "./foldAnchor";
 
@@ -27,6 +27,18 @@ export type PlacedRows = {
   tops: ArrayLike<number>;
 };
 
+/// A row element the fold moves: where it is placed below the line, and how it plays.
+type Moving = {
+  id: string;
+  /// Its place below the line, as last placed.
+  top: number;
+  /// How far above or below that place it starts (where the row was drawn at the toggle).
+  delta: number;
+  /// A row the open revealed: it fades in.
+  reveal: boolean;
+  animations: Animation[];
+};
+
 export type TurnFold = {
   /// The toggled row, and its index when last placed (a hint: rows stream in only below it).
   id: string;
@@ -34,25 +46,21 @@ export type TurnFold = {
   opening: boolean;
   sessionId?: string;
   ms: number;
-  /// When the motion started and when it stops (performance.now()).
+  /// When the motion started and when it stops (performance.now()). Every animation runs on this
+  /// one clock, so an element that mounts mid-fold starts part way, in step with the rest.
   start: number;
   until: number;
-  /// The rows as placed at the toggle, for a row that mounts mid-fold: where it was then.
+  /// The rows as placed at the toggle: where any row below the line was then, mounted or not.
   startRows: PlacedRows;
   startAt: number;
   /// `startRows`' indexes by id, made the first time a row needs one.
   startIndex?: Map<string, number>;
-  /// How far below the line each mounted row below it was drawn, as last placed.
-  tops: Map<string, number>;
-  /// The rows below the line mounted at the toggle: a copy of each one that leaves the mounted rows
-  /// stays drawn while it would still be on its way (a closed row fading out, a pushed one sliding).
+  /// Every row element below the line the fold has drawn, while it is mounted.
+  moving: Map<HTMLElement, Moving>;
+  /// The drawn copy of a row that left the mounted rows mid-fold, by row id.
   copies: Map<string, HTMLElement>;
-  /// Rows already faded in.
-  faded: Set<string>;
   /// The animations this fold started, so another toggle can settle them first.
   animations: Set<Animation>;
-  /// Each row's slide now: a later pass replaces it, so a row never runs two at once.
-  slides: Map<HTMLElement, Animation>;
 };
 
 /// The fold each thread plays now: a fold's own timer ends only that fold, not a later one.
@@ -103,13 +111,6 @@ function ghostOf(row: HTMLElement): HTMLElement {
   return copy;
 }
 
-/// How far a sliding row is drawn below its place now (its animated `translate`), in px.
-function drawnShift(node: HTMLElement): number {
-  const value = node.ownerDocument.defaultView?.getComputedStyle(node).translate ?? "";
-  const y = parseFloat(value.split(" ")[1] ?? "");
-  return Number.isFinite(y) ? y : 0;
-}
-
 /// Starts the fold of row `id` the reader toggled, or undefined when it applies at once. `opening`:
 /// the row was closed. Reads the rows as they are drawn now, before the toggle's render.
 export function startTurnFold(
@@ -124,12 +125,11 @@ export function startTurnFold(
   if (!thread || ms <= 0) return undefined;
   const at = indexOfRow(placed, id);
   if (at < 0) return undefined;
-  const tops = new Map<string, number>();
-  const copies = new Map<string, HTMLElement>();
+  const moving = new Map<HTMLElement, Moving>();
   for (const row of mountedRows(thread)) {
     if (row.index <= at || placed.idAt(row.index) !== row.id) continue;
-    tops.set(row.id, placed.tops[row.index]! - placed.tops[at]!);
-    copies.set(row.id, row.node);
+    const top = placed.tops[row.index]! - placed.tops[at]!;
+    moving.set(row.node, { id: row.id, top, delta: 0, reveal: false, animations: [] });
   }
   thread.setAttribute(TURN_FOLD_ATTR, opening ? "open" : "close");
   const fold: TurnFold = {
@@ -142,11 +142,9 @@ export function startTurnFold(
     until: now + ms + FOLD_SETTLE_MS,
     startRows: { ...placed, tops: Float64Array.from(placed.tops as ArrayLike<number>) },
     startAt: at,
-    tops,
-    copies,
-    faded: new Set(),
+    moving,
+    copies: new Map(),
     animations: new Set(),
-    slides: new Map(),
   };
   playing.set(thread, fold);
   // The state goes when the fold is over even if nothing renders the transcript again by then.
@@ -166,20 +164,21 @@ export function endTurnFold(thread: HTMLElement | null, fold: TurnFold | undefin
 export function settleTurnFold(thread: HTMLElement | null, fold: TurnFold | undefined, ghosts: Set<HTMLElement>): void {
   if (!fold) return;
   fold.until = 0;
-  fold.copies.clear();
   for (const animation of fold.animations) animation.finish();
   fold.animations.clear();
-  fold.slides.clear();
+  fold.moving.clear();
+  fold.copies.clear();
   for (const ghost of ghosts) ghost.remove();
   ghosts.clear();
   endTurnFold(thread, fold);
 }
 
-/// One placement pass of `fold` after the rows were placed again: rows below the line slide from
-/// where they were drawn, rows it revealed fade in, and copies of rows that left fade out (hidden)
-/// or slide on (pushed past the mounted rows). A row that mounts mid-fold joins the motion where the
-/// rows around it are. False once the fold is over (its time is up, the line is gone, or another
-/// chat shows).
+/// One placement pass of `fold` after the rows were placed again. Each row below the line plays,
+/// on the fold's clock, from where it was drawn at the toggle to its place (a slide), or fades in
+/// when the open revealed it. A row element that mounts mid-fold (a scroll, the virtualizer) joins
+/// that motion part way; one that leaves the mounted rows leaves a drawn copy that goes on with its
+/// motion (a row the close hid fades out). False once the fold is over (its time is up, the line is
+/// gone, or another chat shows).
 export function playTurnFold(
   fold: TurnFold,
   thread: HTMLElement,
@@ -193,76 +192,88 @@ export function playTurnFold(
   if (at < 0) return false;
   fold.at = at;
   const easing = foldMotion.easing(thread);
-  // Every animation plays on the fold's own clock: one that starts later starts part way through.
-  const timing = { duration: fold.ms, delay: Math.min(0, fold.start - now), easing };
-  const rows = mountedRows(thread).filter((row) => row.index > at && placed.idAt(row.index) === row.id);
-  const mounted = new Set(rows.map((row) => row.id));
-  // Rows that left the mounted rows: until the toggle's render lands (a scroll's pass can come
-  // first), every one is still there.
-  const left = [...fold.copies.keys()].filter((id) => !mounted.has(id));
-  if (left.length > 0) {
-    let index: Map<string, number> | undefined;
-    const below = rows[0]?.node ?? null;
-    for (const id of left) {
-      const ghost = ghostOf(fold.copies.get(id)!);
-      fold.copies.delete(id);
-      index ??= new Map(
-        Array.from({ length: placed.count - at - 1 }, (_, step) => [placed.idAt(at + 1 + step)!, at + 1 + step]),
-      );
-      const place = index.get(id);
-      const was = fold.tops.get(id);
-      // Still a row, past the mounted ones: it slides on to its place. Gone: it fades out under the
-      // rows sliding over it, over the whole fold (a shorter fade left a blank band behind).
-      const keyframes =
-        place !== undefined && was !== undefined
-          ? [{ translate: "0 0" }, { translate: `0 ${placed.tops[place]! - placed.tops[at]! - was}px` }]
-          : [{ opacity: 1 }, { opacity: 0 }];
-      thread.insertBefore(ghost, below);
-      ghosts.add(ghost);
-      const drop = () => {
-        ghosts.delete(ghost);
-        ghost.remove();
-      };
-      const motion = ghost.animate(keyframes, { ...timing, fill: "forwards" });
-      fold.animations.add(motion);
-      motion.onfinish = drop;
-      motion.oncancel = drop;
-      // A hidden page suspends its animations: the copy never outlasts the fold.
-      setTimeout(drop, fold.until - now);
-    }
-  }
+  const clock = { duration: fold.ms, delay: Math.min(0, fold.start - now), easing };
+  const play = (node: HTMLElement, keyframes: Keyframe[], fill?: FillMode) => {
+    const animation = node.animate(keyframes, fill ? { ...clock, fill } : clock);
+    fold.animations.add(animation);
+    return animation;
+  };
+  const all = mountedRows(thread);
+  const rows = all.filter((row) => row.index > at && placed.idAt(row.index) === row.id);
+  const mounted = new Set(all.map((row) => row.node));
+  const mountedIds = new Set(rows.map((row) => row.id));
   for (const row of rows) {
+    // The row is drawn again: its copy goes.
+    const copy = fold.copies.get(row.id);
+    if (copy) {
+      fold.copies.delete(row.id);
+      ghosts.delete(copy);
+      copy.remove();
+    }
     const top = placed.tops[row.index]! - placed.tops[at]!;
-    const was = fold.tops.get(row.id);
-    fold.tops.set(row.id, top);
-    const from = was ?? startTop(fold, row.id);
-    if (from === undefined) {
-      // A row the open revealed: it fades in where it lands.
-      if (fold.opening && !fold.faded.has(row.id)) {
-        fold.faded.add(row.id);
-        fold.animations.add(row.node.animate([{ opacity: 0 }, { opacity: 1 }], timing));
-      }
+    const from = startTop(fold, row.id);
+    const reveal = from === undefined && fold.opening;
+    const delta = from === undefined ? 0 : from - top;
+    const last = fold.moving.get(row.node);
+    if (last && Math.abs(last.delta - delta) < 0.5 && last.reveal === reveal) {
+      last.top = top;
       continue;
     }
-    const delta = from - top;
-    if (Math.abs(delta) < 0.5) continue;
-    // A pass that moves a row still sliding takes over from where it is drawn now, for the time left.
-    const last = fold.slides.get(row.node);
-    const sliding = last?.playState === "running" ? last : undefined;
-    const drawn = sliding ? drawnShift(row.node) : 0;
-    sliding?.cancel();
-    if (sliding) fold.animations.delete(sliding);
-    const slide = sliding
-      ? row.node.animate([{ translate: `0 ${delta + drawn}px` }, { translate: "0 0" }], {
-          duration: Math.max(1, fold.until - FOLD_SETTLE_MS - now),
-          easing,
-        })
-      : row.node.animate(
-          [{ translate: `0 ${delta}px` }, { translate: "0 0" }],
-          was === undefined ? timing : { duration: fold.ms, easing },
-        );
-    fold.slides.set(row.node, slide);
-    fold.animations.add(slide);
+    for (const animation of last?.animations ?? []) {
+      animation.cancel();
+      fold.animations.delete(animation);
+    }
+    const animations: Animation[] = [];
+    if (Math.abs(delta) >= 0.5) animations.push(play(row.node, [{ translate: `0 ${delta}px` }, { translate: "0 0" }]));
+    if (reveal) animations.push(play(row.node, [{ opacity: 0 }, { opacity: 1 }]));
+    fold.moving.set(row.node, { id: row.id, top, delta, reveal, animations });
+  }
+  // Row elements that left the mounted rows.
+  let index: Map<string, number> | undefined;
+  const below = rows[0]?.node ?? null;
+  for (const [node, row] of fold.moving) {
+    if (mounted.has(node)) continue;
+    fold.moving.delete(node);
+    if (mountedIds.has(row.id) || fold.copies.has(row.id)) continue;
+    index ??= new Map(
+      Array.from({ length: Math.max(0, placed.count - at - 1) }, (_, step) => [
+        placed.idAt(at + 1 + step)!,
+        at + 1 + step,
+      ]),
+    );
+    const place = index.get(row.id);
+    // Still a row, past the mounted ones: the copy slides on to its place. Gone (the close hid it):
+    // it fades out where it was, under the rows sliding over it, over the whole fold (a shorter fade
+    // left a blank band behind).
+    const to = place === undefined ? 0 : placed.tops[place]! - placed.tops[at]! - row.top;
+    const first: Keyframe = {};
+    const end: Keyframe = {};
+    if (Math.abs(row.delta) >= 0.5 || Math.abs(to) >= 0.5) {
+      first.translate = `0 ${row.delta}px`;
+      end.translate = `0 ${to}px`;
+    }
+    if (place === undefined) {
+      first.opacity = 1;
+      end.opacity = 0;
+    } else if (row.reveal) {
+      first.opacity = 0;
+      end.opacity = 1;
+    }
+    if (Object.keys(first).length === 0) continue;
+    const ghost = ghostOf(node);
+    thread.insertBefore(ghost, below);
+    ghosts.add(ghost);
+    fold.copies.set(row.id, ghost);
+    const drop = () => {
+      ghosts.delete(ghost);
+      if (fold.copies.get(row.id) === ghost) fold.copies.delete(row.id);
+      ghost.remove();
+    };
+    const motion = play(ghost, [first, end], "forwards");
+    motion.onfinish = drop;
+    motion.oncancel = drop;
+    // A hidden page suspends its animations: the copy never outlasts the fold.
+    setTimeout(drop, Math.max(0, fold.until - now));
   }
   return true;
 }
