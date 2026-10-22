@@ -138,3 +138,35 @@ test("the session's fast and effort options do not undo what the alias's declara
     expect({ source, fast: running!.fast, efforts: running!.efforts }).toEqual({ source, fast: false, efforts: [] });
   }
 });
+
+// Codex review at 6638fbc2: a direct session (direct.ts) has no model option and reports the release
+// it runs (`summary.model`), while the live Claude probe lists only the bare `opus` alias. The menu
+// showed an `opus` row and no checked row, so picking the apparent current model chose the alias.
+test("a direct session running the release the probe lists only as an alias shows that release, checked", () => {
+  for (const [harness, acpmux] of [
+    ["claude", [{ id: "claude", name: "Claude Code", models: [{ id: "opus", name: "Opus 5.5" }] }]],
+    ["claude-sr2", profile([{ id: "opus", name: "Opus 5.5" }])],
+  ] as const) {
+    const catalog = buildPickerCatalog({
+      catalog: BUNDLED_MODEL_CATALOG,
+      user: { overrides: { [`${harness}/opus`]: { fast: false, efforts: [] } } },
+      acpmux: acpmux as AcpmuxSnapshot["catalog"],
+      session: { harness, model: "claude-opus-5-5" },
+    });
+    const models = catalog.harnesses.find((entry) => entry.id === harness)!.models;
+    const ids = models.map((model) => model.id);
+    expect(ids, `${harness}: ${ids.join(", ")}`).toContain("claude-opus-5-5");
+    expect(ids, `${harness}: the alias folds into it`).not.toContain("opus");
+    expect(
+      models.filter((model) => model.shortName === "Opus 5.5"),
+      `${harness}: ${ids.join(", ")}`,
+    ).toHaveLength(1);
+    const running = models.find((model) => model.id === "claude-opus-5-5")!;
+    expect({ harness, release: running.release, fast: running.fast, efforts: running.efforts }).toEqual({
+      harness,
+      release: undefined,
+      fast: false,
+      efforts: [],
+    });
+  }
+});

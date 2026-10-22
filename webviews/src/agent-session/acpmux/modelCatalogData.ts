@@ -474,29 +474,33 @@ function foldAliases(
   }
   const aliasFor = new Map([...takenBy].map(([release, alias]) => [alias.id, release]));
   const rowOf = new Map(models.map((model) => [model.id, model]));
-  return models.flatMap((model): PickerModel[] => {
+  // The running release keeps its own id (so it stays the checked row), with what is declared and
+  // overridden for the alias it stands for: the same model, the same limits.
+  const asRunning = (row: PickerModel, id: string): PickerModel => {
+    const { release: _release, ...running } = row;
+    return { ...running, id };
+  };
+  const folded = models.flatMap((model): PickerModel[] => {
     const releaseId = aliasFor.get(model.id);
     if (releaseId !== undefined) {
       // Where the release has a row, that row stands for both (below); else the alias takes the
-      // release's catalog row here.
+      // release's catalog row here, under the release's id when the session runs the release (a
+      // direct session reports `summary.model` with no model option, and the probe lists the alias).
       if (rowOf.has(releaseId)) return [];
-      return [
-        asAlias(
-          releases.find((release) => release.id === releaseId)!,
-          model,
-        ),
-      ];
+      const row = asAlias(
+        releases.find((release) => release.id === releaseId)!,
+        model,
+      );
+      return [releaseId === current ? asRunning(row, releaseId) : row];
     }
-    // The pinned release the session runs keeps its own id, so its row stays the checked one.
     const alias = takenBy.get(model.id);
     if (!alias) return [model];
     const row = asAlias(model, alias);
-    if (model.id !== current) return [row];
-    // The running release keeps its own id (so it stays the checked row), with what is declared and
-    // overridden for the alias it stands for: the same model, the same limits.
-    const { release: _release, ...running } = row;
-    return [{ ...running, id: model.id }];
+    return [model.id === current ? asRunning(row, model.id) : row];
   });
+  // A release the session runs that nothing lists still gets its row, so the running model is shown.
+  const running = releases.find((release) => release.id === current);
+  return running && !folded.some((model) => model.id === running.id) ? [...folded, running] : folded;
 }
 
 /**
