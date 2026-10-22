@@ -411,7 +411,9 @@ test("the line reads the time, then the turn's tokens, after the working dots", 
   expect(drawn(status, counts())).toBe("Working for 5m 54s");
   expect(drawn(status, counts({ tokens: 0 }))).toBe("Working for 5m 54s");
   // The background counts follow the tokens.
-  expect(drawn(status, counts({ tokens: 2_140_000, agents: 2 }))).toBe("Working for 5m 54s · 2.1M tokens · 2 agents");
+  expect(drawn(status, counts({ tokens: 2_140_000, agents: 2 }))).toBe(
+    "Working for 5m 54s · 2.1M tokens · 2 subagents",
+  );
 });
 
 test("tokens are compact in the pane's language", () => {

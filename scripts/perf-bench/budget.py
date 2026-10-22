@@ -1,0 +1,212 @@
+"""cmux NEXT resource budget: what one window with hidden terminals and browser tabs costs at idle.
+
+xbench.py runs this as the browser `cmux-budget` (`--browsers cmux-budget`), so it shares xbench's
+isolated launch (scratch HOME, TMPDIR and config, mock keychain, no activation), its local pages and
+its counters (procs.py: proc_pid_rusage over the app, its helpers, WebKit XPC processes it is
+responsible for, cmux-tui, acpmux and the terminal hosts). One session, after a template launch:
+
+  1. Home: launch, settle, measure the idle window and the footprint (the app at idle).
+  2. One workspace, then `terminals` more terminals, then per engine (Chromium, WebKit) one tab of
+     the local idle page and `chromium_tabs` / `webkit_tabs` more (each waits for its first paint).
+     After each step the workspace's first terminal is selected again, so every tab opened is
+     hidden, and the footprint is read after `phase_settle_s` (past the 30 s hidden-page freeze).
+     Rows: the footprint the first hidden tab of an engine added (the engine's own processes come
+     with it) and the footprint per further hidden tab.
+  3. With every tab hidden: settle, then one idle window with the window in view and one with the
+     app hidden. The final sample keeps every process's pid, kind, command, CPU %, wakeups/s,
+     footprint and RSS, so a PR can quote before and after numbers per process.
+
+budgets.json holds the scenario's sizes and one budget per row: `limit` in the row's unit,
+`enforce` true fails the step (xbench.py report exits 1), false only reports (advisory). A
+budget starts advisory while the base breaks it; tighten it (and enforce it) once the base holds it.
+"""
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_BUDGETS = os.path.join(HERE, "budgets.json")
+NAME = "cmux-budget"
+LABEL = "cmux NEXT (resource budget)"
+
+ROWS = [
+    ("budget-idle-cpu", "CPU, idle, every tab hidden, window in view", "%"),
+    ("budget-idle-wakeups", "Wakeups, idle, every tab hidden, window in view", "/s"),
+    ("budget-idle-cpu-app-hidden", "CPU, idle, app hidden", "%"),
+    ("budget-idle-wakeups-app-hidden", "Wakeups, idle, app hidden", "/s"),
+    ("budget-memory-total", "Memory, whole app, every tab hidden", "MB"),
+    ("budget-idle-cpu-home", "CPU, idle on Home after launch", "%"),
+    ("budget-idle-wakeups-home", "Wakeups, idle on Home after launch", "/s"),
+    ("budget-memory-home", "Memory, whole app, idle on Home", "MB"),
+    ("budget-memory-per-terminal", "Memory per hidden terminal", "MB"),
+    ("budget-memory-first-chromium-tab", "Memory, first hidden Chromium tab (with the engine)", "MB"),
+    ("budget-memory-per-chromium-tab", "Memory per further hidden Chromium tab", "MB"),
+    ("budget-memory-first-webkit-tab", "Memory, first hidden WebKit tab (with the engine)", "MB"),
+    ("budget-memory-per-webkit-tab", "Memory per further hidden WebKit tab", "MB"),
+]
+ROW_INFO = {row: (label, unit, False) for row, label, unit in ROWS}
+
+
+def load(path: str | None = None) -> dict:
+    with open(path or DEFAULT_BUDGETS) as handle:
+        data = json.load(handle)
+    if data.get("schema") != "xbench.budgets.v1":
+        raise SystemExit(f"budget: {path or DEFAULT_BUDGETS} is not an xbench.budgets.v1 file")
+    for entry in data.get("budgets", []):
+        if entry.get("row") not in ROW_INFO or not isinstance(entry.get("limit"), (int, float)):
+            raise SystemExit(f"budget: bad entry {entry} (row must be one of {sorted(ROW_INFO)}, limit a number)")
+    return data
+
+
+def _sleep(seconds: float):
+    time.sleep(seconds)  # bench: a deliberate settle window
+
+
+def session(run, browser, round_no: int, log, budgets_path: str | None = None):
+    """One budget session on `browser` (an xbench CmuxBrowser); rows go through run.record."""
+    scenario = load(budgets_path).get("scenario", {})  # report checks the file too; a bad one fails both
+    terminals = int(scenario.get("terminals", 5))
+    kinds = (("chromium", "openBrowser.chromium", int(scenario.get("chromium_tabs", 5))),
+             ("webkit", "openBrowser.webkit", int(scenario.get("webkit_tabs", 5))))
+    home_settle = float(scenario.get("home_settle_s", 30))
+    phase_settle = float(scenario.get("phase_settle_s", 40))
+    idle = float(run.args.idle)
+    name = browser.name
+    load_avg = run.quiet()
+    profile = run.profile(browser, f"session{round_no}")
+    try:
+        browser.launch(profile, None)
+        browser.ready()
+        log(f"{name} r{round_no}: budget session (load {load_avg}), {terminals} terminals, "
+                + ", ".join(f"{count} {kind}" for kind, _action, count in kinds))
+        _sleep(home_settle)
+        got = browser.instance.window(idle)
+        home_mem = browser.instance.memory()
+        run.record(name, round_no, "budget-idle-cpu-home", got["cpu_pct"], kinds=got["kinds"])
+        run.record(name, round_no, "budget-idle-wakeups-home", got["wakeups_per_s"], kinds=got["kinds"])
+        run.record(name, round_no, "budget-memory-home", home_mem["mb"], kinds=home_mem["kinds"],
+                   processes=home_mem["processes"])
+
+        browser.start_workspace()
+        _sleep(phase_settle)
+        before = browser.instance.memory()["mb"]
+        for _ in range(terminals):
+            browser.act("newSurface")
+            _sleep(0.3)  # bench: a user's pace between new tabs
+        browser.act("selectSurfaceByNumber", index=1)
+        _sleep(phase_settle)
+        after = browser.instance.memory()["mb"]
+        if terminals:
+            run.record(name, round_no, "budget-memory-per-terminal", (after - before) / terminals,
+                       before_mb=before, after_mb=after, count=terminals)
+        for kind, action, count in kinds:
+            for row, tabs in ((f"budget-memory-first-{kind}-tab", 1), (f"budget-memory-per-{kind}-tab", count)):
+                if not tabs:
+                    continue
+                before = after
+                unpainted = 0
+                for _ in range(tabs):
+                    tab_id = run.tab_id("b")
+                    t0 = time.time() * 1000
+                    browser.act(action, url=run.server.url("idle", tab_id))
+                    if not run.server.wait("fcp", tab_id, after=t0, timeout=30):
+                        unpainted += 1
+                browser.act("selectSurfaceByNumber", index=1)
+                _sleep(phase_settle)
+                after = browser.instance.memory()["mb"]
+                # A tab that never painted is not a hidden tab's cost: the row stays unmeasured this
+                # round (evaluate counts it incomplete) and keeps the delta for the log.
+                per_tab = (after - before) / tabs
+                run.record(name, round_no, row, None if unpainted else per_tab, before_mb=before, after_mb=after,
+                           count=tabs, **({"note": f"{unpainted} of {tabs} tabs never painted",
+                                           "unpainted_mb": round(per_tab, 3)} if unpainted else {}))
+
+        _sleep(phase_settle)
+        got = browser.instance.window(idle, per_pid=True)
+        mem = browser.instance.memory(per_pid=True)
+        cpu = {row["pid"]: row for row in got.pop("pids")}
+        table = []
+        for row in mem.pop("pids"):
+            window = cpu.get(row["pid"], {})
+            table.append({**row, "cpu_pct": window.get("cpu_pct"), "wakeups_per_s": window.get("wakeups_per_s"),
+                          "mw": window.get("mw")})
+        run.record(name, round_no, "budget-idle-cpu", got["cpu_pct"], kinds=got["kinds"])
+        run.record(name, round_no, "budget-idle-wakeups", got["wakeups_per_s"], kinds=got["kinds"])
+        run.record(name, round_no, "budget-memory-total", mem["mb"], kinds=mem["kinds"],
+                   processes=mem["processes"], pids=table)
+        for row in table[:25]:
+            log(f"  pid {row['pid']:>6} {row['kind'][:24]:<24} {row['footprint_mb']:>8.1f} MB "
+                    f"{row['rss_mb'] or 0:>8.1f} MB rss {row['cpu_pct'] or 0:>6.2f}% "
+                    f"{row['wakeups_per_s'] or 0:>7.1f} wk/s")
+        if browser.hide():
+            _sleep(10)
+            got = browser.instance.window(idle)
+            run.record(name, round_no, "budget-idle-cpu-app-hidden", got["cpu_pct"], kinds=got["kinds"])
+            run.record(name, round_no, "budget-idle-wakeups-app-hidden", got["wakeups_per_s"], kinds=got["kinds"])
+            browser.unhide()
+        else:  # a visible app's idle is not the hidden app's: leave the rows unmeasured this round
+            for row in ("budget-idle-cpu-app-hidden", "budget-idle-wakeups-app-hidden"):
+                run.record(name, round_no, row, None, note="the app did not hide")
+    except Exception as error:  # noqa: BLE001 - a failed session is logged, the run goes on
+        run.record(name, round_no, "session-error", None, note=f"{type(error).__name__}: {error}"[:400])
+    finally:
+        browser.quit()
+        shutil.rmtree(profile, ignore_errors=True)
+
+
+def _fmt(value, unit: str) -> str:
+    if value is None:
+        return "–"
+    if unit == "%":
+        return f"{value:.2f}%"
+    if unit == "/s":
+        return f"{value:.1f}/s"
+    return f"{value:,.1f} MB"
+
+
+def evaluate(rows: dict, requested: bool, budgets_path: str | None = None, rounds: int = 0,
+             errors: int = 0) -> tuple[dict, list[str]]:
+    """Budget verdicts for the cmux-budget medians in `rows` and the BENCH.md section.
+
+    `requested`: the run had a cmux-budget session (its bundle was found). `rounds`: the rounds the
+    run asked for; `errors`: the cmux-budget session-error rows. Prints one `PERF-BUDGET` line per
+    budget and a summary line; `failed` counts enforced budgets that were broken or not fully
+    measured (missing, fewer samples than rounds, or any session error), so a session that crashed
+    or stopped measuring does not pass on the rows another round recorded."""
+    data = load(budgets_path)
+    measured = requested
+    verdicts = []
+    failed = 0
+    lines = ["## Resource budget (cmux NEXT)", "",
+             f"{LABEL}: scripts/perf-bench/budget.py, budgets in scripts/perf-bench/budgets.json. Scenario: "
+             + json.dumps(data.get("scenario", {})) + ". Medians over rounds. Advisory budgets report only; "
+             "enforced ones fail the step.", "",
+             "| Row | Median | Budget | Verdict | Mode |", "|---|---|---|---|---|"]
+    for entry in data.get("budgets", []) if measured else []:
+        row = entry["row"]
+        label, unit, _main = ROW_INFO[row]
+        cell = rows.get(row, {}).get(NAME, {})
+        value = cell.get("median")
+        if value is None:
+            verdict = "missing"
+        elif value > entry["limit"]:
+            verdict = "OVER"
+        elif errors or (cell.get("n") or 0) < rounds:
+            verdict = "incomplete"
+        else:
+            verdict = "ok"
+        mode = "enforced" if entry.get("enforce") else "advisory"
+        if entry.get("enforce") and verdict != "ok":
+            failed += 1
+        verdicts.append({"row": row, "value": value, "limit": entry["limit"], "unit": unit, "verdict": verdict,
+                         "mode": mode, "n": cell.get("n")})
+        lines.append(f"| {label} | {_fmt(value, unit)} | {_fmt(entry['limit'], unit)} | {verdict} | {mode} |")
+        print(f"PERF-BUDGET {verdict} {mode} {row} value={value} limit={entry['limit']} {unit}", flush=True)
+    if not measured:
+        print("PERF-BUDGET SKIP no cmux-budget session in this run", flush=True)
+    print(f"PERF-BUDGET {'FAIL' if failed else 'PASS'} enforced_broken={failed} session_errors={errors}", flush=True)
+    lines.append("")
+    return {"measured": measured, "failed": failed, "budgets": verdicts}, (lines if measured else [])
