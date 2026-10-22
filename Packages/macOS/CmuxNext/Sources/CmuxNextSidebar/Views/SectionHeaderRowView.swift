@@ -63,6 +63,8 @@ final class SectionHeaderRowView: SidebarRowView {
         case .authFailed: Strings.statusAuthFailed
         case .unreachable: Strings.statusUnreachable
         case .failed: Strings.statusFailed
+        case .paused: Strings.statusPaused
+        case .pausedIdle: Strings.statusPausedIdle
         }
     }
 
@@ -90,6 +92,8 @@ final class SectionHeaderRowView: SidebarRowView {
         case .authFailed: Strings.statusAuthFailed
         case .unreachable: Strings.statusUnreachable
         case .failed: Strings.statusFailed
+        case .paused: Strings.statusPaused
+        case .pausedIdle: Strings.statusPausedIdle
         }
     }
 
@@ -139,7 +143,7 @@ final class SectionHeaderRowView: SidebarRowView {
             case (.local, .connected): statusTone = nil
             case (_, .connected), (_, .updateAvailable): statusTone = .success
             case (_, .connecting), (_, .reconnecting), (_, .installing), (_, .installRequired): statusTone = .attention
-            case (_, .offline): statusTone = .quiet
+            case (_, .offline), (_, .paused), (_, .pausedIdle): statusTone = .quiet
             case (_, .updateRequired), (_, .authFailed), (_, .unreachable), (_, .failed): statusTone = .danger
             }
             let words = Self.statusWords(machine.status)
