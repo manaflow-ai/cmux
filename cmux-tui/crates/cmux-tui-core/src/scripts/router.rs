@@ -11,10 +11,11 @@ use serde_json::{Value, json};
 
 use crate::apps::routing::{answer, is_daemon_op, request};
 use crate::mux::Mux;
+use crate::mux::TreeDeltaKind;
 use crate::request_origin::{RequestOrigin, require_origin};
 use crate::resource::ContentPublicId;
 use crate::stream_interrupt::StreamInterrupt;
-use crate::{Actor, MuxEvent, SurfaceId, resource_router};
+use crate::{Actor, MuxEvent, MuxEventReceiver, SurfaceId, resource_router};
 
 /// Streams a committed resource change publishes. The journal epoch does not
 /// say which family changed, so every family stream fires; scripts re-check
@@ -140,11 +141,17 @@ fn surface_ids(mux: &Mux) -> HashMap<SurfaceId, ScriptIds> {
     })
 }
 
-/// Publishes the terminal events of `mux` to a script until `interrupt`
-/// fires. Public ids come from a map refreshed when a surface is unknown, so
-/// a terminal that already left the tree when its exit arrives keeps them.
-fn publish_terminal_events(mux: Arc<Mux>, interrupt: Arc<StreamInterrupt>, publish: Publish) {
-    let events = mux.subscribe();
+/// Publishes the terminal events from `events` (subscribed before the
+/// script's next op can run) to a script until `interrupt` fires. Public ids
+/// come from a map read again when a tab is added and when a surface is
+/// unknown, so a terminal that already left the tree when its exit arrives
+/// keeps them.
+fn publish_terminal_events(
+    mux: Arc<Mux>,
+    events: MuxEventReceiver,
+    interrupt: Arc<StreamInterrupt>,
+    publish: Publish,
+) {
     events.wake_on(&interrupt);
     let mut known = surface_ids(&mux);
     loop {
@@ -168,6 +175,15 @@ fn publish_terminal_events(mux: Arc<Mux>, interrupt: Arc<StreamInterrupt>, publi
             MuxEvent::TitleChanged { surface, .. }
             | MuxEvent::ProgramStatusChanged { surface, .. } => Some(*surface),
             MuxEvent::Notification(notification) => notification.surface,
+            // A short-lived terminal may leave the tree before its first event.
+            MuxEvent::TreeDelta(delta) if delta.kind == TreeDeltaKind::TabAdded => {
+                known = surface_ids(&mux);
+                continue;
+            }
+            MuxEvent::TreeChanged => {
+                known = surface_ids(&mux);
+                continue;
+            }
             _ => continue,
         };
         if surface.is_some_and(|surface| !known.contains_key(&surface)) {
@@ -252,11 +268,13 @@ impl ScriptRouter for DaemonRouter {
         let guard = Box::new(FireOnDrop(interrupt.clone()));
         let Some(mux) = self.mux.upgrade() else { return guard };
         {
+            // Subscribed here, before the host runs the script's next op.
+            let events = mux.subscribe();
             let (mux, interrupt, publish) = (mux.clone(), interrupt.clone(), publish.clone());
             // Without the thread the session gets no terminal events.
             let _ = std::thread::Builder::new()
                 .name("cmux-script-terminal-events".into())
-                .spawn(move || publish_terminal_events(mux, interrupt, publish));
+                .spawn(move || publish_terminal_events(mux, events, interrupt, publish));
         }
         mux.wake_journal_waiters_on(&interrupt);
         // Without a thread the session gets no events: `cmux.wait` then ends

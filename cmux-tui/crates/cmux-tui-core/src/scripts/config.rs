@@ -29,6 +29,8 @@ const INIT_FILE: &str = "init.js";
 const SCRIPTS_DIR: &str = "scripts";
 /// The error code of an action run before any config loaded.
 pub(crate) const NOT_LOADED: &str = "script.config_not_loaded";
+/// A config action or load is running (one at a time).
+pub(crate) const BUSY: &str = "script.config_busy";
 /// `script-config-*`, `script-action-run` and `script-config-changed`.
 pub(crate) const SCRIPT_CONFIG_CAPABILITY: &str = "script-config-v1";
 
@@ -261,7 +263,19 @@ impl ConfigOwner {
         context: Value,
     ) -> Result<Value, ScriptError> {
         let name = id.strip_prefix("user.").unwrap_or(id);
-        let _turn = self.turn.lock().unwrap_or_else(PoisonError::into_inner);
+        // One action or load at a time. A second one is refused at once, not
+        // queued: an action that runs another user action would wait on
+        // itself until its timeout.
+        let _turn = match self.turn.try_lock() {
+            Ok(turn) => turn,
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return Err(ScriptError::new(
+                    BUSY,
+                    "another config action or load is running; try again when it ends",
+                ));
+            }
+        };
         let session = self
             .lock()
             .live
@@ -344,5 +358,12 @@ mod tests {
         assert_eq!(report["diagnostics"][0]["message"], "no host");
         assert_eq!(owner.run_action("user.x", json!({}), json!({})).unwrap_err().code, NOT_LOADED);
         assert_eq!(owner.check(Path::new("/nonexistent"), &start, log)["ok"], false);
+    }
+
+    #[test]
+    fn a_second_action_while_one_runs_is_refused_at_once() {
+        let owner = ConfigOwner::default();
+        let _running = owner.turn.lock().unwrap();
+        assert_eq!(owner.run_action("user.x", json!({}), json!({})).unwrap_err().code, BUSY);
     }
 }

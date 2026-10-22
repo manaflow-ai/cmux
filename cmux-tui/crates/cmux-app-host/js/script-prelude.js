@@ -120,30 +120,29 @@
 
   /**
    * An async iterator over the events on `stream` that match `filter`,
-   * buffered from the moment it is created. `break` ends it.
+   * buffered from the moment it is created (the newest STREAM_BUFFER
+   * events; older ones are dropped). `break` ends it.
    */
+  const STREAM_BUFFER = 1000
   cmux.stream = (stream, filter) => {
     if (filter !== undefined && !isFilter(filter)) throw new CmuxError("validation.invalid", "the cmux.stream filter must be an object")
     const queue = []
-    let wake = null
+    // Every waiting next(), in call order.
+    const waiters = []
     let done = false
+    const wakeAll = () => {
+      for (const resume of waiters.splice(0)) resume()
+    }
     const off = subscribe(String(stream), (event) => {
       if (done || !matches(filter, event)) return
       queue.push(event)
-      if (wake) {
-        const resume = wake
-        wake = null
-        resume()
-      }
+      if (queue.length > STREAM_BUFFER) queue.shift()
+      wakeAll()
     })
     const finish = () => {
       done = true
       off()
-      if (wake) {
-        const resume = wake
-        wake = null
-        resume()
-      }
+      wakeAll()
       return Promise.resolve({ value: undefined, done: true })
     }
     return {
@@ -151,7 +150,7 @@
         return this
       },
       async next() {
-        while (!done && queue.length === 0) await new Promise((resolve) => (wake = resolve))
+        while (!done && queue.length === 0) await new Promise((resolve) => waiters.push(resolve))
         if (queue.length > 0) return { value: queue.shift(), done: false }
         return { value: undefined, done: true }
       },
@@ -172,7 +171,9 @@
       predicate = undefined
     }
     if (isFilter(predicate)) {
-      const filter = predicate
+      // `timeoutMs` beside the filter's fields is the option, not a field.
+      const { timeoutMs: filterTimeout, ...filter } = predicate
+      if (filterTimeout !== undefined && options === undefined) options = { timeoutMs: filterTimeout }
       predicate = (event) => event !== undefined && matches(filter, event)
     } else if (predicate !== undefined && typeof predicate !== "function") {
       throw new CmuxError("validation.invalid", "the cmux.wait predicate must be a function or a filter object")
