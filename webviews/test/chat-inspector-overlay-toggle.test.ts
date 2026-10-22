@@ -181,4 +181,34 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
         await short.close();
       }
     });
+
+  // Leo, 2026-10-22: "WHY DOES IT STAY ON IN THESE RANDOM SITUATIONS WITHOUT BEING CLOSABLE!?" Over a
+  // diff in place the chat header (with the toggle) is hidden, so the panel carries its own close
+  // button, and Esc closes it from anywhere but a text field (the composer keeps its own Esc).
+  for (const name of browsers.keys())
+    test(`${name}: the Inspector's own close button and Esc close it; Esc in the composer leaves it open`, async () => {
+      current = browsers.get(name)!;
+      const page = await pane!.open({ width: 900, height: 620 });
+      try {
+        const { panel, toggle } = await openInspector(page, 0);
+        // As over a diff in place: the header, and the toggle with it, out of reach.
+        await page.addStyleTag({ content: "header.acpmux-header { visibility: hidden; }" });
+        const close = page.locator("aside.acpmux-chat-inspector button.acpmux-chat-inspector__close");
+        await close.click({ timeout: 5_000 });
+        const byButton = await panel.waitFor({ state: "detached", timeout: 5_000 }).then(() => true, () => false);
+        // The header is hidden: the toggle opens it again through the DOM.
+        await toggle.evaluate((button: HTMLElement) => button.click());
+        await panel.waitFor({ timeout: 5_000 });
+        await page.locator("textarea, [contenteditable=true]").first().focus();
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(300);
+        const keptInComposer = (await panel.count()) === 1;
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        await page.keyboard.press("Escape");
+        const byEscape = await panel.waitFor({ state: "detached", timeout: 5_000 }).then(() => true, () => false);
+        expect({ byButton, keptInComposer, byEscape }).toEqual({ byButton: true, keptInComposer: true, byEscape: true });
+      } finally {
+        await page.close();
+      }
+    });
 });
