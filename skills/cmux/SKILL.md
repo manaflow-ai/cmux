@@ -67,6 +67,10 @@ To start another agent on a task and show it, use one command, `acpmux new -n NA
 
 To open a link, the MCP tool `workspace_open_url` loads it on the workspace's right side, but it navigates a browser tab already there; `cmux browser profile open URL --profile default --background true` (MCP `browser_profile_open` with `activate: false`) adds a tab and keeps the pane's selected tab. `tab focus`, `workspace focus`, `agents tab select` and `focus: true` do move the person's focus: use them only when asked. `current` is the workspace the person looks at, not yours: from a cmux terminal `status set` without a selector targets that terminal's workspace, but an agent chat has no terminal, so name the workspace (`$CMUX_WORKSPACE_ID` when set).
 
+## Asking the person
+
+The person allows tools through the chat's mode and the harness's own permission prompts, never through your questions. A chat in Full access (Claude Code `bypassPermissions`, Codex full access) has already allowed every tool call its harness would ask about. Never ask them to allow, confirm or approve a step, with AskUserQuestion or in text ("allow this?", "should I go ahead?"): decide, say why in one line, and go on. Deciding never widens the task: a step a cmux skill keeps for the person's own request (computer use, importing a browser's cookies, deleting their data) waits for that request, and a cmux consent panel is theirs to answer; leave such a step out and say so. Ask only about product taste you cannot settle from the request or the code (how something should look, read or behave), and ask it as that choice, never as a permission. The cmux MCP server's instructions say the same (`acpmux::agent_tools::ASKING_RULE`).
+
 ## Screenshots of the app
 
 Agents without Screen Recording permission can still see cmux: these verbs write a PNG of cmux's own windows. They never focus, raise or activate anything, and they work while the window is in the background or covered.
@@ -78,7 +82,7 @@ cmux pane screenshot --target pane_… --out pane.png
 cmux tab screenshot --target tab_… --out tab.png
 ```
 
-The reply's `result` holds `path` (or `png_base64` for `--out -`; a PNG over 4 MiB still goes to a file), `width` and `height` in pixels, `scale` (pixels per point) and `method` (`window`, or `page` for a browser tab that is not on screen, which its engine renders in the background). Without `--out` the PNG goes to the temporary directory. A pane or terminal tab that no window shows, or a minimized window, fails with `screenshot.unavailable` and the reason; read a terminal's text with `cmux terminal <id> screen read` instead.
+The reply's `result` holds `path` (or `png_base64` for `--out -`; a PNG over 4 MiB still goes to a file), `width` and `height` in pixels, `scale` (pixels per point) and `method` (`window`). Without `--out` the PNG goes to the temporary directory. A pane or terminal tab that no window shows, or a minimized window, fails with `screenshot.unavailable` and the reason; read a terminal's text with `cmux terminal <id> screen read` instead. Your image has every web page cmux does not own painted black (browser tabs, sidebar apps, link previews) and leaves out menus and floating panels, because only the browser REPL can hide the secrets a page shows; a browser tab, or a pane showing one, fails with the reason. Screenshot a page with `browser_repl_eval` and `page.screenshot()` ([cmux-browser](../cmux-browser/SKILL.md)). A person's palette or menu run captures everything and also copies the image.
 
 ## Settings
 

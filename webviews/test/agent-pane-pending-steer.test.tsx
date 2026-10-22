@@ -84,6 +84,19 @@ test("Send now on a waiting steer asks queue_edit send_now for its promptId, and
     const [sendNow, ...others] = sendNowButtons();
     expect(sendNow).toBeDefined();
     expect(others).toEqual([]);
+    // Send now sits on the bubble's own row, at its left (Claude's queued prompts; Leo, 2026-10-21):
+    // inside the bubble, out of the layout, never a row under it, and nothing trails the bubble but
+    // the action row every prompt has.
+    const pending = sendNow!.closest(".cv-user__pending")!;
+    expect(pending.classList.contains("cv-user__pending--beside")).toBe(true);
+    const bubble = pending.parentElement!;
+    expect(bubble.classList.contains("cv-user__bubble")).toBe(true);
+    expect(bubble.textContent).toContain("Also keep the old flag working");
+    const message = bubble.closest(".cv-user")!;
+    expect([...message.children].map((child) => child.className)).toEqual([
+      "ui-glass cv-user__bubble selectable",
+      "cv-user__actions",
+    ]);
     await act(async () => {
       sendNow!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
       await new Promise((resolve) => setTimeout(resolve, 0));

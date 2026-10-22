@@ -85,6 +85,7 @@ private final class LocatingPage: PageChromiumPage {
     let contentView = NSView()
     var onEvent: ((PageChromiumEvent) -> Void)?
     var resources: (@MainActor (URL) async -> PageChromiumResponse)?
+    var occlusionRects: [CGRect] = []
     private(set) var calls: [(method: String, params: [String: any Sendable])] = []
 
     func devTools(_ method: String, params: [String: any Sendable]) async throws -> String {
@@ -100,6 +101,7 @@ private final class LocatingPage: PageChromiumPage {
     func setZoom(_ zoom: Double) {}
     func setFocused(_ focused: Bool) {}
     func setVisible(_ visible: Bool) {}
+    func setSeeThrough(_ seeThrough: Bool) {}
     func close() {}
 }
 #endif

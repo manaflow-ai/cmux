@@ -15,6 +15,7 @@ extension WindowRootView {
     func applySidebarSide() {
         for (side, constraints) in sidePins where side != sidebarSide { NSLayoutConstraint.deactivate(constraints) }
         NSLayoutConstraint.activate(sidePins[sidebarSide] ?? [])
+        applySidebarRail()
         sidebar.side = sidebarSide
         // The right sidebar's inset moves to the other edge with it.
         applyMainPane()
@@ -26,10 +27,14 @@ extension WindowRootView {
     /// Follows the placement settings from `DesignSettings` (init reads the
     /// first values; the first emission repeats them and changes nothing).
     func observePlacement() -> Task<Void, Never> {
-        Task { [weak self] in
-            for await (side, spaces, visibility) in ObservationStream({
-                (DesignSettings.shared.sidebarSide, DesignSettings.shared.spacesPosition, DesignSettings.shared.spacesVisibility)
+        let sidebar = sidebar
+        return Task { [weak self] in
+            for await (side, spaces, visibility, _) in ObservationStream({ [sidebar] in
+                (DesignSettings.shared.sidebarSide, DesignSettings.shared.spacesPosition, DesignSettings.shared.spacesVisibility,
+                 // `sidebar.style` = rail: the content keeps the rail's inset (`WindowRootView+SidebarRail`).
+                 [sidebar.model.style == .rail ? 1 : 0, sidebar.model.contentInset])
             }) {
+                self?.applySidebarRail()
                 self?.sidebarSide = side
                 self?.sidebar.sidebarView.spacesPosition = spaces
                 self?.sidebar.sidebarView.spacesVisibility = visibility
