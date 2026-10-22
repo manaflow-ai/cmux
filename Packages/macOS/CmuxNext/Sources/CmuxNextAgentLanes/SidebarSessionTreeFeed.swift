@@ -113,18 +113,6 @@ public final class SidebarSessionTreeFeed {
                 state.parents[id] = parent
             }
         }
-        // The parent recorded when an agent opened the workspace, only for a session whose daemon lists no
-        // lineage at all: a daemon parent wins even when no workspace here shows it. Set first, so the
-        // daemon's lineage, read below, replaces it wherever it has one.
-        for (id, refs) in chats where state.parents[id] == nil {
-            let recorded = refs.lazy.compactMap { ref -> SidebarWorkspaceID? in
-                guard let session = ref.session else { return nil }
-                let daemon = ref.host == localHost ? lanes[session]?.spawnedBy : remoteParents[session]
-                guard daemon == nil else { return nil }
-                return recordedParents[session].flatMap { owner[$0] }
-            }
-            if let parent = recorded.first(where: { $0 != id }) { state.parents[id] = parent }
-        }
         for (id, ids) in sessions {
             let shown = ids.compactMap { lanes[$0] }
             if let parent = shown.lazy.compactMap({ $0.spawnedBy.flatMap { owner[$0] } }).first(where: { $0 != id }) {
@@ -137,7 +125,33 @@ public final class SidebarSessionTreeFeed {
             state.pullRequests[id] = Self.badge(wanted, answers: pullRequests)
         }
         state.states = agentStates
+        // The parent recorded when an agent opened the workspace, only for a session whose daemon lists no
+        // lineage at all: a daemon parent wins even when no workspace here shows it. Applied last, to the
+        // workspaces the daemons left without a parent, and never where it would close a loop.
+        for (id, refs) in chats where state.parents[id] == nil {
+            let recorded = refs.lazy.compactMap { ref -> SidebarWorkspaceID? in
+                guard let session = ref.session else { return nil }
+                let daemon = ref.host == localHost ? lanes[session]?.spawnedBy : remoteParents[session]
+                guard daemon == nil else { return nil }
+                return recordedParents[session].flatMap { owner[$0] }
+            }
+            if let parent = recorded.first(where: { $0 != id && !Self.reaches(from: $0, to: id, in: state.parents) }) {
+                state.parents[id] = parent
+            }
+        }
         return Pass(state: state, asks: asks)
+    }
+
+    /// True when following `parents` up from `start` reaches `target` (a new edge target -> start would loop).
+    static func reaches(from start: SidebarWorkspaceID, to target: SidebarWorkspaceID,
+                        in parents: [SidebarWorkspaceID: SidebarWorkspaceID]) -> Bool {
+        var seen: Set<SidebarWorkspaceID> = []
+        var next: SidebarWorkspaceID? = start
+        while let node = next, seen.insert(node).inserted {
+            if node == target { return true }
+            next = parents[node]
+        }
+        return false
     }
 
     /// What a workspace's sessions show: their folders (each one's branch's pull request) and the

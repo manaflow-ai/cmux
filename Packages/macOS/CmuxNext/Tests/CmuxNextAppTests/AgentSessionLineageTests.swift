@@ -94,6 +94,17 @@ import Testing
         #expect(parents.parents == ["b": "a", "c": "b"])
     }
 
+    /// A recorded parent that would close a loop with the daemon's lineage is left out: the caller's
+    /// workspace stays a root rather than both rows nesting under each other.
+    @Test func aRecordedParentNeverLoopsWithTheDaemonsLineage() {
+        // Recorded: s-caller's parent is s-opened; the daemon says s-opened was spawned by s-caller.
+        let recorded = ["s-caller": "s-opened"]
+        let lanes = ["s-opened": Self.lane("s-opened", spawnedBy: "s-caller")]
+        let pass = SidebarSessionTreeFeed.pass(Self.chats(), lanes: lanes, recordedParents: recorded,
+                                               localHost: Self.localHost, pullRequests: [:])
+        #expect(pass.state.parents == [Self.opened: Self.caller])
+    }
+
     @Test func recordedParentsSurviveARelaunchAndKeepTheNewest() throws {
         let suite = "cmux.next.tests.lineage.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
