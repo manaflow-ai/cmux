@@ -24,6 +24,11 @@ Usage: split-spring-terminal.py --tag <tag> --app PATH [--rounds 3] [--presses 5
 """
 import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
 
+# `--suite=cef-perf`: the Chromium integration cost instead, scripts/cmux-next/cef-perf.py (idle, divider drag,
+# tab switch and page scroll with 2, 10 and 30 Chromium tabs; main thread share, pump passes, geometry work).
+if "--suite=cef-perf" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cef-perf.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=cef-perf"])
 # `--suite=pane-perf` (through the allowlisted fleet entry scripts/measure/split-spring.sh): the whole pane
 # motion suite instead, scripts/cmux-next/pane-perf-terminal.py, with the same --tag/--app/--out/--json.
 if "--suite=pane-perf" in sys.argv:

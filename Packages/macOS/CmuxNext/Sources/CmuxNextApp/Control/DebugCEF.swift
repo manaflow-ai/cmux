@@ -43,6 +43,7 @@ enum DebugCEF {
         object["runtime"] = runtime(services.chromiumRuntime)
         object["devtools"] = .array(devTools(services))
         if let pump = services.cache.cef.pumpStats { object["pump"] = pumpReport(pump) }
+        object["geometry"] = geometryReport(services)
         object["windows"] = windows(services.cache.cef.windowReport)
         if let duration = report.loadDuration { object["load_ms"] = .number(milliseconds(duration)) }
         if let duration = report.initializeDuration { object["initialize_ms"] = .number(milliseconds(duration)) }
@@ -131,6 +132,30 @@ enum DebugCEF {
             "follow_up_runs": .number(Double(stats.followUpRuns)),
             "work_ms": .number(stats.workSeconds * 1_000),
             "fallback_ms": .number(stats.fallbackInterval * 1_000),
+            "max_pass_ms": .number(stats.maxPassSeconds * 1_000),
+            "pass_bucket_upper_ms": .array(CEFPumpStats.passBucketUpperBounds.map { .number($0 * 1_000) }),
+            "pass_histogram": .array(stats.passHistogram.map { .number(Double($0)) }),
+        ])
+    }
+
+    /// Chromium hosts' geometry work over every window (`CEFGeometryCounters`).
+    private static func geometryReport(_ services: AppServices) -> JSONValue {
+        var total = CEFGeometryCounters()
+        for controller in services.windows.controllers {
+            guard let window = controller.window else { continue }
+            let counters = CEFGeometryCounters(window: window)
+            total.hosts += counters.hosts
+            total.clipBuilds += counters.clipBuilds
+            total.reads += counters.reads
+            total.posts += counters.posts
+            total.skippedPosts += counters.skippedPosts
+        }
+        return .object([
+            "hosts": .number(Double(total.hosts)),
+            "clip_builds": .number(Double(total.clipBuilds)),
+            "reads": .number(Double(total.reads)),
+            "posts": .number(Double(total.posts)),
+            "skipped_posts": .number(Double(total.skippedPosts)),
         ])
     }
 

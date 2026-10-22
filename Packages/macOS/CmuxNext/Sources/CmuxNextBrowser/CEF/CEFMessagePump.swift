@@ -103,6 +103,7 @@ final class CEFMessagePump {
         stats.workRuns += 1
         stats.workSeconds += elapsed
         if elapsed >= CEFPumpSchedule.timeSlice { stats.longWorkRuns += 1 }
+        stats.recordPass(seconds: elapsed)
         schedule.endWork(now: finished, elapsed: elapsed)
         rearm()
     }
