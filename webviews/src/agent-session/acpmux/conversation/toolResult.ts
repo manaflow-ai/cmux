@@ -218,16 +218,29 @@ const MAX_PRETTY_DEPTH = 64;
 /// number JavaScript cannot hold exactly. toolResult then shows the output as it was printed.
 class AsPrinted extends Error {}
 
-/// A JSON string, or a number token (group 1: its digits, without sign, point or exponent).
-const JSON_TOKEN = /"(?:[^"\\]|\\.)*"|-?(\d+(?:\.\d+)?)(?:[eE][+-]?\d+)?/g;
+/// A JSON string, or a number token (group 1).
+const JSON_TOKEN = /"(?:[^"\\]|\\.)*"|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
+const NUMBER = /^-?(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/;
 
-/// Whether `printed` JSON holds a number with more significant digits than a double keeps exactly
-/// (a 64-bit ID, `9007199254740993`): parsed and printed again, it would change.
+/// A number's decimal value as `<significant digits>e<point>`, the same for every spelling of one
+/// value (`1.50`, `15e-1`, `0.15e1`), or undefined for what is not a finite number (`Infinity`).
+function decimal(spelled: string): string | undefined {
+  const match = NUMBER.exec(spelled);
+  if (!match) return undefined;
+  let digits = match[1]! + (match[2] ?? "");
+  let point = match[1]!.length + Number(match[3] ?? 0);
+  const leading = digits.length - digits.replace(/^0+/, "").length;
+  digits = digits.slice(leading).replace(/0+$/, "");
+  point -= leading;
+  return digits ? `${spelled.startsWith("-") ? "-" : ""}${digits}e${point}` : "0";
+}
+
+/// Whether `printed` JSON holds a number a double cannot hold exactly (a 64-bit ID
+/// `9007199254740993`, a decimal `10.000000000000001`): parsed and printed again, it would change.
 export function losesNumbers(printed: string): boolean {
-  if (!/\d{16}/.test(printed)) return false;
   for (const match of printed.matchAll(JSON_TOKEN)) {
-    const digits = match[1]?.replace(".", "").replace(/^0+/, "").replace(/0+$/, "");
-    if (digits && digits.length > 15) return true;
+    const spelled = match[1];
+    if (spelled && decimal(spelled) !== decimal(String(Number(spelled)))) return true;
   }
   return false;
 }

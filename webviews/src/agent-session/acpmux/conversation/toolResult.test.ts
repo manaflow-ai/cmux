@@ -344,7 +344,25 @@ test("JSON with a number past a double's precision shows as printed, never round
   // Beside text in an envelope, the whole output shows as printed rather than lose the digit.
   const both = `{"content":[{"type":"text","text":"Found"}],"structuredContent":{"id":9007199254740993}}`;
   expect(toolResult(both).text).toBe(both);
-  // Long digit runs inside strings, and short numbers, still pretty-print.
-  const safe = { id: "9007199254740993", count: 12345678901234, ratio: 0.5 };
+  // Long digit runs inside strings, and numbers a double holds exactly, still pretty-print.
+  const safe = { id: "9007199254740993", count: 12345678901234, ratio: 0.5, tiny: 1.5e-7, big: 1e21 };
   expect(toolResult(JSON.stringify(safe)).text).toBe(JSON.stringify(safe, null, 2));
+  expect(toolResult('{"ratio":1.50,"scaled":15e-1,"zero":-0.0}').lang).toBe("json");
+  expect(toolResult('{"ratio":1.50,"scaled":15e-1,"zero":-0.0}').text).toBe(
+    '{\n  "ratio": 1.5,\n  "scaled": 1.5,\n  "zero": 0\n}',
+  );
+});
+
+test("JSON with a decimal past a double's precision shows as printed, never rounded", () => {
+  // Codex review 5: `10.000000000000001` has 15 digits in a row, so a digit-run check missed it.
+  for (const output of [
+    '{"value":10.000000000000001}',
+    '{"value":1e400}',
+    '{"value":0.1000000000000000055511151231257827}',
+  ]) {
+    expect(toolResult(output)).toEqual({ text: output, lang: "json", images: [], unwrapped: false });
+    expect(toolResult(JSON.stringify([{ type: "text", text: output }]))).toMatchObject({ text: output, lang: "json" });
+  }
+  const both = '{"content":[{"type":"text","text":"Found"}],"structuredContent":{"value":10.000000000000001}}';
+  expect(toolResult(both).text).toBe(both);
 });
