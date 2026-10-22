@@ -63,8 +63,27 @@ class WorkflowsSetUpGo(unittest.TestCase):
     def test_the_base_autofix_runs_on_a_go_dependency_change(self):
         paths = BASE.get("on", BASE.get(True))["push"]["paths"]  # PyYAML reads `on:` as True
         for path in ("daemon/remote/go.mod", "daemon/remote/go.sum", "daemon/remote/third-party/**",
-                     "scripts/remote_daemon_notices.py"):
+                     "daemon/remote/**/*.go", "scripts/remote_daemon_notices.py",
+                     "cmux-tui/build-support/notices/license_match.py",
+                     "scripts/cmux-next/check_app_crate_licenses.py"):
             self.assertIn(path, paths)
+
+    def test_every_input_of_the_licenses_area_starts_the_base_autofix(self):
+        # Each path the licenses area reads (autofix-areas.sh) must be in the push paths, or a change
+        # to it alone (the allowlist, say) never gets its review recorded after the merge.
+        import fnmatch
+        paths = BASE.get("on", BASE.get(True))["push"]["paths"]
+        areas = ROOT / "scripts/cmux-next/autofix-areas.sh"
+        for changed in ("daemon/remote/go.mod", "daemon/remote/go.sum", "daemon/remote/third-party/review.json",
+                        "daemon/remote/third-party/spdx-templates/MIT.template.txt",
+                        "daemon/remote/cmd/cmuxd-remote/main.go", "daemon/remote/internal/x/y.go",
+                        "scripts/remote_daemon_notices.py", "cmux-tui/build-support/notices/license_match.py",
+                        "scripts/cmux-next/check_app_crate_licenses.py"):
+            with self.subTest(path=changed):
+                on = subprocess.run(["bash", str(areas)], input=changed + "\n", capture_output=True, text=True)
+                self.assertIn("licenses=true", on.stdout.split())
+                self.assertTrue(any(fnmatch.fnmatchcase(changed, p.replace("**/", "*").replace("**", "*"))
+                                    for p in paths), f"{changed} is a licenses input but starts no base autofix")
 
     def test_the_base_autofix_repairs_and_remakes_with_the_area(self):
         for name in ("Repair", "Push the repairs"):

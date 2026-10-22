@@ -60,6 +60,8 @@ drift "$review" daemon/remote/go.mod daemon/remote/go.sum || fail "a go.mod chan
 drift "$review" daemon/remote/go.sum || fail "a go.sum change causes the license review"
 drift "$review" scripts/remote_daemon_notices.py || fail "a change to the notices script causes the license review"
 drift "$review" daemon/remote/third-party/spdx-templates/MIT.template.txt || fail "an allowlist template change causes the license review"
+drift "$review" daemon/remote/cmd/cmuxd-remote/main.go || fail "a Go source change causes the license review"
+drift "$review" scripts/cmux-next/check_app_crate_licenses.py || fail "an allowlist change causes the license review"
 drift "$review" && fail "the license review alone must be drift"
 grep -q "remote_daemon_notices.py check --update-review" "$tmp/out" || fail "the drift message must say how the review is written"
 # Hand-written files are never drift.

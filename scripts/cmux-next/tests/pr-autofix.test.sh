@@ -51,7 +51,12 @@ for path in daemon/remote/go.mod daemon/remote/go.sum daemon/remote/third-party/
   scripts/cmux-next/check_app_crate_licenses.py; do
   [[ "$(licenses "$path")" == true ]] || fail "a change to $path must record the cmuxd-remote license review"
 done
-[[ "$(licenses daemon/remote/cmd/cmuxd-remote/main.go)" == false ]] || fail "a Go source change alone must not run the license review"
+# A Go source change can import a new module without touching go.mod (one already required), so it
+# runs the review too; the check reads what the build links.
+for path in daemon/remote/cmd/cmuxd-remote/main.go daemon/remote/internal/rpc/server.go; do
+  [[ "$(licenses "$path")" == true ]] || fail "a change to $path must record the cmuxd-remote license review"
+done
+[[ "$(licenses daemon/remote/README.md)" == false ]] || fail "a daemon note must not run the license review"
 [[ "$(licenses webviews/src/main.tsx)" == false ]] || fail "a webviews change must not run the license review"
 [[ "$(bash "$AREAS" --all | sed -n 's/^licenses=//p')" == true ]] || fail "--all must include the license review"
 
