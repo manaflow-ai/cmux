@@ -353,7 +353,8 @@ async fn a_web_answer_never_makes_a_lasting_grant() {
 #[tokio::test]
 async fn approve_reads_runs_read_only_shell_commands_without_asking() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveReads).await;
-    let id = new_session(&mut c, "shell-reads").await;
+    let repo = git_repo(&[]);
+    let id = session_in(&mut c, "shell-reads", &repo).await;
     let rid =
         c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: shell-reads", None)).await;
     let g = ready(&mut c).await;
@@ -370,4 +371,48 @@ async fn approve_reads_runs_read_only_shell_commands_without_asking() {
     let mut r = connect(&hub).await;
     r.request(RESPOND, decision(&id, &g, "push", "deny")).await.unwrap();
     assert!(c.response(rid).await.0.is_ok());
+}
+
+/// Codex review of #24155: in a repository whose config names a program for git to run
+/// (`core.fsmonitor` here), `git status` asks like any other command.
+#[tokio::test]
+async fn approve_reads_asks_for_git_reads_in_a_repository_that_runs_a_program() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveReads).await;
+    let repo = git_repo(&[("core.fsmonitor", "/bin/false")]);
+    let id = session_in(&mut c, "shell-reads", &repo).await;
+    let rid =
+        c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: shell-reads", None)).await;
+    let g = ready(&mut c).await;
+    let detail = c.request(method::MUX_INFO, json!({"sessionId":id})).await.unwrap();
+    let pending = detail["pending"].as_array().unwrap();
+    assert_eq!(pending.len(), 2, "{pending:?}");
+    let mut r = connect(&hub).await;
+    r.request(RESPOND, decision(&id, &g, "both", "deny")).await.unwrap();
+    assert!(c.response(rid).await.0.is_ok());
+}
+
+/// A fresh git repository with `config` in its local config.
+fn git_repo(config: &[(&str, &str)]) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("acpmux-shell-reads-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let git = |args: &[&str]| {
+        let ok = std::process::Command::new("git").arg("-C").arg(&dir).args(args).status();
+        assert!(ok.unwrap().success(), "git {args:?}");
+    };
+    git(&["init", "-q"]);
+    for (key, value) in config {
+        git(&["config", key, value]);
+    }
+    dir
+}
+
+async fn session_in(c: &mut TestClient, name: &str, cwd: &std::path::Path) -> String {
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"name": name}}}),
+        )
+        .await
+        .unwrap();
+    s["sessionId"].as_str().unwrap().to_owned()
 }
