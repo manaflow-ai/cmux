@@ -130,6 +130,7 @@ nonisolated extension ActionSurfaceCatalog {
         "notifications.dismissHighlight": [p(.workspaceRow, .identity, 111, folder: .options)],
         "palette.newAgentChat": [p(.newTab, .create, 4)],
         "newTab.page": [p(.newTab, .create, 5)],
+        "macScreen.open": [p(.newTab, .create, 6)],
         "palette.forkAgentConversationRight": [p(.terminalSelection, .create, 200, folder: .agent), p(.agentChat, .create, 200, folder: .agent)],
         "palette.forkAgentConversationLeft": [p(.terminalSelection, .create, 202, folder: .agent), p(.agentChat, .create, 202, folder: .agent)],
         "palette.forkAgentConversationTop": [p(.terminalSelection, .create, 203, folder: .agent), p(.agentChat, .create, 203, folder: .agent)],
