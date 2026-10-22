@@ -92,6 +92,24 @@ struct SidebarUniformRowSpacingTests {
         #expect(abs(header.y - block.maxY - m.rowSpacing) < 0.01, "the pins' end adds \(header.y - block.maxY - m.rowSpacing) pt")
     }
 
+    /// A drop's gap alone under the Pinned block moves the rows below by exactly the gap's shift, as the drag's hit
+    /// test assumes (`SidebarDragGeometry.baseY`).
+    @Test func aGapUnderThePinnedBlockMovesTheRowsBelowByItsShift() throws {
+        let m = SidebarLayoutMetrics.standard
+        var options = SidebarLayoutOptions()
+        options.blockHeights = [SidebarLayoutDocument.pinnedSectionID.rawValue: 52]
+        let base = SidebarLayout.make(sections: [Self.pinnedBlock(), Self.machine()], metrics: m, options: options)
+        options.gap = DropPosition(section: .custom(SidebarLayoutDocument.pinnedSectionID.rawValue), group: nil, index: 0)
+        options.gapHeight = m.rowHeight
+        let open = SidebarLayout.make(sections: [Self.pinnedBlock(), Self.machine()], metrics: m, options: options)
+        let gapY = try #require(open.gapY)
+        let block = try #require(open.row(for: Self.pinnedKey))
+        #expect(gapY >= block.maxY)
+        let before = try #require(base.row(for: .group(Self.group)))
+        let after = try #require(open.row(for: .group(Self.group)))
+        #expect(abs(after.y - before.y - open.gapShift) < 0.01, "the rows below moved \(after.y - before.y) pt, the gap's shift is \(open.gapShift) pt")
+    }
+
     @Test func theFirstWorkspaceRowFollowsTheLastPinnedChat() throws {
         let m = SidebarLayoutMetrics.standard
         var options = SidebarLayoutOptions()
@@ -197,6 +215,6 @@ struct SidebarUniformRowSpacingTests {
                 "the pin centers \(pin.midY - pinnedFrame.minY) pt into its row, an unpinned row's content \(content.midY - unpinnedFrame.minY) pt")
         #expect(abs(pinnedFrame.height - unpinnedFrame.height) < 0.01)
         // The pinned row's title still starts after its pin.
-        #expect(pinned.titleFrame.minX >= pin.maxX)
+        #expect(h.list.convert(pinned.titleFrame, from: pinned).minX >= pin.maxX)
     }
 }
