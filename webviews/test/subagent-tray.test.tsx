@@ -447,8 +447,9 @@ describe("the tray", () => {
 // lines, one subagent already finished, a raw "cd ~/Projects/..." command: "Is stuff actually
 // running? THIS IS LYING." and "SHOULDN'T THIS SAY SUBAGENTS?"
 describe("the tray tells the truth", () => {
-  const liveLines = (root: HTMLElement) =>
-    [...root.querySelectorAll<HTMLElement>(".acpmux-running-tray__list > li:not([data-finished]) .acpmux-agent-line")];
+  const liveLines = (root: HTMLElement) => [
+    ...root.querySelectorAll<HTMLElement>(".acpmux-running-tray__list > li:not([data-finished]) .acpmux-agent-line"),
+  ];
   const names = (lines: HTMLElement[]) =>
     lines.map((line) => line.querySelector(".acpmux-summary-agent__name")?.textContent);
 
@@ -458,7 +459,7 @@ describe("the tray tells the truth", () => {
       agent("Reviewer", { startedAt: now - 9000 }),
       agent("Tester", { startedAt: now - 8000 }),
       agent("Linter", { state: "completed", startedAt: now - 7000, endedAt: now - 6000 }),
-      agent("Fuzzer", { state: "failed", startedAt: now - 7000, endedAt: now - 5000 }),
+      agent("Fuzzer", { state: "failed", startedAt: now - 6500, endedAt: now - 5000 }),
     ];
     const commands = [
       command("bg1", { command: "cd ~/Projects/cmux && bun run dev", description: "Start the dev server" }),
@@ -484,7 +485,13 @@ describe("the tray tells the truth", () => {
       if (head.getAttribute("aria-expanded") !== "true") await act(async () => head.click());
       const lines = liveLines(root);
       expect(lines.length).toBe(5);
-      expect(names(lines)).toEqual(["Reviewer", "Tester", "Start the dev server", "Port the history page", "Draft the notes"]);
+      expect(names(lines)).toEqual([
+        "Reviewer",
+        "Tester",
+        "Start the dev server",
+        "Port the history page",
+        "Draft the notes",
+      ]);
       // A chat says what it does now; one waiting on the person says so.
       expect(lines[3]!.querySelector(".acpmux-summary-agent__kind")?.textContent).toBe("Run the tests");
       expect(lines[4]!.querySelector(".acpmux-summary-agent__state")?.textContent).toBe("Waiting");
@@ -534,9 +541,15 @@ describe("the tray tells the truth", () => {
     const fold = new SubagentFold();
     const feed = (update: Record<string, unknown>, acpmux: Record<string, unknown>) => {
       seq += 1;
-      fold.reduce({ seq, at: seq * 1000, msg: { method: "session/update", params: { update, _meta: { acpmux } } } }, update);
+      fold.reduce(
+        { seq, at: seq * 1000, msg: { method: "session/update", params: { update, _meta: { acpmux } } } },
+        update,
+      );
     };
-    feed({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Audit", state: "running" }] });
+    feed(
+      { sessionUpdate: "subagent_spawned" },
+      { subagents: [{ id: "a", parent: null, name: "Audit", state: "running" }] },
+    );
     feed({ sessionUpdate: "subagent_state_update" }, { subagents: [{ id: "a", state: "completed" }] });
     // Claude's last task_progress can trail its end.
     feed({ sessionUpdate: "subagent_progress" }, { subagents: [{ id: "a", state: "running", tokens: 900 }] });
@@ -551,12 +564,27 @@ describe("the tray tells the truth", () => {
     const fold = new SubagentFold();
     const feed = (update: Record<string, unknown>, acpmux: Record<string, unknown>) => {
       seq += 1;
-      fold.reduce({ seq, at: seq * 1000, msg: { method: "session/update", params: { update, _meta: { acpmux } } } }, update);
+      fold.reduce(
+        { seq, at: seq * 1000, msg: { method: "session/update", params: { update, _meta: { acpmux } } } },
+        update,
+      );
     };
-    feed({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Audit", state: "running" }] });
-    feed({ sessionUpdate: "tool_call", toolCallId: "t1", title: "Read fetch.ts", status: "in_progress" }, { subagent: "a" });
-    feed({ sessionUpdate: "tool_call", toolCallId: "t2", title: "Run the tests", status: "in_progress" }, { subagent: "a" });
-    feed({ sessionUpdate: "tool_call_update", toolCallId: "t1", title: "Read fetch.ts", status: "completed" }, { subagent: "a" });
+    feed(
+      { sessionUpdate: "subagent_spawned" },
+      { subagents: [{ id: "a", parent: null, name: "Audit", state: "running" }] },
+    );
+    feed(
+      { sessionUpdate: "tool_call", toolCallId: "t1", title: "Read fetch.ts", status: "in_progress" },
+      { subagent: "a" },
+    );
+    feed(
+      { sessionUpdate: "tool_call", toolCallId: "t2", title: "Run the tests", status: "in_progress" },
+      { subagent: "a" },
+    );
+    feed(
+      { sessionUpdate: "tool_call_update", toolCallId: "t1", title: "Read fetch.ts", status: "completed" },
+      { subagent: "a" },
+    );
     expect(fold.all().find((one) => one.id === "a")!.action).toBe("Run the tests");
   });
 
@@ -572,7 +600,9 @@ describe("the tray tells the truth", () => {
     const rows = [
       row("t1", "activity", 5, {
         items: [
-          { tool: tool("call-1", { command: "cd ~/Projects/cmux && bun run dev", description: "Start the dev server" }) },
+          {
+            tool: tool("call-1", { command: "cd ~/Projects/cmux && bun run dev", description: "Start the dev server" }),
+          },
           { tool: tool("call-2", { command: "cd ~/Projects/cmux/webviews && export CI=1 && FOO=bar nice bun test" }) },
         ],
       } as Partial<Row>),
@@ -581,7 +611,15 @@ describe("the tray tells the truth", () => {
     expect(commands.map(commandLabel)).toEqual(["Start the dev server", "nice bun test"]);
     // The registry's process takes the description of the call that started it.
     const registry = backgroundCommands(
-      [{ id: "s/1", toolCallId: "call-1", command: "cd ~/Projects/cmux && bun run dev", startedAt: at(5), state: "running" }],
+      [
+        {
+          id: "s/1",
+          toolCallId: "call-1",
+          command: "cd ~/Projects/cmux && bun run dev",
+          startedAt: at(5),
+          state: "running",
+        },
+      ],
       runningBackgroundTasks(rows),
       true,
     );
@@ -596,7 +634,9 @@ describe("the tray tells the truth", () => {
     try {
       expect(names(liveLines(root))).toEqual(["Start the dev server", "nice bun test"]);
       // The whole command stays one hover away.
-      expect(liveLines(root)[0]!.querySelector("button")?.getAttribute("title")).toBe("cd ~/Projects/cmux && bun run dev");
+      expect(liveLines(root)[0]!.querySelector("button")?.getAttribute("title")).toBe(
+        "cd ~/Projects/cmux && bun run dev",
+      );
     } finally {
       await done();
     }

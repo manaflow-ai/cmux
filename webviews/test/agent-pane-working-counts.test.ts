@@ -224,7 +224,9 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
   test("the line counts the subagents and background shells still running", async () => {
     const page = await open(BUSY);
     // The Linter finished and the watcher stopped: neither counts.
-    expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+ · 2 subagents · 1 command$/);
+    expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(
+      /^Read [^·]+ · 2 subagents · 1 command$/,
+    );
     await page.close();
     const plain = await open(QUIET);
     expect((await line(plain).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+$/);

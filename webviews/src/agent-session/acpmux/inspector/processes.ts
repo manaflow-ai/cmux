@@ -145,6 +145,9 @@ export type BackgroundCommand = {
   /// The registry's process id, else the transcript's tool call id.
   id: string;
   command: string;
+  /// What the call that started it says it does (Claude's Bash `description`): the tray names the
+  /// command by it (`commandLabel`).
+  description?: string;
   /// A registry process acpmux lost track of (its daemon restarted) is `lost`; the transcript
   /// never says so.
   state: SummaryBackgroundTask["state"] | "lost";
@@ -180,9 +183,13 @@ export function backgroundCommands(
   transcript: readonly SummaryBackgroundTask[],
   listed: boolean,
 ): BackgroundCommand[] {
+  const described = new Map(transcript.flatMap((task) => (task.description ? [[task.id, task.description]] : [])));
   const fromRegistry = processes.map((process): BackgroundCommand => ({
     id: process.id,
     command: process.command,
+    ...(process.toolCallId && described.has(process.toolCallId)
+      ? { description: described.get(process.toolCallId) }
+      : {}),
     state: PROCESS_STATE[process.state] ?? "stopped",
     processId: process.id,
     startedAt: process.startedAt,
@@ -195,11 +202,33 @@ export function backgroundCommands(
     .map((task): BackgroundCommand => ({
       id: task.id,
       command: task.command,
+      ...(task.description ? { description: task.description } : {}),
       state: task.state,
       toolCallId: task.id,
       ...(task.startedAt !== undefined ? { startedAt: task.startedAt } : {}),
     }));
   return [...fromRegistry, ...fromTranscript];
+}
+
+/// One shell word: quoted, or up to the next space.
+const WORD = String.raw`(?:"(?:[^"\\]|\\.)*"|'[^']*'|[^\s;&|]+)`;
+/// What only sets the stage for a command: `cd DIR &&` (or `;`), `export X=1 &&`, `env`, `X=1 `.
+const PREFIX = new RegExp(
+  String.raw`^\s*(?:cd\s+${WORD}\s*(?:&&|;)|export\s+(?:\w+=${WORD}?\s*)+(?:&&|;)|env(?=\s)|\w+=${WORD}?(?=\s))\s*`,
+);
+
+/// What the tray names a command by: what its call says it does, else the command without the
+/// `cd`, `export` and environment prefixes in front of what it runs (the whole command when that
+/// is all it is).
+export function commandLabel(command: BackgroundCommand): string {
+  if (command.description) return command.description;
+  let rest = command.command.trim();
+  for (let match = PREFIX.exec(rest); match && match[0].length > 0; match = PREFIX.exec(rest)) {
+    const next = rest.slice(match[0].length);
+    if (!next.trim()) break;
+    rest = next;
+  }
+  return rest || command.command;
 }
 
 const newestFirst = (a: BackgroundCommand, b: BackgroundCommand) =>
