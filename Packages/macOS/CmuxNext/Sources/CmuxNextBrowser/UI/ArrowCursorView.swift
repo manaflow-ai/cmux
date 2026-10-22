@@ -146,6 +146,9 @@ public class ArrowCursorView: NSView, ClickableCursorHost {
             row.setCursor(at: point)
             return
         }
+        // No toolbar row under the pointer: a native button's hand (the sidebar, the titlebar)
+        // again, when the key child window reset the cursor (`ClickableCursorTracker`).
+        ClickableCursorTracker.keepHand()
     }
 
     /// Whether `window` is the top window at `location` (screen coordinates). The window server
@@ -184,7 +187,9 @@ extension ArrowCursorView {
     /// a child window has the key it returns after one cursor comparison when
     /// the cursor is the one the row under the pointer set last; otherwise
     /// the row under the pointer sets its cursor again (the same checks as
-    /// `pointerDidMove`). No allocation.
+    /// `pointerDidMove`). With no row under the pointer, the native button
+    /// that owns the hand sets it again (`ClickableCursorTracker.keepHand`).
+    /// No allocation.
     private static func keepCursor() {
         guard let key = NSApp.keyWindow, key.parent != nil else { return }
         let location = NSEvent.mouseLocation
@@ -197,6 +202,9 @@ extension ArrowCursorView {
             row.setCursor(at: point)
             return
         }
+        // No toolbar row under the pointer: a native button's hand (the sidebar, the titlebar)
+        // again, when the key child window reset the cursor (`ClickableCursorTracker`).
+        ClickableCursorTracker.keepHand()
     }
 }
 

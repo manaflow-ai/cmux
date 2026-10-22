@@ -8,9 +8,11 @@ public import AppKit
 /// A cursor rect in the key window: AppKit owns the rect and drops it when the button hides,
 /// leaves its window or scrolls out of view, so no pushed cursor is ever left behind. A change of
 /// `isEnabled` rebuilds it at once. Cursor rects do nothing while another window has the key (a
-/// Chromium page is a child window that takes it); there only a `ClickableCursorHost` (the
-/// browser toolbar row) sets the hand itself.
+/// Chromium page is a child window that takes it), so `cursorTracker` sets the hand itself then.
 open class ClickableButton: NSButton {
+    /// Sets the hand while another window of the app has the key (`ClickableCursorTracker`).
+    private(set) lazy var cursorTracker = ClickableCursorTracker(self) { [weak self] in self?.isEnabled ?? false }
+
     /// The cursor over a button: the pointing hand while enabled, none (the arrow) while disabled.
     public static func hoverCursor(isEnabled: Bool) -> NSCursor? { isEnabled ? .pointingHand : nil }
 
@@ -21,6 +23,7 @@ open class ClickableButton: NSButton {
         didSet {
             guard isEnabled != oldValue else { return }
             window?.invalidateCursorRects(for: self)
+            cursorTracker.clickableStateDidChange()
             // AppKit rebuilds cursor rects only in the key window: a host that sets the cursor
             // itself (a toolbar row while a child window has the key) sets it again now.
             var ancestor = superview
@@ -37,6 +40,21 @@ open class ClickableButton: NSButton {
     override open func resetCursorRects() {
         super.resetCursorRects()
         if let hoverCursor, let rect = Self.cursorRect(of: self) { addCursorRect(rect, cursor: hoverCursor) }
+    }
+
+    override open func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { cursorTracker.install() }
+    }
+
+    override open func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        cursorTracker.viewWillLeave()
+    }
+
+    override open func viewDidHide() {
+        super.viewDidHide()
+        cursorTracker.viewWillLeave()
     }
 
     /// Where the pointer at `screenPoint` is in `window`'s coordinates, while `window` is the top
