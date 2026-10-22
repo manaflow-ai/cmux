@@ -133,6 +133,22 @@ struct ClickableCursorTests {
         #expect(depth == 0)
     }
 
+    /// The real conversion and topmost-window gate: a screen point becomes the window's point
+    /// only while the window is the top one under it.
+    @Test func thePointerIsReadInWindowCoordinatesOnlyInTheTopWindow() {
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 200, width: 300, height: 60), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        var asked: NSPoint?
+        let point = ClickableButton.pointer(in: window, screenPoint: NSPoint(x: 110, y: 215)) {
+            asked = $0
+            return window.windowNumber
+        }
+        #expect(point == NSPoint(x: 10, y: 15))
+        #expect(asked == NSPoint(x: 110, y: 215))
+        #expect(ClickableButton.pointer(in: window, screenPoint: NSPoint(x: 110, y: 215)) { _ in window.windowNumber + 1 } == nil)
+    }
+
     /// The shared clickable buttons of this module are `ClickableButton`s.
     @Test func theSharedDesignButtonsAreClickableButtons() {
         let shared: [NSButton.Type] = [ThemedBezelButton.self, ThemedDefaultButton.self, TitlebarBandButton.self, OverflowButton.self,
