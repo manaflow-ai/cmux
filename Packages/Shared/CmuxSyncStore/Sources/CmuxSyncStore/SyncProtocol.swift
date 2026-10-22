@@ -188,9 +188,16 @@ public struct SyncFrameCodec: Sendable {
     private func intValue(_ value: Any?) -> Int? {
         // Reject JSON booleans: an NSNumber backed by CFBoolean has the Bool
         // ObjC type, and `true as? Int` would otherwise yield 1.
+        #if canImport(Darwin)
         if let n = value as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() {
             return nil
         }
+        #else
+        // Without CoreFoundation, a JSON boolean is the NSNumber whose type is `char`.
+        if let n = value as? NSNumber, String(cString: n.objCType) == "c" {
+            return nil
+        }
+        #endif
         let parsed: Int?
         if let i = value as? Int {
             parsed = i

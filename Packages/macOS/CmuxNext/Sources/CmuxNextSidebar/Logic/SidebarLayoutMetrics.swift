@@ -103,6 +103,10 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// cannot connect until the person acts ("Failed to start"; cx-mdo0).
     /// Localized by the model, so the layout stays nonisolated.
     public var machineStatusLabels: [MachineID: String] = [:]
+    /// The machines whose rows carry their mark (SidebarMachineMark), when more than one is
+    /// listed: the others, and this Mac with `sidebar.showLocalMachine`. Empty with one machine,
+    /// where a mark would tell nothing.
+    public var machines: [MachineID: SidebarMachine] = [:]
     /// Include tab rows beneath each visible workspace.
     public var showWorkspaceTabs = false
     /// With `showWorkspaceTabs`, the workspaces whose disclosure hid their tabs.
@@ -147,6 +151,14 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// The session tree's chat history (`SidebarChatHistoryState`): Pinned above the workspaces,
     /// Earlier under them. Nil (the tree off, or a filter) draws neither.
     public var chatHistory: SidebarChatHistoryState?
+    /// `sidebar.doneFold`: workspaces marked Done fold into a "Done (N)" row at the end of their list.
+    public var foldsDone = false
+    /// The "Done (N)" rows the person opened: their workspaces list below them.
+    public var openDoneFolds: Set<SidebarDoneFoldID> = []
+    /// `sidebar.groupRowLimit`: a list longer than this shows its first rows and a "Show N more" row; 0 shows all.
+    public var rowLimit = 0
+    /// The lists whose "Show N more" row the person opened.
+    public var openShowMore: Set<SidebarDoneFoldID> = []
 
     public init() {}
 }
@@ -166,12 +178,13 @@ nonisolated extension SidebarLayoutOptions {
     func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
+        content.machine = machines[ws.machineID].map(SidebarMachineMark.init)
         if let sessionTree { content.keycap = keycaps[ws.id] }
         content.pullRequests = sessionTree?.pullRequests[ws.id] ?? pullRequests[ws.id]
         if !showsTimestamps { (content.time, content.badgeTime) = (nil, nil) }
-        // What the agent needs outranks the row's age and one-line status on the name's line; the
-        // row view words it (localized on the main actor, so the layout stays nonisolated).
-        if !minimal, let chip = ws.agentChip { (content.chip, content.time) = (chip, nil) }
+        // What the agent needs, for the row's accessibility label only: a row draws no status words
+        // (Leo 2026-10-21), its badge's dot says it. Worded on the main actor by the row view.
+        if !minimal, let chip = WorkspaceRowContent.rowChip(ws.agentChip) { content.chip = chip }
         // A row that already has a second line says there what its agent does now; a one-line row
         // keeps its height, so rows do not grow and shrink as agents start and stop.
         if !minimal, content.detail != nil, let step = ws.agentStep { (content.now, content.detail) = (step, step) }
@@ -195,5 +208,24 @@ nonisolated extension SidebarLayoutOptions {
         content.badgeTime = nil
         content.status = nil
         return content
+    }
+}
+
+nonisolated extension SidebarLayoutOptions {
+    /// Whether the list draws workspace `ws`: not dragged out, and a match while filtering.
+    func visible(_ ws: SidebarWorkspace) -> Bool {
+        !excludedWorkspaces.contains(ws.id) && (filterMatches?.contains(ws.id) ?? true)
+    }
+
+    /// `showWorkspaceTabs` lists every workspace's tabs, except those the user collapsed with the row's disclosure.
+    func listsTabs(_ ws: SidebarWorkspace) -> Bool {
+        showWorkspaceTabs && !collapsedWorkspaces.contains(ws.id)
+    }
+
+    /// A workspace row's tab disclosure; nil when the list shows no tabs.
+    func disclosure(_ ws: SidebarWorkspace) -> SidebarTabDisclosure? {
+        guard showWorkspaceTabs else { return nil }
+        if ws.tabs.isEmpty { return .empty }
+        return collapsedWorkspaces.contains(ws.id) ? .collapsed : .expanded
     }
 }

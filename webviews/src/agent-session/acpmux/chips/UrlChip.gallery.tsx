@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample URLs), not shipped UI.
 import { componentEntry, type ChipHostFixture, type PullRequestFixture } from "../../../gallery/format";
-import type { Play } from "../../../gallery/play";
+import type { Play, PlayContext } from "../../../gallery/play";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import type { ReactNode } from "react";
 
@@ -62,6 +62,26 @@ const openCard: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pr-card__changes"));
 };
 
+// A trusted click lands at the point the row is at when the step runs, so a row that is still
+// moving is clicked where it used to be -- and the pull request card moves twice after it opens:
+// the host's answer fills it in (the `+/−` row drops from 186 to 211) and the card's entrance
+// transition settles it back (211 to 209 over about six frames). Counting painted frames, rather
+// than passes of `waitFor` (which a DOM mutation can run several of within one frame), is what
+// makes "held for eight frames" the row standing still rather than a gap between its two moves.
+const stillRow = async (ctx: PlayContext, selector: string, frames = 8, give = 300): Promise<void> => {
+  const view = ctx.document.defaultView ?? window;
+  const top = () => ctx.document.querySelector(selector)?.getBoundingClientRect().top;
+  let previous = top();
+  let held = 0;
+  for (let painted = 0; held < frames; painted += 1) {
+    if (painted > give) throw new Error(`play: ${selector} never stopped moving (${give} frames)`);
+    await new Promise<void>((done) => view.requestAnimationFrame(() => done()));
+    const now = top();
+    held = now !== undefined && previous !== undefined && Math.round(now) === Math.round(previous) ? held + 1 : 0;
+    previous = now;
+  }
+};
+
 export default componentEntry<UrlChipProps>({
   id: "agent-pane.url-chip",
   title: "URL chips",
@@ -78,6 +98,7 @@ export default componentEntry<UrlChipProps>({
   widths: { narrow: 360, normal: 640, wide: 860 },
   variants: {
     globe: { props: { href: "https://example.test/docs/getting-started", children: "example.test/docs" } },
+    // The favicon and title cmux has show in the hover card the play opens; the chip keeps its text.
     "cached-favicon": {
       chipHost: host,
       props: { href: "https://docs.example.test/guide", children: "Example docs" },
@@ -109,9 +130,44 @@ export default componentEntry<UrlChipProps>({
       play: async (ctx) => {
         await openCard(ctx);
         // A click pins the breakdown, so it stays open however the stage settles.
+        await stillRow(ctx, ".acpmux-pr-card__lines");
         await ctx.click({ selector: ".acpmux-pr-card__lines" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pr-card__kinds"));
       },
+    },
+    // A red the base branch already has: the compact ✓/✗ count says how many of the failures are not
+    // this pull request's, and the ✗ reads muted when none of them are.
+    "pull-request-base-reds": {
+      chipHost: prHost({
+        pullRequest: pullRequest({
+          review: "",
+          mergeable: "mergeable",
+          checks: { state: "failing", passed: 98, total: 100, failingOnBase: 1 },
+          checkList: [
+            { name: "cmux-next / cmux-next generated files", state: "failed", onBase: true },
+            { name: "cmux-next web / web lint (fast)", state: "failed" },
+          ],
+        }),
+        fetchedAt: GALLERY_NOW / 1000 - 20,
+      }),
+      props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
+      play: openCard,
+    },
+    "pull-request-all-reds-on-base": {
+      chipHost: prHost({
+        pullRequest: pullRequest({
+          review: "approved",
+          mergeable: "mergeable",
+          checks: { state: "failing", passed: 98, total: 100, failingOnBase: 2 },
+          checkList: [
+            { name: "cmux-next / cmux-next generated files", state: "failed", onBase: true },
+            { name: "cmux-next web / web lint (fast)", state: "failed", onBase: true },
+          ],
+        }),
+        fetchedAt: GALLERY_NOW / 1000 - 20,
+      }),
+      props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
+      play: openCard,
     },
     "pull-request-no-tests": {
       chipHost: prHost({
@@ -141,6 +197,43 @@ export default componentEntry<UrlChipProps>({
         fetchedAt: GALLERY_NOW / 1000 - 23 * 60,
       }),
       props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
+      play: openCard,
+    },
+    // Merged: the pull request glyph in purple, no state word, and no checks line (a merged pull
+    // request's reds no longer matter), however red its last run was.
+    "pull-request-merged": {
+      chipHost: prHost({
+        pullRequest: pullRequest({
+          state: "merged",
+          mergeable: "",
+          review: "approved",
+          checks: { state: "failing", passed: 118, total: 122, failingOnBase: 4 },
+          checkList: [
+            { name: "cmux-next / web lint (fast)", state: "failed", onBase: true },
+            { name: "cmux-next / package tests", state: "failed", onBase: true },
+            { name: "cmux-next / generated files", state: "failed", onBase: true },
+            { name: "cmux-next / gallery", state: "failed", onBase: true },
+          ],
+        }),
+        fetchedAt: GALLERY_NOW / 1000 - 20,
+      }),
+      props: { href: PULL_REQUEST, children: "#22777" },
+      play: openCard,
+    },
+    // Closed: the glyph in red, and no checks line either.
+    "pull-request-closed": {
+      chipHost: prHost({
+        pullRequest: pullRequest({
+          state: "closed",
+          mergeable: "",
+          review: "",
+          labels: [],
+          checks: { state: "passing", passed: 100, total: 100 },
+          checkList: [],
+        }),
+        fetchedAt: GALLERY_NOW / 1000 - 20,
+      }),
+      props: { href: PULL_REQUEST, children: "#22777" },
       play: openCard,
     },
     "long-url": {
