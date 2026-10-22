@@ -291,7 +291,11 @@ test("one row per repository with its worktrees under it, and no scratch or lane
     worktree("/Users/me/.cmux/worktrees.noindex/app/fix-dots", "fix-dots"),
     { id: `${p}/leo--ask-cost-dollar`, label: "leo--ask-cost-dollar" },
     // The second clone: another main checkout of acme/app.
-    { id: `${p}/app-next-dev`, label: "app-next-dev", repo: { ...app, root: `${p}/app-next-dev`, top: `${p}/app-next-dev` } },
+    {
+      id: `${p}/app-next-dev`,
+      label: "app-next-dev",
+      repo: { ...app, root: `${p}/app-next-dev`, top: `${p}/app-next-dev` },
+    },
     { id: `${p}/codex--protocol-contract-node-version`, label: "codex--protocol-contract-node-version" },
     worktree(`${p}/app-dedupe`, "dedupe"),
     { id: `${p}/app--queue-scroll`, label: "app--queue-scroll" },
