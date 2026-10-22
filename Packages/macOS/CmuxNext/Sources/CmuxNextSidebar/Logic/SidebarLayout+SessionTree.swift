@@ -75,7 +75,7 @@ nonisolated extension SidebarLayout {
         guard children[id]?.isEmpty == false else { return (nil, nil) }
         guard tree.isFolded(id, depth: depth) else { return (.expanded, nil) }
         let rollUp = SidebarTreeRollUp(treeDescendants(of: id, ids, children: children).map(states))
-        return (.collapsed, rollUp.total == 0 ? nil : rollUp)
+        return (.collapsed, rollUp.isEmpty ? nil : rollUp)
     }
 
     /// One loose row as the session tree draws it (`treeRows`): its model index, depth, chevron and roll-up.
