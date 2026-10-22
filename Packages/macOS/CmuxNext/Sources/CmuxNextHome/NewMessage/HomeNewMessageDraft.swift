@@ -119,6 +119,11 @@ public struct HomeNewMessageDraft: Hashable, Sendable {
         return Array(contacts.filter { $0.source == .agent && !chosen.contains(.contact($0)) }.prefix(limit))
     }
 
+    /// The people listed under the To: field before anything is typed.
+    public func idleSuggestions(contacts: [HomeContact], chiefLimit: Int = 6) -> [HomeContact] {
+        chiefShortcuts(contacts: contacts, limit: chiefLimit)
+    }
+
     /// The conversation that already has exactly the chosen people (one
     /// person: their DM or the Chief's conversation; several: a group with
     /// exactly them), newest first as the inbox lists it. Nil while a

@@ -202,6 +202,9 @@ public final class HomeSidebarView: NSView {
         CmuxSidebarMenuItem(title: title, handler: handler)
     }
 
+    /// The list id of a teammate's row (a person with no DM yet).
+    public static func teammateRowID(_ contact: HomeContact) -> String { "teammate:" + contact.id.rawValue }
+
     /// One or two letters for a teammate's monogram.
     static func initials(_ name: String) -> String {
         let words = name.split(whereSeparator: \.isWhitespace)

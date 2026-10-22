@@ -63,6 +63,8 @@ public struct HomeSidebarModel: Hashable, Sendable {
     public var pinned: [HomeSidebarItem]
     public var rows: [HomeSidebarItem]
     public var people: [HomeContact]
+    /// Team members the user has no DM with yet, listed after the conversations while no search runs.
+    public var teammates: [HomeContact] = []
     /// The Cloud rows' state from the owner (`home-inbox` `cloud`): only `unavailable` shows a quiet line.
     public var cloudState: String?
     /// The quiet line under the list (Cloud conversations not reachable), or nil.
