@@ -1115,6 +1115,11 @@
   background: none;
   box-shadow: none;
 }
+/* The row's margin is all the room under it: the chat composer's own 16 px bottom padding stacked
+   on it (26 px, Claude Code leaves about 8) is dropped while the quiet row ends the composer (Leo
+   2026-10-21: "WE HAVE TOO MUCH FUCKING STUPID SPACE AT THE BOTTOM COMPAREDE TO CLAUDE CODE"). Only
+   the floating chat dock: a fresh chat's hero layout keeps its padding. */
+.acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer:has(.acpmux-composer-foot) { padding-bottom: 0; }
 /* The chips lay out as the row's own items, so the mode goes left and the rest right (right too
    before a chat has a mode, as on a fresh New Tab page). */
 .acpmux-composer-foot .acpmux-chips { display: contents; }

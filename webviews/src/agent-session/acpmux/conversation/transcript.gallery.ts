@@ -642,6 +642,43 @@ const ENVELOPE_TOOLS = [
   }),
 ];
 
+// A Claude Bash call's permission as claude-agent-acp sends it: its title is the command line (so
+// its first line reads "bash -c '"), its description says what it does, and the script runs long.
+const BASH_SCRIPT = [
+  "bash -c '",
+  "# Rebuild the pane bundle and check it before the push",
+  "set -euo pipefail",
+  "cd webviews",
+  "bun install --frozen-lockfile",
+  "bun run check",
+  "bun run build:agent-pane",
+  "git status --short",
+  "'",
+].join("\n");
+const BASH_PERMISSION = chat(
+  [
+    user("Rebuild the pane and check it", 1),
+    activity([tool("bash -c '", "execute", "pending", { command: BASH_SCRIPT })], 0.9),
+  ],
+  {
+    isWorking: true,
+    permission: {
+      permissionId: "gallery-permission",
+      title: "`bash -c '",
+      kind: "execute",
+      command: BASH_SCRIPT,
+      description: "Rebuild the pane bundle and run its checks",
+      rule: "Allow bun run check:* for this session",
+      pending: true,
+      options: [
+        { id: "allow_once", name: "Allow", kind: "allow_once", allow: true },
+        { id: "allow_always", name: "Always Allow", kind: "allow_always", allow: true },
+        { id: "reject_once", name: "Reject", kind: "reject_once", allow: false },
+      ],
+    },
+  },
+);
+
 export default agentPaneEntry({
   id: "agent-pane.transcript",
   title: "Transcript rows",
@@ -1694,6 +1731,26 @@ export default agentPaneEntry({
         });
       },
     },
+    "turn-error-no-team-account": {
+      note: "Codex on a team Cloud machine whose team has no Codex account: say so and name the command that adds one, not a rate limit or a refused route.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, {
+            status: "failed",
+            error:
+              "unexpected status 403 Forbidden: Codex needs a team account on this machine. To add one for the team, run `cr add codex` in this machine's terminal. If someone added one as private, they can choose Share with team at coderouter.dev., url: https://coderouter.cmux.dev/v1/responses, request id: req-1",
+          }),
+        ],
+        { harness: "codex", model: "gpt-5.5" },
+      ),
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="no-team-account"]');
+          return note && /needs a team account on this machine/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
     "turn-error-unreachable": {
       note: "The route's server is down or unreachable.",
       snapshot: chat(
@@ -2008,34 +2065,24 @@ export default agentPaneEntry({
       ]),
     },
     permission: {
-      note: "A tool call waiting for the user's permission.",
-      snapshot: chat(
-        [
-          user("Install the tree package", 1),
-          activity(
-            [
-              tool("bun add @pierre/trees", "execute", "pending", {
-                command: "bun add @pierre/trees",
-              }),
-            ],
-            0.9,
-          ),
-        ],
-        {
-          isWorking: true,
-          permission: {
-            permissionId: "gallery-permission",
-            title: "bun add @pierre/trees",
-            kind: "execute",
-            pending: true,
-            options: [
-              { id: "allow_once", name: "Allow", allow: true },
-              { id: "allow_always", name: "Always allow", allow: true },
-              { id: "reject_once", name: "Deny", allow: false },
-            ],
-          },
-        },
-      ),
+      note: "A Claude Bash call waiting for permission (Claude Code desktop's prompt): a glass card titled with the call's description, the script's first line clamped in mono, and Allow once, Always allow and Deny.",
+      snapshot: BASH_PERMISSION,
+    },
+    "permission-expanded": {
+      note: "Play: Show full command opens the whole script, wrapper included, in a scrolling mono block.",
+      snapshot: BASH_PERMISSION,
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Show full command" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-command-full"));
+      },
+    },
+    "permission-deny-feedback": {
+      note: "Play: Deny opens the field for what Claude should do instead; its send denies the call with that text.",
+      snapshot: BASH_PERMISSION,
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Deny" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-feedback textarea"));
+      },
     },
     "secret-card": {
       note: "Play: an agent asks for a secret (cx-ncc.42). The value is typed in the private field and Provide sends it to acpmux only; the card closes and the chat never shows the value.",
