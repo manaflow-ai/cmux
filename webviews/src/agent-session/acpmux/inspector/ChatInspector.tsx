@@ -69,6 +69,7 @@ import {
 import { OutputsSection, outputArtifacts, outputLinks, type OutputArtifact, type OutputLink } from "./OutputsSection";
 import { inspectorLists, type InspectorProcess, type ProcessRegistry } from "./processes";
 import { ServersSection } from "./ServersSection";
+import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentsSection, subagentCounts } from "./SubagentsSection";
 import { TasksSection } from "./TasksSection";
 import type { Subagent } from "../subagents/subagentFold";
@@ -131,6 +132,7 @@ export function useChatInspector({
   onStopProcess,
   subagents,
   sessions,
+  onSetRunningLimit,
   onOpenFolder,
   onSaveEnvironment,
 }: {
@@ -161,6 +163,8 @@ export function useChatInspector({
   };
   /// The chats the chat's agent started (App.tsx `childSessions`), and how one opens.
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  /// `_acpmux/subsession/limits` (direct.ts setRunningLimit): chat `sessionId`'s running limit.
+  onSetRunningLimit?: (sessionId: string, maxRunning: number | null) => Promise<unknown>;
   /// Opens one of the chat's folders in the Files tree beside the chat (a chat on this Mac).
   onOpenFolder?: (path: string) => void;
   /// Saves the chat's machine and folder as an environment (`environment.save`).
@@ -256,6 +260,7 @@ export function useChatInspector({
         registry={registry}
         subagents={subagents}
         sessions={sessions}
+        onSetRunningLimit={onSetRunningLimit}
         revealed={revealed}
         onRevealed={clearRevealed}
         onStopProcess={onStopProcess}
@@ -289,6 +294,7 @@ function InspectorPresence({
   registry,
   subagents,
   sessions,
+  onSetRunningLimit,
   revealed,
   onRevealed,
   onStopProcess,
@@ -318,6 +324,7 @@ function InspectorPresence({
     onOpen: (id: string) => void;
   };
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  onSetRunningLimit?: (sessionId: string, maxRunning: number | null) => Promise<unknown>;
   revealed?: { section: InspectorSectionId; at: number };
   onRevealed: () => void;
   onStopProcess?: (id: string) => Promise<unknown>;
@@ -392,6 +399,7 @@ function InspectorPresence({
         transcriptTasks={made?.backgroundTasks}
         sessions={sessions?.list}
         onOpenSession={sessions?.onOpen}
+        onSetRunningLimit={onSetRunningLimit}
         revealed={revealed}
         onRevealed={onRevealed}
         onStopProcess={onStopProcess}
@@ -509,6 +517,7 @@ export function ChatInspector({
   transcriptTasks = [],
   sessions = [],
   onOpenSession,
+  onSetRunningLimit,
   revealed,
   onRevealed,
   onStopProcess,
@@ -552,6 +561,8 @@ export function ChatInspector({
   /// The chats the agent started, listed under Subagents.
   sessions?: readonly StartedSession[];
   onOpenSession?: (sessionId: string) => void;
+  /// Sets or drops the chat's running limit (SubagentLimitStepper.tsx); without it the limit only reads.
+  onSetRunningLimit?: (sessionId: string, maxRunning: number | null) => Promise<unknown>;
   /// The section a running line's count opened: scrolled into view (`at` tells one ask from the next).
   revealed?: { section: InspectorSectionId; at: number };
   /// The reveal has scrolled: the caller forgets it.
@@ -608,6 +619,19 @@ export function ChatInspector({
   const mcp = summary?.mcpServers ?? [];
   const reconnect = mcp.filter((server) => server.status === "failed").length;
   const runningTasks = commands.filter((command) => command.state === "running").length;
+  // Subagents shows only for a chat that has had subagents or sub-sessions, or whose running limit
+  // someone set (its own, an ancestor's, the workspace's or the settings'): a chat that never used
+  // them, at acpmux's default, shows nothing.
+  const limits = summary?.subsessionLimits;
+  const limitSet =
+    limits !== undefined && limits.maxRunningSource !== undefined && limits.maxRunningSource !== "default";
+  const chatId = summary?.sessionId;
+  // A chat on another machine: its sub-sessions live on that machine's acpmux, which takes the
+  // limit only from its own person, so the line only reads.
+  const setRunningLimit =
+    onSetRunningLimit && chatId && !summary?.peer
+      ? (maxRunning: number | null) => onSetRunningLimit(chatId, maxRunning)
+      : undefined;
   const value = (text: string) => <span className="acpmux-chat-inspector-section__value">{text}</span>;
   return (
     <div ref={body} className="acpmux-chat-inspector__body">
@@ -700,7 +724,7 @@ export function ChatInspector({
           <ServersSection servers={servers} onStop={onStopProcess} onOpenUrl={onOpenUrl} />
         </InspectorSection>
       )}
-      {agents.length + sessions.length > 0 && (
+      {(agents.length + sessions.length > 0 || limitSet) && (
         <InspectorSection
           id="subagents"
           title={t("summary.subagents")}
@@ -708,13 +732,16 @@ export function ChatInspector({
           onOpenChange={fold("subagents")}
           meta={value(subagentCounts(t, agents, waiting, sessions))}
         >
-          <SubagentsSection
-            agents={agents}
-            waiting={waiting}
-            onOpen={onOpenSubagent}
-            sessions={sessions}
-            onOpenSession={onOpenSession}
-          />
+          <SubagentLimitStepper chatId={chatId} limits={limits} sessions={sessions} onSet={setRunningLimit} />
+          {agents.length + sessions.length > 0 && (
+            <SubagentsSection
+              agents={agents}
+              waiting={waiting}
+              onOpen={onOpenSubagent}
+              sessions={sessions}
+              onOpenSession={onOpenSession}
+            />
+          )}
         </InspectorSection>
       )}
       {(commands.length > 0 || scheduled.length > 0) && (
