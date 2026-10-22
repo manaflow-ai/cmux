@@ -98,6 +98,7 @@ acpmux send NAME "next step"                       # stream the reply; -q for th
 acpmux send NAME --no-wait "…"                     # a message: steers into the running turn when the harness steers (read at its next tool boundary; never stops it), else queues; returns at once
 acpmux send NAME --no-wait --no-steer "…"          # queue behind the running turn instead
 acpmux send NAME --steer "…"                       # steer a send that waits for its reply (it queues by default)
+acpmux send NAME --no-wait --supersede KEY "…"     # replace your own prompt still queued under KEY (a correction is never read after the order it corrects); prints "replaced N queued", --json adds replaced and replacedPromptIds
 acpmux last NAME [-n 3]                            # last reply text
 acpmux history NAME                                # one line per turn: prompt, status, tools, tokens, wall time
 acpmux ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v]
