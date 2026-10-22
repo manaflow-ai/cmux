@@ -64,8 +64,9 @@ enum SidebarStyle {
     /// and every title in the primary text color ("All titles primary"):
     /// unread shows by the badge, selection by the fill.
     static var titleFont: NSFont { Typography.body }
-    /// Length of the fade that ends a clipped row title (no ellipsis).
-    static var titleFadeWidth: CGFloat { Metrics.space6 }
+    /// Length of the fade that ends a clipped row title (no ellipsis): 24 pt at Compact. At
+    /// 16 pt the fade ended at a word gap and read as a hard cut.
+    static var titleFadeWidth: CGFloat { Metrics.space6 + Metrics.space4 }
     static var subtitleFont: NSFont { Typography.caption }
     /// One detail line under a row's title (the folder, branch or agent line), as its label lays it out.
     static var detailLineHeight: CGFloat {
