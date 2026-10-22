@@ -143,8 +143,9 @@ test("the card shows the reel's length, and a press plays it in place with contr
   expect(player.querySelector("button.cl-reel-play")).toBeNull();
   expect(player.querySelector(".cl-reel-length")).toBeNull();
   expect(player.querySelector("a.cl-reel")).toBeNull();
-  // Focus moves to the video, so the keyboard drives its controls.
+  // Focus moves to the video, so the keyboard drives its controls; Tab reaches it again later.
   expect(dom.window.document.activeElement).toBe(element);
+  expect(element.tabIndex).toBe(0);
 });
 
 test("the look comes from the whats-new-reel-look experiment, and every look plays as the card", async () => {
@@ -155,6 +156,7 @@ test("the look comes from the whats-new-reel-look experiment, and every look pla
     return section!.querySelector<HTMLElement>(".cl-reel-card")!;
   };
   expect((await card()).dataset.look).toBe("card");
+  const had = "cmuxExperiments" in globalThis;
   const saved = globalThis.cmuxExperiments;
   try {
     for (const look of ["row", "poster"]) {
@@ -168,7 +170,8 @@ test("the look comes from the whats-new-reel-look experiment, and every look pla
       expect(figure.querySelector("video")!.hasAttribute("controls")).toBe(true);
     }
   } finally {
-    globalThis.cmuxExperiments = saved;
+    if (had) globalThis.cmuxExperiments = saved;
+    else delete globalThis.cmuxExperiments;
   }
 });
 

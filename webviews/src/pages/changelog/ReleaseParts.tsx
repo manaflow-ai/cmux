@@ -418,7 +418,7 @@ function ReelCard({ url, title, onError }: { url: string; title: string; onError
           ref={video}
           src={`${url}#t=0.1`}
           aria-label={title}
-          tabIndex={-1}
+          tabIndex={playing ? 0 : -1}
           controls={playing}
           muted
           playsInline

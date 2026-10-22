@@ -291,12 +291,14 @@ html[data-cmux-page="changelog"] body {
   position: absolute;
   inset: auto 0 0;
   margin: 0;
-  padding: 32px 72px 12px 14px;
+  padding: 32px 14px 12px;
   background: linear-gradient(transparent, rgb(0 0 0 / 0.6));
   color: #fff;
   pointer-events: none;
 }
 .cl-reel-card[data-look="poster"][data-playing] .cl-reel-title { margin: 10px 12px 12px; }
+/* The band would dim the length at its foot: the length sits at the top. */
+.cl-reel-card[data-look="poster"] .cl-reel-length { top: 8px; bottom: auto; }
 .cl-reel-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
 .cl-reel-picker { display: flex; flex-wrap: wrap; gap: 6px; }
 .cl-reel-chip {
