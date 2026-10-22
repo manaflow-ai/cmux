@@ -54,6 +54,9 @@ export class SubagentFold {
   private readonly versions = new Map<string, number>();
   /// The subagents spawned since the current turn started, which its stop ends.
   private turn = new Set<string>();
+  /// The subagents a tool call started (Claude's Agent call, which its turn waits on): only these
+  /// end with a completed turn. Codex's native children have none and outlive their turn.
+  private readonly called = new Set<string>();
 
   /// Folds one session/update record; true when it belongs to subagents and draws no row.
   reduce(event: Event, update: any): boolean {
@@ -100,6 +103,7 @@ export class SubagentFold {
     for (const agent of this.agents.values()) {
       if (agent.state !== "running") continue;
       if (left.turn && (!this.turn.has(agent.id) || agent.background)) continue;
+      if (left.state === "completed" && !this.called.has(agent.id)) continue;
       agent.state = left.state;
       agent.endedAt = at;
       this.touch(agent);
@@ -176,6 +180,7 @@ export class SubagentFold {
       };
       this.agents.set(agent.id, agent);
       if (spawn) this.turn.add(agent.id);
+      if (typeof change.toolCallId === "string") this.called.add(agent.id);
       if (parent === null) {
         this.open ??= { id: `${SUBAGENTS}-${event.seq}`, at: event.at, version: 0, ids: [] };
         this.open.ids.push(agent.id);

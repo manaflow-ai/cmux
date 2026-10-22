@@ -3085,7 +3085,7 @@
       "type" : "string"
     },
     "sessions.promptSuggestions" : {
-      "default" : false,
+      "default" : true,
       "description" : "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it.",
       "title" : "Suggest Follow-Up Tasks",
       "type" : "boolean"

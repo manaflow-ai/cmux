@@ -332,6 +332,15 @@ jobs:
           if [[ -n "$base_ref" ]] && git show "$base_ref:scripts/localization-debt-baseline.json" > "$base_baseline" 2>/dev/null; then
             args=(--base-baseline "$base_baseline")
           fi
+          # Debt the base has past its own baseline is the base's red, not the pull request's (#23877).
+          if [[ "$EVENT_NAME" == pull_request && ${#args[@]} -gt 0 ]]; then
+            base_root="$RUNNER_TEMP/localization-base"
+            mkdir -p "$base_root"
+            git archive HEAD^1 -- ':(glob)Resources/**/*.xcstrings' ':(glob)Packages/macOS/*/Sources/**/*.xcstrings' \
+              scripts/localization_catalog.py scripts/localization-allowed-omissions.json scripts/localization-plurals.json \
+              | tar -x -C "$base_root"
+            args+=(--base-root "$base_root")
+          fi
           python3 scripts/localization_catalog.py check "${args[@]}"
 
   # A red size cap, crash ratchet or page strings on a pull request into feat-cmux-next gets the same "red: <check>" comment as a
