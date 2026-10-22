@@ -22,10 +22,7 @@ export default agentPaneEntry({
   height: 640,
   widths: { narrow: 320, normal: 360, wide: 600 },
   anchors: [{ selector: ".acpmux-scroll" }],
-  covers: [
-    "agent-session/acpmux/threadMinimap/ThreadMinimap.tsx#ThreadMinimap",
-    "agent-session/acpmux/threadMinimap/model.ts#railPlacement",
-  ],
+  covers: ["agent-session/acpmux/threadMinimap/ThreadMinimap.tsx#ThreadMinimap"],
   variants: {
     rest: {
       note: "At rest mid-thread in a narrow pane: a minimal rail inside the 18 px page edge, 4 px ticks left of the text, the prompts on screen brighter. Before, the rail hid at these widths.",
