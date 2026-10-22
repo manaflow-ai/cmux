@@ -126,20 +126,33 @@ class GuardsRunFromTheBase(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(out["hookSpecificOutput"]["permissionDecisionReason"], "merge guard base v1")
 
-    def test_a_merge_whose_guards_cannot_be_read_is_refused(self):
-        """The merge guard fails closed (it refuses when it can't read GitHub), so the hook does too: a merge it can't
-        judge is denied, never let through with only a stderr line."""
+    def test_a_merge_whose_guards_cannot_be_read_goes_ahead_with_a_warning(self):
+        """The merge guard refuses only a compile that finished red; a merge it can't judge, because GitHub or the
+        guards could not be read, goes ahead with a warning the agent and the person both see (2026-10-21: the
+        guard's timed-out reads held #23660 and #23371 for hours with every gate met)."""
         old = self.old_base()
         git(self.lane, "remote", "set-url", "origin", str(self.tmp / "gone.git"))
         git(self.lane, "update-ref", "refs/remotes/origin/feat-cmux-next", old)
         code, out, err = self.hook("gh pr merge 5 --squash")
         self.assertEqual(code, 0, err)
-        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
-        self.assertIn("merge guards did not run", out["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertNotIn("permissionDecision", out["hookSpecificOutput"])
+        self.assertIn("merge guards did not run", out["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(out["systemMessage"], out["hookSpecificOutput"]["additionalContext"])
         # The update-branch warning only warns: unreadable, it does not block.
         code, out, err = self.hook("gh api -X PUT repos/manaflow-ai/cmux/pulls/5/update-branch")
         self.assertIsNone(out)
         self.assertNotEqual(code, 2)
+
+    def test_a_base_without_the_guards_lets_a_merge_through_with_a_warning(self):
+        """guards-from-base.sh itself is on the base but the guards are not (`git archive` fails)."""
+        git(self.seed, "rm", "-q", "scripts/ci/merge_compile_guard.py")
+        git(self.seed, "commit", "-qm", "the guard leaves the base")
+        git(self.seed, "push", "-q", "origin", "feat-cmux-next")
+        code, out, err = self.hook("gh pr merge 5 --squash")
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("permissionDecision", out["hookSpecificOutput"])
+        self.assertIn("cannot read the guards", out["systemMessage"])
+        self.assertEqual(out["systemMessage"], out["hookSpecificOutput"]["additionalContext"])
 
     def old_base(self) -> str:
         """A commit on the base from before the launcher existed."""
