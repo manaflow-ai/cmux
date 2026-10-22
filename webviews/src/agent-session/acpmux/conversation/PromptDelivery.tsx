@@ -5,7 +5,8 @@
 // and Copy debug info. Retry shows only while it can work (promptFailureCause.ts): never for a
 // refusal a person at the Mac must lift or a request the host does not accept, and for a trust
 // refusal once the folder is trusted. Prompts that failed one after another for one cause share
-// one line, under the last of them, whose actions act on all of them (failedPromptGroups.ts).
+// one line, under the last of them, whose actions act on all of them (failedPromptGroups.ts):
+// Retry and Edit take the run as one prompt.
 import { useContext, useEffect, useState } from "react";
 import type { AcpmuxRow, PromptDelivery } from "../model";
 import { canRetry, promptFailureCause, RetryGateContext, type RetryGate } from "../promptFailureCause";
@@ -91,11 +92,14 @@ export function DeliveryFailure({ row, gate }: { row: AcpmuxRow; gate?: RetryGat
   const rowIds = group?.rowIds ?? [row.id];
   if (rowIds.at(-1) !== row.id) return null;
   const retry = canRetry(promptFailureCause(delivery), gate ?? paneGate);
-  /// `name` on every prompt of the line, in `order`: Retry sends them as they were sent; Edit puts
-  /// the last back first, since the composer puts what comes back ahead of what it holds.
-  const act = (name: string, order: readonly string[] = rowIds) => {
-    for (const rowId of order) void window.cmuxAcpmuxActions?.[name]?.({ rowId });
+  /// `name` on every prompt of the line, in the order they were sent.
+  const act = (name: string) => {
+    for (const rowId of rowIds) void window.cmuxAcpmuxActions?.[name]?.({ rowId });
   };
+  /// `name` once for the whole line: Retry sends the run as one prompt, since the host allows one
+  /// prompt per click (AgentPaneUserGestures), and Edit takes it back as that one prompt.
+  const actOnce = (name: string) =>
+    void window.cmuxAcpmuxActions?.[name]?.(rowIds.length > 1 ? { rowId: row.id, rowIds } : { rowId: row.id });
   const since = (ms: number | undefined) =>
     ms === undefined ? undefined : t("prompt.delivery.after", { ms: Math.max(0, ms - (delivery?.sentAt ?? ms)) });
   return (
@@ -104,17 +108,13 @@ export function DeliveryFailure({ row, gate }: { row: AcpmuxRow; gate?: RetryGat
         <span>{row.error ?? t("prompt.notSent", { reason: t("transport.refused") })}</span>
         {rowIds.length > 1 && <span>{t("prompt.delivery.groupCount", { n: rowIds.length })}</span>}
         {retry && (
-          <button type="button" className="cv-user__cancel" onClick={() => act("chat.retryPrompt")}>
+          <button type="button" className="cv-user__cancel" onClick={() => actOnce("chat.retryPrompt")}>
             {t("turn.retry")}
           </button>
         )}
         {delivery && (
           <>
-            <button
-              type="button"
-              className="cv-user__cancel"
-              onClick={() => act("chat.editFailedPrompt", [...rowIds].reverse())}
-            >
+            <button type="button" className="cv-user__cancel" onClick={() => actOnce("chat.editFailedPrompt")}>
               {t("message.edit")}
             </button>
             <button type="button" className="cv-user__cancel" onClick={() => act("chat.removeFailedPrompt")}>

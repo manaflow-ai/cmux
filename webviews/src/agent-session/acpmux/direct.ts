@@ -22,7 +22,7 @@ import type {
 import { continuesTurn } from "./turnStart";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
-import { promptBlocks, promptText, takesAudio, type ComposerAttachment } from "./attachments";
+import { MAX_ATTACHMENTS, promptBlocks, promptText, takesAudio, type ComposerAttachment } from "./attachments";
 import { liftInlineImages } from "./inlineImages";
 import { primeSentImages } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
@@ -3622,6 +3622,37 @@ export class AcpmuxDirectClient {
     } finally {
       this.retriedPrompts.delete(promptId);
     }
+  }
+  /// Retry on the line a run of failed prompts shares (failedPromptGroups.ts): their rows go and they
+  /// go again as one prompt, their texts and attachments in the order they were sent. The host counts
+  /// one gesture per click and spends one on each `session/prompt` (AgentPaneUserGestures), so one
+  /// click that sent each of them got only the first through.
+  async retryPrompts(rowIds: readonly string[]): Promise<string | undefined> {
+    if (rowIds.length <= 1) return rowIds[0] === undefined ? undefined : this.retryPrompt(rowIds[0]);
+    const run = this.takeFailedPrompts(rowIds);
+    if (!run) return undefined;
+    const promptId = crypto.randomUUID();
+    this.retriedPrompts.add(promptId);
+    try {
+      return await this.send(run.input, run.attachments, promptId);
+    } finally {
+      this.retriedPrompts.delete(promptId);
+    }
+  }
+  /// Edit on that line: the run's rows go and come back as one prompt, in the order they were sent.
+  takeFailedPrompts(rowIds: readonly string[]): { input: string; attachments: ComposerAttachment[] } | undefined {
+    const taken = rowIds.flatMap((rowId) => this.takeFailedPrompt(rowId) ?? []);
+    if (!taken.length) return undefined;
+    const attachments: ComposerAttachment[] = [];
+    for (const attachment of taken.flatMap((prompt) => prompt.attachments))
+      if (!attachments.some((held) => held.id === attachment.id)) attachments.push(attachment);
+    return {
+      input: taken
+        .map((prompt) => prompt.input)
+        .filter((input) => input.trim())
+        .join("\n\n"),
+      attachments: attachments.slice(0, MAX_ATTACHMENTS),
+    };
   }
   /// Edit on a prompt that was not sent: its row goes and what it held comes back, for the composer.
   takeFailedPrompt(rowId: string): { input: string; attachments: ComposerAttachment[] } | undefined {

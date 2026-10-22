@@ -5872,11 +5872,16 @@ function AcpmuxPane() {
               },
             ),
           "chat.harness.cancelPrompt": async ({ promptId }) => harnessSwitch.cancelQueued(String(promptId)),
-          "chat.retryPrompt": ({ rowId }) => client.retryPrompt(String(rowId)),
-          // Edit on a prompt that did not get there: its row goes and the prompt comes back to the
-          // composer, ahead of what is typed there now.
-          "chat.editFailedPrompt": async ({ rowId }) => {
-            const failed = client.takeFailedPrompt(String(rowId));
+          // `rowIds`: the run of failed prompts a shared failure line covers, which goes again as one
+          // prompt (direct.ts retryPrompts).
+          "chat.retryPrompt": ({ rowId, rowIds }) =>
+            Array.isArray(rowIds) ? client.retryPrompts(rowIds.map(String)) : client.retryPrompt(String(rowId)),
+          // Edit on a prompt that did not get there (or a run of them, `rowIds`): its row goes and the
+          // prompt comes back to the composer, ahead of what is typed there now.
+          "chat.editFailedPrompt": async ({ rowId, rowIds }) => {
+            const failed = Array.isArray(rowIds)
+              ? client.takeFailedPrompts(rowIds.map(String))
+              : client.takeFailedPrompt(String(rowId));
             if (failed) composerHandle.current?.restore(failed.input, failed.attachments);
           },
           "chat.removeFailedPrompt": async ({ rowId }) => client.removeFailedPrompt(String(rowId)),
