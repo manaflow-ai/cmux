@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "22526ef27362464ad1798ceadf7ab3b0225cd784acc1dcc13419362378a066bc";
+pub const ir_sha256 = "3754c36ce52011289e7881a29238e84ccbee966165de2e530249f968e8857209";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -5461,12 +5461,19 @@ pub fn createTerminal(client: anytype, request: CreateTerminalRequest) !wire.Dec
 }
 
 pub const CreateWorkspaceRequest = struct {
+    current: wire.Field([]const u8) = .absent,
     expected_generation: wire.Field([]const u8) = .absent,
     expected_revision: wire.Field(u64) = .absent,
     key: wire.Field([]const u8) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
     origin: wire.Field([]const u8) = .absent,
+    placement: wire.Field([]const u8) = .absent,
+    places_by_setting: ?bool = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "places_by_setting",
+    };
 };
 
 pub const CreateWorkspaceResult = WorkspaceMutationResult;
@@ -5479,6 +5486,11 @@ pub fn createWorkspace(client: anytype, request: CreateWorkspaceRequest) !wire.D
             .authority = "control",
             .since = 7,
             .capability = "workspace-registry-v1",
+            .fields = &.{
+                .{ .name = "current", .since = null, .capability = "workspace-create-current-v1" },
+                .{ .name = "placement", .since = null, .capability = "workspace-create-current-v1" },
+                .{ .name = "places_by_setting", .since = null, .capability = "workspace-create-current-v1" },
+            },
         },
         request,
     );

@@ -30,9 +30,10 @@ struct WorkspaceSpawn: Sendable {
     var slot: WorkspaceSlot?
     /// False keeps the daemon's place when `slot` is nil: a caller that
     /// places the workspace itself (into a personal group). The daemon puts
-    /// a workspace of its own session at `workspaces.newPlacement` too (with
-    /// `afterCurrent` after the session's active workspace, not the window's),
-    /// so a batch that must keep its order names a slot.
+    /// a workspace of its own session at `workspaces.newPlacement` too, against
+    /// the workspace the window shows when the create names it
+    /// (`CreateWorkspaceRequest.current`), else the session's active one, so a
+    /// batch that must keep its order names a slot.
     var placesBySetting = true
     /// Runs once the daemon reports the workspace and its window lists it
     /// (after the slot is applied), with the window's sidebar.
@@ -171,6 +172,7 @@ struct WorkspaceSpawner {
                     }
                 }, settle: { await Self.settled(on: daemon) }) { try await named.create(key, rule: rule) }
             } catch {
+                NewWorkspacePlacements.forget(key.rawValue, windows: windows)
                 PendingWorkspaceRows.shared.remove(key.rawValue)
                 throw error
             }
@@ -196,7 +198,7 @@ struct WorkspaceSpawner {
         // its slot is placed in the turn the daemon's workspace takes the stand-in over.
         NewWorkspacePlacements.expect(key.rawValue, in: windowID, slot: spawn.slot, byDefault: rule, then: spawn.onListed, windows: windows)
         windows.claimNew(workspaceID: key.rawValue, window: windowID, frame: frame)
-        guard let shown = services.agentTabs.showWorkspace(key, name: name, index: nil, cwd: cwd, token: spawn.inputToken,
+        guard let shown = services.agentTabs.showWorkspace(key, name: name, index: nil, cwd: cwd, token: spawn.inputToken, placedBy: rule,
                                                            on: daemon, repair: repair) else { return nil }
         // The keys held since the press may go to its page's field once that reports ready.
         services.keyRouter.newTabInputCoordinator.flushAll()
@@ -215,7 +217,7 @@ struct WorkspaceSpawner {
                 }
             } catch {
                 shown.abandon()
-                windows.pendingPlacements[key.rawValue] = nil
+                NewWorkspacePlacements.forget(key.rawValue, windows: windows)
                 PendingWorkspaceRows.shared.remove(key.rawValue)
                 throw error
             }
@@ -275,9 +277,9 @@ struct WorkspaceSpawner {
         let cwd = spawn.cwd ?? defaults?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath }
             ?? (daemon.isLocal ? spawn.inheritedCwd : nil) ?? daemon.defaultCwd
         BenchSpans.mark("cmdN.create.sending")
-        if let page = try await FirstTabHold.creating(key.rawValue, windows: windows, { try await WorkspaceCreation.newTabPage(spawn, key, cwd: cwd, on: daemon, repair: repair, tabs: services.agentTabs) }) { return page }
+        if let page = try await FirstTabHold.creating(key.rawValue, windows: windows, { try await WorkspaceCreation.newTabPage(spawn, key, cwd: cwd, placedBy: rule, on: daemon, repair: repair, tabs: services.agentTabs) }) { return page }
         let command = spawn.command
-        return try await WorkspaceCreation.create(key, name: spawn.name, on: connection, repair: repair) { created in
+        return try await WorkspaceCreation.create(key, name: spawn.name, placedBy: rule, on: connection, repair: repair) { created in
             _ = try await connection.request(CreateTerminalRequest(
                 workspace: .key(created), command: command, cwd: cwd,
                 terminalID: terminal, env: env, keep: keep, mutation: connection.mutation()))

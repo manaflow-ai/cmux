@@ -49,12 +49,13 @@ enum AgentTeamsLaunch: CaseIterable {
             // No pane to open a tab in: a new workspace, placed like Cmd-N (cx-caoh).
             let key = WorkspaceKey.generate()
             let windows = context.services.windows
-            NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows), windows: windows)
+            let rule = NewWorkspacePlacements.rule(for: nil, in: windows)
+            NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: rule, windows: windows)
             let repair = context.services.emptyWorkspaces
             let reveal = invocation.allowsViewChange
             Task {
                 do {
-                    let surface = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: repair) { created in
+                    let surface = try await WorkspaceCreation.create(key, name: nil, placedBy: rule, on: connection, repair: repair) { created in
                         try await connection.createTerminal(in: created, cwd: nil).surface
                     }
                     if let surface { try await connection.send(surface, text: line) }

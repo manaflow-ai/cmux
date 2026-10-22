@@ -8,6 +8,7 @@
 //! slot (or past the last row) follow every loose workspace, in group
 //! order. Rows whose group no longer exists count as loose.
 
+use std::cell::RefCell;
 use std::collections::HashSet;
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
@@ -23,6 +24,11 @@ use crate::workspace_registry::{ResourceChange, ResourcePatch, WorkspaceRegistry
 /// Advertises `workspace_group.update {top_index}`, `top_index` on group
 /// snapshots, `workspace.list {order}` and the create-time personal row.
 pub(crate) const PERSONAL_MIXED_ORDER_CAPABILITY: &str = "personal-mixed-order-v1";
+
+/// Advertises `create-workspace {places_by_setting, current, placement}`: the
+/// daemon places a client's new workspace against the client's current
+/// workspace by the client's `workspaces.newPlacement` ([`ClientCurrent`]).
+pub(crate) const CLIENT_CURRENT_CAPABILITY: &str = "workspace-create-current-v1";
 
 /// The live public ids of this session's workspaces in the personal sidebar
 /// order. Workspaces without a personal row are not listed.
@@ -63,13 +69,62 @@ pub(crate) fn sidebar_workspace_ids(connection: &Connection) -> anyhow::Result<V
     Ok(ids)
 }
 
+/// The current workspace a creating client names for `workspaces.newPlacement`
+/// (`create-workspace {places_by_setting, current}`): the key of the workspace
+/// its window shows, or none (the window shows a top page). Its own focus
+/// state holds it; the session's `active_workspace_id` is only a legacy default.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ClientCurrent {
+    /// The workspace the window shows; None: a top page.
+    pub(crate) current: Option<String>,
+    /// The client's `workspaces.newPlacement`; None: this daemon's settings file.
+    pub(crate) placement: Option<NewWorkspacePlacement>,
+}
+
+thread_local! {
+    /// Set around a creation on this thread ([`with_client_current`]).
+    static CLIENT_CURRENT: RefCell<Option<ClientCurrent>> = const { RefCell::new(None) };
+}
+
+/// Runs `body` with `current` as the current workspace of every workspace this
+/// thread creates meanwhile, so the daemon places the new row where the client
+/// does and the client's placement after it moves nothing. A commit that may
+/// run on another thread captures it at prepare ([`client_current`]) and runs
+/// its apply under this again, as `NewWorkspacePlacement::scoped` is carried.
+pub(crate) fn with_client_current<T>(
+    current: Option<ClientCurrent>,
+    body: impl FnOnce() -> T,
+) -> T {
+    struct Restore(Option<ClientCurrent>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            CLIENT_CURRENT.with(|cell| *cell.borrow_mut() = self.0.take());
+        }
+    }
+    let _restore = Restore(CLIENT_CURRENT.with(|cell| cell.replace(current)));
+    body()
+}
+
+/// The client current set on this thread ([`with_client_current`]), for a
+/// commit to carry to the thread that applies it.
+pub(crate) fn client_current() -> Option<ClientCurrent> {
+    CLIENT_CURRENT.with(|cell| cell.borrow().clone())
+}
+
 /// The workspaces a patch creates, read before it applies.
 pub(crate) struct CreatedWorkspaces {
     /// Their keys (no live resource row yet), in patch order.
     keys: Vec<String>,
-    /// The key of the session's active workspace before the patch: the
-    /// "current" workspace of `workspaces.newPlacement = afterCurrent`.
+    /// The key of the "current" workspace of `workspaces.newPlacement`
+    /// (`beforeCurrent`, `afterCurrent`): the one the creating client names,
+    /// else the session's active workspace before the patch.
     current: Option<String>,
+    /// `current` is the creating client's: `top` and `bottom` then keep the
+    /// new row in the current workspace's group, as that client does.
+    from_client: bool,
+    /// The creating client's `workspaces.newPlacement`, so the daemon places
+    /// the row by the value the client places it by, whatever its own file says.
+    placement: Option<NewWorkspacePlacement>,
 }
 
 /// The workspaces `patch` creates (no live resource row yet). Read before
@@ -95,6 +150,10 @@ pub(crate) fn created_workspaces(
             }
         }
     }
+    let client = if keys.is_empty() { None } else { client_current() };
+    if let Some(ClientCurrent { current, placement }) = client {
+        return Ok(CreatedWorkspaces { keys, current, from_client: true, placement });
+    }
     let current = if keys.is_empty() {
         None
     } else {
@@ -110,7 +169,7 @@ pub(crate) fn created_workspaces(
             None => None,
         }
     };
-    Ok(CreatedWorkspaces { keys, current })
+    Ok(CreatedWorkspaces { keys, current, from_client: false, placement: None })
 }
 
 /// Give each created workspace its personal row, unless it already has one
@@ -132,7 +191,11 @@ pub(crate) fn place_created_workspaces(
     if created.keys.is_empty() {
         return Ok(());
     }
-    place_created_workspaces_at(transaction, created, NewWorkspacePlacement::current())
+    place_created_workspaces_at(
+        transaction,
+        created,
+        created.placement.unwrap_or_else(NewWorkspacePlacement::current),
+    )
 }
 
 pub(crate) fn place_created_workspaces_at(
@@ -185,11 +248,25 @@ fn place_created_rows(
     }
     bump_personal_revision(transaction)?;
     // The slot of the first new row; the others follow it in creation order.
+    let current = created.current.as_deref();
+    // The client's current workspace in a group: `top` right after it and
+    // `bottom` last in that group, as the client places it.
+    let in_group = if created.from_client {
+        beside_current_slot(transaction, &local, &placed, current, true)?
+            .filter(|(_, group)| group.is_some())
+    } else {
+        None
+    };
     let slot = match placement {
-        NewWorkspacePlacement::Bottom => None,
+        NewWorkspacePlacement::Bottom => match in_group {
+            Some((_, group)) => Some(end_of_group_slot(transaction, &local, &placed, group)?),
+            None => None,
+        },
+        NewWorkspacePlacement::Top if in_group.is_some() => in_group,
         NewWorkspacePlacement::Top => Some(top_slot(transaction, &local, &placed)?),
-        NewWorkspacePlacement::AfterCurrent => {
-            match after_current_slot(transaction, &local, &placed, created.current.as_deref())? {
+        NewWorkspacePlacement::BeforeCurrent | NewWorkspacePlacement::AfterCurrent => {
+            let after = placement == NewWorkspacePlacement::AfterCurrent;
+            match beside_current_slot(transaction, &local, &placed, current, after)? {
                 Some(slot) => Some(slot),
                 None => Some(top_slot(transaction, &local, &placed)?),
             }
@@ -266,14 +343,31 @@ fn top_slot(
     Ok((index, None))
 }
 
-/// `afterCurrent`: right after the current workspace's row, in its group.
-/// None when there is no current workspace, it has no row, or it is the
-/// home workspace.
-fn after_current_slot(
+/// Right after the last row of `group` (rows other than `placed`), in it.
+fn end_of_group_slot(
+    transaction: &Transaction<'_>,
+    local: &str,
+    placed: &[String],
+    group: Option<String>,
+) -> anyhow::Result<(usize, Option<String>)> {
+    let rows = read_workspaces(transaction)?
+        .into_iter()
+        .filter(|row| !(row.session_id == local && placed.contains(&row.workspace_key)))
+        .collect::<Vec<_>>();
+    let last =
+        rows.iter().rposition(|row| row.group == group).map_or(rows.len(), |index| index + 1);
+    Ok((last, group))
+}
+
+/// `beforeCurrent` / `afterCurrent` (`after`): right before / after the
+/// current workspace's row, in its group. None when there is no current
+/// workspace, it has no row, or it is the home workspace.
+fn beside_current_slot(
     transaction: &Transaction<'_>,
     local: &str,
     placed: &[String],
     current: Option<&str>,
+    after: bool,
 ) -> anyhow::Result<Option<(usize, Option<String>)>> {
     let Some(current) = current.filter(|current| !placed.iter().any(|key| key == current)) else {
         return Ok(None);
@@ -290,7 +384,8 @@ fn after_current_slot(
     else {
         return Ok(None);
     };
-    let Some(group) = rows[index].group.clone() else { return Ok(Some((index + 1, None))) };
+    let slot = if after { index + 1 } else { index };
+    let Some(group) = rows[index].group.clone() else { return Ok(Some((slot, None))) };
     // Into the group only when the new workspace shows in the group's room:
     // a workspace pinned to another room (the app pins before it creates)
     // goes to the top instead.
@@ -303,5 +398,5 @@ fn after_current_slot(
                 && room.as_ref().is_some_and(|room| room.profile != pin.profile)
         })
     });
-    Ok((!elsewhere).then_some((index + 1, Some(group))))
+    Ok((!elsewhere).then_some((slot, Some(group))))
 }
