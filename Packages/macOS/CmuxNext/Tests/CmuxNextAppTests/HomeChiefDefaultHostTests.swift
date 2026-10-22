@@ -136,6 +136,46 @@ struct HomeChiefDefaultHostTests {
         #expect(home.cloudChief == HomeChiefDefaultTests.hosted)
     }
 
+    /// An earlier account's read that returns after the account changed never replaces the current
+    /// account's cloud Chiefs, so it never lets Home start this Mac's host under their Hosted Chief.
+    @Test func anEarlierAccountsLateReadNeverReplacesTheCurrentOne() async {
+        let home = HomeChiefDefaultTests.services().home
+        let starts = Self.recordStarts(home)
+        var account = "user_a"
+        home.cloudAccount = { account }
+        home.localChiefRunning = false
+        // user_a's read is slow: user_b signs in and their read finds the Hosted Chief before it returns.
+        home.cloudChiefsRead = { [unowned home] in
+            account = "user_b"
+            home.setCloudChiefs(HomeCloudChiefs(hosted: HomeChiefDefaultTests.hosted))
+            home.noteCloudChiefsChecked(for: "user_b")
+            return HomeCloudChiefs()
+        }
+        await home.settleCloudChiefsWithoutTab()
+        #expect(home.cloudChiefs == HomeCloudChiefs(hosted: HomeChiefDefaultTests.hosted), "user_a's empty read is dropped")
+        home.ensureLocalBrain(asked: true, for: nil)
+        #expect(starts.value.isEmpty, "user_b has the Hosted Chief: no host starts")
+    }
+
+    /// Signing out and back in, even to the same account, forgets the last read: Home waits for the new read.
+    @Test func signingBackInWaitsForAFreshRead() {
+        let home = HomeChiefDefaultTests.services().home
+        let starts = Self.recordStarts(home)
+        var account: String? = "user_a"
+        home.cloudAccount = { account }
+        home.localChiefRunning = false
+        home.setCloudChiefs(HomeCloudChiefs())
+        home.noteCloudChiefsChecked(for: "user_a")
+        account = nil
+        home.noteCloudAccount(nil)
+        account = "user_a"
+        home.noteCloudAccount("user_a")
+        #expect(home.cloudChiefsUnknown, "user_a may have made a Hosted Chief while signed out here")
+        home.ensureLocalBrain(asked: true, for: nil)
+        #expect(starts.value.isEmpty)
+        #expect(home.waitingHomeAsk == true)
+    }
+
     // MARK: The running state follows the brain keeper
 
     @Test func theKeepersReportChangesTheDefaultChief() {
