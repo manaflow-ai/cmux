@@ -81,6 +81,29 @@ const groupedShellRows = [
   summary(2.4, { id: "gallery-shell-group-summary", status: "completed", toolCount: 2 }),
 ];
 
+const LONG_CP =
+  "cp /private/tmp/claude-501/-Users-leo-Projects/scratch/transcript/before-after/ellipsis-before.png /Users/leo/Projects/cmux/docs/media/ellipsis-after.png";
+const LONG_SEND =
+  "acpmux send --no-wait coord-deputy '[transcript-parity] tool rows use the full width and end in an ellipsis at the right edge'";
+const longCommandRows = [
+  user("Copy the screenshots over and tell the coordinator", 3, { id: "gallery-long-commands-user" }),
+  activity(
+    [LONG_CP, LONG_SEND].map((command, at) =>
+      tool("Run", "execute", "completed", {
+        command,
+        output: "",
+        exitCode: 0,
+        startedAt: minutesAgo(2.9 - at * 0.1),
+        endedAt: minutesAgo(2.85 - at * 0.1),
+      }),
+    ),
+    2.8,
+    { id: "gallery-long-commands-activity" },
+  ),
+  assistant("Copied both screenshots and sent the coordinator the merge.", 2.6, { id: "gallery-long-commands-answer" }),
+  summary(2.6, { id: "gallery-long-commands-summary", status: "completed", toolCount: 2 }),
+];
+
 /// One call in the gallery's log: a host bridge call, or `acpmux <method>` for a request the page
 /// sent to the in-page mock daemon (mock.ts).
 type GalleryCall = {
@@ -2252,6 +2275,18 @@ export default agentPaneEntry({
       checks: shellDisclosureChecks,
       snapshot: chat(groupedShellRows),
       play: openGroupedShells,
+    },
+    "long-commands-fill-row": {
+      note: 'Leo 2026-10-22, of Ran rows cut with an ellipsis about two thirds across: "shouldnt these also ellipsis later". Long commands (a cp of two long paths, an acpmux send) draw their whole first step and end in an ellipsis at the row\'s right edge, before the chevron; no 60-character cut. Play: open Worked for and the run; each command line is the whole step.',
+      checks: shellDisclosureChecks,
+      snapshot: chat(longCommandRows),
+      play: async (ctx) => {
+        await openWorked(ctx);
+        await openFoldedRun(ctx);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-command").length === 2);
+        const lines = [...ctx.document.querySelectorAll(".cv-command__line")].map((line) => line.textContent);
+        if (lines[0] !== LONG_CP) throw new Error(`the cp row reads ${lines[0]}, not the whole command`);
+      },
     },
     "fold-holds-clicked-line": {
       note: "Play: at the latest row, open Worked for, then a command, then close it; each line stays where it was clicked while its fold plays (height and opacity, the chevron turning).",

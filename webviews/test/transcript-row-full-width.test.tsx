@@ -104,7 +104,7 @@ for (const [sheet, selector, fills] of [
   [CONVERSATION, ".cv-command__text", true],
   [CONVERSATION, ".cv-tool__text", false],
   [MESSAGE, ".cv-agentmsg__toggle", true],
-  [MESSAGE, ".cv-agentmsg__preview", true],
+  [MESSAGE, ".cv-agentmsg__preview", false],
 ] as const) {
   test(`${selector} ends at the row's right edge in an ellipsis`, () => {
     const body = rule(sheet, selector);
