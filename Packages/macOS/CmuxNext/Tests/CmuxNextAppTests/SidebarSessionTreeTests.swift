@@ -43,12 +43,12 @@ import Testing
         #expect(rows.map { $0.1 } == [0, 1, 0])
     }
 
-    @Test func treeOrderKeepsOneLevelAndLeavesCyclesAndOtherListsAlone() {
-        let a = WorkspaceID("a"), b = WorkspaceID("b"), c = WorkspaceID("c"), d = WorkspaceID("d"), far = WorkspaceID("far")
-        // c under b under a: both under a, at depth 1. d's parent is in another list: d stays.
-        let order = SidebarLayout.treeOrder([c, nil, a, d, b], parents: [b: a, c: b, d: far])
-        #expect(order.map { $0.index } == [1, 2, 0, 4, 3])
-        #expect(order.map { $0.depth } == [0, 0, 1, 1, 0])
+    @Test func treeOrderLeavesCyclesAndOtherListsAlone() {
+        let a = WorkspaceID("a"), b = WorkspaceID("b"), d = WorkspaceID("d"), far = WorkspaceID("far")
+        // d's parent is in another list: d stays a root. (Depth: SidebarDeepTreeTests.)
+        let order = SidebarLayout.treeOrder([nil, a, d], parents: [d: far])
+        #expect(order.map { $0.index } == [0, 1, 2])
+        #expect(order.map { $0.depth } == [0, 0, 0])
         // A cycle draws as it is.
         let cycle = SidebarLayout.treeOrder([a, b], parents: [a: b, b: a])
         #expect(cycle.map { $0.index } == [0, 1])
@@ -130,9 +130,10 @@ import Testing
     @Test func rowsDrawTheLineTheBadgeAndTheKeycaps() throws {
         SidebarSessionTree.shared.state = Self.tree
         defer { SidebarSessionTree.shared.state = nil }
-        let sidebar = SidebarView(model: SidebarModel(sections: Self.sections), design: DesignSettings())
+        let sidebar = SidebarView(model: SidebarModel(sections: Self.sections), design: SidebarPullRequestBadgeTests.showingPullRequests())
         sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
         sidebar.layoutSubtreeIfNeeded()
+        sidebar.renderNow() // the design's row settings reach the model
         sidebar.list.reload(animated: false)
         sidebar.list.rowViews.values.forEach { $0.layoutSubtreeIfNeeded() }
         let parent = try #require(sidebar.list.rowViews[.workspace(Self.chief)] as? WorkspaceRowView)
