@@ -3,8 +3,9 @@
 // chat's folder, agent or session comes in (a mount, a chat switch, the summary landing after the
 // attach), and while that read was in flight the bottom stack treated the chat as held behind the
 // trust question: it dropped every permission card and panel, and put the asked calls back in the
-// transcript, until the read answered. A read in flight asks nothing, so it holds nothing; only an
-// open trust question or Don't trust does. Send stays off while it reads.
+// transcript, until the read answered. A read in flight asks nothing, so it holds nothing. Since
+// Leo's P0 of 2026-10-21 no trust state holds the asks: the question holds only new prompts
+// (`blocked`), which wait in the pane (trustHeld.ts).
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 
@@ -86,32 +87,28 @@ function Probe({
   return null;
 }
 
-test("a trust read in flight never holds the chat's permission asks", async () => {
+test("a trust read in flight holds prompts, with no reason, until it answers", async () => {
   const trust = heldSource();
   await act(async () => root.render(<Probe source={trust.source} sessionId="chat-1" />));
-  // Reading: Send waits, the asks stay.
+  // Reading: a prompt sent now waits for the read.
   expect(shown!.blocked).toEqual({});
-  expect(shown!.holdsAsks).toBe(false);
   await trust.answer("trusted");
   expect(shown!.blocked).toBeUndefined();
-  expect(shown!.holdsAsks).toBe(false);
 
-  // Another chat in a folder the pane never read: the asks stay while it reads.
+  // Another chat in a folder the pane never read.
   await act(async () => root.render(<Probe source={trust.source} sessionId="chat-2" cwd="/Users/you/src/other" />));
   expect(shown!.blocked).toEqual({});
-  expect(shown!.holdsAsks).toBe(false);
   await trust.answer("trusted", "/Users/you/src/other");
-  expect(shown!.holdsAsks).toBe(false);
+  expect(shown!.blocked).toBeUndefined();
 });
 
-test("an open trust question holds the asks until it is answered", async () => {
+test("an open trust question holds prompts until it is answered", async () => {
   const trust = heldSource();
   const cwd = "/Users/you/src/unasked";
   await act(async () => root.render(<Probe source={trust.source} sessionId="chat-3" cwd={cwd} />));
-  expect(shown!.holdsAsks).toBe(false);
   await trust.answer("unknown", cwd);
   expect(shown!.ask?.state).toBe("ask");
-  expect(shown!.holdsAsks).toBe(true);
+  expect(shown!.blocked?.reason).toBe("trust.answerFirst");
 });
 
 // Review of #22054 (greptile): an answer saved in one chat's folder dropped the read another
