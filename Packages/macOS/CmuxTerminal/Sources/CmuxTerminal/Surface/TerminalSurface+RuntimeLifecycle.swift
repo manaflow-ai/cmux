@@ -333,6 +333,17 @@ extension TerminalSurface {
         runtimeDisplayLayer = nil
         byteTee.dropSurface(surfaceID: id)
         if let surfaceToFree {
+            // Retire native app routing before the deferred free can run
+            // off-main. Surface creation runs on the main actor; this bounded
+            // handoff closes the create/free window that can corrupt Ghostty's
+            // shared surface registry during CLI workspace bursts.
+#if DEBUG
+            if !runtimeSurfaceFreedOutOfBandForTesting {
+                ghostty_surface_request_process_termination(surfaceToFree)
+            }
+#else
+            ghostty_surface_request_process_termination(surfaceToFree)
+#endif
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
         surface = nil
@@ -466,20 +477,30 @@ extension TerminalSurface {
         }
 
         let surfaceBits = UInt(bitPattern: surfaceToFree)
+#if DEBUG
+        let surfaceWasFreedOutOfBand = runtimeSurfaceFreedOutOfBandForTesting
+#endif
         let beforeNativeFree: @Sendable () async -> Void = {
             await retiredRemoteOutputLane.drain()
-            guard let processExitFence,
-                  await processExitFence(),
-                  let surface = UnsafeMutableRawPointer(bitPattern: surfaceBits) else {
+            guard let surface = UnsafeMutableRawPointer(bitPattern: surfaceBits) else {
                 return
             }
-            let resetBytes = SSHTerminalModeResetSequence().terminalBytes
-            resetBytes.withUnsafeBytes { rawBuffer in
-                guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else {
-                    return
+            if let processExitFence, await processExitFence() {
+                let resetBytes = SSHTerminalModeResetSequence().terminalBytes
+                resetBytes.withUnsafeBytes { rawBuffer in
+                    guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else {
+                        return
+                    }
+                    ghostty_surface_process_output(surface, baseAddress, UInt(rawBuffer.count))
                 }
-                ghostty_surface_process_output(surface, baseAddress, UInt(rawBuffer.count))
             }
+#if DEBUG
+            if !surfaceWasFreedOutOfBand {
+                ghostty_surface_request_process_termination(surface)
+            }
+#else
+            ghostty_surface_request_process_termination(surface)
+#endif
         }
 
 #if DEBUG
