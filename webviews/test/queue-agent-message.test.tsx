@@ -1,7 +1,7 @@
 // Another agent's message waiting in the queue draws as its received line (ComposerQueue.tsx,
 // conversation/IncomingMessageCard.tsx), not as the person's prompt (Leo, 2026-10-21): the sender's
 // name as a chip that opens its chat, the first line as a preview, the message as a card when
-// opened, and the row's actions (Send now too) at the line's end. The person's prompt is unchanged.
+// opened, and the row's actions (Steer, Delete, ⋯) at the line's end. The person's prompt is unchanged.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
@@ -78,7 +78,7 @@ test("another agent's queued message draws as its received line, its actions at 
   const [agent, own] = [...host.querySelectorAll<HTMLElement>(".acpmux-queued")];
   const labels = (row: HTMLElement) =>
     [...row.querySelectorAll(".acpmux-queued-action")].map((button) => button.getAttribute("aria-label"));
-  const all = [t("composer.queueEdit"), t("composer.queueRemove"), t("composer.queueSendNow")];
+  const all = [t("composer.queueSteer"), t("composer.queueDelete"), t("composer.queueActions")];
 
   // The sender's chip and the first line as a preview, closed; the actions inside the line.
   expect(agent!.querySelector(".acpmux-queued-text")).toBeNull();
