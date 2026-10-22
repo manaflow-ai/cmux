@@ -301,7 +301,10 @@ impl Brain {
         let message = format!(
             "fleet job {job} finished: {state}. Read its result (`cmux-ci status {job}`, `cmux-ci log {job}`) and go on with your task."
         );
-        if let Err(e) = self.tell(id, &message) {
+        // The Chief's own tell path: it resumes the paused VM first, and the
+        // key keeps a second poll from telling twice.
+        let key = format!("fleet:{job}");
+        if let Err(e) = self.tell_keyed(id, &message, Some(&key)) {
             (self.log)(&format!("fleet wake of {id}: {e}"));
         }
     }

@@ -1286,7 +1286,7 @@ fn a_subagent_waiting_on_a_fleet_job_pauses_and_wakes_on_its_result() {
     const JOB: &str = "366c8bc17202d2eedef8e092";
     let mut h = Harness::new(Box::new(|turn, blocks| {
         let text = serde_json::to_string(blocks).unwrap();
-        let say = if text.contains("fleet job") {
+        let say = if text.contains("finished: done") {
             "The build passed; landed.".to_owned()
         } else if text.contains("Build the app") {
             format!("Submitted the build.\nfleet-wait: {JOB}")
@@ -1319,7 +1319,29 @@ fn a_subagent_waiting_on_a_fleet_job_pauses_and_wakes_on_its_result() {
             .sub("a1")
             .is_some_and(|(_, s)| !s.fleet_wait.is_empty())
     };
-    wait_for(&mut h, waiting);
+    // Its turn ended: acpmux reports its session idle; the host reads its report.
+    let session = h
+        .brain
+        .state()
+        .sub("a1")
+        .unwrap()
+        .1
+        .session_id
+        .clone()
+        .unwrap();
+    let idle: cmux_chief::acp::SessionSummary = serde_json::from_value(serde_json::json!({
+        "sessionId": session, "name": "a1", "status": "idle", "harness": "claude",
+    }))
+    .unwrap();
+    let until = Instant::now() + Duration::from_secs(5);
+    while !waiting(&h) && Instant::now() < until {
+        h.brain.step(Input::from(
+            optchat_chief::acpmux::AgentEvent::SessionChanged(idle.clone()),
+        ));
+        while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(10)) {
+            h.brain.step(input);
+        }
+    }
     let sub = h.brain.state().sub("a1").unwrap().1.clone();
     assert_eq!(sub.fleet_wait, vec![JOB.to_owned()]);
     assert!(sub.stopped, "no Chief turn while it waits: {sub:?}");
@@ -1361,7 +1383,11 @@ fn a_subagent_waiting_on_a_fleet_job_pauses_and_wakes_on_its_result() {
         }
     }
     assert!(woke(&h), "told the result");
-    assert!(calls_of(&vms).contains(&"resume chief-sub-a1".to_owned()));
+    assert!(
+        calls_of(&vms).contains(&"resume chief-sub-a1".to_owned()),
+        "{:?}",
+        calls_of(&vms)
+    );
     let sub = h.brain.state().sub("a1").unwrap().1.clone();
     assert!(sub.fleet_wait.is_empty());
     let _ = SubStatus::Done;
