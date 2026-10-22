@@ -34282,7 +34282,7 @@
       },
       "help" : {
         "key" : "settings.agents.defaultPermissionMode.help",
-        "text" : "What a new chat may do without asking. Picking a mode in a chat sets it too, until you change this setting again."
+        "text" : "What a new chat may do without asking. A mode you pick in a chat applies to that chat only."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.defaultPermissionMode",

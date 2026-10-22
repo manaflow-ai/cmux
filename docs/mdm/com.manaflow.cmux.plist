@@ -7294,7 +7294,7 @@
 			<key>pfm_default</key>
 			<string>fullAccess</string>
 			<key>pfm_description</key>
-			<string>What a new chat may do without asking. Picking a mode in a chat sets it too, until you change this setting again.</string>
+			<string>What a new chat may do without asking. A mode you pick in a chat applies to that chat only.</string>
 			<key>pfm_name</key>
 			<string>agents.defaultPermissionMode</string>
 			<key>pfm_range_list</key>
