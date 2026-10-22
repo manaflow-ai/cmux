@@ -177,4 +177,44 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     expect(await page.$(`${form} .acpmux-composer-foot`)).not.toBeNull();
     await context.close();
   });
+
+  test("in a chat the dots switch the look by keys both ways, and Escape goes back to the prompt", async () => {
+    const context = await browser.newContext({ viewport: { width: 760, height: 600 } });
+    const page = await context.newPage();
+    await open(page, "agent-pane.composer", "quiet-chips");
+    const form = ".acpmux-composer";
+    /** The focused element: a look dot's value, or what else has the keyboard. */
+    const focused = () =>
+      page.evaluate(() => {
+        const active = document.activeElement as HTMLElement | null;
+        if (active?.matches(".acpmux-look-dots input[type=radio]")) return `dot:${(active as HTMLInputElement).value}`;
+        if (active?.closest(".acpmux-composer-box") && active.matches("[contenteditable], textarea")) return "prompt";
+        return active?.tagName ?? "none";
+      });
+    const settle = () => page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+
+    await page.focus(`${form} .acpmux-look-dots input[value=claude]`);
+    expect(await focused()).toBe("dot:claude");
+    expect(await shown(page, form)).toBe(true);
+
+    // ArrowRight: Codex's look, the keyboard still on its dot, the dots still drawn.
+    await page.keyboard.press("ArrowRight");
+    await page.waitForSelector(`${form}[data-composer-look="codex"]`);
+    await settle();
+    expect(await focused()).toBe("dot:codex");
+    expect(await shown(page, form)).toBe(true);
+
+    // ArrowLeft: back to Claude's look, the keyboard on the first dot.
+    await page.keyboard.press("ArrowLeft");
+    await page.waitForFunction((selector) => !document.querySelector(`${selector}[data-composer-look]`), form);
+    await settle();
+    expect(await focused()).toBe("dot:claude");
+    expect(await shown(page, form)).toBe(true);
+
+    // Escape: back to the prompt.
+    await page.keyboard.press("Escape");
+    await settle();
+    expect(await focused()).toBe("prompt");
+    await context.close();
+  });
 });
