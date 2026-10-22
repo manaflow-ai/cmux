@@ -863,7 +863,7 @@ agent's question from the phone".
 | --- | --- | --- | --- |
 | `cmux.option.<i>` | question (one choice) | foreground, authenticationRequired | the app opens, Face ID, signed answer |
 | `cmux.answer` ("Answer…") | question | foreground | the app opens on the question |
-| `cmux.allow.once`, `cmux.allow.always` | permission | foreground, authenticationRequired | the app opens, Face ID, signed allow |
+| `cmux.allow.once` | permission | foreground, authenticationRequired | the app opens, Face ID, signed allow. No Always allow: as in the Feed (`phoneOptions`), acpmux refuses a lasting grant from a paired phone |
 | `cmux.deny` | permission | destructive, authenticationRequired | background, unsigned reject |
 | `cmux.reply` (text input) | completed, failed, chief | authenticationRequired | background: a prompt to the session, or a Chief message |
 | `cmux.terminal.reply` (text input) | terminal (PR B) | authenticationRequired | background: input to the terminal |
