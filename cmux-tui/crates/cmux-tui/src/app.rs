@@ -119,6 +119,19 @@ fn read_crossterm_event(
     read_crossterm_event_with_clock(timeout, poll, read, Instant::now)
 }
 
+/// The reason to show for a failed host terminal reader.
+///
+/// A terminal that reports the end of its input is the one case cmux words
+/// itself: the reader carries only the classification, and a locale should not
+/// have to render another crate's English. Anything else keeps the underlying
+/// text, which is what an unexpected terminal failure needs.
+fn host_input_failure_reason(error: &std::io::Error) -> String {
+    if error.kind() == std::io::ErrorKind::UnexpectedEof {
+        return localization::catalog().runtime.host_input_closed();
+    }
+    error.to_string()
+}
+
 fn read_crossterm_event_with_clock(
     timeout: Option<Duration>,
     mut poll: impl FnMut(Duration) -> std::io::Result<bool>,
@@ -9561,7 +9574,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
                 Ok(Some(event)) => graphics_responses.filter(event),
                 Ok(None) => graphics_responses.take_expired(),
                 Err(error) => {
-                    input.fail(error.to_string());
+                    input.fail(host_input_failure_reason(&error));
                     break 'input;
                 }
             };
@@ -25151,6 +25164,26 @@ mod tests {
             assert_eq!(class.is_keyboard_or_paste(), keyboard_or_paste, "{class:?}");
             assert_eq!(class.is_keyboard_command(), keyboard_command, "{class:?}");
         }
+    }
+
+    #[test]
+    fn a_closed_host_terminal_is_reported_from_the_catalog() {
+        // The reader only carries the classification, so the wording has to come
+        // from the catalog rather than from the error's own text.
+        assert_eq!(
+            super::host_input_failure_reason(&std::io::Error::from(
+                std::io::ErrorKind::UnexpectedEof
+            )),
+            crate::localization::catalog().runtime.host_input_closed()
+        );
+    }
+
+    #[test]
+    fn an_unexpected_host_terminal_failure_keeps_its_own_text() {
+        assert_eq!(
+            super::host_input_failure_reason(&std::io::Error::other("revoked tty")),
+            "revoked tty"
+        );
     }
 
     #[test]
