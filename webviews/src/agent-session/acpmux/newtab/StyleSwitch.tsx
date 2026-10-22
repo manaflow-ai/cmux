@@ -141,6 +141,10 @@ export function DotSwitch<Option extends string>({
                 const fromKeys = !pointed.current;
                 pointed.current = false;
                 const input = event.currentTarget;
+                // A chat moves this switch between the quiet footer and the under-box band when the
+                // look changes. Keep the stable composer as the focus owner so arrow navigation can
+                // focus the newly mounted radio after that move.
+                const owner = input.closest<HTMLElement>(".acpmux-composer, .nt-page-dots");
                 onPick(style);
                 setPicked(style);
                 // Picked by keys, the new dot's name shows, not the one a resting pointer is over.
@@ -149,7 +153,15 @@ export function DotSwitch<Option extends string>({
                 // from Classic) has focused its field: arrow keys keep moving through the styles; a
                 // click goes back to the field.
                 const view = input.ownerDocument.defaultView;
-                view?.requestAnimationFrame(() => (fromKeys ? input.focus() : onPointerPick(view)));
+                view?.requestAnimationFrame(() => {
+                  if (!fromKeys) return onPointerPick(view);
+                  const next =
+                    (input.isConnected ? input : undefined) ??
+                    Array.from(owner?.querySelectorAll<HTMLInputElement>("input[type=radio]") ?? []).find(
+                      (candidate) => candidate.value === style,
+                    );
+                  next?.focus();
+                });
               }}
             />
           </label>
