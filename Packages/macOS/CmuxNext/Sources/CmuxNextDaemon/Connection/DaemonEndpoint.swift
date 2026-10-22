@@ -82,6 +82,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// The manual tab unread mark (Mark Tab Unread): `marked_unread` on
     /// `tab.update` and the tab's `extra.marked_unread`; no notification needed.
     case tabMarkUnread = "tab-mark-unread-v1"
+    /// Agent attention mark on a tab.
+    case tabAttention = "tab-attention-v1"
     /// A workspace's description: `description` on `workspace.update` and the
     /// workspace's `extra.description` (Edit / Clear Workspace Description).
     case workspaceDescription = "workspace-description-v1"

@@ -164,9 +164,10 @@ public struct SidebarMapping {
                 ?? (work == nil ? page?.favicon.map(WorkspaceIcon.favicon) : nil),
             kind: kind(front),
             kindBrand: front?.agentBrand,
-            // A tab marked unread by hand (Mark Tab Unread) shows as the workspace's manual dot.
+            // A tab marked unread by hand (Mark Tab Unread) or by an agent that needs the person
+            // there (tab-attention-v1) shows as the workspace's manual dot.
             unread: unread > 0 ? .count(unread)
-                : (showsUnread && (workspace.markedUnread || tabs.contains(where: \.markedUnread)) ? .dot : .none),
+                : (showsUnread && (workspace.markedUnread || tabs.contains { $0.markedUnread || $0.attention != nil }) ? .dot : .none),
             activity: indicator.state,
             activityStyle: indicator.style,
             agentBrand: rowAgent.brand,
@@ -194,7 +195,9 @@ public struct SidebarMapping {
         row.isUnnamed = Self.isUnnamed(workspace, label: page?.title)
         row.audio = SidebarWorkspaceAudio.merge(tabs.lazy.map { browserFaces[$0.id]?.audio })
         row.lastMessage = lastMessage(front, tabs)
-        if showsUnread { row.notificationText = newestUnread(tabs).flatMap(notificationText) }
+        // What an agent needs the person to do in a tab says why the row is marked; it comes
+        // before the newest notification's text (tab-attention-v1).
+        if showsUnread { row.notificationText = Self.attentionReason(tabs) ?? newestUnread(tabs).flatMap(notificationText) }
         row.reported = Self.reported(workspace.status, asset: iconAsset)
         row.workspaceDescription = workspace.workspaceDescription
         row.taskStatus = workspace.taskStatus.map(Self.taskStatus)
@@ -272,6 +275,11 @@ public struct SidebarMapping {
     }
 
     /// The tab whose unread notification is the newest (daemon ids grow).
+    /// The reason of the newest "needs you here" mark among `tabs` (tab-attention-v1).
+    static func attentionReason(_ tabs: [TabModel]) -> String? {
+        tabs.compactMap(\.attention).max { $0.atMs < $1.atMs }?.reason
+    }
+
     func newestUnread(_ tabs: [TabModel]) -> TabModel? {
         tabs.filter(\.hasUnread).max { ($0.notification?.notification.rawValue ?? 0) < ($1.notification?.notification.rawValue ?? 0) }
     }
