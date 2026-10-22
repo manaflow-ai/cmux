@@ -1,0 +1,125 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "billing.error.liveOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live checkout from cmux-next is not on yet. Open https://cmux.com/pricing to buy a plan."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next からの本番の購入はまだ有効ではありません。プランの購入は https://cmux.com/pricing から行ってください。"
+          }
+        }
+      }
+    },
+    "billing.error.notSignedIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux in the cmux app first."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先に cmux アプリで cmux にサインインしてください。"
+          }
+        }
+      }
+    },
+    "billing.error.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Billing is not available in this build."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドでは請求を利用できません。"
+          }
+        }
+      }
+    },
+    "billing.error.badResponse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com sent no checkout page; retry in a minute."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.com から購入ページが返りませんでした。1 分後にもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "billing.error.badOpen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`open` must be auto, cmux, default or none."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`open` には auto、cmux、default、none のいずれかを指定してください。"
+          }
+        }
+      }
+    },
+    "billing.error.badPlan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`plan` must be pro, max or team."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`plan` には pro、max、team のいずれかを指定してください。"
+          }
+        }
+      }
+    },
+    "billing.error.teamRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A Team checkout needs `teamId` (a team you administer)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team の購入には `teamId` (管理者であるチーム) が必要です。"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}
