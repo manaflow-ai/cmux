@@ -52207,133 +52207,133 @@
       }
     },
     "toolRun.used.other": {
-      "comment": "Agent pane",
+      "comment": "Agent pane; {n} is how many (conversation/toolRunSummary.ts)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "استخدم أدوات"
+            "value": "استخدم {n} أدوات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "koristio alate"
+            "value": "korišteno alata: {n}"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "brugte værktøjer"
+            "value": "brugte {n} værktøjer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tools verwendet"
+            "value": "{n} Tools verwendet"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "used tools"
+            "value": "used {n} tools"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "usó herramientas"
+            "value": "usó {n} herramientas"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "a utilisé des outils"
+            "value": "a utilisé {n} outils"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ha usato strumenti"
+            "value": "ha usato {n} strumenti"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ツールを使用"
+            "value": "{n} 件のツールを使用"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បានប្រើឧបករណ៍"
+            "value": "បានប្រើឧបករណ៍ {n}"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "도구 사용"
+            "value": "도구 {n}개 사용"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "brukte verktøy"
+            "value": "brukte {n} verktøy"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "użyto narzędzi"
+            "value": "użyto narzędzi: {n}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "usou ferramentas"
+            "value": "usou {n} ferramentas"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "использованы инструменты"
+            "value": "использовано инструментов: {n}"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ใช้เครื่องมือ"
+            "value": "ใช้ {n} เครื่องมือ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "araçlar kullandı"
+            "value": "{n} araç kullandı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "використано інструменти"
+            "value": "використано інструментів: {n}"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "đã dùng công cụ"
+            "value": "đã dùng {n} công cụ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "使用了工具"
+            "value": "使用了 {n} 个工具"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "使用了工具"
+            "value": "使用了 {n} 個工具"
           }
         }
       }
@@ -52471,133 +52471,133 @@
       }
     },
     "toolRun.edited.other": {
-      "comment": "Agent pane",
+      "comment": "Agent pane; {n} is how many (conversation/toolRunSummary.ts)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "عدّل ملفات"
+            "value": "عدّل {n} ملفات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "uredio datoteke"
+            "value": "izmijenjeno datoteka: {n}"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "redigerede filer"
+            "value": "redigerede {n} filer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dateien bearbeitet"
+            "value": "{n} Dateien bearbeitet"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "edited files"
+            "value": "edited {n} files"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "editó archivos"
+            "value": "editó {n} archivos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "a modifié des fichiers"
+            "value": "a modifié {n} fichiers"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ha modificato file"
+            "value": "ha modificato {n} file"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ファイルを編集"
+            "value": "{n} 件のファイルを編集"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បានកែឯកសារ"
+            "value": "បានកែឯកសារ {n}"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "파일 편집"
+            "value": "파일 {n}개 편집"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "redigerte filer"
+            "value": "redigerte {n} filer"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "edytowano pliki"
+            "value": "edytowano plików: {n}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "editou arquivos"
+            "value": "editou {n} arquivos"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "изменены файлы"
+            "value": "изменено файлов: {n}"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แก้ไขไฟล์"
+            "value": "แก้ไข {n} ไฟล์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "dosyalar düzenledi"
+            "value": "{n} dosya düzenledi"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "змінено файли"
+            "value": "змінено файлів: {n}"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "đã sửa các tệp"
+            "value": "đã sửa {n} tệp"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "编辑了文件"
+            "value": "编辑了 {n} 个文件"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "編輯了檔案"
+            "value": "編輯了 {n} 個檔案"
           }
         }
       }
@@ -52735,265 +52735,397 @@
       }
     },
     "toolRun.read.other": {
-      "comment": "Agent pane",
+      "comment": "Agent pane; {n} is how many (conversation/toolRunSummary.ts)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "قرأ ملفات"
+            "value": "قرأ {n} ملفات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "pročitao datoteke"
+            "value": "pročitano datoteka: {n}"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "læste filer"
+            "value": "læste {n} filer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dateien gelesen"
+            "value": "{n} Dateien gelesen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "read files"
+            "value": "read {n} files"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "leyó archivos"
+            "value": "leyó {n} archivos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "a lu des fichiers"
+            "value": "a lu {n} fichiers"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ha letto file"
+            "value": "ha letto {n} file"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ファイルを読み取り"
+            "value": "{n} 件のファイルを読み取り"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បានអានឯកសារ"
+            "value": "បានអានឯកសារ {n}"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "파일 읽기"
+            "value": "파일 {n}개 읽기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "leste filer"
+            "value": "leste {n} filer"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "odczytano pliki"
+            "value": "odczytano plików: {n}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "leu arquivos"
+            "value": "leu {n} arquivos"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "прочитаны файлы"
+            "value": "прочитано файлов: {n}"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "อ่านไฟล์"
+            "value": "อ่าน {n} ไฟล์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "dosyalar okudu"
+            "value": "{n} dosya okudu"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "прочитано файли"
+            "value": "прочитано файлів: {n}"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "đã đọc các tệp"
+            "value": "đã đọc {n} tệp"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "读取了文件"
+            "value": "读取了 {n} 个文件"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "讀取了檔案"
+            "value": "讀取了 {n} 個檔案"
           }
         }
       }
     },
-    "toolRun.searched": {
-      "comment": "Agent pane",
+    "toolRun.searched.one": {
+      "comment": "Agent pane: one search in a folded tool run's summary, e.g. \"Read 6 files, ran a search\" (conversation/toolRunSummary.ts).",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "بحث في الكود"
+            "value": "أجرى بحثًا"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "pretražio kod"
+            "value": "pokrenuo pretragu"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "søgte i koden"
+            "value": "kørte en søgning"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "den Code durchsucht"
+            "value": "eine Suche ausgeführt"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "searched the code"
+            "value": "ran a search"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "buscó en el código"
+            "value": "hizo una búsqueda"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "a cherché dans le code"
+            "value": "a fait une recherche"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ha cercato nel codice"
+            "value": "ha eseguito una ricerca"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "コードを検索"
+            "value": "1 回検索"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បានស្វែងរកកូដ"
+            "value": "បានស្វែងរកម្តង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "코드 검색"
+            "value": "검색 1회"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "søkte i koden"
+            "value": "kjørte et søk"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "przeszukano kod"
+            "value": "wykonano wyszukiwanie"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "pesquisou o código"
+            "value": "fez uma pesquisa"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "выполнен поиск по коду"
+            "value": "выполнен поиск"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ค้นหาโค้ด"
+            "value": "ค้นหา 1 ครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "kodda arama yaptı"
+            "value": "bir arama yaptı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "виконано пошук у коді"
+            "value": "виконано пошук"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "đã tìm trong mã"
+            "value": "đã tìm kiếm 1 lần"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "搜索了代码"
+            "value": "搜索了 1 次"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "搜尋了程式碼"
+            "value": "搜尋了 1 次"
+          }
+        }
+      }
+    },
+    "toolRun.searched.other": {
+      "comment": "Agent pane: {n} searches in a folded tool run's summary, e.g. \"Read 6 files, ran 2 searches\" (conversation/toolRunSummary.ts).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أجرى {n} عمليات بحث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "pokrenuto pretraga: {n}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "kørte {n} søgninger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} Suchen ausgeführt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ran {n} searches"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "hizo {n} búsquedas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "a fait {n} recherches"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ha eseguito {n} ricerche"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} 回検索"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានស្វែងរក {n} ដង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "검색 {n}회"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "kjørte {n} søk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "wykonano wyszukiwań: {n}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "fez {n} pesquisas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "выполнено поисков: {n}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค้นหา {n} ครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{n} arama yaptı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "виконано пошуків: {n}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "đã tìm kiếm {n} lần"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜索了 {n} 次"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜尋了 {n} 次"
           }
         }
       }
@@ -53263,133 +53395,133 @@
       }
     },
     "toolRun.ran.other": {
-      "comment": "Agent pane",
+      "comment": "Agent pane; {n} is how many (conversation/toolRunSummary.ts)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "شغّل أوامر"
+            "value": "شغّل {n} أوامر"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "pokrenuo naredbe"
+            "value": "pokrenuto naredbi: {n}"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "kørte kommandoer"
+            "value": "kørte {n} kommandoer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Befehle ausgeführt"
+            "value": "{n} Befehle ausgeführt"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ran commands"
+            "value": "ran {n} commands"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ejecutó comandos"
+            "value": "ejecutó {n} comandos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "a exécuté des commandes"
+            "value": "a exécuté {n} commandes"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ha eseguito comandi"
+            "value": "ha eseguito {n} comandi"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "コマンドを実行"
+            "value": "{n} 件のコマンドを実行"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បានដំណើរការពាក្យបញ្ជា"
+            "value": "បានដំណើរការពាក្យបញ្ជា {n}"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "명령 실행"
+            "value": "명령 {n}개 실행"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "kjørte kommandoer"
+            "value": "kjørte {n} kommandoer"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "uruchomiono polecenia"
+            "value": "uruchomiono poleceń: {n}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "executou comandos"
+            "value": "executou {n} comandos"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "выполнены команды"
+            "value": "выполнено команд: {n}"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "รันคำสั่ง"
+            "value": "รัน {n} คำสั่ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "komutlar çalıştırdı"
+            "value": "{n} komut çalıştırdı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "виконано команди"
+            "value": "виконано команд: {n}"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "đã chạy các lệnh"
+            "value": "đã chạy {n} lệnh"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "运行了命令"
+            "value": "运行了 {n} 个命令"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "執行了命令"
+            "value": "執行了 {n} 個指令"
           }
         }
       }

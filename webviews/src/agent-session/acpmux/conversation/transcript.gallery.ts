@@ -129,7 +129,7 @@ const openSingleShell = async (ctx: PlayContext) => {
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__command")));
 };
 
-/// Opens a finished run's folded line ("Ran 2 commands", "Read files, ran commands").
+/// Opens a finished run's folded line ("Ran 2 commands", "Read 2 files, ran 3 commands").
 const openFoldedRun = async (ctx: PlayContext) => {
   await ctx.click({ selector: ".cv-tools > .cv-tool.is-toggle" });
   await ctx.waitFor(
@@ -1145,7 +1145,7 @@ export default agentPaneEntry({
       ),
     },
     "dense-live-run": {
-      note: "A running turn folds its finished calls into one summary line (Read files, ran commands) and names the running MCP call on the live line, never a growing stack of rows.",
+      note: "A running turn folds its finished calls into one counted summary line (Read a file, ran 7 commands) and names the running MCP call on the live line, never a growing stack of rows.",
       snapshot: chat(
         [
           user("Find why the sidebar drag drops tabs, and hand the fix to a sub-session.", 3),
@@ -1157,6 +1157,75 @@ export default agentPaneEntry({
               tool("mcp__cmux-subsessions__start_session", "other", "in_progress", {
                 inputSummary: JSON.stringify({ name: "sidebar-drag-bugs", prompt: "Fix the sidebar drag bugs" }),
               }),
+            ],
+            2.8,
+          ),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "consolidated-run": {
+      note: "An opened Worked for: reads, searches and commands with thoughts between them fold into one counted line (Read 3 files, ran a search, ran 2 commands, 1 failed); the edit stays in sight between the lines, and the reply stays below the fold.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          activity(
+            [
+              tool("Read client.ts", "read", "completed", { locations: [{ path: "src/net/client.ts" }] }),
+              thought("The helper throws on any non-2xx status, so the retry has to sit around fetchJson itself."),
+              tool("Search for fetchJson", "search", "completed"),
+              tool("Read errors.ts", "read", "completed", { locations: [{ path: "src/net/errors.ts" }] }),
+              thought("Check whether any caller already retries before adding a second layer of backoff."),
+              tool("grep -rn retry src/net", "execute", "completed", {
+                command: "grep -rn retry src/net",
+                exitCode: 1,
+              }),
+              tool("Read client.test.ts", "read", "completed", { locations: [{ path: "src/net/client.test.ts" }] }),
+              tool("bun test src/net", "execute", "completed", { command: "bun test src/net", exitCode: 0 }),
+              tool("Edit client.ts", "edit", "completed", {
+                locations: [{ path: "src/net/client.ts" }],
+                diffs: [
+                  {
+                    path: "src/net/client.ts",
+                    oldText: "export async function fetchJson(url: string) {\n  return request(url);\n}\n",
+                    newText:
+                      "export async function fetchJson(url: string) {\n  return withRetry(() => request(url), { attempts: 3 });\n}\n",
+                  },
+                ],
+              }),
+              tool("Read retry.ts", "read", "completed", { locations: [{ path: "src/net/retry.ts" }] }),
+              thought("Run the focused tests again, then the type check, before answering."),
+              tool("bun test src/net", "execute", "completed", { command: "bun test src/net", exitCode: 0 }),
+              tool("bun run typecheck", "execute", "completed", { command: "bun run typecheck", exitCode: 0 }),
+            ],
+            5.8,
+          ),
+          assistant("fetchJson now retries three times with backoff on 5xx; the net tests and the type check pass.", 5),
+          summary(5, { status: "completed", toolCount: 10 }),
+        ],
+        {},
+      ),
+      play: openWorked,
+    },
+    "consolidated-live-run": {
+      note: "A running turn with a message to another agent in its run: the card stays in sight and the calls on each side of it still fold into counted lines, with thoughts between calls kept inside them.",
+      snapshot: chat(
+        [
+          user("Check the fleet sessions and tell the coordinator what is stuck.", 3),
+          activity(
+            [
+              ...["acpmux ls", "acpmux status --json", "acpmux ls --peers"].map((command) => shellTool(command)),
+              thought("Two sessions show no heartbeat; read their logs before telling anyone."),
+              shellTool("grep -l chief /tmp/l*.txt"),
+              tool("Read session.log", "read", "completed", { locations: [{ path: "/tmp/session.log" }] }),
+              tool("Run", "execute", "completed", {
+                command: 'tell-coordinator "fleet: two sessions stuck on huge-blue, restarting them"',
+                output: "delivered to coord-deputy\n",
+              }),
+              shellTool("acpmux restart stuck-1"),
+              thought("The first restart came back; do the second one the same way."),
+              shellTool("acpmux restart stuck-2"),
+              tool("acpmux ls", "execute", "in_progress", { command: "acpmux ls" }),
             ],
             2.8,
           ),
@@ -1226,7 +1295,7 @@ export default agentPaneEntry({
       play: openWorked,
     },
     "codex-turn-live": {
-      note: "A running turn as the Codex app draws it: one live block at the bottom and nothing over the turn, each finished run one summary line between the paragraphs (Read files, ran commands; Ran 3 commands), commands named by what they do, and the call in flight named on the live line instead of a growing stack.",
+      note: "A running turn as the Codex app draws it: one live block at the bottom and nothing over the turn, each finished run one counted summary line between the paragraphs (Read 2 files, ran 3 commands; Ran 3 commands), commands named by what they do, and the call in flight named on the live line instead of a growing stack.",
       snapshot: chat(
         [
           user("Check the retry regression and the macOS verification run.", 11.5),

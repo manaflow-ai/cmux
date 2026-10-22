@@ -1,15 +1,16 @@
 // Consecutive calls of one kind under one line ("Ran 3 commands", "Read 4 files", "Edited
 // App.tsx +12 -3") over the calls on a tree guide: commands as command rows, edits as their
-// diffs, reads and searches as their own rows.
+// diffs, reads and searches as their own rows, and a thought between two calls in its place.
 import { useFindReveal } from "./chatFind";
 import { useId, useMemo, type ReactNode } from "react";
 import { toolFiles } from "../diff";
 import type { AcpmuxActivity } from "../model";
 import { CommandRow } from "./CommandRow";
 import { EditDiff } from "./EditDiff";
+import { ThoughtRow } from "./ThoughtRow";
 import { ToolRow } from "./ToolRow";
 import { ChevronRight, Magnifier, OpenBook, Pencil, Spinner, TerminalSquare } from "./icons";
-import { isFailed, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
+import { groupCalls, isFailed, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
 import { useT } from "../i18n";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useFold } from "./fold";
@@ -31,6 +32,15 @@ function groupIcon(kind: ToolGroupKind): ReactNode {
 /// "+K more", so a long run stays dense (one line per call) without hiding what just ran.
 export const GROUP_TAIL = 5;
 
+/// Where a group's shown tail starts: at its GROUP_TAIL-th call from the end, or 0 when it has no
+/// more calls than that.
+export function tailStart(items: readonly AcpmuxActivity[]): number {
+  let calls = 0;
+  for (let index = items.length - 1; index >= 0; index -= 1)
+    if (items[index]!.tool && ++calls === GROUP_TAIL) return groupCalls(items).length > GROUP_TAIL ? index : 0;
+  return 0;
+}
+
 /// Commands, reads and searches open by default, one row per call, as the Codex and Claude Code
 /// desktop apps list them; edits stay closed, since each opens to its whole diff. A finished run
 /// that is this one group (`folded`: text followed it) stays closed too, one summary line between
@@ -51,16 +61,19 @@ export function ToolGroupRow({
   const [open, setOpen] = useTranscriptDisclosure(disclosureKey, kind !== "edits" && !folded);
   const [all, setAll] = useTranscriptDisclosure(`${disclosureKey}:all`);
   const fold = useFold(open);
-  const hidden = kind === "edits" || all ? 0 : Math.max(0, items.length - GROUP_TAIL);
+  // The calls behind "+K more", and where the shown tail starts (a thought between two hidden
+  // calls hides with them).
+  const cut = kind === "edits" || all ? 0 : tailStart(items);
+  const hidden = cut ? groupCalls(items.slice(0, cut)).length : 0;
   useFindReveal(items, () => setOpen(true));
   // A match in a call behind "+K more" shows the whole group.
   useFindReveal(
-    useMemo(() => items.slice(0, hidden), [items, hidden]),
+    useMemo(() => items.slice(0, cut), [items, cut]),
     () => setAll(true),
   );
-  const shown = hidden ? items.slice(hidden) : items;
+  const shown = cut ? items.slice(cut) : items;
   const detailsId = useId();
-  const tools = useMemo(() => items.map((item) => item.tool!), [items]);
+  const tools = useMemo(() => groupCalls(items).map((item) => item.tool!), [items]);
   const files = useMemo(() => (kind === "edits" ? toolFiles(tools) : []), [kind, tools]);
   // The line's totals leave out a file a Write rewrote with old contents unknown (model.ts
   // `contentsUnknown`), as the edited-files card does: its written text is not lines added.
@@ -109,13 +122,25 @@ export function ToolGroupRow({
               </button>
             )}
             {kind === "commands"
-              ? shown.map((item, index) => <CommandRow key={item.tool!.id || index} item={item} />)
+              ? shown.map((item, index) =>
+                  item.tool ? (
+                    <CommandRow key={item.tool.id || index} item={item} />
+                  ) : (
+                    <ThoughtRow key={`thought:${index}`} id={`${disclosureKey}:thought:${index}`} item={item} />
+                  ),
+                )
               : [
                   ...files.map((file) => <EditDiff key={file.path} file={file} />),
                   // Reads and searches, and edits that carried no diff (a delete, a move), as rows.
                   ...shown
-                    .filter((item) => !files.length || !item.tool!.diffs?.length)
-                    .map((item, index) => <ToolRow key={item.tool!.id || index} item={item} />),
+                    .filter((item) => !files.length || !item.tool?.diffs?.length)
+                    .map((item, index) =>
+                      item.tool ? (
+                        <ToolRow key={item.tool.id || index} item={item} />
+                      ) : (
+                        <ThoughtRow key={`thought:${index}`} id={`${disclosureKey}:thought:${index}`} item={item} />
+                      ),
+                    ),
                 ]}
           </div>
         </div>
