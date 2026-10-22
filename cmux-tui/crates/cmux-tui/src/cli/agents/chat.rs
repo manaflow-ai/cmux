@@ -454,7 +454,7 @@ impl Transcript {
                     msg["params"]["update"]["sessionUpdate"].as_str(),
                     Some("agent_message_chunk" | "agent_thought_chunk")
                 );
-                if !(words && !msg["params"]["_meta"]["acpmux"]["subagent"].is_null()) {
+                if !words || msg["params"]["_meta"]["acpmux"]["subagent"].is_null() {
                     self.apply_update(seq, &msg["params"]["update"]);
                 }
             }
