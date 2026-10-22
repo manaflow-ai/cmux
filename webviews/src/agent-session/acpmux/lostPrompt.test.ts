@@ -398,3 +398,23 @@ test("a prompt still in its chat's saved draft keeps its provenance once the hos
   expect(kept.take("a")).toEqual([{ promptId: "p1", text: "continue", inDraft: true, delivered: true }]);
   expect(kept.take("a")).toEqual([]);
 });
+
+test("a claimed lost prompt keeps its slot until its send has left", () => {
+  const slot = lostPromptSlot();
+  slot.keep("s-1", "p-lost", "continue", []);
+  slot.keep("s-1", "p-other", "and test it", []);
+  // An edited draft matches none: nothing changes until it has gone.
+  const edited = slot.claim("s-1", "continue\n\nand test it", []);
+  expect(edited.promptId).toBeUndefined();
+  // It failed before acpmux took it: the lost prompt still goes under its id.
+  const again = slot.claim("s-1", "continue", []);
+  expect(again.promptId).toBe("p-lost");
+  again.commit();
+  again.commit();
+  // Sent: each lost prompt goes again once.
+  expect(slot.claim("s-1", "continue", []).promptId).toBeUndefined();
+  expect(slot.claim("s-1", "and test it", []).promptId).toBe("p-other");
+  // A send that is none of them, once it has gone, ends the chat's others.
+  slot.claim("s-1", "something else", []).commit();
+  expect(slot.claim("s-1", "and test it", []).promptId).toBeUndefined();
+});

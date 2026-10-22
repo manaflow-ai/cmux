@@ -6007,6 +6007,7 @@ function AcpmuxPane() {
           const putBack = [...restoredLost].filter(([, back]) => back.sessionId === client.selectedSession);
           const letGo = () => {
             for (const [id] of putBack) restoredLost.delete(id);
+            claimed.commit();
           };
           // Whether the composer let go of the prompt (acpmux took it, or a switch row holds it).
           let released = !accepted;
@@ -6018,13 +6019,14 @@ function AcpmuxPane() {
               accepted();
             });
           // The person sends a prompt "Not sent" named again: it goes under its first promptId.
-          const againIn = client.selectedSession ?? "";
-          const again = lostPrompts.take(againIn, text, attachments.map((attachment) => attachment.id));
-          // A send that fails before acpmux takes it and leaves no row of its own goes back to the
-          // composer: the lost prompt keeps its id for the next send, which runs it at most once.
-          const keepAgain = () => {
-            if (again) lostPrompts.keep(againIn, again, text, attachments.map((attachment) => attachment.id));
-          };
+          // The slot changes only once the send has left (`letGo`): one that fails before that goes
+          // back to the composer, and its next send still runs the lost prompt at most once.
+          const claimed = lostPrompts.claim(
+            client.selectedSession ?? "",
+            text,
+            attachments.map((attachment) => attachment.id),
+          );
+          const again = claimed.promptId;
           // acpmux holds the prompt while the folder's trust question is open (on session/new
           // or session/prompt): the question shows for the folder acpmux named, and Trust sends
           // the prompt the composer kept. `inComposer`: the composer still holds the prompt (or got it back); else it goes back.
@@ -6126,13 +6128,9 @@ function AcpmuxPane() {
             // A refused start (a chat on another machine, cx-k21v) says why in this page's own
             // view: the host's typed refusal, already localized, under the localized "Not sent".
             if (isStartRefusal(error)) client.notice(failedSendText(error, false));
-            keepAgain();
             return refused(error, Boolean(accepted));
           });
-          await persistSession(sessionId).catch((error: unknown) => {
-            keepAgain();
-            throw error;
-          });
+          await persistSession(sessionId);
           const turn = client
             .send(text, attachments, kept?.promptId ?? again, accept, kept?.ticket, steer)
             .then(
@@ -6142,8 +6140,6 @@ function AcpmuxPane() {
               },
               (error: unknown) => {
                 if (failedRowOf(error)) letGo();
-                // A lost send keeps its id itself (`resent`).
-                else if (!lostPrompt(error)) keepAgain();
                 throw error;
               },
             )

@@ -110,6 +110,25 @@ export function lostPromptSlot() {
     /// The lost prompt's id when this send is that prompt. Each lost prompt goes again once, and
     /// the chat's other lost prompts stay for theirs; a send in the chat that is none of them ends
     /// them all, so a later "continue" is a new prompt, not the lost one. Other chats keep theirs.
+    /// `take`, once the send has left (acpmux took it, or a row holds it): the lost prompt's id now,
+    /// and `commit` makes the slot's change then. A send that fails before that, back in the
+    /// composer, leaves the slot as it was, so its next send still runs the lost prompt once.
+    claim(
+      sessionId: string,
+      text: string,
+      attachmentIds: readonly string[],
+    ): { promptId: string | undefined; commit: () => void } {
+      const promptId = kept.get(keyOf(sessionId, text, attachmentIds));
+      let done = false;
+      return {
+        promptId,
+        commit: () => {
+          if (done) return;
+          done = true;
+          this.take(sessionId, text, attachmentIds);
+        },
+      };
+    },
     take(sessionId: string, text: string, attachmentIds: readonly string[]): string | undefined {
       const key = keyOf(sessionId, text, attachmentIds);
       const taken = kept.get(key);
