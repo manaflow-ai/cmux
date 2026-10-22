@@ -1,6 +1,6 @@
 # Remote groups per machine: one machine, a machine icon, show or hide, one flat list by default
 
-Status: design; R1 and R2 built 2026-10-21; R3 and R4 next (section 8). Owner lane: "Agents & routing".
+Status: R1-R3 built 2026-10-22; R4 waits on a436's gate (section 8). Owner lane: "Agents & routing".
 Ask: Lawrence's voice talk with Leo (Chief msg 9663). Builds on
 [remote-groups-DESIGN.md](remote-groups-DESIGN.md) (a283/a473: a remote group is a `machine` section
 with `host_group`), [cloud-groups-DESIGN.md](cloud-groups-DESIGN.md) (a461: cloud-homed groups,
@@ -153,18 +153,17 @@ p95 on the same mini.
   `sidebar.showRemoteGroups`, `sidebar.remoteGroups.hide|show`). Two older tests changed with the rule
   the user asked for: `HostGroupHeaderStatusTests` (no "Connected" in words) and
   `SidebarIconMeaningTests` (no bare dot; the connected header's tooltip says the state).
-- **R3: not built.** Findings that shape it:
-  - The daemon keeps no creation time for a workspace. The sidebar document's lookup by reference
-    ignores `WorkspaceRef.extra` (`ref_key` is session + workspace id), so `created_ms` can ride on
-    the reference: stamp it on each `Op::Adopt` reference that lacks one at the three daemon apply
-    sites (`sidebar_doc_ops.rs`, `sidebar_layout_ops.rs`, `sidebar_doc_sync.rs try_apply`) with a
-    pure `stamp_created(ops, now_ms)` helper in the reducer crate (clock stays injected).
-  - The layout lays out one section at a time, and each section owns its Done fold, its row limit
-    ("Show N more"), its session tree and its drop indexes. Interleaving machines means splitting
-    consecutive headerless machine sections into time-ordered runs that keep each node's index in
-    its own section (`nodeIndexBase`) and share one Done fold and one row limit across the runs.
-    That is a change to `SidebarLayout.make`'s main loop, so it gets its own red/green pair and the
-    perf rows below before it lands.
+- **R3: built.** The daemon stamps `created_ms` on each adopted reference (`sidebar_doc::created`,
+  at the three apply sites; the document finds an item by session and workspace id only, so the
+  stamp changes no lookup). The app reads it onto `SidebarWorkspace.createdMs`, and
+  `SidebarLayout.mergeOneList` runs after `make` lays out the sections: each run of consecutive
+  headerless computer sections is cut into top-level units (a workspace with its tab and tree rows,
+  a group with its members, a fold row), merged newest first in a stable k-way merge of each
+  section's own order, and laid out again from the run's top. Rows keep their section and index,
+  so drops, folds and row updates are unchanged; the drop gap moves with its place. A Done fold or
+  "Show N more" row stays a unit of its own section. Not done: the merge does not run when no row
+  has a time (an older daemon), and a row update that changes a row's height lays the list out
+  again (as before), so the merge runs on every structural change, never per frame.
 - **R4: blocked on a436's gate.** `scripts/cmux-next/perf-budgets.json` and `perf-budgets.py` are on
   branch `perf-gate` (not on feat-cmux-next). The rows in section 6 go there when it lands; R1 and R2
   add no per-frame work (one cached glyph per header configure, one CALayer fewer per header).
