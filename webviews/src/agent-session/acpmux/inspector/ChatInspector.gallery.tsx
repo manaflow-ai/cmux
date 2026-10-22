@@ -162,6 +162,24 @@ const full: Props = {
   remoteControl: { on: false, set: () => undefined },
 };
 
+/// A chat in ~/Projects that worked across several projects, as Claude Code desktop lists them.
+const PROJECTS = "/Users/you/Projects";
+const touched = (path: string) =>
+  tool(`Read ${path}`, "read", "completed", { locations: [{ path: `${PROJECTS}/${path}` }] });
+const projectRows = [
+  activity(
+    [
+      touched("cmux/webviews/src/agent-session/acpmux/App.tsx"),
+      touched("cmux-app-screenshots/index.json"),
+      touched("agent-pane-reference/README.md"),
+      touched("cmuxterm-hq/build-fleet/FLEET-AND-CI.md"),
+      touched("leo-workspace/NOW.md"),
+      touched("glaeda/main.go"),
+    ],
+    6,
+  ),
+];
+
 const text = (ctx: Parameters<Play>[0]) => ctx.document.querySelector(".acpmux-chat-inspector")?.textContent ?? "";
 
 export default componentEntry<Props>({
@@ -173,6 +191,7 @@ export default componentEntry<Props>({
   widths: { narrow: 320, normal: 420 },
   covers: [
     "agent-session/acpmux/inspector/ChatInspector.tsx",
+    "agent-session/acpmux/inspector/chatFolders.ts",
     "agent-session/acpmux/inspector/ChildSessionRows.tsx",
     "agent-session/acpmux/inspector/ChangesSection.tsx",
     "agent-session/acpmux/inspector/EnvironmentSection.tsx",
@@ -187,6 +206,16 @@ export default componentEntry<Props>({
     full: {
       note: "A chat on this Mac with every section: its environment with Save and Remote Control, 47% of the context window, one connector to reconnect, six pull requests, a dev server on :5173, 43 subagents and three chats it started, background tasks (one only the transcript knows, without Stop) with four finished, and its outputs.",
       props: full,
+    },
+    "environment-folders": {
+      note: "Environment for a chat in ~/Projects that worked across six projects: the machine with Save, its folder with its parent, each project it touched (each opens in Files), the repository and the branch (each opens on GitHub).",
+      props: {
+        ...full,
+        summary: { ...summary, cwd: PROJECTS, branch: "leo/next-backgrounds-batch" },
+        rows: projectRows,
+        onOpenFolder: () => undefined,
+        remoteControl: undefined,
+      },
     },
     "context-connectors-open": {
       note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status.",

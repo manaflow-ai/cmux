@@ -13,7 +13,7 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import { flushSync } from "react-dom";
-import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind } from "./environments";
+import { CONNECT_ACTIONS, savedEnvironmentHost, type ConnectKind, type OffloadKind } from "./environments";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
@@ -139,6 +139,7 @@ import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
 import { runningBackgroundTasks } from "./summary/sessionSummary";
 import { useChatInspector } from "./inspector/ChatInspector";
+import { environmentToSave } from "./inspector/EnvironmentSection";
 import {
   type BackgroundCommand,
   backgroundCommands,
@@ -4806,6 +4807,13 @@ function AcpmuxPane() {
   );
   // The Inspector (Debug Settings `agent.inspector`): its toggle at the header's end, the panel
   // beside or over the chat. On, it takes the summary card's place.
+  const inspectorSummary = snapshot.summary;
+  const inspectorLocal =
+    inspectorSummary !== undefined &&
+    !inspectorSummary.peer &&
+    !(inspectorSummary.host && inspectorSummary.hostKind !== "local");
+  // Save in its Environment keeps the machine and folder as a New Tab environment.
+  const environmentDraft = quick ? undefined : environmentToSave(inspectorSummary, snapshot.peerKinds);
   const inspector = useChatInspector({
     snapshot,
     machineName,
@@ -4820,6 +4828,13 @@ function AcpmuxPane() {
     onStopProcess: stopProcess,
     subagents: cardSubagents,
     sessions: cardSessions,
+    // A folder opens in the Files tree beside the chat; a remote or cloud chat's folders are not on
+    // this Mac.
+    onOpenFolder:
+      quick || !inspectorLocal
+        ? undefined
+        : (path) => ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.files, cwd: path, mode: "open" })),
+    onSaveEnvironment: environmentDraft ? () => savedEnvironmentHost(callNative).save(environmentDraft) : undefined,
   });
   // The running line's counts (conversation/WorkingFor.tsx), with the tray off (Debug Settings):
   // the subagents still running, the background commands that have not ended and the started chats
