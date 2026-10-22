@@ -39,6 +39,9 @@ DEBT_KINDS = ("needs_review", "identical", "other")
 # scripts/cmux-next/check-l10n.sh counts as present): 269 more in one hour on 2026-10-21. Growth
 # of that kind is reported, not failed; copied English and malformed entries never grow.
 DEBT_ENFORCED = ("identical", "other")
+# What decides a catalog's debt besides the catalog: base debt is only counted with the
+# base's own rules when the pull request leaves these unchanged.
+RULE_FILES = ("localization_catalog.py", "localization-allowed-omissions.json", "localization-plurals.json")
 
 
 @dataclass
@@ -434,6 +437,17 @@ def debt_raises(counts: dict[str, dict[str, int]], baseline: dict[str, dict[str,
     return raised
 
 
+def debt_findings(root: Path, locales, omissions: dict, counts: dict) -> list[tuple[str, str]]:
+    """(catalog, error) for every parity error in the catalogs under root."""
+    findings = []
+    for path in discover(root):
+        catalog = catalog_name(path, root)
+        for entry in catalog_entries(path.read_text(encoding="utf-8")):
+            for locale in locales:
+                findings.extend((catalog, error) for error in check_entry(entry, locale, omissions, counts))
+    return findings
+
+
 def debt_json(catalogs: dict[str, dict[str, int]]) -> str:
     return json.dumps({"catalogs": catalogs}, indent=2, sort_keys=True) + "\n"
 
@@ -537,6 +551,8 @@ def main() -> int:
                         help="check: rewrite the debt baseline to the current counts; refuses to raise any")
     parser.add_argument("--base-baseline", type=Path,
                         help="check: also fail when the baseline is above this one (the base branch's copy)")
+    parser.add_argument("--base-root", type=Path,
+                        help="check: the base tree's catalogs; debt the base already has warns instead of failing")
     args = parser.parse_args()
     if args.batch_size < 1 or args.batch < 0 or args.limit < 0:
         parser.error("batch size must be positive; batch and limit must be nonnegative")
@@ -577,8 +593,10 @@ def main() -> int:
         return 0
     baseline_path = args.baseline or args.root / "scripts" / DEBT_BASELINE
     baseline = load_debt_baseline(baseline_path)
-    if (args.write_baseline or args.base_baseline) and (args.catalog or args.locale):
-        parser.error("--write-baseline and --base-baseline judge every catalog and locale")
+    if args.base_root and not args.base_baseline:
+        parser.error("--base-root needs --base-baseline: the base's debt is judged against its own baseline")
+    if (args.write_baseline or args.base_baseline or args.base_root) and (args.catalog or args.locale):
+        parser.error("--write-baseline, --base-baseline and --base-root judge every catalog and locale")
     debt = debt_counts(findings)
     if args.write_baseline:
         if baseline is not None:
@@ -608,7 +626,23 @@ def main() -> int:
         only = catalog_name(args.catalog, args.root)
         baseline = {catalog: kinds for catalog, kinds in baseline.items() if catalog == only}
     failed = False
-    raised = debt_raises(debt, baseline, DEBT_ENFORCED)
+    allowed = baseline
+    if args.base_root:
+        # A pull request runs on its merge with the base, so debt the base added past its own
+        # baseline is in every pull request's count; only the push that added it fails.
+        base_baseline = load_debt_baseline(args.base_baseline) or {}
+        changed = [name for name in RULE_FILES if not (args.base_root / "scripts" / name).is_file()
+                   or (args.base_root / "scripts" / name).read_bytes() != (ROOT / "scripts" / name).read_bytes()]
+        if changed:
+            print(f"note: this change changes {', '.join(changed)}, so debt the base has is not excused")
+        base_debt = {} if changed else debt_counts(debt_findings(args.base_root, locales, omissions, counts))
+        for line in debt_raises(base_debt, base_baseline, DEBT_ENFORCED):
+            print(f"warning: the base is already over its baseline, not this change: {line}")
+        allowed = {catalog: {kind: baseline.get(catalog, {}).get(kind, 0)
+                             + max(0, base_debt.get(catalog, {}).get(kind, 0) - base_baseline.get(catalog, {}).get(kind, 0))
+                             for kind in DEBT_KINDS}
+                   for catalog in set(baseline) | set(base_debt)}
+    raised = debt_raises(debt, allowed, DEBT_ENFORCED)
     reviews = debt_raises(debt, baseline, tuple(kind for kind in DEBT_KINDS if kind not in DEBT_ENFORCED))
     for line in reviews:
         print(f"note: more strings await review than the baseline records: {line}")

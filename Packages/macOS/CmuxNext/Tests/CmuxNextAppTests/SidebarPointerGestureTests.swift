@@ -154,7 +154,8 @@ import Testing
         if let landing = list.landing { list.finishLand(landing, then: nil) }
         #expect(Self.ids(list) == order, "a cancelled drag moved rows: \(Self.ids(list))")
         #expect(list.suppressed.isEmpty, "rows still hidden: \(list.suppressed)")
-        #expect(Self.filledRows(list) == ["a"], "rows filled: \(Self.filledRows(list))")
+        // The press switched to nothing (Leo 2026-10-21: no focus on mouse-down or drag): only the shown row is filled.
+        #expect(Self.filledRows(list) == ["x"], "rows filled: \(Self.filledRows(list))")
         // Its release, when it comes, drops nothing.
         list.mouseUp(with: try Self.event(list, .leftMouseUp, at: NSPoint(x: start.x, y: start.y + 30)))
         #expect(Self.ids(list) == order)
