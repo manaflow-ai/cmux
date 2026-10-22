@@ -47,15 +47,6 @@ import Testing
         return (list, window)
     }
 
-    /// Runs `body` with `sidebar.doneFold` on (its default), whatever another suite left in the store.
-    static func withDoneFold(_ body: () throws -> Void) rethrows {
-        TunableStore.shared.activate(file: nil)
-        TunableStore.shared.register(SidebarTunables.all)
-        TunableStore.shared.set(SidebarTunables.doneFold.key, .bool(true))
-        defer { TunableStore.shared.set(SidebarTunables.doneFold.key, nil) }
-        try body()
-    }
-
     static func keys(_ list: SidebarListView) -> Set<SidebarRowKey> {
         Set(list.displayed.rows.map(\.key).filter { if case .section = $0 { false } else { true } })
     }
@@ -67,48 +58,51 @@ import Testing
     /// Drags `a` to the top, then down past the last row, a few points per frame: every frame draws the same rows
     /// (the two Done rows too), never a folded workspace; the drop draws the order the last frame showed.
     @Test func aDragKeepsTheDoneRowsFoldedOnEveryFrame() throws {
-        try Self.withDoneFold {
-            let (list, window) = Self.list()
-            defer { window.close() }
-            let dragged = SidebarRowKey.workspace(WorkspaceID("a"))
-            let before = Self.keys(list)
-            try #require(before.contains(.doneFold(SidebarDoneFoldID(section: Self.section, group: nil))), "no loose Done row: \(before)")
-            try #require(before.contains(.doneFold(SidebarDoneFoldID(section: Self.section, group: Self.group))), "no group Done row: \(before)")
-            try #require(Self.shownDone(list).isEmpty, "the fold draws Done workspaces before the drag")
+        // `sidebar.doneFold` on (its default), whatever another suite left in the store.
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        TunableStore.shared.set(SidebarTunables.doneFold.key, .bool(true))
+        defer { TunableStore.shared.set(SidebarTunables.doneFold.key, nil) }
+        let (list, window) = Self.list()
+        defer { window.close() }
+        let dragged = SidebarRowKey.workspace(WorkspaceID("a"))
+        let before = Self.keys(list)
+        try #require(before.contains(.doneFold(SidebarDoneFoldID(section: Self.section, group: nil))), "no loose Done row: \(before)")
+        try #require(before.contains(.doneFold(SidebarDoneFoldID(section: Self.section, group: Self.group))), "no group Done row: \(before)")
+        try #require(Self.shownDone(list).isEmpty, "the fold draws Done workspaces before the drag")
 
-            let row = try #require(list.displayed.row(for: dragged))
-            let start = NSPoint(x: 80, y: row.y + row.height / 2)
-            list.press = SidebarPress(key: dragged, point: start)
-            list.beginDrag(try #require(list.press))
-            try #require(list.drag != nil, "a did not lift")
+        let row = try #require(list.displayed.row(for: dragged))
+        let start = NSPoint(x: 80, y: row.y + row.height / 2)
+        list.press = SidebarPress(key: dragged, point: start)
+        list.beginDrag(try #require(list.press))
+        try #require(list.drag != nil, "a did not lift")
 
-            var failures: [String] = []
-            func check(_ step: String) {
-                let shown = Self.keys(list)
-                if shown != before { failures.append("\(step): rows \(shown.subtracting(before)) added, \(before.subtracting(shown)) gone") }
-                let done = Self.shownDone(list)
-                if !done.isEmpty { failures.append("\(step): folded workspaces drawn \(done)") }
-            }
-            check("lift")
-            let bottom = (list.displayed.rows.last?.maxY ?? 600) + 10
-            var y = start.y, frame = 0
-            for target in [CGFloat(4), bottom] {
-                let dy: CGFloat = target < y ? -6 : 6
-                while (dy < 0 && y > target) || (dy > 0 && y < target) {
-                    y += dy
-                    frame += 1
-                    list.updateDrag(windowPoint: list.convert(NSPoint(x: start.x, y: y), to: nil))
-                    check("frame \(frame) at y \(Int(y)) (target \(String(describing: list.drag?.target)))")
-                }
-            }
-            let previewed = list.displayed.rows.map(\.key).filter { if case .section = $0 { false } else { true } }
-            list.finishDrag()
-            if let landing = list.landing { list.finishLand(landing, then: nil) }
-            check("drop")
-            let dropped = list.displayed.rows.map(\.key).filter { if case .section = $0 { false } else { true } }
-            #expect(dropped == previewed, "the drop drew \(dropped), the drag showed \(previewed)")
-            #expect(failures.isEmpty, "\(failures.prefix(12).joined(separator: "\n"))")
+        var failures: [String] = []
+        func check(_ step: String) {
+            let shown = Self.keys(list)
+            if shown != before { failures.append("\(step): rows \(shown.subtracting(before)) added, \(before.subtracting(shown)) gone") }
+            let done = Self.shownDone(list)
+            if !done.isEmpty { failures.append("\(step): folded workspaces drawn \(done)") }
         }
+        check("lift")
+        let bottom = (list.displayed.rows.last?.maxY ?? 600) + 10
+        var y = start.y, frame = 0
+        for target in [CGFloat(4), bottom] {
+            let dy: CGFloat = target < y ? -6 : 6
+            while (dy < 0 && y > target) || (dy > 0 && y < target) {
+                y += dy
+                frame += 1
+                list.updateDrag(windowPoint: list.convert(NSPoint(x: start.x, y: y), to: nil))
+                check("frame \(frame) at y \(Int(y)) (target \(String(describing: list.drag?.target)))")
+            }
+        }
+        let previewed = list.displayed.rows.map(\.key).filter { if case .section = $0 { false } else { true } }
+        list.finishDrag()
+        if let landing = list.landing { list.finishLand(landing, then: nil) }
+        check("drop")
+        let dropped = list.displayed.rows.map(\.key).filter { if case .section = $0 { false } else { true } }
+        #expect(dropped == previewed, "the drop drew \(dropped), the drag showed \(previewed)")
+        #expect(failures.isEmpty, "\(failures.prefix(12).joined(separator: "\n"))")
     }
 
     /// A drop gap (a tab from a pane, a tile) at a model index the fold hides opens before the next drawn row, or
