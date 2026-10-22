@@ -13,14 +13,16 @@ import Foundation
 final class ErrorJournalService {
     let journal: ErrorJournal
     let sources: [any ErrorHarvestSource]
+    private let clock: any Clock<Duration>
     private var harvesting: Task<Void, Never>?
 
     /// How often the journal reads its sources while the app runs.
     static let harvestInterval: Duration = .seconds(300)
 
-    init(journal: ErrorJournal, sources: [any ErrorHarvestSource]) {
+    init(journal: ErrorJournal, sources: [any ErrorHarvestSource], clock: any Clock<Duration> = ContinuousClock()) {
         self.journal = journal
         self.sources = sources
+        self.clock = clock
     }
 
     /// The journal folder of a build.
@@ -58,6 +60,7 @@ final class ErrorJournalService {
         let journal = journal
         let sources = sources
         let interval = Self.harvestInterval
+        let clock = clock
         // A fixed-interval background harvest, cancelled by stop() (CLAUDE.md Clock.sleep carve-out:
         // the delay is the intended cadence; nothing waits on it).
         harvesting = Task.detached(priority: .utility) {
@@ -67,7 +70,7 @@ final class ErrorJournalService {
                 await journal.harvest(sources)
                 // concurrency-allow: async cadence sleep on the detached harvest task; cancelled by stop(), blocks no thread
                 // wakeup-allow: the 300 s harvest cadence; nothing waits on it
-                guard (try? await ContinuousClock().sleep(for: interval)) != nil else { return }
+                guard (try? await clock.sleep(for: interval)) != nil else { return }
             }
         }
     }
