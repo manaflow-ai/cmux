@@ -188,6 +188,7 @@ extension CEFRuntime {
         swipeNavigation.start()
         tabsByBrowser[browser] = tab
         tab.attach(browser: browser)
+        accessibility.attached(browser)
         CEFSignInCallbacks.shared.attached(tab)
     }
 
