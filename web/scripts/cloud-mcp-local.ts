@@ -23,7 +23,20 @@ const port = Number(process.env.CMUX_MCP_DEMO_PORT ?? 8765);
 const cmuxTui = process.env.CMUX_TUI_BIN ?? "cmux-tui";
 const MACHINE_ID = "local";
 
+let settings: Record<string, unknown> = {};
+const unsupported = async (): Promise<never> => {
+  throw new CloudMcpToolError("unsupported", "The local demo has one machine: this computer.");
+};
+
 const gateway: CloudMcpGateway = {
+  scopes: null,
+  profile: async () => ({ id: "cmux_local_demo", nickname: "local demo" }),
+  account: async () => ({ planId: "demo", teamName: null, maxActiveVms: 1, activeVmCount: 1, memoryOptionsMb: [] }),
+  createMachine: unsupported,
+  setMachineState: unsupported,
+  deleteMachine: unsupported,
+  readSettings: async () => settings,
+  writeSettings: async (values) => { settings = values; },
   listMachines: async () => [{ id: MACHINE_ID, name: "this computer", status: "running" }],
   runCmuxTui: async (machineId, args, timeoutMs) => {
     if (machineId !== MACHINE_ID) {

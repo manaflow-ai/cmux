@@ -1,0 +1,97 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "cmux-cloud",
+  "version": "0.1.0",
+  "description": "Create cmux Cloud machines and run coding agents on them from ChatGPT and Codex.",
+  "author": {
+    "name": "Manaflow",
+    "email": "founders@manaflow.ai",
+    "url": "https://cmux.com"
+  },
+  "homepage": "https://cmux.com",
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "GPL-3.0-or-later",
+  "keywords": ["cloud", "vm", "coding agents", "terminal", "codex", "claude code"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "cmux Cloud",
+        "shortDescription": "Cloud machines for coding agents",
+        "longDescription": "cmux Cloud gives each task its own Linux machine with Claude Code, Codex, OpenCode and Pi installed. From ChatGPT you can see your machines, create, pause, resume or delete them, start a coding agent on a machine with a prompt, and watch or type into its terminal. Open cmux Cloud from the sidebar for a full view of your machines and agent terminals. The plugin acts only on machines owned by the cmux account and team you connect, and uses that team's existing cmux plan.",
+        "developerName": "Manaflow",
+        "category": "Developer Tools",
+        "capabilities": ["Read machines", "Manage machines", "Run coding agents", "Read terminals"],
+        "websiteURL": "https://cmux.com",
+        "supportURL": "https://github.com/manaflow-ai/cmux/issues",
+        "privacyPolicyURL": "https://cmux.com/privacy-policy",
+        "termsOfServiceURL": "https://cmux.com/terms-of-service",
+        "defaultPrompt": [
+          "Show my cmux Cloud machines.",
+          "Start Codex on my cmux machine and ask it to run the test suite.",
+          "Create a new 8 GB cmux machine called scratch."
+        ],
+        "brandColor": "#0D0D0D",
+        "brandColorDark": "#ECECEC",
+        "composerIcon": "./assets/icon.png",
+        "logo": "./assets/logo.png"
+      },
+      "onboardingSkill": "./skills/setup/SKILL.md",
+      "review": {
+        "test_cases": {
+          "positive": [
+            {
+              "description": "List machines",
+              "prompt": "Show my cmux Cloud machines.",
+              "tools_triggered": "list_machines",
+              "expected_behavior": "List the test account's machines with name, id and status."
+            },
+            {
+              "description": "Show plan and limits",
+              "prompt": "How many cmux machines can I run on my plan?",
+              "tools_triggered": "get_account",
+              "expected_behavior": "Report the connected team's plan, machine limit and active machine count."
+            },
+            {
+              "description": "Create a machine",
+              "prompt": "Create a new 8 GB cmux machine called review-scratch.",
+              "tools_triggered": "create_machine",
+              "expected_behavior": "Create one machine named review-scratch and report its id and status."
+            },
+            {
+              "description": "Run an agent and read its terminal",
+              "prompt": "On review-scratch, ask Codex to print the Linux kernel version, then show me what it printed.",
+              "tools_triggered": "list_machines, run_agent, read_terminal",
+              "expected_behavior": "Start Codex in a new terminal on the machine, then read the terminal and report the kernel version line."
+            },
+            {
+              "description": "Pause a machine",
+              "prompt": "Pause review-scratch.",
+              "tools_triggered": "list_machines, pause_machine",
+              "expected_behavior": "Ask for confirmation, pause the machine, and report status paused."
+            }
+          ],
+          "negative": [
+            {
+              "description": "Buying a plan",
+              "prompt": "Upgrade my cmux plan to Pro."
+            },
+            {
+              "description": "Another user's machine",
+              "prompt": "Delete the machine vm-someone-else."
+            },
+            {
+              "description": "General question without cmux",
+              "prompt": "What is the capital of France?"
+            }
+          ]
+        },
+        "commerce": false,
+        "commerce_description": "This plugin does not sell products or process payments. It uses the connected account's existing cmux plan and only explains plan limits."
+      },
+      "publication": {
+        "countries": ["US"],
+        "release_notes": "Initial release: machine list and lifecycle, coding agents, terminals, plan limits, sidebar app and settings."
+      }
+    }
+  }
+}
