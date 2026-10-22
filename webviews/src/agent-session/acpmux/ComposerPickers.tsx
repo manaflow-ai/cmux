@@ -277,11 +277,11 @@ export function ComposerPickers({
   // A profile the catalog does not map to its family (a second Claude account's harness id) still
   // runs a catalogued model: its family's row for that id (else any harness's) names it and its
   // default level, so the chips never fall back to the raw id or to the word Reasoning.
-  const kinRows = () =>
+  const kinRows = (id = runningModel) =>
     [
       ...(pickerCatalog?.harnesses.filter((entry) => entry.id === summary?.family) ?? []),
       ...(pickerCatalog?.harnesses ?? []),
-    ].map((entry) => catalogRow(entry.models, runningModel));
+    ].map((entry) => catalogRow(entry.models, id));
   const catalogModel =
     catalogRow(
       pickerCatalog?.harnesses.find(
@@ -294,8 +294,23 @@ export function ComposerPickers({
   // model names it. Unresolved, the button named no effort and the menu checked none (Leo
   // 2026-10-22: "this should just show the effort too right? and then the effort tells you what
   // you're already currrently on?").
+  // An alias the chat runs ("opus") is looked up as the release it stands for: the release its
+  // row names, else acpmux's row for it, else the model the session's model option reports it runs
+  // (Claude Code's `opus` running claude-opus-5-5), once no other pick is waiting on it.
+  const modelOption = summary?.configOptions?.find((option) => option.category === "model" || option.id === "model");
+  // A harness still starting shows its last session's options, which name no model this chat runs.
+  const settled =
+    snapshot.switching === undefined && (!summary?.confirmedModel || summary.confirmedModel === summary.model);
+  const runningRelease = [
+    catalogModel?.release,
+    snapshot.catalog.find((entry) => entry.id === summary?.harness)?.models.find((row) => row.id === runningModel)
+      ?.release,
+    settled && typeof modelOption?.currentValue === "string" ? modelOption.currentValue : undefined,
+  ].find((id) => id !== undefined && id !== "" && id !== runningModel && !isDefaultChoice({ id }));
   const defaultEffort =
-    catalogModel?.defaultEffort ?? kinRows().find((row) => row?.defaultEffort !== undefined)?.defaultEffort;
+    catalogModel?.defaultEffort ??
+    [...kinRows(), ...(runningRelease ? kinRows(runningRelease) : [])].find((row) => row?.defaultEffort !== undefined)
+      ?.defaultEffort;
   const efforts: Choice[] = reasoningChoices(
     effort?.options ?? [],
     {

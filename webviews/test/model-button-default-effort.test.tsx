@@ -92,7 +92,19 @@ const PROFILE_MODELS = [
   { id: "claude-fable-5-1", name: "Fable 5.1" },
 ];
 
-async function mount(chat: { harness: string; family: string; effort: string }) {
+type Chat = {
+  harness: string;
+  family: string;
+  effort: string;
+  /** The model the session reports (`summary.model`); Opus 5.5's release id when unset. */
+  model?: string;
+  /** What the session's model option says it runs; `model` when unset. */
+  running?: string;
+  /** The profile's model rows as acpmux lists them; PROFILE_MODELS when unset. */
+  rows?: { id: string; name: string; release?: string }[];
+};
+
+async function mount(chat: Chat) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
@@ -106,7 +118,7 @@ async function mount(chat: { harness: string; family: string; effort: string }) 
       family: harness.families[0],
       models: harness.models.map((model) => ({ id: model.id, name: model.name })),
     })),
-    { id: "claude-sr2", name: "claude-sr2", family: "claude-sr2", models: PROFILE_MODELS },
+    { id: "claude-sr2", name: "claude-sr2", family: "claude-sr2", models: chat.rows ?? PROFILE_MODELS },
   ] as Snapshot["catalog"];
   const sent: string[] = [];
   function Host() {
@@ -125,14 +137,14 @@ async function mount(chat: { harness: string; family: string; effort: string }) 
         sessionId: "s1",
         harness: chat.harness,
         family: chat.family,
-        model: "claude-opus-5-5",
+        model: chat.model ?? "claude-opus-5-5",
         turnCount: 1,
         configOptions: [
           {
             id: "model",
             name: "Model",
             category: "model",
-            currentValue: "claude-opus-5-5",
+            currentValue: chat.running ?? chat.model ?? "claude-opus-5-5",
             options: PROFILE_MODELS.map((model) => ({ value: model.id, name: model.name })),
           },
           // acpmux's Claude Code Reasoning option: "default" leaves the model's own level.
@@ -244,4 +256,43 @@ test("a catalogued Claude chat on its default effort still names Medium", async 
   expect(host.querySelector(".acpmux-model-detail")?.textContent).toBe("Medium");
   const levels = await openEffort();
   expect(checked(levels)).toEqual(["Medium"]);
+});
+
+// Codex review of #24376: an unmapped profile can run Claude Code's alias `opus`. Its row names no
+// level and no catalog row has the id `opus`, so the button named no effort and nothing was
+// checked. The alias is looked up as the release it runs.
+test("a profile chat on the alias opus, which runs Opus 5.5, names Medium and checks it", async () => {
+  await mount({
+    harness: "claude-sr2",
+    family: "claude-sr2",
+    effort: "default",
+    model: "opus",
+    running: "claude-opus-5-5",
+  });
+  expect(host.querySelector(".acpmux-model-detail")?.textContent).toBe("Medium");
+  const levels = await openEffort();
+  expect(effortRow()?.querySelector(".acpmux-quick-value")?.textContent).toBe("Medium");
+  expect(checked(levels)).toEqual(["Medium"]);
+});
+
+test("an alias row that names its release resolves the same way", async () => {
+  await mount({
+    harness: "claude-sr2",
+    family: "claude-sr2",
+    effort: "default",
+    model: "opus",
+    rows: [
+      { id: "default", name: "Default (Claude Code's choice)" },
+      { id: "opus", name: "Opus", release: "claude-opus-5-5" },
+      { id: "claude-fable-5-1", name: "Fable 5.1" },
+    ],
+  });
+  expect(host.querySelector(".acpmux-model-detail")?.textContent).toBe("Medium");
+  const levels = await openEffort();
+  expect(checked(levels)).toEqual(["Medium"]);
+});
+
+test("an alias whose release is unknown still names no level, never a guess", async () => {
+  await mount({ harness: "claude-sr2", family: "claude-sr2", effort: "default", model: "opus" });
+  expect(host.querySelector(".acpmux-model-detail")).toBeNull();
 });
