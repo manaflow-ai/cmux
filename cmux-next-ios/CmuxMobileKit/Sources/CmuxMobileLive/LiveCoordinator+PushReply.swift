@@ -42,6 +42,11 @@ extension LiveCoordinator {
             try await deliverToChief(reply, budget: budget)
             return
         }
+        // A terminal agent's question (it has a tab, no acpmux permission): typed into its terminal.
+        if reply.kind == .question, reply.permissionId == nil, let tabID = reply.tabId {
+            try await deliverToTerminal(reply, tabID: tabID, budget: budget)
+            return
+        }
         // The Mac's session appears once the account's team and Macs are known (a
         // cold launch learns them first), and its chats once the link is served.
         let mac = reply.mac

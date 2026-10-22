@@ -1,4 +1,5 @@
 import CmuxAgentQuestion
+import CmuxMobileFeed
 @testable import CmuxMobileLive
 import Foundation
 import Testing
@@ -8,7 +9,7 @@ import Testing
 /// by typing into Claude Code's AskUserQuestion screen (verified live against
 /// Claude Code 2.1.308, `verify/push-matrix.md` "Terminal agent questions").
 @Suite struct TerminalQuestionTests {
-    static let claude: [String: Any] = [
+    nonisolated(unsafe) static let claude: [String: Any] = [
         "harness": "claude", "tool_use_id": "toolu_1",
         "questions": [
             ["question": "Which branch?", "header": "Branch", "multiSelect": false,
@@ -121,18 +122,19 @@ import Testing
 /// inline, answered by keys typed into that terminal only while it shows it.
 @MainActor
 @Suite struct TerminalQuestionFeedTests {
-    static let question = #"{"harness":"claude","tool_use_id":"toolu_1","questions":[{"question":"Which branch?","header":"Branch","multiSelect":false,"options":[{"label":"main","description":"the default"},{"label":"dev"},{"label":"release"}]}]}"#
+    nonisolated static let question = #"{"harness":"claude","tool_use_id":"toolu_1","questions":[{"question":"Which branch?","header":"Branch","multiSelect":false,"options":[{"label":"main","description":"the default"},{"label":"dev"},{"label":"release"}]}]}"#
 
     static func row(question: String? = TerminalQuestionFeedTests.question) -> String {
         let extra = question.map { #","question":\#($0)"# } ?? ""
         return #"{"id":"ntf_9","title":"Claude asked a question","subtitle":null,"body":"AskUserQuestion","level":"warning","terminal_id":"term_x","surface":1,"created_at_ms":5000000,"source":"agent","acknowledged":false\#(extra)}"#
     }
 
-    static let screen = "Which branch?\n❯ 1. main\n     the default\n  2. dev\n  3. release\n  4. Type something."
+    nonisolated static let screen = "Which branch?\n❯ 1. main\n     the default\n  2. dev\n  3. release\n  4. Type something."
 
     final class Daemon {
         var rows: [String] = []
-        var screen = TerminalQuestionFeedTests.screen
+        var screen: String
+        init() { screen = TerminalQuestionFeedTests.screen }
         var typed: [(Int, String)] = []
         var reads = 0
 
@@ -174,10 +176,16 @@ import Testing
         #expect(item?.opensTerminal == true)
         #expect(item?.needsYou == true)
         #expect(item?.markdown == "Which branch?")
-        // A row without the question (an older Mac) stays a needs-input card.
+        // The agent moved on (the row no longer carries the question): answered in the terminal.
         daemon.rows = [Self.row(question: nil)]
         await feed.refresh()
-        #expect(store.item(id: "term-mac-ntf_9")?.kind == .needsInput)
+        #expect(store.item(id: "term-mac-ntf_9")?.resolution == "Answered in the terminal")
+        #expect(store.item(id: "term-mac-ntf_9")?.needsYou == false)
+        // A row without the question from the start (an older Mac) is a needs-input card.
+        let (older, olderFeed) = Self.make(daemon)
+        olderFeed.treeChanged(TerminalFeedTests.tree(), macID: "mac", connection: TerminalFeedTests.connection)
+        await TerminalFeedTests.settle { older.items.count == 1 }
+        #expect(older.item(id: "term-mac-ntf_9")?.kind == .needsInput)
     }
 
     @Test func anAnswerTypesItsKeysWhileTheTerminalShowsTheQuestion() async throws {
