@@ -140,6 +140,18 @@ extension TabCell: StatusIndicatorConfigClient {
         isSpinnerExiting = false
     }
 
+    /// Checks the indicator again (the app came back, a window became main, the Mac woke): now
+    /// when the strip shows, else when it shows again.
+    func statusIndicatorResync() {
+        guard isStripShown else {
+            owesIndicatorResync = true
+            return
+        }
+        owesIndicatorResync = false
+        StatusIndicatorAppearance.resyncs &+= 1
+        statusIndicatorConfigDidChange(StatusIndicatorAppearance.shared.config)
+    }
+
     func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig) {
         if item.status != .none { updateStatusGlyph() }
         guard item.isBusy else { return }

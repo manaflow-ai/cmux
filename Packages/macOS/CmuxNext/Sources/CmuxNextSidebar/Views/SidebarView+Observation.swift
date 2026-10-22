@@ -105,7 +105,6 @@ extension SidebarViewComponents {
         let selectionChanged = lastState?.selection != state.selection || lastState?.selected != state.selected
         let rowsChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.filter != state.filter || chromeChanged || profileChanged
             || state.preferences.changesList(from: lastState?.preferences) || lastState?.tree != state.tree
-            || lastState?.pullRequests != state.pullRequests
             || lastState?.history != state.history
             || lastState?.workspacesAsTabs != state.workspacesAsTabs || lastState?.foldsDone != state.foldsDone
             || lastState?.groupsByStatus != state.groupsByStatus
@@ -146,6 +145,13 @@ extension SidebarViewComponents {
                 }
             }
             lastSections = model.sections
+        }
+        // A badge change (a pull request read landed) patches the rows whose badge changed, as a status does; the list
+        // is laid out again only when one's height changes (it laid out all 500 rows per answer: sidebar-lag-DESIGN.md).
+        if let last = lastState, last.pullRequests != state.pullRequests, !listChanged {
+            let ids = Set(last.pullRequests.keys).union(state.pullRequests.keys).filter { last.pullRequests[$0] != state.pullRequests[$0] }
+            let rows = ids.compactMap { list.workspaces[$0] }
+            if !rows.isEmpty { list.patchRows(rows) }
         }
         if lastState?.onScreen != state.onScreen { list.syncRowStates() }
         if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }

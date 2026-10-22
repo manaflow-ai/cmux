@@ -27,6 +27,7 @@ import devserver  # noqa: E402
 import ports  # noqa: E402
 import demo  # noqa: E402
 import macsockets  # noqa: E402
+import linuxsockets  # noqa: E402
 import socket  # noqa: E402
 import struct  # noqa: E402
 
@@ -101,6 +102,9 @@ class HopTests(unittest.TestCase):
 
     def test_owner_names_the_hop(self) -> None:
         self.assertTrue(devserver.hop_summary("127.0.0.1", {}, "cmux-tui:4242")["proxied"])
+        self.assertTrue(devserver.hop_summary("127.0.0.1", {}, "cmux:19566")["proxied"])
+        # Seen on the Mac mini, 2026-10-21: a pushed build keeps its file name.
+        self.assertTrue(devserver.hop_summary("127.0.0.1", {}, "cmux-tui-nightly:75986")["proxied"])
         direct = devserver.hop_summary("127.0.0.1", {}, "Chromium Helper:99")
         self.assertFalse(direct["proxied"])
         self.assertIn("direct", direct["summary"])
@@ -141,6 +145,16 @@ class DevServerTests(unittest.TestCase):
                 self.assertIn(b"event: reload", buf)
             finally:
                 httpd.shutdown()
+
+
+class LinuxSocketsTests(unittest.TestCase):
+    def test_parses_proc_net_tcp(self) -> None:
+        text = (
+            "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
+            "   0: 0100007F:D9B4 0100007F:DA31 01 00000000:00000000 00:00000000 00000000  1000        0 41234 1 0 20 4 30 10 -1\n"
+            "   1: 0100007F:DA31 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 41000 1 0 100 0 0 10 0\n"
+        )
+        self.assertEqual(linuxsockets.parse_proc_net_tcp(text), [(0xD9B4, 0xDA31, 41234, "01"), (0xDA31, 0, 41000, "0A")])
 
 
 class MacSocketsTests(unittest.TestCase):
