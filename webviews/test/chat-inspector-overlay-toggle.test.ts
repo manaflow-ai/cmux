@@ -104,7 +104,8 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
             },
             [x, y],
           );
-          // The panel starts at the header's foot (in the tab row, the row's), not over it.
+          // The floating panel starts 4px under the header's foot (in the tab row, the row's; inspector.css
+          // top), not over it.
           const header = (await page.locator("header.acpmux-header").boundingBox())!;
           const top = (await panel.boundingBox())!.y;
           const foot = tabRow > 0 ? tabRow : header.y + header.height;
@@ -132,7 +133,7 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
           );
           expect({
             hit,
-            atFoot: Math.abs(top - foot) < 0.5,
+            atFoot: Math.abs(top - (foot + 4)) < 0.5,
             closed,
             pressed: await toggle.getAttribute("aria-pressed"),
             moved,
