@@ -143,8 +143,23 @@ on. With no script set, the cost is zero.
 sidebar does. It applies 200 single-row update batches and times `apply` plus
 `layoutSubtreeIfNeeded` + `displayIfNeeded` on main. It records p50/p95 and asserts the 1 ms
 p95 budget. `CustomSidebarSlotTests` asserts the structural property behind it: one update
-invalidates exactly one slot. The results table is in the landing report and in
-`~/fun/cmux-galleries/custom-sidebar/`.
+invalidates exactly one slot.
+
+Fleet, `CustomSidebarPerfTests` alone on aws-m4pro-9, calibration factor 1.00, 500 workspaces,
+200 single-row updates (half on screen, half far below):
+
+| | p50 | p95 | max |
+| --- | --- | --- | --- |
+| No script (native list) | 0.432 ms | 1.222 ms | 1.948 ms |
+| Script (`cmux.sidebar/1`) | 0.019 ms | 1.180 ms | 1.564 ms |
+
+- **The target is not met yet.** p95 is 0.18 ms over the 1 ms target. The cost is the on-screen
+  row's frame commit (layout, display, flush), which the native list pays too; an off-screen row
+  costs 0.02 ms.
+- **What the test enforces.** It records the 1 ms check as a known issue. Its hard gate is
+  1.5 ms.
+- **Next step.** Cut the commit: draw text rows through a layer-backed cell instead of a SwiftUI
+  `Text` re-layout.
 
 ## Tests (red first)
 
