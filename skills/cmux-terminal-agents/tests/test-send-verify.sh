@@ -27,7 +27,7 @@ submitted() { cat "$FAKE_CMUX_DIR/$(term_of "$1").submitted" 2>/dev/null; }
 field() { python3 -c 'import json,sys
 d=json.loads(sys.stdin.read() or "{}")
 for k in sys.argv[1].split("."): d=d.get(k) if isinstance(d,dict) else None
-print(json.dumps(d))' "$1"; }
+print(json.dumps(d, ensure_ascii=False))' "$1"; }
 start() { # NAME TUI_ARGS
   FAKE_TUI_ARGS="$2" "$A" start "$1" --no-group --cwd "$WORK/cwd" >"$WORK/$1.start" 2>&1
 }
@@ -49,7 +49,7 @@ out=$("$A" send stuck --submit-timeout 1 "this never submits" 2>/dev/null); code
 if [ "$code" != 0 ] && [ "$(echo "$out" | field submitted)" = false ] && echo "$out" | field screen | grep -q 'this never submits'; then
   pass "ignored Enter: non-zero exit, submitted:false, screen"
 else failt "ignored Enter: non-zero exit, submitted:false, screen" "exit $code out=$(echo "$out" | head -c 300)"; fi
-presses=$(grep -c '"ev": "cr' "$FAKE_CMUX_DIR/$(term_of stuck).events" 2>/dev/null)
+presses=$(grep -c '"ev": "cr"' "$FAKE_CMUX_DIR/$(term_of stuck).events" 2>/dev/null)
 [ "$presses" = 2 ] && pass "ignored Enter: pressed Enter exactly twice" || failt "ignored Enter: pressed Enter exactly twice" "saw $presses"
 
 # 3. --no-submit leaves the text in the composer and submits nothing.
