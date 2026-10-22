@@ -21,8 +21,28 @@ extension AgentPaneView {
         let menu = LinkMenu()
         let rows = menu.items(menu.pathRows(for: file, isDirectory: resolved.isFolder).filter { $0.kind != .open }, file: file)
         // A file (a chip, a video, an audio clip) leads with Copy and Save As…; a folder has neither.
-        guard !resolved.isFolder else { return rows }
-        return AgentPaneFileRows(save: { [weak self] in self?.model.replyLinks.saveFile($0, $1) }).items(for: file) + [.separator()] + rows
+        let items = resolved.isFolder ? rows
+            : AgentPaneFileRows(save: { [weak self] in self?.model.replyLinks.saveFile($0, $1) }).items(for: file) + [.separator()] + rows
+        // Each row holds this Mac's file; the chat may turn remote before one is picked, so each
+        // checks again when it runs (cx-k21v).
+        let model = model
+        Self.gate(items) { [weak model] in model.map { !$0.remoteChat && !$0.transport.remoteWire } ?? false }
+        return items
+    }
+
+    /// Makes every row of `items` (and of their submenus) run only while `allowed()` holds.
+    static func gate(_ items: [NSMenuItem], allowed: @escaping @MainActor () -> Bool) {
+        for item in items {
+            if let submenu = item.submenu { gate(submenu.items, allowed: allowed) }
+            guard let action = item.action, let target = item.representedObject as? NSObject ?? item.target as? NSObject else { continue }
+            let gated = AgentPaneMenuAction { [weak item] in
+                guard allowed() else { return }
+                _ = target.perform(action, with: item)
+            }
+            item.target = gated
+            item.action = #selector(AgentPaneMenuAction.run)
+            item.representedObject = gated
+        }
     }
 }
 

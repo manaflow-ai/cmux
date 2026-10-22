@@ -167,6 +167,9 @@ extension AgentPaneModel {
 
     /// Opens `path` after every check: a folder in Finder, a file in the pane's file pages.
     private func openResolved(_ path: String) async -> Result<Void, AgentPaneReplyError> {
+        // Checked again here, after any confirmation: the chat may have turned remote while the
+        // sheet was up (cx-k21v).
+        guard !remoteChat, !transport.remoteWire else { return .failure(.pathOutsideRoots) }
         guard let canonical = AcpmuxPathPolicy.canonical(path) else { return .failure(.pathInvalid) }
         // The link may have changed between the check and now: check the secret names again.
         guard !replyPaths().isDenied(canonical) else { return .failure(.pathDenied) }
