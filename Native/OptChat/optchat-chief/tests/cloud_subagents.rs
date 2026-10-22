@@ -1392,3 +1392,100 @@ fn a_subagent_waiting_on_a_fleet_job_pauses_and_wakes_on_its_result() {
     assert!(sub.fleet_wait.is_empty());
     let _ = SubStatus::Done;
 }
+
+/// Records git token refreshes.
+#[derive(Default)]
+struct GitVms {
+    calls: std::sync::Mutex<Vec<String>>,
+}
+
+impl optchat_chief::cloud_vms::CloudVms for GitVms {
+    fn resume(&self, peer: &str) -> Result<(), String> {
+        self.calls.lock().unwrap().push(format!("resume {peer}"));
+        Ok(())
+    }
+    fn pause(&self, peer: &str) -> Result<(), String> {
+        self.calls.lock().unwrap().push(format!("pause {peer}"));
+        Ok(())
+    }
+    fn provision(&self, peer: &str, _: &str) -> Result<(), String> {
+        self.calls.lock().unwrap().push(format!("provision {peer}"));
+        Ok(())
+    }
+    fn refresh_git(&self, peer: &str) -> Result<(), String> {
+        self.calls.lock().unwrap().push(format!("git {peer}"));
+        Ok(())
+    }
+}
+
+/// V2-5: a running subagent VM gets a fresh 1-hour git token before the
+/// old one expires; a paused VM does not (its resume mints one).
+#[test]
+fn a_running_subagent_vm_gets_a_fresh_git_token_and_a_paused_one_does_not() {
+    use optchat_chief::brain::Input;
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let vms = Arc::new(GitVms::default());
+    let sp = pool_unset(&mut h, vms.clone());
+    h.brain.set_git_refresh(Duration::ZERO);
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["Design doc".into()], None)).unwrap();
+    let gits = |v: &GitVms| {
+        v.calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|c| *c == "git chief-sub-a1")
+            .count()
+    };
+    let until = Instant::now() + Duration::from_secs(5);
+    while gits(&vms) == 0 && Instant::now() < until {
+        h.brain.step(Input::CloudTick);
+        while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+    }
+    assert!(
+        gits(&vms) >= 1,
+        "refreshed: {:?}",
+        vms.calls.lock().unwrap()
+    );
+
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: "ended".into(),
+    });
+    let until = Instant::now() + Duration::from_secs(5);
+    while !vms
+        .calls
+        .lock()
+        .unwrap()
+        .contains(&"pause chief-sub-a1".to_owned())
+        && Instant::now() < until
+    {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    std::thread::sleep(Duration::from_millis(100));
+    let before = gits(&vms);
+    for _ in 0..3 {
+        h.brain.step(Input::CloudTick);
+        while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+    }
+    assert_eq!(gits(&vms), before, "paused: no refresh");
+}
+
+/// A cloud subagent is told to push itself with the VM's token.
+#[test]
+fn a_cloud_subagent_is_told_to_push_with_its_vms_token() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let vms = Arc::new(GitVms::default());
+    let sp = pool_unset(&mut h, vms);
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["Design doc".into()], None)).unwrap();
+    let first = subs(&h)[0].1.clone();
+    assert!(first.contains("~/.config/git/cmux-token"), "{first}");
+    assert!(first.contains("plain push"), "{first}");
+}

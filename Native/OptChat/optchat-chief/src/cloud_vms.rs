@@ -42,6 +42,12 @@ pub trait CloudVms: Send + Sync {
         let _ = (peer, agent);
         Ok(())
     }
+    /// Writes a fresh 1-hour GitHub token on peer `peer`'s VM (cmuxterm-hq
+    /// `deploy.sh git-token`, cloud-subagents-DESIGN.md V2-5).
+    fn refresh_git(&self, peer: &str) -> Result<(), String> {
+        let _ = peer;
+        Ok(())
+    }
 }
 
 /// The VM command the pool tool names: `~/.config/cloud-subagents/vm-cmd`

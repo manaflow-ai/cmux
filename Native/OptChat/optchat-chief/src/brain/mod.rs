@@ -1111,6 +1111,11 @@ impl Brain {
         self.fleet_every = every;
     }
 
+    /// How often a running subagent VM gets a fresh git token (V2-5).
+    pub fn set_git_refresh(&mut self, every: std::time::Duration) {
+        let _ = every;
+    }
+
     pub fn set_cloud_reap(&mut self, after: std::time::Duration) {
         self.cloud_reap = after;
     }
