@@ -5976,24 +5976,30 @@ function AcpmuxPane() {
           // A lost prompt put back in this chat's composer that the host sent after all goes out of
           // this send: it ran once already. Only as it came back; an edited draft goes as typed.
           const parts = [...restoredLost].filter(([, back]) => back.sessionId === client.selectedSession);
-          const delivered = new Set(parts.flatMap(([, back], at) => (back.delivered ? [at] : [])));
-          const left =
-            delivered.size > 0
-              ? withoutParts(
-                  { text: typed, attachmentIds: typedAttachments.map((attachment) => attachment.id) },
-                  parts.map(([, back]) => ({
-                    text: back.text,
-                    attachmentIds: back.attachments.map((attachment) => attachment.id),
-                  })),
-                  delivered,
-                )
-              : undefined;
-          for (const at of left ? delivered : []) client.dismissNotice(parts[at]![1].noticeId);
-          const text = left ? left.text : typed;
-          const attachments = left
-            ? typedAttachments.filter((attachment) => left.attachmentIds.includes(attachment.id))
-            : typedAttachments;
-          if (left && !text.trim() && attachments.length === 0) {
+          // What goes, by which of those parts ran by now (`retireLost` marks each entry in place, and
+          // the send asks again just before it goes: a replay can land while the session persists).
+          const outOfRan = () => {
+            const delivered = new Set(parts.flatMap(([, back], at) => (back.delivered ? [at] : [])));
+            const left =
+              delivered.size > 0
+                ? withoutParts(
+                    { text: typed, attachmentIds: typedAttachments.map((attachment) => attachment.id) },
+                    parts.map(([, back]) => ({
+                      text: back.text,
+                      attachmentIds: back.attachments.map((attachment) => attachment.id),
+                    })),
+                    delivered,
+                  )
+                : undefined;
+            for (const at of left ? delivered : []) client.dismissNotice(parts[at]![1].noticeId);
+            const attachments = left
+              ? typedAttachments.filter((attachment) => left.attachmentIds.includes(attachment.id))
+              : typedAttachments;
+            return { ran: left ? delivered.size : 0, text: left ? left.text : typed, attachments };
+          };
+          const first = outOfRan();
+          let { text, attachments } = first;
+          if (first.ran > 0 && !text.trim() && attachments.length === 0) {
             // Nothing but prompts that ran already: nothing goes, and the composer lets go of them.
             for (const [promptId] of parts) restoredLost.delete(promptId);
             accepted?.();
@@ -6131,6 +6137,16 @@ function AcpmuxPane() {
             return refused(error, Boolean(accepted));
           });
           await persistSession(sessionId);
+          // One of the parts ran while the session persisted: it goes out of this send too.
+          const late = outOfRan();
+          if (late.ran > first.ran) {
+            ({ text, attachments } = late);
+            if (!text.trim() && attachments.length === 0) {
+              letGo();
+              accepted?.();
+              return;
+            }
+          }
           const turn = client
             .send(text, attachments, kept?.promptId ?? again, accept, kept?.ticket, steer)
             .then(
