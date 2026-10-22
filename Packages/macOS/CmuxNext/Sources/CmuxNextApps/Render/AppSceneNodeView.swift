@@ -46,7 +46,9 @@ struct AppSceneNodeView: View {
         case .menu:
             AppSceneMenuButton(model: model, id: id, node: node)
         case .spacer:
-            Spacer(minLength: 0)
+            // Sized after its siblings: an HStack offers each child an equal share, so a title
+            // beside two Spacers would truncate at a third of the row.
+            Spacer(minLength: 0).layoutPriority(-1)
         case .divider:
             Divider().overlay(colors.separator)
         case .circle, .capsule, .rectangle, .roundedRectangle:

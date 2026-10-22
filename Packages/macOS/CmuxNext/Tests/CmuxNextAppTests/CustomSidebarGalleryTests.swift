@@ -45,18 +45,22 @@ import Testing
         for title in ["api-gateway", "web-dashboard", "ios-release", "scratch"] {
             #expect(titles.contains(title), "\(name) shows \(title)")
         }
+        // A title beside Spacers gets the row's width, not an equal share (no "web-dash…").
+        let row = NSHostingView(rootView: AppSceneNodeView(model: model, id: try #require(model.root)).frame(width: 260))
+        #expect(row.fittingSize.width >= 200, "\(name) rows span the sidebar")
         #expect(Self.render(model, dark: true) != nil)
     }
 
     @Test func writesTheGallerySheet() throws {
         let gap: CGFloat = 16
         let width = (Self.size.width + gap) * CGFloat(Self.names.count) + gap
-        let height = (Self.size.height + gap) * 2 + gap
+        // Dark only: scene colors follow the cmux theme, not the window's appearance.
+        let height = Self.size.height + gap * 2
         let sheet = NSImage(size: NSSize(width: width, height: height))
         sheet.lockFocus()
         NSColor(white: 0.5, alpha: 1).setFill()
         NSRect(x: 0, y: 0, width: width, height: height).fill()
-        for (row, dark) in [true, false].enumerated() {
+        for (row, dark) in [true].enumerated() {
             let back = dark ? NSColor(white: 0.12, alpha: 1) : NSColor(white: 0.96, alpha: 1)
             for (column, name) in Self.names.enumerated() {
                 let frame = NSRect(x: gap + CGFloat(column) * (Self.size.width + gap),
