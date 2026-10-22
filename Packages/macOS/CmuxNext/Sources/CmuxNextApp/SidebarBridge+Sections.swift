@@ -165,6 +165,13 @@ extension SidebarBridge {
                                                  entries: entries)
     }
 
+    /// The open workspace a layout item names (a pinned workspace's tile), or nil.
+    func workspaceID(ofItem id: LayoutItemID) -> SidebarWorkspaceID? {
+        guard let ref = (model.layout.item(id) ?? model.listedItem(id))?.ref,
+              let workspace = WorkspaceLayoutRefs(machines: services.machines).workspaceID(for: ref) else { return nil }
+        return SidebarWorkspaceID(workspace)
+    }
+
     /// The right-click menu of a layout item: Hide only on app items.
     func layoutItemMenu(_ id: LayoutItemID) -> NSMenu? {
         let item = model.layout.item(id) ?? model.listedItem(id)

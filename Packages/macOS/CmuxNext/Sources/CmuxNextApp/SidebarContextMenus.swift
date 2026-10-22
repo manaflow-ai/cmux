@@ -9,6 +9,16 @@ import CmuxNextSidebar
 enum SidebarContextMenus {
     /// Every sidebar menu draws its rows with a wash of `scope`'s accent (the sidebar's), not the
     /// system's blue (#19754's follow-up); the workspace and group menus open with their name and colors.
+    /// The workspace row menu's entries. Several selected rows get Chrome's menu for several tabs
+    /// (ContextMenuEssentials.selectionMenus). Dismiss Highlight shows only on a highlighted row
+    /// (cx-epgo), Reset Workspace Color only when a targeted workspace has a color.
+    static func workspaceEntries(selection: Bool, highlighted: Bool, colored: Bool) -> [ContextMenuEntry] {
+        let catalog = ContextMenuCatalog.shared
+        let all = selection ? catalog.selectionEntries(for: .workspaceRow) : catalog.entries(for: .workspaceRow)
+        let hidden: [ActionID] = (highlighted ? [] : ["notifications.dismissHighlight"]) + (colored ? [] : ["palette.resetWorkspaceColor"])
+        return hidden.isEmpty ? all : ContextMenuCatalog.removing(Set(hidden), from: all)
+    }
+
     static func menu(for target: SidebarContextTarget, model: SidebarModel, services: AppServices, scope: ThemeScope) -> NSMenu? {
         let registry = services.registry
         switch target {
@@ -28,14 +38,14 @@ enum SidebarContextMenus {
             guard let first = ids.first, !ids.contains(where: { model.isPlaceholder($0) || CloudCreationRows.isRow($0, services) }) else { return nil }
             // Dismiss Highlight shows only while the row's workspace draws an attention ring (cx-epgo).
             let highlighted = services.daemon.store.workspaces.first { $0.id == first.rawValue }.map(services.notifications.hasHighlight) ?? false
-            // Several selected rows get Chrome's menu for several tabs (ContextMenuEssentials.selectionMenus).
-            let catalog = ContextMenuCatalog.shared, selection = ids.count > 1
-            let all = selection ? catalog.selectionEntries(for: .workspaceRow) : catalog.entries(for: .workspaceRow)
-            let entries = highlighted ? all : ContextMenuCatalog.removing(["notifications.dismissHighlight"], from: all)
-            let target = ActionTargetRef(kind: .workspace, id: first.rawValue)
+            let colored = ids.contains { services.workspace(id: $0.rawValue)?.color != nil }
+            let entries = workspaceEntries(selection: ids.count > 1, highlighted: highlighted, colored: colored)
+            let target = ActionTargetRef(kind: .workspace, id: first.rawValue), selection = ids.count > 1
             let menu = registry.makeContextMenu(for: .workspaceRow, target: target, entries: entries)
             // The name field renames the clicked row only, so a multi-row selection gets just the swatches.
-            MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: selection ? nil : model.workspace(first)?.title ?? "",
+            // A pinned workspace's tile has no row in the list model; its name comes from the workspace.
+            let title = model.workspace(first)?.title ?? services.workspace(id: first.rawValue)?.displayName ?? ""
+            MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: selection ? nil : title,
                                        rename: "renameWorkspace")
             if selection { nameSelection(menu, ids, services) }
             if !selection, model.workspace(first)?.machineID.isLocalChief == true { noteStartedByChief(menu) }

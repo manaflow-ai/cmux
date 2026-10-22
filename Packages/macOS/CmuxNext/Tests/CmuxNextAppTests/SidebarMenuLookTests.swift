@@ -56,6 +56,18 @@ struct SidebarMenuLookTests {
         #expect(header.strip != nil, "group: the colors are swatches")
     }
 
+    /// A colored workspace's menu offers Reset Workspace Color at the top level, under the
+    /// swatches; an uncolored one's leaves it out, More included.
+    @Test func resetColorShowsOnlyForAColoredWorkspace() {
+        let ids = { (entries: [ContextMenuEntry]) in ContextMenuCatalog.shared.referencedIDs(entries) }
+        let colored = SidebarContextMenus.workspaceEntries(selection: false, highlighted: false, colored: true)
+        let top = colored.filter { if case .folder = $0 { false } else { true } }
+        #expect(ids(top).contains("palette.resetWorkspaceColor"))
+        #expect(!ids(SidebarContextMenus.workspaceEntries(selection: false, highlighted: false, colored: false)).contains("palette.resetWorkspaceColor"))
+        #expect(ids(SidebarContextMenus.workspaceEntries(selection: true, highlighted: false, colored: true)).contains("palette.resetWorkspaceColor"))
+        #expect(!ids(SidebarContextMenus.workspaceEntries(selection: true, highlighted: false, colored: false)).contains("palette.resetWorkspaceColor"))
+    }
+
     /// More holds rows and at most one level of submenus: no More inside More.
     @Test func moreIsNotNested() throws {
         let menu = try Self.menu(.workspaces([Self.workspace]))

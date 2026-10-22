@@ -402,7 +402,14 @@ final class SidebarBridge {
 
     func contextMenu(for target: SidebarContextTarget) -> NSMenu? {
         switch target {
-        case .layoutItem(let id): layoutItemMenu(id)?.themeRows(in: container.themeScope.fullStrength)
+        // A pinned workspace's tile has its row's menu: name, colors, Reset Color, Unpin (a tile's
+        // generic item menu had no colors, 2026-10-21).
+        case .layoutItem(let id):
+            if let workspace = workspaceID(ofItem: id) {
+                SidebarContextMenus.menu(for: .workspaces([workspace]), model: model, services: services, scope: container.themeScope.fullStrength)
+            } else {
+                layoutItemMenu(id)?.themeRows(in: container.themeScope.fullStrength)
+            }
         case .layoutSection(let id): layoutSectionMenu(id)?.themeRows(in: container.themeScope.fullStrength)
         default: SidebarContextMenus.menu(for: target, model: model, services: services, scope: container.themeScope.fullStrength)
         }
