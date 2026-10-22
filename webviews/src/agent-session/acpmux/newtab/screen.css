@@ -24,7 +24,7 @@
 /* The suggestions belong to the field: a menu the composer opens (model, reasoning, access: the dropdown layer) covers them, whichever opened last, as Codex desktop's composer menus do (Leo 10-15: the model menu opened under them). A dialog's scrim, on the same layer and portaled later, still dims them. */
 .ui-positioner:has(>.nt-popover){z-index:var(--layer-overlay)}
 .nt-popover .nt-rows{--popup-scroll-cap:360px;box-sizing:border-box;padding:var(--ui-popup-padding);max-height:min(48vh,360px);overflow:auto;overscroll-behavior:contain}
-.nt-row{display:flex;align-items:center;gap:10px;height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);color:var(--agent-soft);font-size:var(--text-control);cursor:default;white-space:nowrap}
+.nt-row{display:flex;align-items:center;gap:var(--ui-menu-icon-gap);height:var(--ui-row-height);padding:0 var(--ui-menu-row-end) 0 var(--ui-menu-row-start);border-radius:var(--ui-row-radius);color:var(--agent-soft);font-size:var(--text-control);cursor:default;white-space:nowrap}
 .nt-row.is-selected{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent);color:var(--agent-text)}
 .nt-row-glyph{flex:none;display:grid;place-items:center;width:16px;height:16px}
 .nt-row-icon{color:var(--acpmux-composer-dim)}

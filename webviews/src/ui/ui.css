@@ -83,19 +83,22 @@
   overflow: hidden;
 }
 
+/* Rows on the one menu grid (--ui-menu-*, ui/popupSurface.css, from schemas/menu-metrics): text at
+   the icon column, or past it once a row of the menu has an icon or a check (popupSurface.css). */
 .ui-menu-item {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--ui-menu-icon-gap);
   min-height: var(--ui-row-height, var(--cmux-control-height));
-  padding: 2px var(--ui-row-padding-inline);
+  padding: 2px var(--ui-menu-row-end) 2px var(--ui-menu-row-start);
   border-radius: var(--ui-row-radius);
   outline: none;
 }
 
 .ui-menu-shortcut {
   margin-inline-start: auto;
-  padding-inline-start: 20px;
+  padding-inline-start: var(--ui-menu-shortcut-gap);
   color: var(--ui-fg-2);
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
@@ -151,8 +154,25 @@
 
 .ui-menu-check {
   display: inline-flex;
-  width: 12px;
+  flex: none;
+  width: var(--ui-menu-icon-size);
   justify-content: center;
+}
+
+/* One text column per menu: once a row has an icon or a check, every row's text and the section
+   titles start past the icon column; a check beside an icon sits in the state column. The menu is
+   in :where, so a menu that draws its checks at the trailing edge (the agent pane's reasoning and
+   mode menus) keeps its own columns. */
+:where(:is(.ui-menu, .ui-context-menu):has(.ui-menu-check, .ui-menu-icon))
+  .ui-menu-item:not(:has(> .ui-menu-check, > .ui-menu-icon)),
+:where(:is(.ui-menu, .ui-context-menu):has(.ui-menu-check, .ui-menu-icon)) .ui-menu-group-label {
+  padding-inline-start: var(--ui-menu-row-text-start);
+}
+
+.ui-menu-item:has(> .ui-menu-icon) > .ui-menu-check {
+  position: absolute;
+  inset-inline-start: var(--ui-menu-state-start);
+  width: auto;
 }
 
 .ui-select {
@@ -217,15 +237,22 @@
 
 .ui-menu-group-label,
 .ui-drill-section {
-  padding: 6px 8px 2px;
   color: var(--ui-fg-2);
   font-size: var(--text-caption);
   font-weight: var(--weight-emphasis);
 }
 
+.ui-menu-group-label {
+  padding: 6px var(--ui-menu-row-end) 2px var(--ui-menu-row-start);
+}
+
+.ui-drill-section {
+  padding: 6px 8px 2px;
+}
+
 .ui-separator {
   height: 1px;
-  margin: 4px 2px;
+  margin: 4px var(--ui-menu-separator-margin);
   background: var(--ui-line);
 }
 

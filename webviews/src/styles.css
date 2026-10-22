@@ -668,26 +668,29 @@ body {
 .menu-item svg [data-precision-dot] {
   stroke-width: 2;
 }
+/* The diff viewer's menus on the one menu grid (schemas/menu-metrics, --cmux-menu-* in
+   pages/shared/desktop.css): highlight, icon, text, check and separator columns. */
 .menu-separator {
   border: 0;
   height: 1px;
-  margin: 7px 6px;
+  margin: 7px calc(var(--cmux-menu-separator-inset) - var(--cmux-menu-highlight-inset));
   background: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
 }
 .menu-item {
   width: 100%;
   min-height: 31px;
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 18px;
+  grid-template-columns: var(--cmux-menu-icon-size) minmax(0, 1fr) 18px;
   align-items: center;
-  gap: 10px;
+  gap: var(--cmux-menu-icon-gap);
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--cmux-menu-highlight-radius);
   background: transparent;
   color: color-mix(in lab, var(--cmux-diff-fg) 86%, var(--cmux-diff-bg));
   font: inherit;
   text-align: left;
-  padding: 0 7px;
+  padding: 0 calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset)) 0
+    calc(var(--cmux-menu-icon-x) - var(--cmux-menu-highlight-inset));
 }
 .menu-item:hover:not(:disabled) {
   background: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
@@ -1462,7 +1465,7 @@ body[data-loading="true"] #status::before {
 }
 .file-tree-context-menu {
   min-width: 180px;
-  padding: 4px;
+  padding: var(--cmux-menu-highlight-inset);
   border: 1px solid var(--cmux-diff-border);
   border-radius: 7px;
   background: var(--cmux-diff-solid-bg);
@@ -1738,7 +1741,7 @@ svg[data-icon-fill] {
   display: flex;
   flex-direction: column;
   min-width: 200px;
-  padding: 6px;
+  padding: 6px var(--cmux-menu-highlight-inset);
   border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
   border-radius: 12px;
   background: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
@@ -1750,11 +1753,11 @@ svg[data-icon-fill] {
   flex-direction: column;
 }
 .toolbar-menu .menu-separator {
-  margin: 5px 8px;
+  margin: 5px calc(var(--cmux-menu-separator-inset) - var(--cmux-menu-highlight-inset));
 }
 .toolbar-menu-item {
   min-height: 28px;
-  border-radius: 7px;
+  border-radius: var(--cmux-menu-highlight-radius);
   cursor: pointer;
   color: color-mix(in lab, var(--cmux-diff-fg) 90%, var(--cmux-diff-bg));
 }

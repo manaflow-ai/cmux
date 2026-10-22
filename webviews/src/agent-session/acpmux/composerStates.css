@@ -528,7 +528,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 }
 .acpmux-queued-more .ui-menu-shortcut {
   margin-inline-start: auto;
-  padding-inline-start: 20px;
+  padding-inline-start: var(--ui-menu-shortcut-gap);
 }
 
 /* What the strip holds: "Queued" over prompts that wait for the turn to end, "Steering" on a

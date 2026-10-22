@@ -27,13 +27,15 @@
 :where(.ui-positioner)>.ui-popup{border-radius:var(--ui-popup-radius)}
 /* The point-anchored context menu (ui/ContextMenu.tsx; New Tab All chats rows, cx-j4sd): the pane does not load ui.css, so it draws the menu in its own menu look. */
 .ui-popup.ui-context-menu{box-sizing:border-box;padding:var(--ui-popup-padding);border-radius:var(--ui-popup-radius);color:var(--agent-text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);line-height:18px;outline:none}
-.ui-context-menu .ui-menu-item{display:flex;align-items:center;gap:8px;width:100%;height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border:0;border-radius:var(--ui-row-radius);background:transparent;color:inherit;font:inherit;text-align:start;white-space:nowrap;cursor:default}
+.ui-context-menu .ui-menu-item{display:flex;align-items:center;gap:var(--ui-menu-icon-gap);width:100%;height:var(--ui-row-height);padding:0 var(--ui-menu-row-end) 0 var(--ui-menu-row-start);border:0;border-radius:var(--ui-row-radius);background:transparent;color:inherit;font:inherit;text-align:start;white-space:nowrap;cursor:default}
 .ui-context-menu .ui-menu-item[data-highlighted]{background:var(--acpmux-menu-highlight);outline:none}
 .ui-context-menu .ui-menu-item:disabled{color:var(--agent-muted)}
 /* A long label (a link, a path) ends in an ellipsis instead of widening the menu. */
 .ui-popup.ui-context-menu{max-width:min(360px,calc(100vw - 8px))}
 .ui-context-menu .ui-menu-label{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.ui-context-menu .ui-separator{height:.5px;margin:4px 8px;border:0;background:var(--agent-border)}
+/* One text column (the menu grid, ui/popupSurface.css): once a row has an icon, an icon-less row's text starts past the icon column too. */
+.ui-context-menu:has(.ui-menu-icon) .ui-menu-item:not(:has(>.ui-menu-icon)){padding-inline-start:var(--ui-menu-row-text-start)}
+.ui-context-menu .ui-separator{height:.5px;margin:4px var(--ui-menu-separator-margin);border:0;background:var(--agent-border)}
 @media (prefers-reduced-motion:no-preference){.ui-popup.ui-context-menu{animation:ui-popup-open var(--ui-popup-open) ease-out}}
 /* appearance.borders none (data-borders on the root, applyAgentTheme): the composer, menu and tray edges draw clear in place; their fills keep them apart. */
 :root[data-borders=none] .acpmux-shell{--acpmux-composer-edge:transparent}
@@ -135,9 +137,12 @@
 .acpmux-menu-start{left:0}
 .acpmux-menu-end{right:0;transform-origin:var(--transform-origin,bottom right)}
 .acpmux-menu-section+.acpmux-menu-section{margin-top:6px;padding-top:6px;box-shadow:inset 0 .5px 0 var(--acpmux-composer-edge)}
-.acpmux-menu-header{display:flex;align-items:center;min-height:24px;padding:0 8px;color:var(--acpmux-composer-dim);font-size:var(--text-detail)}
-.acpmux-menu-item{display:flex;align-items:center;gap:8px;min-height:var(--ui-row-height);padding:5px var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius);cursor:default}
+.acpmux-menu-header{display:flex;align-items:center;min-height:24px;padding:0 var(--ui-menu-row-end) 0 var(--ui-menu-row-start);color:var(--acpmux-composer-dim);font-size:var(--text-detail)}
+/* A picker row on the one menu grid (ui/popupSurface.css --ui-menu-*): its icon or check at the icon column, its text past it, a trailing check or count at the trailing inset. */
+.acpmux-menu-item{display:flex;align-items:center;gap:var(--ui-menu-icon-gap);min-height:var(--ui-row-height);padding:5px var(--ui-menu-row-end) 5px var(--ui-menu-row-start);box-sizing:border-box;border-radius:var(--ui-row-radius);cursor:default}
 .acpmux-project-browse{width:100%;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+/* One text column per picker: once a row leads with a check or an icon, a row without one starts its text past the icon column too. */
+.acpmux-menu:has(.acpmux-menu-item>:is(.ui-menu-check,.acpmux-icon):first-child) .acpmux-menu-item:not(:has(>:is(.ui-menu-check,.acpmux-icon,.acpmux-project-badge,.acpmux-location-row,.acpmux-location-action):first-child)){padding-inline-start:var(--ui-menu-row-text-start)}
 .acpmux-menu .ui-menu-check{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;color:var(--acpmux-composer-dim);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-detail);line-height:1}
 .acpmux-menu-active{background:var(--acpmux-menu-hover)}
 .acpmux-menu-item.acpmux-unrestricted{color:var(--acpmux-warning)}
@@ -146,7 +151,7 @@
 .acpmux-menu-description{color:var(--acpmux-composer-dim);font-size:var(--text-detail)}
 .acpmux-unrestricted .acpmux-menu-description{color:inherit}
 .acpmux-slash-menu{--popup-scroll-cap:296px;position:absolute;bottom:calc(100% + 6px);left:0;right:0;z-index:3;max-height:min(296px,50vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);font-size:13px;transform-origin:bottom}
-.acpmux-slash-row{display:flex;align-items:center;gap:8px;height:31px;padding:0 8px;border-radius:8px;cursor:default;white-space:nowrap}
+.acpmux-slash-row{display:flex;align-items:center;gap:var(--ui-menu-icon-gap);height:31px;padding:0 var(--ui-menu-row-end) 0 var(--ui-menu-row-start);border-radius:var(--ui-row-radius);cursor:default;white-space:nowrap}
 .acpmux-slash-active{background:var(--acpmux-menu-hover)}
 .acpmux-slash-name{flex:none;color:var(--agent-text)}
 .acpmux-slash-name mark{background:none;color:inherit;font-weight:600}
@@ -204,7 +209,7 @@
 .acpmux-newtab-kind:focus-visible,.acpmux-newtab-all:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 .acpmux-newtab-anchor{position:relative}
 .acpmux-omni{--popup-scroll-cap:420px;position:absolute;top:calc(100% + 10px);left:0;right:0;z-index:var(--layer-dropdown);box-sizing:border-box;padding:var(--ui-popup-padding);border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);max-height:min(60vh,420px);overflow:auto;overscroll-behavior:contain}
-.acpmux-omni-row{display:flex;align-items:center;gap:10px;height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);color:var(--agent-soft);cursor:default;font-size:var(--text-control)}
+.acpmux-omni-row{display:flex;align-items:center;gap:var(--ui-menu-icon-gap);height:var(--ui-row-height);padding:0 var(--ui-menu-row-end) 0 var(--ui-menu-row-start);border-radius:var(--ui-row-radius);color:var(--agent-soft);cursor:default;font-size:var(--text-control)}
 .acpmux-omni-row>.acpmux-icon{flex:none;color:var(--acpmux-composer-dim)}
 .acpmux-omni-row.is-selected{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent);color:var(--agent-text)}
 .acpmux-omni-row.is-selected>.acpmux-icon{color:var(--agent-text)}
@@ -286,10 +291,10 @@
 .acpmux-project-button{display:inline-flex;align-items:center;gap:5px;height:24px;max-width:220px;padding:0;border:0;border-radius:3px;background:none;color:var(--agent-muted);font:inherit;cursor:pointer;white-space:nowrap}
 .acpmux-project-button:hover,.acpmux-project-button[aria-expanded="true"]{color:var(--agent-text);background:none}
 .acpmux-project-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-project-button{transition:background-color var(--agent-motion-hover) var(--agent-ease-out)}}.acpmux-project-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
-.ui-popup.acpmux-project-menu{position:relative;inset:auto;width:300px;max-width:calc(100vw - 32px);font-size:13px;--acpmux-project-menu-edge:4px}
-.acpmux-project-menu .acpmux-menu-item{padding-inline:var(--acpmux-project-menu-edge)}
-.acpmux-project-menu .acpmux-project-search{padding-inline:var(--acpmux-project-menu-edge)}
-.acpmux-project-menu .acpmux-project-browse{padding-inline:var(--acpmux-project-menu-edge)}
+/* The project chooser's rows, its search field and New project are on the menu grid: every badge or icon at the icon column, every name at the text column. A 20 px badge overhangs the 16 px column evenly. */
+.ui-popup.acpmux-project-menu{position:relative;inset:auto;width:300px;max-width:calc(100vw - 32px);font-size:13px}
+.acpmux-project-menu :is(.acpmux-menu-item,.acpmux-project-search,.acpmux-project-browse){padding-inline:var(--ui-menu-row-start) var(--ui-menu-row-end);gap:var(--ui-menu-icon-gap)}
+.acpmux-project-menu .acpmux-project-badge{margin-inline:calc((var(--ui-menu-icon-size) - 20px)/2)}
 .acpmux-project-menu .acpmux-icon{flex:none;color:var(--agent-muted)}
 .acpmux-project-badge{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:20px;border-radius:6px;background:color-mix(in srgb,var(--acpmux-project-badge) 24%,transparent);color:var(--acpmux-project-badge);font-size:var(--text-caption);font-weight:var(--weight-emphasis);letter-spacing:.02em;line-height:1}
 .acpmux-project-badge::after{content:"";position:absolute;right:-1px;bottom:-1px;width:5px;height:5px;border:1px solid var(--acpmux-composer-base,var(--agent-base));border-radius:50%;background:var(--agent-muted)}
@@ -304,10 +309,10 @@
 .acpmux-project-check{display:inline-flex;align-items:center;justify-content:center;flex:none;width:16px;min-height:16px;margin-left:auto;color:var(--agent-text);font-size:13px}
 .acpmux-project-menu .acpmux-menu-description{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-project-menu .acpmux-menu-description::before{content:attr(data-path)}
-.acpmux-project-search{display:flex;align-items:center;gap:8px;height:30px;margin:0 0 4px;padding:0 8px;border-bottom:.5px solid var(--acpmux-composer-edge);color:var(--acpmux-composer-dim)}
+.acpmux-project-search{display:flex;align-items:center;gap:var(--ui-menu-icon-gap);height:30px;margin:0 0 4px;padding:0 var(--ui-menu-row-end) 0 var(--ui-menu-row-start);border-bottom:.5px solid var(--acpmux-composer-edge);color:var(--acpmux-composer-dim)}
 .acpmux-project-search input{flex:1;min-width:0;height:100%;padding:0;border:0;background:none;color:var(--agent-text);font:inherit;outline:none}
 .acpmux-project-search input::placeholder{color:var(--acpmux-composer-dim)}
-.acpmux-project-empty{padding:6px 8px;color:var(--acpmux-composer-dim)}
+.acpmux-project-empty{padding:6px var(--ui-menu-row-end) 6px var(--ui-menu-row-text-start);color:var(--acpmux-composer-dim)}
 .acpmux-project-browse{display:block;width:100%;margin-top:4px;padding:7px 8px;border:0;border-top:.5px solid var(--acpmux-composer-edge);background:none;color:var(--agent-text);font:inherit;text-align:left;cursor:pointer}
 .acpmux-project-browse:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent)}
 /* The new chat's hero picker (cx-9g0w): the project's name in the question, underlined, with a small

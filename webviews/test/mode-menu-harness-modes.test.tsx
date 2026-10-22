@@ -255,14 +255,16 @@ test("the plain footer keeps the mode's symbol beside its label and draws no pil
   );
 });
 
-test("menu rows are tight and the chosen row's check is the theme accent", () => {
+test("menu rows sit on the menu grid and the chosen row's check is the theme accent", () => {
   const rule = (selector: string) => {
     const at = css.indexOf(`${selector} {`);
     expect(at).toBeGreaterThanOrEqual(0);
     return css.slice(at, css.indexOf("}", at));
   };
-  // About 8 pt from the menu's edge to a row's text: the popup's 4 px and the row's 4 px.
-  expect(rule(".ui-menu-item.acpmux-access-item")).toMatch(/padding: 5px 4px;/);
+  // On the one menu grid: the shield at the icon column, the name past it, the check at the trailing inset.
+  expect(rule(".ui-menu-item.acpmux-access-item")).toMatch(
+    /padding: 5px var\(--ui-menu-row-end\) 5px var\(--ui-menu-row-start\);/,
+  );
   expect(rule(".acpmux-access-item .ui-menu-check")).toMatch(
     /color: var\(--agent-lit-glyph, var\(--agent-accent, var\(--agent-text\)\)\);/,
   );

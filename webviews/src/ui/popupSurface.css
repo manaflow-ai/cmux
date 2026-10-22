@@ -4,7 +4,9 @@
    load ui.css, ships it ahead of its own stylesheets (build-agent-pane-web.sh). */
 :root {
   --ui-popup-radius: 8px;
-  --ui-popup-padding: calc(4px * var(--cmux-interface-scale, 1));
+  /* A popup's padding is the menu grid's highlight inset (schemas/menu-metrics, --cmux-menu-* in
+     pages/shared/desktop.css), so a row's highlight sits that far in from the popup's edges. */
+  --ui-popup-padding: var(--cmux-menu-highlight-inset, 5px);
   /* The raised step of the shared elevation scale (`--elevation-2`, pages/shared/desktop.css; the
      native PopupStyle.elevation2) and a hairline edge: one
      elevation in pages and in the app chrome. popup-surface.test.ts holds the two in step. The
@@ -18,8 +20,21 @@
     var(--ui-popup-drop),
     inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ui-popup-edge, color-mix(in srgb, currentColor 12%, transparent));
   --ui-row-height: calc(28px * var(--cmux-interface-scale, 1));
-  --ui-row-radius: 5px;
+  --ui-row-radius: var(--cmux-menu-highlight-radius, 5px);
   --ui-row-padding-inline: calc(8px * var(--cmux-interface-scale, 1));
+  /* A menu row's insets on the one grid, measured from inside the popup's padding: its leading
+     column (an icon or check, else the text) at --cmux-menu-icon-x, the text past an icon column at
+     --cmux-menu-text-x, a shortcut or chevron --cmux-menu-trailing from the edge, and a separator
+     --cmux-menu-separator-inset from both edges. The literals are the same steps, for a host that
+     loads this sheet without desktop.css (the gallery shell). */
+  --ui-menu-row-start: calc(var(--cmux-menu-icon-x, 22px) - var(--ui-popup-padding));
+  --ui-menu-row-text-start: calc(var(--cmux-menu-text-x, 44px) - var(--ui-popup-padding));
+  --ui-menu-row-end: calc(var(--cmux-menu-trailing, 12px) - var(--ui-popup-padding));
+  --ui-menu-separator-margin: calc(var(--cmux-menu-separator-inset, 15px) - var(--ui-popup-padding));
+  --ui-menu-icon-gap: var(--cmux-menu-icon-gap, 6px);
+  --ui-menu-icon-size: var(--cmux-menu-icon-size, 16px);
+  --ui-menu-state-start: calc(var(--cmux-menu-state-x, 10px) - var(--ui-popup-padding));
+  --ui-menu-shortcut-gap: calc(var(--cmux-menu-shortcut-gap, 28px) - var(--ui-menu-icon-gap));
   /* The open fades and scales in; under Reduce Motion it only fades (ui-popup-fade). The motion
      scale's steps (pages/shared/desktop.css); the literal is the same step, for a page without it. */
   --ui-popup-open: var(--cmux-motion-micro, 120ms);
@@ -149,7 +164,7 @@
    hairline between sections; a feature's own rules still win. */
 :where(.ui-menu-group-label) {
   display: block;
-  padding: 6px var(--ui-row-padding-inline) 2px;
+  padding: 6px var(--ui-menu-row-end) 2px var(--ui-menu-row-start);
   color: color-mix(in srgb, currentColor 55%, transparent);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
@@ -168,7 +183,7 @@
 }
 :where(.ui-separator) {
   height: 1px;
-  margin: 4px var(--ui-row-padding-inline);
+  margin: 4px var(--ui-menu-separator-margin);
   border: 0;
   background: color-mix(in srgb, currentColor 12%, transparent);
 }
@@ -258,20 +273,34 @@
   outline: none;
 }
 :where(.ui-menu-item) {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--ui-menu-icon-gap);
   min-height: var(--ui-row-height);
-  padding: 2px var(--ui-row-padding-inline);
+  padding: 2px var(--ui-menu-row-end) 2px var(--ui-menu-row-start);
   border-radius: var(--ui-row-radius);
   outline: none;
+}
+/* One text column per menu: once any row has an icon or a check, a row without one (and a section
+   title) starts its text past the icon column too. A check in a row that also has an icon sits in
+   the state column before it. */
+:where(:is(.ui-menu, .ui-context-menu):has(.ui-menu-check, .ui-menu-icon))
+  :where(.ui-menu-item:not(:has(> .ui-menu-check, > .ui-menu-icon)), .ui-menu-group-label) {
+  padding-inline-start: var(--ui-menu-row-text-start);
+}
+:where(.ui-menu-item:has(> .ui-menu-icon) > .ui-menu-check) {
+  position: absolute;
+  inset-inline-start: var(--ui-menu-state-start);
+  width: auto;
 }
 :where(.ui-menu-item[data-highlighted]) {
   background: var(--ui-row, color-mix(in srgb, currentColor 10%, transparent));
 }
 :where(.ui-menu-check) {
   display: inline-flex;
-  width: 12px;
+  flex: none;
+  width: var(--ui-menu-icon-size);
   justify-content: center;
 }
 :where(.ui-submenu-chevron) {

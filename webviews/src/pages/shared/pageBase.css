@@ -48,10 +48,12 @@ input {
   color: inherit;
 }
 
+/* The one menu grid (schemas/menu-metrics, --cmux-menu-* in desktop.css): a row's highlight inset
+   from the menu's edges, its text at the icon column, separators inset from both edges. */
 .page-menu {
   min-width: 180px;
   max-width: 280px;
-  padding: 4px;
+  padding: var(--cmux-menu-highlight-inset);
   border-radius: 8px;
   background: var(--surface-popup);
   border: 1px solid var(--page-separator);
@@ -65,8 +67,9 @@ input {
   text-align: left;
   border: 0;
   background: transparent;
-  padding: 3px 10px;
-  border-radius: 5px;
+  padding: 3px calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset)) 3px
+    calc(var(--cmux-menu-icon-x) - var(--cmux-menu-highlight-inset));
+  border-radius: var(--cmux-menu-highlight-radius);
   cursor: default;
 }
 
@@ -83,7 +86,7 @@ input {
 .page-menu-separator {
   border: 0;
   height: 1px;
-  margin: 4px 6px;
+  margin: 4px calc(var(--cmux-menu-separator-inset) - var(--cmux-menu-highlight-inset));
   background: var(--page-separator);
 }
 

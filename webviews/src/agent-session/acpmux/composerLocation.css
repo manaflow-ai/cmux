@@ -217,7 +217,7 @@
 .acpmux-location-menu .acpmux-menu-item { width: 100%; text-align: left; }
 .acpmux-location-menu .ui-menu-item[data-highlighted] { background: var(--acpmux-menu-highlight); }
 .acpmux-location-menu .acpmux-menu-description { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.acpmux-location-menu .ui-separator { flex: none; height: 1px; border: 0; margin: 4px 6px; background: color-mix(in srgb, var(--agent-text) 12%, transparent); }
+.acpmux-location-menu .ui-separator { flex: none; height: 1px; border: 0; margin: 4px var(--ui-menu-separator-margin); background: color-mix(in srgb, var(--agent-text) 12%, transparent); }
 /* A started chat's Choose folder… under the folder field's rows (dogfood 09): a plain row, not a button face. */
 .acpmux-location-choose { border: 0; background: none; color: inherit; font: inherit; }
 .acpmux-location-choose:hover, .acpmux-location-choose:focus-visible { background: var(--acpmux-menu-highlight); outline: none; }
@@ -278,13 +278,14 @@
   display: grid;
   /* Claude Code's mode menu (Leo 2026-10-19): the mode's shield, its name and description, then a
      trailing gutter holding its number, or the check on the chosen row, as Claude's model menu. */
-  grid-template-columns: 16px minmax(0, 1fr) 16px;
+  grid-template-columns: var(--ui-menu-icon-size) minmax(0, 1fr) var(--ui-menu-icon-size);
   align-items: center;
-  gap: 8px;
+  gap: var(--ui-menu-icon-gap);
   min-height: var(--ui-row-height);
-  /* Tight, as the references (Leo 2026-10-21, "STOP WITH THE INCESSANT LEFT-RIGHT PADDING"): the
-     popup's 4px and the row's 4px put the text about 8pt from the menu's edge. */
-  padding: 5px 4px;
+  /* On the one menu grid (Leo 2026-10-21, "generalized the left alignment across all stuff"): the
+     shield at the icon column and the name past it (at the icon column with no shield), the number
+     or check at the trailing inset. */
+  padding: 5px var(--ui-menu-row-end) 5px var(--ui-menu-row-start);
   border-radius: var(--ui-row-radius);
   color: var(--agent-text);
 }
@@ -307,7 +308,7 @@
 .acpmux-access-item-iconless .acpmux-menu-text { grid-column: 1; }
 .acpmux-access-item-iconless :is(.ui-menu-check, .ui-menu-shortcut) { grid-column: 2; }
 /* The harness's own title over its modes ("Mode", "How should actions be approved?"). */
-.acpmux-access-heading { padding: 4px 4px 2px; color: var(--agent-muted); font-size: var(--text-detail); line-height: 16px; }
+.acpmux-access-heading { padding: 4px var(--ui-menu-row-end) 2px var(--ui-menu-row-start); color: var(--agent-muted); font-size: var(--text-detail); line-height: 16px; }
 /* Claude Code's Recommended badge beside Auto, on the name's line. */
 .acpmux-access-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .acpmux-menu-badge {
@@ -323,21 +324,21 @@
 .acpmux-access-grants {
   min-inline-size: 0;
   border: 0;
-  margin: 8px 4px 2px;
+  margin: 8px 0 2px;
   padding-top: 8px;
   border-top: .5px solid var(--acpmux-composer-edge);
 }
 .acpmux-access-grants-heading {
-  padding: 0 8px 4px;
+  padding: 0 var(--ui-menu-row-end) 4px var(--ui-menu-row-start);
   color: var(--agent-muted);
   font-size: var(--text-detail);
 }
 .acpmux-access-grant {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ui-menu-icon-gap);
   min-height: var(--ui-row-height);
-  padding: 2px 8px 2px 10px;
+  padding: 2px var(--ui-menu-row-end) 2px var(--ui-menu-row-start);
   border-radius: var(--ui-row-radius);
 }
 .acpmux-access-grant:hover { background: var(--acpmux-menu-highlight); }
@@ -1008,7 +1009,8 @@
   width: 100%;
   height: 30px;
   margin: 0 0 4px;
-  padding: 0 8px;
+  /* The caret on the names' column (the menu grid, ui/popupSurface.css). */
+  padding: 0 var(--ui-menu-row-end) 0 var(--ui-menu-row-text-start);
   border: 0;
   border-bottom: .5px solid color-mix(in srgb, var(--agent-text) 12%, transparent);
   border-radius: 0;
@@ -1021,15 +1023,14 @@
 .acpmux-folder-popover .acpmux-location-folders { margin: 0; padding: 0; list-style: none; }
 .acpmux-folder-popover .acpmux-menu-item { display: flex; align-items: center; min-width: 0; border-radius: var(--ui-row-radius, 6px); cursor: default; }
 .acpmux-location-row,
-.acpmux-location-action { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
+.acpmux-location-action { display: flex; align-items: center; gap: var(--ui-menu-icon-gap); width: 100%; min-width: 0; }
 /* The actions after the folders: a hairline above the first. */
 .acpmux-folder-popover .acpmux-menu-item:has(> .acpmux-location-action[data-first]) { position: relative; margin-top: 9px; }
 .acpmux-folder-popover .acpmux-menu-item:has(> .acpmux-location-action[data-first])::before {
   content: "";
   position: absolute;
   top: -5px;
-  left: 6px;
-  right: 6px;
+  inset-inline: calc(var(--ui-menu-separator-margin) - var(--ui-menu-row-start)) calc(var(--ui-menu-separator-margin) - var(--ui-menu-row-end));
   height: 1px;
   background: color-mix(in srgb, var(--agent-text) 12%, transparent);
 }
@@ -1039,15 +1040,19 @@
 .acpmux-menu-text.acpmux-location-name { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-location-suffix,
 .acpmux-location-suffix-dot { color: var(--agent-muted); }
-.acpmux-location-empty { padding: 6px 8px; color: var(--agent-muted); }
+.acpmux-location-empty { padding: 6px var(--ui-menu-row-end) 6px var(--ui-menu-row-text-start); color: var(--agent-muted); }
 /* A repository's other worktrees (projectRepos.ts) sit under its row, their branch glyph where the
    row's badge is, so the names line up with the repository's. The count at the end of the row opens
    them: "⑂ 4 ›", quiet until the row is hovered or highlighted; its chevron turns down while open. */
-.acpmux-location-row[data-worktree] { padding-inline-start: 28px; }
-.acpmux-location-branch-icon { display: inline-flex; flex: none; justify-content: center; width: 20px; color: var(--agent-muted); }
-/* One column for every name (Leo 2026-10-21, "aligned columns"): the actions after the folders start
-   where a repository's name does, past the 20 px badge and its 8 px gap. */
-.acpmux-folder-popover .acpmux-location-action { padding-inline-start: 28px; }
+/* One column for every name (Leo 2026-10-21, "aligned columns"; the menu grid, ui/popupSurface.css):
+   a repository's badge at the icon column, a 20 px badge overhanging the 16 px column evenly, and its
+   name at the text column; a worktree one column further in; the actions after the folders on the
+   names' column. */
+.acpmux-folder-popover .acpmux-menu-item { gap: var(--ui-menu-icon-gap); }
+.acpmux-folder-popover .acpmux-project-badge { margin-inline: calc((var(--ui-menu-icon-size) - 20px) / 2); }
+.acpmux-location-row[data-worktree] { padding-inline-start: calc(var(--ui-menu-row-text-start) - var(--ui-menu-row-start)); }
+.acpmux-location-branch-icon { display: inline-flex; flex: none; justify-content: center; width: var(--ui-menu-icon-size); color: var(--agent-muted); }
+.acpmux-folder-popover .acpmux-location-action { padding-inline-start: calc(var(--ui-menu-row-text-start) - var(--ui-menu-row-start)); }
 .acpmux-location-worktrees {
   display: inline-flex;
   flex: none;

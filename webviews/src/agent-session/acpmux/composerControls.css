@@ -3,8 +3,8 @@
    inset with no empty leading gutter (Leo 2026-10-18); one row height; section headers and
    separators on the label column's rhythm. Theme tokens only. */
 .acpmux-effort-menu {
-  --acpmux-menu-gutter: 16px;
-  --acpmux-menu-gutter-gap: 8px;
+  --acpmux-menu-gutter: var(--ui-menu-icon-size);
+  --acpmux-menu-gutter-gap: var(--ui-menu-icon-gap);
   width: max-content;
   min-width: 160px;
   max-width: min(280px, calc(100vw - 24px));
@@ -21,7 +21,7 @@
   height: var(--ui-row-height);
   min-height: 0;
   padding-block: 0;
-  padding-inline: var(--ui-row-padding-inline);
+  padding-inline: var(--ui-menu-row-start) var(--ui-menu-row-end);
   border-radius: var(--ui-row-radius);
   font-size: var(--text-control);
   color: var(--agent-text);
@@ -62,7 +62,7 @@
   align-items: center;
   height: 24px;
   padding-block: 0;
-  padding-inline: var(--ui-row-padding-inline);
+  padding-inline: var(--ui-menu-row-start) var(--ui-menu-row-end);
   color: var(--agent-muted);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
@@ -71,7 +71,7 @@
 /* A hairline between sections, inset to the rows' edges, with even space above and below. */
 .acpmux-effort-menu .ui-separator {
   height: 1px;
-  margin: 5px var(--ui-row-padding-inline);
+  margin: 5px var(--ui-menu-separator-margin);
   border: 0;
   background: color-mix(in srgb, var(--agent-text) 12%, transparent);
 }
@@ -236,7 +236,7 @@
 }
 /* The approval menu's question above the modes (permissions-menu.png). */
 .acpmux-menu-heading {
-  padding: 6px 10px 4px;
+  padding: 6px var(--ui-menu-row-end) 4px var(--ui-menu-row-start);
   font-size: var(--text-detail);
   line-height: var(--text-body--line-height, 18px);
   color: var(--agent-muted);
