@@ -29,7 +29,7 @@ extension SidebarModel {
         options.filterMatches = filterMatches
         options.groupsByFolder = groupsByFolder
         // The session tree moves a started workspace under its parent: the numbers follow the drawn order.
-        options.sessionTree = SidebarSessionTree.shared.state.map { SidebarSessionTreeState(parents: $0.parents) }
+        options.sessionTree = SidebarSessionTree.shared.drawn?.shape
         // The sidebar document draws its sections in the list: a block's items are stops where the block draws.
         let listed = Set(sections.compactMap { section -> String? in if case let .custom(custom) = section.kind { custom.id } else { nil } })
         let inBlock = Dictionary(grouping: top, by: { item in layout.sections.first { $0.items.contains(item) }?.id.rawValue ?? "" })
@@ -75,7 +75,7 @@ nonisolated struct SidebarItemOrderInputs: Equatable, Sendable {
     var transientTopItems: [SidebarTransientItem]
     var groupsByFolder: Bool
     var collapsedLayoutSections: Set<LayoutSectionID>
-    var treeParents: [WorkspaceID: WorkspaceID]?
+    var treeShape: SidebarSessionTreeState?
 
     @MainActor init(_ model: SidebarModel) {
         sectionsRevision = model.observedSectionsRevision
@@ -87,6 +87,6 @@ nonisolated struct SidebarItemOrderInputs: Equatable, Sendable {
         transientTopItems = model.transientTopItems
         groupsByFolder = model.groupsByFolder
         collapsedLayoutSections = model.collapsedLayoutSections
-        treeParents = SidebarSessionTree.shared.state?.parents
+        treeShape = SidebarSessionTree.shared.drawn?.shape
     }
 }
