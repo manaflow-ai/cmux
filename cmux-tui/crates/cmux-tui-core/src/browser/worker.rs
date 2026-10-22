@@ -95,6 +95,10 @@ pub(super) fn start_surface_thread(
                             surface: id,
                             title: browser.title().into(),
                         });
+                        // tab-attention-v1: the marked page is gone.
+                        if url_changed {
+                            mux.clear_attention_after_navigation(&crate::Actor::Daemon, id);
+                        }
                     }
                 }
                 CdpEvent::FrameNavigated { params, frame_epoch, .. } => {
