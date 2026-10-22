@@ -107,8 +107,7 @@ fn cmux_next_flooding_terminal_sends_scroll_events_per_frame_not_per_chunk() {
     let deadline = started + test_timeout(Duration::from_secs(120));
     let mut scroll_events = 0u64;
     let mut last_scroll: Option<serde_json::Value> = None;
-    let mut exited_at = None;
-    loop {
+    let exited_at = loop {
         assert!(Instant::now() < deadline, "the flood did not end; {scroll_events} scroll events");
         line.clear();
         assert!(events.read_line(&mut line).unwrap() > 0, "subscription closed");
@@ -121,14 +120,11 @@ fn cmux_next_flooding_terminal_sends_scroll_events_per_frame_not_per_chunk() {
                 scroll_events += 1;
                 last_scroll = Some(event);
             }
-            Some("surface-exited") => {
-                exited_at = Some(started.elapsed());
-                break;
-            }
+            Some("surface-exited") => break started.elapsed(),
             _ => {}
         }
-    }
-    let flood = exited_at.unwrap().as_secs_f64().max(0.1);
+    };
+    let flood = exited_at.as_secs_f64().max(0.1);
     let rate = scroll_events as f64 / flood;
     let _ = writeln!(
         std::io::stderr(),
