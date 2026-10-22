@@ -248,8 +248,9 @@ type Props = {
   /// starts in this Mac's started or recent project.
   home?: string;
   /// The host's project folders (`project.list`): a started or recent project it no longer lists
-  /// (removed, deleted) is never the start. Empty is not loaded yet, so every folder counts.
-  knownProjects?: readonly string[];
+  /// (removed, deleted) is never the start. Absent or empty is not loaded yet, so every folder
+  /// counts; `null` (the host answered with no project), none does.
+  knownProjects?: readonly string[] | null;
   /// The machine it runs on (the handshake's `machineName`); "This Mac" when absent.
   host?: string;
   inputToken?: string;

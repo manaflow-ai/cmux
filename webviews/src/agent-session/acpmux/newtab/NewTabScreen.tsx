@@ -140,8 +140,9 @@ type Props = NewTabScreenActions & {
   lastAgent?: string;
   home?: string;
   /// The host's project folders (`project.list` and the page's own list), so a deleted or removed
-  /// folder never becomes the start project. Absent, every local chat folder counts.
-  knownProjects?: readonly string[];
+  /// folder never becomes the start project. Absent or empty (not loaded yet), every local chat
+  /// folder counts; `null` (the host answered with no project), none does.
+  knownProjects?: readonly string[] | null;
   /// The workspace's tabs to move here (a split's page, cx-jfo7).
   openTabs?: NewTabHost["openTabs"];
   inputToken?: string;
@@ -259,7 +260,10 @@ export function NewTabScreen(props: Props) {
   // Before the host's project list lands, a chat folder counts; once it lands, one it does not
   // list (removed, deleted) gives way to the newest it lists.
   const known = props.knownProjects?.length ? props.knownProjects : undefined;
-  if (latched !== undefined && known && !known.some((path) => path.replace(/(.)\/+$/, "$1") === latched))
+  if (
+    latched !== undefined &&
+    (props.knownProjects === null || (known && !known.some((path) => path.replace(/(.)\/+$/, "$1") === latched)))
+  )
     setLatched(undefined);
   else if (latched === undefined && candidate !== undefined && (props.knownProjects === undefined || known))
     setLatched(candidate);

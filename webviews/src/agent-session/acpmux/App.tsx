@@ -6857,11 +6857,10 @@ function AcpmuxPane() {
   /// that page's machine's, so a later page (another machine's, or this Mac's after one) never
   /// reads it, from its first render, while its own is pending or if it fails (Codex review of
   /// #24274).
-  const [loadedProjects, setDirectProjects] = useState<{ page: number; projects: Project[] }>({
-    page: 0,
-    projects: [],
-  });
-  const directProjects = loadedProjects.page === newTabGeneration ? loadedProjects.projects : NO_PROJECTS;
+  /// `projects` undefined: not answered yet.
+  const [loadedProjects, setDirectProjects] = useState<{ page: number; projects?: Project[] }>({ page: 0 });
+  const projectsAnswered = loadedProjects.page === newTabGeneration && loadedProjects.projects !== undefined;
+  const directProjects = projectsAnswered ? loadedProjects.projects! : NO_PROJECTS;
   const onNewTab = Boolean(newTab);
   useEffect(() => {
     // Start Agent's folder picker lists them too (cx-hkat), and so does the New Tab page: the
@@ -6907,11 +6906,15 @@ function AcpmuxPane() {
     composerSnapshot.connection !== "disconnected" &&
     composerSnapshot.connection !== "debug";
   // The folders the host lists as projects (no chat folders): the most recent project is one of them.
-  // The daemon's list (removals win) once it has answered, else the page's own.
-  const newTabKnownProjects = useMemo(
-    () => (directProjects.length > 0 ? directProjects.map((project) => project.cwd) : (newTab?.projects ?? [])),
-    [directProjects, newTab?.projects],
-  );
+  // The daemon's list (removals win) once it has answered, else the page's own. This Mac's store
+  // answering with no project (every one removed or missing) is `null`: no chat or started folder
+  // counts (Codex review of #24274). Another machine's empty answer may be no answer at all
+  // (AgentPaneModel `onListRemoteProjects`), so there it stays "not loaded".
+  const newTabKnownProjects = useMemo((): readonly string[] | null => {
+    if (directProjects.length > 0) return directProjects.map((project) => project.cwd);
+    const own = newTab?.projects ?? [];
+    return projectsAnswered && own.length === 0 && newTab?.home ? null : own;
+  }, [directProjects, projectsAnswered, newTab?.projects, newTab?.home]);
   const newTabProjects = useMemo(() => {
     const byPath = new Map<string, Project>();
     // A folder the host listed keeps its repository (projectRepos.ts) when a chat names it again.
