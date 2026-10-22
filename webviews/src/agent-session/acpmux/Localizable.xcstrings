@@ -210269,134 +210269,134 @@
         }
       }
     },
-    "message.agent": {
-      "comment": "Agent pane: the recipient chip of a message to a subagent whose name is not known (never its raw id)",
+    "message.recipientId": {
+      "comment": "Agent pane: tooltip on the recipient chip of a message to another agent, giving the full id behind its name or short id. {id} is the id.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "وكيل"
+            "value": "معرّف الوكيل: {id}"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "agent"
+            "value": "ID agenta: {id}"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "agent"
+            "value": "Agent-id: {id}"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agent"
+            "value": "Agent-ID: {id}"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "agent"
+            "value": "Agent ID: {id}"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "agente"
+            "value": "ID del agente: {id}"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "agent"
+            "value": "ID de l’agent : {id}"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "agente"
+            "value": "ID agente: {id}"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "エージェント"
+            "state": "needs_review",
+            "value": "エージェント ID: {id}"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ភ្នាក់ងារ"
+            "value": "លេខសម្គាល់ភ្នាក់ងារ៖ {id}"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "에이전트"
+            "value": "에이전트 ID: {id}"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "agent"
+            "value": "Agent-ID: {id}"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "agent"
+            "value": "ID agenta: {id}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "agente"
+            "value": "ID do agente: {id}"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "агент"
+            "value": "ID агента: {id}"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เอเจนต์"
+            "value": "รหัสเอเจนต์: {id}"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ajan"
+            "value": "Ajan kimliği: {id}"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "агент"
+            "value": "ID агента: {id}"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "tác nhân"
+            "value": "ID tác nhân: {id}"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "智能体"
+            "value": "智能体 ID：{id}"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "代理程式"
+            "value": "代理程式 ID：{id}"
           }
         }
       }
