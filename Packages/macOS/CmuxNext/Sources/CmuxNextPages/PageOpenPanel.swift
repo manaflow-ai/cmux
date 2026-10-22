@@ -1,10 +1,13 @@
 public import AppKit
+import CmuxNextDesign
 public import WebKit
 
 /// Answers a page's `<input type="file">` with the system open panel, as a sheet on the page's
 /// window (the agent composer's + then Attach files). WebKit shows no chooser for a web view
 /// without a UI delegate that implements `runOpenPanelWith`, so a file input does nothing there.
-/// The chosen files go back to the page, which reads them as it reads a drop.
+/// The chosen files go back to the page, which reads them as it reads a drop. The panel is the
+/// app's one made ahead (`MadeAheadOpenPanel`; an agent pane warms it), so the click pays only
+/// the sheet, not the panel's making.
 @MainActor
 public final class PageOpenPanel: NSObject, WKUIDelegate {
     /// A web view holds its UI delegate weakly; this one is shared and lives as long as the app.
@@ -16,7 +19,7 @@ public final class PageOpenPanel: NSObject, WKUIDelegate {
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping @MainActor ([URL]?) -> Void
     ) {
-        let panel = NSOpenPanel()
+        let panel = MadeAheadOpenPanel.shared.panel()
         panel.allowsMultipleSelection = parameters.allowsMultipleSelection
         panel.canChooseDirectories = parameters.allowsDirectories
         panel.canChooseFiles = true
