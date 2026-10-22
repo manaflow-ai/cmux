@@ -6,6 +6,7 @@
 import { createContext } from "react";
 import type { Translate } from "../i18n";
 import type { AcpmuxActivity } from "../model";
+import { peelEnvelope } from "./toolResult";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -260,18 +261,16 @@ function deepClean(value: unknown, depth = 0): unknown {
   return value;
 }
 
-/// An MCP response as a value: a `{content: [{type: "text", text}]}` result unwrapped to its texts.
+/// An MCP response as a value: its envelope (`{content: [{type: "text", text}]}`, perhaps under
+/// `result`; toolResult.ts) unwrapped to its texts, or its structured content when it has no text.
 function mcpValue(output: string | undefined): unknown {
   if (!output) return undefined;
   const parsed = parseJSON(output);
   if (parsed === undefined) return output;
-  const content =
-    isRecord(parsed) && Array.isArray(parsed.content) ? parsed.content : Array.isArray(parsed) ? parsed : undefined;
-  if (content && content.length && content.every((block) => isRecord(block) && block.type === "text")) {
-    const texts = content.map((block) => String((block as { text?: unknown }).text ?? ""));
-    return texts.length === 1 ? texts[0] : texts;
-  }
-  return parsed;
+  const peeled = peelEnvelope(parsed);
+  if (!peeled) return parsed;
+  if (peeled.texts.some((text) => text.trim())) return peeled.texts.length === 1 ? peeled.texts[0] : peeled.texts;
+  return peeled.rest;
 }
 
 /// A value as the opened call shows it: text as itself, anything else as indented JSON.

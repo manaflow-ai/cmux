@@ -25,6 +25,8 @@ import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
 import { useBlockWrap } from "./blockWrap";
 import { Lines, lineCount, PreviewMore, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
 import { cleanText } from "./mcpCalls";
+import { toolResult, type ToolResult } from "./toolResult";
+import { Markdown } from "./Markdown";
 import { useFold } from "./fold";
 import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 
@@ -91,10 +93,12 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   // Find counts a shell's whole line: a label that is its description or a shortened line is skipped.
   const drawsCommand = !tool.description && shortCommand(tool.command ?? "") === tool.command?.trim();
   // A shell prints what it printed; any other output loses the context a host injects into it.
-  const body = useMemo(
-    () => (shell || !tool.output ? tool.output : cleanText(tool.output))?.replace(/\n$/, ""),
+  // Any other call's result is shown without the JSON envelope a harness wrapped it in (toolResult.ts).
+  const result = useMemo(
+    () => (shell || !tool.output ? undefined : toolResult(cleanText(tool.output).replace(/\n$/, ""))),
     [shell, tool.output],
   );
+  const body = shell ? tool.output?.replace(/\n$/, "") : result?.text;
   const images = useMemo(() => toolImages(tool), [tool]);
   const content = (
     <>
@@ -151,7 +155,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
               ))}
             </div>
           ) : (
-            <ToolOutput id={detailsId} output={body!} reveal={reveal} />
+            <ToolOutput id={detailsId} result={result!} reveal={reveal} />
           )}
         </div>
       )}
@@ -163,14 +167,23 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
 /// the `hover-actions` experiment's "all" arm adds a Copy in its corner on hover), the end of a long
 /// one shown. Wrap lines sits in its corner on hover; past eight lines it shows its first ones under
 /// a fade, with Show all N lines (BlockParts.tsx).
-function ToolOutput({ id, output, reveal }: { id: string; output: string; reveal: number }) {
+function ToolOutput({ id, result, reveal }: { id: string; result: ToolResult; reveal: number }) {
   const t = useT();
-  const raw = useOutput(output, reveal);
+  const raw = useOutput(result.text, reveal);
   const [wrap] = useBlockWrap("output");
   // All the output's lines, though a long one draws only its end until opened.
   const preview = usePreview(lineCount(raw.text), reveal);
   const shown = previewedOutput(raw, preview);
   const body = useSidewaysRef<HTMLPreElement>();
+  // A result's own Markdown (an MCP tool's text reply) reads as Markdown, as a reply does.
+  if (result.lang === "markdown")
+    return (
+      <div id={id} className="cv-tool-output-card" ref={menuPartRef({ output: result.text })}>
+        <div className="cv-tool-output__box cv-tool-output__markdown selectable">
+          <Markdown>{result.text}</Markdown>
+        </div>
+      </div>
+    );
   return (
     <div id={id} className="cv-tool-output-card" ref={menuPartRef({ output: shown.text })}>
       <div className="cv-tool-output__box">
@@ -180,7 +193,13 @@ function ToolOutput({ id, output, reveal }: { id: string; output: string; reveal
             <CopyButton text={shown.text ?? ""} label={t("turn.copy")} className="cv-codeblock__action" />
           )}
         </span>
-        <pre ref={body} className="cv-tool-output selectable" data-wrap={wrap} data-preview={preview.attribute}>
+        <pre
+          ref={body}
+          className="cv-tool-output selectable"
+          data-wrap={wrap}
+          data-preview={preview.attribute}
+          data-lang={result.lang === "json" ? "json" : undefined}
+        >
           {shown.cut && (
             <span className="cv-output-cut" aria-hidden="true">
               …{"\n"}
