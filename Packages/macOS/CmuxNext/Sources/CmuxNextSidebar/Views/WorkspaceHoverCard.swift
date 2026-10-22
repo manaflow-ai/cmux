@@ -657,8 +657,10 @@ private final class UnreadDotView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// With no line to follow, the dot sits on the baseline like an image. No `super` call: NSView's
+    /// getter is not in the probed selector table (scripts/cmux-next/check-objc-selectors.py).
     override var firstBaselineOffsetFromTop: CGFloat {
-        guard let font = line?.font else { return super.firstBaselineOffsetFromTop }
+        guard let font = line?.font else { return Self.side }
         return Self.side / 2 + (font.ascender + font.descender) / 2
     }
 }
