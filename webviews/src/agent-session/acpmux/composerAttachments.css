@@ -30,6 +30,51 @@
   overflow-x: auto;
   overflow-y: hidden;
 }
+/* More attachments than fit scroll sideways, and the side with chips past it (data-fade-left /
+   data-fade-right, scrollEdges.ts) fades them out as they scroll under it, as the prompt's edges do
+   (markdownField.css): an alpha mask on the row itself, never a painted overlay, so the composer's
+   glass shows through; at the start and the end that side is plain. The band is the prompt's
+   (--acpmux-md-fade-band, set on the row from MarkdownField.tsx). Reduce Transparency keeps plain
+   sides. */
+.acpmux-attachments {
+  --acpmux-attach-fade-left: 0px;
+  --acpmux-attach-fade-right: 0px;
+}
+.acpmux-attachments[data-fade-left] {
+  --acpmux-attach-fade-left: var(--acpmux-md-fade-band);
+}
+.acpmux-attachments[data-fade-right] {
+  --acpmux-attach-fade-right: var(--acpmux-md-fade-band);
+}
+.acpmux-attachments[data-fade-left],
+.acpmux-attachments[data-fade-right] {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--acpmux-attach-fade-left),
+    #000 calc(100% - var(--acpmux-attach-fade-right)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--acpmux-attach-fade-left),
+    #000 calc(100% - var(--acpmux-attach-fade-right)),
+    transparent
+  );
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-attachments[data-fade-left],
+  .acpmux-attachments[data-fade-right] {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+:root[data-reduce-transparency] .acpmux-attachments[data-fade-left],
+:root[data-reduce-transparency] .acpmux-attachments[data-fade-right] {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
 /* Under the strip, the prompt, its placeholder and the shell field (with its glyph) start one gap
    down instead of the field's own top inset, so entering shell mode still moves nothing. */
 .acpmux-attachments ~ .acpmux-composer-field-menu :is(.acpmux-md-field, .acpmux-shell-field) {

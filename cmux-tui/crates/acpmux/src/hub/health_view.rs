@@ -51,8 +51,13 @@ impl Hub {
         }
         let mut rows = self.health.rows();
         if flag("refresh") || check_latest {
+            // Before the login environment is read, PATH may miss harnesses
+            // and a sign-in the login shell exports is not seen: a check
+            // waits for startup, as the daemon's own does (`run_health`).
+            self.wait_startup().await;
             rows = self.health.check(self.health_subjects().await, check_latest).await;
         } else if rows.is_empty() {
+            self.wait_startup().await;
             rows = self.health.first_check(self.health_subjects().await).await;
         }
         if update {

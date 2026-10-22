@@ -146,7 +146,7 @@ final class SidebarBridge {
                 groupConfig: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig())
             // Not the creates' rows (PendingWorkspaceRows): they draw from the press (its redraws below), and a walk reads them as it shows.
             return ((PendingWorkspaceRows.shared.listing(listed, in: windowState.id, machines: machines), services.sidebarCustomization.rowDecorations), launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
-                    SidebarRows.visibleLayout(layout.document))
+                    SidebarRows.visibleLayout(layout.document, window: windowState.id, machines: machines, registry: registry.value))
         }) { [weak self] value in
             let ((sections, decorations), launching, failed, profiles, active, shown) = value
             guard let self else { return }
@@ -225,7 +225,8 @@ final class SidebarBridge {
                                                               top: .make(services.sidebarLayout, machines: services.machines, room: state.profileID.rawValue),
                                                               tabTitle: Self.tabTitle(services),
                                                               groupConfig: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig())
-        show(sections, layout: SidebarRows.visibleLayout(services.sidebarLayout.document), launching: launching, failed: failed)
+        show(sections, layout: SidebarRows.visibleLayout(services.sidebarLayout.document, window: state.id, machines: services.machines,
+                                                         registry: windows.registry.value), launching: launching, failed: failed)
     }
 
     /// Shows `live` with loading sections filled from the seed, and the

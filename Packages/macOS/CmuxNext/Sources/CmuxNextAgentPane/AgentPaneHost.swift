@@ -300,8 +300,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                 }
             }
             // After an update, or for this launch's person key (`AcpmuxPersonKey`): a daemon
-            // that cannot take the key is handed off and ours starts with it.
-            let stale = await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment)
+            // that cannot take the key is handed off and ours starts with it. A daemon no cmux
+            // install runs (`~/.local/bin/acpmux`) is taken over first (`AcpmuxStrayDaemon`).
+            let stray = await AcpmuxStrayDaemon.handOffIfStray(status, environment: environment)
+            let stale = stray ? true : await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment)
             let stopped = stale ? true : await AcpmuxPersonKey.enroll(status, environment: environment)
             guard stopped else {
                 await AcpmuxComputerUse.enroll(environment)
