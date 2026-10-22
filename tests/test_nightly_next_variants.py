@@ -88,6 +88,14 @@ promote = promote[:promote.index("\n      - name:", 10)]
 if "NIGHTLY_APPCASTS: appcast-arm64.xml appcast-x86_64.xml" not in VERDICT or "for appcast in $NIGHTLY_APPCASTS" not in promote:
     failures.append("nightly-next-verdict.yml must promote appcast-arm64.xml and appcast-x86_64.xml")
 
+# A rollback pulls the bad build off the Intel feed too, in a job of its own
+# that follows the build appcast-arm64.xml now serves and never holds the fix-forward.
+ROLLBACK = (ROOT / ".github" / "workflows" / "nightly-next-rollback.yml").read_text()
+intel = ROLLBACK[ROLLBACK.index("  rollback-intel:\n"):ROLLBACK.index("  fix-forward:\n")] if "  rollback-intel:\n" in ROLLBACK else ""
+if ("INTEL_APPCAST: appcast-x86_64.xml" not in intel or '--above "$SERVING"' not in intel
+        or "needs.rollback.outputs.serving" not in intel or "rollback-intel" in ROLLBACK[ROLLBACK.index("  fix-forward:\n"):]):
+    failures.append("nightly-next-rollback.yml must pull the bad build off appcast-x86_64.xml in rollback-intel, without holding fix-forward")
+
 # publish: nightly-next publishes both aliases and both feeds, and refuses a missing variant.
 publish = step("Publish nightly release assets")
 if 'variants=(arm64 x86_64)' not in publish or "$NIGHTLY_FEEDS" not in publish:

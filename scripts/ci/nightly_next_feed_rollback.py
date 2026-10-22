@@ -11,7 +11,7 @@ keep it until a newer build is published, or roll back to the build they kept
 (the app's updates.rollback control method). docs/ci/nightly-next-canary.md has
 the whole procedure.
 
-  plan --feed FILE [--bad BUILD | --to BUILD] --out FILE
+  plan --feed FILE [--bad BUILD | --to BUILD | --above BUILD] --out FILE
   pulled [--existing FILE] --pulled "BUILD ..." --serve BUILD --reason TEXT --at ISO8601 --out FILE
 
 pulled writes pulled.json, the list the app reads next to the appcast with each
@@ -23,6 +23,8 @@ clears it) and keeps the newest MAX_PULLED entries.
 
 --bad pulls BUILD and everything newer (default: the newest item).
 --to keeps BUILD as the newest item and pulls everything above it.
+--above pulls everything newer than BUILD, which need not be on the feed: the
+Intel feed (appcast-x86_64.xml) follows the build appcast-arm64.xml now serves.
 The other items are copied byte for byte. Prints a JSON summary:
 {"pulled": [...], "serving": "BUILD", "serving_url": "DMG URL",
 "changed": true|false}. Exit 0 also
@@ -60,11 +62,11 @@ def items(text: str) -> list[tuple[re.Match[str], str]]:
     return found
 
 
-def plan(text: str, bad: str | None = None, to: str | None = None) -> tuple[str, dict]:
+def plan(text: str, bad: str | None = None, to: str | None = None, above: str | None = None) -> tuple[str, dict]:
     """(new feed text, summary). The text is unchanged when nothing is pulled."""
-    if bad is not None and to is not None:
-        raise Refused("pass --bad or --to, not both")
-    for value in (bad, to):
+    if sum(value is not None for value in (bad, to, above)) > 1:
+        raise Refused("pass one of --bad, --to or --above")
+    for value in (bad, to, above):
         if value is not None and not value.isdigit():
             raise Refused(f"build {value!r} is not a number")
     found = items(text)
@@ -73,6 +75,8 @@ def plan(text: str, bad: str | None = None, to: str | None = None) -> tuple[str,
         if to not in builds:
             raise Refused(f"build {to} is not on the feed (it has {', '.join(builds)})")
         cutoff = int(to) + 1
+    elif above is not None:
+        cutoff = int(above) + 1
     else:
         cutoff = int(bad) if bad is not None else max(int(b) for b in builds)
     pulled = [m for m, version in found if int(version) >= cutoff]
@@ -130,6 +134,7 @@ def main(argv: list[str] | None = None) -> int:
     target = p.add_mutually_exclusive_group()
     target.add_argument("--bad")
     target.add_argument("--to")
+    target.add_argument("--above")
     p.add_argument("--out", required=True)
     q = sub.add_parser("pulled")
     q.add_argument("--existing")
@@ -160,7 +165,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         with open(args.feed, encoding="utf-8") as handle:
             text = handle.read()
-        new, summary = plan(text, bad=args.bad, to=args.to)
+        new, summary = plan(text, bad=args.bad, to=args.to, above=args.above)
     except (OSError, UnicodeDecodeError, Refused) as error:
         print(f"refused: {error}", file=sys.stderr)
         return 1
