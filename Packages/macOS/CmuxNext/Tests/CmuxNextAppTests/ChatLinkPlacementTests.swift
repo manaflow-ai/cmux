@@ -15,10 +15,10 @@ struct ChatLinkPlacementTests {
 
     /// `right`: the panes right of "chat", one group per column, left to right.
     private static func target(_ right: [[String]], _ setting: LinkPlacement = .fallback, zoomed: Bool = false,
-                               inChatDock: Bool = false, takesTabs: (String) -> Bool = { _ in true },
+                               inChatDock: Bool = false, movesTabs: Bool = true, takesTabs: (String) -> Bool = { _ in true },
                                recency: [String] = []) -> Target? {
         ChatLinkPlacement.target(setting, chat: "chat", right: right, zoomed: zoomed, inChatDock: inChatDock,
-                                 takesTabs: takesTabs, recency: recency)
+                                 movesTabs: movesTabs, takesTabs: takesTabs, recency: recency)
     }
 
     @Test func onTheRightIsTheDefault() {
@@ -75,6 +75,30 @@ struct ChatLinkPlacementTests {
     @Test func samePaneInTheChatDockFallsBackToThePageRules() {
         #expect(Self.target([["opened"]], .samePane, inChatDock: true) == nil)
         #expect(Self.target([["opened"]], inChatDock: true) == .pane("opened"))
+    }
+
+    /// The chat dock never splits: from it, with every pane on the right showing another chat (or
+    /// none there), the link opens in a new column beside the dock, never a refused split that
+    /// would leave the tab over the chat.
+    @Test(arguments: [LinkPlacement.splitRight, .newColumn])
+    func fromTheChatDockANewColumnNeverASplit(_ setting: LinkPlacement) {
+        let takes: (String) -> Bool = { !$0.hasSuffix("chat") }
+        #expect(Self.target([["other-chat"], ["third-chat"]], setting, inChatDock: true, takesTabs: takes) == .newColumn(rightOf: "chat"))
+        #expect(Self.target([], setting, inChatDock: true) == .newColumn(rightOf: "chat"))
+        #expect(Self.target([["other-chat"], ["browser"]], setting, inChatDock: true, takesTabs: takes) == .pane("browser"))
+        #expect(Self.target([["hidden"]], setting, zoomed: true, inChatDock: true) == .newColumn(rightOf: "chat"))
+    }
+
+    /// A tab that cannot be moved (a session-local tab: the machine's daemon serves no browser tabs)
+    /// never needs a new split or column: the rules for any page (nil here) open it where it shows.
+    /// A pane on the right, or the chat's own pane, needs no move and still gets it.
+    @Test func aTabThatCannotMoveNeverNeedsANewSplit() {
+        #expect(Self.target([], movesTabs: false) == nil)
+        #expect(Self.target([], .newColumn, movesTabs: false) == nil)
+        #expect(Self.target([["hidden"]], zoomed: true, movesTabs: false) == nil)
+        #expect(Self.target([], inChatDock: true, movesTabs: false) == nil)
+        #expect(Self.target([["opened"]], movesTabs: false) == .pane("opened"))
+        #expect(Self.target([], .samePane, movesTabs: false) == .pane("chat"))
     }
 
     /// A zoomed chat fills the screen and hides the panes beside it: the link opens a new split (or

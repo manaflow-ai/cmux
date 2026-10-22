@@ -8,7 +8,8 @@ import CmuxNextLayout
 /// holds only agent chats, so tools dropped or moved into it are refused.
 enum ChatDockRules {
 
-    private static func isChatDock(_ pane: LayoutPaneID, _ columns: [LayoutColumn]) -> Bool {
+    /// Whether `pane` is in the chat dock of a screen with `columns`.
+    static func isChatDock(_ pane: LayoutPaneID, _ columns: [LayoutColumn]) -> Bool {
         columns.first { $0.root.contains(pane) }?.dock?.role == .agentChat
     }
 

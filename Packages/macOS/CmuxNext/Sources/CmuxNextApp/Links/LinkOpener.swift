@@ -103,8 +103,10 @@ final class LinkOpener {
     /// `layout.linkPlacement`): the pane right of the chat the person focused last, else the rightmost,
     /// else a new split (or column) on its right. A pane that shows an agent chat never gets it. Tab
     /// in the Same Pane: a tab in the chat's pane, with no docking. A zoomed chat opens a new split,
-    /// which ends the zoom, never a tab in a pane the zoom hides. Nil when `source` shows no chat or
-    /// takes no tabs, or for Tab in the Same Pane in the chat dock: the rules above. A lone chat
+    /// which ends the zoom, never a tab in a pane the zoom hides; the chat dock, which never splits,
+    /// opens a new column. Nil when `source` shows no chat or takes no tabs, for Tab in the Same Pane
+    /// in the chat dock, or when the link would need a new split or column but its machine serves no
+    /// daemon browser tabs (a session-local tab cannot be moved there): the rules above. A lone chat
     /// under main pane layout still docks left (``MainPaneLayout``) for a link on the right, so it
     /// lands in the column that slides in on its right.
     func chatLinkTarget(from source: PaneController, mainPane: Bool = true) -> LinkOpenPlacement<LayoutPaneID>.Target? {
@@ -124,7 +126,8 @@ final class LinkOpener {
         }
         return ChatLinkPlacement.target(setting, chat: source.layoutPaneID,
                                         right: ChatLinkPlacement.rightSide(of: source.layoutPaneID, in: columns),
-                                        zoomed: zoomed, inChatDock: ChatDockRules.isChatDock(source.pane, services: services),
+                                        zoomed: zoomed, inChatDock: ChatDockRules.isChatDock(source.layoutPaneID, columns),
+                                        movesTabs: services.cache.browserTabs.isAvailable(in: source.pane),
                                         takesTabs: takesTabs, recency: content.recentPanes)
     }
 
