@@ -12,6 +12,29 @@ import Testing
 /// the moving edge, and lays out once: at the start of a hide, at the landing of a show.
 @MainActor @Suite(.serialized)
 struct SidebarSlideHoldsContentTests {
+    /// What a workspace does (`WorkspaceContentView`): its layout child has no autoresizing mask
+    /// and is sized in `layout()`, so a frame change reaches it only on the next layout pass.
+    private final class DeferredLayoutContent: NSView {
+        let child = SettleProbe()
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            child.autoresizingMask = []
+            addSubview(child)
+        }
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError() }
+        override func layout() {
+            super.layout()
+            child.frame = bounds
+        }
+    }
+
+    /// A terminal stand-in: the width it has when it hears the motion settled.
+    private final class SettleProbe: NSView, PaneMotionSettling {
+        var settledWidths: [CGFloat] = []
+        func paneMotionDidSettle() { settledWidths.append(bounds.width) }
+    }
+
     private func openRoot() -> (NSWindow, WindowRootView, NSView) {
         _ = NSApplication.shared
         let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel()))
@@ -110,6 +133,30 @@ struct SidebarSlideHoldsContentTests {
             #expect(content.frame.width == held)
             root.sidebar.isWidthAnimating = false
             #expect(content.frame == root.contentHost.bounds)
+        }
+    }
+
+    /// Review (codex-xhigh) at 1f42c17: settlement used to reach a terminal before the workspace
+    /// laid it out at the landed width, so it flushed the held (wide) grid first. A hide reversed
+    /// into a show must settle the terminal once, at the final width.
+    @Test func aReversedSlideSettlesTheTerminalAtTheLandedWidth() throws {
+        try withHold(nil) {
+            let (window, root, _) = openRoot()
+            defer { window.close() }
+            let content = DeferredLayoutContent()
+            root.show(content)
+            root.layoutSubtreeIfNeeded()
+            let sidebar = root.sidebar.frame.width
+            root.sidebar.isWidthAnimating = true
+            root.sidebar.onWidthMotionStart?(sidebar, 0)
+            frame(root, width: sidebar / 2)
+            let wide = content.child.bounds.width
+            try #require(wide > root.contentHost.bounds.width, "the hide laid the content out wide")
+            root.sidebar.onWidthMotionStart?(sidebar / 2, sidebar)
+            root.sidebar.widthConstraint.constant = sidebar
+            root.sidebar.isWidthAnimating = false
+            let landed = root.contentHost.bounds.width
+            #expect(content.child.settledWidths == [landed], "settled at \(content.child.settledWidths), landed at \(landed)")
         }
     }
 

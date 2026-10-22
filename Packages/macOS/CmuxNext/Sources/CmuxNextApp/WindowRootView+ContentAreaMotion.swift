@@ -22,8 +22,11 @@ extension WindowRootView {
         sidebar.onWidthMotionStart = { [weak self] from, to in self?.holdContentThroughSlide(from: from, to: to) }
         sidebar.onWidthMotionChange = { [weak self] animating in
             guard !animating, let self else { return }
-            // The one layout at the landed width, before the content hears the motion ended.
+            // The one layout at the landed width, before the content hears the motion ended: the
+            // workspace sizes its layout in `layout()` (an empty autoresizing mask), so the subtree is
+            // laid out now, or a terminal would settle at the held width and report a stale grid.
             contentHost.contentHold = nil
+            layoutSubtreeIfNeeded()
             notifyPaneMotionSettled()
         }
     }
