@@ -325,9 +325,11 @@ Targets map: Freestyle VM → 3 (2 as fallback); Mac mini / other MacBook → 1 
 Tailnet policy (cmuxterm-hq #2982, 75bc7f7, live 2026-10-21, a459): the Cloud Chief tag,
 `chief-dev-vm` (`tag:lawrence-devvm`) and per-agent VMs (`tag:agent-cloud`) reach
 `tag:mac-mini-cluster` on 22/5900/8787/31415, cmux17-24 by IP on 22/5900 and `tag:macbuilder` on
-22/5900; cmux16 stays blocked. So from a cloud VM a mini is reachable by SSH (route 2) only; the
-`cmux host serve` port (7319) is not in the policy, so route 1 from cloud to a mini fails until it
-is added. SSH keys for user `chief` exist only on cloud-chief and chief-dev-vm.
+22/5900; cmux16 stays blocked. Update (cmuxterm-hq #2990, 6d9bc62, live): tcp 7319 (`cmux host serve`) is
+now open from `tag:lawrence-chief`, `tag:lawrence-devvm` and `tag:agent-cloud` to the same
+destinations. Nothing listens on 7319 on the minis yet ("connection refused"), so route 1 from
+cloud to a mini works only after `cmux host enable` (per-user service running `cmux host serve`)
+on each mini; until then SSH (route 2) is the working route. SSH keys for user `chief` exist only on cloud-chief and chief-dev-vm.
 
 ## 14. Auth, version skew
 
