@@ -36,8 +36,9 @@ public nonisolated enum BrowserNavigationEvent: Hashable, Sendable {
 /// Rules that every engine gets for free:
 /// - Callbacks for a navigation other than the active one are ignored, so a
 ///   late failure from a superseded load never overwrites the new load.
-/// - Progress is clamped, never goes backwards within a navigation, and is
-///   ignored when nothing is loading.
+/// - Progress is clamped, never goes backwards within a navigation, moves in
+///   steps of at least ``progressStep`` (or to the end), and is ignored when
+///   nothing is loading.
 /// - Cancellation and download interruptions end the load without an error.
 /// - Committing to another host clears the favicon and title.
 /// - A process exit ends any load and marks the page gone; the next
@@ -45,6 +46,8 @@ public nonisolated enum BrowserNavigationEvent: Hashable, Sendable {
 public nonisolated struct BrowserTabStateMachine: Sendable {
     /// Progress shown as soon as a navigation starts, so the bar is visible.
     public static let initialProgress = 0.1
+    /// The smallest rise of `progress` that is shown (the end of a load always is).
+    static let progressStep = 0.02
 
     public private(set) var state: BrowserTabState
 
@@ -134,7 +137,9 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
         case .progress(let value):
             guard state.isLoading else { return }
             let clamped = min(max(value, 0), 1)
-            state.progress = max(state.progress, clamped)
+            // Chromium reports progress per resource, and each change renders the tab's chrome.
+            guard clamped >= 1 || clamped - state.progress >= Self.progressStep else { return }
+            state.progress = clamped
 
         case .urlChanged(let url):
             guard let url else { return }
