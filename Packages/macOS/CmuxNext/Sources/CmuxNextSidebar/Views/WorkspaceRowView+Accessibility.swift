@@ -26,8 +26,16 @@ extension WorkspaceRowView {
     }
 
     func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent) -> String {
+        Self.accessibilityText(ws, content: content, tabCount: count, presence: presenceDots.isHidden ? [] : presenceDots.presence)
+    }
+
+    /// The row's label: what it draws, in reading order. `tabCount` and `presence` are what the
+    /// row's tab count and presence dots show (nil and empty when hidden).
+    static func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent, tabCount count: Int?,
+                                  presence: [SidebarPresence]) -> String {
         var parts = [ws.title]
-        if let s = content.now.map(Strings.rowNow) ?? content.detail { parts.append(s) }
+        let detail = content.now.map(Strings.rowNow) ?? content.detail
+        if let detail { parts.append(detail) }
         // The chip's word takes the one-line status's place, as drawn.
         if let s = content.chip.map({ SidebarPriorityRowView.chipText($0, now: Date()) }) ?? content.trailingStatus { parts.append(s) }
         if let s = content.status?.searchText, !s.isEmpty { parts.append(s) }
@@ -43,7 +51,7 @@ extension WorkspaceRowView {
         if let text = Strings.activity(content.activity) { parts.append(text) }
         if ws.muted { parts.append(Strings.notificationsMuted) }
         if let machine = content.machine { parts.append(machine.name) }
-        if !presenceDots.isHidden { parts += presenceDots.presence.map(Strings.presenceLine) }
+        parts += presence.map(Strings.presenceLine)
         return parts.joined(separator: ", ")
     }
 }

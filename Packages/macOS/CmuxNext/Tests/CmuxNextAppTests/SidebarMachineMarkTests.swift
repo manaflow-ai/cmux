@@ -56,6 +56,29 @@ import Testing
         #expect(marks([mac, chief, vm])[vm.id] != nil)
     }
 
+    /// The row's label names the machine once (VoiceOver read "gpu-box" twice after #22763): the
+    /// one-list second line leads with it, so the mark adds nothing; with no such line, the mark names it.
+    @Test func theRowsLabelNamesTheMachineOnce() throws {
+        let model = SidebarModel(sections: [mac, vm].map(section))
+        let o = model.listOptions()
+        let ws = SidebarWorkspace(id: WorkspaceID("w"), machineID: vm.id, title: "w", directory: "~/code/app")
+        func label(_ content: WorkspaceRowContent) -> String {
+            WorkspaceRowView.accessibilityText(ws, content: content, tabCount: nil, presence: [])
+        }
+        func names(_ text: String) -> Int { text.components(separatedBy: "gpu-box").count - 1 }
+        let oneList = o.rowContent(ws, machine: SidebarLayout.machineLabel(section(vm), options: o))
+        #expect(oneList.machine != nil)
+        #expect(label(oneList).hasPrefix("w, gpu-box · "))
+        #expect(names(label(oneList)) == 1)
+        var grouped = o
+        grouped.flattensMachines = false
+        let underHeader = grouped.rowContent(ws, machine: SidebarLayout.machineLabel(section(vm), options: grouped))
+        #expect(names(label(underHeader)) == 1)
+        var minimal = o
+        minimal.minimal = true
+        #expect(names(label(minimal.rowContent(ws, machine: SidebarLayout.machineLabel(section(vm), options: minimal)))) == 1)
+    }
+
     @Test func oneMachineDrawsNoMark() {
         #expect(marks(showsLocalMachine: true, [mac]).isEmpty)
     }
