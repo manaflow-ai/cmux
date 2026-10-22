@@ -82,17 +82,17 @@ import WebKit
         private let bytes: [UInt8]
 
         init(_ image: CGImage) {
-            width = image.width
-            height = image.height
-            var bytes = [UInt8](repeating: 0, count: width * height * 4)
-            let (width, height) = (width, height)
-            bytes.withUnsafeMutableBytes { buffer in
-                let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+            let wide = image.width, high = image.height
+            var pixels = [UInt8](repeating: 0, count: wide * high * 4)
+            pixels.withUnsafeMutableBytes { buffer in
+                let context = CGContext(data: buffer.baseAddress, width: wide, height: high, bitsPerComponent: 8, bytesPerRow: wide * 4,
                                         space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
                                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-                context?.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+                context?.draw(image, in: CGRect(x: 0, y: 0, width: wide, height: high))
             }
-            self.bytes = bytes
+            width = wide
+            height = high
+            bytes = pixels
         }
 
         /// The pixel at column `x` and row `y` counted from the bottom.
@@ -235,9 +235,9 @@ import WebKit
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }
+        let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
         let context = try #require(CGContext(data: nil, width: 300, height: 150, bitsPerComponent: 8, bytesPerRow: 1200,
-                                             space: try #require(CGColorSpace(name: CGColorSpace.sRGB)),
-                                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+                                             space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         context.setFillColor(Self.red)
         context.fill(CGRect(x: 0, y: 0, width: 300, height: 150))
         let base = try #require(context.makeImage())
