@@ -213,7 +213,8 @@ test("Claude: the composer draws no bolt; the model button's menu ends on Fast m
   // The box keeps the mic and Send; the quiet row holds the chips and the ring, and no bolt.
   expect(host.querySelector(".acpmux-composer-inner .acpmux-composer-actions .acpmux-mic")).not.toBeNull();
   await open();
-  expect(rows().at(-1)).toBe("Fast mode");
+  // The row names its state (Leo 2026-10-21).
+  expect(rows().at(-1)).toBe("Fast modeOff");
   expect(fastRow()!.getAttribute("aria-checked")).toBe("false");
   await toggleFast();
   expect(sent).toEqual(["fast-mode=on"]);

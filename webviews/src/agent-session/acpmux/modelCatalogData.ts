@@ -111,6 +111,9 @@ export type PickerHarness = {
   probeFailed?: boolean;
   defaultModel?: string;
   docsUrl?: string;
+  /** The catalog harness whose releases a profile the catalog does not map runs ("claude-sr2" runs
+   *  Claude Code's): its curated top models apply, and its releases name the profile's models. */
+  kin?: string;
   models: PickerModel[];
 };
 
@@ -344,8 +347,8 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
   }
   const live = session?.harness !== undefined && chosen?.id === session.harness ? session.configOptions : undefined;
   addSessionModels(models, live, harness.id, listed, join);
-  const current = live?.find((option) => option.category === "model" || option.id === "model")?.currentValue;
-  const offered = foldAliases(models, listed, current);
+  const releases = models.filter((model) => listed.some((pinned) => pinned.id === model.id));
+  const offered = foldAliases(models, releases, liveModel(live));
   return {
     id: harness.id,
     name: harness.name,
@@ -367,10 +370,19 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
 
 function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
   const live = entry.id === join.session?.harness ? join.session.configOptions : undefined;
+  // A profile of a catalogued agent ("claude-sr2" is Claude Code) runs that agent's releases: they
+  // name the release its session pins, and the aliases the agent names as one fold into it.
+  const key = agentKey(familyOf(entry));
+  const kin = join.catalog.harnesses.find(
+    (harness) => harness.modelSource === "catalog" && key !== undefined && harness.families.includes(key),
+  );
+  const listed = kin?.models ?? [];
   const models = entry.models
     .filter((probe) => !isHiddenByUser(entry.id, probe.id, join))
     .map((probe) => probedModel(probe, entry.id, join));
-  addSessionModels(models, live, entry.id, [], join);
+  addSessionModels(models, live, entry.id, listed, join);
+  const releases = listed.map((model) => listedModel(model, entry.id, entry.models, join));
+  const offered = kin ? foldAliases(models, releases, liveModel(live)) : models;
   const declaredBrand = entry.icon ? agentBrand(entry.icon) : undefined;
   const iconUrl = entry.icon && !declaredBrand && isIconFile(entry.icon) ? entry.icon : undefined;
   return {
@@ -383,7 +395,8 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
     pickable: entryPickable(entry),
     ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
     ...(entry.probeFailed ? { probeFailed: true } : {}),
-    models: live ? models.map((model) => withLiveOptions(model, live)) : models,
+    ...(kin ? { kin: kin.id } : {}),
+    models: live ? offered.map((model) => withLiveOptions(model, live)) : offered,
   };
 }
 
@@ -397,40 +410,72 @@ function listedModel(model: HarnessModel, harnessId: string, probed: AcpmuxModel
   return pickerModel(layeredModel(model, harnessId, probe, join), join.catalog, probe?.unavailable);
 }
 
+/** The model the session's own model option says it runs. */
+function liveModel(options: ConfigOptions | undefined): string | undefined {
+  const current = options?.find((option) => option.category === "model" || option.id === "model")?.currentValue;
+  return typeof current === "string" && current ? current : undefined;
+}
+
+/** "Claude Opus 5.5" and "Opus 5.5" name one model. */
+const nameKey = (name: string | undefined) =>
+  name
+    ?.replace(/^claude\s+/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
 /**
- * A model the harness reports under an alias and names as a catalog release ("opus" named
- * "Opus 5.5", from Claude Code's initialize reply) replaces that release's pinned row: one row,
- * the alias (so a pick follows the harness's newest), with the release's catalog metadata.
+ * One row per model. A model the harness reports under an alias and names as a catalog release
+ * ("opus" named "Opus 5.5", from Claude Code's initialize reply) is that release: one row, the
+ * alias (so a pick follows the harness's newest), with the release's catalog metadata. A session
+ * that runs the pinned release itself (`current`) keeps the release's row, checked, and the alias
+ * folds into it (Leo 2026-10-21: Opus 5.5 was listed twice, the alias and the release the chat runs).
+ * `releases` are the catalog's rows for the harness's releases.
  */
-function foldAliases(models: PickerModel[], listed: HarnessModel[], current?: string): PickerModel[] {
-  // The release the session runs keeps its own row, so the chip's model stays pickable and checked.
-  const listedIds = new Set(listed.map((model) => model.id).filter((id) => id !== current));
-  // release id -> the alias that takes its row (the first alias the harness names as it)
+function foldAliases(models: PickerModel[], releases: PickerModel[], current?: string): PickerModel[] {
+  const releaseIds = new Set(releases.map((model) => model.id));
+  // release id -> the alias that is it (the first alias the harness names as it)
   const takenBy = new Map<string, PickerModel>();
   for (const model of models) {
-    if (listedIds.has(model.id)) continue;
-    const release = models.find(
+    if (releaseIds.has(model.id)) continue;
+    const name = nameKey(model.name);
+    const release = releases.find(
       (candidate) =>
-        listedIds.has(candidate.id) &&
-        !takenBy.has(candidate.id) &&
-        (candidate.shortName === model.name || candidate.name === model.name),
+        !takenBy.has(candidate.id) && (nameKey(candidate.shortName) === name || nameKey(candidate.name) === name),
     );
     if (release) takenBy.set(release.id, model);
   }
-  const aliases = new Set([...takenBy.values()].map((model) => model.id));
-  return models
-    .filter((model) => !aliases.has(model.id))
-    .map((model) => {
-      const alias = takenBy.get(model.id);
-      if (!alias) return model;
-      return {
-        ...model,
-        id: alias.id,
-        release: model.id,
-        ...(alias.unavailable ? { unavailable: alias.unavailable } : {}),
-        searchText: `${alias.id} ${model.searchText}`,
-      };
-    });
+  const aliasFor = new Map([...takenBy].map(([release, alias]) => [alias.id, release]));
+  const rowOf = new Map(models.map((model) => [model.id, model]));
+  return models.flatMap((model): PickerModel[] => {
+    const releaseId = aliasFor.get(model.id);
+    if (releaseId !== undefined) {
+      // Where the release has a row, that row stands for both (below); else the alias takes the
+      // release's catalog row here.
+      if (rowOf.has(releaseId)) return [];
+      return [
+        aliasRow(
+          releases.find((release) => release.id === releaseId)!,
+          model,
+        ),
+      ];
+    }
+    // The pinned release the session runs keeps its own id, so its row stays the checked one.
+    const alias = takenBy.get(model.id);
+    if (!alias || model.id === current) return [model];
+    return [aliasRow(model, alias)];
+  });
+}
+
+/** The release's row under the alias's id. */
+function aliasRow(release: PickerModel, alias: PickerModel): PickerModel {
+  return {
+    ...release,
+    id: alias.id,
+    release: release.id,
+    ...(alias.unavailable ? { unavailable: alias.unavailable } : {}),
+    searchText: `${alias.id} ${release.searchText}`,
+  };
 }
 
 /**

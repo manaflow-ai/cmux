@@ -4473,7 +4473,7 @@ function AcpmuxPane() {
     .map((model) => `${model.id}\t${model.shortName || model.name || model.id}\t${model.release ?? ""}`)
     .join("\n");
   const retryHarnessName = retryHarness?.name;
-  const retryTop = retryHarness ? topModelsFor(retryHarness.id) : undefined;
+  const retryTop = retryHarness ? topModelsFor(retryHarness.kin ?? retryHarness.id) : undefined;
   const retryModels = useMemo(
     () =>
       retryModelsKey

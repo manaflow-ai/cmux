@@ -225,7 +225,8 @@ export function ComposerPickers({
             models: entry.models,
             ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
             pickable: entry.pickable && entry.acpmuxHarness !== null,
-            ...(topModelsFor(entry.id) ? { top: topModelsFor(entry.id) } : {}),
+            // A profile of a catalogued agent ("claude-sr2") lists that agent's top models.
+            ...(topModelsFor(entry.kin ?? entry.id) ? { top: topModelsFor(entry.kin ?? entry.id) } : {}),
           })),
         // The chat folder's own profiles are acpmux's alone; the model catalog never lists them.
         ...snapshot.catalog.filter((entry) => entry.folder),
