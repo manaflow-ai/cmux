@@ -173,7 +173,7 @@ public nonisolated enum SidebarTunables {
     /// (`sidebar.workspaceRow.pullRequest`, off by default). On by default; the tree's nesting and keycaps stay opt-in.
     public static let pullRequestBadges = Tunable<Bool>.toggle(
         "sidebar.pullRequestBadges", .sidebar, "Rows show their pull requests",
-        help: "A workspace row shows a badge for the pull requests its agent chats opened or its folder's branch has, colored by their state, even with the session tree off.",
+        help: "A workspace row shows a badge for the pull requests its agent chats opened or its folder's branch has, quiet unless their checks fail, even with the session tree off.",
         default: true, code: "SidebarTunables.pullRequestBadges")
 
     /// The pull requests' hover card on a row's pull request badge (`SidebarPullRequestCard`,
