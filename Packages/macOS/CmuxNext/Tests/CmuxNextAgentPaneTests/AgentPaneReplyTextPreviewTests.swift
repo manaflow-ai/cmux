@@ -185,6 +185,32 @@ struct AgentPaneReplyTextPreviewTests {
         #expect(Self.truncated(reply) == true)
     }
 
+    @Test func aChatOnAnotherMachineReadsNothingHere() async throws {
+        let rig = try Self.rig()
+        defer { try? FileManager.default.removeItem(at: rig.folder) }
+        rig.model.replyLinks.settings = { AgentPaneReplySetting(outsideRoots: .open, remoteImages: .click) }
+        let inside = rig.project.appendingPathComponent("notes.log")
+        try "local secret\n".write(to: inside, atomically: true, encoding: .utf8)
+        let outside = rig.outside.appendingPathComponent("notes.log")
+        try "local secret\n".write(to: outside, atomically: true, encoding: .utf8)
+        rig.model.remoteChat = true
+
+        for url in [inside, outside, rig.outside.appendingPathComponent("gone.log")] {
+            let reply = await rig.preview(url.path)
+            #expect(Self.errorCode(reply) == nil, "\(url.lastPathComponent): \(reply)")
+            #expect(Self.lines(reply) == nil, "\(url.lastPathComponent)")
+            #expect((reply["value"] as? [String: Any])?["remote"] as? Bool == true, "\(url.lastPathComponent)")
+        }
+    }
+
+    @Test func aWholeOneLineFileLongerThanTheCapReadsAsCut() {
+        let line = String(repeating: "y", count: AgentPaneReplyTextPreview.maximumLineLength + 1)
+        let data = Data(line.utf8)
+        let preview = AgentPaneReplyTextPreview.text(data, fileSize: data.count)
+        let expected = AgentPaneReplyTextPreview(lines: [String(line.prefix(AgentPaneReplyTextPreview.maximumLineLength))], truncated: true)
+        #expect(preview == .success(expected))
+    }
+
     @Test func aReadCutInsideACharacterKeepsTheTextBeforeIt() {
         // "é" is two bytes; the read stopped after the first.
         let data = Data("café".utf8).dropLast()

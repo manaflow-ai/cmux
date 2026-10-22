@@ -158,3 +158,54 @@ test("a folder's card has its name and Open but reads nothing", async () => {
   expect(view.calls).toEqual([]);
   await view.done();
 });
+
+test("an image the host refuses keeps the plain file card: name, path and Open, no empty thumbnail", async () => {
+  const path = "/tmp/cmux-shots/before.png";
+  const view = await renderChip(
+    path,
+    { paths: { [path]: { place: "outside", folder: false } }, policy: { outsideRoots: "open" } },
+    // The base host refuses an image outside the folders (until #23879); link.preview has no text.
+    () => undefined,
+  );
+  await view.act(async () => view.chip.focus());
+  await view.until(() => view.calls.some((call) => call.method === "link.preview"));
+  const card = view.card()!;
+  expect(card.textContent).toContain("before.png");
+  expect(card.textContent).toContain(path);
+  expect(card.querySelector("img")).toBeNull();
+  expect(card.querySelector("pre")).toBeNull();
+  expect(card.querySelector(".cv-path-preview__note")).toBeNull();
+  expect(card.querySelector(".cv-link-preview__open")).not.toBeNull();
+  expect(view.calls).toEqual([
+    { method: "image.load", params: { src: path } },
+    { method: "link.preview", params: { path } },
+  ]);
+  await view.done();
+});
+
+test("an image path that a text read would accept still shows no text", async () => {
+  const path = "/tmp/cmux-shots/fake.png";
+  const view = await renderChip(path, { paths: { [path]: { place: "root", folder: false } } }, ({ method }) =>
+    method === "link.preview" ? { lines: ["not an image"], truncated: false } : undefined,
+  );
+  await view.act(async () => view.chip.focus());
+  await view.until(() => view.calls.some((call) => call.method === "link.preview"));
+  expect(view.card()!.querySelector("pre, img")).toBeNull();
+  await view.done();
+});
+
+test("in a chat on another machine the card says so and offers no Open of a local file", async () => {
+  const path = "/tmp/notes.log";
+  const view = await renderChip(path, { paths: { [path]: { place: "outside", folder: false } } }, ({ method }) =>
+    method === "link.preview" ? { remote: true } : undefined,
+  );
+  await view.act(async () => view.chip.focus());
+  await view.until(() => view.card()?.querySelector(".cv-path-preview__note"));
+  const card = view.card()!;
+  expect(card.querySelector(".cv-path-preview__note")?.textContent).toBe(
+    "This chat runs on another machine, so this file can't be previewed here",
+  );
+  expect(card.querySelector("pre, img")).toBeNull();
+  expect(card.querySelector(".cv-link-preview__open")).toBeNull();
+  await view.done();
+});
