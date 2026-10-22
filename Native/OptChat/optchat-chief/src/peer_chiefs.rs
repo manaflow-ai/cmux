@@ -47,6 +47,8 @@ pub struct Peer {
     pub label: String,
     /// Where it runs (`cloud`, `mac`, `server`), shown in `chiefs`.
     pub place: String,
+    /// The hub token subjects whose messages count as this peer's (default: its name).
+    pub subs: Vec<String>,
 }
 
 impl Peer {
@@ -122,10 +124,22 @@ impl Config {
                     .unwrap_or(d)
                     .to_owned()
             };
+            let mut subs: Vec<String> = p
+                .get("subs")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect();
+            if subs.is_empty() {
+                subs.push(name.to_owned());
+            }
             peers.push(Peer {
                 name: name.to_owned(),
                 label: text("label", name),
                 place: text("place", "remote"),
+                subs,
             });
         }
         Ok(Config {
@@ -399,7 +413,12 @@ impl PeerChiefs {
     pub fn inbound(&self, message: &Value) -> Inbound {
         let from = message.get("from").and_then(Value::as_str).unwrap_or("");
         let seq = message.get("seq").and_then(Value::as_u64).unwrap_or(0);
-        let Some(peer) = self.config.peers.iter().find(|p| p.name == from) else {
+        let Some(peer) = self
+            .config
+            .peers
+            .iter()
+            .find(|p| p.subs.iter().any(|s| s == from))
+        else {
             return Inbound::Ignored(format!(
                 "hub message {seq} from {from:?}: not a listed peer Chief"
             ));
@@ -509,6 +528,178 @@ impl PeerChiefs {
     }
 }
 
+/// Where a forward of one hub message ended.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Forwarded {
+    /// The brain took it (or had it already): ack.
+    Done,
+    /// Refused for good (a bad message): ack, log.
+    Dropped(String),
+    /// Try again later (the network, the API, a chief that does not answer now): keep it.
+    Later(String),
+}
+
+/// Sorts a forward's answer: a 409 (`chief_not_answering`), 429 and 5xx wait, any other 4xx drops.
+pub fn forwarded(answer: Result<Value, String>) -> Forwarded {
+    match answer {
+        Ok(_) => Forwarded::Done,
+        Err(e) => {
+            let code = e
+                .split(": HTTP ")
+                .nth(1)
+                .and_then(|r| r.get(..3))
+                .and_then(|c| c.parse::<u16>().ok());
+            match code {
+                Some(409 | 429) | None => Forwarded::Later(e),
+                Some(c) if c >= 500 => Forwarded::Later(e),
+                Some(_) => Forwarded::Dropped(e),
+            }
+        }
+    }
+}
+
+impl PeerChiefs {
+    /// One pass of the hosted-brain bridge: each message a listed peer posted to this box goes to
+    /// `forward(from, text, key)` (POST /v1/chiefs/<agent>/peer); acked when it is done or dropped.
+    /// Stops at the first message that must wait, so the order holds.
+    pub fn bridge_once(
+        &self,
+        wait_s: u64,
+        forward: &dyn Fn(&str, &str, &str) -> Forwarded,
+        log: &dyn Fn(&str),
+    ) -> Result<usize, String> {
+        let inbox = self.inbox();
+        let mut done = 0;
+        for m in self.hub.read(&inbox, "cursor", wait_s)? {
+            let seq = m.get("seq").and_then(Value::as_u64).unwrap_or(0);
+            let from = m.get("from").and_then(Value::as_str).unwrap_or("");
+            let id = m.get("id").and_then(Value::as_str).unwrap_or("");
+            let text = m
+                .pointer("/body/text")
+                .and_then(Value::as_str)
+                .or_else(|| m.get("body").and_then(Value::as_str))
+                .unwrap_or("")
+                .trim();
+            let peer = self
+                .config
+                .peers
+                .iter()
+                .find(|p| p.subs.iter().any(|s| s == from));
+            match peer {
+                Some(peer) if !text.is_empty() => {
+                    match forward(&peer.name, text, &format!("hub-{seq}-{id}")) {
+                        Forwarded::Done => done += 1,
+                        Forwarded::Dropped(why) => {
+                            log(&format!("peer bridge: hub message {seq} dropped: {why}"))
+                        }
+                        Forwarded::Later(why) => {
+                            return Err(format!("hub message {seq} waits: {why}"));
+                        }
+                    }
+                }
+                _ => log(&format!(
+                    "peer bridge: hub message {seq} from {from:?} ignored (not a listed peer, or no text)"
+                )),
+            }
+            self.hub.ack(&inbox, seq)?;
+        }
+        Ok(done)
+    }
+}
+
+/// `optchat-chief peer-chiefs bridge --install FILE --chief agent_… [--config FILE] [--once]`: runs on
+/// the hub host for a hosted Cloud Chief (the Durable Object brain, which cannot read the hub): each
+/// peer message in this box goes to the chief through POST /v1/chiefs/<chief>/peer as the owner's
+/// paired install. `--list` prints the account's chiefs (id, name, placement) instead.
+fn bridge_cli(
+    config: &Path,
+    install: &Path,
+    chief: Option<&str>,
+    once: bool,
+    list: bool,
+) -> Result<String, String> {
+    use crate::cloud::auth::{self, InstallFile, InstallTokens, TokenSource, UreqHttp};
+    let file = InstallFile::load(install)?;
+    let api = file.api_base_url.trim_end_matches('/').to_owned();
+    let http: Arc<dyn crate::cloud::auth::Http> = Arc::new(UreqHttp);
+    let tokens = InstallTokens::new(file, http.clone());
+    if list {
+        let lease = tokens.mint(None)?;
+        let v = auth::read(&*http, &api, &lease.access_token, "chief.list", json!({}))?;
+        let rows: Vec<Value> = v
+            .get("chiefs")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|c| {
+                json!({
+                    "id": c.get("id"), "display_name": c.get("display_name"),
+                    "is_default": c.get("is_default"), "archived_at": c.get("archived_at"),
+                    "brain_place": c.get("brain_place"),
+                })
+            })
+            .collect();
+        return Ok(serde_json::to_string_pretty(&rows).unwrap_or_default());
+    }
+    let chief = chief
+        .ok_or("bridge needs --chief agent_… (see --list)")?
+        .to_owned();
+    let peers = PeerChiefs::from_file(config)?
+        .ok_or_else(|| format!("{}: no peer Chiefs configured", config.display()))?;
+    let lease: Mutex<Option<crate::cloud::auth::Lease>> = Mutex::new(None);
+    let now = || {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64)
+    };
+    let forward = |from: &str, text: &str, key: &str| -> Forwarded {
+        let mut held = lease.lock().expect("lease");
+        if held.as_ref().is_none_or(|l| l.expires_at <= now() + 60_000) {
+            match tokens.mint(None) {
+                Ok(l) => *held = Some(l),
+                Err(e) => return Forwarded::Later(format!("minting the install token: {e}")),
+            }
+        }
+        let token = held
+            .as_ref()
+            .map(|l| l.access_token.clone())
+            .unwrap_or_default();
+        drop(held);
+        forwarded(http.post(
+            &format!("{api}/v1/chiefs/{chief}/peer"),
+            &json!({"from": from, "text": text, "key": key}),
+            Some(&token),
+        ))
+    };
+    let log = |line: &str| eprintln!("{line}");
+    eprintln!(
+        "peer bridge: {} -> {api}/v1/chiefs/{chief}/peer",
+        peers.inbox()
+    );
+    let mut delay = Duration::from_secs(2);
+    loop {
+        match peers.bridge_once(if once { 0 } else { WAIT_S }, &forward, &log) {
+            Ok(n) => {
+                if n > 0 {
+                    eprintln!("peer bridge: forwarded {n}");
+                }
+                delay = Duration::from_secs(2);
+                if once {
+                    return Ok(format!("forwarded {n}"));
+                }
+            }
+            Err(e) => {
+                if once {
+                    return Err(e);
+                }
+                eprintln!("peer bridge: {e}");
+                std::thread::sleep(delay);
+                delay = (delay * 2).min(Duration::from_secs(120));
+            }
+        }
+    }
+}
+
 /// `optchat-chief peer-chiefs …`: the same route from a shell (a450, tests,
 /// the end-to-end proof). `--config FILE` (default: `$MUX_HOME/optchat/peer-chiefs.json`).
 ///
@@ -521,6 +712,7 @@ pub fn cli(args: &[String]) -> Result<String, String> {
     let mut rest: Vec<String> = Vec::new();
     let mut config: Option<PathBuf> = None;
     let (mut key, mut after, mut wait) = (None, "0".to_owned(), 0_u64);
+    let (mut install, mut chief, mut once, mut list) = (None, None, false, false);
     let mut i = 0;
     while i < args.len() {
         let next = |i: usize| {
@@ -533,6 +725,17 @@ pub fn cli(args: &[String]) -> Result<String, String> {
             "--key" => key = Some(next(i)?),
             "--after" => after = next(i)?,
             "--wait" => wait = next(i)?.parse().map_err(|_| "--wait takes seconds")?,
+            "--install" => install = Some(PathBuf::from(next(i)?)),
+            "--chief" => chief = Some(next(i)?),
+            "--once" | "--list" => {
+                if args[i] == "--once" {
+                    once = true;
+                } else {
+                    list = true;
+                }
+                i += 1;
+                continue;
+            }
             _ => {
                 rest.push(args[i].clone());
                 i += 1;
@@ -542,6 +745,11 @@ pub fn cli(args: &[String]) -> Result<String, String> {
         i += 2;
     }
     let path = config.unwrap_or_else(|| Config::path(&crate::paths::mux_home().join("optchat")));
+    if rest.first().is_some_and(|w| w == "bridge") {
+        let install =
+            install.ok_or("bridge needs --install FILE (the paired install of this host)")?;
+        return bridge_cli(&path, &install, chief.as_deref(), once, list);
+    }
     let peers = PeerChiefs::from_file(&path)?
         .ok_or_else(|| format!("{}: no peer Chiefs configured", path.display()))?;
     match rest.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
@@ -552,7 +760,7 @@ pub fn cli(args: &[String]) -> Result<String, String> {
             let messages = peers.hub.read(&peers.inbox(), &after, wait.min(WAIT_S))?;
             Ok(serde_json::to_string_pretty(&Value::Array(messages)).unwrap_or_default())
         }
-        _ => Err("usage: optchat-chief peer-chiefs list | tell chief:NAME TEXT [--key K] | read [--after N] [--wait S] [--config FILE]".into()),
+        _ => Err("usage: optchat-chief peer-chiefs list | tell chief:NAME TEXT [--key K] | read [--after N] [--wait S] | bridge --install FILE (--chief agent_… [--once] | --list) [--config FILE]".into()),
     }
 }
 
@@ -677,6 +885,80 @@ mod tests {
                 ("agent:mac-chief".to_owned(), 7),
                 ("agent:mac-chief".to_owned(), 8)
             ]
+        );
+    }
+
+    #[test]
+    fn forward_answers_sort_into_done_drop_and_later() {
+        assert_eq!(forwarded(Ok(json!({}))), Forwarded::Done);
+        assert!(matches!(
+            forwarded(Err("u: HTTP 400: bad".into())),
+            Forwarded::Dropped(_)
+        ));
+        assert!(matches!(
+            forwarded(Err("u: HTTP 403: no".into())),
+            Forwarded::Dropped(_)
+        ));
+        assert!(matches!(
+            forwarded(Err("u: HTTP 409: off".into())),
+            Forwarded::Later(_)
+        ));
+        assert!(matches!(
+            forwarded(Err("u: HTTP 503: x".into())),
+            Forwarded::Later(_)
+        ));
+        assert!(matches!(
+            forwarded(Err("u: Connection Failed".into())),
+            Forwarded::Later(_)
+        ));
+    }
+
+    #[test]
+    fn the_bridge_forwards_peer_messages_and_keeps_one_that_must_wait() {
+        let hub = Arc::new(FakeHub::default());
+        let p = PeerChiefs::new(config(), hub.clone());
+        let seen = Mutex::new(Vec::new());
+        let n = p
+            .bridge_once(
+                0,
+                &|from, text, key| {
+                    seen.lock()
+                        .unwrap()
+                        .push((from.to_owned(), text.to_owned(), key.to_owned()));
+                    Forwarded::Done
+                },
+                &|_| {},
+            )
+            .unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(seen.lock().unwrap()[0].0, "cloud-chief");
+        assert_eq!(seen.lock().unwrap()[0].1, "pong");
+        assert_eq!(
+            hub.acks.lock().unwrap().len(),
+            2,
+            "the stranger's message is acked and ignored"
+        );
+        let hub = Arc::new(FakeHub::default());
+        let p = PeerChiefs::new(config(), hub.clone());
+        assert!(
+            p.bridge_once(0, &|_, _, _| Forwarded::Later("409".into()), &|_| {})
+                .is_err()
+        );
+        assert!(hub.acks.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_peer_answers_for_its_listed_subjects() {
+        let c = Config::parse(
+            r#"{"hub":"http://h","token_file":"t","me":"mac-chief",
+                "peers":[{"name":"cloud-chief","subs":["cloud-chief","hosted-cc"]}]}"#,
+            None,
+        )
+        .unwrap();
+        let p = PeerChiefs::new(c, Arc::new(FakeHub::default()));
+        let m = json!({"seq": 1, "from": "hosted-cc", "body": {"text": "hi"}});
+        assert!(
+            matches!(p.inbound(&m), Inbound::Note(t) if t.starts_with("[chief:cloud-chief] hi"))
         );
     }
 
