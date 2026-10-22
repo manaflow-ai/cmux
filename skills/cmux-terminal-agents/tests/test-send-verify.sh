@@ -113,5 +113,11 @@ if [ "$code" != 0 ] && [ "$(echo "$out" | field stage)" = '"blocked_on_prompt"' 
   pass "late menu: blocked_on_prompt, nothing typed into it"
 else failt "late menu: blocked_on_prompt, nothing typed into it" "exit $code stage $(echo "$out" | field stage) typed ${typed:-0}"; fi
 
+# 10. choose on a menu that ignores digits (Codex): arrows + Enter, checked.
+out=$("$A" choose late 2 --timeout 2 2>/dev/null); code=$?
+if [ "$code" = 0 ] && [ "$(echo "$out" | field verified)" = '"prompt_gone"' ] && grep -q '"option": "2"' "$FAKE_CMUX_DIR/$(term_of late).events"; then
+  pass "choose: digit ignored, arrows picked option 2"
+else failt "choose: digit ignored, arrows picked option 2" "exit $code out=$(echo "$out" | head -c 300)"; fi
+
 echo
 if [ "$fails" = 0 ]; then echo "cmux-terminal-agents send-verify tests passed"; else echo "$fails test(s) failed"; exit 1; fi

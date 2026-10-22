@@ -49,8 +49,12 @@ class Tui:
     def render(self):
         lines = list(self.transcript)
         if self.menu == "late":
-            lines += ["  Hooks need review", "  1 hook is new or changed.", "› 1. Review hooks",
-                      "  2. Trust all and continue", "  enter confirm · esc skip"]
+            # Like Codex's menus: digits do nothing; arrows move, Enter picks.
+            sel = getattr(self, "late_sel", 1)
+            opts = ["Review hooks", "Trust all and continue", "Continue without trusting"]
+            lines += ["  Hooks need review", "  1 hook is new or changed."]
+            lines += [("› " if n == sel else "  ") + f"{n}. {o}" for n, o in enumerate(opts, 1)]
+            lines += ["  enter confirm · esc skip"]
         elif self.menu:
             lines += ["Do you want to proceed?", "❯ 1. Yes", "  2. No", "Esc to cancel"]
         else:
@@ -124,6 +128,16 @@ class Tui:
             return
         i = 0
         while i < len(data):
+            if self.menu == "late" and data.startswith((b"\x1b[A", b"\x1b[B"), i):
+                self.late_sel = max(1, min(3, getattr(self, "late_sel", 1) + (1 if data[i + 2:i + 3] == b"B" else -1)))
+                i += 3
+                continue
+            if self.menu == "late" and data[i:i + 1] == b"\r":
+                self.menu = False
+                self.transcript.append(f"chose {getattr(self, 'late_sel', 1)}")
+                self.log(ev="choose", option=str(getattr(self, "late_sel", 1)))
+                i += 1
+                continue
             if self.menu == "late" and (data.startswith(b"\x1b[200~", i) or not data.startswith(b"\x1b", i)):
                 self.log(ev="typed_into_menu", byte=data[i:i + 1].decode(errors="replace"))
                 i += 1

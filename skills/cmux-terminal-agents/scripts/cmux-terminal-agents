@@ -512,6 +512,10 @@ def verified_send(rec, text, submit=True, ready_timeout=30, render_timeout=10, s
         write_bytes(rec, paste)
         pastes = 1
         rendered, shown = poll_screen(rec, lambda t: in_composer(t, text), render_timeout)
+    if not rendered and blocking_prompt(shown):
+        raise ActionFailed({"submitted": False, "stage": "blocked_on_prompt", "pastes": pastes,
+                            "error": "a prompt or menu came up; answer it (choose/steer/key) first",
+                            "prompt": blocking_prompt(shown), "screen": screen_tail(shown)})
     if not rendered and snippet(text) not in norm(shown or ""):
         # Nothing of it anywhere on screen: the TUI dropped the input. Paste once more.
         write_bytes(rec, paste)
@@ -626,6 +630,9 @@ def wait_turn(rec, timeout, idle_seconds):
     before = turn.get("before") or {}
     start = time.time()
     seen_running = False
+    # Each signal ends the wait only after it saw this turn running itself:
+    # Codex's hook says idle right after submit, before it says working.
+    hook_running_ms, osc_working = None, False
     last_text, last_change = None, time.time()
     probes = Probes(term)
     path, seen_at = None, None
@@ -648,14 +655,16 @@ def wait_turn(rec, timeout, idle_seconds):
                 if hook:
                     st = hook.get("state")
                     upd = int(hook.get("updated_at_ms") or 0)
-                    if st == "running":
+                    if st in ("running", "working"):
                         seen_running = True
-                    elif upd > sent and seen_running and st in ("idle", "done", "needs_input", "blocked", "waiting"):
+                        if upd >= sent - 1000:
+                            hook_running_ms = max(hook_running_ms or 0, upd)
+                    elif hook_running_ms and upd > hook_running_ms and st in ("idle", "done", "needs_input", "blocked", "waiting"):
                         return ended("hook", start, sent, state=st, signal_ms=upd)
                 app = [r for r in got.get("status") or [] if r.get("app") in ("claude-code", "codex")]
                 if any(r.get("state") == "working" for r in app):
-                    seen_running = True
-                elif seen_running and app and all(r.get("state") in ("idle", "done", "blocked", "error") for r in app):
+                    seen_running = osc_working = True
+                elif osc_working and app and all(r.get("state") in ("idle", "done", "blocked", "error") for r in app):
                     return ended("osc7501", start, sent, state=app[0].get("state"), signal_ms=max(int(r.get("updated_at_ms") or 0) for r in app))
                 if (got.get("proc") or {}).get("exited"):
                     return ended("exit", start, sent)
@@ -713,7 +722,8 @@ def cmd_continue(a):
 
 PROMPT_MARKS = ("Do you want to proceed", "Do you want to make this edit", "Do you want to create",
                 "❯ 1. Yes", "Esc to cancel", "(y/n)", "[Y/n]", "Allow command?", "Press Enter to continue",
-                "Trust this folder", "I trust this folder")
+                "Trust this folder", "I trust this folder", "Hooks need review", "enter confirm · esc",
+                "enter continue · esc")
 
 
 def target(name_or_term):
@@ -733,10 +743,14 @@ def prompt_on_screen(text):
     return tail if any(m in tail for m in PROMPT_MARKS) else None
 
 
+# A selected numbered option ("› 1. Trust and continue", "❯ 2. No"): a menu.
+MENU_ROW = re.compile(r"^\s*[›❯]\s*\d+\.\s", re.M)
+
+
 def blocking_prompt(text):
     """A prompt/menu in the bottom lines of the screen (where a live one sits)."""
     tail = "\n".join([l for l in (text or "").splitlines() if l.strip()][-12:])
-    return tail if any(m in tail for m in PROMPT_MARKS) else None
+    return tail if any(m in tail for m in PROMPT_MARKS) or MENU_ROW.search(tail) else None
 
 
 def cmd_prompts(a):
