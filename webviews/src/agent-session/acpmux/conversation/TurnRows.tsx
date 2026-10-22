@@ -18,7 +18,15 @@ import { isFoldedRun, toolRunCategory } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
 import { ChevronRight, Retry } from "./icons";
-import { ForkButton, MessageCopy, MessageTime, PinButton, ReadAloudButton, ROW_ICON } from "./MessageActions";
+import {
+  ForkButton,
+  MessageCopy,
+  MessageMore,
+  MessageTime,
+  PinButton,
+  ReadAloudButton,
+  ROW_ICON,
+} from "./MessageActions";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { useT } from "../i18n";
 import { failureCopy, failureKind, type FailureRoute } from "../failureCopy";
@@ -275,6 +283,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           {fork && seq !== undefined && (forkAny || seq === forkSeq) && <ForkButton onFork={() => fork(seq)} />}
           <PinButton rowId={row.id} />
           {text && <ReadAloudButton id={row.id} text={text} />}
+          {text && row.answerId && <MessageMore rowId={row.answerId} />}
           {authenticationFailed && reauthenticate && (
             <button type="button" className="cv-turn-auth-action" onClick={reauthenticate}>
               {t("turn.signInAgain")}

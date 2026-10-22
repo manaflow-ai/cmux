@@ -4,6 +4,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextPages
+import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextSettingsWindow
 import CmuxNextTerminal
@@ -44,6 +45,8 @@ final class SettingsWindowService: InternalPageProvider {
     /// Agents' Add panel), with no section or setting.
     func show(section: SettingsSection?, setting: String? = nil, focus: Bool = true, route pageRoute: String? = nil) throws {
         guard services.settings != nil else { throw ActionFailure(message: RefusalStrings.settingsNotLoaded) }
+        // task-owner: one read of the device list per opening (Settings > Devices)
+        Task { [devices = services.devices] in await devices.refresh() }
         var anchor: SettingsAnchor?
         if let setting {
             guard let found = SettingsAnchor(key: setting) else {

@@ -26,6 +26,87 @@ export const SCROLLING_ATTRIBUTE = "data-cmux-scrolling";
 /** How long a scroller stays after the last scroll step (AppKit's overlay fade starts about here). */
 export const SCROLLING_HIDE_MS = 800;
 
+/**
+ * On a scroller whose thin thumb stays drawn the whole time its content overflows, whatever the
+ * macOS setting: the agent chat's transcript (Leo 2026-10-21: "SCROLLBAR IT SHOULD FUCKING SHOW").
+ * The rules come after the legacy ones in `SCROLLER_ROOT_CSS`, and their `:root` prefix outranks
+ * them. The thumb never shows, hides and shows again as rows arrive or the view follows them. Its
+ * lane is always there (`overflow-y: scroll`, on no track; no thumb is drawn while the content
+ * fits), so the content never reflows as it starts to overflow. Its ink is
+ * `--cmux-shown-scroller-ink`: under `SCROLLER_FADE_ATTRIBUTE` it is none at rest and full while
+ * the element scrolls, and `followShownScrollerFade` fades it between the two.
+ */
+export const SHOWN_SCROLLER_ATTRIBUTE = "data-cmux-shown-scroller";
+/** On `<html>` when shown scrollers fade out at rest instead (opt-in: Debug Settings
+    `agentPane.debug.scrollerFade`, the agent theme's `scrollerFade`). */
+export const SCROLLER_FADE_ATTRIBUTE = "data-cmux-scroller-fade";
+/** A shown scroller's full ink, in percent of the text color (`--cmux-scroller-thumb`'s). */
+const SHOWN_INK = 38;
+
+/** A duration custom property's value in ms (`120ms`, `0.18s`); 0 when it is unset or not one. */
+function durationMs(element: Element, property: string): number {
+  const value = element.ownerDocument.defaultView?.getComputedStyle(element).getPropertyValue(property).trim() ?? "";
+  const match = /^(\d*\.?\d+)(ms|s)$/.exec(value);
+  if (!match) return 0;
+  return Number(match[1]) * (match[2] === "s" ? 1000 : 1);
+}
+
+/**
+ * Under `SCROLLER_FADE_ATTRIBUTE`, fades `element`'s shown thumb in when it starts scrolling and out
+ * once it stops (`SCROLLING_ATTRIBUTE`), over `--cmux-scroller-fade-in` and `--cmux-scroller-fade-out`
+ * (0 or unset: at once). The ink steps once per frame from script: WebKit restyles a scrollbar's
+ * parts only when its element's style is resolved again, never on a CSS transition's steps, so a
+ * transition there showed the thumb and hid it with nothing between. Between fades the stylesheet's
+ * ink applies. Returns the stop function.
+ */
+export function followShownScrollerFade(element: HTMLElement): () => void {
+  const view = element.ownerDocument.defaultView;
+  if (!view?.MutationObserver) return () => {};
+  const root = element.ownerDocument.documentElement;
+  /// The ink the stylesheet gives `element` now (none at rest under the fade, else full).
+  const resting = () =>
+    root.hasAttribute(SCROLLER_FADE_ATTRIBUTE) && !element.hasAttribute(SCROLLING_ATTRIBUTE) ? 0 : SHOWN_INK;
+  /// The ink drawn now; a fade starts from it.
+  let ink = resting();
+  let target = ink;
+  let frame = 0;
+  const settle = () => {
+    view.cancelAnimationFrame(frame);
+    ink = target = resting();
+    element.style.removeProperty("--cmux-shown-scroller-ink");
+  };
+  const fade = () => {
+    const to = resting();
+    // Every scroll step marks the element again: a fade already headed there runs on.
+    if (to === target) return;
+    if (!root.hasAttribute(SCROLLER_FADE_ATTRIBUTE)) return settle();
+    target = to;
+    const from = ink;
+    const ms = durationMs(element, to > from ? "--cmux-scroller-fade-in" : "--cmux-scroller-fade-out");
+    view.cancelAnimationFrame(frame);
+    if (ms <= 0) return settle();
+    const start = view.performance.now();
+    const step = (now: number) => {
+      const t = Math.min(1, Math.max(0, (now - start) / ms));
+      if (t >= 1) return settle();
+      // Ease out, as the pane's other fades (--agent-ease-out).
+      ink = from + (to - from) * (1 - (1 - t) * (1 - t));
+      element.style.setProperty("--cmux-shown-scroller-ink", `${ink.toFixed(2)}%`);
+      frame = view.requestAnimationFrame(step);
+    };
+    step(start);
+  };
+  const scrollingMarks = new view.MutationObserver(fade);
+  scrollingMarks.observe(element, { attributes: true, attributeFilter: [SCROLLING_ATTRIBUTE] });
+  const fadeSetting = new view.MutationObserver(fade);
+  fadeSetting.observe(root, { attributes: true, attributeFilter: [SCROLLER_FADE_ATTRIBUTE] });
+  return () => {
+    scrollingMarks.disconnect();
+    fadeSetting.disconnect();
+    settle();
+  };
+}
+
 /** The host's answer; a page without a host (tests, the dev server) gets overlay. */
 export function scrollerStyle(root: Element | null = globalThis.document?.documentElement ?? null): ScrollerStyle {
   return root?.getAttribute("data-scrollers") === "legacy" ? "legacy" : "overlay";
@@ -212,6 +293,36 @@ html[data-scrollers="legacy"][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb,
 html[data-scrollers="legacy"][${SCROLLING_ATTRIBUTE}] > body::-webkit-scrollbar-thumb,
 html[data-scrollers="legacy"] ::-webkit-scrollbar-thumb:hover,
 html[data-scrollers="legacy"] ::-webkit-scrollbar-thumb:active {
+  background-color: var(--cmux-scroller-thumb);
+}
+:root [${SHOWN_SCROLLER_ATTRIBUTE}] {
+  --cmux-shown-scroller-ink: 38%;
+  overflow-y: scroll;
+}
+:root [${SHOWN_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar {
+  width: var(--cmux-scroller-size);
+  height: var(--cmux-scroller-size);
+  background: transparent;
+}
+:root [${SHOWN_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-track,
+:root [${SHOWN_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-corner {
+  background: transparent;
+}
+:root [${SHOWN_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb,
+:root [${SHOWN_SCROLLER_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb {
+  min-height: 24px;
+  border: 2px solid transparent;
+  border-radius: var(--cmux-scroller-size);
+  background: color-mix(in srgb, currentColor var(--cmux-shown-scroller-ink), transparent) padding-box;
+}
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${SHOWN_SCROLLER_ATTRIBUTE}] {
+  --cmux-shown-scroller-ink: 0%;
+}
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${SHOWN_SCROLLER_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}] {
+  --cmux-shown-scroller-ink: 38%;
+}
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${SHOWN_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:hover,
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${SHOWN_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:active {
   background-color: var(--cmux-scroller-thumb);
 }
 `;
