@@ -65,7 +65,11 @@ const TAILWIND = "src/agent-session/acpmux/tailwind.css";
 
 /** A sheet as the page carries it: its @import of a sibling dropped (the sibling ships ahead of it). */
 const shipped = (sheet: string) =>
-  normalize(fs.readFileSync(path.join(webviews, sheet), "utf8").replace(/^@import\s+["']\.\.?\/[^"']+\.css["'];[ \t]*(?:\n|$)/gm, ""));
+  normalize(
+    fs
+      .readFileSync(path.join(webviews, sheet), "utf8")
+      .replace(/^@import\s+["']\.\.?\/[^"']+\.css["'];[ \t]*(?:\n|$)/gm, ""),
+  );
 
 describe("agent pane stylesheet list", () => {
   test("names every sheet the pane imports, from its own modules and its components'", () => {
@@ -91,9 +95,9 @@ describe("agent pane stylesheet list", () => {
     const gallery = agentPaneStylesheets()
       .map((file) => path.relative(webviews, file))
       .filter((sheet) => sheet !== TAILWIND);
-    expect(sheets.filter((sheet) => sheet !== "src/agent-session/acpmux/changes/git.css").slice(0, gallery.length)).toEqual(
-      gallery,
-    );
+    expect(
+      sheets.filter((sheet) => sheet !== "src/agent-session/acpmux/changes/git.css").slice(0, gallery.length),
+    ).toEqual(gallery);
   });
 });
 

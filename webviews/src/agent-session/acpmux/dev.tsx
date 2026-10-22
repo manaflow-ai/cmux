@@ -1,34 +1,7 @@
-// Dev server entry (vite.config.acpmux-pane.mjs): the bundled pane inlines
-// these stylesheets (scripts/cmux-next/build-agent-pane-web.sh); here Vite
-// serves them with hot reload.
-// desktop.css first, as in the bundle: it defines the popup surface (--surface-popup) and type scale.
-import "../../pages/shared/desktop.css";
-// The liquid glass next, as in the bundle: a surface's own sheet (the composer's queue fill) must
-// come after `.ui-glass`, not before it as desktop.ts's import would put it.
-import "../../ui/glass/glass.css";
-import "../../ui/popupSurface.css";
-import "../shared/styles.css";
-import "./styles.css";
-import "./conversation/conversation.css";
-import "./chips/chips.css";
-import "./previewCard/previewCard.css";
-import "./changes/changes.css";
-import "./turnChanges/turnChanges.css";
-import "./summary/summary.css";
-import "./subagents/subagents.css";
-import "./header/header.css";
-import "./needsYou/needsYou.css";
-import "./composerControls.css";
-import "./composerStates.css";
-import "./composerLocation.css";
-import "./bottomStack.css";
-import "./composerAttachments.css";
-import "./markdownField.css";
-import "./modelPicker.css";
-import "./keys.css";
-import "./newtab/screen.css";
-import "./newtab/history.css";
-import "./threadMinimap/threadMinimap.css";
+// Dev server entry (vite.config.acpmux-pane.mjs): the page's own stylesheets first, in the order
+// the bundled pane ships them (pageStyles.ts; scripts/cmux-next/build-agent-pane-web.sh); here
+// Vite serves them with hot reload.
+import "./pageStyles";
 import { devHostParams, installDevHost } from "../../dev-host/host";
 import { seedDevRecents } from "./devRecents";
 
