@@ -206,7 +206,7 @@ impl Translator {
                         }
                         let mut chunk = json!({"sessionUpdate": kind, "content": {"type": "text", "text": text}});
                         if let (Some(id), "agent_message_chunk") = (id, kind) {
-                            chunk["messageId"] = json!(id);
+                            chunk.set("messageId", json!(id));
                         }
                         out.push(upd(chunk));
                     }

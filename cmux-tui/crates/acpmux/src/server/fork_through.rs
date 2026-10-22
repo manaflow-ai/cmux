@@ -69,7 +69,7 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     if live || (working && !can_cut) {
         let mut out = json!({"sessionId": session.id});
         if let Some(via) = params.pointer("/_meta/acpmux/via") {
-            out["_meta"] = json!({"acpmux": {"via": via}});
+            out.set("_meta", json!({"acpmux": {"via": via}}));
         }
         return Ok(out);
     }
