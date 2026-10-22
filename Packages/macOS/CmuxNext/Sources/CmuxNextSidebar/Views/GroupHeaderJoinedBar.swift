@@ -21,11 +21,12 @@ import QuartzCore
         self.relayout = relayout
     }
 
-    /// Draws the bar at `bar` with its joined line `length` below it; 0 draws the plain rounded bar.
-    func layOut(bar: NSRect, length: CGFloat, radius: CGFloat, springs: Bool) {
+    /// Draws the bar at `bar` with its joined line `length` below it, the line's left edge `lineX`
+    /// from the bar's (left of the bar, the bar reaches over to it); 0 draws the plain rounded bar.
+    func layOut(bar: NSRect, lineX: CGFloat, length: CGFloat, radius: CGFloat, springs: Bool) {
         let springs = springs && length != drawn
         if length > 0 || unjoining || (springs && drawn > 0) {
-            layOutJoined(bar: bar, length: length, radius: radius, springs: springs)
+            layOutJoined(bar: bar, lineX: lineX, length: length, radius: radius, springs: springs)
         } else {
             removeSprings()
             pill.frame = bar
@@ -38,10 +39,11 @@ import QuartzCore
     /// Springing, the pill and its outline move from what is on screen on the rows' spring; a line
     /// closing to 0 keeps the joined outline until it is back in the bar, then the plain rounded
     /// bar takes over.
-    private func layOutJoined(bar: NSRect, length: CGFloat, radius: CGFloat, springs: Bool) {
-        let frame = NSRect(x: bar.minX, y: bar.minY, width: bar.width, height: bar.height + length)
-        let path = SidebarGroupLineShape.joined(width: bar.width, barHeight: bar.height, radius: radius,
-                                                lineWidth: SidebarStyle.groupBarWidth, length: length)
+    private func layOutJoined(bar: NSRect, lineX: CGFloat, length: CGFloat, radius: CGFloat, springs: Bool) {
+        let reach = min(0, lineX)
+        let frame = NSRect(x: bar.minX + reach, y: bar.minY, width: bar.width - reach, height: bar.height + length)
+        let path = SidebarGroupLineShape.joined(width: frame.width, barHeight: bar.height, radius: radius,
+                                                lineX: lineX - reach, lineWidth: SidebarStyle.groupBarWidth, length: length)
         let fresh = !(pill.mask is CAShapeLayer)
         let outline = pill.mask as? CAShapeLayer ?? CAShapeLayer()
         // Only the gated springs below move the outline: no implicit action on its own writes.
@@ -59,9 +61,9 @@ import QuartzCore
             return
         }
         // A line that starts joining grows from the bar alone.
-        let start = fresh ? SidebarGroupLineShape.joined(width: bar.width, barHeight: bar.height, radius: radius,
-                                                         lineWidth: SidebarStyle.groupBarWidth, length: 0) : nil
-        let startBounds = fresh ? NSValue(rect: CGRect(origin: .zero, size: bar.size)) : nil
+        let start = fresh ? SidebarGroupLineShape.joined(width: frame.width, barHeight: bar.height, radius: radius,
+                                                         lineX: lineX - reach, lineWidth: SidebarStyle.groupBarWidth, length: 0) : nil
+        let startBounds = fresh ? NSValue(rect: CGRect(origin: .zero, size: CGSize(width: frame.width, height: bar.height))) : nil
         drawn = length
         unjoining = length == 0
         springCount += 1
@@ -76,7 +78,7 @@ import QuartzCore
         }
         Motion.sidebar.set(pill, "bounds", to: NSValue(rect: CGRect(origin: .zero, size: frame.size)), spring: .move, from: startBounds)
         Motion.sidebar.set(pill, "position", to: NSValue(point: CGPoint(x: frame.midX, y: frame.midY)), spring: .move,
-                           from: fresh ? NSValue(point: CGPoint(x: bar.midX, y: bar.midY)) : nil)
+                           from: fresh ? NSValue(point: CGPoint(x: frame.midX, y: bar.midY)) : nil)
         Motion.sidebar.set(outline, "bounds", to: NSValue(rect: CGRect(origin: .zero, size: frame.size)), spring: .move, from: startBounds)
         Motion.sidebar.set(outline, "path", to: path, spring: .move, from: start)
         CATransaction.commit()

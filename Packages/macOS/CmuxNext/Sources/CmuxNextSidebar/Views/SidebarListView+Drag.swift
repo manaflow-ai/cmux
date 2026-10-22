@@ -35,7 +35,7 @@ extension SidebarListViewComponents {
             payload = .item(item)
             hidden = [press.key]
             origin = .position(DropPosition(section: row.section, group: row.group, index: row.siblingIndex)) // a group's member item: inside it
-        case .tab, .section, .emptySection, .folder, .block, .doneFold, .showMore:
+        case .tab, .section, .emptySection, .folder, .block, .doneFold, .showMore, .status:
             return
         }
         hidden.formUnion(Self.tabKeys(of: hidden, in: model))
@@ -57,10 +57,11 @@ extension SidebarListViewComponents {
         drag.grabOffsetX = press.point.x - rowFrame.minX
         drag.lastY = press.point.y
         drag.restFrame = rowFrame
-        if rows.first?.group != nil { // the gutter comes back only for a drop into a group (morphLift)
-            drag.restFrame.origin.x -= SidebarStyle.groupGutter
-            drag.restFrame.size.width += SidebarStyle.groupGutter
-        }
+        // A nested group's row lifts at the list's inset; its gutter comes back only for a drop into
+        // a nested group (morphLift). A top-level group's rows already start there.
+        let stepIn = max(0, rowFrame.minX - inset)
+        drag.restFrame.origin.x -= stepIn
+        drag.restFrame.size.width += stepIn
         drag.morphs = rows.count == 1
         if case .group = payload { drag.groupHeadHeight = rows.first?.height }
         self.drag = drag
@@ -230,7 +231,7 @@ extension SidebarListViewComponents {
 
     /// Shapes the card as the drop will look (DESIGN "Drag feel" 2): the
     /// block slot it opens (a tile, a chip, an item row), else its list row,
-    /// indented under a group's line when it goes into a group. The pointer
+    /// at a nested group's step-in when it goes into one. The pointer
     /// keeps the same relative grab point on the card.
     func morphLift(_ drag: Drag, point: NSPoint) {
         guard drag.morphs || drag.tileSource != nil else { return }
@@ -242,9 +243,12 @@ extension SidebarListViewComponents {
         } else if drag.tileSource != nil || drag.restShaped == false {
             shape = NSRect(x: inset, y: 0, width: max(0, bounds.width - inset * 2), height: metrics.rowHeight)
         }
-        if rest, case let .position(position)? = drag.target, position.group != nil {
-            shape.origin.x = inset + SidebarStyle.groupGutter
-            shape.size.width = max(0, bounds.width - inset * 2 - SidebarStyle.groupGutter)
+        if rest, case let .position(position)? = drag.target, let group = position.group,
+           let header = displayed.row(for: .group(group)) {
+            // Into a group: where its members sit (a top-level group's at the inset, a nested one's in).
+            let stepIn = SidebarStyle.groupOffset(depth: header.depth + 1)
+            shape.origin.x = inset + stepIn
+            shape.size.width = max(0, shape.size.width - stepIn)
         }
         let old = drag.lift.frame
         guard shape.size != old.size || (rest && shape.minX != old.minX) else { return }
@@ -273,8 +277,12 @@ extension SidebarListViewComponents {
         let tile = drag.tileSource.flatMap { source in drag.tileRegion?.itemView(source.item).map { convert($0.bounds, from: $0) } }
         // The dragged rows where the layout just applied puts them (their views' model frames), not the
         // `displayed` geometry: on the document path that can lag the views a held drag moved (ptr5: 36 pt pops).
-        let destination = slot ?? tile ?? settledFrame(drag.hiddenKeys.compactMap { rowViews[$0] })
-            ?? SidebarListLift.blockFrame(self, SidebarListLift.rows(self, for: drag.grabbedKey, hidden: drag.hiddenKeys)) ?? drag.lift.frame
+        // A group's card also covers its members' line, as it did when it lifted (SidebarListLift.blockFrame).
+        let lifted = SidebarListLift.rows(self, for: drag.grabbedKey, hidden: drag.hiddenKeys)
+        let settled = settledFrame(drag.hiddenKeys.compactMap { rowViews[$0] }).map { rows in
+            SidebarListLift.withLines(self, lifted, rows) { row in self.rowViews[row.key].map { self.convert($0.bounds, from: $0) } ?? self.frame(for: row) }
+        }
+        let destination = slot ?? tile ?? settled ?? SidebarListLift.blockFrame(self, lifted) ?? drag.lift.frame
         landing = drag
         drag.landingThen = then
         SidebarReorderLift.land(drag.lift, at: destination) { [weak self] in
@@ -398,7 +406,9 @@ extension SidebarListViewComponents {
         if !rows.isEmpty {
             let frames = rows.map { frame(for: $0) }
             let views = rows.compactMap { rowViews[$0.key] }.filter { !($0 is SidebarBlockRowView) }
-            return (views, Set(rows.map(\.key).filter { rowViews[$0] != nil }), frames.dropFirst().reduce(frames[0]) { $0.union($1) })
+            // A group's block covers its members' line, as its lifted card does (SidebarListLift.blockFrame).
+            let block = SidebarListLift.withLines(self, rows, frames.dropFirst().reduce(frames[0]) { $0.union($1) })
+            return (views, Set(rows.map(\.key).filter { rowViews[$0] != nil }), block)
         }
         var views: [NSView] = []
         for id in drag.docItems ?? [] {

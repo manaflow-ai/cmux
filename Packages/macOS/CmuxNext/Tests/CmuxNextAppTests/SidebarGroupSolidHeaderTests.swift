@@ -80,8 +80,8 @@ import Testing
     /// Leo 2026-10-19, measured on his Chrome reference at 2x: by default the header bar (its row's
     /// full height and the rows' corners since Lawrence's cb00fe652ad and bce81b40f35), an 8 pt cut (`SidebarStyle.groupLineCut`, Leo after the renders: "a liiiitle
     /// more cut-y" than Chrome's 6 pt), then a 2 pt line in the bar's color
-    /// whose right edge meets the end of the bar's corner arc (bar left + corner radius), that runs to
-    /// the last member row's bottom. Its ends are trimmed as Chrome's are: the left corners square,
+    /// just left of the members' rows, which keep the bar's left edge (#23975, Leo 2026-10-21: "WHY IS
+    /// THERE INDENT ON THIS INDENT FOR WHAT"), that runs to the last member row's bottom. Its ends are trimmed as Chrome's are: the left corners square,
     /// the right corners cut by a quarter circle as wide as the line. An unnamed group's header is
     /// the same solid bar.
     @Test(arguments: [false, true], ["cmux-next app", ""])
@@ -99,8 +99,9 @@ import Testing
         #expect(abs(drawn.width - Metrics.space1) < 0.01, "a \(drawn.width) pt line, want Chrome's \(Metrics.space1) pt one")
         #expect(abs(layer.cornerRadius - SidebarStyle.groupHeaderCornerRadius) < 0.51,
                 "a \(layer.cornerRadius) pt bar corner, want the rows' \(SidebarStyle.groupHeaderCornerRadius) pt (Chrome's is about 6 pt)")
-        #expect(abs(drawn.maxX - (bar.minX + layer.cornerRadius)) < 0.01,
-                "the line's right edge \(drawn.maxX) is not where the bar's corner arc ends (\(bar.minX + layer.cornerRadius))")
+        #expect(abs(lastRow.minX - bar.minX) < 0.01, "the members start at \(lastRow.minX), the bar at \(bar.minX): an indent")
+        #expect(abs(drawn.maxX - (lastRow.minX - Metrics.space1)) < 0.01,
+                "the line's right edge \(drawn.maxX) is not one space1 left of the members' rows (\(lastRow.minX))")
         #expect(abs(drawn.maxY - lastRow.maxY) < 0.01, "the line ends at \(drawn.maxY), the last member row at \(lastRow.maxY)")
         #expect(layer.mask == nil && layer.maskedCorners.roundedCount == 4, "the default bar rounds every corner")
         // Chrome's trim, in the line's own coordinates.
@@ -112,9 +113,10 @@ import Testing
 
     /// `sidebar.groupLineJoinsHeader` (off by default), Leo 2026-10-19: "you join it properly and
     /// you square off the thing". The bar draws bar and line as ONE shape (one layer, one outline):
-    /// the line runs straight down from the bar's square bottom-left corner at the bar's own left
-    /// edge, at full width, with no cap, step or seam at the join, to the last member row's bottom,
-    /// where it ends in the same trim as the default line. No separate line view draws.
+    /// the line runs straight down from the bar's square bottom-left corner, at full width, with no
+    /// cap, step or seam at the join, to the last member row's bottom, where it ends in the same trim
+    /// as the default line. The line keeps the default line's x, left of the members' rows, which keep
+    /// the header's left edge (#23975): the bar reaches over to it. No separate line view draws.
     @Test(arguments: [false, true], ["cmux-next app", ""])
     func theJoinSettingDrawsBarAndLineAsOneShape(minimal: Bool, name: String) throws {
         let sidebar = Self.sidebar(minimal: minimal, name: name, joined: true)
@@ -123,11 +125,15 @@ import Testing
         let header = try Self.header(sidebar)
         let shapeFrame = sidebar.convert(layer.frame, from: header)
         try #require(sidebar.isFlipped)
-        #expect(abs(shapeFrame.minX - bar.minX) < 0.01 && abs(shapeFrame.minY - bar.minY) < 0.01, "the shape \(shapeFrame) does not start at the bar \(bar)")
+        let lineX = SidebarStyle.groupLineX(membersMinX: lastRow.minX)
+        #expect(abs(lastRow.minX - bar.minX) < 0.01, "the members start at \(lastRow.minX), the bar at \(bar.minX): an indent")
+        #expect(abs(shapeFrame.minX - lineX) < 0.01 && abs(shapeFrame.minY - bar.minY) < 0.01,
+                "the shape \(shapeFrame) does not start at the line's x \(lineX) and the bar's top \(bar.minY)")
+        #expect(abs(shapeFrame.maxX - bar.maxX) < 0.01, "the shape ends at \(shapeFrame.maxX), the bar at \(bar.maxX)")
         #expect(abs(shapeFrame.maxY - lastRow.maxY) < 0.01, "the shape ends at \(shapeFrame.maxY), the last member row at \(lastRow.maxY)")
         let shape = try #require((layer.mask as? CAShapeLayer)?.path, "the joined bar has no outline")
         let b = bar.height, w = Metrics.space1, end = shapeFrame.height, r = SidebarStyle.groupHeaderCornerRadius, e: CGFloat = 0.15
-        #expect(!Self.covers(shape, e, e) && !Self.covers(shape, bar.width - e, e) && !Self.covers(shape, bar.width - e, b - e),
+        #expect(!Self.covers(shape, e, e) && !Self.covers(shape, shapeFrame.width - e, e) && !Self.covers(shape, shapeFrame.width - e, b - e),
                 "the bar's other corners are not round")
         #expect(Self.covers(shape, e, b - e) && Self.covers(shape, e, b + e), "the corner over the line is not square")
         for y in stride(from: b - 1, through: end - w - e, by: 0.5) {

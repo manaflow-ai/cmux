@@ -50,8 +50,12 @@ enum Strings {
     static var statusAuthFailed: String { String(localized: "sidebar.machine.authFailed", defaultValue: "Sign-in failed", bundle: .module) }
     static var statusUnreachable: String { String(localized: "sidebar.machine.unreachable", defaultValue: "Unreachable", bundle: .module) }
     static var statusFailed: String { String(localized: "sidebar.machine.failed", defaultValue: "Failed to start", bundle: .module) }
+    static var statusPaused: String { String(localized: "sidebar.machine.paused", defaultValue: "Paused", bundle: .module) }
+    /// A Cloud machine the idle auto-pause parked (not a failure).
+    static var statusPausedIdle: String { String(localized: "sidebar.machine.pausedIdle", defaultValue: "Paused (idle)", bundle: .module) }
     /// The status of a computer that cannot connect until the person acts,
-    /// nil otherwise: its workspace rows name it in one list (cx-mdo0).
+    /// nil otherwise: its workspace rows name it in one list (cx-mdo0). A
+    /// paused machine is named too (it resumes on attach, nothing to fix).
     static func attentionStatus(_ status: SidebarMachine.Status) -> String? {
         switch status {
         case .authFailed: statusAuthFailed
@@ -60,6 +64,8 @@ enum Strings {
         case .installRequired: statusInstallRequired
         case .updateRequired: statusUpdateRequired
         case .failed: statusFailed
+        case .paused: statusPaused
+        case .pausedIdle: statusPausedIdle
         case .connected, .connecting, .offline, .updateAvailable, .installing: nil
         }
     }

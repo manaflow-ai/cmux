@@ -25,10 +25,26 @@ import AppKit
         }
     }
 
-    /// The frame that holds `rows` (list coordinates).
+    /// The frame that holds `rows` (list coordinates), and a lifted group's members' line: the line
+    /// runs just left of the rows (`SidebarStyle.groupLineX`), so the card reaches over it and the
+    /// line and rows stay where they were in the list when the group lifts.
     static func blockFrame(_ list: SidebarListView, _ rows: [SidebarRow]) -> NSRect? {
         guard let first = rows.first, let last = rows.last else { return nil }
-        return list.frame(for: first).union(list.frame(for: last))
+        return withLines(list, rows, list.frame(for: first).union(list.frame(for: last)))
+    }
+
+    /// `block` grown over the members' lines of the open groups among `rows`, each row placed by `frame`
+    /// (default: its layout frame). The lift, the landing and a settled drop all use it, so a group's card
+    /// keeps one frame from lift to landing (#23975).
+    static func withLines(_ list: SidebarListView, _ rows: [SidebarRow], _ block: NSRect,
+                          frame: ((SidebarRow) -> CGRect)? = nil) -> NSRect {
+        guard rows.count > 1 else { return block }
+        return lines(list, rows, frame: frame).reduce(block) { $0.union($1.frame) }
+    }
+
+    /// The members' lines of the open groups among `rows` (list coordinates).
+    static func lines(_ list: SidebarListView, _ rows: [SidebarRow], frame: ((SidebarRow) -> CGRect)? = nil) -> [SidebarGroupLine] {
+        SidebarGroupLine.lines(rows, colors: list.groups, joined: list.joinsHeaders) { frame?($0) ?? list.frame(for: $0) }
     }
 
     /// The lifted card's content: one live row view, or for several rows (a
@@ -38,14 +54,12 @@ import AppKit
         guard rows.count > 1 else { return rows.first.map { rowView(list, $0) } }
         let container = SidebarLiftBlockView(frame: NSRect(origin: .zero, size: block.size))
         // The group's members' line rides under the rows on the card, as in the list (cx-qno.17).
-        let lines = SidebarGroupLine.lines(rows, colors: list.groups, joined: list.joinsHeaders) {
-            list.frame(for: $0).offsetBy(dx: -block.minX, dy: -block.minY)
-        }
+        let groupLines = lines(list, rows)
         // The list's own line view: it paints its header bar's color in the scope it lands in.
         // Joined, the card's header draws its line as part of its bar, as in the list.
-        for line in lines where !list.joinsHeaders {
+        for line in groupLines where !list.joinsHeaders {
             let view = GroupLineView()
-            view.frame = line.frame
+            view.frame = line.frame.offsetBy(dx: -block.minX, dy: -block.minY)
             view.color = line.color
             container.addSubview(view)
         }
@@ -55,7 +69,9 @@ import AppKit
             view.frame = rowFrame.offsetBy(dx: -block.minX, dy: -block.minY)
             view.autoresizingMask = [.width]
             if case let .group(id) = row.key, let header = view as? GroupHeaderRowView {
-                header.joinedLineLength = list.joinsHeaders ? lines.first { $0.group == id }?.frame.height ?? 0 : 0
+                let line = list.joinsHeaders ? groupLines.first { $0.group == id } : nil
+                header.joinedLineX = (line?.frame.minX ?? rowFrame.minX) - rowFrame.minX
+                header.joinedLineLength = line?.frame.height ?? 0
             }
             container.addSubview(view)
         }

@@ -47,13 +47,13 @@ extension SidebarListViewComponents {
     /// realized while any of its line can show.
     func reach(of row: SidebarRow) -> CGRect {
         let frame = frame(for: row)
-        guard case let .group(id) = row.key, let length = joinedLineLengths[id] else { return frame }
-        return CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height + length)
+        guard case let .group(id) = row.key, let line = joinedLines[id] else { return frame }
+        return frame.union(line)
     }
 
     /// The joined headers outside `rect` whose line reaches into it.
     func joinedHeaders(reaching rect: CGRect) -> [SidebarRow] {
-        joinedLineLengths.keys.compactMap { displayed.row(for: .group($0)) }.filter { reach(of: $0).intersects(rect) }
+        joinedLines.keys.compactMap { displayed.row(for: .group($0)) }.filter { reach(of: $0).intersects(rect) }
     }
 
     /// Joined, how far each open group's header draws its line below its bar, kept for headers
@@ -62,28 +62,24 @@ extension SidebarListViewComponents {
     func joinHeaders(_ layout: SidebarLayout, animated: Bool = false) {
         let lines = joinsHeaders
             ? SidebarGroupLine.lines(layout.rows.filter { !suppressed.contains($0.key) }, colors: groups, joined: true, frame: frame(for:)) : []
-        joinedLineLengths = Dictionary(lines.map { ($0.group, $0.frame.height) }, uniquingKeysWith: { first, _ in first })
+        joinedLines = Dictionary(lines.map { ($0.group, $0.frame) }, uniquingKeysWith: { first, _ in first })
         for case (.group(let id), let header as GroupHeaderRowView) in rowViews.map({ ($0.key, $0.value) }) {
-            let length = joinedLineLengths[id] ?? 0
-            guard header.joinedLineLength != length else { continue }
-            header.springsNextJoin = animated
-            header.joinedLineLength = length
+            guard let row = layout.row(for: .group(id)) else { continue }
+            header.joinLine(joinedLines[id], headerMinX: frame(for: row).minX, springs: animated)
         }
     }
 }
 
 extension SidebarGroupLine {
     /// Every open group in `rows` with shown members: its line from the
-    /// header bar to the last member row's bottom, in the members' gutter
-    /// (`SidebarStyle.groupGutter`), so no row fill covers it (cx-q5jw:
+    /// header bar to the last member row's bottom, just left of the members'
+    /// rows (`SidebarStyle.groupLineX`), so no row fill covers it (cx-q5jw:
     /// straight and unbroken), its ends trimmed as Chrome's
-    /// (`SidebarGroupLineShape`). By default it follows Leo's Chrome
-    /// reference (2026-10-19): a small cut below the bar
-    /// (`SidebarStyle.groupLineCut`), its right edge where the bar's corner
-    /// arc ends. `joined` (`sidebar.groupLineJoinsHeader`) starts it at the
-    /// bar's edge, at the bar's own left edge: the header draws it as part
-    /// of its bar, one outline. `frame` places a row.
-    static func lines(_ rows: [SidebarRow], colors: [GroupID: SidebarGroup], joined: Bool,
+    /// (`SidebarGroupLineShape`). By default it starts a small cut below the
+    /// bar, as Leo's Chrome reference (2026-10-19, `SidebarStyle.groupLineCut`).
+    /// `joined` (`sidebar.groupLineJoinsHeader`) starts it at the bar's edge:
+    /// the header draws it as part of its bar, one outline. `frame` places a row.
+    static func lines(_ rows: [SidebarRow], colors: [GroupID: SidebarGroup], joined: Bool = false,
                       frame: (SidebarRow) -> CGRect) -> [SidebarGroupLine] {
         var headers: [(GroupID, SidebarRow)] = []
         var last: [GroupID: SidebarRow] = [:]
@@ -102,7 +98,7 @@ extension SidebarGroupLine {
             // bar's edge: the header draws it as part of its bar.
             let top = joined ? head.maxY : head.maxY + SidebarStyle.groupLineCut, bottom = tail.maxY
             guard bottom - top >= 2 * width else { return nil }
-            let x = head.minX + (joined ? 0 : SidebarStyle.groupBarX)
+            let x = SidebarStyle.groupLineX(membersMinX: tail.minX)
             return SidebarGroupLine(group: id, frame: CGRect(x: x, y: top, width: width, height: bottom - top),
                                     color: colors[id]?.tint ?? .palette(end.groupColor ?? .grey))
         }

@@ -50,10 +50,25 @@ final class GroupHeaderRowView: SidebarRowView {
     var joinedLineLength: CGFloat = 0 {
         didSet { if joinedLineLength != oldValue { needsLayout = true } }
     }
+    /// The joined line's left edge from the header's own (`SidebarStyle.groupLineX`): left of it for
+    /// a top-level group, whose members keep the header's left edge, so the bar reaches over to it.
+    var joinedLineX: CGFloat = 0 {
+        didSet { if joinedLineX != oldValue { needsLayout = true } }
+    }
     /// Set by the list with a `joinedLineLength` that comes with an animated reload or fold: the
     /// next layout springs the joined line to it on the rows' own `.move` spring, so its end stays
     /// at the group's last row in every frame.
     var springsNextJoin = false
+
+    /// Joins `line` (list coordinates; nil: none) to this header's bar, the header at `headerMinX`.
+    /// `springs`, when given: whether the change springs with the rows (`springsNextJoin`).
+    func joinLine(_ line: CGRect?, headerMinX: CGFloat, springs: Bool? = nil) {
+        let x = (line?.minX ?? headerMinX) - headerMinX, length = line?.height ?? 0
+        guard x != joinedLineX || length != joinedLineLength else { return }
+        if let springs { springsNextJoin = springs }
+        joinedLineX = x
+        joinedLineLength = length
+    }
     private lazy var joinedBar = GroupHeaderJoinedBar(pill) { [weak self] in self?.needsLayout = true }
     /// The bar, in the header's coordinates (the bar layer runs down the line when joined).
     private(set) var barFrame: NSRect = .zero
@@ -415,9 +430,10 @@ final class GroupHeaderRowView: SidebarRowView {
         // Joined to its members' line (`sidebar.groupLineJoinsHeader`, the solid band only), bar and
         // line are one outline on this one layer: no seam, cap or step where they meet (Leo 2026-10-19).
         let length = joinedLineLength > 0 && !collapsed && look.style == .band ? joinedLineLength : 0
-        joinedBar.layOut(bar: barFrame, length: length, radius: radius, springs: springsNextJoin)
+        joinedBar.layOut(bar: barFrame, lineX: joinedLineX, length: length, radius: radius, springs: springsNextJoin)
         springsNextJoin = false
-        // The dot is centred on the group line's x, where the line starts (SidebarListView+GroupLines).
+        // The quiet styles' dot sits in the header's leading corner; the members' line runs just
+        // left of the rows (SidebarStyle.groupLineX), as the rows keep the ungrouped rows' left edge.
         let dotSide = SidebarStyle.groupDotSize
         dot.frame = CGRect(x: SidebarStyle.groupBarX + SidebarStyle.groupBarWidth / 2 - dotSide / 2, y: (b.height - dotSide) / 2,
                            width: dotSide, height: dotSide)
