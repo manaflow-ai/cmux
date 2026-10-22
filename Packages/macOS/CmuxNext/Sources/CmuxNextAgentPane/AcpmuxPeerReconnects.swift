@@ -16,8 +16,15 @@ import Foundation
 @MainActor
 public final class AcpmuxPeerReconnects {
     // lint:allow one per app process: the app's turn-state watch feeds it, the launch's discovery arms it
-    public static let shared = AcpmuxPeerReconnects(offer: { await DaemonUpdatePolicy.shared.offer($0) },
-                                                    enabled: { AgentPaneTunables.updatePeersAutomatically.value })
+    public static let shared = AcpmuxPeerReconnects.app()
+
+    /// The app's: offers go to ``DaemonUpdatePolicy/shared``, `enabled` reads `agent.updatePeers`.
+    /// Built in a function, not the property's initializer, so its closures are not checked as part
+    /// of that initializer's isolation (Swift 6 refuses one that mixes the main actor and another).
+    private static func app() -> AcpmuxPeerReconnects {
+        AcpmuxPeerReconnects(offer: { await DaemonUpdatePolicy.shared.offer($0) },
+                             enabled: { AgentPaneTunables.updatePeersAutomatically.value })
+    }
 
     /// The acpmux side, set by the launch's discovery; nil before, when every note is ignored.
     var source: AcpmuxPeerUpdateSource?
