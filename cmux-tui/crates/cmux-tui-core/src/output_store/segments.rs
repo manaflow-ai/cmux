@@ -64,7 +64,7 @@ fn generation_key(generation: &str) -> String {
     // file names must outlive a daemon upgrade).
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(generation.as_bytes());
-    digest[..8].iter().map(|byte| format!("{byte:02x}")).collect()
+    digest.iter().take(8).map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn terminal_directory(directory: &Path, terminal_id: &TerminalPublicId) -> PathBuf {
@@ -300,9 +300,10 @@ fn frame_extent(path: &Path, file_start: u64) -> Option<(u64, u64)> {
     while len - at >= FRAME_HEADER_BYTES as u64 {
         file.seek(SeekFrom::Start(at)).ok()?;
         file.read_exact(&mut header).ok()?;
-        let start = u64::from_le_bytes(header[0..8].try_into().ok()?);
-        let compressed = u64::from(u32::from_le_bytes(header[8..12].try_into().ok()?));
-        let raw = u32::from_le_bytes(header[12..16].try_into().ok()?);
+        use crate::terminal_host_protocol::{wire_u32, wire_u64};
+        let start = wire_u64(&header, 0)?;
+        let compressed = u64::from(wire_u32(&header, 8)?);
+        let raw = wire_u32(&header, 12)?;
         let next = at + FRAME_HEADER_BYTES as u64 + compressed;
         if next > len || raw > MAX_FRAME_RAW_BYTES {
             break;
