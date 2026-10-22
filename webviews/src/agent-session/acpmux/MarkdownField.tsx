@@ -415,12 +415,16 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
                 // Return that commits a composition stays the input method's; any later one is
                 // Return, as the field's surface takes it.
                 const returnInput = latest.current.onReturnInput;
-                if (returnInput && isImeKeyEvent(event) && isReturnKey(event) && !event.shiftKey) {
-                  if (!event.isComposing && event.timeStamp - compositionEndedAt > COMMIT_RETURN_MS) {
-                    event.preventDefault();
-                    returnTaken = true;
-                    returnInput();
-                  }
+                const plainReturn = !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey;
+                if (returnInput && isImeKeyEvent(event) && isReturnKey(event) && plainReturn) {
+                  if (event.isComposing || composing.current) return true;
+                  // WebKit's commit Return, just after compositionend: ProseMirror's own keydown
+                  // swallows it and clears its after-composition guard (imeKeys.ts). Kept from it,
+                  // the guard stayed armed and took the next key, so a quick Shift-Return sent.
+                  if (event.timeStamp - compositionEndedAt <= COMMIT_RETURN_MS) return false;
+                  event.preventDefault();
+                  returnTaken = true;
+                  returnInput();
                   return true;
                 }
                 const submit = latest.current.onSubmit;
