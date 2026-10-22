@@ -73,21 +73,49 @@ def _cli(browser, *argv: str) -> dict:
         return {}
 
 
-def _workspace_id(reply: dict) -> str | None:
-    for candidate in (reply, reply.get("workspace") if isinstance(reply.get("workspace"), dict) else None,
-                      reply.get("result") if isinstance(reply.get("result"), dict) else None):
-        if not candidate:
-            continue
-        for key in ("id", "workspace_id", "workspaceId", "ref"):
-            value = candidate.get(key)
-            if isinstance(value, str) and value:
-                return value
+def _workspace_id(reply) -> str | None:
+    """The new workspace's id: a `workspace_id` / `workspace` field at any depth (the CLI nests the
+    result under `value`), else the first `ws_` id in the reply."""
+    found: list[str] = []
+
+    def walk(node, key=None):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if k in ("workspace_id", "workspaceId") and isinstance(v, str) and v:
+                    found.insert(0, v)
+                walk(v, k)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v, key)
+        elif isinstance(node, str) and node.startswith("ws_"):
+            found.append(node)
+
+    walk(reply)
+    return found[0] if found else None
+
+
+def _named_workspace(listing, name: str) -> str | None:
+    """The `ws_` id of the workspace called `name` in a `workspace list` reply."""
+    if isinstance(listing, dict):
+        if name in (listing.get("name"), listing.get("title")):
+            hit = _workspace_id({k: v for k, v in listing.items() if k in ("id", "workspace_id", "ref")})
+            if hit:
+                return hit
+        for value in listing.values():
+            hit = _named_workspace(value, name)
+            if hit:
+                return hit
+    elif isinstance(listing, list):
+        for value in listing:
+            hit = _named_workspace(value, name)
+            if hit:
+                return hit
     return None
 
 
 def _spinner_workspace(browser, index: int) -> str:
     reply = _cli(browser, "workspace", "create", "--name", f"spinner {index}", "--shell", "exec sleep 86400")
-    workspace = _workspace_id(reply)
+    workspace = _workspace_id(reply) or _named_workspace(_cli(browser, "workspace", "list"), f"spinner {index}")
     if not workspace:
         raise RuntimeError(f"cmux workspace create: no id in {json.dumps(reply)[:200]}")
     _cli(browser, "workspace", workspace, "progress", "set", "--indeterminate", "--label", "bench")
