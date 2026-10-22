@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { holdsOnly } from "./lostPrompt";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
 import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind } from "./environments";
@@ -143,6 +144,9 @@ export const COMPOSER_LABELS = {
 export type ComposerHandle = {
   /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest.
   restore(text: string, attachments: ComposerAttachment[]): void;
+  /// Takes out a prompt `restore` put in, when the composer still holds just that, unedited
+  /// (lostPrompt.ts `holdsOnly`); true when it did.
+  takeBack(text: string, attachments: ComposerAttachment[]): boolean;
   /// Adds a chip after the ones held, leaving the prompt as typed (the floating chat's Include
   /// focused tab); one with the same id is replaced. Nothing changes when it holds the most it can.
   attach(attachment: ComposerAttachment): void;
@@ -535,6 +539,22 @@ export function Composer({
             ...restoredAttachments,
             ...current.filter((attachment) => !restoredAttachments.some((back) => back.id === attachment.id)),
           ]);
+      },
+      takeBack(backText, backAttachments) {
+        const held = {
+          text: field.current?.value() ?? textRef.current,
+          attachmentIds: attachmentsRef.current.map((attachment) => attachment.id),
+        };
+        if (!holdsOnly(held, { text: backText, attachmentIds: backAttachments.map((attachment) => attachment.id) }))
+          return false;
+        if (field.current) field.current.type("");
+        else {
+          setText("");
+          setCaret(0);
+        }
+        attachmentsRef.current = [];
+        setAttachments([]);
+        return true;
       },
       attach(attachment) {
         // A pick past the most the composer holds says so, as a dropped file does.
