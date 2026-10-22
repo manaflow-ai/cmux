@@ -194,7 +194,7 @@ struct SidebarMultiViewWindowTests {
     static func withMultiView<T>(_ on: Bool = true, _ body: () async throws -> T) async rethrows -> T {
         TunableStore.shared.register(SidebarTunables.all)
         TunableStore.shared.activate(file: nil)
-        TunableStore.shared.set(SidebarTunables.multiView.key, .bool(on))
+        TunableStore.shared.set(SidebarTunables.multiView.key, on ? .bool(true) : nil)
         precondition(SidebarTunables.multiView.value == on, "the sidebar.multiView override did not take")
         defer { TunableStore.shared.set(SidebarTunables.multiView.key, nil) }
         return try await body()
@@ -339,7 +339,7 @@ struct SidebarMultiViewWindowTests {
             defer { f.close() }
             try f.dragRow("k1", to: .left)
             try #require(f.shown == ["k0", "k1"])
-            TunableStore.shared.set(SidebarTunables.multiView.key, .bool(false))
+            TunableStore.shared.set(SidebarTunables.multiView.key, nil)
             try await Task.sleep(for: .milliseconds(100))
             f.frame()
             #expect(f.shown == ["k0"], "the window still shows \(f.shown)")

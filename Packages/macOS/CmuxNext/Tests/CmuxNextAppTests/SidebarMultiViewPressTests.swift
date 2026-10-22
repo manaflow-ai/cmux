@@ -13,7 +13,7 @@ import Testing
     static func withMultiView<T>(_ on: Bool = true, _ body: () throws -> T) rethrows -> T {
         TunableStore.shared.register(SidebarTunables.all)
         TunableStore.shared.activate(file: nil)
-        TunableStore.shared.set(SidebarTunables.multiView.key, .bool(on))
+        TunableStore.shared.set(SidebarTunables.multiView.key, on ? .bool(true) : nil)
         precondition(SidebarTunables.multiView.value == on, "the sidebar.multiView override did not take")
         defer { TunableStore.shared.set(SidebarTunables.multiView.key, nil) }
         return try body()

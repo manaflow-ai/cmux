@@ -134,12 +134,11 @@ public nonisolated enum SidebarTunables {
     /// Leo 2026-10-21 (item D, multi-view): a press on a workspace row selects nothing; the click
     /// (mouse-up on the same row) navigates, and a hold-then-drag moves the row without leaving the
     /// workspace on screen. Rows of every workspace on screen draw a soft fill (`SidebarModel.onScreen`). A row dropped
-    /// on a pane edge shows its workspace beside the shown one (the App's `WindowController.placeBeside`). On by default
-    /// (Leo 2026-10-21, sr2-01a1608f-66bb: "you can just drag that workspace into a pane"); this toggle turns it off.
+    /// on a pane edge shows its workspace beside the shown one (the App's `WindowController.placeBeside`).
     public static let multiView = Tunable<Bool>.toggle(
-        "sidebar.multiView", .sidebar, "Multi-view: workspaces side by side",
-        help: "A press on a workspace row changes nothing until the button comes up on that row; holding and dragging moves the row without switching to it. A row dropped on a pane edge shows its workspace beside the shown one. Rows of every workspace on screen get a soft highlight. Off: a press selects at once and an edge drop merges the tabs.",
-        default: true, code: "SidebarTunables.multiView")
+        "sidebar.multiView", .sidebar, "Navigate on release (multi-view prototype)",
+        help: "A press on a workspace row changes nothing until the button comes up on that row; holding and dragging moves the row without switching to it. A row dropped on a pane edge shows its workspace beside the shown one. Rows of every workspace on screen get a soft highlight.",
+        default: false, code: "SidebarTunables.multiView")
 
     /// Sample rows with 1 to 7 pending items (`SidebarSection.rowBadgePreview()`).
     public static let rowBadgePreview = Tunable<Bool>.toggle(
