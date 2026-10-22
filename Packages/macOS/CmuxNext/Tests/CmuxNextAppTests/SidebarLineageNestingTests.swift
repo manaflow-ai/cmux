@@ -149,6 +149,25 @@ import Testing
         #expect(tree.opened.isEmpty && tree.collapsed.isEmpty)
     }
 
+    /// The lineage arriving after the selection (the feed starts after restored windows) reveals the selection; a
+    /// fold the person makes later (same parents) does not undo itself.
+    @Test func lateLineageRevealsTheSelectionButAFoldStays() {
+        let lineage = SidebarSessionTreeState(parents: Self.parents)
+        #expect(SidebarView.revealsSelection(selectionChanged: false, from: nil, to: lineage))
+        var folded = lineage
+        folded.collapsed = [Self.coordinator]
+        #expect(!SidebarView.revealsSelection(selectionChanged: false, from: lineage, to: folded))
+        #expect(SidebarView.revealsSelection(selectionChanged: true, from: lineage, to: lineage))
+        // Before the feed's first pass reveal does nothing; once the lineage is in, the same reveal opens the folds.
+        let defaults = UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard
+        let tree = SidebarSessionTree(defaults: defaults)
+        tree.reveal(Self.reviewer, lists: [{ _ in true }])
+        #expect(tree.opened.isEmpty)
+        tree.state = lineage
+        tree.reveal(Self.reviewer, lists: [{ _ in true }])
+        #expect(tree.opened == [Self.lane, Self.sub])
+    }
+
     @Test func runsCutAtEachTopLevelEntry() {
         let runs = SidebarLayout.runs([(0, 0), (1, 1), (2, 2), (3, 0), (4, 1), (5, 0)])
         #expect(runs.map { $0.map(\.index) } == [[0, 1, 2], [3, 4], [5]])
