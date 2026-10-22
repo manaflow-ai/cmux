@@ -84,7 +84,7 @@ fn tapback_name(t: Tapback) -> &'static str {
     }
 }
 
-/// The Chief's message in a voice (the desk's receipt): an aside that does
+/// The Chief's message in a voice (a desk approval notice): an aside that does
 /// not move the Chief's reply off its message, so threading skips it.
 fn aside(message: &Message) -> bool {
     crate::voice::of(&message.client_msg_id).is_some()
