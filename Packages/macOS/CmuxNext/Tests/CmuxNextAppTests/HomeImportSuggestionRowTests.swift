@@ -148,6 +148,32 @@ import Testing
         #expect(pressed == [.dismiss])
     }
 
+    /// Under a larger Interface Size the front page hands the row `Typography.userScale`, which
+    /// `Typography` and `Metrics` already carry: the row's type and insets are scaled once, the
+    /// size the same styles have everywhere else, never twice.
+    @Test func aLargerInterfaceSizeScalesTheRowOnce() {
+        let design = DesignSettings.shared
+        let before = design.interfaceScale
+        TunableStore.shared.set(ChromeTunables.interfaceSize.key, .bool(true))
+        design.interfaceScale = 1.5
+        defer {
+            design.interfaceScale = before
+            TunableStore.shared.set(ChromeTunables.interfaceSize.key, nil)
+        }
+        #expect(Typography.userScale > 1.4)
+        let row = Self.row(width: 420)
+        row.show(Self.two)
+        row.applyScale(Typography.userScale)
+        row.layoutSubtreeIfNeeded()
+        #expect(abs((row.titleLabel.font?.pointSize ?? 0) - Typography.bodyEmphasized.pointSize) < 0.1)
+        #expect(abs((row.factsLabel.font?.pointSize ?? 0) - Typography.caption.pointSize) < 0.1)
+        let title = row.convert(row.titleLabel.bounds, from: row.titleLabel)
+        let facts = row.convert(row.factsLabel.bounds, from: row.factsLabel)
+        // Both lines show whole inside the row's height.
+        #expect(row.bounds.insetBy(dx: -0.5, dy: -0.5).contains(title))
+        #expect(row.bounds.insetBy(dx: -0.5, dy: -0.5).contains(facts))
+    }
+
     /// The row follows the interface scale like the front page's other rows: taller, larger type
     /// and icon; the front page hands its scale to the row, also to a row added after a change.
     @Test func theRowFollowsTheInterfaceScale() {
