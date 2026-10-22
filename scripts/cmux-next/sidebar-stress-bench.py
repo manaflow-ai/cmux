@@ -89,11 +89,12 @@ def timed_rpc(method, params=None):
 
 
 def cli(*args, quiet=True):
-    """The tagged app's own CLI against its socket (as tab-switch-matrix.py runs it)."""
-    env = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-           "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": opts.tag,
-           "CMUX_BUNDLE_ID": f"com.cmuxterm.app.debug.{opts.tag}", "CMUX_BUNDLED_CLI_PATH": APP_CLI}
-    done = subprocess.run([APP_CLI, *args], env=env, capture_output=True, text=True, timeout=120)
+    """The tagged app's own CLI, routed through the app's socket (`--app-socket`, as perf-gate.py runs it): it
+    reaches the app's own daemon session whatever this host's cmux environment holds."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}
+    env["CMUX_NEXT_CONFIG_FILE"] = CONFIG
+    done = subprocess.run([APP_CLI, "--app-socket", SOCKET, *args], env=env, capture_output=True, text=True, timeout=120,
+                          stdin=subprocess.DEVNULL)
     if not quiet or done.returncode != 0:
         note(f"cli {' '.join(args)[:160]} -> {done.returncode} {(done.stdout + done.stderr).strip()[-200:]}")
     return done
@@ -690,6 +691,10 @@ def main():
         for size in sizes:
             note(f"== size {size} (load {os.getloadavg()})")
             grow(size)
+            listed = len(topology().get("workspaces") or [])
+            note(f"workspaces in the app: {listed}")
+            if listed < size * 0.9:
+                sys.exit(f"the app holds {listed} workspaces, not {size}: the bench cannot measure this size")
             action("showMainWindow")
             rpc("debug.mouse", {"x": 900, "y": 450, "action": "hover"})
             time.sleep(2)
