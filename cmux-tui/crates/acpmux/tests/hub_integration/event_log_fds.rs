@@ -45,7 +45,14 @@ async fn a_stopped_session_does_not_keep_its_event_log_open() {
     assert!(!open_files_under(&events).is_empty(), "the live session writes its log");
 
     c.request(method::MUX_KILL, json!({"sessionId": id})).await.unwrap();
-    let open = open_files_under(&events);
+    // The agent's exit is logged (`stopped`) after the kill answers, and that
+    // write opens the log for its moment: look until it is closed again.
+    let started = std::time::Instant::now();
+    let mut open = open_files_under(&events);
+    while !open.is_empty() && started.elapsed() < Duration::from_secs(2) {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        open = open_files_under(&events);
+    }
     assert!(open.is_empty(), "a stopped session still holds its log open: {open:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
