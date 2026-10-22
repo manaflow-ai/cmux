@@ -157,6 +157,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func observeWorkspace() {
+        state.showsNow = { [weak self] in
+            guard let self else { return }
+            showWorkspace(requested: self.state.workspaceID)
+        }
         sidebar.container.sidebarView.onSpaceShown = { [weak self] in
             guard let self else { return }
             DebugSpaceSwitch.sidebarShown(self.state, in: self.window)

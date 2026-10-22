@@ -70,6 +70,9 @@ final class WindowState {
     private(set) var roomBrowserProfileID: String?
 
     /// Reads a room's browser profile (the window's controller sets it from the home store).
+    /// Shows the requested workspace in this window now (its `WindowController.showWorkspace`), for a switch
+    /// that must not wait for the controller's observation hop (a space switch, space-switch-100x). Nil: no window yet.
+    @ObservationIgnored var showsNow: (@MainActor () -> Void)?
     @ObservationIgnored var roomBrowserProfileOf: (@MainActor (ProfileID) -> String?)? {
         didSet { refreshRoomBrowserProfile() }
     }
