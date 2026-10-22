@@ -30,7 +30,9 @@ fails (RESULT FAIL, with the reasons in `failures`) when the window draws no fra
 console), the app stops holding a requested workspace count, or any requested gesture did not do what it
 names in every round: a split made no pane, a toggle press left the main pane's width unchanged or a round
 lacks one of its two halves, new-top's workspace is not the sidebar's first workspace row, or a switch did
-not land. A partial table is never a PASS.
+not land), a measured gesture drew no frames, `--input key` could not press the key (the action path runs only
+with `--input action`), or an untimed restore (closing the new pane or workspace) did not bring the app back to
+the requested count, which stops the run. A partial table is never a PASS.
 
 Fleet (alone on an owned mini's console; the allowlisted entry builds the tagged app at the ref):
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh \
@@ -110,6 +112,10 @@ def action(name, args=None, settle=0.0):
     return reply
 
 
+class Broken(Exception):
+    """The app is no longer in the state the next measurement needs (a restore failed); the run stops."""
+
+
 def wait(check, seconds, step=0.1):
     deadline = time.time() + seconds
     while time.time() < deadline:
@@ -183,9 +189,8 @@ def measure(label, gesture, timer=None):
     rpc("debug.hangs", {"clear": True})
     rpc("debug.layers", {"reset_layout_passes": True})
     before = counters()
-    if timer:
-        rpc(timer, {"action": "start"})
-    rpc("debug.frames", {"action": "start"})
+    start_error = error_of(rpc(timer, {"action": "start"})) if timer else None
+    start_error = error_of(rpc("debug.frames", {"action": "start"})) or start_error
     time.sleep(0.1)  # test harness: a few frames at rest before the press
     started = time.monotonic()
     error = gesture()
@@ -202,7 +207,7 @@ def measure(label, gesture, timer=None):
     samples = next((v for k, v in timed.items() if isinstance(v, list) and k != "confirms_ms"), []) if isinstance(timed, dict) else []
     commits = [s.get("commit_ms") for s in samples if isinstance(s, dict) and s.get("commit_ms") is not None]
     return {
-        "label": label, "error": error or frames.get("error"), "reply_ms": round(reply_ms, 1), "refresh_ms": refresh,
+        "label": label, "error": error or start_error or error_of(frames), "reply_ms": round(reply_ms, 1), "refresh_ms": refresh,
         "frames": len(intervals), "missed": missed(intervals, refresh), "drop120": drop120(intervals, busy, refresh),
         "main_total_ms": round(sum(busy), 2), "view_layouts_total": sum(views), "window_layouts_total": sum(windows),
         "app_commit_ms": round(commits[0], 1) if commits else None,
@@ -216,7 +221,8 @@ def measure(label, gesture, timer=None):
 
 
 def keep(count, scenario, index, run, ok, **extra):
-    run.update(workspaces=count, scenario=scenario, round=index, ok=bool(ok and not run["error"]), **extra)
+    # A row without frame samples measured nothing (an occluded window, a probe that did not start).
+    run.update(workspaces=count, scenario=scenario, round=index, ok=bool(ok and not run["error"] and run["frames"]), **extra)
     REPORT["runs"].append(run)
     print(f"  {count:>3} ws {scenario:<20} #{index} {'ok ' if run['ok'] else 'BAD'} frames {run['frames']:>3} "
           f"missed {run['missed']} drop120 {run['drop120']} main {run['main_total_ms']:.1f} ms "
@@ -227,11 +233,17 @@ def keep(count, scenario, index, run, ok, **extra):
 
 
 def press(key, modifiers, verb):
+    """The gesture by the path --input names; a failed key press is the row's error, never an action run instead."""
     if opts.input == "key":
-        reply = rpc("debug.key", {"key": key, "modifiers": modifiers})
-        if not error_of(reply):
-            return None
+        return error_of(rpc("debug.key", {"key": key, "modifiers": modifiers}))
     return error_of(action(verb))
+
+
+def holds(count, what):
+    """Stops the run unless the app holds exactly `count` workspaces (after `what`)."""
+    have = len(workspace_ids())
+    if have != count:
+        raise Broken(f"{count} ws: the app holds {have} workspaces after {what}")
 
 
 def split(count, scenario, modifiers, verb):
@@ -240,8 +252,11 @@ def split(count, scenario, modifiers, verb):
         run = measure(scenario, lambda: press("d", modifiers, verb))
         made = wait(lambda: pane_count() == before + 1, 5)
         keep(count, scenario, index, run, made)
-        action("closePane")
-        wait(lambda: pane_count() <= before, 10)
+        if pane_count() != before:
+            reply = action("closePane")
+            if not wait(lambda: pane_count() == before, 10):
+                raise Broken(f"{count} ws {scenario}: closing the new pane left {pane_count()} panes, not {before} "
+                             f"({error_of(reply)})")
         time.sleep(0.6)  # test harness: the close lands before the next press
 
 
@@ -291,8 +306,10 @@ def new_top(count, bench):
              row_index=rows.index(key) if key in rows else None)
         for workspace in made:
             go(workspace, settle=0.2)
-            action("closeWorkspace")
-            wait(lambda: workspace not in workspace_ids(), 10)
+            reply = action("closeWorkspace")
+            if not wait(lambda: workspace not in workspace_ids(), 10):
+                raise Broken(f"{count} ws new-top: closing the new workspace failed ({error_of(reply)})")
+        holds(count, "new-top's close")
         go(bench)
 
 
@@ -317,36 +334,37 @@ def fill(count, bench):
         if not wait(lambda: len(workspace_ids()) > have, 10):
             print(f"workspace {have + 1} of {count} never showed ({error_of(reply)})", flush=True)
             return False
-    if len(workspace_ids()) < count:
+    if len(workspace_ids()) != count:  # more than asked (counts only grow) is not the requested set either
         return False
     go(bench, settle=3.0)
     return True
 
 
-def expected_runs(scenario):
-    """The rows one workspace count must keep for a scenario, by row label: every round, both halves of a toggle."""
+def expected_rows(scenario):
+    """The rows each round of a scenario must keep, by row label: both halves of a toggle, both switches."""
     if scenario == "right-sidebar":
-        return {"right-sidebar-open": opts.rounds, "right-sidebar-close": opts.rounds}
+        return {"right-sidebar-open": 1, "right-sidebar-close": 1}
     if scenario == "sidebar":
-        return {"sidebar-show": opts.rounds, "sidebar-hide": opts.rounds}
-    return {scenario: opts.rounds * (2 if scenario == "switch" else 1)}
+        return {"sidebar-show": 1, "sidebar-hide": 1}
+    return {scenario: 2 if scenario == "switch" else 1}
 
 
 def incomplete(count, scenarios):
     """Why `count`'s measurements are not a full set: a round that failed, a missing or extra row."""
     problems = []
     for scenario in scenarios:
-        expected = expected_runs(scenario)
+        expected = expected_rows(scenario)
         runs = [r for r in REPORT["runs"] if r["workspaces"] == count and
                 (r["scenario"] == scenario or r["scenario"].startswith(scenario + "-"))]
         bad = [r for r in runs if not r["ok"]]
         if bad:
             problems.append(f"{count} ws {scenario}: {len(bad)} of {len(runs)} rows failed "
                             f"({', '.join(sorted({r['scenario'] for r in bad}))})")
-        for label, want in expected.items():
-            have = sum(1 for r in runs if r["scenario"] == label)
-            if have != want:
-                problems.append(f"{count} ws {label}: {have} rows, expected {want}")
+        for index in range(opts.rounds):  # per round: open/open then close/close is not two full rounds
+            labels = [r["scenario"] for r in runs if r["round"] == index]
+            got = {label: labels.count(label) for label in labels}
+            if got != expected:
+                problems.append(f"{count} ws {scenario} round {index}: rows {got}, expected {expected}")
     return problems
 
 
@@ -467,6 +485,24 @@ def cleanup():
         os.remove(SOCKET)
 
 
+def measure_count(count, wanted, bench):
+    """Every wanted scenario at `count` workspaces; each starts from exactly `count` (raises Broken otherwise)."""
+    for scenario in wanted:
+        holds(count, "the previous scenario")
+        if scenario == "split-right":
+            split(count, scenario, ["command"], "splitRight")
+        elif scenario == "split-down":
+            split(count, scenario, ["command", "shift"], "splitDown")
+        elif scenario == "right-sidebar":
+            toggle(count, scenario, "b", ["option", "command"], "toggleRightSidebar", ("open", "close"))
+        elif scenario == "sidebar":
+            toggle(count, scenario, "b", ["command"], "toggleSidebar", ("show", "hide"))
+        elif scenario == "new-top":
+            new_top(count, bench)
+        elif scenario == "switch":
+            switch(count, bench)
+
+
 def main():
     global app
     if os.path.exists(SOCKET):
@@ -505,19 +541,12 @@ def main():
             print(f"stopped: {failures[-1]}", flush=True)
             break
         print(f"\n== {len(workspace_ids())} workspaces", flush=True)
-        for scenario in wanted:
-            if scenario == "split-right":
-                split(count, scenario, ["command"], "splitRight")
-            elif scenario == "split-down":
-                split(count, scenario, ["command", "shift"], "splitDown")
-            elif scenario == "right-sidebar":
-                toggle(count, scenario, "b", ["option", "command"], "toggleRightSidebar", ("open", "close"))
-            elif scenario == "sidebar":
-                toggle(count, scenario, "b", ["command"], "toggleSidebar", ("show", "hide"))
-            elif scenario == "new-top":
-                new_top(count, bench)
-            elif scenario == "switch":
-                switch(count, bench)
+        try:
+            measure_count(count, wanted, bench)
+        except Broken as error:
+            failures.append(str(error))
+            print(f"stopped: {error}", flush=True)
+            break
         failures += incomplete(count, [s for s in wanted if s in SCENARIOS])
     if not any(r["frames"] for r in REPORT["runs"]):
         failures.append("the window drew no frames (an unlit or occluded console)")
