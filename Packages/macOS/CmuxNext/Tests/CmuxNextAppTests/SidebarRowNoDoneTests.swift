@@ -1,4 +1,6 @@
 import AppKit
+import CmuxNextAgentActivity
+@testable import CmuxNextAgentLanes
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Foundation
@@ -75,5 +77,24 @@ struct SidebarRowNoDoneTests {
         let (view, window) = row(workspace(.needsYou))
         #expect(view.accessibilityLabel()?.contains(SidebarPriorityRowView.chipText(.needsYou, now: Date())) == true)
         window.close()
+    }
+
+    /// A chat asking for the user beside a failed or lost one, or on a row whose own status failed:
+    /// the row draws the one yellow dot, never the blue one. The failure used to outrank the
+    /// question, and with no "Needs you" word left the row read Ready (codex review of #23767).
+    @Test func needsYouBesideAFailureIsTheYellowDot() throws {
+        for own: StatusIndicatorState in [.idle, .error] {
+            for order in [["failed", "input"], ["input", "lost"]] {
+                var ws = workspace(.needsYou)
+                ws.activity = own
+                let lanes = try order.enumerated().map { index, state in
+                    try #require(AgentActivityLane.of(summary: ["sessionId": "s\(index)", "name": "s\(index)", "lane": ["state": state]]))
+                }
+                SidebarLaneStatus.merge(lanes, into: &ws)
+                let (view, window) = row(ws)
+                #expect(view.rowBadge.states == [.waiting], "own \(own), lanes \(order): \(view.rowBadge.states)")
+                window.close()
+            }
+        }
     }
 }

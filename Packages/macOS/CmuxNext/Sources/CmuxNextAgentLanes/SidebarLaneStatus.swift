@@ -45,17 +45,30 @@ enum SidebarLaneStatus {
         }
     }
 
-    /// `row` with the strongest of its own activity and `lanes`' states.
+    /// `row` with the strongest of its own activity and `lanes`' states. A chat that asks for the
+    /// user comes first, as in the Priority view (needs you, then failed): a failure beside it never
+    /// turns the row's one yellow dot into the blue one (Leo 2026-10-21, "why ISN'T THIS JUST A
+    /// YELLOW DOT!?"; the row draws no "Needs you" word to fall back on).
     static func merge(_ lanes: [AgentActivityLane], into row: inout SidebarWorkspace) {
         for lane in lanes {
             let state = indicator(lane.state)
             if state.isWorking { row.agentWorking = true }
             let current = StatusReport(id: "row", source: .explicit, state: row.activity)
-            guard StatusStack.precedes(StatusReport(id: "lane:\(lane.id)", source: .agent, state: state), current) else { continue }
+            let precedes = switch (asks(state), asks(row.activity)) {
+            case (true, false): true
+            case (false, true): false
+            default: StatusStack.precedes(StatusReport(id: "lane:\(lane.id)", source: .agent, state: state), current)
+            }
+            guard precedes else { continue }
             row.activity = state
             row.activityStyle = nil
             row.detail.activitySince = lane.since
         }
+    }
+
+    /// Whether `state` waits on the user (a question, a permission, a sign-in).
+    private static func asks(_ state: StatusIndicatorState) -> Bool {
+        if case .waiting = state { true } else { false }
     }
 
     /// The Priority view's chip for the most urgent of `lanes` (`AgentPriorityRanking`, with the
