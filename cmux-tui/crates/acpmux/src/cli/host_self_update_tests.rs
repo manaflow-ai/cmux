@@ -1,16 +1,18 @@
 //! `host self-update` on a fake host ([`FakePeer`]) with a fake file server:
-//! the channel file, the download and its sha256, the lock and the opt-out,
-//! a rollback that is not tried again, and the timer units' install.
+//! the channel file, the download and its sha256, the lock (shared with
+//! `host update`, `host setup` and `host enroll --fix`) and the opt-out, a
+//! rollback that is not tried again, a daemon home a drop-in moved, and the
+//! timer units' install.
 
 use super::super::host_self_update::{
     Channel, Fetch, LocalRemote, Paths, Plan, Prepared, ROLLED_BACK, Step, apply, channel_url,
     prepare,
 };
 use super::*;
-use crate::cli::hosts::Remote;
 use crate::cli::hosts::host_auto_update::{
     NO_AUTO_UPDATE, UPDATE_SERVICE, UPDATE_TIMER, install_script,
 };
+use crate::cli::hosts::{Remote, install_daemon, lock_updates, push_binary};
 use futures::future::BoxFuture;
 use std::collections::HashMap;
 use std::path::Path;
@@ -82,8 +84,33 @@ fn paths(peer: &FakePeer) -> Paths {
     }
 }
 
+/// `f` until it gives a value, for up to 2 s: a lock this process just
+/// dropped is free only once no other test thread's spawn still holds a copy
+/// of its descriptor (a spawn copies every one until the child closes its
+/// close-on-exec ones).
+fn once_free<T>(mut f: impl FnMut() -> Option<T>) -> Option<T> {
+    for _ in 0..100 {
+        if let Some(value) = f() {
+            return Some(value);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    None
+}
+
+/// [`prepare`] once the lock this test dropped is free ([`once_free`]).
+async fn prepared(peer: &FakePeer, files: &Files) -> Prepared {
+    for _ in 0..100 {
+        match prepare(&paths(peer), files, CHANNEL).await.unwrap() {
+            Prepared::Locked => std::thread::sleep(std::time::Duration::from_millis(20)),
+            other => return other,
+        }
+    }
+    Prepared::Locked
+}
+
 async fn ready(peer: &FakePeer, files: &Files) -> Plan {
-    match prepare(&paths(peer), files, CHANNEL).await.unwrap() {
+    match prepared(peer, files).await {
         Prepared::Ready(plan) => plan,
         Prepared::Off => panic!("automatic updates are off"),
         Prepared::Locked => panic!("the lock is held"),
@@ -223,7 +250,7 @@ async fn a_build_whose_daemon_does_not_come_back_is_rolled_back_and_not_tried_ag
 
     // The next run leaves that build alone: no download, no restart.
     let files = serving(&bad);
-    let again = prepare(&paths(&peer), &files, CHANNEL).await.unwrap();
+    let again = prepared(&peer, &files).await;
     assert!(matches!(&again, Prepared::RolledBackBefore(commit) if commit == COMMIT));
     assert!(peer.take_calls().is_empty(), "the daemon is not restarted again");
     assert_eq!(files.asked().len(), 1);
@@ -245,7 +272,7 @@ async fn one_self_update_runs_at_a_time_and_the_opt_out_stops_them() {
     let second = prepare(&paths(&peer), &files, CHANNEL).await.unwrap();
     assert!(matches!(second, Prepared::Locked));
     drop(held);
-    assert!(matches!(prepare(&paths(&peer), &files, CHANNEL).await.unwrap(), Prepared::Ready(_)));
+    drop(ready(&peer, &files).await);
 
     peer.write(&format!(".acpmux/{NO_AUTO_UPDATE}"), "");
     let asked = files.asked().len();
@@ -262,6 +289,94 @@ async fn a_cloud_vm_is_refused_before_anything_is_read() {
     assert!(why.contains("--to-bundled"), "{why}");
     assert!(files.asked().is_empty());
     peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
+}
+
+#[tokio::test]
+async fn a_host_update_and_a_self_update_of_one_host_never_run_at_once() {
+    // The review's race: a self-update and a `host update` both probe the
+    // old daemon and install, and the second one's backup is the first one's
+    // new binary, so a rollback restores that. One lock on the host now
+    // keeps each out while the other runs.
+    let peer = FakePeer::new("self-host-lock");
+    let old = fake_acpmux(OLD, Some(OLD));
+    peer.offer(NEW, Some(NEW));
+    let opts = UpdateOptions { binary_dir: Some(peer.home.join("binaries")), if_idle: false };
+
+    // The timer holds it: an update from another machine changes nothing.
+    let files = serving(&fake_acpmux(NEW, Some(NEW)));
+    let held = ready(&peer, &files).await;
+    let up = update_locked(&peer, &opts);
+    assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Failed, Some("updateRunning")));
+    assert!(up.outcome.failed());
+    // `host setup` and `host enroll --fix` neither push nor restart.
+    let why = format!("{:#}", push_binary(&peer, DAEMON_BIN).unwrap_err());
+    assert!(why.contains("another update of fake is running"), "{why}");
+    let why = format!("{:#}", install_daemon(&peer, 47811, true).unwrap_err());
+    assert!(why.contains("another update of fake is running"), "{why}");
+    peer.assert_only_read(&old, OLD);
+    assert!(!peer.exists(".local/bin/acpmux.prev"));
+    drop(held);
+
+    // An update from another machine holds it: the timer leaves the host
+    // alone, and so does a second update.
+    let lock = once_free(|| lock_updates(&peer).unwrap()).expect("the lock is free");
+    assert!(matches!(prepare(&paths(&peer), &files, CHANNEL).await.unwrap(), Prepared::Locked));
+    assert!(lock_updates(&peer).unwrap().is_none());
+    assert_eq!(update_locked(&peer, &opts).reason.as_deref(), Some("updateRunning"));
+    drop(lock);
+
+    // Each takes it once the other ended.
+    let up = update_locked(&peer, &opts);
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
+    assert_eq!(peer.read(".local/bin/acpmux.prev"), old, "the backup is the known-good binary");
+    drop(ready(&peer, &files).await);
+}
+
+/// `binary` (a fake acpmux) whose daemon answers only at `socket`: a daemon
+/// whose home or socket a drop-in of `acpmux.service` moved.
+fn listening_at(socket: &str, binary: &str) -> String {
+    let check = format!(
+        "#!/bin/sh\nif [ \"$*\" = \"--json daemon status\" ] && [ \"$ACPMUX_SOCKET\" != '{socket}' ]; then printf '{{\"running\": false}}\\n'; exit 0; fi\n"
+    );
+    binary.replacen("#!/bin/sh\n", &check, 1)
+}
+
+#[tokio::test]
+async fn a_daemon_whose_socket_a_drop_in_moved_is_checked_where_it_listens() {
+    // A migration carries ACPMUX_HOME and ACPMUX_SOCKET to acpmux.service in
+    // a drop-in (host_migrate.rs); acpmux-update.service has neither, so its
+    // checks asked the default socket, took the healthy new daemon for a
+    // dead one and rolled it back, at every run. Every update script now
+    // reads them from acpmux.service.
+    let peer = FakePeer::new("self-moved-socket");
+    let socket = peer.home.join(".acpmux-supervised/hb/acpmux.sock").display().to_string();
+    peer.write(
+        &format!("{UNITS}/acpmux.service.d/10-migrated.conf"),
+        &format!("[Service]\nEnvironment=ACPMUX_SOCKET={socket}\n"),
+    );
+    let old = listening_at(&socket, &fake_acpmux(OLD, Some(OLD)));
+    peer.exe(".local/bin/acpmux", &old);
+    let new = listening_at(&socket, &fake_acpmux(NEW, Some(NEW)));
+    let files = serving(&new);
+    let plan = ready(&peer, &files).await;
+    let up = apply(&peer, &plan, TARGET);
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
+    assert_eq!(peer.read(".local/bin/acpmux"), new);
+    assert!(!peer.exists(&format!(".acpmux/update/{}/{ROLLED_BACK}", sha_of(&new))));
+
+    // The same holds for a check of the previous build, after a rollback.
+    drop(plan);
+    let newer = "b2c3d4e5f 2026-10-22";
+    let bad = listening_at(&socket, &fake_acpmux(newer, Some("fedcba987 2026-10-21")));
+    let files = serving(&bad);
+    let plan = ready(&peer, &files).await;
+    let up = apply(&peer, &plan, TARGET);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref(), up.build.as_deref()),
+        (Outcome::RolledBack, Some("buildMismatch"), Some(NEW)),
+        "{up:?}"
+    );
+    assert_eq!(peer.daemon(), NEW);
 }
 
 /// [`install_script`] in `home` with a fake `systemctl` that logs its

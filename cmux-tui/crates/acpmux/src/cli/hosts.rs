@@ -4,8 +4,9 @@
 //! and a host without a user systemd manager a detached start. The update's
 //! checks and rollback are in `host_update.rs`; the scripts both run are here,
 //! the move of a daemon from a hand-written unit to `acpmux.service` is in
-//! `host_migrate.rs`, and the timer that keeps a Linux host updated by itself
-//! (`host self-update`) is in `host_auto_update.rs`.
+//! `host_migrate.rs`, the timer that keeps a Linux host updated by itself
+//! (`host self-update`) is in `host_auto_update.rs`, and the lock that keeps
+//! two updates of one host apart in `host_lock.rs`.
 
 use crate::cli::output::print_json;
 use crate::client::Client;
@@ -13,15 +14,19 @@ use anyhow::{Context, Result, anyhow};
 use serde_json::{Value, json};
 use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 
 #[path = "host_auto_update.rs"]
 mod host_auto_update;
+#[path = "host_lock.rs"]
+mod host_lock;
 #[path = "host_migrate.rs"]
 mod host_migrate;
 #[path = "host_update.rs"]
 mod host_update;
+use host_lock::lock_to_install;
+pub(crate) use host_lock::lock_updates;
 use host_migrate::{MIGRATING, REFUSED, migrate, migrate_back};
 pub(crate) use host_update::{UpdateOptions, self_update, update};
 
@@ -49,6 +54,10 @@ pub(crate) trait Remote {
     fn exec(&self, script: &str, stdin: Option<&[u8]>) -> Result<RemoteOut>;
     /// Copy a local file to `remote` (a plain `~/` or absolute path).
     fn push(&self, local: &Path, remote: &str) -> Result<()>;
+    /// Start one of acpmux's fixed scripts on the host and leave it running,
+    /// its stdin, stdout and stderr piped: [`lock_updates`] holds the host's
+    /// update lock with it.
+    fn spawn(&self, script: &str) -> Result<Child>;
 }
 
 pub(crate) struct SshRemote<'a>(pub &'a str);
@@ -75,6 +84,16 @@ impl Remote for SshRemote<'_> {
             stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
             stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
         })
+    }
+
+    fn spawn(&self, script: &str) -> Result<Child> {
+        Command::new("ssh")
+            .args(ssh_argv(self.0, script)?)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .with_context(|| format!("ssh {}", self.0))
     }
 
     fn push(&self, local: &Path, remote: &str) -> Result<()> {
@@ -171,7 +190,8 @@ pub(crate) fn version_cmd(bin: &str) -> String {
 }
 
 /// Copy this very binary to the remote `bin` (rm then mv, never in place:
-/// macOS kills a running binary that is overwritten); its version line.
+/// macOS kills a running binary that is overwritten), holding the host's
+/// update lock ([`lock_updates`]); its version line.
 /// Only the file goes (`self_command.rs`'s executable); no subcommand runs
 /// here, so no prefix: a copy named `acpmux` runs as acpmux by its argv0
 /// (cmux-tui's too), and [`version_cmd`] gives another name its `acp`.
@@ -180,6 +200,7 @@ pub(crate) fn push_binary(r: &dyn Remote, bin: &str) -> Result<String> {
         return Err(anyhow!("refusing that remote binary path (not a plain path)"));
     }
     let exe = crate::self_command::SelfCommand::current()?.exe;
+    let _lock = lock_to_install(r)?;
     let dir = bin.rsplit_once('/').map(|(d, _)| d).filter(|d| !d.is_empty()).unwrap_or("/");
     run(r, &format!("mkdir -p {dir} {REMOTE_HOME}"))?;
     r.push(&exe, &format!("{bin}.new"))?;
@@ -518,9 +539,10 @@ fn write_config(r: &dyn Remote, cfg_text: &str) -> Result<()> {
 /// Configure and (re)start the daemon of the acpmux at [`DAEMON_BIN`]: keep
 /// an existing config but make sure the WebSocket listener on `port` and its
 /// token exist ([`daemon_config`]), then launchd on macOS, the user systemd
-/// unit or a detached start on Linux ([`linux_restart`]). The daemon's
-/// status (JSON with `json`).
+/// unit or a detached start on Linux ([`linux_restart`]), holding the host's
+/// update lock ([`lock_updates`]). The daemon's status (JSON with `json`).
 pub(crate) fn install_daemon(r: &dyn Remote, port: u16, json: bool) -> Result<String> {
+    let _lock = lock_to_install(r)?;
     let existing = run(r, &format!("cat {REMOTE_HOME}/config.json 2>/dev/null || echo '{{}}'"))?;
     let mut fresh = [0u8; 24];
     getrandom_fill(&mut fresh)?;
@@ -573,6 +595,9 @@ mod tests {
             Ok(RemoteOut { ok: true, stdout: self.1.into(), stderr: String::new() })
         }
         fn push(&self, _: &Path, _: &str) -> Result<()> {
+            unreachable!()
+        }
+        fn spawn(&self, _: &str) -> Result<Child> {
             unreachable!()
         }
     }

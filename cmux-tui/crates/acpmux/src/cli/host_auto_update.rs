@@ -16,7 +16,9 @@ pub(super) const NO_AUTO_UPDATE: &str = "no-auto-update";
 
 /// The oneshot service the timer starts. `KillMode=process`: a daemon the
 /// update had to start detached (a host without `acpmux.service`) outlives
-/// the service. The start timeout bounds a download that hangs.
+/// the service. The start timeout bounds a download that hangs. It sets no
+/// `ACPMUX_HOME` or `ACPMUX_SOCKET`: every update script reads the daemon's
+/// from `acpmux.service` and its drop-ins (`SERVICE_ENV`, `host_update.rs`).
 pub(super) const UPDATE_SERVICE: &str = "[Unit]
 Description=acpmux self-update (newest feat-cmux-next build)
 

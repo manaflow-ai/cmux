@@ -3,12 +3,21 @@
 # {"key", "commit", "binaries": {"cmux-tui-acpmux-<target>": sha256}}. Linux
 # hosts read it to keep their daemon on the newest build by themselves
 # (`acpmux host self-update`, run by their acpmux-update.timer). A tree without
-# the daemon-tests.json marker is not pointed at, and the pointer only moves
-# forward: a commit behind the one it names leaves it alone.
+# the daemon-tests.json marker is not pointed at.
+#
+# The pointer only moves forward, and fails closed: it moves when GitHub's
+# compare says this commit is ahead of the one it names (or it names none: no
+# file, or no commit in it); behind, identical, diverged, or a compare or read
+# that fails leaves it, exit 0. Every feat-cmux-next push runs this, several at
+# once, so the write is a compare-and-swap on the bytes that were compared
+# (upload-r2-object.py --replace-sha256, or --write-once for the first file):
+# when another run wrote first, the pointer is read and compared again. No
+# concurrency group serializes the runs: GitHub replaces a group's pending job
+# with the next one to queue, which may be an older push's.
 #
 # Usage: cmux-tui-point-channel.sh <channel> <tree key>
 # Env: R2_ENDPOINT and the R2 AWS_* credentials; GITHUB_SHA, GITHUB_RUN_ID,
-# GITHUB_API_URL, GITHUB_REPOSITORY and GH_TOKEN (the forward-only check).
+# GITHUB_API_URL, GITHUB_REPOSITORY and GH_TOKEN (the compare).
 # Caller: cmux-tui-artifacts.yml point-feat-channel.
 set -euo pipefail
 
@@ -31,20 +40,6 @@ if ! curl --head --fail --silent --proto '=https' --connect-timeout 20 --max-tim
 fi
 fetch "$base/tree/$key/completion.json" "$tmp/completion.json"
 
-if fetch "$base/channels/$channel.json" "$tmp/current.json" 2>/dev/null; then
-  current="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("commit", ""))' "$tmp/current.json" 2>/dev/null || true)"
-  if [[ "$current" =~ ^[0-9a-f]{40}$ && "$current" != "$GITHUB_SHA" ]]; then
-    status="$(curl -fsSL --proto '=https' --max-time 30 -H "Authorization: Bearer $GH_TOKEN" \
-        -H 'Accept: application/vnd.github+json' \
-        "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/compare/$current...$GITHUB_SHA" |
-      python3 -c 'import json,sys; print(json.load(sys.stdin).get("status", ""))' 2>/dev/null || true)"
-    if [[ "$status" == behind ]]; then
-      echo "The $channel channel names $current, which is newer than $GITHUB_SHA; left as it is."
-      exit 0
-    fi
-  fi
-fi
-
 python3 - "$key" "$tmp/completion.json" > "$tmp/channel.json" <<'PY'
 import json, os, re, sys
 key, path = sys.argv[1], sys.argv[2]
@@ -60,7 +55,64 @@ if not binaries:
     raise SystemExit(f"error: tree {key} lists no acpmux binaries")
 print(json.dumps({"key": key, "commit": os.environ["GITHUB_SHA"], "binaries": binaries}, indent=2, sort_keys=True))
 PY
-python3 "$script_dir/upload-r2-object.py" --file "$tmp/channel.json" --endpoint-url "$R2_ENDPOINT" \
-  --bucket cmux-binaries --key "cmux-tui/channels/$channel.json" \
-  --cache-control "no-cache, no-store, must-revalidate" --content-type application/json
-echo "The $channel channel now names tree $key (commit $GITHUB_SHA)."
+
+# The channel's current file, read again on every attempt (a new query, so no
+# cache answers it): "absent", "ok" with $tmp/current.json, or "unreadable".
+read_current() { # <attempt>
+  local code
+  rm -f "$tmp/current.json"
+  code="$(curl -sSL --proto '=https' --connect-timeout 20 --max-time 60 -o "$tmp/current.json" -w '%{http_code}' \
+    "$base/channels/$channel.json?channel=$GITHUB_RUN_ID-$1" 2>/dev/null)" || code=000
+  case "$code" in
+    200) echo ok ;;
+    404) echo absent ;;
+    *) echo "unreadable ($code)" ;;
+  esac
+}
+
+# What GitHub's compare says of this commit against <commit>: ahead, behind,
+# identical, diverged, or empty when it could not be asked.
+compare_status() { # <commit>
+  curl -fsSL --proto '=https' --connect-timeout 20 --max-time 30 -H "Authorization: Bearer $GH_TOKEN" \
+      -H 'Accept: application/vnd.github+json' \
+      "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/compare/$1...$GITHUB_SHA" 2>/dev/null |
+    python3 -c 'import json,sys; print(json.load(sys.stdin).get("status", ""))' 2>/dev/null || true
+}
+
+upload=(python3 "$script_dir/upload-r2-object.py" --file "$tmp/channel.json" --endpoint-url "$R2_ENDPOINT"
+  --bucket cmux-binaries --key "cmux-tui/channels/$channel.json"
+  --cache-control "no-cache, no-store, must-revalidate" --content-type application/json --conflict-exit-code 3)
+for attempt in 1 2 3 4 5; do
+  state="$(read_current "$attempt")"
+  case "$state" in
+    absent) mode=(--write-once) ;;
+    ok)
+      current="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("commit", ""))' "$tmp/current.json" 2>/dev/null || true)"
+      if [[ "$current" =~ ^[0-9a-f]{40}$ ]]; then
+        if [[ "$current" == "$GITHUB_SHA" ]]; then
+          echo "The $channel channel already names $GITHUB_SHA."
+          exit 0
+        fi
+        status="$(compare_status "$current")"
+        if [[ "$status" != ahead ]]; then
+          echo "The $channel channel names $current, and $GITHUB_SHA is not ahead of it (compare: ${status:-unavailable}); left as it is."
+          exit 0
+        fi
+      fi
+      mode=(--replace-sha256 "$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$tmp/current.json")")
+      ;;
+    *)
+      echo "The $channel channel could not be read ($state); left as it is."
+      exit 0
+      ;;
+  esac
+  rc=0
+  "${upload[@]}" "${mode[@]}" || rc=$?
+  if [[ "$rc" == 0 ]]; then
+    echo "The $channel channel now names tree $key (commit $GITHUB_SHA)."
+    exit 0
+  fi
+  [[ "$rc" == 3 ]] || exit "$rc"
+  echo "Another run moved the $channel channel first; reading it again."
+done
+echo "The $channel channel kept changing under this run; left as it is (the next push moves it)."

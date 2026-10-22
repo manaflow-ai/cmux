@@ -6,13 +6,14 @@
 
 use super::{
     DAEMON_UNIT, MIGRATING, REFUSED, RESTORE_PREV, Remote, RemoteOut, SshRemote, connect_peer,
-    linux_restart, migrate, migrate_back, push_update, run, ssh_host,
+    linux_restart, lock_updates, migrate, migrate_back, push_update, run, ssh_host,
 };
 use crate::cli::output::print_json;
 use crate::client::Client;
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Child;
 use std::sync::Arc;
 
 #[path = "host_self_update.rs"]
@@ -22,6 +23,40 @@ pub(crate) use host_self_update::self_update;
 /// Restart the launchd daemon of a macOS host, then give it
 /// [`super::LAUNCHD_START_GRACE`] (2 s) so its status is not read from the old one.
 const LAUNCHD_RESTART: &str = "{ launchctl kickstart -k gui/$(id -u)/com.acpmux.daemon 2>/dev/null || launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.acpmux.daemon.plist; } && sleep 2";
+
+/// Starts every script [`update_peer`] runs: the `ACPMUX_HOME` and
+/// `ACPMUX_SOCKET` that `acpmux.service` and its drop-ins set (a daemon moved
+/// from a hand-written unit keeps its home there, `host_migrate.rs`) replace
+/// the pair the script inherited, as systemd gives them to the daemon; a
+/// unit that sets neither leaves the inherited pair. So a status read or a check reaches the daemon the unit runs, from
+/// an ssh session and from `acpmux-update.service`, whose own environment
+/// has neither. Read again by every script, so a drop-in a migration just
+/// wrote counts at once.
+const SERVICE_ENV: &str = r#"acpmux_env=$(command -v systemctl >/dev/null 2>&1 && systemctl --user show acpmux.service -p Environment --value 2>/dev/null)
+case " $acpmux_env" in *" ACPMUX_HOME="?*|*" ACPMUX_SOCKET="?*) unset ACPMUX_HOME ACPMUX_SOCKET;; esac
+for acpmux_env in $acpmux_env; do case "$acpmux_env" in ACPMUX_HOME=?*|ACPMUX_SOCKET=?*) export "$acpmux_env";; esac; done
+"#;
+
+/// A host whose every script starts with [`SERVICE_ENV`].
+struct ServiceEnv<'a>(&'a dyn Remote);
+
+impl Remote for ServiceEnv<'_> {
+    fn host(&self) -> &str {
+        self.0.host()
+    }
+
+    fn exec(&self, script: &str, stdin: Option<&[u8]>) -> Result<RemoteOut> {
+        self.0.exec(&format!("{SERVICE_ENV}{script}"), stdin)
+    }
+
+    fn push(&self, local: &Path, remote: &str) -> Result<()> {
+        self.0.push(local, remote)
+    }
+
+    fn spawn(&self, script: &str) -> Result<Child> {
+        self.0.spawn(script)
+    }
+}
 
 /// Waits up to 20 s for a daemon to answer, then prints its
 /// `--json daemon status` (or the last reply, from none).
@@ -347,10 +382,29 @@ pub(crate) struct UpdateOptions {
     pub if_idle: bool,
 }
 
+/// [`update_peer`] holding the host's update lock ([`lock_updates`]), so a
+/// self-update there (its timer) does not change the binary or
+/// `acpmux.prev` under it; `updateRunning` (nothing changed) while one does.
+fn update_locked(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
+    match lock_updates(remote) {
+        Ok(Some(_lock)) => update_peer(remote, opts),
+        Ok(None) => {
+            let why = format!(
+                "another update of {} is running (its acpmux-update.timer, or a host update): run this again once it ended",
+                remote.host()
+            );
+            PeerUpdate::new().end(Outcome::Failed, "updateRunning", why)
+        }
+        Err(e) => PeerUpdate::new().end(Outcome::Failed, "unreachable", e.to_string()),
+    }
+}
+
 /// Update one peer: read it, push the binary, restart the daemon, check it
 /// answers with the pushed build, and roll back when it does not. Nothing
-/// changes on the peer before the push.
+/// changes on the peer before the push. Every script runs with the daemon's
+/// environment ([`SERVICE_ENV`]). The caller holds the host's update lock.
 fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
+    let remote = &ServiceEnv(remote);
     let up = PeerUpdate::new();
     let probe = match remote.exec(&probe_script(opts.if_idle), None) {
         Ok(out) => match Probe::parse(&out) {
@@ -607,7 +661,9 @@ fn cut(mut text: String, max: usize) -> String {
 ///   restarted daemon's status text (cut to 400 bytes), after a push.
 /// - `reason` and `error`, on every outcome but `updated` and `current`: a
 ///   code (`busy`, `unknown`, `noBinary`, `wrongPlatform`,
-///   `unsupportedPlatform`, `cloudMachine`, `unreachable`, `pushFailed`, `pushMismatch`,
+///   `unsupportedPlatform`, `cloudMachine`, `unreachable`, `updateRunning`
+///   (another update of the host, such as its self-update timer, holds its
+///   update lock), `pushFailed`, `pushMismatch`,
 ///   `restartFailed`, `noAnswer`, `buildMismatch`, and for a daemon under a
 ///   hand-written unit `unitConflict`, `listenConflict`, `unitArgs`,
 ///   `unitSettings`, `unitElsewhere`, `noLinger`) and a message.
@@ -639,7 +695,7 @@ pub(crate) async fn update(
     }
     let mut rows = Vec::new();
     for (n, host) in targets {
-        let up = update_peer(&SshRemote(&host), &opts);
+        let up = update_locked(&SshRemote(&host), &opts);
         if !json_out {
             if up.outcome.failed() {
                 eprintln!("{n} ({host}): {}", up.line());

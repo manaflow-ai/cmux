@@ -11,7 +11,11 @@
 //! rolls back a daemon that does not come back on it. A build rolled back
 //! here is not tried again; the next one the channel names is. A failure
 //! after the push (the binary is put back) and a refusal before it are
-//! retried at the next run.
+//! retried at the next run. The host's update lock (`~/.acpmux/update.lock`)
+//! is held from the channel read to the check or rollback: `host update`,
+//! `host setup` and `host enroll --fix` from another machine take the same
+//! lock on this host (`host_lock.rs`), so no two updates
+//! replace the binary or `acpmux.prev` at once.
 
 use super::super::host_auto_update::NO_AUTO_UPDATE;
 use super::super::{Remote, RemoteOut};
@@ -26,7 +30,7 @@ use serde_json::json;
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 
 /// Where CI publishes the cmux-tui builds: public, no credentials.
 const FILES: &str = "https://files.cmux.com/cmux-tui";
@@ -147,12 +151,14 @@ impl Fetch for HttpsFetch {
 /// What a self-update reads and writes on the host; tests point it at a
 /// fake home.
 pub(super) struct Paths {
-    /// The acpmux home: `update.lock`, and the downloads in `update/<sha256>/`.
+    /// The default acpmux home `~/.acpmux`, whatever `ACPMUX_HOME` says (the
+    /// binary is the user's, not a daemon home's): `update.lock`, which
+    /// `host update` over ssh takes too, and the downloads in
+    /// `update/<sha256>/`.
     pub(super) home: PathBuf,
     /// The binary `acpmux.service` runs: `~/.local/bin/acpmux`.
     pub(super) installed: PathBuf,
-    /// [`NO_AUTO_UPDATE`] in the default home `~/.acpmux`, where `host
-    /// setup` leaves it.
+    /// [`NO_AUTO_UPDATE`] in the home, where `host setup` leaves it.
     pub(super) off: PathBuf,
     /// [`CLOUD_VM_MARK`].
     pub(super) cloud_vm: PathBuf,
@@ -165,10 +171,11 @@ impl Paths {
         let target =
             local_target().ok_or_else(|| anyhow!("no acpmux build runs on this platform"))?;
         let user = dirs::home_dir().ok_or_else(|| anyhow!("this user has no home folder"))?;
+        let home = crate::config::default_home();
         Ok(Paths {
-            home: crate::config::home(),
             installed: user.join(".local/bin/acpmux"),
-            off: crate::config::default_home().join(NO_AUTO_UPDATE),
+            off: home.join(NO_AUTO_UPDATE),
+            home,
             cloud_vm: PathBuf::from(CLOUD_VM_MARK),
             target,
         })
@@ -179,7 +186,7 @@ impl Paths {
 pub(super) enum Prepared {
     /// Automatic updates are off ([`Paths::off`]).
     Off,
-    /// Another self-update holds the lock.
+    /// Another update holds the host's update lock.
     Locked,
     /// The channel's binary (of this commit) was rolled back here before;
     /// it is not tried again.
@@ -240,7 +247,9 @@ pub(super) async fn prepare(paths: &Paths, fetch: &dyn Fetch, channel: &str) -> 
     Ok(Prepared::Ready(Plan { commit: feed.commit, sha256: sha, step, _lock: lock }))
 }
 
-/// An exclusive lock on `path`, or None while another process holds it.
+/// An exclusive flock on `path`, or None while another process holds it:
+/// the one `hold_update_lock` (`host_lock.rs`) takes for an update from another
+/// machine.
 fn lock(path: &Path) -> Result<Option<std::fs::File>> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
@@ -361,6 +370,20 @@ impl Remote for LocalRemote {
         })
     }
 
+    fn spawn(&self, script: &str) -> Result<Child> {
+        let mut command = Command::new("sh");
+        command.args(["-c", script]);
+        if let Some(home) = dirs::home_dir() {
+            command.current_dir(home);
+        }
+        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context("sh")
+    }
+
     fn push(&self, local: &Path, remote: &str) -> Result<()> {
         let dest = match remote.strip_prefix("~/") {
             Some(rest) => {
@@ -377,7 +400,7 @@ impl Remote for LocalRemote {
 /// `acpmux host self-update [--channel C]` (see the module doc), Linux only.
 /// Prints the row `host update` prints for a peer, named by this host's name;
 /// `--json` prints `{"channel", "commit", "sha256", "updated": [ROW]}`. With
-/// automatic updates off, another self-update running, or the channel's
+/// automatic updates off, another update of this host running, or the channel's
 /// build rolled back here before, nothing happens: `{"channel", "skipped":
 /// "off" | "locked" | "rolledBack", "message", "updated": []}`, exit 0.
 /// Exits 1 when the row failed. The channel decides: a build pushed by hand
@@ -399,7 +422,8 @@ pub(crate) async fn self_update(channel: &str, json_out: bool) -> Result<()> {
             return skipped(channel, "off", &why, json_out);
         }
         Prepared::Locked => {
-            return skipped(channel, "locked", "another self-update is running", json_out);
+            let why = "another update of this host is running (a host update, or this timer)";
+            return skipped(channel, "locked", why, json_out);
         }
         Prepared::RolledBackBefore(commit) => {
             let why = format!(

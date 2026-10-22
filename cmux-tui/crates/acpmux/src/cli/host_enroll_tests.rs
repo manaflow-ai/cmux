@@ -32,6 +32,16 @@ impl<F: Fn(&str, Option<&[u8]>) -> RemoteOut> Remote for Fake<F> {
         self.pushes.borrow_mut().push(remote.to_owned());
         Ok(())
     }
+    /// The host's update lock (`hosts::lock_updates`), always free.
+    fn spawn(&self, _script: &str) -> Result<std::process::Child> {
+        use std::process::{Command, Stdio};
+        let child = Command::new("sh")
+            .args(["-c", "echo ACPMUX_UPDATE_LOCKED; exec cat >/dev/null"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()?;
+        Ok(child)
+    }
 }
 
 fn out(stdout: impl Into<String>) -> RemoteOut {
@@ -586,6 +596,9 @@ impl Remote for Sh {
         })
     }
     fn push(&self, _local: &Path, _remote: &str) -> Result<()> {
+        unreachable!()
+    }
+    fn spawn(&self, _script: &str) -> Result<std::process::Child> {
         unreachable!()
     }
 }

@@ -2585,7 +2585,10 @@ jobs:
   # acpmux sha256s of the newest feat-cmux-next push whose tree is published
   # and daemon-tested. Every such push points it there, also one whose tree
   # another run tested (publish-tree-tested is then skipped); the script
-  # checks the marker and moves the pointer only forward.
+  # checks the marker and moves the pointer only forward, failing closed. No
+  # concurrency group: GitHub would replace a pending job with the next one to
+  # queue, which may be an older push's. Runs that overlap are safe because the
+  # write is a compare-and-swap (tests/test_cmux_tui_point_channel.py).
   point-feat-channel:
     environment: artifacts
     name: point the feat-cmux-next channel at this tree
