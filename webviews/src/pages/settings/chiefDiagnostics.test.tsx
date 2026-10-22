@@ -74,3 +74,18 @@ test("with no Chief running, the card says so and Check stays off", async () => 
   expect(row(diagnostics, "codex").querySelector<HTMLButtonElement>("button")!.disabled).toBe(true);
   page.unmount();
 });
+
+test("each Check is named for its backend, and its answer is announced", async () => {
+  const page = await renderPage({ path: "/settings/chief" });
+  await settle();
+  const codex = row(card(page.container), "codex");
+  const button = codex.querySelector<HTMLButtonElement>("button")!;
+  const name = button
+    .getAttribute("aria-labelledby")!
+    .split(" ")
+    .map((id) => document.getElementById(id)!.textContent)
+    .join(" ");
+  expect(name).toBe("Check Codex");
+  expect(codex.querySelector(".chief-diagnostic-status")!.getAttribute("role")).toBe("status");
+  page.unmount();
+});
