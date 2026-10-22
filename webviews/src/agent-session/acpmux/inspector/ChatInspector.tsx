@@ -32,6 +32,7 @@ import {
 } from "react";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
+import { HEADER_GLYPH } from "../header/ChatHeaderTools";
 import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
 import { useT } from "../i18n";
@@ -46,6 +47,7 @@ import { waitingSubagents } from "../summary/SubagentStatusList";
 import type { TurnFile } from "../diff";
 import type { StartedSession } from "../started/startedSessions";
 import { ChangesSection, headerStatus, type InspectorPullRequestStatus } from "./ChangesSection";
+import { ContextSection } from "./ContextSection";
 import { EnvironmentSection } from "./EnvironmentSection";
 import { InspectorSection } from "./InspectorSection";
 import {
@@ -194,7 +196,7 @@ export function useChatInspector({
         title={label}
         onClick={toggle}
       >
-        <Icon name="pane.split.right" size={15} />
+        <Icon name="pane.split.right" size={HEADER_GLYPH} />
       </button>
     ),
     panel: (
@@ -369,7 +371,7 @@ export function InspectorPanel({
         presence?.props.ref(node);
       }}
       inert={presence?.leaving}
-      className="acpmux-chat-inspector"
+      className={placement === "overlay" ? "ui-glass acpmux-chat-inspector" : "acpmux-chat-inspector"}
       data-placement={placement}
       style={under ? ({ width, "--acpmux-inspector-top": under } as CSSProperties) : { width }}
       aria-label={t("chatInspector.title")}
@@ -483,7 +485,6 @@ export function ChatInspector({
   const known = usage !== undefined && usage.size > 0;
   // As the composer's context ring reads it (ComposerPickers ContextRing).
   const percent = known ? Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) : 0;
-  const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
   const { servers, tasks: commands } = inspectorLists(processes, transcriptTasks, listed);
   const body = useRef<HTMLDivElement>(null);
   // Once: then it is done, so the palette or another pane opening the Inspector again does not jump
@@ -534,20 +535,7 @@ export function ChatInspector({
             </>
           }
         >
-          <ul className="acpmux-chat-inspector-list">
-            <li className="acpmux-chat-inspector-row">
-              <span className="acpmux-chat-inspector-row__name">{t("chatInspector.context.used")}</span>
-              <span className="acpmux-chat-inspector-row__end">
-                {t("context.tokens", { used: tokens.format(usage.used), size: tokens.format(usage.size) })}
-              </span>
-            </li>
-            <li className="acpmux-chat-inspector-row">
-              <span className="acpmux-chat-inspector-row__name">{t("chatInspector.context.left")}</span>
-              <span className="acpmux-chat-inspector-row__end">
-                {tokens.format(Math.max(0, usage.size - usage.used))}
-              </span>
-            </li>
-          </ul>
+          <ContextSection usage={usage} percent={percent} />
         </InspectorSection>
       )}
       {mcp.length > 0 && (
@@ -556,13 +544,11 @@ export function ChatInspector({
           title={t("rail.connectors")}
           open={state.connectors}
           onOpenChange={fold("connectors")}
+          // As Claude Code desktop's: the servers to reconnect when any failed, else the connected ones.
           meta={value(
-            [
-              t("rail.connected", { count: mcp.filter((server) => server.status === "connected").length }),
-              reconnect > 0 && t("chatInspector.connectors.reconnect", { count: reconnect }),
-            ]
-              .filter(Boolean)
-              .join(" · "),
+            reconnect > 0
+              ? t("chatInspector.connectors.reconnect", { count: reconnect })
+              : t("rail.connected", { count: mcp.filter((server) => server.status === "connected").length }),
           )}
         >
           <ul className="acpmux-chat-inspector-list">
@@ -570,13 +556,15 @@ export function ChatInspector({
               <li key={server.name} className="acpmux-chat-inspector-row">
                 <Icon name="extension" size={12} row />
                 <span className="acpmux-chat-inspector-row__name">{server.name}</span>
-                {server.status !== "connected" && (
-                  <span className="acpmux-chat-inspector-row__end" data-state={server.status}>
-                    {t(
-                      server.status === "failed" ? "chatInspector.connectors.needsReconnect" : "rail.connectorPending",
-                    )}
-                  </span>
-                )}
+                <span className="acpmux-chat-inspector-row__end" data-state={server.status}>
+                  {t(
+                    server.status === "failed"
+                      ? "chatInspector.connectors.needsReconnect"
+                      : server.status === "pending"
+                        ? "rail.connectorPending"
+                        : "composer.envConnected",
+                  )}
+                </span>
               </li>
             ))}
           </ul>

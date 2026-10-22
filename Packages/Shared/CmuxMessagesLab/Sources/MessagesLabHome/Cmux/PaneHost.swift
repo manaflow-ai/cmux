@@ -172,9 +172,9 @@ final class HostView: NSView {
         // Below the titlebar (toolbar and name pill accessory): not adjacent
         // to it, so no scroll pocket.
         // cmux: no header (HeaderGlass.swift `useBareTop`): the rows start near the top and fade out there.
-        if bareTop, demo.rowsTopInset != HostView.bareTopInset {
-            demo.rowsTopInset = HostView.bareTopInset
-            demo.topFade = HostView.bareTopInset
+        if bareTop, demo.rowsTopInset != bareRowsTop {
+            demo.rowsTopInset = bareRowsTop
+            demo.topFade = bareRowsTop
             demo.setNeedsLayout()
         }
         let top = titlebarHeight

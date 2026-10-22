@@ -9,6 +9,7 @@ import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
+import CmuxNextImportCards
 import CmuxNextPages
 import CmuxNextWakeups
 
@@ -27,7 +28,9 @@ final class HomeHostView: NSView {
     private var settingsView: HomeChiefSettingsView { settings.content }
     /// The Chief pet's rows in the popover's Appearance section.
     private let petRows: ChiefPetSettingsRows
-    private var isChief = false
+    private(set) var isChief = false { didSet { if isChief != oldValue { watchHeaderPanels() } } }
+    /// The header's top-right panel toggles follow their panels (HomeHostView+HeaderPanels.swift).
+    var headerPanelsWatch: Task<Void, Never>?
     private var engineWatch: Task<Void, Never>?
     /// Each Chief's avatar beside this conversation's group bubbles, as its Home row draws it.
     private var avatarsWatch: Task<Void, Never>?
@@ -39,7 +42,7 @@ final class HomeHostView: NSView {
     static func defaultTileAvatar(mascot: String?) -> HomeChiefAvatar { ChiefPetSettingsRows.avatarURL(of: mascot).map(HomeChiefAvatar.picture) ?? .chiefDefault }
     private var firstPage: Task<Void, Never>?
     /// Which brain answers this conversation (this Mac's or a paired server's).
-    private var control: HomeChiefControl
+    private(set) var control: HomeChiefControl
     /// The settings panel shows a cloud Chief's brain, and whether the Cloud service hosts it
     /// (else a paired server runs it).
     private var showsCloud = false
@@ -69,6 +72,10 @@ final class HomeHostView: NSView {
                                            invocation: ActionInvocation(arguments: ["conversation": .string(conversation)], origin: .user))
         }
         loadAvatar()
+        // The header's top-right toggles (Memory, Right Sidebar): each runs its panel's action.
+        transcript.onHeaderPanel = { [weak self] id in
+            if let self { HomeHeaderPanels.toggle(id, headerPanelContext) }
+        }
         petRows.onMascot = { [weak self] in self?.loadAvatar() }  // a new character redraws the header at once
         petRows.install(in: self, addRow: { [settingsView] in settingsView.addAppearanceRow($0, control: $1) },
                         open: { [weak self] in self?.toggleChiefSettings(openOnly: true) ?? false })
@@ -207,6 +214,12 @@ final class HomeHostView: NSView {
         }
         // The first-run panel's agent rows open the agent's tab like a jump (Search Tabs).
         transcript.onFirstRunAgent = { [weak services] tab in _ = services?.revealTab(tab) }
+        // What this Mac can bring over (Claude Code's sessions, a browser's history) is one row on
+        // the Chief's front page, under its action rows: never a strip over the conversation
+        // (Leo 2026-10-21, nightly 331e2e9). Not Now dismisses it; Show All opens Settings › Import.
+        let suggestion = ImportSuggestionRowView()
+        suggestion.onChange = { [weak transcript] in transcript?.firstRunAccessoryChanged() }
+        transcript.setFirstRunAccessory(suggestion)
         // task-owner: lives as long as this view; event-driven (Observation):
         // the user's agents for the first-run glance, only while it can show
         // (the Chief with no messages yet): otherwise no tab is read, so tab
@@ -293,6 +306,7 @@ final class HomeHostView: NSView {
             hostWatch?.cancel()
             agentsWatch?.cancel()
             shortcutsWatch?.cancel()
+            headerPanelsWatch?.cancel()
             settings.close()
             firstPage?.cancel()
             transcript.stop()
@@ -339,6 +353,7 @@ final class HomeHostView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         openPendingSettings()
+        watchHeaderPanels()
     }
 
     override func viewDidHide() {

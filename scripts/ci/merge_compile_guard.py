@@ -28,6 +28,10 @@ gives no verdict) and the build fleet compiled the exact head, read from either 
   workflow file came from a commit on that branch. A token can post any status, and a workflow on
   another branch or a tag any run, so the guard trusts only that run.
 
+A same-repository PR compiles its head on the build fleet (`cmux-next app compile (build fleet)`) and runs
+the Release compile only when that gave no verdict: while that job runs, the Release compile does not
+exist yet, which is a wait, and its red is a refusal like a red Release compile.
+
 A Release compile that finished red (any conclusion but success, skipped, neutral or
 cancelled) stays a refusal, even with a rerun queued: the fleet compiles on Linux with the pool
 SDK, not Xcode 26 Release. The pass covers what `cmux-ci compile-check --app`
@@ -52,8 +56,11 @@ import time
 BASE = "feat-cmux-next"
 GUARDED_REPO = "manaflow-ai/cmux"
 COMPILE = "cmux-next Release compile (Xcode 26)"
+# A same-repository PR's app compile on the build fleet (cmux-next.yml app-compile-fleet): the Release
+# compile runs on a PR only when it gave no verdict, so its red is the PR's compile red.
+FLEET_COMPILE = "cmux-next app compile (build fleet)"
 # The jobs release-compile `needs`: until they finish, its check run does not exist.
-ROUTING = ("cmux-next path routing", "cmux-next push head preflight", "cmux-next macOS placement")
+ROUTING = ("cmux-next path routing", "cmux-next push head preflight", "cmux-next macOS placement", FLEET_COMPILE)
 RUNNING = frozenset(("queued", "in_progress", "pending", "waiting", "requested"))
 NOT_RUN = frozenset(("skipped", "neutral"))
 # A cancelled attempt is no verdict on the head: a newer push, a runner shortage or a person stopped it
@@ -61,6 +68,10 @@ NOT_RUN = frozenset(("skipped", "neutral"))
 # conclusion but success is red.
 NO_VERDICT = NOT_RUN | {"cancelled"}
 TIMEOUT = 15  # seconds per gh call
+try:  # tests lower it; it is never raised
+    TIMEOUT = min(TIMEOUT, max(1, int(os.environ.get("CMUX_MERGE_GUARD_GH_TIMEOUT") or TIMEOUT)))
+except ValueError:
+    pass
 BUDGET = 100  # seconds for every call together, under the hook's 120 s: a hook that times out lets the command run
 STARTED = time.monotonic()
 FLEET_WORKFLOW = "fleet-compile-check.yml"
@@ -93,15 +104,33 @@ def changes_swift(path: str) -> bool:
     return path.endswith(SWIFT_SUFFIXES) or path.rsplit("/", 1)[-1] in SWIFT_NAMES or ".xcodeproj/" in path
 
 
+# Why the last read failed, for the refusal: a timeout, gh's own error, or the budget spent.
+FAILED: list[str] = []
+
+
 def run(args: list[str], cwd: str | None = None) -> str | None:
+    # The guard reads once per merge and never polls, so its gh reads skip the PATH guard's 30 s repeat throttle
+    # (~/.local/lib/cmux-local-build-guards/gh): the hook shares the session's CLAUDE_SESSION_ID, and after a lane's
+    # own `gh pr view N` that throttle held the hook's identical read past its timeout (#23611, 2026-10-21).
+    env = {**os.environ, "CMUX_GH_GUARD_DISABLE": "1"} if os.path.basename(args[0]) == "gh" else None
+    FAILED.clear()
+    left = BUDGET - (time.monotonic() - STARTED)
+    if left < 1:
+        FAILED[:] = [f"the guard's {BUDGET} s for GitHub reads was spent"]
+        return None  # out of time: an unread answer refuses, or counts as no fleet pass
+    timeout = min(TIMEOUT, left)
     try:
-        left = BUDGET - (time.monotonic() - STARTED)
-        if left < 1:
-            return None  # out of time: an unread answer refuses, or counts as no fleet pass
-        done = subprocess.run(args, capture_output=True, text=True, timeout=min(TIMEOUT, left), cwd=cwd)
-    except (OSError, subprocess.SubprocessError):
+        done = subprocess.run(args, capture_output=True, text=True, timeout=timeout, cwd=cwd, env=env)
+    except subprocess.TimeoutExpired:
+        FAILED[:] = [f"`{' '.join(args[:3])[:60]}` did not answer within {timeout:.0f} s"]
         return None
-    return done.stdout.strip() if done.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError) as error:
+        FAILED[:] = [f"`{args[0]}` could not run ({error})"]
+        return None
+    if done.returncode != 0:
+        FAILED[:] = [f"`{' '.join(args[:3])[:60]}` failed: {(done.stderr or done.stdout).strip()[:160]}"]
+        return None
+    return done.stdout.strip()
 
 
 def checkout_repo(cwd: str | None) -> str | None:
@@ -306,7 +335,12 @@ def verdict(pr: dict, files: list[str], checks: list[dict], fleet_passed: bool =
         return why
     if fleet_passed:
         return ""
-    return why + f" Or compile-check the head on the build fleet: cmux-ci compile-check --ref {pr['head']} --app"
+    # No compile result on the head yet: the default path is the fleet's dev-build workers (COMMON.md), not
+    # waiting on the Mac Release compile.
+    what = changes_what(pr, swift)
+    return (f"{what} and {pr['head'][:12]} has no compile result yet. Compile-check it on the fleet dev-build "
+            f"workers: `cmux-ci compile-check --ref {pr['head']} --app`, then merge again; the guard reads that job. "
+            f"({why.removeprefix(what + ' and ')})")
 
 
 def compile_wait(checks: list[dict]) -> bool:
@@ -318,13 +352,26 @@ def compile_wait(checks: list[dict]) -> bool:
         return False  # an attempt finished red: a rerun queued after it is no wait (every attempt is read)
     return (not checks or any(c.get("status") in RUNNING for c in named)
             or (not named and any(c.get("name") in ROUTING and c.get("status") in RUNNING for c in checks))
-            or (len(finished) == len(named) and set(finished) - NOT_RUN == {"cancelled"}))
+            or (len(finished) == len(named) and set(finished) - NOT_RUN == {"cancelled"})
+            or fleet_stopped(checks))
+
+
+def fleet_stopped(checks: list[dict]) -> bool:
+    """The PR's build-fleet compile was cancelled with no pass and no Release compile ran: no verdict at all
+    (a run cancelled mid-compile also skips the Release compile)."""
+    fleet = [c.get("conclusion") for c in checks if c.get("name") == FLEET_COMPILE and c.get("status") == "completed"]
+    ran = [c for c in checks if c.get("name") == COMPILE and c.get("conclusion") not in NOT_RUN]
+    return bool(fleet) and set(fleet) == {"cancelled"} and not ran
+
+
+def changes_what(pr: dict, swift: list[str]) -> str:
+    return f"#{pr['number']} changes Swift ({swift[0]}{' and more' if len(swift) > 1 else ''})"
 
 
 def compile_refusal(pr: dict, swift: list[str], checks: list[dict]) -> str:
     named = [c for c in checks if c.get("name") == COMPILE]
     head = pr["head"][:12]
-    what = f"#{pr['number']} changes Swift ({swift[0]}{' and more' if len(swift) > 1 else ''})"
+    what = changes_what(pr, swift)
     if not checks:
         return f"{what} and {head} has no checks yet; merge once its {COMPILE} passes."
     if any(c.get("status") in RUNNING for c in named):
@@ -335,6 +382,13 @@ def compile_refusal(pr: dict, swift: list[str], checks: list[dict]) -> str:
     if ran and not any(c.get("conclusion") == "success" for c in ran):
         return (f"{what} and its {COMPILE} finished {ran[0].get('conclusion')} on {head}. "
                 f"Fix it, or merge the base in when the base has the fix, and merge once it passes.")
+    fleet = [c.get("conclusion") for c in checks if c.get("name") == FLEET_COMPILE and c.get("status") == "completed"]
+    red = [c for c in fleet if c not in NO_VERDICT and c != "success"]
+    if red and "success" not in fleet and not any(c.get("conclusion") == "success" for c in ran):
+        return (f"{what} and its {FLEET_COMPILE} finished {red[0]} on {head}. "
+                f"Fix it, or merge the base in when the base has the fix, and merge once it passes.")
+    if fleet_stopped(checks):
+        return f"{what} and its {FLEET_COMPILE} was cancelled on {head}, so nothing compiled it; rerun it."
     return ""
 
 
@@ -489,8 +543,10 @@ def refusal(command: str, cwd: str | None, reader=read_pr) -> str:
         try:
             why = reader(repo, number, where)
         except Unreadable:
-            return (f"merge-compile-guard: could not read #{number} from GitHub (a REST rate limit or 403 is the usual "
-                    f"cause), so it can't tell whether its Swift compile passed. Merge once GitHub answers.")
+            cause = FAILED[0] if FAILED else "GitHub gave no readable answer"
+            return (f"merge-compile-guard: could not read #{number} from GitHub ({cause}), so it can't tell whether "
+                    f"its Swift compile passed. Retry the merge; if GitHub stays slow, check `glaeda-gh budget` and the "
+                    f"host's load.")
         if why:
             return f"merge-compile-guard: {why}"
     return ""

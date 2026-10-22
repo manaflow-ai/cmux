@@ -66,13 +66,20 @@ extension HostView {
     func useBareTop() {
         guard !bareTop, headerGlass == nil else { return }
         bareTop = true
-        paneHeader.isHidden = true
+        paneHeader.bare = true
         headerBackdrop.isHidden = true
         needsLayout = true
     }
 
     /// The rows' top at rest, and the fade over it, in a pane with no header.
     static let bareTopInset: CGFloat = 16
+
+    /// The rows' top at rest with no header: under the top-right controls when the pane has them.
+    var bareRowsTop: CGFloat {
+        guard let accessory = paneHeader.trailingAccessory else { return Self.bareTopInset }
+        let height = accessory.intrinsicContentSize.height
+        return PaneHeaderView.bareAccessoryTop + (height == NSView.noIntrinsicMetric ? accessory.frame.height : height) + 8
+    }
 
     /// Follows the pane's width (called from `placeNativeViews`).
     func placeHeaderGlass() {
