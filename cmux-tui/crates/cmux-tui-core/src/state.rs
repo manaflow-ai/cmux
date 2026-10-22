@@ -71,6 +71,8 @@ pub(crate) mod layout_bulk;
 mod layout_bulk_tests;
 #[cfg(test)]
 mod mixed_order_tests;
+#[cfg(test)]
+mod new_workspace_top_tests;
 pub(crate) mod palette_usage;
 pub(crate) mod palette_usage_ops;
 #[cfg(test)]
@@ -121,6 +123,9 @@ mod stash_protocol_tests;
 mod stash_restore_tests;
 pub(crate) mod stash_router;
 pub(crate) mod stash_store;
+#[cfg(test)]
+mod stash_workspace_tests;
+pub(crate) mod stash_workspaces;
 pub(crate) mod status_meta;
 pub(crate) mod status_owners;
 pub(crate) mod store;

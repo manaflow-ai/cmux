@@ -248,8 +248,16 @@ impl ThemeTokens {
             .min_by(|a, b| fg.contrast(*a).total_cmp(&fg.contrast(*b)))
             .unwrap_or(bg);
         let primary = readable(fg, worst_surface, text_minimum);
-        let secondary = muted(primary, bg, 0.38, worst_surface, text_minimum);
-        let tertiary = muted(primary, bg, 0.55, worst_surface, mark_minimum);
+        // In a see-through window the quieter inks also hold over the tint
+        // on the worst desktop for the theme; the tint stays the opacity.
+        let see_through =
+            see_through_surfaces(bg, input.background_opacity, is_dark, &[pressed, selection]);
+        let ink_surface = std::iter::once(worst_surface)
+            .chain(see_through)
+            .min_by(|a, b| primary.contrast(*a).total_cmp(&primary.contrast(*b)))
+            .unwrap_or(worst_surface);
+        let secondary = muted(primary, bg, 0.38, ink_surface, text_minimum);
+        let tertiary = muted(primary, bg, 0.55, ink_surface, mark_minimum);
         // The config's selection fill, when text reads on it (an
         // inverse-video selection keeps the derived one).
         let config_selection = input
@@ -337,6 +345,18 @@ pub fn readable(color: Rgb, surface: Rgb, minimum: f64) -> Rgb {
         candidate = color.mixed(pole, step);
     }
     candidate
+}
+
+/// What text sits on in a window of `opacity` below 1 (port of
+/// `ThemeTokens.seeThroughSurfaces`): the background at that opacity over the
+/// worst desktop for the theme (black behind a light theme, white behind a
+/// dark one), alone and under each of `fills`. Empty for an opaque window.
+pub fn see_through_surfaces(bg: Rgb, opacity: f64, is_dark: bool, fills: &[Rgb]) -> Vec<Rgb> {
+    if opacity >= 1.0 {
+        return Vec::new();
+    }
+    let tint = bg.with_alpha(opacity).composited(if is_dark { Rgb::WHITE } else { Rgb::BLACK });
+    std::iter::once(tint).chain(fills.iter().map(|fill| fill.composited(tint))).collect()
 }
 
 /// `color` mixed toward `target` as far as `limit` allows while keeping

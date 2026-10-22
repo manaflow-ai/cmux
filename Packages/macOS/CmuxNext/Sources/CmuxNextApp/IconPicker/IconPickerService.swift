@@ -133,12 +133,17 @@ final class IconPickerService {
         }
     }
 
+    /// The picker page's engine options: it shows in a floating glass panel that closes when it
+    /// loses the keys, and a Chromium page is an opaque child window that takes them.
+    static let engineOptions = PageEngineOptions(requiresWebKit: .transparentOverlay)
+
     private func makeWarm(catalog: IconPickerSymbolCatalog) -> Warm? {
         let provider = IconPickerProvider(prefs: prefs, catalog: catalog, maxEmojiVersion: maxEmojiVersion)
         var routes = [PageRoute(prefix: "cmux.iconPicker.", provider: provider)]
         // Copy in the Actions menu: the shared clipboard op (the descriptor allows only that one).
         if let services { routes.append(PageRoute(prefix: "cmux.app.", provider: AppPageNativeProvider(services: services, page: .iconPicker))) }
-        guard let page = PageWebView(descriptor: .iconPicker, routes: routes, dynamicResources: symbols) else { return nil }
+        guard let page = PageWebView(descriptor: .iconPicker, routes: routes, options: Self.engineOptions,
+                                     dynamicResources: symbols) else { return nil }
         symbols.appearanceView = page
         let made = Warm(panel: IconPickerPanel(content: page, size: Self.size), page: page, provider: provider)
         warm = made

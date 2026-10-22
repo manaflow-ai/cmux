@@ -23,8 +23,8 @@ final class WorkspaceHoverCardController: HoverCardSource {
     /// out." The card touches its row, so it needs no grace for the pointer to travel to it:
     /// leaving the row and the card fades it out at once, as a tab card does. A gap or header
     /// between rows (`hoverCardBridges`) holds it for the reshow window, so the next row slides
-    /// it over instead of hiding and reshowing it. Leo 2026-10-20: the card sits below an empty
-    /// escape slot beside the row (`HoverCardPlacement.besideRow`); moving there dismisses it.
+    /// it over instead of hiding and reshowing it. Leo 2026-10-21: the card's top lines up with
+    /// its row's top, beside the sidebar (`HoverCardPlacement.besideRow`).
     var leave: HoverCardLeave { .hides(reshow: HoverCardTiming.reshowWindow) }
     weak var list: SidebarListView?
     /// The app's one coordinator; the App injects it.
@@ -136,7 +136,10 @@ final class WorkspaceHoverCardController: HoverCardSource {
         let options = DesignSettings.shared.workspaceHoverCard
         let wantsTimeline = options.layout != .classic
         let timeline = wantsTimeline ? (timelineSource?(ws, Self.timelineReadLimit) ?? []) : []
-        let content = WorkspaceHoverCardContent.make(workspace, machine: machine, now: Date(), options: options, timeline: timeline)
+        // The workspace on screen needs no digest: the person is looking at it.
+        let looked = SidebarTunables.sinceLooked.value && ws != list.model.activeWorkspaceID ? SidebarLookedStore.shared.stamps[ws] : nil
+        let content = WorkspaceHoverCardContent.make(workspace, machine: machine, now: Date(), options: options, timeline: timeline,
+                                                     looked: looked)
         body.configure(content)
         body.setResources(resources.report)
         bodyID = id

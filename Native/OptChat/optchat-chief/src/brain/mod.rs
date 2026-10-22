@@ -148,6 +148,12 @@ pub enum Input {
     SubagentPrompted {
         id: String,
     },
+    /// A subagent's task turn started at acpmux: `turn_started` after the
+    /// echo of its task prompt `prompt_id` (`Spawner::forward_answer`).
+    SubagentTurnStarted {
+        id: String,
+        prompt_id: String,
+    },
     /// A subagent's cmux workspace exists.
     SubagentWorkspace {
         id: String,
@@ -158,6 +164,20 @@ pub enum Input {
     SubagentFailed {
         id: String,
         error: String,
+    },
+    /// A cloud subagent holds this sandbox key (agent_keys.rs): revoked once
+    /// it has been done for `agent_keys::REVOKE_AFTER_DONE`.
+    SubagentAgentKey {
+        id: String,
+        key_id: String,
+    },
+    /// The sandbox key of subagent `id` is revoked (its VMs go with it).
+    AgentKeyRevoked {
+        id: String,
+    },
+    /// Revoking subagent `id`'s sandbox key failed; the next tick retries.
+    AgentKeyRevokeFailed {
+        id: String,
     },
     /// The answer of a prompt the host sent a subagent (token use, cost).
     SubagentAnswer {
@@ -325,6 +345,18 @@ pub enum Input {
     /// and the other subagents going on; answers `{"stopped": bool, ...}`.
     StopSubagent {
         name: String,
+        reply: Sender<serde_json::Value>,
+    },
+    /// chief.stop {all: true} ("Stop all agents"): the running turn and
+    /// every subagent at work or queued; answers `{"stopped": bool,
+    /// "subagents": [ids]}`.
+    StopAll {
+        reply: Sender<serde_json::Value>,
+    },
+    /// chief.stop {restart: [ids]} (Restart on the stop-all toast): those
+    /// subagents go on; answers `{"restarted": [ids], "errors": [...]}`.
+    RestartSubagents {
+        names: Vec<String>,
         reply: Sender<serde_json::Value>,
     },
     /// The link preview thread's answer for reply `key`: its parts with the
@@ -644,6 +676,13 @@ pub struct Brain {
     cloud_idle: std::time::Duration,
     cloud_paused: std::collections::BTreeSet<String>,
     cloud_idle_since: std::collections::BTreeMap<String, u64>,
+    /// Revokes cloud subagents' sandbox keys (agent_keys.rs); since when each
+    /// keyed subagent is done, and the revokes in flight.
+    agent_keys: Option<std::sync::Arc<dyn crate::agent_keys::AgentKeys>>,
+    agent_key_done_since: std::collections::BTreeMap<String, u64>,
+    agent_key_revoking: std::collections::BTreeSet<String>,
+    /// How long a keyed subagent stays done before its key is revoked.
+    agent_key_grace: std::time::Duration,
     /// Most subagents at work at once (`subagents::live_limit`); None: no cap.
     max_live: Option<usize>,
     /// The wall clock (ms since the epoch) the subagent watch reads; tests
@@ -836,6 +875,10 @@ impl Brain {
             cloud_idle: std::time::Duration::from_secs(chief.cloud_auto_pause_idle_secs),
             cloud_paused: Default::default(),
             cloud_idle_since: Default::default(),
+            agent_keys: None,
+            agent_key_done_since: Default::default(),
+            agent_key_revoking: Default::default(),
+            agent_key_grace: crate::agent_keys::REVOKE_AFTER_DONE,
             max_live: None,
             clock: Arc::new(now_ms),
             watches: HashMap::new(),
@@ -977,6 +1020,21 @@ impl Brain {
         }
         self.cloud_vms = vms;
         self.cloud_idle = idle;
+    }
+
+    /// Revokes cloud subagents' sandbox keys once they are done for a while.
+    /// `grace`: how long a subagent stays done before its key is revoked
+    /// (`agent_keys::REVOKE_AFTER_DONE` on a host).
+    pub fn set_agent_keys(
+        &mut self,
+        keys: Option<std::sync::Arc<dyn crate::agent_keys::AgentKeys>>,
+        grace: std::time::Duration,
+    ) {
+        if keys.is_some() && self.agent_keys.is_none() && self.cloud_vms.is_none() {
+            control::start_cloud_ticker(self.tx.clone());
+        }
+        self.agent_keys = keys;
+        self.agent_key_grace = grace;
     }
 
     /// `cloud.autoPauseIdleSeconds`: how long a cloud VM idles before it
@@ -1130,9 +1188,16 @@ impl Brain {
                 session_id,
                 policy,
             } => self.sub_started(&id, session_id, policy),
-            Input::SubagentPrompted { id } => self.sub_prompted(&id),
+            Input::SubagentPrompted { id } => {
+                self.sub_prompted(&id);
+                self.stop_if_cancelled(&id);
+            }
+            Input::SubagentTurnStarted { id, prompt_id } => self.sub_turn_started(&id, &prompt_id),
             Input::SubagentWorkspace { id, key, name } => self.sub_workspace(&id, key, name),
             Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
+            Input::SubagentAgentKey { id, key_id } => self.sub_agent_key(&id, key_id),
+            Input::AgentKeyRevoked { id } => self.agent_key_revoked(&id),
+            Input::AgentKeyRevokeFailed { id } => self.agent_key_revoke_failed(&id),
             Input::SubagentAnswer { id, answer } => self.sub_answer(&id, &answer),
             Input::AutoResume {
                 id,
@@ -1209,7 +1274,10 @@ impl Brain {
                 let answer = self.control(&request);
                 let _ = reply.send(answer);
             }
-            Input::CloudTick => self.cloud_tick(),
+            Input::CloudTick => {
+                self.cloud_tick();
+                self.agent_key_tick();
+            }
             Input::CloudPauseFailed { peer } => self.cloud_pause_failed(&peer),
             Input::SubTick => {
                 self.sub_tick();
@@ -1248,6 +1316,12 @@ impl Brain {
             }
             Input::StopSubagent { name, reply } => {
                 let _ = reply.send(self.stop_subagent(&name));
+            }
+            Input::StopAll { reply } => {
+                let _ = reply.send(self.stop_all());
+            }
+            Input::RestartSubagents { names, reply } => {
+                let _ = reply.send(self.restart_subagents(&names));
             }
             Input::Previews { key, parts } => self.previews_fetched(&key, parts),
         }

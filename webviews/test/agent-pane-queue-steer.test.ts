@@ -10,12 +10,11 @@
 //   bottom stack's order, #20521), never under either; under "Queued", and a long one opens whole
 //   (acpmux lists only a 200-character preview; the pane keeps the text its `queued` record had).
 // - A prompt sent now to an agent that cannot steer reads "Steering" in the queue, apart from the
-//   queued ones, and once it runs its bubble carries no mark: acpmux stopped the turn for it, but
-//   the turn goes on with it, so nothing reads as stopped (only Stop or Esc does) or "Steered".
-// - A steer shows as any sent prompt while the reply it went into still streams (a "Steering"
-//   label there made the first Cmd-Return look like it had not sent, Austin 2026-10-20), and
-//   reads "Steered" once the agent's next message starts; a second steer in the same step does
-//   not mark the first read.
+//   queued ones, and its bubble's read receipt reads read once it runs.
+// - A steer's read receipt (in its bubble's hover row, Claude Code desktop's ✓ / ✓✓) is one check
+//   while the reply it went into still streams, and two once the agent's next message starts; a
+//   second steer in the same step does not mark the first read. No "Steering" / "Steered" line
+//   shows under the bubble (Leo, 2026-10-20).
 //
 // - A queued prompt shows two lines until it is opened, in WebKit (the engine cmux NEXT draws
 //   with) too: a live run showed a five-line prompt whole before any click.
@@ -29,6 +28,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -261,10 +261,18 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
     // A cold dev server's first load can stall in CI: the first page waits longer.
     await page.locator(".acpmux-queued", { hasText: "space thing" }).waitFor({ timeout: 60_000 });
+    await installPaintedFrames(page);
     return page;
   }
-  const bubbleMark = (page: Page, text: string) =>
-    page.locator(".cv-user", { hasText: text }).locator(".cv-user__steer");
+  /// Streams `text` onto the reply (message m1) and waits for it to draw: the page has handled
+  /// every record sent before it.
+  const caughtUp = async (page: Page, text: string) => {
+    send(["in", "agent_message_chunk", say(text, "m1")]);
+    await page.locator(".acpmux-scroll", { hasText: text }).waitFor({ timeout: 10_000 });
+  };
+  /// The bubble's read receipt once it is `read` (two checks) or not yet (one).
+  const receipt = (page: Page, text: string, read: boolean) =>
+    page.locator(".cv-user", { hasText: text }).locator(`.cv-user__read[data-read="${read}"]`);
 
   describe("queued and steering prompts", () => {
     test("queued prompts sit between the pull request bar and the composer, under Queued, and a long one opens whole", async () => {
@@ -273,7 +281,7 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       await dock.waitFor();
       // acpmux's later listing carries only the preview.
       changed();
-      await page.waitForTimeout(200);
+      await caughtUp(page, "queued prompts.");
       const list = await page.locator(".acpmux-composer-queue").boundingBox();
       const bar = await dock.boundingBox();
       // A chat that has sent shows no location strip (#20869): the queue stands on the card.
@@ -343,15 +351,26 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       await page.locator(".acpmux-pr-dock").waitFor();
       await page.locator(".acpmux-permission-card").waitFor();
       await page.locator(".acpmux-queued-text", { hasText: "the pr thing" }).click();
-      await page.waitForTimeout(300);
+      // The prompt has opened, and a frame has painted with the list fitted to it.
+      await page.locator('.acpmux-queued-text[aria-expanded="true"]', { hasText: "the pr thing" }).waitFor();
+      await page.evaluate(() => window.cmuxPaintFrame());
       const box = async (selector: string) => (await page.locator(selector).first().boundingBox())!;
       const list = await box(".acpmux-composer-queue");
       const scroller = await box(".acpmux-scroll");
       const dock = await box(".acpmux-pr-dock");
       const composer = await box(".acpmux-composer-box");
-      // Every queued prompt shows whole: the list never hides part of one.
+      // Every queued prompt shows whole: the list never hides part of one. A list past its cap
+      // scrolls and rests on whole rows (ComposerQueue fitList), so a prompt is in it or wholly
+      // under its edge; a font that wraps the opened prompt further (CI's) takes this one past it.
+      const [content, cap] = await page
+        .locator(".acpmux-composer-queue")
+        .evaluate((el) => [
+          el.scrollHeight,
+          parseFloat(getComputedStyle(el).getPropertyValue("--acpmux-queue-max")) || 132,
+        ]);
       for (const row of await page.locator(".acpmux-queued").all()) {
         const r = (await row.boundingBox())!;
+        if (content > cap + 1 && r.y >= list.y + list.height - 1) continue;
         expect(r.y).toBeGreaterThanOrEqual(list.y - 1);
         expect(r.y + r.height).toBeLessThanOrEqual(list.y + list.height + 1);
       }
@@ -369,7 +388,7 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       await page.close();
     });
 
-    test("a prompt sent now to an agent that cannot steer reads Steering, then no mark under its bubble", async () => {
+    test("a prompt sent now to an agent that cannot steer reads Steering, then read under its bubble", async () => {
       const page = await openChat(false);
       send(["mux", "queued", { text: "stop and fix the space thing first", promptId: "q-now", turnId: "turn-4" }]);
       send(["mux", "queue_order", { promptId: "q-now", order: ["q-now", "q-1", "q-2"], next: true }]);
@@ -384,22 +403,23 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
         "user_message",
         { text: "stop and fix the space thing first", promptId: "q-now", turnId: "turn-4" },
       ]);
-      await page.locator(".cv-user", { hasText: "fix the space thing first" }).waitFor({ timeout: 10_000 });
-      expect(await bubbleMark(page, "fix the space thing first").count()).toBe(0);
+      await receipt(page, "fix the space thing first", true).waitFor({ state: "attached", timeout: 10_000 });
+      expect(await page.locator(".cv-user__steer").count()).toBe(0);
       await page.close();
     });
 
-    test("Send now on a queued prompt keeps its row, reading Steering, until it runs (live run, 2026-10-14)", async () => {
-      // A live run: after Send now the row went at once and nothing showed until the stopped turn
+    test("Steer on a queued prompt keeps its row, reading Steering, until it runs (live run, 2026-10-14)", async () => {
+      // A live run: after Send now (now Steer) the row went at once and nothing showed until the stopped turn
       // ended, because the queue hid the row as if it were leaving.
       const page = await openChat(false);
       const row = page.locator(".acpmux-queued", { hasText: "space thing" });
       await row.hover();
-      // A queued row shows Edit, Remove and Send now (#22805): click Send now by its name.
-      await row.getByRole("button", { name: "Send now", exact: true }).click();
+      // A queued row shows Steer, Delete and ⋯ (ChatGPT's order, 2026-10-21): click Steer by its name.
+      await row.getByRole("button", { name: "Steer", exact: true }).click();
       await row.locator(".acpmux-queued-kind", { hasText: "Steering" }).waitFor({ timeout: 10_000 });
-      // The stopped turn has not ended yet: the row still shows.
-      await page.waitForTimeout(500);
+      // The stopped turn has not ended yet: once the page has handled what came after Steer, the
+      // row still shows.
+      await caughtUp(page, "queue order.");
       expect(await row.isVisible()).toBe(true);
       send(["mux", "turn_result", { status: "cancelled", turnId: "turn-1" }]);
       send(["mux", "dequeued", { promptId: "q-2" }]);
@@ -408,25 +428,22 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
         "user_message",
         { text: "also man what happened with the space thing", promptId: "q-2", turnId: "turn-3" },
       ]);
-      await page.locator(".cv-user", { hasText: "space thing" }).waitFor({ timeout: 10_000 });
-      expect(await bubbleMark(page, "space thing").count()).toBe(0);
+      await receipt(page, "space thing", true).waitFor({ state: "attached", timeout: 10_000 });
       await row.waitFor({ state: "detached", timeout: 10_000 });
       await page.close();
     });
 
-    test("a steer shows as a sent prompt while the reply it went into streams, and Steered once the agent reads it", async () => {
+    test("a steer reads delivered while the reply it went into streams, and read once the agent reads it", async () => {
       const page = await openChat(true);
       send(["mux", "user_message", { text: "use the cache dir", promptId: "s-1", turnId: "turn-1", steer: true }]);
-      await page.locator(".cv-user", { hasText: "use the cache dir" }).waitFor({ timeout: 10_000 });
-      const mark = bubbleMark(page, "use the cache dir");
-      expect(await mark.count()).toBe(0);
-      // The rest of the reply it went into still streams: not read yet, and still no mark.
-      send(["in", "agent_message_chunk", say("remapped paths.", "m1")]);
-      await page.waitForTimeout(200);
-      expect(await mark.count()).toBe(0);
+      await receipt(page, "use the cache dir", false).waitFor({ state: "attached", timeout: 10_000 });
+      // The rest of the reply it went into still streams: not read yet.
+      await caughtUp(page, "remapped paths.");
+      expect(await receipt(page, "use the cache dir", false).count()).toBe(1);
       // The agent's next message answers the steer.
       send(["in", "agent_message_chunk", say("Using the cache dir now.", "m2")]);
-      await mark.getByText("Steered · the agent read it").waitFor({ timeout: 10_000 });
+      await receipt(page, "use the cache dir", true).waitFor({ state: "attached", timeout: 10_000 });
+      expect(await page.locator(".cv-user", { hasText: "use the cache dir" }).innerText()).not.toContain("Steer");
       await page.close();
     });
 
@@ -434,14 +451,11 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       const page = await openChat(true);
       send(["mux", "user_message", { text: "use the cache dir", promptId: "s-1", turnId: "turn-1", steer: true }]);
       send(["mux", "user_message", { text: "and keep the old path", promptId: "s-2", turnId: "turn-1", steer: true }]);
-      const first = bubbleMark(page, "use the cache dir");
-      const second = bubbleMark(page, "and keep the old path");
-      await page.locator(".cv-user", { hasText: "and keep the old path" }).waitFor({ timeout: 10_000 });
-      expect(await first.count()).toBe(0);
-      expect(await second.count()).toBe(0);
+      await receipt(page, "and keep the old path", false).waitFor({ state: "attached", timeout: 10_000 });
+      expect(await receipt(page, "use the cache dir", false).count()).toBe(1);
       send(["in", "agent_message_chunk", say("Using the cache dir and the old path.", "m2")]);
-      await first.getByText("Steered · the agent read it").waitFor({ timeout: 10_000 });
-      await second.getByText("Steered · the agent read it").waitFor({ timeout: 10_000 });
+      await receipt(page, "use the cache dir", true).waitFor({ state: "attached", timeout: 10_000 });
+      await receipt(page, "and keep the old path", true).waitFor({ state: "attached", timeout: 10_000 });
       await page.close();
     });
   });

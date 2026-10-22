@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// The message and image under the pointer when the agent pane's context menu opened, as the page
 /// reports them on `contextmenu` (webviews conversation/messageMenu.ts), before WebKit asks the host
@@ -73,7 +74,8 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
 @MainActor
 enum AgentPaneContextMenu {
     /// WebKit's edit items the pane keeps, in WebKit's order.
-    static let editItems: Set<String> = ["WKMenuItemIdentifierCut", "WKMenuItemIdentifierCopy", "WKMenuItemIdentifierPaste"]
+    static let editItems: Set<String> = ["WKMenuItemIdentifierCut", "WKMenuItemIdentifierCopy", pasteItem]
+    static let pasteItem = "WKMenuItemIdentifierPaste"
     /// WebKit's Look Up, kept on selected text: it shows the definition at the selection.
     static let lookUpItem = "WKMenuItemIdentifierLookUp"
     static let inspectItem = "WKMenuItemIdentifierInspectElement"
@@ -92,6 +94,8 @@ enum AgentPaneContextMenu {
         var search: (String) -> Void = { _ in }
         /// One of the page's own menu actions (`window.cmuxAcpmuxActions`) by name.
         var page: (String, [String: String]) -> Void = { _, _ in }
+        /// The web view WebKit's Paste item runs `paste:` on (``AgentPaneDroppedPaths``); nil keeps WebKit's own action.
+        var pasteTarget: AnyObject?
     }
 
     /// The selected transcript text the page reported with the menu (it reports a selection only
@@ -107,28 +111,66 @@ enum AgentPaneContextMenu {
         text.split(separator: "\n", omittingEmptySubsequences: false).map { "> \($0)" }.joined(separator: "\n") + "\n\n"
     }
 
-    /// Replaces WebKit's items in `menu` with the pane's, in groups split by separators.
+    /// The symbols of WebKit's items the pane keeps: the catalog's Copy, Paste, Copy Image, Look Up
+    /// and Inspect Element symbols (Terminal, BrowserHit and Browser catalogs).
+    static let webKitSymbols: [String: String] = [
+        "WKMenuItemIdentifierCut": "scissors", "WKMenuItemIdentifierCopy": "doc.on.doc", "WKMenuItemIdentifierPaste": "doc.on.clipboard",
+        copyImageItem: "doc.on.doc", lookUpItem: "character.book.closed", inspectItem: "cursorarrow.rays",
+    ]
+
+    /// A row's SF Symbol as a template image, as the action registry's menus draw theirs.
+    static func icon(_ symbol: String) -> NSImage? {
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        image?.isTemplate = true
+        return image
+    }
+
+    /// WebKit's own item (Cut, Copy, Look Up...): its target forgets the menu once WebKit's popUp
+    /// returns, so a themed row runs it as the menu closes (`runsInPlace`), as a native row would.
+    static func isWebKitItem(_ item: NSMenuItem) -> Bool {
+        item.identifier?.rawValue.hasPrefix("WKMenuItemIdentifier") == true
+    }
+
+    /// Replaces WebKit's items in `menu` with the pane's, in groups split by separators. With a
+    /// `scope` (the pane's), the rows then draw as every cmux menu's do: the theme's glass highlight
+    /// (`NSMenu.themeRows(in:)`), each with its icon.
     static func rebuild(_ menu: NSMenu, target: AgentPaneMessageTarget?, selection: String? = nil, devTools: Bool,
-                        chatMenu: [NSMenuItem] = [], actions: Actions) {
+                        chatMenu: [NSMenuItem] = [], scope: ThemeScope? = nil, actions: Actions) {
+        fill(menu, target: target, selection: selection, devTools: devTools, chatMenu: chatMenu, actions: actions)
+        if let scope { menu.themeRows(in: scope) { isWebKitItem($0) } }
+    }
+
+    private static func fill(_ menu: NSMenu, target: AgentPaneMessageTarget?, selection: String?, devTools: Bool,
+                             chatMenu: [NSMenuItem], actions: Actions) {
         let edits = menu.items.filter { editItems.contains($0.identifier?.rawValue ?? "") }
+        // WebKit's Paste item pastes in the web process, past the view's `paste:`: it goes through the
+        // view instead, which records the pasteboard's files first, as Cmd-V does. It keeps the
+        // enabled state WebKit gave it (or the view validates it, as it does Edit > Paste).
+        if let target = actions.pasteTarget, let paste = edits.first(where: { $0.identifier?.rawValue == pasteItem }) {
+            paste.target = target
+            paste.action = #selector(NSText.paste(_:))
+        }
         let inspect = devTools ? menu.items.first { $0.identifier?.rawValue == inspectItem } : nil
         let lookUp = menu.items.first { $0.identifier?.rawValue == lookUpItem }
         let copyImage = menu.items.first { $0.identifier?.rawValue == copyImageItem }
+        for item in edits + [inspect, lookUp, copyImage].compactMap({ $0 }) where item.image == nil {
+            item.image = webKitSymbols[item.identifier?.rawValue ?? ""].flatMap(icon)
+        }
         menu.removeAllItems()
         if let selection {
             // Selected text gets the selection menu alone (macOS adds Services last).
             let quote = Self.quote(selection)
             let selected = edits + [
-                AgentPaneMenuAction.item(AgentPaneMenuStrings.quoteInReply) { actions.edit(quote) },
-                AgentPaneMenuAction.item(AgentPaneMenuStrings.askAboutThis) { actions.edit(quote + AgentPaneMenuStrings.askAboutThisPrompt) },
+                AgentPaneMenuAction.item(AgentPaneMenuStrings.quoteInReply, symbol: "text.quote") { actions.edit(quote) },
+                AgentPaneMenuAction.item(AgentPaneMenuStrings.askAboutThis, symbol: "questionmark.bubble") { actions.edit(quote + AgentPaneMenuStrings.askAboutThisPrompt) },
             ]
-            let find = [AgentPaneMenuAction.item(AgentPaneMenuStrings.searchTheWeb) { actions.search(selection) }] + (lookUp.map { [$0] } ?? [])
+            let find = [AgentPaneMenuAction.item(AgentPaneMenuStrings.searchTheWeb, symbol: "magnifyingglass") { actions.search(selection) }] + (lookUp.map { [$0] } ?? [])
             add([selected, find, inspect.map { [$0] } ?? []], to: menu)
             return
         }
         var image: [NSMenuItem] = []
         if target?.opensImage == true {
-            image.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.openImage) { actions.page("chat.menu.openImage", [:]) })
+            image.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.openImage, symbol: "photo.on.rectangle") { actions.page("chat.menu.openImage", [:]) })
         }
         if let copyImage { image.append(copyImage) }
         let part = target?.part?.items(copy: actions.copy, openPath: { actions.page("chat.menu.openPath", ["path": $0]) }, open: actions.open,
@@ -138,22 +180,22 @@ enum AgentPaneContextMenu {
         var links: [NSMenuItem] = []
         if let target, !target.text.isEmpty {
             if let markdown = target.markdown {
-                copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyMessage) { actions.copy(markdown) })
-                copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyAsPlainText) { actions.copy(target.text) })
+                copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyMessage, symbol: "doc.on.doc") { actions.copy(markdown) })
+                copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyAsPlainText, symbol: "doc.plaintext") { actions.copy(target.text) })
             } else {
-                copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyMessage) { actions.copy(target.text) })
+                copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyMessage, symbol: "doc.on.doc") { actions.copy(target.text) })
             }
             if let row = target.retryRowId {
-                message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.retry) { actions.retry(row) })
+                message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.retry, symbol: "arrow.clockwise") { actions.retry(row) })
             }
             if target.isPrompt {
-                message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.editAndResend) { actions.edit(target.text) })
+                message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.editAndResend, symbol: "pencil") { actions.edit(target.text) })
             }
             if let seq = target.forkSeq {
-                message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.forkFromHere) { actions.fork(seq) })
+                message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.forkFromHere, symbol: "arrow.triangle.branch") { actions.fork(seq) })
                 // The chat menu's New side chat, through this turn (the page's `chat.side`).
                 if target.sideChat {
-                    message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.openInSideChat) {
+                    message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.openInSideChat, symbol: "sidebar.right") {
                         actions.page("chat.side", ["throughSeq": String(seq)])
                     })
                 }
@@ -177,11 +219,12 @@ enum AgentPaneContextMenu {
     /// Open Link for one link; Open Links with each link in a submenu for several.
     private static func linkItems(_ links: [URL], open: @escaping (URL) -> Void) -> [NSMenuItem] {
         guard let first = links.first else { return [] }
-        if links.count == 1 { return [AgentPaneMenuAction.item(AgentPaneMenuStrings.openLink) { open(first) }] }
+        if links.count == 1 { return [AgentPaneMenuAction.item(AgentPaneMenuStrings.openLink, symbol: "arrow.up.right.square") { open(first) }] }
         let parent = NSMenuItem(title: AgentPaneMenuStrings.openLinks, action: nil, keyEquivalent: "")
+        parent.image = icon("arrow.up.right.square")
         let submenu = NSMenu(title: parent.title)
         for link in links {
-            let item = AgentPaneMenuAction.item(linkTitle(link)) { open(link) }
+            let item = AgentPaneMenuAction.item(linkTitle(link), symbol: "link") { open(link) }
             item.toolTip = link.absoluteString // tooltip-native-allow: NSMenuItem (AgentPaneMenuAction.item)
             submenu.addItem(item)
         }
