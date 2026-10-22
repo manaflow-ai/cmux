@@ -68,6 +68,20 @@ class PullRequestMediaTests(unittest.TestCase):
         # A download that fails leaves the highlight without a picture, never the build without notes.
         self.assertEqual(self.build(f"![a]({MEDIA})", {})["media"], [])
 
+    def test_a_download_that_raises_leaves_the_highlight_without_a_picture(self):
+        # The fixture names a file that is not there, so reading it raises, as a timeout or a URL
+        # urllib rejects would: the notes still build.
+        fixture = os.path.join(self.repo, "fixture.json")
+        with open(fixture, "w") as f:
+            json.dump({"bodies": {"123": f"![a]({MEDIA})"}, "files": {MEDIA: os.path.join(self.repo, "missing")}}, f)
+        out = os.path.join(self.repo, "out")
+        subprocess.run([sys.executable, SCRIPT, "build", "--build", "2", "--short", "1.0.0-nightly.2", "--date",
+                        "2026-10-21", "--head", self.head, "--since", self.base, "--out", out, "--pr-media"],
+                       cwd=self.repo, capture_output=True, text=True, check=True,
+                       env={**os.environ, "CMUX_RELEASE_NOTES_PR_FIXTURE": fixture})
+        with open(os.path.join(out, "2.json")) as f:
+            self.assertEqual(json.load(f)["highlights"][0]["media"], [])
+
     def test_without_the_flag_nothing_is_fetched(self):
         self.assertEqual(self.build(f"![a]({MEDIA})", {MEDIA: PNG}, pr_media=False)["media"], [])
 
