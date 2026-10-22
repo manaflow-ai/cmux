@@ -95,6 +95,9 @@ function usePaneWidth(shell: HTMLElement | null | undefined, live: boolean): num
   return width;
 }
 
+/// How long a revealed section stays lit.
+const REVEAL_LIT_MS = 1200;
+
 /// The header's toggle and the Inspector for the chat's pane. `on` is Debug Settings
 /// `agent.inspector`: off, there is neither, and the App shows its summary card instead.
 export function useChatInspector({
@@ -488,12 +491,26 @@ export function ChatInspector({
   const body = useRef<HTMLDivElement>(null);
   // Once: then it is done, so the palette or another pane opening the Inspector again does not jump
   // back to this section.
+  // The section lights for a moment (inspector.css `[data-revealed]`), so a reveal of a section already
+  // in view still shows it answered (the header's Environment line, Leo 2026-10-21: no dead clicks).
+  // Not the reveal effect's cleanup: `onRevealed` clears the reveal at once, which would put it out.
+  const lit = useRef<{ section: HTMLElement; timer: number }>(undefined);
+  const unlight = () => {
+    if (!lit.current) return;
+    window.clearTimeout(lit.current.timer);
+    delete lit.current.section.dataset.revealed;
+    lit.current = undefined;
+  };
+  useEffect(() => unlight, []);
   useEffect(() => {
     if (!revealed) return;
-    body.current
-      ?.querySelector<HTMLElement>(`[data-section="${revealed.section}"]`)
-      ?.scrollIntoView?.({ block: "nearest" });
+    const section = body.current?.querySelector<HTMLElement>(`[data-section="${revealed.section}"]`);
+    section?.scrollIntoView?.({ block: "nearest" });
     onRevealed?.();
+    if (!section) return;
+    unlight();
+    section.dataset.revealed = "";
+    lit.current = { section, timer: window.setTimeout(unlight, REVEAL_LIT_MS) };
   }, [revealed, onRevealed]);
   const scheduled = made?.scheduled ?? [];
   const pullRequests = made?.pullRequests ?? [];
