@@ -2,7 +2,8 @@ import Foundation
 
 /// The first lines of a text file a reply names, for its path chip's hover card (`link.preview`,
 /// Leo 2026-10-21: "all these I hope can be previewed"). The read is bounded: a regular file only
-/// (no folder, FIFO, device or link, checked on the open handle), at most ``maximumBytes`` read and
+/// (no folder, FIFO, device or link: checked before the open, so a device is never opened, and
+/// again on the open handle), at most ``maximumBytes`` read and
 /// ``maximumLines`` lines of at most ``maximumLineLength`` characters sent, and bytes that are not
 /// UTF-8 text (a NUL, or no valid decoding) are never sent. The caller checks the place first
 /// (``AgentPaneModel/previewReplyPath(_:)``).
@@ -16,14 +17,21 @@ nonisolated struct AgentPaneReplyTextPreview: Equatable, Sendable {
     var truncated: Bool
 
     /// The file at `path` (canonical, already checked against the deny list), read off the main
-    /// actor through one handle, so the file cannot be swapped between the checks and the read.
-    @concurrent static func read(_ path: String) async -> Result<Self, AgentPaneReplyError> {
-        // O_NOFOLLOW refuses a link; O_NONBLOCK keeps a FIFO from blocking the open.
+    /// actor. `accept` checks the open handle's own path again (the deny list, the roots), so a
+    /// folder above the file swapped after the place check cannot redirect the read.
+    @concurrent static func read(_ path: String, accept: @Sendable (String) -> Bool) async -> Result<Self, AgentPaneReplyError> {
+        var before = stat()
+        guard lstat(path, &before) == 0, before.st_mode & S_IFMT == S_IFREG else { return .failure(.pathInvalid) }
+        // O_NOFOLLOW refuses a link; O_NONBLOCK keeps a FIFO swapped in from blocking the open.
         let fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard fd >= 0 else { return .failure(.pathInvalid) }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         var info = stat()
-        guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { return .failure(.pathInvalid) }
+        guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
+              info.st_dev == before.st_dev, info.st_ino == before.st_ino else { return .failure(.pathInvalid) }
+        var real = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        guard fcntl(fd, F_GETPATH, &real) != -1, accept(real.withUnsafeBufferPointer { String(cString: $0.baseAddress!) })
+        else { return .failure(.pathInvalid) }
         let data: Data
         do {
             // concurrency-allow: read(_:) is @concurrent, so this read never runs on the main actor
@@ -62,10 +70,11 @@ nonisolated struct AgentPaneReplyTextPreview: Equatable, Sendable {
 
 extension AgentPaneModel {
     /// `link.preview`: the first lines of the text file a path chip names. Inside the roots it is
-    /// read; outside them too, read-only, as an inline image is, unless
-    /// `agentPane.links.outsideRoots` is `text`; a deny-listed path never, checked again after
-    /// symlinks. Every refusal of an outside path answers `pathOutsideRoots`, so the page learns
-    /// nothing about a file it is not shown.
+    /// read; outside them only under `agentPane.links.outsideRoots = open` (the default), which
+    /// treats an outside path as an inside one: `confirm` promises to ask before anything outside
+    /// is opened, and a passive hover cannot ask. A deny-listed path is never read, checked again
+    /// after symlinks and on the open handle. Every refusal of an outside path answers
+    /// `pathOutsideRoots`, so the page learns nothing about a file it is not shown.
     func previewReplyPath(_ text: String) async -> [String: Any] {
         let paths = replyPaths()
         guard let resolved = paths.resolve(text) else { return Self.replyFailure(.pathInvalid) }
@@ -74,13 +83,15 @@ extension AgentPaneModel {
         case .missing: return Self.replyFailure(.pathInvalid)
         case .root: break
         case .outside:
-            guard replyLinks.settings().outsideRoots != .text else { return Self.replyFailure(.pathOutsideRoots) }
+            guard replyLinks.settings().outsideRoots == .open else { return Self.replyFailure(.pathOutsideRoots) }
         }
         let refusal: AgentPaneReplyError = resolved.place == .outside ? .pathOutsideRoots : .pathInvalid
         guard let canonical = AcpmuxPathPolicy.canonical(resolved.path) else { return Self.replyFailure(refusal) }
         // A link may point a harmless name at a secret.
         guard !paths.isDenied(canonical) else { return Self.replyFailure(.pathDenied) }
-        switch await AgentPaneReplyTextPreview.read(canonical) {
+        let inside = resolved.place == .root
+        let accept: @Sendable (String) -> Bool = { real in !paths.isDenied(real) && (!inside || paths.isInsideRoot(real)) }
+        switch await AgentPaneReplyTextPreview.read(canonical, accept: accept) {
         case .success(let preview):
             return AgentPaneReply.success(["lines": preview.lines, "truncated": preview.truncated])
         case .failure:

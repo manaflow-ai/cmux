@@ -24,8 +24,8 @@ public import Foundation
 ///   the pull request bars link to (its hover card). Only a plain
 ///   `https://github.com/<owner>/<repo>/pull/<n>` is taken (``pullRequestURL(_:)``). Passive.
 /// - `link.preview {path}`: the first lines of a text file a path chip names, for its hover card
-///   (``AgentPaneReplyTextPreview``): inside the roots, or outside them unless
-///   `agentPane.links.outsideRoots` is `text`; never a deny-listed path. Passive.
+///   (``AgentPaneReplyTextPreview``): inside the roots, or outside them only under
+///   `agentPane.links.outsideRoots = open`; never a deny-listed path. Passive.
 public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case inspect(paths: [String], urls: [String])
     case openPath(String)

@@ -4,9 +4,9 @@ import Foundation
 import Testing
 
 /// A path chip's hover card shows a text file's first lines (`link.preview`): a bounded read of a
-/// regular file, inside the session's folders or outside them (unless
-/// `agentPane.links.outsideRoots = text`), never from a deny-listed path, checked again after
-/// symlinks.
+/// regular file, inside the session's folders, or outside them only under
+/// `agentPane.links.outsideRoots = open` (a passive hover cannot ask, so `confirm` refuses), never
+/// from a deny-listed path, checked again after symlinks and on the open handle.
 @MainActor
 struct AgentPaneReplyTextPreviewTests {
     private actor NoHost: AgentPaneHostProviding {
@@ -80,30 +80,30 @@ struct AgentPaneReplyTextPreviewTests {
         #expect(Self.truncated(whole) == false)
     }
 
-    @Test func aLockedChipOutsideTheFoldersPreviewsUnderOpenAndConfirm() async throws {
+    @Test func aLockedChipOutsideTheFoldersPreviewsUnderOpen() async throws {
         let rig = try Self.rig()
         defer { try? FileManager.default.removeItem(at: rig.folder) }
         let log = rig.outside.appendingPathComponent("build.log")
         try "started\nok\n".write(to: log, atomically: true, encoding: .utf8)
+        rig.model.replyLinks.settings = { AgentPaneReplySetting(outsideRoots: .open, remoteImages: .click) }
 
-        for outsideRoots in [AgentPaneReplySetting.OutsideRoots.open, .confirm] {
-            rig.model.replyLinks.settings = { AgentPaneReplySetting(outsideRoots: outsideRoots, remoteImages: .click) }
-            let reply = await rig.preview(log.path)
-            #expect(Self.errorCode(reply) == nil, "\(outsideRoots): \(reply)")
-            #expect(Self.lines(reply) == ["started", "ok"], "\(outsideRoots)")
-        }
+        let reply = await rig.preview(log.path)
+        #expect(Self.errorCode(reply) == nil, "\(reply)")
+        #expect(Self.lines(reply) == ["started", "ok"])
     }
 
-    @Test func outsideRootsTextTurnsTheOutsidePreviewOff() async throws {
+    @Test func confirmAndTextKeepAnOutsideFileUnread() async throws {
         let rig = try Self.rig()
         defer { try? FileManager.default.removeItem(at: rig.folder) }
         let log = rig.outside.appendingPathComponent("build.log")
         try "secret-ish\n".write(to: log, atomically: true, encoding: .utf8)
-        rig.model.replyLinks.settings = { AgentPaneReplySetting(outsideRoots: .text, remoteImages: .click) }
 
-        let reply = await rig.preview(log.path)
-        #expect(Self.errorCode(reply) == AgentPaneReplyError.pathOutsideRoots.rawValue)
-        #expect(Self.lines(reply) == nil)
+        for outsideRoots in [AgentPaneReplySetting.OutsideRoots.confirm, .text] {
+            rig.model.replyLinks.settings = { AgentPaneReplySetting(outsideRoots: outsideRoots, remoteImages: .click) }
+            let reply = await rig.preview(log.path)
+            #expect(Self.errorCode(reply) == AgentPaneReplyError.pathOutsideRoots.rawValue, "\(outsideRoots)")
+            #expect(Self.lines(reply) == nil, "\(outsideRoots)")
+        }
     }
 
     @Test func aDenyListedFileIsNeverRead() async throws {
@@ -150,6 +150,24 @@ struct AgentPaneReplyTextPreviewTests {
             let reply = await rig.preview(url.path)
             #expect(Self.errorCode(reply) == AgentPaneReplyError.pathOutsideRoots.rawValue, "\(url.lastPathComponent): \(reply)")
         }
+    }
+
+    @Test func aFIFOIsNeverOpenedAndTheHandlesOwnPathIsCheckedAgain() async throws {
+        let rig = try Self.rig()
+        defer { try? FileManager.default.removeItem(at: rig.folder) }
+        let fifo = rig.project.appendingPathComponent("pipe.log")
+        #expect(mkfifo(fifo.path, 0o600) == 0)
+        let reply = await rig.preview(fifo.path)
+        #expect(Self.errorCode(reply) == AgentPaneReplyError.pathInvalid.rawValue, "\(reply)")
+
+        // The open handle's real path goes through `accept` (the deny list and roots again).
+        let notes = rig.project.appendingPathComponent("notes.txt")
+        try "hi\n".write(to: notes, atomically: true, encoding: .utf8)
+        let canonical = try #require(AcpmuxPathPolicy.canonical(notes.path))
+        let refused = await AgentPaneReplyTextPreview.read(canonical) { _ in false }
+        #expect(refused == .failure(.pathInvalid))
+        let seen = await AgentPaneReplyTextPreview.read(canonical) { real in real == canonical }
+        #expect(seen == .success(AgentPaneReplyTextPreview(lines: ["hi"], truncated: false)))
     }
 
     @Test func aHugeFileReadsOnlyItsFirstBytesAndCutsLongLines() async throws {
