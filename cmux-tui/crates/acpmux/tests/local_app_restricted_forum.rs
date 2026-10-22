@@ -46,6 +46,7 @@ fn paths(d: &Path) -> Paths {
         codex_config: d.join("home").join("config.toml"),
         record: d.join("home").join("trust.json"),
         agent_home: Some(d.join("agent-home")),
+        cmux_worktrees: None,
     }
 }
 
