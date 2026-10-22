@@ -732,6 +732,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
 
+      - name: Validate the starved fleet runner label alert
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_starved_labels.py
+
       - name: Validate pull request macOS pool choice
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_runner_pool.py
@@ -1338,6 +1342,16 @@ jobs:
           bash ./tests/test_nightly_universal_build.sh
           python3 tests/test_nightly_trusted_routing.py
           python3 tests/test_nightly_build_state.py
+
+      # .github/nightly-step-coverage.json: every step only the nightly runs
+      # names its pull-request dry run here or elsewhere, or a reviewed reason.
+      - name: Validate every nightly step has a pull request counterpart
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_step_coverage.py
+
+      - name: Dry-run the nightly's tested-DMG gate for the old feed
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: bash tests/test_nightly_next_legacy_tested_digest.sh
 
       - name: Validate feat-cmux-next runs these release guards
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
