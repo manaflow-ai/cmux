@@ -48378,6 +48378,138 @@
         }
       }
     },
+    "transport.personRequired": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن الموافقة على هذا إلا من تطبيق cmux. وافق عليه في cmux على جهاز Mac الذي يشغّل هذه المحادثة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovo se može odobriti samo u aplikaciji cmux. Odobrite to u cmuxu na Macu na kojem radi ovaj chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kun cmux-appen kan godkende dette. Godkend det i cmux på den Mac, der kører denne chat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur die cmux-App kann das genehmigen. Genehmige es in cmux auf dem Mac, auf dem dieser Chat läuft."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only the cmux app can approve this. Approve it in cmux on the Mac that runs this chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo la app cmux puede aprobar esto. Apruébalo en cmux en el Mac que ejecuta este chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seule l’app cmux peut approuver ceci. Approuvez-le dans cmux sur le Mac qui exécute ce chat."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo l’app cmux può approvarlo. Approvalo in cmux sul Mac che esegue questa chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "これを承認できるのは cmux アプリだけです。このチャットを実行している Mac の cmux で承認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មានតែកម្មវិធី cmux ទេដែលអាចអនុម័តការនេះបាន។ សូមអនុម័តវានៅក្នុង cmux លើ Mac ដែលដំណើរការការជជែកនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 항목은 cmux 앱에서만 승인할 수 있습니다. 이 채팅을 실행하는 Mac의 cmux에서 승인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bare cmux-appen kan godkjenne dette. Godkjenn det i cmux på Macen som kjører denne chatten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tylko aplikacja cmux może to zatwierdzić. Zatwierdź to w cmux na Macu, na którym działa ten czat."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Só o app cmux pode aprovar isto. Aprove no cmux no Mac que executa este chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Одобрить это можно только в приложении cmux. Одобрите в cmux на Mac, где работает этот чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มีเพียงแอป cmux เท่านั้นที่อนุมัติสิ่งนี้ได้ อนุมัติใน cmux บน Mac ที่เรียกใช้แชทนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bunu yalnızca cmux uygulaması onaylayabilir. Bu sohbeti çalıştıran Mac'teki cmux'ta onaylayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Схвалити це можна лише в застосунку cmux. Схваліть у cmux на Mac, де працює цей чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ ứng dụng cmux mới có thể phê duyệt việc này. Hãy phê duyệt trong cmux trên máy Mac đang chạy cuộc trò chuyện này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有 cmux 应用可以批准此操作。请在运行此聊天的 Mac 上的 cmux 中批准。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有 cmux App 可以核准此操作。請在執行此聊天的 Mac 上的 cmux 中核准。"
+          }
+        }
+      }
+    },
     "transport.sessionNotInPane": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -68078,138 +68210,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "再按一次 Esc 以停止"
-          }
-        }
-      }
-    },
-    "composer.escapeKey": {
-      "comment": "Agent pane: the Stop button's label for a moment after one press of Escape while a turn runs (the key's name, as on the keyboard); a second press of Escape stops the turn.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esc"
           }
         }
       }
@@ -142265,7 +142265,8 @@
           }
         }
       }
-    },    "composer.queueMoveUp": {
+    },
+    "composer.queueMoveUp": {
       "comment": "Agent pane: moves a queued prompt one place earlier in the queue (cx-xtg0.4)",
       "extractionState": "manual",
       "localizations": {
@@ -196936,6 +196937,138 @@
         }
       }
     },
+    "chatInspector.close": {
+      "comment": "Agent pane: the Inspector's close button (top right of the panel); Esc closes it too",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إغلاق المراقِب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatvori inspektor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Luk inspektør"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspektor schließen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Inspector"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerrar el inspector"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fermer l’inspecteur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiudi l’ispettore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インスペクタを閉じる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទអ្នកត្រួតពិនិត្យ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인스펙터 닫기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lukk inspektør"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zamknij inspektor"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fechar o inspetor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрыть инспектор"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิดตัวตรวจสอบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denetçiyi kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрити інспектор"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đóng trình kiểm tra"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭检查器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉檢閱器"
+          }
+        }
+      }
+    },
     "chatInspector.title": {
       "comment": "Agent pane: the Inspector, the chat's right-hand panel (Environment, Context, Changes, Subagents...); also its header toggle's label",
       "extractionState": "manual",
@@ -214492,138 +214625,6 @@
         }
       }
     },
-    "notice.forkBusy": {
-      "comment": "Agent pane: Fork Conversation while the chat's turn is running",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "هذه الدردشة قيد العمل. فرّعها عند انتهاء الدور."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ovaj chat radi. Račvajte ga kada se potez završi."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denne chat arbejder. Forgren den, når turen slutter."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dieser Chat arbeitet gerade. Zweige ihn ab, wenn der Durchgang endet."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This chat is working. Fork it when the turn ends."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Este chat está trabajando. Bifúrcalo cuando termine el turno."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ce chat est en cours. Dupliquez-le à la fin du tour."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Questa chat è al lavoro. Biforcala quando il turno finisce."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このチャットは処理中です。ターンが終わってからフォークしてください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការជជែកនេះកំពុងដំណើរការ។ សូមបំបែកវានៅពេលវេននេះបញ្ចប់។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 채팅이 작업 중입니다. 턴이 끝나면 포크하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denne chatten jobber. Forgrein den når turen er ferdig."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ten czat pracuje. Rozgałęź go po zakończeniu tury."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Este chat está trabalhando. Bifurque-o quando o turno terminar."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Этот чат работает. Ответвите его, когда ход закончится."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แชทนี้กำลังทำงาน แยกสาขาเมื่อรอบนี้จบ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu sohbet çalışıyor. Tur bitince çatallayın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Цей чат працює. Відгалузьте його, коли хід завершиться."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cuộc trò chuyện này đang chạy. Hãy phân nhánh khi lượt kết thúc."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此聊天正在运行。请在本轮结束后再分叉。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此聊天正在執行。請在本輪結束後再分叉。"
-          }
-        }
-      }
-    },
     "watch.continue": {
       "comment": "Agent pane: the View Only banner button that forks a viewed Claude Code session into a new chat, leaving the original untouched",
       "extractionState": "manual",
@@ -221688,6 +221689,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "最近的聊天"
+          }
+        }
+      }
+    },
+    "notice.forkFromTranscript": {
+      "comment": "Agent pane: a fork of a working chat whose agent could not fork mid-turn; {harness} is the agent's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يستطيع {harness} تفريع محادثة أثناء دورها، لذا يبدأ هذا الفرع من نص المحادثة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} ne može račvati chat usred poteza, pa ovaj račvani chat počinje od transkripta chata."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} kan ikke forgrene en chat midt i en tur, så denne forgrening starter fra chattens udskrift."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} kann einen Chat nicht mitten im Durchgang abzweigen, daher beginnt diese Abzweigung mit dem Verlauf des Chats."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} can't fork a chat mid-turn, so this fork starts from the chat's transcript."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} no puede bifurcar un chat a mitad de turno, así que esta bifurcación empieza desde la transcripción del chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} ne peut pas dupliquer une conversation en cours de tour : cette copie part de la transcription de la conversation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} non può diramare una chat a metà turno, quindi questa diramazione parte dalla trascrizione della chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} はターンの途中でチャットをフォークできないため、このフォークはチャットの記録から始まります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} មិនអាចបំបែកការជជែកពាក់កណ្ដាលវេនបានទេ ដូច្នេះការបំបែកនេះចាប់ផ្ដើមពីប្រតិចារិកនៃការជជែក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness}은(는) 턴 도중에 채팅을 포크할 수 없어서, 이 포크는 채팅 기록에서 시작합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} kan ikke forgrene en chat midt i en tur, så denne forgreningen starter fra chattens utskrift."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} nie może rozgałęzić czatu w trakcie tury, więc to rozgałęzienie zaczyna się od zapisu czatu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} não consegue bifurcar um chat no meio do turno, então esta bifurcação começa pela transcrição do chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} не может ответвить чат посреди хода, поэтому это ответвление начинается со стенограммы чата."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} แยกแชทกลางเทิร์นไม่ได้ แชทที่แยกนี้จึงเริ่มจากบันทึกของแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} bir sohbeti tur ortasında çatallayamaz, bu yüzden bu çatal sohbetin dökümünden başlar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} не може відгалузити чат посеред ходу, тому це відгалуження починається зі стенограми чату."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} không thể rẽ nhánh cuộc trò chuyện giữa lượt, nên nhánh này bắt đầu từ bản ghi của cuộc trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} 无法在回合中途分叉聊天，因此此分叉从聊天记录开始。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} 無法在回合中途分叉聊天，因此此分叉從聊天記錄開始。"
           }
         }
       }
