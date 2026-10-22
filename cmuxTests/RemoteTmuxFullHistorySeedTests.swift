@@ -157,12 +157,14 @@ import Testing
         on connection: RemoteTmuxControlConnection,
         until condition: ([RemoteTmuxControlCommandKind]) -> Bool
     ) async throws {
-        // The reseed runs on the main actor too; yielding hands it the turn it
-        // needs to send its next command. Bounded so a regression fails fast.
-        for _ in 0..<1_000 {
+        // The reseed runs on the main actor too; sleeping hands it the turn it
+        // needs to send its next command. Bounded by the clock so a regression fails.
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
             if condition(connection.pendingCommandKindsForTesting) { return }
-            await Task.yield()
+            try? await Task.sleep(nanoseconds: 1_000_000)
         }
+        if condition(connection.pendingCommandKindsForTesting) { return }
         Issue.record("pending commands never matched: \(connection.pendingCommandKindsForTesting)")
         throw CancellationError()
     }

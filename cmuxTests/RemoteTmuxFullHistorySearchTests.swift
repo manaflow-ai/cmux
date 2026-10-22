@@ -52,20 +52,24 @@ import Testing
         #expect(search.state == .alternateScreen)
     }
 
-    @Test func aSecondRequestWhileLoadingDoesNotFetchTwice() async {
+    @Test(.timeLimit(.minutes(1))) func aSecondRequestWhileLoadingDoesNotFetchTwice() async {
         var fetches = 0
         var release: CheckedContinuation<Void, Never>?
+        let (started, startedContinuation) = AsyncStream<Void>.makeStream()
         let search = RemoteTmuxFullHistorySearch(
             reseed: {
                 fetches += 1
-                await withCheckedContinuation { release = $0 }
+                await withCheckedContinuation {
+                    release = $0
+                    startedContinuation.yield()
+                }
                 return .loaded(historyRows: 1, truncated: false)
             },
             rerunSearch: {}
         )
 
         let first = Task { await search.load() }
-        while release == nil { await Task.yield() }
+        for await _ in started { break }
         #expect(search.state == .loading)
         #expect(await search.load() == false)
         release?.resume()
