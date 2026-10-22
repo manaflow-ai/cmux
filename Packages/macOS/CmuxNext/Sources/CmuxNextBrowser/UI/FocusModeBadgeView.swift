@@ -13,6 +13,8 @@ final class FocusModeBadgeView: NSView {
     var onPress: (() -> Void)?
     /// The text shown now (tests).
     var shownText: String { label.stringValue }
+    /// The label's color now (tests).
+    var shownTextColor: NSColor? { label.textColor }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
