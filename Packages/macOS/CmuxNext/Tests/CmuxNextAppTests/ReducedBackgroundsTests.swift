@@ -85,6 +85,6 @@ import Testing
         #expect(harness.room.backdropSelection?.id == Self.work)
         #expect(harness.workspace.backdropSelection == Self.pinned)
         #expect(GhosttyRuntime.backgroundOverride.material == .glass)
-        #expect(harness.file.contains(Self.work) && harness.file.contains("glass"), harness.file)
+        #expect(harness.file.contains(Self.work) && harness.file.contains("glass"), "\(harness.file)")
     }
 }
