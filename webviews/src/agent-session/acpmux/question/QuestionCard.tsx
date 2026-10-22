@@ -162,10 +162,10 @@ function PendingQuestion({
   // The ask a person already answered: the owner clears it a moment later, and until then a
   // second click or key must not answer it again. A refused reply clears it for a retry.
   const [sentFor, setSentFor] = useState<string | undefined>();
-  // The last reply's refusal, shown until the next try: the pane's words for a refusal it knows
-  // (transportErrors.ts) alone, else the card's sentence followed by a message already in the
-  // person's language (the app's or the pane's own). acpmux's English is for its CLI.
-  const [refused, setRefused] = useState<{ text?: string; reason?: string } | undefined>();
+  // The last reply's refusal, shown until the next try: the card's sentence, then the pane's words
+  // for a refusal it knows (transportErrors.ts) or a message already in the person's language (the
+  // app's or the pane's own). acpmux's English is for its CLI.
+  const [refused, setRefused] = useState<{ reason?: string } | undefined>();
   // A new snapshot of the same ask keeps the person's choices; another ask starts fresh.
   let state = stored;
   if (stored.question !== question) {
@@ -184,9 +184,12 @@ function PendingQuestion({
     Promise.resolve(onReply(sentReply)).catch((error: unknown) => {
       // The ask stays pending: say why on the card and take input again.
       setSentFor((current) => (current === askId ? undefined : current));
+      if (isHostRefusal(error)) {
+        setRefused({ reason: errorMessage(error) });
+        return;
+      }
       const reason = localizedMessage(error);
-      if (isHostRefusal(error)) setRefused({ text: errorMessage(error) });
-      else if (reason) setRefused({ reason });
+      if (reason) setRefused({ reason });
       else {
         console.warn("agent pane: an answer was refused", error);
         setRefused({});
@@ -411,7 +414,7 @@ function PendingQuestion({
       </div>
       {refused && (
         <p className="acpmux-question-error" role="alert">
-          {refused.text || t("question.replyFailed")}
+          {t("question.replyFailed")}
           {refused.reason && " "}
           {refused.reason && <span className="acpmux-question-error-reason">{refused.reason}</span>}
         </p>
