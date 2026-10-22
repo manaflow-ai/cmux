@@ -152,6 +152,10 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
             // Shown again, the list goes back to its width below.
             placed = false
             adjustSubviews()
+            // As after `place`: NSSplitView placed its divider's layer in the pass above, before
+            // the fold, so lay out again or a stale line stays at the list's old edge (only
+            // `layout()` calls this).
+            super.layout()
             updateChatCompose()
         }
         return fold
