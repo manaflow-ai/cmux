@@ -115,7 +115,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     private let unresponsive: AcpmuxUnresponsiveWatch
     private let restartsUnresponsive: @Sendable () -> Bool
     /// Hands a stale daemon off at a quiet moment while `handsOffWhenQuiet`
-    /// (`agent.replaceStaleAcpmuxWhenQuiet`, ``AcpmuxVersionHandoff``) is on.
+    /// (`agent.replaceStaleAcpmuxWhenQuiet`, off by default, ``AcpmuxVersionHandoff``) is on;
+    /// otherwise at once.
     private let quietHandoff: AcpmuxQuietHandoff
     private let handsOffWhenQuiet: @Sendable () -> Bool
 

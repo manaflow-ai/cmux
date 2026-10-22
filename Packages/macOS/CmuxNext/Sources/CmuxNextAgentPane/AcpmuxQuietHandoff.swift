@@ -3,11 +3,12 @@ import Foundation
 import Network
 import os
 
-/// Hands a stale acpmux daemon off at a quiet moment (``AcpmuxVersionHandoff``): while one of
-/// its sessions runs a turn or waits on a permission, the daemon keeps running, and the app
-/// watches its sessions (`_acpmux/watch`). At the first turn end, permission answer, status
-/// change, or the end of that connection, the host looks again (a reconnect's lookup), and
-/// hands it off if it is quiet now, or watches again. No timer and no polling: each look follows
+/// With `agent.replaceStaleAcpmuxWhenQuiet` on (off by default), hands a stale acpmux daemon
+/// off at a quiet moment (``AcpmuxVersionHandoff``): while one of its sessions runs a turn or
+/// waits on a permission, the daemon keeps running, and the app watches its sessions
+/// (`_acpmux/watch`). At the first turn end, permission answer, status change, or the end of
+/// that connection, the host looks again (a reconnect's lookup), and hands it off if it is
+/// quiet now, or watches again. No timer and no polling: each look follows
 /// an event from the daemon. A daemon with agent hosts that has waited past `cap` is handed off
 /// at the next look anyway: its agents keep running under their hosts and the new daemon adopts
 /// their turns.

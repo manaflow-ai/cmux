@@ -2,6 +2,7 @@
 // `cmux.settings.channels.state` (the feed's notes index, canary verdicts and pulls), read once
 // when the card shows. Following tracks the Channel row above it at once. Each build says how it fared, whether this Mac runs or kept it, and links
 // to its commit, its PRs and the changes since the installed build; every text is the host's.
+// One row names the app's acpmux daemon's build and whether it is up to date or restarting.
 // Picking a slower channel the running build is not on shows the way back: Go Back restarts
 // once into the build this Mac kept from it (the host's rollback path), or a line says the
 // running build stays until that channel passes it.
@@ -155,6 +156,20 @@ export function ChannelsCard() {
     <section className="group" data-card="channels">
       <h3 className="group-title">{state.title}</h3>
       <div className="row-help">{state.installed}</div>
+      {state.daemon && (
+        <div className="rows" data-channel-daemon="">
+          <div className="row">
+            <div className="row-main">
+              <div className="row-label">
+                <div className="row-title">{state.daemon.title}</div>
+              </div>
+              <div className="row-control">
+                <span className="row-help selectable">{state.daemon.value}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Only the picked channel's way back: a read for an earlier pick never offers its button. */}
       {state.switch && (shown === undefined || state.switch.ring === shown) && (
         <SwitchRow key={`${state.switch.ring}:${state.switch.build}`} way={state.switch} />

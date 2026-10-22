@@ -8,7 +8,7 @@ extension AcpmuxHost {
     struct Upkeep: Sendable {
         /// Counts status calls that miss their deadline and restarts a daemon that stopped answering.
         var watch: AcpmuxUnresponsiveWatch?
-        /// Hands a stale daemon off at a quiet moment (nil: as before the toggle).
+        /// Hands a stale daemon off at a quiet moment (the toggle on); nil hands it off at once.
         var quietWait: AcpmuxQuietHandoff?
         /// Called with a stale daemon's pid that was kept because it is busy.
         var onWaiting: (@Sendable (Int32) -> Void)?
@@ -32,6 +32,8 @@ extension AcpmuxHost {
                             heal: (@Sendable (Int32) async -> Bool)?, upkeep: Upkeep = Upkeep()) async throws -> AcpmuxWebEndpoint {
         // cmux NEXT adopts its old acpmux home before it asks or starts a daemon (cx-is1kf.9).
         await AcpmuxEnvironment.adoptBuildHomes()
+        // A handoff below marks the daemon restarting for Settings until this lookup settles.
+        defer { AcpmuxDaemonSummary.mark(home: environment.home.standardizedFileURL.path, restarting: false) }
         var answered = false
         // This lookup stopped or restarted the daemon: the next one must prove healthy.
         var replacing = false
@@ -50,7 +52,7 @@ extension AcpmuxHost {
             }
             // After an update the daemon may be the previous build's: a daemon on this app's home
             // is handed off at a daemon start and at every reconnect (its agents keep running under
-            // their hosts) and ours starts below. One that is busy is handed off when quiet. At a
+            // their hosts) and ours starts below, busy or not (when quiet with the toggle on). At a
             // daemon start, a daemon no cmux install runs (`~/.local/bin/acpmux`) is taken over
             // first (`AcpmuxStrayDaemon`).
             let stray = startsDaemon ? await AcpmuxStrayDaemon.handOffIfStray(status, environment: environment) : false
