@@ -1126,7 +1126,10 @@
   /* Room under the row so it never sits on the window's edge (Leo 2026-10-20, as Codex and Claude). */
   margin-bottom: 10px;
   padding-block: 0;
-  padding-inline: calc(17px - var(--acpmux-row-inset)) calc(var(--acpmux-row-edge) - var(--acpmux-row-inset));
+  /* The row spans the box (Leo 2026-10-21: "stop with the left right padding"): the mode's pill
+     starts on the box's left edge and the last control's ends on its right edge, so the row adds no
+     inset of its own on either side. Each chip keeps its --acpmux-row-inset hover inset. */
+  padding-inline: 0;
   gap: 0;
   justify-content: flex-end;
   background: none;
