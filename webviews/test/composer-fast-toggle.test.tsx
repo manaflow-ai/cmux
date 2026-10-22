@@ -140,8 +140,9 @@ let client: import("@tanstack/react-query").QueryClient;
 
 /// The composer with the real chips. `catalog`: the chips read the joined model catalog, as the app's
 /// do, so a model's catalog row decides whether it offers fast mode.
-async function render(shot: Snapshot, options: { catalog?: boolean } = {}) {
+async function render(shot: Snapshot, options: { catalog?: boolean; update?: boolean } = {}) {
   const { createRoot } = await import("react-dom/client");
+  const { UpdateOfferContext } = await import("../src/agent-session/acpmux/HarnessHealthNotice");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
@@ -165,13 +166,28 @@ async function render(shot: Snapshot, options: { catalog?: boolean } = {}) {
   await act(async () => {
     root!.render(
       <QueryClientProvider client={client}>
-        <Composer
-          snapshot={shot}
-          chips={Chips}
-          onSend={() => undefined}
-          onStop={() => undefined}
-          accessory={<button type="button" className="acpmux-mic" aria-label="Dictation" />}
-        />
+        <UpdateOfferContext.Provider
+          value={
+            options.update
+              ? {
+                  harness: shot.summary?.harness ?? "claude",
+                  agent: "Claude Code",
+                  version: "2.1.0",
+                  latest: "2.2.0",
+                  update: () => undefined,
+                  skip: () => undefined,
+                }
+              : undefined
+          }
+        >
+          <Composer
+            snapshot={shot}
+            chips={Chips}
+            onSend={() => undefined}
+            onStop={() => undefined}
+            accessory={<button type="button" className="acpmux-mic" aria-label="Dictation" />}
+          />
+        </UpdateOfferContext.Provider>
       </QueryClientProvider>,
     );
   });
@@ -341,3 +357,37 @@ test("a model whose catalog row has no fast mode shows the row only while fast m
   await toggleFast();
   expect(sent).toEqual(["fast-mode=off"]);
 });
+
+// Leo 2026-10-21: "BRO WTF NO WE FUCKING HATE THE DOT". Lawrence's build read "Opus 5.5 • Medium": the
+// chip drew an agent-update dot between the model's name and its effort. The button reads the model,
+// then its effort, and nothing between them, in every form the row can give it.
+for (const [name, run] of [
+  ["Claude", claude],
+  ["Codex", codex],
+] as const)
+  test(`${name}: the model button has no dot between the model and its effort, even with an agent update on offer`, async () => {
+    for (const current of ["off", "on"])
+      for (const update of [false, true]) {
+        await render(snapshot({ options: twoState, current }, run), { update });
+        const button = chip();
+        // Every label the button can show: its text and each fit form's drawn label (data-label).
+        const labels = [
+          button.textContent ?? "",
+          ...[...button.querySelectorAll<HTMLElement>("[data-label]")].map((part) => part.dataset.label ?? ""),
+        ];
+        for (const label of labels)
+          expect(label, `${current}, update ${update}`).not.toMatch(/[•·\u2022\u00b7\u2219\u22c5]/);
+        // No dot drawn as an element either: between the name and the effort sits nothing but the effort.
+        expect(button.querySelector(".acpmux-model-update-dot, .rounded-full")).toBeNull();
+        const name = button.querySelector(".acpmux-model-name")!;
+        const effort = button.querySelector(".acpmux-model-detail")!;
+        let between = name.nextElementSibling;
+        const drawn: string[] = [];
+        while (between && between !== effort) {
+          if (!between.classList.contains("acpmux-model-short")) drawn.push(between.className);
+          between = between.nextElementSibling;
+        }
+        expect(drawn, `${current}, update ${update}`).toEqual([]);
+        if (update) expect(button.title).toContain("2.2.0");
+      }
+  });

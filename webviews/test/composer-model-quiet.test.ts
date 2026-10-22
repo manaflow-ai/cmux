@@ -275,6 +275,22 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
         effort: label("effort"),
         access: label("access"),
         steps: [...foot.attributes].filter((attribute) => attribute.name.startsWith("data-fit-")).map((a) => a.name),
+        // What the model button shows: its visible text and drawn labels, in order.
+        button: [...foot.querySelectorAll<HTMLElement>(".acpmux-model .acpmux-picker-button *")]
+          .filter((element) => visible(element) && element.getBoundingClientRect().width > 0)
+          .map(
+            (element) =>
+              [...element.childNodes]
+                .filter((node) => node.nodeType === Node.TEXT_NODE)
+                .map((node) => node.textContent)
+                .join("") +
+              (element.dataset.label && /^".+"$/.test(getComputedStyle(element, "::before").content)
+                ? element.dataset.label
+                : ""),
+          )
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim(),
         overlap,
         outside,
         overflow: foot.scrollWidth > foot.clientWidth + 0.5,
@@ -294,6 +310,7 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
         steps: [],
       });
       expect(shown.access.length, "the mode keeps its name").toBeGreaterThan(2);
+      expect(shown.button, "the model, then its effort, nothing between").toBe("Opus 5.5 Medium");
       expect([shown.overlap, shown.outside, shown.overflow]).toEqual([false, false, false]);
     });
 
@@ -304,6 +321,7 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
       await page.close();
       expect(shown.steps.length, "a truly narrow row takes a step").toBeGreaterThan(0);
       expect(shown.effort === "Medium" && shown.model === "Opus 5.5", "something shortened").toBe(false);
+      expect(shown.button, "no dot at any fit step").not.toMatch(/[•·\u2022\u00b7\u2219\u22c5]/);
       expect([shown.overlap, shown.outside, shown.overflow]).toEqual([false, false, false]);
     });
 });
