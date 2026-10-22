@@ -6,6 +6,10 @@ import CmuxNextDesign
 @MainActor
 final class HomeChiefAvatarButton: NSButton {
     private let size: CGFloat
+    /// An emoji face's size against the disc: picture-sized, as the first-run hero draws it
+    /// (`HomeFirstRunHero`, 56 on 72). Leo's screenshot (2026-10-20) had a small 🫡 on a large
+    /// grey disc beside the header's full-size one.
+    static let emojiScale: CGFloat = 0.78
 
     init(size: CGFloat) {
         self.size = size
@@ -31,12 +35,20 @@ final class HomeChiefAvatarButton: NSButton {
         addCursorRect(bounds, cursor: .pointingHand)
     }
 
-    /// The picture fills the disc; text (an emoji, initials) sits centered on the theme's fill.
+    /// The picture fills the disc; letters sit centered on the theme's fill, and an emoji (or any
+    /// other face that is not letters or digits) fills the disc itself, with no fill behind it.
     func show(picture: NSImage?, text: String?) {
         image = picture
         imagePosition = picture == nil ? .noImage : .imageOnly
         title = picture == nil ? (text ?? "") : ""
+        font = showsEmoji ? Typography.system(size: size * Self.emojiScale, weight: .regular)
+            : Typography.system(size: TypeScale.heading, weight: TypeScale.emphasis)
         applyTheme()
+    }
+
+    /// Text that is not a monogram (an emoji, a flag, a symbol) and so draws picture-sized.
+    var showsEmoji: Bool {
+        image == nil && !title.isEmpty && !title.allSatisfy { $0.isLetter || $0.isNumber }
     }
 
     override func viewDidMoveToWindow() {
@@ -51,7 +63,7 @@ final class HomeChiefAvatarButton: NSButton {
 
     private func applyTheme() {
         performWithTheme {
-            layer?.backgroundColor = image == nil ? Palette.hoverFill.cgColor : nil
+            layer?.backgroundColor = image == nil && !showsEmoji ? Palette.hoverFill.cgColor : nil
             contentTintColor = Palette.textPrimary
         }
     }

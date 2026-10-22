@@ -1,3 +1,4 @@
+#if canImport(ImageIO)
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -56,3 +57,4 @@ struct MobileImageAttachmentPreparerTests {
         return url
     }
 }
+#endif
