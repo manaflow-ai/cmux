@@ -110,7 +110,7 @@ import Testing
         let v = try SealVectors.load()
         let parsed = try JSONDecoder().decode(PushJSON.self, from: Data(v.reply.canonical.utf8))
         guard case .string(let text)? = parsed["action"]?["text"], case .string(let nonce)? = parsed["nonce"],
-              case .int(let issued)? = parsed["issuedAt"], case .string(let kind)? = parsed["kind"],
+              case .int(let issued)? = parsed["issuedAt"], case .int(let expires)? = parsed["expiresAt"], case .string(let kind)? = parsed["kind"],
               let kindValue = PushKind(rawValue: kind), case .object(let target)? = parsed["target"] else {
             Issue.record("unexpected vector reply: \(v.reply.canonical)")
             return
@@ -119,7 +119,8 @@ import Testing
         let reply = PushReply(id: try #require(UUID(uuidString: v.reply.id)), mac: v.mac, kind: kindValue, sessionId: t("sessionId"),
                               permissionId: t("permissionId"), conversationId: t("conversationId"), tabId: t("tabId"),
                               notificationId: t("notificationId"), action: .text(text, attachments: []))
-        let mailbox = try MailboxReply(reply: reply, phone: v.phone, nonce: nonce, now: Date(timeIntervalSince1970: TimeInterval(issued)))
+        let mailbox = try MailboxReply(reply: reply, phone: v.phone, nonce: nonce, now: Date(timeIntervalSince1970: TimeInterval(issued)),
+                                       lifetime: TimeInterval(expires - issued))
         #expect(mailbox.plaintext.canonical == v.reply.canonical)
         #expect(mailbox.signedMessage == (try v.hex(v.reply.signatureMessage)))
     }

@@ -29,7 +29,9 @@ public struct MailboxReply: Sendable, Equatable {
 
     /// The plaintext of `reply` from `phone` (without `sig`). `approval` is
     /// the acpmux `_meta.acpmux` an Allow carries (signed after Face ID).
-    public init(reply: PushReply, phone: String, nonce: String, now: Date, approval: PushJSON? = nil) throws {
+    /// `lifetime` is capped at `MailboxReply.lifetime` (the Mac refuses longer).
+    public init(reply: PushReply, phone: String, nonce: String, now: Date, approval: PushJSON? = nil,
+                lifetime: TimeInterval = MailboxReply.lifetime) throws {
         let action: [String: PushJSON]
         switch reply.action {
         case .text(let text, let attachments):
@@ -54,7 +56,7 @@ public struct MailboxReply: Sendable, Equatable {
         var object: [String: PushJSON] = [
             "v": .int(1), "id": .string(reply.id.uuidString.lowercased()), "mac": .string(reply.mac), "phone": .string(phone),
             "kind": .string(reply.kind.rawValue), "target": .object(target), "action": .object(action), "nonce": .string(nonce),
-            "issuedAt": .int(issued), "expiresAt": .int(issued + Int64(Self.lifetime)),
+            "issuedAt": .int(issued), "expiresAt": .int(issued + Int64(min(max(lifetime, 1), Self.lifetime))),
         ]
         if let approval { object["approval"] = approval }
         id = reply.id.uuidString.lowercased()

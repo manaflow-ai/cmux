@@ -143,17 +143,16 @@ extension LiveCoordinator {
               let daemon = sessions[mac]?.workspaces.daemon else {
             throw PushReplyFailure(reason: .unreachable)
         }
-        let id: Any = Int(notification).map { $0 as Any } ?? notification
         let data: Data
         do {
-            data = try await daemon.request("notification-reply", params: ["notification": id, "text": text])
+            data = try await daemon.request("notification-reply",
+                                            params: PushReplyPlan.terminalRequest(notification: notification, text: text, replyID: reply.id))
         } catch let error as LinkError {
             log.error("terminal reply failed on the link: \(error.message, privacy: .public)")
             throw PushReplyFailure(reason: .unreachable)
         }
-        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any], object["error"] != nil || object["ok"] as? Bool == false {
-            let message = ((object["error"] as? [String: Any])?["message"] as? String) ?? (object["error"] as? String)
-            throw PushReplyFailure(reason: .refused(message ?? String(localized: "The terminal didn't take the reply.")))
+        if case .refused(let message) = PushReplyPlan.terminalAnswer(data) {
+            throw PushReplyFailure(reason: .refused(message))
         }
         log.info("terminal reply delivered")
     }

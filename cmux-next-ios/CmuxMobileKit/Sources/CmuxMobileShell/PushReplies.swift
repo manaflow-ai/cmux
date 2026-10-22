@@ -257,20 +257,21 @@ public final class PushReplies {
         if let eventId = reply.eventId { clearDelivered(eventId: eventId) }
         guard outcome == .delivered else { return true }
         try? await clock.sleep(for: Self.mailboxCheckDelay)
-        if let state = await live.mailboxState(of: reply), state.state == "rejected" {
-            await postNotice(reply, title: String(localized: "Not sent to \(reply.macName ?? String(localized: "your Mac"))"),
-                             body: Self.mailboxRefusal(state.reason))
+        if let state = await live.mailboxState(of: reply), state.state == "rejected", let refusal = Self.mailboxRefusal(state.reason) {
+            await postNotice(reply, title: String(localized: "Not sent to \(reply.macName ?? String(localized: "your Mac"))"), body: refusal)
         }
         return true
     }
 
-    /// What the phone says for the Mac's mailbox refusal reason (PROTOCOL.md).
-    static func mailboxRefusal(_ reason: String?) -> String {
+    /// What the phone says for the Mac's mailbox refusal reason (PROTOCOL.md);
+    /// nil for `replayed`: the Mac already applied this reply id (the link
+    /// delivered it first), which is success.
+    static func mailboxRefusal(_ reason: String?) -> String? {
         switch reason {
         case "expired": String(localized: "Your reply arrived too late.")
         case "not_pending": String(localized: "This was already answered.")
         case "not_paired": String(localized: "This iPhone isn't paired with that Mac any more.")
-        case "replayed": String(localized: "That reply was already sent.")
+        case "replayed": nil
         default: String(localized: "Your Mac didn't accept the reply.")
         }
     }
