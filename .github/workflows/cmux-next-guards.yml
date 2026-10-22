@@ -430,6 +430,9 @@ jobs:
       - name: A scheduled dispatch runs the whole Swift suite on the feat-cmux-next tip
         run: python3 tests/test_cmux_next_tip_swift_suite.py
 
+      - name: Every CmuxNext test target is in one swift-test shard, and the job runs the manifest
+        run: python3 tests/test_cmux_next_swift_test_shards.py
+
       - name: Capture-only control methods are compiled out of release builds
         run: python3 tests/test_cmux_next_debug_only_controls.py
 
