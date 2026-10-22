@@ -7616,11 +7616,9 @@ function AcpmuxPane() {
                 : editQueued(promptId, edit)
             }
             // A prompt that started while it was edited comes back to the prompt, so the edit is kept.
-            // A row a refusal gave back is in the composer already, as it was sent: its unsaved edit
-            // ends as Esc ends one, never as a second copy (startingSends.ts `gaveBack`).
-            onQueueLost={(text, promptId) => {
-              if (!startingSends.gaveBack(promptId)) composerHandle.current?.restore(text, []);
-            }}
+            // A row still waiting for a new chat gives its edit back only once it went: a refusal gave
+            // the prompt back as it was sent, so the edit ends as Esc ends one (startingSends.ts `lost`).
+            onQueueLost={(text, promptId) => startingSends.lost(promptId, text)}
             // A queued row's Open in side chat: `/btw`'s path, behind its gate. The prompt leaves the
             // queue first, so it never also runs here; one that already started stays with the turn.
             // A side chat that could not start gives its text back to the prompt.

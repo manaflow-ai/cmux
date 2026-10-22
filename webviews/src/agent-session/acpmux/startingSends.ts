@@ -8,7 +8,8 @@
 import type { ComposerAttachment } from "./attachments";
 
 export type StartingSend = { id: string; text: string; attachments: ComposerAttachment[] };
-type Item = StartingSend & { going: boolean };
+/// `lost`: an edit saved while the prompt was going, which comes back only once it went.
+type Item = StartingSend & { going: boolean; lost?: string };
 
 export class StartingSends {
   private items: Item[] = [];
@@ -39,9 +40,15 @@ export class StartingSends {
     return this.items.some((item) => item.id === id);
   }
 
-  /** Whether a refusal gave row `id` back to the composer. */
-  gaveBack(id: string): boolean {
-    return this.returned.has(id);
+  /**
+   * An edit of row `id` that could not be saved (ComposerQueue `onLost`). Its text goes back to the
+   * composer once the prompt went; never when a refusal gave the prompt back, which is there already.
+   */
+  lost(id: string, text: string) {
+    if (this.returned.has(id)) return;
+    const item = this.items.find((each) => each.id === id);
+    if (item) item.lost = text;
+    else this.giveBack(text, []);
   }
 
   /** Adds a prompt; `go` sends it and settles once acpmux took it, or rejects when it was refused. */
@@ -91,6 +98,7 @@ export class StartingSends {
     }
     this.items.splice(this.items.indexOf(item), 1);
     this.emit();
+    if (item.lost) this.giveBack(item.lost, []);
   }
 
   private emit() {

@@ -63,7 +63,7 @@ test("a refused prompt comes back with every prompt behind it, in the order they
   h.sends.add("second", [], h.go);
   h.sends.add("third", [], h.go);
   await h.settle();
-  const [first, second, third] = h.sends.rows;
+  const [, , third] = h.sends.rows;
   h.gates.get("first")!.refuse(new Error("trust.pending"));
   await h.settle();
   expect(h.sent).toEqual(["first"]);
@@ -71,7 +71,8 @@ test("a refused prompt comes back with every prompt behind it, in the order they
   expect(h.given).toEqual(["third", "second", "first"]);
   expect(h.shown.at(-1)).toEqual([]);
   // An unsaved edit of a row given back is not a second copy of it.
-  expect([first, second, third].every((row) => h.sends.gaveBack(row.id))).toBe(true);
+  h.sends.lost(third.id, "third, edited");
+  expect(h.given).toEqual(["third", "second", "first"]);
   // A prompt sent after that goes at once.
   h.sends.add("again", [], h.go);
   await h.settle();
@@ -95,4 +96,24 @@ test("a waiting prompt can be removed or edited until it goes, never once it wen
   expect(h.sent).toEqual(["first", "third, edited"]);
   expect(h.sends.owns(third.id)).toBe(true);
   expect(h.sends.owns("acpmux-prompt")).toBe(false);
+});
+
+test("an edit saved while its prompt goes comes back once it went, and never when it was refused", async () => {
+  const h = harness();
+  h.sends.add("first", [], h.go);
+  h.sends.add("second", [], h.go);
+  await h.settle();
+  const [first, second] = h.sends.rows;
+  h.sends.lost(first.id, "first, edited");
+  expect(h.given).toEqual([]);
+  h.gates.get("first")!.take();
+  await h.settle();
+  expect(h.given).toEqual(["first, edited"]);
+  h.sends.lost(second.id, "second, edited");
+  h.gates.get("second")!.refuse(new Error("refused"));
+  await h.settle();
+  expect(h.given).toEqual(["first, edited", "second"]);
+  // An edit of a prompt in acpmux's own queue that started comes back at once.
+  h.sends.lost("acpmux-prompt", "kept");
+  expect(h.given).toEqual(["first, edited", "second", "kept"]);
 });
