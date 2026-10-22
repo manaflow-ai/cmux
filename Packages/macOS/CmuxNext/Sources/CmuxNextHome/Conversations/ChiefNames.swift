@@ -6,20 +6,20 @@ public import Foundation
 /// fallback for every other id, so a raw id never shows as a title. The raw id stays in a
 /// tooltip or a detail line where one helps.
 extension String {
-    /// A harness id as a name: the official engine it starts with, then the rest in brackets
-    /// (`claude-sr2-pipe` → "Claude (SR2 Pipe)", `claude-cr` → "Claude (CodeRouter)",
-    /// `gemini` → "Gemini"). A blank id comes back as it is.
+    /// A harness id as a name: the official engine or acpmux built-in it starts with, then the
+    /// rest in brackets (`claude-sr2-pipe` → "Claude (SR2 Pipe)", `claude-cr` → "Claude
+    /// (CodeRouter)", `gemini` → "Gemini CLI"). A blank id comes back as it is.
     public nonisolated var chiefHarnessName: String {
         let id = self
         let parts = chiefNameTokens(id)
         guard let first = parts.first else { return id }
-        let lead = ChiefBackend(id: first.lowercased())?.title ?? chiefNameWord(first)
+        let lead = ChiefBackend(id: first.lowercased())?.title ?? chiefNameBuiltins[first.lowercased()] ?? chiefNameWord(first)
         let rest = parts.dropFirst().map { chiefNameRoutes[$0.lowercased()] ?? chiefNameWord($0) }
         return rest.isEmpty ? lead : "\(lead) (\(rest.joined(separator: " ")))"
     }
 
     /// A model id as a name: words capitalized, a version's numbers joined by a dot, a trailing
-    /// release date dropped, and a context suffix kept (`claude-opus-5-5` → "Claude Opus 5.5",
+    /// release date (`20250929` or `2024-08-06`) dropped, and a context suffix kept (`claude-opus-5-5` → "Claude Opus 5.5",
     /// `claude-sonnet-4-5-20250929` → "Claude Sonnet 4.5", `gpt-5.1-codex` → "GPT 5.1 Codex",
     /// `opus[1m]` → "Opus (1M)"). A blank id comes back as it is.
     public nonisolated var chiefModelName: String {
@@ -31,7 +31,11 @@ extension String {
             base = String(base[..<open])
         }
         var parts = chiefNameTokens(base)
-        if let last = parts.last, last.count == 8, last.allSatisfy(\.isNumber) { parts.removeLast() }
+        if let last = parts.last, last.count == 8, last.allSatisfy(\.isNumber) {
+            parts.removeLast()
+        } else if parts.count > 3, zip(parts.suffix(3), [4, 2, 2]).allSatisfy({ $0.count == $1 && $0.allSatisfy(\.isNumber) }) {
+            parts.removeLast(3)
+        }
         guard !parts.isEmpty else { return id }
         var words: [String] = []
         var version: [String] = []
@@ -56,6 +60,11 @@ extension String {
 
 /// The route words acpmux's Claude harness ids use (`claude-cr`, `claude-sr`).
 private nonisolated let chiefNameRoutes = ["cr": "CodeRouter", "sr": "Subrouter"]
+
+/// acpmux's built-in harnesses by acpmux's own names (`cmux-tui/crates/acpmux/harnesses/*.toml`).
+private nonisolated let chiefNameBuiltins = [
+    "aider": "Aider", "gemini": "Gemini CLI", "muse": "Muse Code", "opencode": "OpenCode", "pi": "Pi",
+]
 
 /// Words always written in capitals.
 private nonisolated let chiefNameAcronyms: Set<String> = ["gpt", "glm", "oss", "ai", "api", "acp", "llm", "xai"]
