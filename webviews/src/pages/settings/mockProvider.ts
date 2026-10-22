@@ -650,7 +650,7 @@ export class MockSettingsProvider {
     ],
     devices: {
       title: "Devices",
-      help: "Every computer and phone that can reach this computer, or that this computer runs agents on.",
+      help: "Computers and phones linked to this one.",
       empty: "No other device can reach this computer yet.",
       add_title: "Add Device…",
       remove_title: "Remove",

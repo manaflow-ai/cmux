@@ -100,7 +100,7 @@ public nonisolated enum AddDeviceStrings {
         }
     }
     public static var devicesTitle: String { s("devices.title", "Devices") }
-    public static var devicesHelp: String { s("devices.help", "Every computer and phone that can reach this computer, or that this computer runs agents on.") }
+    public static var devicesHelp: String { s("devices.help", "Computers and phones linked to this one.") }
     public static var devicesEmpty: String { s("devices.empty", "No other device can reach this computer yet.") }
     public static var removeTitle: String { s("devices.remove", "Remove") }
     public static var removeConfirmTitle: String { s("devices.removeConfirm", "Remove for Good") }

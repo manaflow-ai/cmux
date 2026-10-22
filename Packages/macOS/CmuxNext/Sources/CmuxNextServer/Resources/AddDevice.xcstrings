@@ -5771,127 +5771,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Every computer and phone that can reach this computer, or that this computer runs agents on."
+            "value": "Computers and phones linked to this one."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "كل كمبيوتر وهاتف يمكنه الوصول إلى هذا الكمبيوتر، أو يشغّل هذا الكمبيوتر وكلاء عليه."
+            "value": "أجهزة الكمبيوتر والهواتف المرتبطة بهذا الجهاز."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Svaki računar i telefon koji može pristupiti ovom računaru ili na kojem ovaj računar pokreće agente."
+            "value": "Računari i telefoni povezani s ovim."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle computere og telefoner, der kan nå denne computer, eller som denne computer kører agenter på."
+            "value": "Computere og telefoner forbundet med denne."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Jeder Computer und jedes Telefon, das diesen Computer erreichen kann, oder auf dem dieser Computer Agenten ausführt."
+            "value": "Computer und Telefone, die mit diesem verbunden sind."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cada ordenador y teléfono que puede llegar a este ordenador, o en el que este ordenador ejecuta agentes."
+            "value": "Ordenadores y teléfonos vinculados a este."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chaque ordinateur et téléphone qui peut atteindre cet ordinateur, ou sur lequel cet ordinateur exécute des agents."
+            "value": "Ordinateurs et téléphones liés à celui-ci."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ogni computer e telefono che può raggiungere questo computer, o su cui questo computer esegue agenti."
+            "value": "Computer e telefoni collegati a questo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このコンピュータに接続できる、またはこのコンピュータがエージェントを実行するすべてのコンピュータと iPhone。"
+            "value": "このコンピュータとつながるコンピュータと iPhone。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កុំព្យូទ័រ និងទូរសព្ទទាំងអស់ដែលអាចចូលកុំព្យូទ័រនេះ ឬដែលកុំព្យូទ័រនេះដំណើរការភ្នាក់ងារនៅលើ។"
+            "value": "កុំព្យូទ័រ និងទូរសព្ទដែលភ្ជាប់នឹងម៉ាស៊ីននេះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 컴퓨터에 연결할 수 있거나 이 컴퓨터가 에이전트를 실행하는 모든 컴퓨터와 휴대폰입니다."
+            "value": "이 컴퓨터와 연결된 컴퓨터와 휴대폰."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle datamaskiner og telefoner som kan nå denne datamaskinen, eller som denne datamaskinen kjører agenter på."
+            "value": "Datamaskiner og telefoner koblet til denne."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Każdy komputer i telefon, który może połączyć się z tym komputerem lub na którym ten komputer uruchamia agentów."
+            "value": "Komputery i telefony połączone z tym."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Todo computador e celular que pode acessar este computador, ou em que este computador roda agentes."
+            "value": "Computadores e celulares ligados a este."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Все компьютеры и телефоны, которые могут подключиться к этому компьютеру или на которых он запускает агентов."
+            "value": "Компьютеры и телефоны, связанные с этим."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "คอมพิวเตอร์และโทรศัพท์ทุกเครื่องที่เข้าถึงเครื่องนี้ได้ หรือที่เครื่องนี้รันเอเจนต์อยู่"
+            "value": "คอมพิวเตอร์และโทรศัพท์ที่เชื่อมกับเครื่องนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu bilgisayara ulaşabilen ya da bu bilgisayarın ajan çalıştırdığı tüm bilgisayarlar ve telefonlar."
+            "value": "Bu bilgisayara bağlı bilgisayarlar ve telefonlar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Усі комп’ютери й телефони, що можуть під’єднатися до цього комп’ютера або на яких він запускає агентів."
+            "value": "Комп’ютери й телефони, пов’язані з цим."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mọi máy tính và điện thoại có thể truy cập máy này, hoặc máy này chạy tác tử trên đó."
+            "value": "Máy tính và điện thoại liên kết với máy này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "所有能连接到这台电脑的电脑和手机，或这台电脑在其上运行智能体的电脑。"
+            "value": "与这台电脑相连的电脑和手机。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "所有能連線到這台電腦的電腦和手機，或這台電腦在其上執行代理程式的電腦。"
+            "value": "與這台電腦相連的電腦和手機。"
           }
         }
       }
