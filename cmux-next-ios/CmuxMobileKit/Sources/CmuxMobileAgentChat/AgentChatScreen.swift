@@ -541,7 +541,8 @@ public struct AgentChatBottomStack: View {
                 if reportedHeight != frame.height {
                     // Interpolated on the composer's spring (`.cmuxMobileSmooth`):
                     // the reporter below hands the transcript every frame.
-                    if reportedHeight == 0 {
+                    if reportedHeight == 0 || store.placeBottomStackInstantly {
+                        store.placeBottomStackInstantly = false
                         reportedHeight = frame.height
                     } else {
                         withAnimation(.cmuxMobileSmooth) { reportedHeight = frame.height }

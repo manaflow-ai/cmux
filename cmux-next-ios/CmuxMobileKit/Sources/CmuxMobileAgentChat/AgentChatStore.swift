@@ -219,6 +219,9 @@ public final class AgentChatStore {
     /// The newest change was a replayed batch: views that animate on a value change
     /// (the permission bar, the queue) draw it in place.
     @ObservationIgnored public private(set) var lastChangeWasReplay = false
+    /// Set by the composer when it took its place without motion (the chat opened on its
+    /// history): the bottom stack's next height lands at once too (then cleared).
+    @ObservationIgnored var placeBottomStackInstantly = false
     private var currentMessageID: String?
     private var task: Task<Void, Never>?
 
