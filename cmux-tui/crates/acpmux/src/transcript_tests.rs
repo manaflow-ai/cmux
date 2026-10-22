@@ -361,3 +361,30 @@ fn steer_with_the_text_of_a_queued_prompt_keeps_the_queued_row() {
         t.items
     );
 }
+
+/// A subagent's words (its text, now that the Claude bridge sends it to the
+/// subagent's view) never join the chat's: `acpmux prompt` and `last` read the
+/// newest assistant item, which stays the chat's own answer.
+#[test]
+fn a_subagents_words_never_join_the_chats_reply() {
+    let mut t = Transcript::default();
+    let update = |text: &str, subagent: Option<&str>| {
+        let mut p = json!({"sessionId": SID, "update": {
+            "sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}});
+        if let Some(s) = subagent {
+            p["_meta"] = json!({"acpmux": {"subagent": s}});
+        }
+        p
+    };
+    t.apply_update(&update("Checking the merge hook.", Some("s1/toolu_1")));
+    t.apply_update(&update("The hook is fixed.", None));
+    let said: Vec<&str> = t
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            Item::Assistant { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(said, ["The hook is fixed."]);
+}
