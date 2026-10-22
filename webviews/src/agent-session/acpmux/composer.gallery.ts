@@ -441,7 +441,7 @@ export default agentPaneEntry({
       },
     },
     "footer-essentials": {
-      note: 'Leo 2026-10-13, the footer "tells too much": the model without its vendor, the default access mode as its lock alone, no context ring before any use, the folder without this Mac\'s name. Titles and labels keep the full text.',
+      note: "Leo 2026-10-13, the footer \"tells too much\": the model without its vendor, the mode as its symbol and Claude Code's own name (Manual), no context ring before any use, the folder without this Mac's name. Titles and labels keep the full text.",
       snapshot: footerChat("default"),
     },
     // The location row is a new chat's only (locationRow.ts).
@@ -1808,11 +1808,12 @@ export default agentPaneEntry({
       }),
     },
     "access-menu": {
-      note: "The footer keeps permission mode behind a quiet lock; the menu explains each choice and checks the active one.",
+      note: "A Claude chat's mode menu is Claude Code's own: Mode, then Auto (Recommended), Manual, Accept edits, Plan and Bypass permissions with their descriptions and keys 1 to 5, tight rows, the accent check on the chosen one. The button is the mode's symbol and its name, no pill at rest.",
       snapshot: chat(finished, {
         summary: {
           sessionId: "gallery-access",
           harness: "claude",
+          family: "claude",
           model: "claude-opus-5-5",
           effort: "high",
           cwd: CWD,
@@ -1823,12 +1824,59 @@ export default agentPaneEntry({
           usage: { used: 48_000, size: 200_000 },
           promptCapabilities: { image: true },
           modes: {
-            currentModeId: "ask",
+            currentModeId: "bypassPermissions",
+            // As acpmux reports a Claude chat (claude_stdio MODES).
             availableModes: [
-              { id: "ask", name: "Supervised", description: "Ask before changing files or running commands" },
-              { id: "edit", name: "Auto-accept edits", description: "Apply file edits without asking" },
-              { id: "auto", name: "Auto", description: "Choose the safest approval level for each action" },
-              { id: "bypassPermissions", name: "Full access", description: "Run actions without approval" },
+              { id: "auto", name: "Auto", description: "Claude handles permission decisions" },
+              { id: "default", name: "Manual", description: "Always ask before making changes" },
+              { id: "acceptEdits", name: "Accept edits", description: "Automatically accept all file edits" },
+              { id: "plan", name: "Plan", description: "Create a plan before making changes" },
+              { id: "bypassPermissions", name: "Bypass permissions", description: "Accepts all permissions" },
+            ],
+          },
+        },
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: '[aria-label="Mode"]' });
+        await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
+      },
+    },
+    "access-menu-codex": {
+      note: "A Codex chat's mode menu is Codex's own: How should actions be approved?, then Ask for approval (hand), Approve for me (terminal shield) and Full access (shield with !) with their descriptions. The button is the shield and Full access.",
+      snapshot: chat(finished, {
+        summary: {
+          sessionId: "gallery-access-codex",
+          harness: "codex",
+          family: "codex",
+          model: "gpt-6-astra",
+          cwd: CWD,
+          host: "This Mac",
+          hostKind: "local",
+          branch: "main",
+          turnCount: 1,
+          usage: { used: 48_000, size: 200_000 },
+          promptCapabilities: { image: true },
+          modes: {
+            currentModeId: "agent-full-access",
+            // As the Codex bridge reports it (cmux-codex-acp config.rs MODES), plus Codex's auto review.
+            availableModes: [
+              { id: "ask", name: "Ask", description: "Asks before every command and every edit" },
+              {
+                id: "read-only",
+                name: "Read Only",
+                description: "Reads files; asks before any edit or command that needs more",
+              },
+              {
+                id: "agent",
+                name: "Agent",
+                description: "Edits and runs commands in the workspace; asks to go outside it",
+              },
+              { id: "auto-review", name: "Auto review" },
+              {
+                id: "agent-full-access",
+                name: "Agent (full access)",
+                description: "Edits and runs anything without asking",
+              },
             ],
           },
         },
