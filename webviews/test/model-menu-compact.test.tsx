@@ -570,3 +570,48 @@ test("a started chat's compact menu has no harness rail and no Add harness…", 
   expect(full.querySelector(".acpmux-mp-add-harness")).toBeNull();
   expect(added).toEqual([]);
 });
+
+// Lucas 2026-10-22: the menu opens above its chip, so a provider tab with more or fewer rows than
+// the last one moved the menu's top edge, and the rail tabs moved out from under the pointer. The
+// list holds the tallest tab's rows and separators unseen for the whole opening: every tab fits in
+// that space, the tallest fills it, and it does not change as tabs change.
+test("every rail tab fits in the same list height, the tallest tab's, for the whole opening", async () => {
+  await mount({ routes: [] }, { fast: true });
+  await open();
+  const body = () => menu()!.querySelector<HTMLElement>(".acpmux-quick-body")!;
+  const spacer = () => {
+    const node = body().querySelector<HTMLElement>(".acpmux-quick-spacer");
+    expect(node, "the list holds the tallest tab's height").not.toBeNull();
+    expect(node!.getAttribute("aria-hidden")).toBe("true");
+    return {
+      rows: node!.querySelectorAll(".acpmux-quick-item").length,
+      separators: node!.querySelectorAll(".ui-separator").length,
+    };
+  };
+  const shown = () => ({
+    rows: body().querySelectorAll('[role^="menuitem"]').length,
+    separators: body().querySelectorAll('[role="separator"]').length,
+  });
+  const held = spacer();
+  const tabs = railTabs().map((tab) => tab.getAttribute("aria-label")!);
+  expect(tabs.length).toBeGreaterThan(1);
+  const extents: { rows: number; separators: number }[] = [];
+  for (const name of tabs) {
+    const tab = railTabs().find((each) => each.getAttribute("aria-label") === name)!;
+    await act(async () => tab.click());
+    await settle();
+    expect(spacer(), `the held height on ${name}`).toEqual(held);
+    const extent = shown();
+    expect(extent.rows, `${name}'s rows`).toBeLessThanOrEqual(held.rows);
+    expect(extent.separators, `${name}'s separators`).toBeLessThanOrEqual(held.separators);
+    extents.push(extent);
+  }
+  // The space is the tallest tab's, not more.
+  expect(Math.max(...extents.map((each) => each.rows))).toBe(held.rows);
+  expect(Math.max(...extents.map((each) => each.separators))).toBe(held.separators);
+  // The chat's own tab (Effort, Account, Fast mode) is taller than another harness's.
+  expect(new Set(extents.map((each) => each.rows)).size).toBeGreaterThan(1);
+  // Typing keeps the same height too.
+  await key("o");
+  expect(spacer()).toEqual(held);
+});
