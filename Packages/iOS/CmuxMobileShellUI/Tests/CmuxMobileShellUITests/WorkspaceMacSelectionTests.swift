@@ -105,7 +105,7 @@ import Testing
         #expect(selected == .all)
     }
 
-    @Test(.disabled("title-picker switch tests fail or deadlock in CI (rotted while this target was unwired); fix and re-enable, see PR 7659")) func cancelingPendingTitlePickerSwitchCancelsUnderlyingSwitch() async throws {
+    @Test func cancelingPendingTitlePickerSwitchCancelsUnderlyingSwitch() async throws {
         let store = await shellStore(pairedMacs: [
             pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20, isActive: true),
             pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 10),
@@ -185,7 +185,7 @@ import Testing
         #expect(selected == .all)
     }
 
-    @Test(.disabled("title-picker switch tests fail or deadlock in CI (rotted while this target was unwired); fix and re-enable, see PR 7659")) func pendingTitlePickerMachineSelectionLetsAllMacsCancelSwitch() async throws {
+    @Test func pendingTitlePickerMachineSelectionLetsAllMacsCancelSwitch() async throws {
         let store = await shellStore(pairedMacs: [
             pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20, isActive: true),
             pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 10),
@@ -267,7 +267,7 @@ import Testing
         #expect(selected == .all)
     }
 
-    @Test(.disabled("title-picker switch tests fail or deadlock in CI (rotted while this target was unwired); fix and re-enable, see PR 7659")) func titlePickerWaitsForAllMacsCancelBeforeStartingNextMachineSwitch() async throws {
+    @Test func titlePickerWaitsForAllMacsCancelBeforeStartingNextMachineSwitch() async throws {
         let store = await shellStore(pairedMacs: [
             pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 30, isActive: true),
             pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 20),
@@ -359,7 +359,108 @@ import Testing
         await firstTask?.value
     }
 
-    @Test(.disabled("title-picker switch tests fail or deadlock in CI (rotted while this target was unwired); fix and re-enable, see PR 7659")) func replacingPendingTitlePickerMachineSelectionKeepsRollbackArmed() async throws {
+    @Test func workspaceSelectionWaitsForQueuedMachineSwitchCancellation() async throws {
+        let workspaceID = MobileWorkspacePreview.ID(rawValue: "ws-a")
+        let store = await shellStore(pairedMacs: [
+            pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 30, isActive: true),
+            pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 20),
+            pairedMac(id: "mac-c", name: "Mac C", lastSeenAt: 10),
+        ])
+        var selected = WorkspaceMacSelection.all
+        var selectedWorkspaces: [MobileWorkspacePreview.ID] = []
+        var requestedSwitches: [String] = []
+        var cancelRestoreRequests: [Bool] = []
+        var firstSwitchContinuation: CheckedContinuation<Bool, Never>?
+        var switchDidStart = false
+        var switchStartedContinuation: CheckedContinuation<Void, Never>?
+        var firstCancelContinuation: CheckedContinuation<Void, Never>?
+        var firstCancelDidStart = false
+        var firstCancelStartedContinuation: CheckedContinuation<Void, Never>?
+
+        func markSwitchStarted() {
+            guard !switchDidStart else { return }
+            switchDidStart = true
+            switchStartedContinuation?.resume()
+            switchStartedContinuation = nil
+        }
+        func waitForSwitchStart() async {
+            guard !switchDidStart else { return }
+            await withCheckedContinuation { continuation in
+                if switchDidStart {
+                    continuation.resume()
+                } else {
+                    switchStartedContinuation = continuation
+                }
+            }
+        }
+        func markFirstCancelStarted() {
+            guard !firstCancelDidStart else { return }
+            firstCancelDidStart = true
+            firstCancelStartedContinuation?.resume()
+            firstCancelStartedContinuation = nil
+        }
+        func waitForFirstCancelStart() async {
+            guard !firstCancelDidStart else { return }
+            await withCheckedContinuation { continuation in
+                if firstCancelDidStart {
+                    continuation.resume()
+                } else {
+                    firstCancelStartedContinuation = continuation
+                }
+            }
+        }
+
+        let view = workspaceListView(
+            workspaces: [workspace(id: workspaceID.rawValue, macDeviceID: "mac-a")],
+            store: store,
+            selectWorkspace: { selectedWorkspaces.append($0) },
+            macSelection: Binding(
+                get: { selected },
+                set: { selected = $0 }
+            ),
+            switchMac: { macDeviceID, _ in
+                requestedSwitches.append(macDeviceID)
+                markSwitchStarted()
+                if macDeviceID == "mac-b" {
+                    return await withCheckedContinuation { continuation in
+                        firstSwitchContinuation = continuation
+                    }
+                }
+                return true
+            },
+            cancelMacSwitch: { restorePreviousOnCancel in
+                cancelRestoreRequests.append(restorePreviousOnCancel)
+                if cancelRestoreRequests.count == 1 {
+                    markFirstCancelStarted()
+                    await withCheckedContinuation { continuation in
+                        firstCancelContinuation = continuation
+                    }
+                }
+            }
+        )
+
+        let firstTask = view.handleMacTitlePickerSelection(.machine("mac-b"))
+        await waitForSwitchStart()
+
+        view.handleMacTitlePickerSelection(.all)
+        await waitForFirstCancelStart()
+
+        let queuedTask = view.handleMacTitlePickerSelection(.machine("mac-c"))
+        let workspaceTask = view.selectWorkspaceFromList(workspaceID)
+
+        firstCancelContinuation?.resume()
+        await workspaceTask?.value
+        await queuedTask?.value
+
+        #expect(requestedSwitches == ["mac-b"])
+        #expect(cancelRestoreRequests == [true])
+        #expect(selectedWorkspaces == [workspaceID])
+
+        firstSwitchContinuation?.resume(returning: false)
+        await firstTask?.value
+    }
+
+    @Test func replacingPendingTitlePickerMachineSelectionKeepsRollbackArmed() async throws {
         let store = await shellStore(pairedMacs: [
             pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 30, isActive: true),
             pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 20),
@@ -453,7 +554,7 @@ import Testing
         #expect(selected == .all)
     }
 
-    @Test(.disabled("title-picker switch tests fail or deadlock in CI (rotted while this target was unwired); fix and re-enable, see PR 7659")) func selectingWorkspaceCancelsPendingTitlePickerSwitch() async throws {
+    @Test func selectingWorkspaceCancelsPendingTitlePickerSwitch() async throws {
         let workspaceID = MobileWorkspacePreview.ID(rawValue: "ws-a")
         let store = await shellStore(pairedMacs: [
             pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20, isActive: true),
@@ -518,7 +619,7 @@ import Testing
         #expect(selected == .all)
     }
 
-    @Test(.disabled("title-picker switch tests fail or deadlock in CI (rotted while this target was unwired); fix and re-enable, see PR 7659")) func newerWorkspaceSelectionInvalidatesDeferredRowSelection() async throws {
+    @Test func newerWorkspaceSelectionInvalidatesDeferredRowSelection() async throws {
         let firstWorkspaceID = MobileWorkspacePreview.ID(rawValue: "ws-a")
         let secondWorkspaceID = MobileWorkspacePreview.ID(rawValue: "ws-b")
         let store = await shellStore(pairedMacs: [
