@@ -151,7 +151,11 @@ pub(super) fn recover(chat: &OptChat, state: &mut HostState, acpmux: bool) -> Ve
             // The fold position commits with the folded entries, so it is
             // never behind the log; the pending turn's copy can be.
             let after = turn.after.max(crate::state::folded(chat, &session));
-            state.orphans.push(Orphan { session, after });
+            state.orphans.push(Orphan {
+                session,
+                after,
+                stopped: false,
+            });
             Vec::new()
         }
         None => vec![turn.session],

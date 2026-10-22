@@ -615,7 +615,7 @@ pub struct Brain {
     /// When the last agent message was taken by the owner (epoch ms): the next waits out the gap (G11).
     last_agent_send: Option<u64>,
     fatal: Option<String>,
-    /// A human message arrived while an acpmux turn ran: that turn is
+    /// The owner's message arrived while an acpmux turn ran: that turn is
     /// being stopped, and its end posts nothing.
     stop_wanted: bool,
     /// The owner stopped the running turn (chief.stop): its end posts nothing.

@@ -216,6 +216,10 @@ pub struct Orphan {
     pub session: String,
     /// The last event seq already folded.
     pub after: u64,
+    /// Its turn was stopped (the owner's message): folded and ended at the
+    /// next connect, never waited for.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stopped: bool,
 }
 
 /// What a turn used, for the trace's `turn.end`.
@@ -383,6 +387,15 @@ pub fn run_with_drafts(
     draft: &dyn Fn(crate::draft::Draft),
     run: &dyn Fn(crate::run::RunUpdate),
 ) -> TurnOutcome {
+    // Stopped before it began (a retry after the owner's message or
+    // chief.stop): no new session or prompt.
+    if interrupt.is_set() {
+        return TurnOutcome {
+            error: stop_error("cancelled"),
+            cancelled: true,
+            ..TurnOutcome::default()
+        };
+    }
     let scope = serde_json::json!({"turn": start.key});
     let began = Instant::now();
     // The limit covers the session's start too: a harness that never
@@ -609,9 +622,10 @@ pub fn run_with_drafts(
     let mut answer_failed = false;
     let mut last_event = Instant::now();
     loop {
-        // A newer human message: stop the model at once, but let a running
-        // tool call finish (Claude Code's interrupt would abort it), and
-        // send the stop again until the turn ends. Read the newest events
+        // A stop: the owner's message or chief.stop (hard) cancels at once,
+        // even mid tool call; the Chief's own stop lets a running tool call
+        // finish (Claude Code's interrupt would abort it). The stop is sent
+        // again until the turn ends. Read the newest events
         // first: a tool may have started since the last fetch.
         if interrupt.is_set()
             && last_cancel.is_none()
@@ -625,10 +639,7 @@ pub fn run_with_drafts(
             && (interrupt.is_hard() || !fold.tool_running());
         if stopping && last_cancel.is_none_or(|t| t.elapsed() >= CANCEL_RESEND) {
             if last_cancel.is_none() {
-                log(&format!(
-                    "turn {}: a new message arrived; interrupting session {session}",
-                    start.key
-                ));
+                log(&format!("turn {}: stopping session {session}", start.key));
             }
             if let Err(e) = agents.cancel(&session) {
                 log(&format!("turn {}: interrupting: {e}", start.key));
@@ -763,6 +774,7 @@ pub fn run_with_drafts(
                 orphan = Some(Orphan {
                     session: session.clone(),
                     after: fold.seq(),
+                    stopped: false,
                 });
                 let seq = fold.seq();
                 append_at(fold.finish(Some(CONNECTION_LOST.into())), seq);
@@ -849,13 +861,14 @@ pub fn run_with_drafts(
     send_run(
         // A turn cut by a lost acpmux link (an update relaunch) runs again
         // on the resume note: its run ends stopped, never "failed" with the
-        // link's error (user 2026-10-20 "every time i update cmux").
+        // link's error (user 2026-10-20 "every time i update cmux"). A turn
+        // asked to stop that ended in an error ends stopped too.
         crate::run::ended(
             error
                 .as_deref()
                 .filter(|_| orphan.is_none())
                 .or(moved.as_deref()),
-            cancelled || orphan.is_some(),
+            cancelled || orphan.is_some() || (interrupt.is_set() && error.is_some()),
             totals.map(|(u, _)| u),
             cost,
             requests.last().and_then(|r| r.model.as_deref()),

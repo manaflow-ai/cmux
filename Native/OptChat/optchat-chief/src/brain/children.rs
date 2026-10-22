@@ -275,7 +275,9 @@ impl Brain {
         let mut gone = Vec::new();
         let mut running = false;
         for orphan in orphans {
+            // A stopped turn's session is never waited for.
             let still_runs = !force
+                && !orphan.stopped
                 && matches!(
                     self.agents.session(&orphan.session),
                     Ok(Some(s)) if busy(s.status)

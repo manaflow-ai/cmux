@@ -390,10 +390,23 @@ impl Brain {
             // A session the pool started for an unmarked turn runs Claude
             // Code with its own marks: ours on top would make 5.
             .filter(|_| self.prewarm_ours != Some(false));
-        let mut answers = self.state.carry_answers.clone();
+        // What a stopped turn of this conversation answered: this turn
+        // answers it too, with policy `ask` when it carried another
+        // person's text.
+        let carry = self.state.carry_for.is_none() || self.state.carry_for == conversation;
+        let carried_ask = carry && self.state.carry_ask;
+        let mut answers = if carry {
+            self.state.carry_answers.clone()
+        } else {
+            Vec::new()
+        };
         add_answers(&mut answers, self.answers_of(&items));
         let done = self.log_items(&items, move |next, done| {
-            next.carry_answers.clear();
+            if carry {
+                next.carry_answers.clear();
+                next.carry_for = None;
+                next.carry_ask = false;
+            }
             let first = done.ids.first().copied().unwrap_or(first_id);
             let stamp = done.stamps.first().map(String::as_str).unwrap_or("");
             next.turn = Some(PendingTurn {
@@ -440,7 +453,7 @@ impl Brain {
         // a turn that carries another person's text runs with policy `ask`
         // and every local effect it asks for is refused at once
         // (`turn_permission`), with no question to anyone.
-        self.turn_ask = items.iter().any(Queued::requires_approval);
+        self.turn_ask = carried_ask || items.iter().any(Queued::requires_approval);
         self.last_turn_ask = self.turn_ask;
         self.turn_denied.clear();
         self.repeat_denials = 0;
@@ -1257,12 +1270,34 @@ impl Brain {
         if superseded {
             (self.log)(&format!("turn {key} stopped for a newer message"));
         }
+        let stopped_ask = superseded && self.turn_ask;
         self.turn_ask = false;
         self.turn_denied.clear();
         self.repeat_denials = 0;
         self.interrupt.set_gate(false);
-        if let Some(orphan) = outcome.orphan {
+        if let Some(mut orphan) = outcome.orphan {
+            // A stopped turn's session lost with the link is folded and
+            // ended at the next connect, never waited for.
+            orphan.stopped = superseded || owner_stopped;
+            if orphan.stopped {
+                self.agents_up = false;
+            }
             self.state.orphans.push(orphan);
+        }
+        if superseded {
+            // Reports on their way into the stopped turn go to the next one,
+            // ahead of the newer message: the stopped turn may never have
+            // read them.
+            let (lost, steering): (Vec<_>, Vec<_>) = std::mem::take(&mut self.steering)
+                .into_iter()
+                .partition(|s| s.key == key);
+            self.steering = steering;
+            for steer in lost.into_iter().rev() {
+                for mut item in steer.items.into_iter().rev() {
+                    item.logged = steer.logged;
+                    self.queue.push_front(item);
+                }
+            }
         }
         // E22: what this reply answers, and which of those messages still
         // have subagents at work (more replies to them follow).
@@ -1275,6 +1310,8 @@ impl Brain {
             .unwrap_or_default();
         if superseded {
             add_answers(&mut self.state.carry_answers, answers.clone());
+            self.state.carry_for = conversation.clone();
+            self.state.carry_ask |= stopped_ask;
         } else if !answers.is_empty() {
             self.state.last_answers = answers.clone();
         }

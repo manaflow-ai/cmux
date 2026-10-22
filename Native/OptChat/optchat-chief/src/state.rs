@@ -74,6 +74,14 @@ pub struct HostState {
     /// answers it too.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub carry_answers: Vec<String>,
+    /// The conversation `carry_answers` belong to: only its next turn takes
+    /// them (None: any, as before this was recorded).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub carry_for: Option<String>,
+    /// The stopped turn carried another person's text: the turn that takes
+    /// `carry_answers` answers it too, so it runs with policy `ask`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub carry_ask: bool,
     /// E22: ids a posted reply named in `answers_pending`: the turn that
     /// ends their work answers them even when it says nothing (a done
     /// marker), so a waiting `cmux chief -p` ends.
