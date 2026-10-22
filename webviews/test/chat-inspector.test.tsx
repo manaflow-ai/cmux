@@ -294,10 +294,10 @@ test("the running line's counts open a closed Inspector with Subagents or Backgr
 });
 
 test("it floats in the gutter beside the transcript when there is room and pushes the chat when there is not", async () => {
-  // A 1600px pane: the 800px column leaves a 400px gutter, room for 320px and its two 12px margins.
+  // A 1600px pane: the 800px column leaves a 400px gutter, room for 320px and its two 8px margins.
   expect(pushes("overlay", 1600, 320)).toBe(false);
-  expect(pushes("overlay", 1600, 376)).toBe(false);
-  expect(pushes("overlay", 1600, 377)).toBe(true);
+  expect(pushes("overlay", 1600, 384)).toBe(false);
+  expect(pushes("overlay", 1600, 385)).toBe(true);
   // 1200px: a 225px gutter; 600px: the page edge alone. Unmeasured, it pushes.
   expect(pushes("overlay", 1200, 320)).toBe(true);
   expect(pushes("overlay", 600, 320)).toBe(true);
@@ -306,9 +306,9 @@ test("it floats in the gutter beside the transcript when there is room and pushe
   expect(pushes("overlay", 1600, 320, { min: 720, max: 1100, share: 1, prose: Infinity })).toBe(true);
   // Settings Push always pushes.
   expect(pushes("push", 1600, 320)).toBe(true);
-  // Pushed, it narrows to keep a readable chat and its 12px margin, down to its own narrowest width.
+  // Pushed, it narrows to keep a readable chat and its 8px margin, down to its own narrowest width.
   expect(pushedWidth(1200, 320)).toBe(320);
-  expect(pushedWidth(720, 320)).toBe(268);
+  expect(pushedWidth(720, 320)).toBe(272);
   expect(pushedWidth(500, 320)).toBe(INSPECTOR_WIDTH.min);
   expect(pushedWidth(0, 320)).toBe(320);
 
@@ -330,7 +330,7 @@ test("it floats in the gutter beside the transcript when there is room and pushe
     for (const observer of observers) observer();
   });
   expect(panel(container)?.dataset.placement).toBe("push");
-  expect(panel(container)?.style.width).toBe("268px");
+  expect(panel(container)?.style.width).toBe("272px");
   // Settings > Agent Chat > Inspector: Push, even in a wide pane.
   await act(async () => {
     paneWidth = 1600;
