@@ -37,7 +37,36 @@ import UIKit
             surface.scrollWheel(at: point, deltaY: rows * size.height, momentum: .none)
         }
 
+        /// A tap at the middle of `cell` (column, row).
+        @discardableResult
+        func tap(column: Int, row: Int) -> Bool {
+            let size = surface.cellSize
+            let padding = surface.gridPadding
+            return surface.click(at: CGPoint(x: padding.x + (Double(column) + 0.5) * size.width, y: padding.y + (Double(row) + 0.5) * size.height))
+        }
+
         var text: String { String(decoding: sent, as: UTF8.self) }
+    }
+
+    /// TUI capability check F1: a tap in an app that asked for the mouse
+    /// (vim `mouse=a`, htop's header, mc, tmux panes) is a left click at
+    /// that cell, press then release, like a click in Ghostty on the Mac.
+    @Test func aTapIsAClickWhenTheAppAskedForTheMouse() async throws {
+        let rig = Rig()
+        try #require(rig.surface.surface != nil)
+        await rig.feed("\u{1b}[?1049h\u{1b}[?1000h\u{1b}[?1006h")
+        rig.sent = Data()
+        #expect(rig.tap(column: 3, row: 5))
+        #expect(rig.text == "\u{1b}[<0;4;6M\u{1b}[<0;4;6m")
+    }
+
+    @Test func aTapSendsNothingWithoutMouseReporting() async throws {
+        let rig = Rig()
+        try #require(rig.surface.surface != nil)
+        await rig.feed("\u{1b}[?1049h")
+        rig.sent = Data()
+        #expect(!rig.tap(column: 3, row: 5))
+        #expect(rig.sent.isEmpty)
     }
 
     @Test func aMouseReportingAppGetsSGRWheelReportsAtTheFinger() async throws {
