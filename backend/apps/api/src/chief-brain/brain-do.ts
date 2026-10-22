@@ -27,6 +27,7 @@ import * as sub from "./brain-sub.ts"
 import * as turnLoop from "./brain-turn.ts"
 import { ccRoute } from "../chief-brain-cc/vm.ts"
 import { ccNotes } from "../chief-brain-cc/turn.ts"
+import { toolFiles, toolsCall } from "../chief-brain-cc/tools.ts"
 import { IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, importBatch, importing, importStatus } from "./memory-import.ts"
 
 /**
@@ -443,6 +444,16 @@ export class ChiefBrainDO extends DurableObject<Env> {
   /** The Claude Code route's turn machine (POST /v1/chief-cc/<agent>/<conversation>/notes, chief-brain-cc/turn.ts). */
   async ccNotes(token: string, body: { run?: unknown; events?: unknown; result?: unknown; net?: unknown }): Promise<{ status: number; json?: unknown }> {
     return ccNotes(this, token, body)
+  }
+
+  /** The Chief's own tools (chief-brain-cc/tools.ts), on its `<agent>/tools` object only: one `chief-tools` call. */
+  async ccTools(req: unknown): Promise<{ status: number; json: unknown }> {
+    return toolsCall(this.sql, req)
+  }
+
+  /** The Chief's own tools as path -> text, for its next turn machine (chief-brain-cc/turn.ts). */
+  async ccToolFiles(): Promise<Record<string, string>> {
+    return toolFiles(this.sql)
   }
 
   /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */
