@@ -144,12 +144,41 @@ struct AcpmuxQuietHandoffTests {
         #expect(await AcpmuxDaemonSummary.current(fixture.environment)
             == AcpmuxDaemonSummary(build: "old", state: .restarting))
 
-        _ = try? await fixture.host(whenQuiet: false).prewarm()
+        try await fixture.host(whenQuiet: false).prewarm()
         #expect(fixture.daemon.shutDown.withLock { $0 }, "the busy old daemon was kept")
         #expect(fixture.daemon.shutdownEndedAgents.withLock { $0 } == false, "the handoff asked to end the agents")
         #expect(fixture.launches == 1)
         #expect(await AcpmuxDaemonSummary.current(fixture.environment)
             == AcpmuxDaemonSummary(build: fixture.newBuild, state: .upToDate))
+    }
+
+    /// Settings > Updates reads the daemon while a handoff's shutdown runs, and the shutdown
+    /// fails before the read is done: the handoff keeps the old daemon and has used up its build,
+    /// so the card says the daemon is not the app's build, not that it restarts.
+    @Test func aShutdownThatFailsDuringASettingsReadIsNotTheAppsBuild() async throws {
+        let fixture = try QuietFixture(agentHosts: true)
+        defer { fixture.remove() }
+        let environment = fixture.environment
+        let status = try await AcpmuxStatusClient.status(socketPath: environment.socketPath)
+        fixture.daemon.failsShutdown.withLock { $0 = true }
+        let shutdown = fixture.daemon.hold("_acpmux/shutdown")
+        let read = fixture.daemon.hold("_acpmux/status", after: "_acpmux/shutdown")
+        defer {
+            shutdown.signal()
+            read.signal()
+        }
+
+        let handoff = Task { await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment) }
+        #expect(await fixture.eventually { fixture.daemon.held.withLock { $0.contains("_acpmux/shutdown") } })
+        // The handoff waits on its shutdown, marked restarting; Settings starts its read.
+        let summary = Task { await AcpmuxDaemonSummary.current(environment) }
+        #expect(await fixture.eventually { fixture.daemon.held.withLock { $0.contains("_acpmux/status") } })
+        shutdown.signal()
+        #expect(await handoff.value == .kept)
+        read.signal()
+
+        #expect(await summary.value == AcpmuxDaemonSummary(build: "old", state: .otherBuild))
+        #expect(!fixture.daemon.shutDown.withLock { $0 })
     }
 
     @Test func aBusyDaemonWithoutAgentHostsWaitsWithTheToggleOnAndIsReplacedOnceQuiet() async throws {
@@ -310,7 +339,12 @@ nonisolated final class StubDaemon: Sendable {
     let shutDown = Mutex(false)
     /// The last `_acpmux/shutdown`'s `endAgents` (false when it did not ask); nil before one.
     let shutdownEndedAgents = Mutex<Bool?>(nil)
+    /// `_acpmux/shutdown` answers an error and stops nothing.
+    let failsShutdown = Mutex(false)
+    /// The methods whose reply a ``hold(_:after:)`` gate holds now.
+    let held = Mutex<Set<String>>([])
     let watchers = Mutex<Set<Int32>>([])
+    private let gates = Mutex<[String: (gate: DispatchSemaphore, after: String?)]>([:])
     private let build: Mutex<String>
     private let buildAfterShutdown: String?
     private let agentHosts: Bool
@@ -343,6 +377,15 @@ nonisolated final class StubDaemon: Sendable {
                 Thread.detachNewThread { self.serve(client, home: home, pid: pid) }
             }
         }
+    }
+
+    /// Holds the next reply to `method` (once a reply to `after` is held) until the returned gate
+    /// is signalled, so a test acts while that call waits.
+    func hold(_ method: String, after: String? = nil) -> DispatchSemaphore {
+        // concurrency-allow: the gate is waited on by this test socket's own connection thread, never the main thread
+        let gate = DispatchSemaphore(value: 0)
+        gates.withLock { $0[method] = (gate, after) }
+        return gate
     }
 
     /// Sends `_acpmux/session_changed` of `kind` to every watching connection.
@@ -391,14 +434,34 @@ nonisolated final class StubDaemon: Sendable {
                 buffer.removeSubrange(buffer.startIndex...newline)
                 guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
                       let id = object["id"], let method = object["method"] as? String else { continue }
-                let reply: [String: Any] = ["jsonrpc": "2.0", "id": id,
-                                            "result": result(for: method, params: object["params"] as? [String: Any] ?? [:],
-                                                             client: client, home: home, pid: pid)]
+                waitIfHeld(method)
+                var reply: [String: Any] = ["jsonrpc": "2.0", "id": id]
+                if method == "_acpmux/shutdown" && failsShutdown.withLock({ $0 }) {
+                    reply["error"] = ["code": -32603, "message": "shutdown refused"] as [String: Any]
+                } else {
+                    reply["result"] = result(for: method, params: object["params"] as? [String: Any] ?? [:],
+                                             client: client, home: home, pid: pid)
+                }
                 guard var data = try? JSONSerialization.data(withJSONObject: reply) else { continue }
                 data.append(0x0A)
                 _ = data.withUnsafeBytes { send(client, $0.baseAddress, data.count, 0) }
             }
         }
+    }
+
+    /// Waits on the gate ``hold(_:after:)`` put on `method`, once: only on a connection's thread.
+    private func waitIfHeld(_ method: String) {
+        let gate = gates.withLock { pending -> DispatchSemaphore? in
+            guard let entry = pending[method] else { return nil }
+            if let after = entry.after, !held.withLock({ $0.contains(after) }) { return nil }
+            pending[method] = nil
+            return entry.gate
+        }
+        guard let gate else { return }
+        _ = held.withLock { $0.insert(method) }
+        // concurrency-allow: a connection thread of this test socket, never the main thread
+        gate.wait()
+        _ = held.withLock { $0.remove(method) }
     }
 
     func stop() {
