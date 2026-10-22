@@ -7,6 +7,7 @@ import { AgentHarnesses } from "./AgentHarnesses";
 import { AgentIntegrations } from "./AgentIntegrations";
 import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
 import { ChannelsCard } from "./ChannelsCard";
+import { ChiefDiagnosticsCard } from "./ChiefDiagnosticsCard";
 import { ChiefsCard } from "./ChiefsCard";
 import { ComputerUseCard } from "./ComputerUseCard";
 import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
@@ -53,6 +54,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   channels: () => <ChannelsCard />,
   webUpdates: () => <WebUpdatesCard />,
   voiceInput: () => <VoiceInputCard />,
+  chiefDiagnostics: () => <ChiefDiagnosticsCard />,
 };
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */
