@@ -1,6 +1,8 @@
 // The chat composer's and the New Tab box's rims and focus rings, with the pane's own stylesheets in
-// its entry's order (acpmux/dev.tsx) and the desktop layer's script (it sets the hairline tokens).
+// its entry's order (acpmux/dev.tsx) and the desktop layer's script (it sets the hairline tokens and
+// loads the liquid glass, which the card, the queue and the popover wear as in the pane).
 import "../../src/pages/shared/desktop";
+import "../../src/ui/popupSurface.css";
 import "../../src/agent-session/shared/styles.css";
 import "../../src/agent-session/acpmux/styles.css";
 import "../../src/agent-session/acpmux/composerControls.css";

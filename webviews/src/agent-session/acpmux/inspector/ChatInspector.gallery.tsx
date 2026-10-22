@@ -196,7 +196,7 @@ export default componentEntry<Props>({
       props: full,
     },
     "context-connectors-open": {
-      note: "Context and Connectors open: the token counts, and each MCP server with the one that needs reconnecting.",
+      note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status.",
       props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
     },
     "changes-breakdown": {
@@ -214,6 +214,14 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.click({ selector: "button.acpmux-chat-inspector-pr-fold" });
         await ctx.waitFor(() => /Show less/.test(text(ctx)));
+      },
+    },
+    "row-hover": {
+      note: "The pointer on a pull request's row: a faint tint of the text inside the card's padding, with the card's radius less that padding, never a solid fill and never past the card's edge. Every row in the panel hovers the same way.",
+      props: full,
+      play: async (ctx) => {
+        await ctx.waitFor(() => /already on base/.test(text(ctx)));
+        await ctx.hover({ selector: ".acpmux-chat-inspector-pr" });
       },
     },
     "subagents-open": {

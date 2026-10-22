@@ -29,6 +29,18 @@ final class PaneHeaderView: NSView {
     /// white monogram (Messages' light-mode avatar).
     var light = false { didSet { if light != oldValue { applyAvatar() } } }
     var onContact: () -> Void = {}
+    /// cmux: the host's top-right controls (Home's panel toggles, like Claude desktop's), at the
+    /// trailing edge on the avatar's line. They take their own clicks; nil shows none.
+    var trailingAccessory: NSView? {
+        didSet {
+            guard trailingAccessory !== oldValue else { return }
+            oldValue?.removeFromSuperview()
+            if let trailingAccessory { addSubview(trailingAccessory) }
+            needsLayout = true
+        }
+    }
+    /// The accessory's distance from the header's trailing edge.
+    static let trailingInset: CGFloat = 12
 
     static let avatarSize: CGFloat = 40
     static let avatarTop: CGFloat = 8
@@ -64,14 +76,17 @@ final class PaneHeaderView: NSView {
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
 
-    /// The name pill takes its clicks; the rest of the header is the header
-    /// itself: a click on the avatar opens the contact (as the pill does),
-    /// and the empty space drags the window (cmux: Messages' header is its
-    /// toolbar, so a drag there moves the window; the scroll view starts
-    /// below the header).
+    /// The name pill takes its clicks, and so do the trailing accessory's
+    /// controls; the rest of the header is the header itself: a click on the
+    /// avatar opens the contact (as the pill does), and the empty space
+    /// drags the window (cmux: Messages' header is its toolbar, so a drag
+    /// there moves the window; the scroll view starts below the header). The
+    /// accessory's own gaps drag too (its hit test finds no control there).
     override func hitTest(_ point: NSPoint) -> NSView? {
         let p = convert(point, from: superview)
         if pill.frame.contains(p) && !pill.isHidden { return pill }
+        if let accessory = trailingAccessory, !accessory.isHidden, accessory.frame.contains(p),
+           let hit = accessory.hitTest(p), hit !== accessory { return hit }
         return bounds.contains(p) ? self : nil
     }
 
@@ -104,6 +119,23 @@ final class PaneHeaderView: NSView {
         pillBacking.isHidden = pill.isHidden
         pillGlass?.frame = pillBacking.bounds
         pillGlass?.cornerRadius = h / 2
+        layoutTrailingAccessory()
+    }
+
+    /// The accessory at its intrinsic size (else its own frame size), centered on the avatar's line at the trailing edge;
+    /// hidden in a pane so narrow it would reach the avatar.
+    private func layoutTrailingAccessory() {
+        guard let accessory = trailingAccessory else { return }
+        let intrinsic = accessory.intrinsicContentSize
+        let size = CGSize(width: intrinsic.width == NSView.noIntrinsicMetric ? accessory.frame.width : intrinsic.width,
+                          height: intrinsic.height == NSView.noIntrinsicMetric ? accessory.frame.height : intrinsic.height)
+        let centerY = PaneHeaderView.avatarTop + PaneHeaderView.avatarSize / 2
+        let frame = CGRect(x: bounds.width - PaneHeaderView.trailingInset - size.width, y: centerY - size.height / 2,
+                           width: size.width, height: size.height)
+        if accessory.frame != frame { accessory.frame = frame }
+        let avatarFrame = CGRect(x: (bounds.width - PaneHeaderView.avatarSize) / 2, y: PaneHeaderView.avatarTop,
+                                 width: PaneHeaderView.avatarSize, height: PaneHeaderView.avatarSize)
+        accessory.isHidden = frame.minX < avatarFrame.maxX + 8
     }
 
     private func applyTitle() {

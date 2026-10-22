@@ -208,6 +208,24 @@ fn is_unread(item: &Value) -> bool {
     item["read_at_ms"].is_null()
 }
 
+/// Waits (bounded) until `terminal` runs again after a restart: it is
+/// `adopting` until the restarted owner has adopted its host.
+fn wait_until_running(daemon: &Daemon, terminal: &str) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let resolved =
+            daemon.ok(json!({"id": "resolve", "cmd": "resolve-terminal", "terminal_id": terminal}));
+        if resolved["lifecycle"] == "running" {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "terminal {terminal} did not run again after the restart: {resolved}"
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
 /// Selecting a tab no longer clears its unread marker or its local item;
 /// `ack-tab-notifications` clears both.
 #[test]
@@ -268,6 +286,9 @@ fn cmux_next_feed_a_ring_kept_by_a_partial_ack_survives_a_restart() {
     assert_eq!(read["error_code"], "owner.unreachable", "{read}");
 
     daemon.restart();
+    // A restarted owner answers before it adopts its surviving terminal
+    // hosts (81577dcd4b3); the tab shows its terminal once it is adopted.
+    wait_until_running(&daemon, &terminal);
     let tree = daemon.tree();
     let (_, restored) = tabs(&tree)
         .into_iter()

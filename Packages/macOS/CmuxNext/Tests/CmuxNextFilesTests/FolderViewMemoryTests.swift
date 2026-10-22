@@ -36,9 +36,24 @@ struct FolderViewMemoryTests {
         #expect(memory.prefs(for: URL(fileURLWithPath: "/three")) == prefs)
     }
 
-    @Test func statusLineKnowsTheFreeSpace() async throws {
-        let temp = try TempFolder()
-        let free = await FileInfoReader().availableCapacity(of: temp.url)
-        #expect((free ?? 0) > 0)
+    @Test func statusLineKnowsTheFreeSpace() async {
+        let folder = URL(fileURLWithPath: "/Volumes/Work")
+        let reader = FileInfoReader { _ in (important: 7_000, plain: 5_000) }
+        #expect(await reader.availableCapacity(of: folder) == 7_000)
+    }
+
+    /// Some volumes report 0 for important use (CI's ephemeral disks do); the plain figure is the answer then.
+    @Test func aZeroForImportantUseFallsBackToThePlainFigure() async {
+        let reader = FileInfoReader { _ in (important: 0, plain: 5_000) }
+        #expect(await reader.availableCapacity(of: URL(fileURLWithPath: "/Volumes/Work")) == 5_000)
+    }
+
+    /// A volume that reports 0 free is an unknown, so the status line leaves "available" out
+    /// instead of saying "Zero KB available".
+    @Test func aVolumeThatReportsNothingFreeIsUnknown() async {
+        let reader = FileInfoReader { _ in (important: 0, plain: 0) }
+        #expect(await reader.availableCapacity(of: URL(fileURLWithPath: "/Volumes/Work")) == nil)
+        let silent = FileInfoReader { _ in (important: nil, plain: nil) }
+        #expect(await silent.availableCapacity(of: URL(fileURLWithPath: "/Volumes/Work")) == nil)
     }
 }
