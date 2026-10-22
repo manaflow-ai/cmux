@@ -55,7 +55,9 @@ nonisolated struct AgentPaneReplyTextPreview: Equatable, Sendable {
             drop += 1
         }
         guard let decoded else { return .failure(.pathInvalid) }
-        var lines = decoded.split(separator: "\n", omittingEmptySubsequences: false).map { line in
+        // "\r\n" is one Character in Swift, so a CRLF file splits on it as well as on "\n"; a read
+        // cut between the two leaves a "\r", which is dropped.
+        var lines = decoded.split(omittingEmptySubsequences: false) { $0 == "\n" || $0 == "\r\n" }.map { line in
             line.hasSuffix("\r") ? line.dropLast() : line
         }
         // A file that ends with its newline has no line after it.
