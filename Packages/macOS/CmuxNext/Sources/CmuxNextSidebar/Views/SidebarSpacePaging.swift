@@ -223,6 +223,7 @@ import QuartzCore
         model.showsLocalMachine = host.model.showsLocalMachine
         model.groupHeaderDetails = host.model.groupHeaderDetails
         model.activeWorkspaceID = host.model.activeWorkspaceID
+        list.groupLineJoinsHeader = host.list.groupLineJoinsHeader
         container.frame = page.frame
         container.wantsLayer = true
         container.layer?.masksToBounds = true
