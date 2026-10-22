@@ -9,6 +9,7 @@ use super::screen_json;
 use super::workspace_groups_json;
 use crate::SurfaceKind;
 use crate::resource::ContentPublicId;
+use crate::server::wire_values::JsonFields;
 
 use crate::Mux;
 use crate::PaneId;
@@ -198,7 +199,7 @@ pub(super) fn pane_json(
             if let Some(app) =
                 content_resource_id.and_then(|id| notifications.presentation.app_tabs.get(id))
             {
-                tab["app"] = app.wire();
+                tab.set_field("app", app.wire());
             }
             let remote = content_resource_id.and_then(|id| notifications.presentation.remote_terminals.get(id));
             super::remote_terminal_tabs_wire::apply(&mut tab, remote);
@@ -340,7 +341,7 @@ pub(crate) fn tree_entity_json(
         | TreeDeltaKind::WorkspaceClosed
         | TreeDeltaKind::WorkspaceRenamed
         | TreeDeltaKind::WorkspaceMoved
-        | TreeDeltaKind::WorkspaceChanged => unreachable!("workspace deltas returned above"),
+        | TreeDeltaKind::WorkspaceChanged => None,
         TreeDeltaKind::ScreenAdded
         | TreeDeltaKind::ScreenClosed
         | TreeDeltaKind::ScreenRenamed
@@ -381,29 +382,29 @@ pub(super) fn tree_delta_json(delta: &TreeDelta, mux: &Mux) -> Value {
         "entity": delta.entity,
     });
     if let Some(screen) = delta.screen {
-        value["screen"] = json!(screen);
+        value.set_field("screen", json!(screen));
     }
     if let Some(pane) = delta.pane {
-        value["pane"] = json!(pane);
+        value.set_field("pane", json!(pane));
     }
     if let Some(surface) = delta.surface {
-        value["surface"] = json!(surface);
+        value.set_field("surface", json!(surface));
     }
     if let Some(index) = delta.index {
-        value["index"] = json!(index);
+        value.set_field("index", json!(index));
     }
     if let Some(transaction) = &delta.transaction {
-        value["transaction"] = json!(transaction.as_ref());
+        value.set_field("transaction", json!(transaction.as_ref()));
     }
     if let Some(revision) = delta.workspace_revision {
-        value["workspace_revision"] = json!(revision);
+        value.set_field("workspace_revision", json!(revision));
         if let Ok(Some(event)) = mux.workspace_registry_event(revision) {
-            value["origin"] = json!(event.origin);
-            value["mutation_id"] = json!(event.mutation_id);
+            value.set_field("origin", json!(event.origin));
+            value.set_field("mutation_id", json!(event.mutation_id));
         }
         let (registry_id, generation) = mux.registry_identity();
-        value["registry_id"] = json!(registry_id);
-        value["generation"] = json!(generation);
+        value.set_field("registry_id", json!(registry_id));
+        value.set_field("generation", json!(generation));
     }
     value
 }

@@ -32,7 +32,9 @@ impl WebSocketServer {
 impl Drop for WebSocketServer {
     fn drop(&mut self) {
         self.shutdown.store(true, Ordering::Release);
-        for stream in self.connections.lock().unwrap().values() {
+        for stream in
+            self.connections.lock().unwrap_or_else(std::sync::PoisonError::into_inner).values()
+        {
             let _ = stream.shutdown(Shutdown::Both);
         }
         if let Ok(stream) = TcpStream::connect(self.local_addr) {
@@ -169,7 +171,10 @@ pub fn serve_websocket_with_keepalive(
             let Some(permit) = claim_connection(&active_connections) else { continue };
             let id = next_connection.fetch_add(1, Ordering::Relaxed);
             if let Ok(tracked) = stream.try_clone() {
-                thread_connections.lock().unwrap().insert(id, tracked);
+                thread_connections
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .insert(id, tracked);
             }
             let mux = mux.clone();
             let token = token.clone();
@@ -189,11 +194,17 @@ pub fn serve_websocket_with_keepalive(
                         render_service,
                         Some(permit),
                     );
-                    connections.lock().unwrap().remove(&id);
+                    connections
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .remove(&id);
                 })
                 .is_err()
             {
-                cleanup_connections.lock().unwrap().remove(&id);
+                cleanup_connections
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .remove(&id);
             }
         }
     })?;

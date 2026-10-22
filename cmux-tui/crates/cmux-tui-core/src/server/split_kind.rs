@@ -4,6 +4,7 @@
 
 use super::split_respawn::{frontend_shell, placement_spawn_options};
 use super::*;
+use crate::server::wire_values::JsonFields;
 
 /// `new-pane-right`: a viewport column after `pane`'s column.
 #[derive(Deserialize)]
@@ -222,13 +223,13 @@ pub(super) fn placed_pane_result(
             .and_then(|pane| state.panes.get(&pane))
             .map(|pane| pane.public_id.to_string())
     }) {
-        result["pane_id"] = Value::String(pane_id);
+        result.set_field("pane_id", Value::String(pane_id));
     }
     if let Some(identity) = created.surface.resource_identity() {
-        result["tab_id"] = Value::String(identity.tab_id.to_string());
+        result.set_field("tab_id", Value::String(identity.tab_id.to_string()));
     }
     if created.replayed {
-        result["replayed"] = Value::Bool(true);
+        result.set_field("replayed", Value::Bool(true));
     }
     Ok(result)
 }

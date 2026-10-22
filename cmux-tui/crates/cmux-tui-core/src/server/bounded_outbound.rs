@@ -112,7 +112,7 @@ impl BoundedOutbound {
         stream: &OutboundStream,
         initial: bool,
     ) -> std::io::Result<()> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let result = Self::push_regular_locked(&mut state, text, stream, initial);
         drop(state);
         self.changed.notify_all();
@@ -124,7 +124,7 @@ impl BoundedOutbound {
         text: Arc<BudgetedText>,
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         loop {
             if state.closed {
                 return Err(std::io::Error::new(
@@ -143,7 +143,10 @@ impl BoundedOutbound {
                 self.changed.notify_all();
                 return result;
             }
-            let (next, _) = self.changed.wait_timeout(state, BACKPRESSURE_RECHECK).unwrap();
+            let (next, _) = self
+                .changed
+                .wait_timeout(state, BACKPRESSURE_RECHECK)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             state = next;
         }
     }
@@ -224,7 +227,7 @@ impl BoundedOutbound {
     }
 
     pub(super) fn push_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         Self::push_control_locked(&mut state, text)?;
         self.changed.notify_one();
         Ok(())
@@ -232,7 +235,7 @@ impl BoundedOutbound {
 
     pub(super) fn flush_control(&self, timeout: Duration) -> std::io::Result<()> {
         let (flushed_tx, flushed_rx) = std::sync::mpsc::sync_channel(1);
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if state.closed {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
@@ -257,7 +260,7 @@ impl BoundedOutbound {
         text: Arc<BudgetedText>,
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         stream.close();
         Self::purge_stream_locked(&mut state, stream.id);
         if stream.terminal_enqueued.swap(true, Ordering::AcqRel) {
@@ -284,7 +287,7 @@ impl BoundedOutbound {
                 "outbound stream terminal exceeds its byte capacity",
             ));
         }
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         loop {
             if state.closed {
                 return Err(std::io::Error::new(
@@ -322,7 +325,10 @@ impl BoundedOutbound {
                 self.changed.notify_all();
                 return Ok(());
             }
-            let (next, _) = self.changed.wait_timeout(state, BACKPRESSURE_RECHECK).unwrap();
+            let (next, _) = self
+                .changed
+                .wait_timeout(state, BACKPRESSURE_RECHECK)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             state = next;
         }
     }
@@ -336,7 +342,8 @@ impl BoundedOutbound {
         if stream.terminal_enqueued.swap(true, Ordering::AcqRel) {
             return Ok(());
         }
-        let overflow_text = stream.overflow_text.lock().unwrap().clone();
+        let overflow_text =
+            stream.overflow_text.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
         if let Err(error) = Self::push_control_locked(state, overflow_text) {
             state.closed = true;
             return Err(std::io::Error::new(
@@ -391,7 +398,7 @@ impl BoundedOutbound {
 
     #[cfg(test)]
     pub(super) fn try_pop(&self) -> Option<String> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         loop {
             match Self::pop_locked(&mut state) {
                 Some(OutboundItem::Text(text)) => {
@@ -403,7 +410,7 @@ impl BoundedOutbound {
                     drop(state);
                     self.changed.notify_all();
                     let _ = flushed.send(());
-                    state = self.state.lock().unwrap();
+                    state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 }
                 None => return None,
             }
@@ -411,7 +418,7 @@ impl BoundedOutbound {
     }
 
     pub(super) fn recv(&self) -> Option<OutboundItem> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         loop {
             if let Some(item) = Self::pop_locked(&mut state) {
                 drop(state);
@@ -421,7 +428,7 @@ impl BoundedOutbound {
             if state.closed {
                 return None;
             }
-            state = self.changed.wait(state).unwrap();
+            state = self.changed.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
         }
     }
 
@@ -459,11 +466,11 @@ impl BoundedOutbound {
     }
 
     pub(super) fn is_open(&self) -> bool {
-        !self.state.lock().unwrap().closed
+        !self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).closed
     }
 
     pub(super) fn close(&self) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.closed = true;
         state.control.retain(|item| matches!(item, ControlOutbound::Text(_)));
         drop(state);
@@ -471,7 +478,7 @@ impl BoundedOutbound {
     }
 
     pub(super) fn abort(&self) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.closed = true;
         for usage in state.stream_usage.values() {
             usage.stream.close();
@@ -488,7 +495,7 @@ impl BoundedOutbound {
     }
 
     pub(super) fn close_after_control(&self) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         for usage in state.stream_usage.values() {
             usage.stream.close();
         }
@@ -606,8 +613,8 @@ impl SynchronizedTcpStream {
         payload: &[u8],
     ) -> std::io::Result<()> {
         let (header, header_len) = websocket_server_frame_header(opcode, payload.len());
-        let _guard = self.write_lock.lock().unwrap();
-        self.stream.write_all(&header[..header_len])?;
+        let _guard = self.write_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.stream.write_all(header.get(..header_len).unwrap_or(&header))?;
         self.stream.write_all(payload)?;
         self.stream.flush()
     }
@@ -647,13 +654,13 @@ impl Read for SynchronizedTcpStream {
 
 impl Write for SynchronizedTcpStream {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let _guard = self.write_lock.lock().unwrap();
+        let _guard = self.write_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.stream.write_all(buf)?;
         Ok(buf.len())
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        let _guard = self.write_lock.lock().unwrap();
+        let _guard = self.write_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.stream.flush()
     }
 }

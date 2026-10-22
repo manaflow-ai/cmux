@@ -178,7 +178,7 @@ impl ResourceWaitCancellation {
     }
 
     pub(super) fn register(&self, wake: &Arc<ResourceWaitWake>) {
-        let mut wakeups = self.wakeups.lock().unwrap();
+        let mut wakeups = self.wakeups.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         wakeups.retain(|registered| registered.strong_count() > 0);
         if self.is_canceled() {
             drop(wakeups);
@@ -192,14 +192,17 @@ impl ResourceWaitCancellation {
         if self.canceled.swap(true, Ordering::AcqRel) {
             return;
         }
-        let wakeups = std::mem::take(&mut *self.wakeups.lock().unwrap());
+        let wakeups = std::mem::take(
+            &mut *self.wakeups.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
         for wake in wakeups.into_iter().filter_map(|wake| wake.upgrade()) {
             wake.notify();
         }
     }
 
     pub(super) fn begin_completion(&self) -> bool {
-        let mut lifecycle = self.lifecycle.lock().unwrap();
+        let mut lifecycle =
+            self.lifecycle.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if self.is_canceled() || lifecycle.completion_started {
             return false;
         }
@@ -208,33 +211,43 @@ impl ResourceWaitCancellation {
     }
 
     pub(super) fn completion_started(&self) -> bool {
-        self.lifecycle.lock().unwrap().completion_started
+        self.lifecycle.lock().unwrap_or_else(std::sync::PoisonError::into_inner).completion_started
     }
 
     pub(super) fn mark_response_attempted(&self) {
-        let mut lifecycle = self.lifecycle.lock().unwrap();
+        let mut lifecycle =
+            self.lifecycle.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         lifecycle.response_attempted = true;
         self.lifecycle_changed.notify_all();
     }
 
     pub(super) fn wait_for_response_attempt(&self) -> bool {
-        let mut lifecycle = self.lifecycle.lock().unwrap();
+        let mut lifecycle =
+            self.lifecycle.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         while !lifecycle.response_attempted && !lifecycle.worker_finished {
-            lifecycle = self.lifecycle_changed.wait(lifecycle).unwrap();
+            lifecycle = self
+                .lifecycle_changed
+                .wait(lifecycle)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
         lifecycle.response_attempted
     }
 
     pub(super) fn mark_worker_finished(&self) {
-        let mut lifecycle = self.lifecycle.lock().unwrap();
+        let mut lifecycle =
+            self.lifecycle.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         lifecycle.worker_finished = true;
         self.lifecycle_changed.notify_all();
     }
 
     pub(super) fn wait_for_worker_finish(&self) {
-        let mut lifecycle = self.lifecycle.lock().unwrap();
+        let mut lifecycle =
+            self.lifecycle.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         while !lifecycle.worker_finished {
-            lifecycle = self.lifecycle_changed.wait(lifecycle).unwrap();
+            lifecycle = self
+                .lifecycle_changed
+                .wait(lifecycle)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
     }
 }
@@ -414,7 +427,7 @@ impl ClientRegistry {
 
     pub(super) fn register(&self, transport: ClientTransport, writer: MessageWriter) -> u64 {
         let client = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if state.daemon_handoff.is_some() {
             drop(state);
             writer.close();
@@ -452,21 +465,35 @@ impl ClientRegistry {
     }
 
     pub(super) fn client_ids(&self) -> Vec<u64> {
-        self.state.lock().unwrap().clients.keys().copied().collect()
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clients
+            .keys()
+            .copied()
+            .collect()
     }
 
     #[cfg(test)]
     pub(super) fn daemon_handoff_pending(&self) -> bool {
-        self.state.lock().unwrap().daemon_handoff.is_some()
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .daemon_handoff
+            .is_some()
     }
 
     pub(crate) fn daemon_handoff_in_progress(&self) -> bool {
-        self.state.lock().unwrap().daemon_handoff.is_some()
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .daemon_handoff
+            .is_some()
     }
 
     pub(crate) fn daemon_handoff_committed(&self) -> bool {
         matches!(
-            self.state.lock().unwrap().daemon_handoff,
+            self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).daemon_handoff,
             Some(DaemonHandoffReservation::Committed(_))
         )
     }
@@ -477,7 +504,7 @@ impl ClientRegistry {
         stream_id: &StreamPublicId,
         outbound: OutboundStream,
     ) -> Result<(Arc<AtomicBool>, ResourceWorkerPermit), ResourceStreamInstallError> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let record =
             state.clients.get_mut(&client).ok_or(ResourceStreamInstallError::UnknownClient)?;
         if record.resource_streams.contains_key(stream_id.as_str()) {
@@ -503,7 +530,7 @@ impl ClientRegistry {
     ) -> Option<ResourceClientStream> {
         self.state
             .lock()
-            .unwrap()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clients
             .get_mut(&client)?
             .resource_streams
@@ -516,7 +543,7 @@ impl ClientRegistry {
         stream_id: &StreamPublicId,
         outbound_id: u64,
     ) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let Some(record) = state.clients.get_mut(&client) else { return };
         if record
             .resource_streams
@@ -533,7 +560,7 @@ impl ClientRegistry {
         request_id: &ResourceRequestId,
     ) -> Result<(Arc<ResourceWaitCancellation>, ResourceWorkerPermit), ResourceWaitInstallError>
     {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let record =
             state.clients.get_mut(&client).ok_or(ResourceWaitInstallError::UnknownClient)?;
         if record.resource_waits.contains_key(request_id) {
@@ -561,7 +588,7 @@ impl ClientRegistry {
         request_id: &ResourceRequestId,
         canceled: &Arc<ResourceWaitCancellation>,
     ) -> bool {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let Some(record) = state.clients.get(&client) else { return false };
         record
             .resource_waits
@@ -577,7 +604,7 @@ impl ClientRegistry {
         canceled: &Arc<ResourceWaitCancellation>,
     ) -> bool {
         let removed = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(record) = state.clients.get_mut(&client) else { return false };
             if record
                 .resource_waits
@@ -601,7 +628,7 @@ impl ClientRegistry {
         request_id: &ResourceRequestId,
     ) -> ResourceWaitCancel {
         {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(record) = state.clients.get_mut(&client) else {
                 return ResourceWaitCancel::Missing;
             };
@@ -625,7 +652,7 @@ impl ClientRegistry {
         kind: Option<String>,
         capabilities: Option<Vec<String>>,
     ) -> anyhow::Result<(Option<String>, Option<String>)> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if kind.as_deref() == Some("native-browser") && state.daemon_handoff.is_some() {
             anyhow::bail!("daemon handoff is already in progress");
         }
@@ -675,7 +702,7 @@ impl ClientRegistry {
 
     /// The client's declared API revision (server/api_revision_wire.rs).
     pub(super) fn set_api_revision(&self, client: u64, revision: u32) -> anyhow::Result<()> {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let record =
             state.clients.get(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
         record.writer.api_revision.declare(revision)
@@ -683,7 +710,7 @@ impl ClientRegistry {
 
     /// Merge identity fields: absent fields keep their previous value.
     pub(super) fn set_sizing_identity(&self, client: u64, identity: ClientIdentityWire) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let Some(record) = state.clients.get_mut(&client) else { return };
         let current = &mut record.identity;
         if identity.user_id.is_some() {
@@ -706,7 +733,7 @@ impl ClientRegistry {
     /// The connection's identity for shared sizing. Without explicit
     /// fields it falls back to `name` and a device kind parsed from `kind`.
     pub(crate) fn sizing_identity(&self, client: u64) -> Option<ClientSizingIdentity> {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let record = state.clients.get(&client)?;
         let mut identity = record.identity.clone();
         if identity.display_name.is_none() {
@@ -728,7 +755,7 @@ impl ClientRegistry {
         size_state: &TerminalSizingState,
     ) {
         let targets = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             state
                 .attached_by_surface
                 .get(&surface)
@@ -786,7 +813,7 @@ impl ClientRegistry {
         event: &Value,
     ) -> bool {
         let target = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             state.clients.get(&client).map(|record| {
                 let streams = Self::event_streams(record, surface);
                 let target = match stream {
@@ -813,7 +840,7 @@ impl ClientRegistry {
     ) -> Result<(Option<String>, Option<String>), ResourceError> {
         let name = name.map(|name| validate_resource_client_label("name", name)).transpose()?;
         let kind = kind.map(|kind| validate_resource_client_label("kind", kind)).transpose()?;
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if kind.as_ref().and_then(|kind| kind.as_deref()) == Some("native-browser")
             && state.daemon_handoff.is_some()
         {
@@ -842,7 +869,7 @@ impl ClientRegistry {
     pub(super) fn resource_records(&self) -> Vec<ResourceClientRecord> {
         self.state
             .lock()
-            .unwrap()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clients
             .iter()
             .map(|(client, record)| ResourceClientRecord {
@@ -883,7 +910,7 @@ impl ClientRegistry {
     pub(super) fn supports_capability(&self, client: u64, capability: &str) -> bool {
         self.state
             .lock()
-            .unwrap()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clients
             .get(&client)
             .is_some_and(|record| record.capabilities.contains(capability))
@@ -894,9 +921,14 @@ impl ClientRegistry {
         client: u64,
         surface: SurfaceId,
     ) -> bool {
-        self.state.lock().unwrap().clients.get(&client).is_some_and(|record| {
-            record.attached.contains_key(&surface) || record.retired_surfaces.contains(&surface)
-        })
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clients
+            .get(&client)
+            .is_some_and(|record| {
+                record.attached.contains_key(&surface) || record.retired_surfaces.contains(&surface)
+            })
     }
 
     pub(crate) fn surface_attachment_is_retired_without_current(
@@ -904,13 +936,19 @@ impl ClientRegistry {
         client: u64,
         surface: SurfaceId,
     ) -> bool {
-        self.state.lock().unwrap().clients.get(&client).is_some_and(|record| {
-            !record.attached.contains_key(&surface) && record.retired_surfaces.contains(&surface)
-        })
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clients
+            .get(&client)
+            .is_some_and(|record| {
+                !record.attached.contains_key(&surface)
+                    && record.retired_surfaces.contains(&surface)
+            })
     }
 
     pub(super) fn browser_pointer_owner(&self, client: u64) -> anyhow::Result<BrowserPointerOwner> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let record = state
             .clients
             .get_mut(&client)
@@ -932,7 +970,7 @@ impl ClientRegistry {
         requesting_client: u64,
         force: bool,
     ) -> anyhow::Result<()> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let requester = state
             .clients
             .get(&requesting_client)
@@ -959,7 +997,7 @@ impl ClientRegistry {
         requesting_client: u64,
         acknowledge: impl FnOnce() -> std::io::Result<()>,
     ) -> anyhow::Result<()> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         match state.daemon_handoff {
             Some(DaemonHandoffReservation::Pending(requester))
                 if requester == requesting_client =>
@@ -973,14 +1011,14 @@ impl ClientRegistry {
     }
 
     pub(crate) fn cancel_daemon_handoff(&self, requesting_client: u64) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(requesting_client)) {
             state.daemon_handoff = None;
         }
     }
 
     pub(crate) fn list_json(&self, requesting_client: u64) -> Value {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         json!(
             state
                 .clients

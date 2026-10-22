@@ -3,6 +3,7 @@
 //! pairing responses, machine usage and listening ports, and window titles.
 //! Each function is one `Command` arm of `handle_command_with_cancellation`.
 
+use crate::server::wire_values::JsonFields;
 use anyhow::Context;
 
 use super::PROTOCOL_VERSION;
@@ -67,18 +68,18 @@ pub(super) fn identify(
     if revisions {
         let (current, base) = super::api_revision_wire::identify_fields();
         let channel = crate::release::InstallChannel::current();
-        identity["api_revision"] = json!(current);
-        identity["min_api_revision"] = json!(base);
-        identity["crate_version"] = json!(env!("CARGO_PKG_VERSION"));
+        identity.set_field("api_revision", json!(current));
+        identity.set_field("min_api_revision", json!(base));
+        identity.set_field("crate_version", json!(env!("CARGO_PKG_VERSION")));
         // How this daemon was installed and how to update it, for a client's refusal text.
-        identity["install"] = json!(channel.as_str());
-        identity["update_command"] = json!(channel.update_command());
+        identity.set_field("install", json!(channel.as_str()));
+        identity.set_field("update_command", json!(channel.update_command()));
     }
     if machine_metadata {
-        identity["machine_id"] = json!(mux.machine_public_id);
-        identity["session_resource_id"] = json!(mux.session_public_id);
-        identity["machine_platform"] = crate::resource_api::machine_platform();
-        identity["machine_capabilities"] = crate::resource_api::machine_capabilities();
+        identity.set_field("machine_id", json!(mux.machine_public_id));
+        identity.set_field("session_resource_id", json!(mux.session_public_id));
+        identity.set_field("machine_platform", crate::resource_api::machine_platform());
+        identity.set_field("machine_capabilities", crate::resource_api::machine_capabilities());
     }
     Ok(identity)
 }

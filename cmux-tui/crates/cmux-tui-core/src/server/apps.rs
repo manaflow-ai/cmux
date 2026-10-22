@@ -17,6 +17,7 @@
 //! receives `apps-changed` and `apps-host` events after its first apps
 //! command; mount events go to the mounting connection only.
 
+use crate::server::wire_values::JsonFields;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
@@ -161,9 +162,9 @@ fn reply(
             // unchanged (a page reads details.status, details.upstream_code).
             let Ok(mut value) = serde_json::to_value(response) else { return false };
             if let Some(details) = e.details {
-                value["error_details"] = details;
+                value.set_field("error_details", details);
             }
-            value["retryable"] = Value::Bool(e.retryable);
+            value.set_field("retryable", Value::Bool(e.retryable));
             return writer.send_control(&value).is_ok();
         }
     };
@@ -434,8 +435,14 @@ mod tests {
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
         let client = mux.control_clients.register(ClientTransport::Unix, writer);
-        mux.control_clients.state.lock().unwrap().clients.get_mut(&client).unwrap().kind =
-            kind.map(str::to_string);
+        mux.control_clients
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clients
+            .get_mut(&client)
+            .unwrap()
+            .kind = kind.map(str::to_string);
         if agent {
             mux.bind_conversation_principal(client, "agent:test".to_string()).unwrap();
         }
@@ -450,7 +457,14 @@ mod tests {
         outbound: &BoundedOutbound,
         request: Value,
     ) -> Option<String> {
-        let writer = mux.control_clients.state.lock().unwrap().clients[&client].writer.clone();
+        let writer = mux
+            .control_clients
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clients[&client]
+            .writer
+            .clone();
         assert_eq!(try_handle(mux, client, &request.to_string(), &writer), Some(true));
         let reply: Value = serde_json::from_str(&outbound.try_pop().expect("reply")).unwrap();
         reply["error_code"].as_str().map(str::to_string)
@@ -680,7 +694,14 @@ mod tests {
     fn error_replies_carry_details_and_retryable() {
         let mux = Mux::new_for_test("apps-error-details", SurfaceOptions::default());
         let (client, outbound) = connection(&mux, Some("app"), false);
-        let writer = mux.control_clients.state.lock().unwrap().clients[&client].writer.clone();
+        let writer = mux
+            .control_clients
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clients[&client]
+            .writer
+            .clone();
         let mut error = crate::apps::ApiError::new("cmux.cloud.not_found", "no such machine");
         error.details = Some(json!({ "status": 404, "upstream_code": "vm_not_found" }));
         error.retryable = true;
@@ -709,7 +730,14 @@ mod tests {
     fn a_cancel_request_is_answered_on_the_apps_door() {
         let mux = Mux::new_for_test("apps-cancel-request", SurfaceOptions::default());
         let (cli, out) = connection(&mux, Some("cli"), false);
-        let writer = mux.control_clients.state.lock().unwrap().clients[&cli].writer.clone();
+        let writer = mux
+            .control_clients
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clients[&cli]
+            .writer
+            .clone();
         let cancel =
             json!({ "id": "cancel-request-1", "cmd": "cancel-request", "target": "apps-run-1" });
         assert_eq!(try_handle(&mux, cli, &cancel.to_string(), &writer), Some(true));

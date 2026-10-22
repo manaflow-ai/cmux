@@ -11,6 +11,7 @@ use super::origin_gate;
 use super::paired_surface_size;
 use crate::WorkspaceMutation;
 use crate::resource::ResourceOperation;
+use crate::server::wire_values::JsonFields;
 
 use crate::AgentRecord;
 use crate::AgentSource;
@@ -76,7 +77,7 @@ pub(super) fn put_frontend_projection(
         &projection,
     )?;
     let mut value = serde_json::to_value(commit.projection)?;
-    value["replayed"] = json!(commit.replayed);
+    value.set_field("replayed", json!(commit.replayed));
     Ok(value)
 }
 

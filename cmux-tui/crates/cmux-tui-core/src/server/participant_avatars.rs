@@ -19,6 +19,7 @@
 //! A committed change publishes `participant-avatar-changed` on `subscribe`
 //! to the connections that echoed `participant-avatars-v1`.
 
+use crate::server::wire_values::JsonFields;
 use std::sync::Arc;
 
 use base64::Engine as _;
@@ -97,7 +98,7 @@ fn answer(mux: &Mux, client: u64, request: &ParsedResourceRequest) -> Result<Val
         let mut written =
             chief_registry_resource::set_chief_avatar(mux, client, &chief_fields, key)?;
         let avatar = written.pointer("/value/avatar").cloned().unwrap_or(Value::Null);
-        written["value"] = json!({"participant_id": participant, "avatar": avatar});
+        written.set_field("value", json!({"participant_id": participant, "avatar": avatar}));
         return Ok(written);
     }
     reader(mux, client, operation)?;

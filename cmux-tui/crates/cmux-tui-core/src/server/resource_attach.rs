@@ -92,12 +92,44 @@ pub(super) struct SidebarResourceAttachStart {
 pub(super) fn resource_stream_id(
     request: &crate::resource_router::ParsedResourceRequest,
 ) -> Result<StreamPublicId, ResourceError> {
-    serde_json::from_value(request.fields["stream_id"].clone()).map_err(|_| {
-        ResourceError::selector_invalid(
-            "stream",
-            request.fields["stream_id"].as_str().unwrap_or(""),
-            "expected an opaque stream id",
-        )
+    let field = request.fields.get("stream_id").cloned().unwrap_or(Value::Null);
+    let selector = field.as_str().unwrap_or("").to_owned();
+    serde_json::from_value(field).map_err(|_| {
+        ResourceError::selector_invalid("stream", &selector, "expected an opaque stream id")
+    })
+}
+
+/// A paired optional size from validated request fields. The catalog checks
+/// both fields; a request that still breaks the pairing or range is a
+/// validation error, never a panic.
+fn paired_attach_size<T: TryFrom<u64>>(
+    request: &crate::resource_router::ParsedResourceRequest,
+    first: &str,
+    second: &str,
+) -> Result<Option<(T, T)>, ResourceError> {
+    let number = |field: &str, value: &Value| {
+        value.as_u64().and_then(|value| T::try_from(value).ok()).ok_or_else(|| {
+            ResourceError::validation_invalid(Some(field), "expected an in-range integer")
+        })
+    };
+    match (request.fields.get(first), request.fields.get(second)) {
+        (Some(a), Some(b)) => Ok(Some((number(first, a)?, number(second, b)?))),
+        (None, None) => Ok(None),
+        (Some(_), None) => Err(ResourceError::validation_invalid(
+            Some(second),
+            format!("{second} is required with {first}"),
+        )),
+        (None, Some(_)) => Err(ResourceError::validation_invalid(
+            Some(first),
+            format!("{first} is required with {second}"),
+        )),
+    }
+}
+
+/// The lease every successful surface attach mints, or a typed error.
+fn minted_lease(operation: &str, lease: Option<String>) -> Result<String, ResourceError> {
+    lease.ok_or_else(|| {
+        ResourceError::operation_failed(operation, "resource attach minted no lease", json!({}))
     })
 }
 
@@ -270,16 +302,7 @@ pub(super) fn prepare_terminal_resource_attach(
     let operation = "terminal.attach";
     let (terminal_id, surface) = resource_terminal_surface(mux, &request.selectors)?;
     let stream_id = resource_stream_id(request)?;
-    let initial_size = match (request.fields.get("cols"), request.fields.get("rows")) {
-        (Some(cols), Some(rows)) => Some((
-            u16::try_from(cols.as_u64().expect("catalog validates terminal attach cols"))
-                .expect("catalog validates uint16"),
-            u16::try_from(rows.as_u64().expect("catalog validates terminal attach rows"))
-                .expect("catalog validates uint16"),
-        )),
-        (None, None) => None,
-        _ => unreachable!("catalog validates paired terminal attach size"),
-    };
+    let initial_size = paired_attach_size::<u16>(request, "cols", "rows")?;
     // A read-only attach watches: its size never reaches terminal sizing.
     let read_only = request.fields.get("read_only").and_then(Value::as_bool).unwrap_or(false);
     let initial_size = if read_only { None } else { initial_size };
@@ -312,10 +335,17 @@ pub(super) fn prepare_terminal_resource_attach(
             return Err(ResourceError::operation_failed(operation, error.to_string(), json!({})));
         }
     };
+    let lease = match minted_lease(operation, marked.lease) {
+        Ok(lease) => lease,
+        Err(error) => {
+            cleanup_resource_attach(mux, client, &common);
+            return Err(error);
+        }
+    };
     Ok((
         json!({
             "stream_id":stream_id,
-            "attachment_lease":marked.lease.expect("resource attach always mints a lease"),
+            "attachment_lease":lease,
         }),
         TerminalResourceAttachStart { common, terminal_id, attach },
     ))
@@ -326,11 +356,12 @@ fn terminal_resource_snapshot(
     terminal_id: &TerminalPublicId,
     frame: &SurfaceRenderFrame,
 ) -> Value {
-    let mut render = serde_json::to_value(render_state_message(render_service, 0, frame))
-        .expect("render snapshot serializes");
-    let render = render.as_object_mut().expect("render snapshot is an object");
-    render.remove("event");
-    render.remove("surface");
+    let mut render =
+        serde_json::to_value(render_state_message(render_service, 0, frame)).unwrap_or_default();
+    if let Some(fields) = render.as_object_mut() {
+        fields.remove("event");
+        fields.remove("surface");
+    }
     json!({
         "kind":"snapshot",
         "terminal_id":terminal_id,
@@ -343,13 +374,13 @@ fn terminal_resource_patch(
     state: &mut RenderClientState,
     frame: &SurfaceRenderFrame,
 ) -> Value {
-    let mut render =
-        serde_json::to_value(state.delta_message(0, frame)).expect("render patch serializes");
-    let render = render.as_object_mut().expect("render patch is an object");
-    render.remove("event");
-    render.remove("surface");
-    let full_reset = render.remove("full").expect("render patch contains full");
-    render.insert("full_reset".to_string(), full_reset);
+    let mut render = serde_json::to_value(state.delta_message(0, frame)).unwrap_or_default();
+    if let Some(fields) = render.as_object_mut() {
+        fields.remove("event");
+        fields.remove("surface");
+        let full_reset = fields.remove("full").unwrap_or(Value::Bool(true));
+        fields.insert("full_reset".to_string(), full_reset);
+    }
     json!({
         "kind":"patch",
         "terminal_id":terminal_id,
@@ -545,9 +576,14 @@ fn browser_snapshot_for_id(
     mux: &Mux,
     browser_id: &BrowserPublicId,
 ) -> Result<Value, ResourceError> {
-    crate::resource_api::public_session_snapshot(mux)?["browsers"]
-        .as_array()
-        .and_then(|browsers| browsers.iter().find(|browser| browser["id"] == browser_id.as_str()))
+    crate::resource_api::public_session_snapshot(mux)?
+        .get("browsers")
+        .and_then(Value::as_array)
+        .and_then(|browsers| {
+            browsers.iter().find(|browser| {
+                browser.get("id").and_then(Value::as_str) == Some(browser_id.as_str())
+            })
+        })
         .cloned()
         .ok_or_else(|| ResourceError::not_found("browser", browser_id.as_str()))
 }
@@ -561,17 +597,8 @@ pub(super) fn prepare_browser_resource_attach(
     let operation = "browser.attach";
     let (browser_id, surface) = resource_browser_surface(mux, &request.selectors)?;
     let stream_id = resource_stream_id(request)?;
-    let initial_size = match (request.fields.get("width_px"), request.fields.get("height_px")) {
-        (Some(width), Some(height)) => Some(browser_cells_for_pixels(
-            mux,
-            u32::try_from(width.as_u64().expect("catalog validates browser attach width"))
-                .expect("catalog validates uint32"),
-            u32::try_from(height.as_u64().expect("catalog validates browser attach height"))
-                .expect("catalog validates uint32"),
-        )),
-        (None, None) => None,
-        _ => unreachable!("catalog validates paired browser attach size"),
-    };
+    let initial_size = paired_attach_size::<u32>(request, "width_px", "height_px")?
+        .map(|(width, height)| browser_cells_for_pixels(mux, width, height));
     let (common, marked) = prepare_resource_surface_attach(
         mux,
         client,
@@ -582,14 +609,12 @@ pub(super) fn prepare_browser_resource_attach(
         initial_size,
     )?;
     if let Some(reservation) = marked.resize_reservation
-        && let Err(error) = wait_for_initial_browser_resize(
-            marked
-                .resize_completion
-                .as_ref()
-                .expect("sized browser attach has a completion receiver"),
-            surface.id,
-            reservation,
-        )
+        && let Err(error) = match marked.resize_completion.as_ref() {
+            Some(completion) => {
+                wait_for_initial_browser_resize(completion, surface.id, reservation)
+            }
+            None => Err(anyhow::anyhow!("sized browser attach has no completion receiver")),
+        }
     {
         cleanup_resource_attach(mux, client, &common);
         return Err(ResourceError::operation_failed(operation, error.to_string(), json!({})));
@@ -605,6 +630,13 @@ pub(super) fn prepare_browser_resource_attach(
             return Err(error);
         }
     };
+    let lease = match minted_lease(operation, marked.lease) {
+        Ok(lease) => lease,
+        Err(error) => {
+            cleanup_resource_attach(mux, client, &common);
+            return Err(error);
+        }
+    };
     let (width_px, height_px) = browser_pixels_for_cells(mux, initial.cols, initial.rows);
     let snapshot = json!({
         "kind":"snapshot",
@@ -614,7 +646,7 @@ pub(super) fn prepare_browser_resource_attach(
     Ok((
         json!({
             "stream_id":stream_id,
-            "attachment_lease":marked.lease.expect("resource attach always mints a lease"),
+            "attachment_lease":lease,
         }),
         BrowserResourceAttachStart { common, initial, frames, snapshot },
     ))
@@ -712,7 +744,13 @@ pub(super) fn start_browser_resource_attach(
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                 }
-                let update = std::mem::take(&mut *start.frames.slot.lock().unwrap());
+                let update = std::mem::take(
+                    &mut *start
+                        .frames
+                        .slot
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner),
+                );
                 let mut items = Vec::with_capacity(2);
                 if let Some(state) = update.state.as_ref() {
                     items.push(browser_resource_state(state));

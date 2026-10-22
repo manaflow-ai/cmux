@@ -75,7 +75,7 @@ impl LaunchSnapshotWriter {
 
     fn signal_stop(&self) {
         self.stop.store(true, Ordering::Release);
-        self.events.lock().unwrap().close();
+        self.events.lock().unwrap_or_else(std::sync::PoisonError::into_inner).close();
         if let Some(mux) = self.mux.upgrade() {
             mux.set_launch_snapshot_path(None);
         }
@@ -113,7 +113,8 @@ pub fn start_launch_snapshot_writer_with(
     let thread_stop = stop.clone();
     let thread_writes = writes.clone();
     let shared_events = events.clone();
-    let mut thread_events = events.lock().unwrap().clone();
+    let mut thread_events =
+        events.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
     let thread =
         std::thread::Builder::new().name("mux-launch-snapshot".into()).spawn(move || {
             // Write once at start, so a relaunch finds the current layout even
@@ -174,7 +175,8 @@ pub fn start_launch_snapshot_writer_with(
                         // The mailbox overflowed: resubscribe and write again.
                         let Some(mux) = weak.upgrade() else { break };
                         thread_events = mux.subscribe_launch_snapshot();
-                        *shared_events.lock().unwrap() = thread_events.clone();
+                        *shared_events.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                            thread_events.clone();
                         last_change = Instant::now();
                         dirty_since.get_or_insert(last_change);
                     }
@@ -201,8 +203,10 @@ fn launch_snapshot_value(mux: &Mux, include_projections: bool) -> anyhow::Result
     let personal = match mux.personal_snapshot() {
         Ok(personal) => {
             let mut personal = serde_json::to_value(personal)?;
-            for profile in personal["profiles"].as_array_mut().into_iter().flatten() {
-                if let Some(defaults) = profile["defaults"].as_object_mut() {
+            for profile in
+                personal.get_mut("profiles").and_then(Value::as_array_mut).into_iter().flatten()
+            {
+                if let Some(defaults) = profile.get_mut("defaults").and_then(Value::as_object_mut) {
                     defaults.remove("env");
                 }
             }

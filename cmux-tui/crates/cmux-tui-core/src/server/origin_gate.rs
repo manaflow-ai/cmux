@@ -540,7 +540,8 @@ mod test_hooks {
     use crate::request_origin::ConnectionOrigin;
 
     fn with_origin(mux: &Arc<Mux>, client: u64, change: impl FnOnce(&mut ConnectionOrigin)) {
-        let mut state = mux.control_clients.state.lock().unwrap();
+        let mut state =
+            mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         change(&mut state.clients.get_mut(&client).expect("registered client").origin);
     }
 
@@ -576,7 +577,8 @@ mod test_hooks {
 
     pub(in crate::server) fn role_for_test(mux: &Arc<Mux>, client: u64) -> String {
         let role = {
-            let state = mux.control_clients.state.lock().unwrap();
+            let state =
+                mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             state.clients.get(&client).map_or(HelloRole::Legacy, |record| record.origin.role)
         };
         match role {

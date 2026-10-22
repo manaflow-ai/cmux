@@ -58,7 +58,7 @@ impl OutboundStream {
     }
 
     pub(super) fn update_overflow(&self, text: Arc<BudgetedText>) {
-        *self.overflow_text.lock().unwrap() = text;
+        *self.overflow_text.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = text;
     }
 }
 
@@ -341,7 +341,8 @@ impl MessageWriter {
     }
 
     pub(super) fn register_wait_wakeup(&self, wake: &Arc<ResourceWaitWake>) {
-        let mut wakeups = self.wait_wakeups.lock().unwrap();
+        let mut wakeups =
+            self.wait_wakeups.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         wakeups.retain(|registered| registered.strong_count() > 0);
         if self.is_open() {
             wakeups.push(Arc::downgrade(wake));
@@ -353,7 +354,9 @@ impl MessageWriter {
 
     pub(super) fn close_with(&self, preserve_control: bool) {
         if self.open.swap(false, Ordering::AcqRel) {
-            let wakeups = std::mem::take(&mut *self.wait_wakeups.lock().unwrap());
+            let wakeups = std::mem::take(
+                &mut *self.wait_wakeups.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
+            );
             for wake in wakeups.into_iter().filter_map(|wake| wake.upgrade()) {
                 wake.notify();
             }
@@ -368,7 +371,9 @@ impl MessageWriter {
 
     pub(super) fn abort(&self) {
         if self.open.swap(false, Ordering::AcqRel) {
-            let wakeups = std::mem::take(&mut *self.wait_wakeups.lock().unwrap());
+            let wakeups = std::mem::take(
+                &mut *self.wait_wakeups.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
+            );
             for wake in wakeups.into_iter().filter_map(|wake| wake.upgrade()) {
                 wake.notify();
             }

@@ -5,6 +5,7 @@
 use super::{ClientRegistry, ClientTransport};
 use crate::request_origin::RequestOrigin;
 use crate::resource::MachinePublicId;
+use crate::server::wire_values::JsonFields;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -95,7 +96,7 @@ impl Publication {
 
     fn capability(value: &str) -> bool {
         (1..=64).contains(&value.len())
-            && value.as_bytes()[0].is_ascii_lowercase()
+            && value.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
             && value
                 .bytes()
                 .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"._-".contains(&b))
@@ -106,10 +107,12 @@ impl Publication {
             .iter()
             .filter_map(|machine| {
                 let mut value = serde_json::to_value(machine).ok()?;
-                value["connectable"] =
-                    json!(matches!(machine.status, Status::Running | Status::Connecting));
-                value["deleted"] = json!(false);
-                value["recoverable"] = json!(false);
+                value.set_field(
+                    "connectable",
+                    json!(matches!(machine.status, Status::Running | Status::Connecting)),
+                );
+                value.set_field("deleted", json!(false));
+                value.set_field("recoverable", json!(false));
                 Some(value)
             })
             .collect()

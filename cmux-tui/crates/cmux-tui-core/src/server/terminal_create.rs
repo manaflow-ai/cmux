@@ -182,7 +182,12 @@ impl ConnectionSurfaceScheduler {
             creating_terminal,
         });
         self.begin_creation();
-        self.creations.state.lock().unwrap().slots.push_back(slot.clone());
+        self.creations
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .slots
+            .push_back(slot.clone());
         let scheduler = self.clone();
         let job_mux = mux.clone();
         let job_writer = writer.clone();
@@ -193,7 +198,8 @@ impl ConnectionSurfaceScheduler {
             crate::debug_spans::mark("prelaunch.done");
             let trace = crate::debug_spans::take();
             *slot.trace.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = trace;
-            *slot.launched.lock().unwrap() = Some(launched);
+            *slot.launched.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                Some(launched);
             scheduler.commit_ready_creations(&job_mux, client, &job_writer);
         });
         if let Err(job) = mux.submit_terminal_work(job) {
@@ -215,19 +221,26 @@ impl ConnectionSurfaceScheduler {
     ) {
         loop {
             let slot = {
-                let mut queue = self.creations.state.lock().unwrap();
+                let mut queue =
+                    self.creations.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 if queue.committing {
                     return;
                 }
                 let Some(head) = queue.slots.front() else { return };
-                if head.launched.lock().unwrap().is_none() {
+                if head.launched.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_none()
+                {
                     return;
                 }
+                let Some(slot) = queue.slots.pop_front() else { return };
                 queue.committing = true;
-                queue.slots.pop_front().expect("the head slot is present")
+                slot
             };
             let keep_open = self.commit_creation(mux, client, &slot, writer);
-            self.creations.state.lock().unwrap().committing = false;
+            self.creations
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .committing = false;
             self.finish_creation();
             if !keep_open {
                 self.close();
@@ -242,8 +255,13 @@ impl ConnectionSurfaceScheduler {
         slot: &CreationSlot,
         writer: &MessageWriter,
     ) -> bool {
-        let launched = slot.launched.lock().unwrap().take().flatten();
-        let pending = slot.request.lock().unwrap().take();
+        let launched = slot
+            .launched
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+            .flatten();
+        let pending = slot.request.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
         let trace = slot.trace.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
         crate::debug_spans::install(trace);
         crate::debug_spans::mark("commit.start");
@@ -290,11 +308,11 @@ impl ConnectionSurfaceScheduler {
     }
 
     fn begin_creation(&self) {
-        self.state.lock().unwrap().active_creations += 1;
+        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).active_creations += 1;
     }
 
     fn finish_creation(&self) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.active_creations -= 1;
         self.changed.notify_all();
     }

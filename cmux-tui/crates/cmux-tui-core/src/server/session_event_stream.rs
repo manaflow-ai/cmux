@@ -16,6 +16,7 @@ use crate::resource::ResourceError;
 use crate::resource::ResourceOperation;
 use crate::resource::StreamPublicId;
 use crate::resource::WireDecimal;
+use crate::server::wire_values::JsonFields;
 use crate::state::placement_shift::CAPABILITY as PLACEMENT_SHIFT_CAPABILITY;
 use crate::state::placement_shift::PlacementShift;
 use crate::stream_interrupt::StreamInterrupt;
@@ -46,20 +47,27 @@ pub(super) fn prepare_session_event_stream(
     let stream_id = resource_stream_id(request)?;
     let epoch = mux.resource_event_epoch();
     let snapshot = resource_session_snapshot(mux, client, &request.selectors)?;
-    let snapshot_cursor = snapshot["cursor"].clone();
-    let snapshot_generation = snapshot_cursor["generation"]
-        .as_str()
-        .expect("public snapshot cursor generation")
-        .to_string();
-    let snapshot_revision = snapshot_cursor["revision"]
+    let snapshot_cursor = snapshot.field("cursor").clone();
+    let cursor_missing = || {
+        ResourceError::operation_failed(
+            request.envelope.operation.wire_name(),
+            "the session snapshot has no valid cursor",
+            json!({}),
+        )
+    };
+    let snapshot_generation =
+        snapshot_cursor.field("generation").as_str().ok_or_else(cursor_missing)?.to_string();
+    let snapshot_revision = snapshot_cursor
+        .field("revision")
         .as_str()
         .and_then(|revision| revision.parse::<u64>().ok())
-        .expect("public snapshot cursor revision");
+        .ok_or_else(cursor_missing)?;
     let requested_cursor = request
         .fields
         .get("cursor")
         .map(|cursor| {
-            let generation = cursor["generation"]
+            let generation = cursor
+                .field("generation")
                 .as_str()
                 .ok_or_else(|| {
                     ResourceError::validation_invalid(
@@ -68,7 +76,7 @@ pub(super) fn prepare_session_event_stream(
                     )
                 })?
                 .to_string();
-            let revision = serde_json::from_value::<WireDecimal>(cursor["revision"].clone())
+            let revision = serde_json::from_value::<WireDecimal>(cursor.field("revision").clone())
                 .map(WireDecimal::get)
                 .map_err(|_| {
                     ResourceError::validation_invalid(Some("cursor"), "cursor revision is invalid")
@@ -448,7 +456,7 @@ fn delta_item(
     {
         let all = current_placements(mux, generation)?;
         for mut change in crate::state::placement_shift::restatement(&all, shift) {
-            change["sequence"] = json!(array.len());
+            change.set_field("sequence", json!(array.len()));
             array.push(change);
         }
     }
