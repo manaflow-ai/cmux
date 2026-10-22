@@ -5,7 +5,8 @@ import Testing
 @testable import CmuxHomeRender
 
 /// The Chief's team speaks in voices (optchat-chief `voice.rs`): a front desk
-/// receipt and the Chief's own reply read as two voices of one Chief.
+/// line (a subagent's approval relay) and the Chief's own reply read as two
+/// voices of one Chief.
 @MainActor
 @Suite struct VoiceLabelTests {
     private func names(_ c: HomeController) -> [String] {
@@ -14,19 +15,19 @@ import Testing
 
     private func desk(_ seq: Seq, _ text: String, at seconds: TimeInterval) -> Message {
         Message(id: MessageID("msg_\(seq)"), conversation: Fixtures.conversation, seq: seq,
-                clientMessageID: IdempotencyKey("voice:desk:turn:optchat:\(seq):1"),
+                clientMessageID: IdempotencyKey("voice:desk:approval:p\(seq)"),
                 author: Fixtures.chief, parts: [.text(text)], createdAt: Fixtures.start.addingTimeInterval(seconds))
     }
 
-    @Test func aDeskReceiptAndTheChiefsReplyAreTwoLabeledRuns() {
+    @Test func aDeskLineAndTheChiefsReplyAreTwoLabeledRuns() {
         let messages = [Fixtures.message(1, Fixtures.me, "hello?", at: 0),
-                        desk(2, "Got it. The Chief is busy with a turn and reads your message next.", at: 5),
+                        desk(2, "a1 waits for your approval to run git push: use the Allow button in its workspace.", at: 5),
                         Fixtures.message(3, Fixtures.chief, "Done: the sidebar is fixed.", at: 60)]
         let c = Fixtures.controller(height: 800)
         c.update(items: Fixtures.items(messages), summary: Fixtures.summary(), typing: [], hasOlder: false)
         #expect(names(c) == ["Front desk", "Chief"], "one Chief, two voices, in a one-to-one chat")
         let tails = c.scene.model.rows.map(\.spec).compactMap { $0.partRow?.tail }
-        #expect(tails == [true, true, true], "the receipt and the reply each end their own run")
+        #expect(tails == [true, true, true], "the desk line and the reply each end their own run")
     }
 
     @Test func theChiefAloneStaysUnlabeledInAOneToOneChat() {

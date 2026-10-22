@@ -26,14 +26,15 @@ pub const CANCEL_RESEND: Duration = Duration::from_secs(1);
 /// which acpmux sends after it and which alone carries the token use.
 pub const ANSWER_WAIT: Duration = Duration::from_secs(10);
 
-/// A human message arrived during the turn (decision 2026-10-04: interrupt
-/// at once, even mid-thinking; a running tool call finishes first). The
-/// brain requests it; the turn's runner acts on it.
+/// A stop for the turn: the owner's new message (Lawrence 2026-10-21:
+/// "we need to immediately interrupt"), chief.stop or the Chief's own stop.
+/// The brain requests it; the turn's runner acts on it.
 #[derive(Default)]
 pub struct Interrupt {
     wanted: AtomicBool,
-    /// The owner stopped the turn: cancel at once, even while a tool call
-    /// waits (`request_hard`), never only at the next tool boundary.
+    /// The owner stopped the turn or sent a new message: cancel at once,
+    /// even while a tool call waits (`request_hard`), never only at the
+    /// next tool boundary.
     hard: AtomicBool,
     /// The turn carries another person's text: the native engine refuses
     /// its local effects (README "Remote-origin messages").

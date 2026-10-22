@@ -30,25 +30,33 @@ Two engines run a turn (`OPTCHAT_CHIEF_ENGINE`):
   AskUserQuestion, EnterPlanMode and ExitPlanMode: acpmux keeps those for a
   human under every policy, and nobody answers them in a turn.
 
-A message sent while a turn works never stops it, on any engine (decision
-2026-10-09, parity with the reference client; it replaces the 2026-10-04
-stop). On the acpmux engine the brain steers the message into the running
-session (`brain/steer.rs`): acpmux's Claude Code adapter writes it to
-claude's stdin, where Claude Code reads it at its next tool boundary
-(`--replay-user-messages` confirms it), and codex-acp takes it as a steer;
-the turn's one reply answers it too. Every message is sent at once, in
-order, and logged as `user` where it arrived: when Claude Code read it, and
-at once on codex-acp (which answers a steer only at the turn's end). A
-message too big to go in whole (over the view's 128,000 bytes or 20 images)
-is not steered. When the turn cannot take it (its session has not started,
-an item of another conversation is ahead, or acpmux refuses the steer), the
-message waits at the head of the queue and the next turn starts the moment
-this one ends. The native engine delivers it after the next tool results,
-or the next turn takes it. Messages that arrive while a turn waits for
-settle go into that same call. Subagent reports
-follow the same rule. Only chief.stop stops a turn: the runner waits until
-no tool call runs, then sends `session/cancel` every second until the turn
-ends, and the end posts nothing to the chat or any bridge.
+The owner's message sent while an acpmux turn works stops that turn at once
+and the next turn answers it (Lawrence 2026-10-21: "we need to immediately
+interrupt and steer / no fake messages"; it replaces the 2026-10-09 rule
+that a message never stops a turn, and the host's "busy" receipt is gone).
+The runner sends `session/cancel` at once, even while a tool call runs, and
+again every second until the turn ends; the stopped turn posts nothing (its
+steps are in the log), and the next fresh turn starts the moment it ends
+with every message that came, and the view of everything the stopped turn
+did. The message is never also steered into the turn it stops, so it is
+answered once. Messages that arrive while a turn waits for settle go into
+that same call. The native engine delivers it after the next tool results.
+
+Subagents' reports and other people's messages never stop a turn (another
+person's text never cuts the owner's work short). On the acpmux engine the brain steers
+them into the running session (`brain/steer.rs`): acpmux's Claude Code
+adapter writes them to claude's stdin, where Claude Code reads them at its
+next tool boundary (`--replay-user-messages` confirms it), and codex-acp
+takes them as a steer; the turn's one reply answers them too. Every report
+is sent at once, in order, and logged as `user` where it arrived: when
+Claude Code read it, and at once on codex-acp (which answers a steer only
+at the turn's end). One too big to go in whole (over the view's 128,000
+bytes or 20 images) is not steered. When the turn cannot take it (its
+session has not started, an item of another conversation is ahead, acpmux
+refuses the steer, or the owner's message is stopping the turn), it waits at
+the head of the queue and the next turn starts the moment this one ends.
+chief.stop stops a turn the same way the owner's message does, and its end
+posts nothing to the chat or any bridge.
 
 ## Several Chiefs and channels
 
@@ -1290,10 +1298,11 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
 - **acpmux engine: cache marker.** Claude Code places 3 of the 4
   breakpoints, so a turn adds one, on the last whole 4-line block; codex
   has only automatic prefix caching (see Harnesses and cache layout).
-- **Messages during a turn (section 7, MASTER).** Delivered at the next tool
-  boundary, as the spec says (see the top of this file); a turn that cannot
-  take one is never stopped for it, and the next turn answers. A turn past
-  its limit is stopped, and chief.stop stops a turn on request.
+- **Messages during a turn (section 7, MASTER).** On the acpmux engine the
+  owner's message stops the running turn at once and the next turn answers
+  it (see the top of this file); subagents' reports and other people's
+  messages are delivered at the next tool boundary, as the spec says. A turn past its limit is stopped, and
+  chief.stop stops a turn on request.
 - **cmux routing.** Every turn, the native bash tool, the acpmux daemon the
   host starts and each child's preset carry `CMUX_TUI_SOCKET` and
   `CMUX_MUX_SOCKET` set to the app's daemon (`CMUX_APP_DAEMON_SOCKET`, else

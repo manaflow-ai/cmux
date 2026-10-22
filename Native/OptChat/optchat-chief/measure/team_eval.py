@@ -11,18 +11,18 @@ or runs a fleet step: `gh` and `cmux-ci` are stubs on the run's PATH that
 record their calls.
 
 Arms (the profile and env differ, nothing else):
-  A   Chief heads-down: no spawn or tell, receipts off.
-  B   Front desk always delegates: receipts on, spawn and tell, every task to
-      a subagent.
-  B2  Front desk may act: receipts on, spawn and tell, and the rule that work
-      fitting a few quick tool calls is done inline, the rest handed off.
+  A   Chief heads-down: no spawn or tell.
+  B   Front desk always delegates: spawn and tell, every task to a subagent.
+  B2  Front desk may act: spawn and tell, and the rule that work fitting a
+      few quick tool calls is done inline, the rest handed off.
+  (The host's "busy" receipt is gone (2026-10-21): in every arm a person's
+  message to a busy Chief stops its turn at once and the next turn answers.)
   A-steer  A, and a follow-up sent while a turn runs interrupts it: the
       eval presses the owner's stop (`cmux chief stop`, chief.stop, as
       Ctrl+C in the chat does), waits for the turn to end, then posts the
-      message, so a fresh turn answers it at once. (Every Chief arm already
-      steers a message into the running turn at its next tool boundary,
-      but the turn answers only at its end; the steer that stops the
-      current step, acpmux's `steerNow`, is not reachable from the Chief.)
+      message, so a fresh turn answers it at once. (Since 2026-10-21 the
+      Chief host does the same itself in every arm; this arm stays to
+      compare with runs from before.)
   L   Lossy heads-down: no Chief. One plain Claude Code session (stream-json,
       as acpmux runs Claude Code) in the task repo, with its own
       auto-compaction; a message sent while it works is read at its next
@@ -137,10 +137,9 @@ CHIEF = "agent_mux"
 DESK_PREFIX = "voice:desk:"
 
 ARMS = {
-    "A": {"tools": "", "grace": "0", "rule": ""},
+    "A": {"tools": "", "rule": ""},
     "B": {
         "tools": "spawn,tell",
-        "grace": "5",
         "rule": (
             "You are the front desk and the dispatcher of this Chief. Answer every message from "
             "the person quickly. You never do the task's work yourself: every piece of work goes "
@@ -150,7 +149,6 @@ ARMS = {
     },
     "B2": {
         "tools": "spawn,tell",
-        "grace": "5",
         "rule": (
             "You are the front desk and the dispatcher of this Chief. Answer every message from "
             "the person quickly. Do the work yourself when it fits in a few quick tool calls: a "
@@ -363,8 +361,8 @@ def timeline(sent, messages, arrivals):
     """The numbers that need no judge. `sent` maps a prompt id (brief, then
     follow-up ids) to the ms it was posted; `messages` are the conversation's
     messages; `arrivals` maps a message id to the ms this run first saw it.
-    For each prompt: the first Chief message after it (a desk receipt counts
-    here and is marked), and the first one that is not a receipt."""
+    For each prompt: the first Chief message after it (a front desk line,
+    voice `desk`, counts here and is marked), and the first one that is not."""
     chief = sorted(
         ((arrivals.get(m["id"], 0), m) for m in messages if m.get("author") == CHIEF and text_of(m).strip()),
         # Messages seen in the same ms keep their conversation order.
@@ -446,7 +444,7 @@ def p50(xs):
 
 def attributed_replies(sent, starts, messages, arrivals):
     """Each prompt's first reply that can only be its own: the first Chief
-    message (a desk receipt too) after the agent started on the prompt and
+    message (a front desk line too) after the agent started on the prompt and
     after the reply credited to the prompt before it, so an answer to an
     earlier prompt is never a later one's. {pid: (ms after sent, or None;
     unattributable)}: unattributable when the start was never seen, so no
@@ -1766,7 +1764,6 @@ def run(opts):
         host_env = dict(base_env, MUX_HOME=mux, MUX_AGENT_TOKEN_FILE=tok_file, ACPMUX_HOME=acpmux_home,
                         ACPMUX_SOCKET=os.path.join(acpmux_home, "acpmux.sock"), ACPMUX_BIN=os.path.join(bins, "acpmux"),
                         MUX_HARNESS="claude", CMUX_DAEMON_SOCKET=sock, OPTCHAT_BACKUP_REMOTE="off",
-                        OPTCHAT_DESK_GRACE_SECONDS=arm["grace"],
                         # Whole tool args in the trace: the pin reads each spawn's effort,
                         # the leak scan what the agents searched and fetched.
                         OPTCHAT_TRACE_FULL="1",

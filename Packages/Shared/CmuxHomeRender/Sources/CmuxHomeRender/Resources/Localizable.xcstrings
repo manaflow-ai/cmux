@@ -6294,7 +6294,7 @@
       }
     },
     "label.voice.desk": {
-      "comment": "Label above a message from the Chief's front desk: the part of the Chief that answers at once while the Chief is busy.",
+      "comment": "Label above a message from the Chief's front desk: the Chief host's own lines to the person, such as a subagent waiting for their approval.",
       "extractionState": "manual",
       "localizations": {
         "en": {

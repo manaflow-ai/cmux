@@ -3,8 +3,9 @@
 //! queue of new messages and runs the turn loop of section 7:
 //!
 //! ```text
-//! on message: if a call is running: deliver it between tool calls
-//!             else: queue.push(text); if idle: turn()
+//! on message: queue.push(text); if a call is running: stop it (the
+//!             owner's message) or deliver it between tool calls (a
+//!             report, another person's); if idle: turn()
 //! turn: settle (worker) -> take the queue -> render the view -> log the
 //!       messages as `user` -> fresh call (worker) -> post the reply
 //! ```
@@ -12,19 +13,18 @@
 //! Delivery between tool calls depends on the engine. The native engine
 //! (`Engine::Native`, the host's own Messages API loop) asks the brain for
 //! queued messages at every tool boundary, so MASTER's "messages the user
-//! sends while you work reach you between tool calls" holds. The acpmux
-//! engine steers the message into the running session (`steer.rs`; acpmux's
-//! Claude Code adapter writes it to claude's stdin, read at the next tool
-//! boundary). A session that cannot steer (another harness, an older
-//! acpmux) stops the running turn (`session/cancel`; its steps are already
-//! in the log) and the next fresh turn takes the message with the view of
-//! everything the stopped turn did. A turn that hangs is stopped by
-//! `Settings::turn_limit`.
+//! sends while you work reach you between tool calls" holds. On the acpmux
+//! engine the owner's message stops the running turn at once
+//! (`session/cancel`, even mid tool call; its steps are already in the log)
+//! and the next fresh turn takes the message with the view of everything
+//! the stopped turn did (Lawrence 2026-10-21: "we need to immediately
+//! interrupt and steer"). A subagent's report is steered into the running
+//! session instead (`steer.rs`; read at the next tool boundary). A turn that
+//! hangs is stopped by `Settings::turn_limit`.
 
 mod approvals;
 mod children;
 mod control;
-mod desk;
 mod drafts;
 mod engine_control;
 pub mod files;
@@ -44,7 +44,6 @@ mod spawns;
 mod steer;
 mod turns;
 mod wakes;
-pub use desk::DESK_GRACE;
 pub use replies::{REACTIONS, reaction, tapback};
 pub use turns::stuck_notice;
 
@@ -789,15 +788,6 @@ pub struct Brain {
     /// the latest at this deadline.
     handoff_at: Option<Instant>,
     handoff_wait: std::time::Duration,
-    /// How long a message waits on a running turn before the front desk's
-    /// receipt (`desk.rs`); None: no receipts.
-    desk_grace: Option<Duration>,
-    /// The receipt waiting for its grace.
-    desk: Option<desk::DeskPending>,
-    /// The turn the last receipt was for: one receipt per turn.
-    desk_told: Option<String>,
-    /// The running turn's latest activity line, by turn key.
-    turn_activity: Option<(String, String)>,
 }
 
 impl Brain {
@@ -918,10 +908,6 @@ impl Brain {
             upstream_backoff: turns::UPSTREAM_RESUME_BACKOFF.to_vec(),
             handoff_at: None,
             handoff_wait: HANDOFF_DEADLINE,
-            desk_grace: None,
-            desk: None,
-            desk_told: None,
-            turn_activity: None,
         };
         // Each cut turn runs again first, on the reference client's note;
         // its messages are in the log already and are not logged again.
@@ -1094,7 +1080,6 @@ impl Brain {
             self.resume_at,
             self.orphan_wait,
             self.handoff_at,
-            self.desk_due(),
         ]
         .into_iter()
         .flatten()
@@ -1426,7 +1411,6 @@ impl Brain {
             self.flush_outbox();
         }
         self.on_resume_timer();
-        self.on_desk_timer(now);
         if self.orphan_wait.is_some_and(|at| at <= now) {
             (self.log)("an adopted turn session ran past its wait; folding and ending it");
             self.adopt_orphans(true);
@@ -1543,19 +1527,21 @@ impl Brain {
         images: Vec<images::TurnImage>,
         source: Source,
     ) {
-        // Section 9: subagents' reports reach a working Chief between its
-        // tool calls (steered on acpmux); one that cannot reach it waits for
-        // the next turn and never stops it (decision 2026-10-09).
+        // The owner's message stops the running turn of its conversation at
+        // once, and the next turn answers it (Lawrence 2026-10-21: "we need
+        // to immediately interrupt and steer / no fake messages"). Another
+        // person's message never cuts the owner's work short: like
+        // subagents' reports (section 9) it reaches a working Chief between
+        // its tool calls (steered on acpmux) and never stops it.
+        let owner = matches!(
+            source,
+            Source::Message {
+                requires_approval: false,
+                ..
+            }
+        );
         let human = matches!(source, Source::Message { .. } | Source::Spawn(_));
         let same = self.phase == Phase::Running && self.turn_side() == conversation;
-        // A person's message to the main conversation's running turn: the
-        // front desk answers if the turn is still at it after the grace.
-        if let Source::Message { seq, .. } = &source
-            && same
-            && conversation.is_none()
-        {
-            self.desk_arm(*seq);
-        }
         let item = Queued {
             logged: false,
             text,
@@ -1565,7 +1551,9 @@ impl Brain {
         };
         let wakes = item.wakes();
         self.queue.push_back(item);
-        if human && same && wakes {
+        if same && wakes && owner {
+            self.interrupt_for_owner();
+        } else if same && wakes && human {
             self.interrupt_for_newer();
         }
         self.maybe_start_turn();

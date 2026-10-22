@@ -105,7 +105,7 @@ final class RowBuilder {
         return rows
     }
 
-    /// One author in one voice: a front desk receipt and the Chief's reply are two runs.
+    /// One author in one voice: a front desk line and the Chief's reply are two runs.
     static func sameSender(_ a: TranscriptItem, _ b: TranscriptItem) -> Bool {
         a.author == b.author && voice(a) == voice(b)
     }

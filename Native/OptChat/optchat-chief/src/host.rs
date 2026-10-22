@@ -1577,13 +1577,6 @@ fn start(
     ));
     // Finished subagents' workspaces stay, names untouched, unless this says close.
     brain.set_sub_close_on_finish(env("OPTCHAT_SUBAGENT_ON_FINISH").as_deref() == Some("close"));
-    // The front desk answers a message that waits on a running turn after
-    // 5 s (brain/desk.rs); OPTCHAT_DESK_GRACE_SECONDS=0 turns it off.
-    brain.set_desk_grace(Some(
-        env("OPTCHAT_DESK_GRACE_SECONDS")
-            .and_then(|s| s.trim().parse::<u64>().ok())
-            .map_or(crate::brain::DESK_GRACE, std::time::Duration::from_secs),
-    ));
     // Subagents that stop on a model or network error continue on their own
     // (auto_resume.rs); OPTCHAT_AUTO_RESUME=off turns it off.
     brain.set_auto_resume(crate::auto_resume::ResumePolicy::from_env(env), None);

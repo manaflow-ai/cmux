@@ -41,7 +41,7 @@ class TimelineTests(unittest.TestCase):
             msg(1, "user_local", "fix it"),
             msg(2, "agent_mux", "On it.", "turn:optchat:1:1"),
             msg(3, "user_local", "how's it going?"),
-            msg(4, "agent_mux", "Got it. The Chief is busy", "voice:desk:turn:optchat:1:1:3"),
+            msg(4, "agent_mux", "a1 waits for your approval to run git push", "voice:desk:approval:p1"),
             msg(5, "agent_mux", "Halfway: the test is red.", "turn:optchat:3:2"),
         ]
         arrivals = {"m1": 1000, "m2": 4000, "m3": 5000, "m4": 10000, "m5": 65000}
@@ -130,12 +130,12 @@ class LossyTests(unittest.TestCase):
 
 
 class ArmTests(unittest.TestCase):
-    def test_heads_down_has_no_team_tools_and_no_receipts(self):
+    def test_heads_down_has_no_team_tools(self):
         self.assertEqual(team_eval.ARMS["A"]["tools"], "")
-        self.assertEqual(team_eval.ARMS["A"]["grace"], "0")
         for arm in ("B", "B2"):
             self.assertEqual(team_eval.ARMS[arm]["tools"], "spawn,tell")
-            self.assertNotEqual(team_eval.ARMS[arm]["grace"], "0")
+        # The host's busy receipt is gone: no arm sets its grace.
+        self.assertFalse(any("grace" in arm for arm in team_eval.ARMS.values()))
 
 
 class SpendTests(unittest.TestCase):

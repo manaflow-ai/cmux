@@ -1,16 +1,21 @@
-//! Messages during an acpmux turn reach the model between its tool calls
-//! (parity item 7): the brain steers them into the running session
-//! (`AgentPort::steer`, a steered `session/prompt` with `steerOnly`); Claude
-//! Code reads them at its next tool boundary, and the turn's one reply
-//! answers them too. Every queued message goes at once, in order. They are
-//! logged as `user` where they arrived: once acpmux says Claude Code read
-//! them, and at once on a harness that answers a steer only at the turn's
-//! end (codex-acp). A message too big to go in whole (over the view's
-//! budget, or over 20 images: the reference's Memory.whole) is not steered;
-//! it waits for the next turn, which builds its node first. When the session cannot steer now (acpmux refuses, or the
-//! harness does not steer), the messages wait at the head of the queue and
-//! the next turn starts the moment this one ends. A message never stops a
-//! turn (decision 2026-10-09); only chief.stop does.
+//! Subagents' reports, other people's messages and urgent notes during an
+//! acpmux turn reach the model between its tool calls (parity item 7): the
+//! brain steers them into the running session (`AgentPort::steer`, a steered
+//! `session/prompt` with `steerOnly`); Claude Code reads them at its next
+//! tool boundary, and the turn's one reply answers them too. Every queued
+//! item goes at once, in order. They are logged as `user` where they
+//! arrived: once acpmux says Claude Code read them, and at once on a harness
+//! that answers a steer only at the turn's end (codex-acp). An item too big
+//! to go in whole (over the view's budget, or over 20 images: the
+//! reference's Memory.whole) is not steered; it waits for the next turn,
+//! which builds its node first. When the session cannot steer now (acpmux
+//! refuses, or the harness does not steer), the items wait at the head of
+//! the queue and the next turn starts the moment this one ends. A report
+//! never stops a turn. The owner's message is never steered: it stops the
+//! turn at once and the next turn answers it (`Brain::interrupt_for_owner`,
+//! Lawrence 2026-10-21: "we need to immediately interrupt and steer / no
+//! fake messages"), and nothing is steered into a turn that is stopping.
+//! chief.stop stops a turn too.
 
 use super::{Brain, Input, Phase, Queued};
 use crate::acpmux::Family;
@@ -32,9 +37,15 @@ impl Brain {
     /// session, now: the request is written on the brain thread, so steers
     /// keep their order, and its answer is awaited off it. False: this turn
     /// cannot take them now (its session not started yet, an item of
-    /// another conversation is ahead (G9: it is never passed), or the head
-    /// message is too big to go in whole); they wait for the next turn.
+    /// another conversation is ahead (G9: it is never passed), the head
+    /// message is too big to go in whole, or the owner's message is stopping
+    /// the turn); they wait for the next turn, which starts when it ends.
     pub(super) fn try_steer(&mut self) -> bool {
+        // A turn the owner's message stops: the next turn takes everything
+        // queued, so nothing is answered twice.
+        if self.stop_wanted {
+            return false;
+        }
         let Some(turn) = self.state.turn.as_ref() else {
             return false;
         };
@@ -113,8 +124,8 @@ impl Brain {
 
     /// A steer's outcome. Read: its messages are logged as `user` (in the
     /// running turn's batches when it still runs). Not delivered: they go
-    /// back to the head of the queue, and a turn that still runs is stopped
-    /// so the next one answers them.
+    /// back to the head of the queue, and the next turn starts the moment
+    /// this one ends.
     pub(super) fn steered(&mut self, id: u64, result: Result<(), String>) {
         let Some(at) = self.steering.iter().position(|s| s.id == id) else {
             return;
