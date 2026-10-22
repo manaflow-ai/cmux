@@ -8,9 +8,8 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The Update Ready card's look and preview (Leo 2026-10-20): Automatic Updates is a themed
-/// switch at the end of its row (Debug Settings brings the checkbox back), Restart to Update is
-/// the app's primary button, a click on the card pins its changelog preview open and taller, and
+/// The Update Ready card's preview (Leo 2026-10-20): a click on the card pins its changelog
+/// preview open and taller, Debug Settings can still draw Restart to Update as the primary button, and
 /// Debug Settings "Simulate pending update" shows the newest published notes, even on the newest build.
 @MainActor @Suite(.serialized) struct UpdateReadyCardStyleTests {
     final class Highlights: SidebarSurfaceIsland {
@@ -70,53 +69,6 @@ import Testing
         #expect(await eventually { !card.notesAreShown }, "the second click left the preview open")
     }
 
-    @Test func automaticUpdatesIsAThemedSwitchAtTheEndOfItsRow() throws {
-        #expect(SidebarTunables.updateCardAutomaticControl.defaultValue == .switchControl)
-        let control = SidebarUpdateToggle(frame: NSRect(x: 0, y: 0, width: 180, height: SidebarUpdateToggle.height))
-        control.configure(title: "Automatic Updates", isOn: true)
-        control.layoutSubtreeIfNeeded()
-        control.updateLayer()
-        let track = try #require(control.layer?.sublayers?.first)
-        let knob = try #require(control.layer?.sublayers?.dropFirst().first)
-        #expect(track.frame.maxX == control.bounds.maxX, "the switch is not at the end of the row")
-        #expect(track.backgroundColor == control.performWithTheme { Palette.accentFill.cgColor })
-        #expect(knob.frame.midX > track.frame.midX, "an on switch has its knob at the leading end")
-        #expect(control.accessibilitySubrole() == .switch)
-        // The switch's centre is on the label's cap-height midline (2026-10-22), not the row box's centre.
-        let capMid = control.label.frame.minY + control.label.firstBaselineOffsetFromTop - SidebarUpdateToggle.font.capHeight / 2
-        #expect(abs(track.frame.midY - capMid) <= 0.5, "the switch sits off its label's centre line")
-        control.configure(title: "Automatic Updates", isOn: false)
-        control.layoutSubtreeIfNeeded()
-        #expect(knob.frame.midX < track.frame.midX, "an off switch has its knob at the trailing end")
-        // Debug Settings' checkbox: the box in front of the label, as before.
-        control.fixedLook = .checkbox
-        control.configure(title: "Automatic Updates", isOn: true)
-        control.layoutSubtreeIfNeeded()
-        #expect(track.frame.minX == 0)
-        #expect(knob.isHidden)
-    }
-
-    /// The card's first configure (Automatic Updates on, the control fresh at off) puts the knob
-    /// in place: it never slides in from the row's corner.
-    @Test func theSwitchSlidesOnlyOnceLaidOutAndShown() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 40), styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        let control = SidebarUpdateToggle(frame: .zero)
-        control.fixedLook = .switchControl
-        window.contentView?.addSubview(control)
-        #expect(!control.canSlide, "a switch with no laid-out track would slide in from the corner")
-        control.configure(title: "Automatic Updates", isOn: true)
-        let knob = control.layer?.sublayers?.dropFirst().first
-        #expect(knob?.animationKeys() == nil, "the first configure animated the knob")
-        control.frame = NSRect(x: 0, y: 0, width: 180, height: SidebarUpdateToggle.height)
-        control.layoutSubtreeIfNeeded()
-        #expect(control.canSlide)
-        control.isHidden = true
-        #expect(!control.canSlide, "a hidden switch slides")
-    }
-
     /// Installing… (disabled) is dimmer than Restart to Update, in the accent and in the neutral
     /// primary: fading the translucent neutral fill to a fixed alpha made it about 4x as opaque.
     @Test func aDisabledPrimaryButtonIsDimmerThanAnEnabledOne() {
@@ -129,8 +81,9 @@ import Testing
         #expect(disabled < enabled, "the disabled button (alpha \(disabled)) is not dimmer than the enabled one (\(enabled))")
     }
 
-    @Test func restartToUpdateIsThePrimaryButton() {
-        #expect(SidebarTunables.updateCardButton.defaultValue == .primary)
+    /// The primary style stays a Debug Settings choice (the default is the bordered button again,
+    /// ``UpdateCardPolishTests``).
+    @Test func restartToUpdateCanStillDrawThePrimaryButton() {
         let button = SidebarUpdateButton(frame: NSRect(x: 0, y: 0, width: 180, height: SidebarUpdateButton.height))
         button.fixedStyle = .primary
         button.configure(title: "Restart to Update", enabled: true, help: nil)

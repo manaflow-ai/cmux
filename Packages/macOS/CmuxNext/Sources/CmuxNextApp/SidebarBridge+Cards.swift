@@ -68,7 +68,6 @@ enum SidebarCardFeed {
     static func handle(_ intent: SidebarIntent, services: AppServices) {
         switch intent {
         case .installUpdate: services.updater.installClicked()
-        case .setAutomaticUpdates(let on): services.updater.setAutomaticUpdates(on)
         case .openUpdateLink(let url): openUpdateLink(url, services: services)
         case .openUpdateChanges: _ = services.updater.openStagedChangelog()
         // A question waiting on the person (an agent's Cloud machine request, ``SidebarAsks``) takes its answer first.
@@ -200,7 +199,6 @@ enum SidebarCardFeed {
         let changes = notes.changes.map { SidebarUpdateCard.Change(title: $0.title, author: $0.author, linkTitle: $0.prLabel, url: $0.url) }
         return SidebarUpdateCard(
             title: card.title, detail: card.detail, seeAllTitle: card.seeAllTitle, buttonTitle: card.buttonTitle, isEnabled: !card.isInstalling,
-            automaticUpdatesTitle: card.automaticUpdatesTitle, automaticUpdates: card.automaticUpdates,
             notes: SidebarUpdateCard.Notes(headline: notes.headline, keepsRunning: notes.keepsRunning,
                                            whatsChangedTitle: notes.whatsChangedTitle, changes: changes,
                                            moreTitle: notes.moreTitle, moreURL: notes.moreURL),
