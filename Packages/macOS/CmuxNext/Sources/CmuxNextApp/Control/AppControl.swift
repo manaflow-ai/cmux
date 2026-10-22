@@ -17,6 +17,7 @@ final class AppControl {
     let watchdog = MainThreadWatchdog()
     private let frames = FrameBatcher(owner: "Control.frames")
     private let frameProbe = DebugFrameProbe()
+    private let mainCPUProbe = DebugMainCPUProbe()
     private(set) var service: ControlService?
     private var publisher: ControlSnapshotPublisher?
     private(set) var errorJournal: ErrorJournalService?
@@ -53,6 +54,7 @@ final class AppControl {
         service.router.register(KeybindingControl.methods(services: services))
         service.router.register(SettingsControl.methods(services: services))
         service.router.register(PermissionsControl.methods(services: services))
+        service.router.register(NotificationsControl.methods(services: services))
         service.router.register(SessionTransferControl.methods(services: services))
         // The error journal (`cmux errors`): app log, page consoles, acpmux, Chief, crash reports.
         let errors = ErrorJournalService.make(environment: services.environment)
@@ -76,16 +78,22 @@ final class AppControl {
         // Diagnostics for tagged DEV builds; a release build registers no debug.* method
         // (ControlRouter drops them too: Configuration.allowsDebugMethods).
         #if DEBUG
-        service.router.register(ChiefCaptureControl.methods(services: services))
+        service.router.register(DebugHibernationControl.methods(services))
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }])
         service.router.register([
             .mainActor("debug.frames") { [probe = frameProbe] call in .value(probe.handle(call.params)) },
+            // Main-thread CPU per frame against a 120 Hz frame (anim-perf-terminal.py).
+            .mainActor("debug.main_cpu") { [probe = mainCPUProbe] call in .value(probe.handle(call.params)) },
             // Measured animation spans (plans/cmux-next/motion.md).
             .mainActor("debug.motion") { [weak services] call in .value(DebugMotion.handle(call.params, services)) },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
             .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
             // Each tab switch's own time: intent to shown, and to the next frame (perf-gate.py).
             .mainActor("debug.tab_switch") { call in .value(DebugTabSwitch.timer.handle(call.params, key: "switches")) },
+            // Each pane focus move's own time: intent to settled, and to the next frame (perf-gate.py pane_focus).
+            .mainActor("debug.pane_focus") { call in .value(DebugPaneFocus.handle(call.params)) },
+            // Each workspace switch's own time: input to shown content, and to its commit (perf-budgets.py).
+            .mainActor("debug.workspace_switch") { call in .value(DebugWorkspaceSwitch.timer.handle(call.params, key: "switches")) },
             // Each new workspace's own time: the press to its sidebar row drawn, and the walks between (perf-gate.py).
             .mainActor("debug.new_workspace") { call in .value(SidebarNewRowTimer.shared.timer.handle(call.params, key: "creates")) },
             // Work per layout change: pane snapshots, applies, topology sends (bench_pane_scale.py).
@@ -314,6 +322,10 @@ final class AppControl {
             .mainActor("debug.sidebar_rows") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarRows.report(call.params, services: services))
+            },
+            .mainActor("debug.sidebar_nested_fixture") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugSidebarNestedFixture.show(call.params, services: services))
             },
             .mainActor("debug.sidebar_wheel") { [weak services] call in
                 guard let services else { return .value(.null) }

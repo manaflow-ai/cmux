@@ -9824,10 +9824,39 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "\t",
+              "modifiers" : [
+                "ctrl",
+                "shift"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "[",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        }
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "\t",
+        "modifiers" : [
+          "ctrl",
+          "shift"
+        ]
+      },
       "id" : "home.previousConversation",
       "main_menu" : "view",
       "mcp" : "focusMove",
@@ -9852,10 +9881,37 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "\t",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "]",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        }
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "\t",
+        "modifiers" : [
+          "ctrl"
+        ]
+      },
       "id" : "home.nextConversation",
       "main_menu" : "view",
       "mcp" : "focusMove",
@@ -9870,6 +9926,138 @@
       "palette_suggested" : null,
       "title" : "Next Conversation",
       "title_key" : "action.home.nextConversation",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "focusMove",
+      "cli_name" : "action home-select-conversation-by-number",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "1",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "2",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "3",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "4",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "5",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "6",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "7",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "8",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "9",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home-dock"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "family" : "digits",
+        "key" : "1",
+        "modifiers" : [
+          "ctrl"
+        ]
+      },
+      "id" : "home.selectConversationByNumber",
+      "main_menu" : null,
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Select Conversation 1…9",
+      "title_key" : "action.home.selectConversationByNumber",
       "title_table" : "HomeActions"
     },
     {
@@ -19820,9 +20008,9 @@
     {
       "cli" : "liveInput",
       "cli_name" : "sidebar open-in",
-      "context_menu" : "noTargetSurface",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "fileExplorerRow"
       ],
       "default_aliases" : [
 
@@ -19847,10 +20035,38 @@
     },
     {
       "cli" : "liveInput",
-      "cli_name" : "sidebar reveal-in-finder",
-      "context_menu" : "noTargetSurface",
+      "cli_name" : "sidebar open-as-text",
+      "context_menu" : "offered",
       "context_menus" : [
+        "fileExplorerRow"
+      ],
+      "default_aliases" : [
 
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "fileExplorerOpenAsText",
+      "main_menu" : null,
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open as Text",
+      "title_key" : "action.fileExplorerOpenAsText",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "sidebar reveal-in-finder",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "fileExplorerRow"
       ],
       "default_aliases" : [
 
@@ -19876,9 +20092,9 @@
     {
       "cli" : "liveInput",
       "cli_name" : "sidebar copy-path",
-      "context_menu" : "noTargetSurface",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "fileExplorerRow"
       ],
       "default_aliases" : [
 
@@ -19904,9 +20120,9 @@
     {
       "cli" : "liveInput",
       "cli_name" : "sidebar copy-relative-path",
-      "context_menu" : "noTargetSurface",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "fileExplorerRow"
       ],
       "default_aliases" : [
 
@@ -19932,9 +20148,9 @@
     {
       "cli" : "liveInput",
       "cli_name" : "sidebar open-with",
-      "context_menu" : "noTargetSurface",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "fileExplorerRow"
       ],
       "default_aliases" : [
 
@@ -19955,6 +20171,118 @@
       "palette_suggested" : null,
       "title" : "Open With…",
       "title_key" : "action.fileExplorerOpenWith",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "sidebar new-file",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "fileExplorerRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "fileExplorerNewFile",
+      "main_menu" : null,
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New File",
+      "title_key" : "action.fileExplorerNewFile",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "sidebar new-folder",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "fileExplorerRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "fileExplorerNewFolder",
+      "main_menu" : null,
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New Folder",
+      "title_key" : "action.fileExplorerNewFolder",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "sidebar rename-item",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "fileExplorerRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "fileExplorerRename",
+      "main_menu" : null,
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Rename",
+      "title_key" : "action.fileExplorerRename",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "sidebar move-to-trash",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "fileExplorerRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "fileExplorerMoveToTrash",
+      "main_menu" : null,
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move to Trash",
+      "title_key" : "action.fileExplorerMoveToTrash",
       "title_table" : "ActionCatalog"
     },
     {
@@ -24079,6 +24407,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "cloud set-idle-pause",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudSetIdlePause",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Pause When Idle…",
+      "title_key" : "action.cloudSetIdlePause",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "cloud delete-snapshot",
       "context_menu" : "offered",
       "context_menus" : [
@@ -27733,8 +28089,8 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Hibernate Hidden Tabs After 1 Hour",
-      "title_key" : "action.hibernation.moderate",
+      "title" : "Hibernate Hidden Tabs After 30 Minutes",
+      "title_key" : "action.hibernation.moderate30",
       "title_table" : "HibernationActions"
     },
     {
@@ -27903,6 +28259,34 @@
       "palette_suggested" : null,
       "title" : "Hibernate Tab",
       "title_key" : "action.hibernateTab",
+      "title_table" : "HibernationActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "tab never-hibernate-site",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "neverHibernateSite",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Never Hibernate This Site",
+      "title_key" : "action.neverHibernateSite",
       "title_table" : "HibernationActions"
     },
     {
@@ -29745,6 +30129,230 @@
       "title" : "Undo Layout Change",
       "title_key" : "action.layout.undo",
       "title_table" : "HistoryActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "tab stash",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tab.stash",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Save and Close Tab",
+      "title_key" : "action.stash.tab",
+      "title_table" : "StashActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "tab stash-to-right",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tab.stashToRight",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Save and Close Tabs to the Right",
+      "title_key" : "action.stash.toRight",
+      "title_table" : "StashActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "tab stash-others",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tab.stashOthers",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Save and Close Other Tabs",
+      "title_key" : "action.stash.others",
+      "title_table" : "StashActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "workspace stash",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspace.stash",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Save and Close Workspace",
+      "title_key" : "action.stash.workspace",
+      "title_table" : "StashActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "workspace-group stash",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceGroup"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspaceGroup.stash",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Save and Close Group",
+      "title_key" : "action.stash.workspaceGroup",
+      "title_table" : "StashActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "window stash",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "window.stash",
+      "main_menu" : "file",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Save and Close All Workspaces",
+      "title_key" : "action.stash.window",
+      "title_table" : "StashActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "stash show",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "stash.show",
+      "main_menu" : "window",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Stashed Tabs",
+      "title_key" : "action.stash.show",
+      "title_table" : "StashActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action stash-import-one-tab",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "stash.importOneTab",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Import from OneTab…",
+      "title_key" : "action.stash.importOneTab",
+      "title_table" : "StashActions"
     },
     {
       "cli" : "guiOnly",
@@ -36147,14 +36755,27 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "cloudSetIdlePause",
+              "kind" : "action",
+              "order" : 10,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 10
+              "order" : 11
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.cloud.deleteSnapshot",
               "kind" : "action",
-              "order" : 11,
+              "order" : 12,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -36466,6 +37087,159 @@
       ],
       "implied" : [
 
+      ]
+    },
+    "fileExplorerRow" : {
+      "entries" : [
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerOpenInCmux",
+          "kind" : "action",
+          "order" : 0,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerOpenAsText",
+          "kind" : "action",
+          "order" : 1,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerOpenWith",
+          "kind" : "action",
+          "order" : 2,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerReveal",
+          "kind" : "action",
+          "order" : 3,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 4
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerNewFile",
+          "kind" : "action",
+          "order" : 5,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerNewFolder",
+          "kind" : "action",
+          "order" : 6,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 7
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerRename",
+          "kind" : "action",
+          "order" : 8,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 9
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerCopyPath",
+          "kind" : "action",
+          "order" : 10,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerCopyRelativePath",
+          "kind" : "action",
+          "order" : 11,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 12
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerMoveToTrash",
+          "kind" : "action",
+          "order" : 13,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        }
+      ],
+      "implied" : [
+        "fileExplorerFocused"
       ]
     },
     "machineSection" : {
@@ -40870,14 +41644,27 @@
                   }
                 },
                 {
+                  "enabled_when" : "can_perform",
+                  "id" : "neverHibernateSite",
+                  "kind" : "action",
+                  "order" : 17,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
                   "kind" : "separator",
-                  "order" : 17
+                  "order" : 18
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "tab.showResources",
                   "kind" : "action",
-                  "order" : 18,
+                  "order" : 19,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -41224,6 +42011,49 @@
               "id" : "closeTabsToLeft",
               "kind" : "action",
               "order" : 28,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "kind" : "separator",
+              "order" : 29
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "tab.stash",
+              "kind" : "action",
+              "order" : 30,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "tab.stashToRight",
+              "kind" : "action",
+              "order" : 31,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "tab.stashOthers",
+              "kind" : "action",
+              "order" : 32,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -42416,6 +43246,23 @@
               "id" : "workspaceGroup.copyID",
               "kind" : "action",
               "order" : 11,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "kind" : "separator",
+              "order" : 12
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspaceGroup.stash",
+              "kind" : "action",
+              "order" : 13,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -43915,6 +44762,32 @@
               "id" : "reopenClosedWorkspace",
               "kind" : "action",
               "order" : 35,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspace.stash",
+              "kind" : "action",
+              "order" : 36,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "window.stash",
+              "kind" : "action",
+              "order" : 37,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,

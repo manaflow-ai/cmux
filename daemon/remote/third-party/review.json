@@ -11,7 +11,7 @@
   },
   "modules": {
     "github.com/creack/pty@v1.1.24": {"license": "MIT", "files": {"LICENSE": "a2a1cea59d9c2d71908082f516f86bb560abf857646ecf69d70c121ead14aef4"}},
-    "golang.org/x/sys@v0.30.0": {"license": "BSD-3-Clause", "files": {"LICENSE": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad", "PATENTS": "96f408bfae65bf137fc2525d3ecb030271c50c1e90799f87abf8846d8dd505cc"}},
+    "golang.org/x/sys@v0.44.0": {"license": "BSD-3-Clause", "files": {"LICENSE": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad", "PATENTS": "96f408bfae65bf137fc2525d3ecb030271c50c1e90799f87abf8846d8dd505cc"}},
     "nhooyr.io/websocket@v1.8.17": {"license": "ISC", "files": {"LICENSE.txt": "0b12dba478a73e88a239b33a23aad4721ad692d70d428130c2e2064bf9c5aa60"}}
   }
 }
