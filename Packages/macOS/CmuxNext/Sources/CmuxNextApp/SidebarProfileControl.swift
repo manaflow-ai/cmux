@@ -20,12 +20,7 @@ import Observation
 
     /// Keeps `model.profileAvatar` current and gives `sidebar` its menu.
     func install(model: SidebarModel, sidebar: SidebarView) {
-        // Drawn on the menu grid in the sidebar's theme, as its other menus are: the avatar on the icon
-        // column and every row's text on one column (Leo 2026-10-21, on the profile menu).
-        sidebar.profileMenuProvider = { [weak model, weak sidebar] in
-            guard let model, let sidebar else { return nil }
-            return menu(workspace: model.activeWorkspaceID?.rawValue).themeRows(in: sidebar.themeScope.fullStrength)
-        }
+        sidebar.profileMenuProvider = { [weak model] in model.map { menu(workspace: $0.activeWorkspaceID?.rawValue) } }
         let control = self
         // task-owner: ends with the model (the window's sidebar); event-driven (Observation)
         Task { [weak model] in

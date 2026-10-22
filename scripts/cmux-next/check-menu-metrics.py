@@ -21,6 +21,8 @@ Files still on their own grid are listed in DEBT; the list only shrinks. Run fro
 import os, re, sys
 
 SOURCES = "Packages/macOS/CmuxNext/Sources"
+# The grid itself (gen-menu-metrics.py --check holds it to the JSON).
+GRID = "CmuxNextDesign/MenuMetrics.swift"
 # Menus not yet on the grid: each moves to MenuMetrics in its own follow-up and leaves this list.
 DEBT = {
     "CmuxNextSidebar/Views/GroupEditor/SidebarGroupEditorControls.swift",
@@ -65,7 +67,7 @@ def main():
             if not SURFACE.search(text):
                 continue
             seen.add(relative)
-            if relative in DEBT:
+            if relative in DEBT or relative == GRID:
                 continue
             for number, line in enumerate(text.splitlines(), 1):
                 code = strip_comment(line)
