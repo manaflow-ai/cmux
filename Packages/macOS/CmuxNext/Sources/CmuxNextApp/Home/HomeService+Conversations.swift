@@ -158,7 +158,10 @@ extension HomeService {
     /// for one Chief never shows on another.
     var chiefFaces: [String: HomeChiefAvatar] {
         let picks = services.chiefMascotPicks, snapshot = services.settings?.snapshot
-        let chiefs = Set(homeStore.rows.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
+        var chiefs = Set(homeStore.rows.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
+        #if DEBUG
+        chiefs.formUnion(debugChiefs)
+        #endif
         return Self.chiefFaces(chiefs: chiefs, own: directory.chiefAvatars) {
             ChiefPetSettingsRows.avatarURL(of: picks.mascot(of: $0, in: snapshot))
         }
