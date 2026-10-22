@@ -164,9 +164,11 @@ fn a_path_outside_the_roots_on_the_deny_list_or_of_another_type_is_refused() {
         assert_eq!(reason(&e), why, "{path:?}: {}", e.message);
     }
     // `Library` under the home folder is denied, wherever the chat's folder is.
-    let e = open_in(&[root.clone()], "Library/shot.png", Some(&root), &mut |_| {}).err().unwrap();
+    let e = open_in(std::slice::from_ref(&root), "Library/shot.png", Some(&root), &mut |_| {})
+        .err()
+        .unwrap();
     assert_eq!(reason(&e), "media.denied");
-    assert!(open_in(&[root.clone()], "Library/shot.png", None, &mut |_| {}).is_ok());
+    assert!(open_in(std::slice::from_ref(&root), "Library/shot.png", None, &mut |_| {}).is_ok());
 }
 
 /// Race: `out/clip.mp4` becomes a symlink to `~/.ssh/id_ed25519` (a stand-in outside the root):
