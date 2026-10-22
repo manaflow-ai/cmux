@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCodeRouter
 import CmuxNextControl
 import CmuxNextPages
+import CmuxNextSettings
 import Foundation
 
 // `billing.checkout|portal|status`: the methods `cmux billing checkout|portal|status`
