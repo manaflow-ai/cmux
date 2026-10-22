@@ -402,9 +402,9 @@
 .acpmux-file-header{display:flex;align-items:center;gap:8px;height:30px;padding:0 6px 0 16px;border-bottom:1px solid var(--agent-border);background:var(--agent-page-bg);color:var(--agent-text);font-weight:400}
 .acpmux-diff-file[data-collapsed] .acpmux-file-header{border-bottom:0}
 .acpmux-file-icon{flex:none;color:var(--agent-muted)}
-.acpmux-fh-name{display:flex;align-items:center;min-width:0;border:0;padding:0;background:none;color:inherit;font:inherit;font-family:var(--cv-code-font,var(--cv-mono,ui-monospace,"SF Mono",Menlo,monospace));font-size:var(--text-detail);white-space:nowrap;cursor:pointer}
+.acpmux-fh-name{display:flex;align-items:center;min-width:0;overflow:hidden;border:0;padding:0;background:none;color:inherit;font:inherit;font-family:var(--cv-code-font,var(--cv-mono,ui-monospace,"SF Mono",Menlo,monospace));font-size:var(--text-detail);white-space:nowrap;cursor:pointer}
 .acpmux-fh-name>span{overflow:hidden;text-overflow:ellipsis}
-/* The folder gives way first; in a pane too narrow for the name, the name ends in an ellipsis instead of running under the New badge. */
+/* The folder gives way first; in a pane too narrow for the name, the name is cut at the button's edge instead of running under the New badge. */
 .acpmux-fh-name>span:not(.acpmux-fh-dir){flex:0 .001 auto;min-width:0}
 .acpmux-fh-dir{min-width:0;color:var(--agent-muted)}
 .acpmux-fh-chevron{display:none;flex:none;margin-left:8px;color:var(--agent-muted)}
