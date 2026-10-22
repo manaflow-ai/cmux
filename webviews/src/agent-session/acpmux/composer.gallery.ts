@@ -76,6 +76,9 @@ const shot = (hue: number, width = 1440, height = 900) =>
         .join("") +
       "</svg>",
   )}`;
+// Another agent's message waiting behind the turn (Leo, 2026-10-21: it drew as the person's prompt).
+const QUEUED_MESSAGE =
+  "**Rebase onto #23738** before you push: it moves the queue rows.\n\n- `ComposerQueue.tsx` changes\n- the gallery cases too";
 // A prompt queued with two screenshots (Leo, 2026-10-21: "do queued messages have pics?").
 const pictured = {
   id: "q1",
@@ -98,6 +101,19 @@ const steerMarks = () =>
       assistant("Fixing the space handling…", 2),
       user("Also keep the old flag working", 1, { steer: "waiting", steerPromptId: "p-steer" }),
       assistant("Reading the flag parser…", 0.5, { streaming: true }),
+    ],
+    { isWorking: true },
+  );
+
+// Two steers the agent has not read yet, one after the other (Leo's report, 2026-10-21): each one's
+// clock and Send now sit at its bubble's left, and the pair is as tall as two prompts.
+const waitingSteers = () =>
+  chat(
+    [
+      user("Add retries", 6),
+      assistant("Adding retries to the fetch loop…", 3, { streaming: true }),
+      user("Use the cache dir, not tmp", 1, { steer: "waiting", steerPromptId: "p-steer-1" }),
+      user("Also keep the old flag working", 0.5, { steer: "waiting", steerPromptId: "p-steer-2" }),
     ],
     { isWorking: true },
   );
@@ -337,11 +353,13 @@ export default agentPaneEntry({
   },
   covers: [
     "agent-session/acpmux/Composer.tsx#Composer",
+    "agent-session/acpmux/ComposerBox.tsx#ComposerBox",
     "agent-session/acpmux/ComposerFoot.tsx#ComposerFoot",
     "agent-session/acpmux/conversation/PendingSteer.tsx#PendingSteer",
     "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
     "agent-session/acpmux/ComposerPickers.tsx#Picker",
+    "agent-session/acpmux/FastToggle.tsx",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "agent-session/acpmux/composer/PromptEditor.tsx",
     "agent-session/acpmux/MarkdownField.tsx",
@@ -438,7 +456,7 @@ export default agentPaneEntry({
       },
     },
     "footer-essentials": {
-      note: 'Leo 2026-10-13, the footer "tells too much": the model without its vendor, the default access mode as its lock alone, no context ring before any use, the folder without this Mac\'s name. Titles and labels keep the full text.',
+      note: "Leo 2026-10-13, the footer \"tells too much\": the model without its vendor, the mode as its symbol and Claude Code's own name (Manual), no context ring before any use, the folder without this Mac's name. Titles and labels keep the full text.",
       snapshot: footerChat("default"),
     },
     // The location row is a new chat's only (locationRow.ts).
@@ -592,7 +610,7 @@ export default agentPaneEntry({
           type: "image/png",
         });
         pasteFiles(ctx, [file]);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment:not([aria-busy])"));
         await new Promise((resolve) => setTimeout(resolve, 300));
       },
     },
@@ -836,6 +854,15 @@ export default agentPaneEntry({
         await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-cancel"));
       },
     },
+    "working-escape-armed": {
+      note: "Play: the first Esc of the double press. Stop keeps its plain square glyph and footprint and takes the theme's accent; its name and the placeholder say Esc again stops (Leo 2026-10-21: no discs).",
+      snapshot: chat(working, { isWorking: true }),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-box .acpmux-md" });
+        await ctx.press("Escape");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cancel[data-escape-armed] svg"));
+      },
+    },
     "working-steer": {
       note: "A prompt typed while the turn runs: one ↵ control puts it into the turn now, as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn; Stop sits left of the mic, as in Claude's desktop app.",
       snapshot: steering(true),
@@ -865,6 +892,45 @@ export default agentPaneEntry({
         ],
       }),
     },
+    "queued-from-agent": {
+      note: "Another agent's message waiting behind the turn: its received line (the sender's mark, its name as a chip that opens its chat, the message as a card under it, cut to six lines when longer), its actions (Steer, the trash can, ⋯) at the line's end; the person's prompt below is unchanged.",
+      snapshot: chat(working, {
+        isWorking: true,
+        queue: [
+          {
+            id: "q1",
+            prompt: QUEUED_MESSAGE,
+            message: { name: "coord-deputy", sessionId: "s-deputy", text: QUEUED_MESSAGE, raw: QUEUED_MESSAGE },
+          },
+          { id: "q2", prompt: "And update the README" },
+        ],
+      }),
+    },
+    "queued-from-agent-open": {
+      note: "Play: the queued agent's message opened: the message as a glass card under its line, as Markdown, the queue as tall as it.",
+      snapshot: chat(working, {
+        isWorking: true,
+        queue: [
+          {
+            id: "q1",
+            prompt: QUEUED_MESSAGE,
+            message: { name: "coord-deputy", sessionId: "s-deputy", text: QUEUED_MESSAGE, raw: QUEUED_MESSAGE },
+          },
+          { id: "q2", prompt: "And update the README" },
+        ],
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] .cv-received__toggle' });
+        // Whole: the list fits its height to the opened card, not just a sliver of it.
+        await ctx.waitFor(() => {
+          const body = ctx.document.querySelector(".acpmux-queued .cv-received__body");
+          const list = ctx.document.querySelector(".acpmux-composer-queue");
+          return Boolean(
+            body && list && body.getBoundingClientRect().bottom <= list.getBoundingClientRect().bottom + 1,
+          );
+        });
+      },
+    },
     // Leo, 2026-10-21 ("this is what ChatGPT has"): each queued row shows Steer, the trash can and ⋯.
     "queued-actions": {
       note: "Queued prompts as ChatGPT and Codex show them: each row ends in Steer (its ↪ glyph and its word), a trash can that deletes it, and ⋯; plain glyphs, a soft pill on hover only.",
@@ -893,12 +959,23 @@ export default agentPaneEntry({
       },
     },
     "queued-paused": {
-      note: "A turn failed with prompts queued: they wait, in order, until Resume. A prompt sent meanwhile runs now.",
+      note: 'A turn failed with prompts queued: the note names the turn\'s error, and they wait, in order, until Resume (never "Sends after this turn"). A prompt sent meanwhile runs now.',
       snapshot: (() => {
         const failed = steering(true);
         return {
           ...failed,
           isWorking: false,
+          rows: [
+            ...failed.rows,
+            {
+              id: "summary-failed",
+              version: 1,
+              at: 1,
+              kind: "turnSummary",
+              status: "failed",
+              error: "429 Too Many Requests: the account is rate limited",
+            },
+          ],
           summary: { ...failed.summary!, status: "ready", queuePaused: true },
           queue: waiting,
         };
@@ -948,18 +1025,48 @@ export default agentPaneEntry({
         queue: [{ id: "q0", prompt: "Stop and fix the space thing first", next: true }, ...waiting],
       }),
     },
+    "steer-waiting-stack": {
+      note: "Two steers the agent has not read, one after the other: each one's clock and Send now sit at its bubble's left, on its first line, so the pair takes no more room than two prompts and nothing trails the last one.",
+      snapshot: waitingSteers(),
+      play: async (ctx) => {
+        const lines = [...ctx.document.querySelectorAll(".cv-user__pending")];
+        if (lines.length !== 2) throw new Error(`expected two Send now marks, found ${lines.length}`);
+        for (const line of lines) {
+          const bubble = line.parentElement;
+          if (!bubble?.classList.contains("cv-user__bubble")) throw new Error("Send now is not on its bubble's row");
+          if (line.getBoundingClientRect().right > bubble.getBoundingClientRect().left)
+            throw new Error("Send now is not at its bubble's left");
+        }
+      },
+    },
     "steer-marks": {
-      note: "A steer never carries a label: it looks like any sent prompt. While the agent has not read it, a faint clock and Send now sit under it (Send now stops the agent's current step so it reads the steer at once; the turn goes on); once read, nothing. On hover it shows the row every prompt shows, with the same read check (one while it waits, two once read) and the detail in its tooltip. A prompt sent now to an agent that cannot steer goes on with the turn and carries no mark.",
+      note: "A steer never carries a label: it looks like any sent prompt. While the agent has not read it, a faint clock and Send now sit at its bubble's left, on the bubble's first line, adding no height (Send now stops the agent's current step so it reads the steer at once; the turn goes on); once read, nothing. On hover it shows the row every prompt shows, with the same read check (one while it waits, two once read) and the detail in its tooltip. A prompt sent now to an agent that cannot steer goes on with the turn and carries no mark.",
       snapshot: steerMarks(),
     },
     "steer-read-hover": {
-      note: "Play: hover the steer the agent read: the same row as any prompt (age, two checks, Copy, Retry, Pin), and the check's tooltip says who read it. No Steered or Steering text anywhere in the transcript.",
+      note: "Play: hover the steer the agent read: the same row as any prompt (two checks, age, Copy, Retry, Fork), and the check's tooltip says who read it. No Steered or Steering text anywhere in the transcript.",
       snapshot: steerMarks(),
       play: async (ctx) => {
         const steer = ctx.find({ text: "Use the cache dir, not tmp" }).closest(".cv-user");
         const receipt = steer?.querySelector('.cv-user__read[data-read="true"]');
         if (!receipt) throw new Error("the read steer shows no read check");
         receipt.setAttribute("data-gallery-target", "steer-read");
+        // The read steer sits above a frame-tall transcript that settles at its end after the
+        // stage is ready. Bring the steer into view and wait until the transcript has stopped
+        // scrolling: a scroll puts a title tooltip away (ui/titleTooltips.ts), so a hover that
+        // landed while it still moved never showed one.
+        steer?.scrollIntoView({ block: "center" });
+        const scroller = ctx.document.querySelector(".acpmux-scroll");
+        let top = Number.NaN;
+        let still = performance.now();
+        await ctx.waitFor(() => {
+          const now = performance.now();
+          if (scroller?.scrollTop !== top) {
+            top = scroller?.scrollTop ?? 0;
+            still = now;
+          }
+          return now - still > 300;
+        });
         await ctx.hover({ selector: '[data-gallery-target="steer-read"]' });
         await ctx.waitFor(
           () =>
@@ -1755,11 +1862,12 @@ export default agentPaneEntry({
       }),
     },
     "access-menu": {
-      note: "The footer keeps permission mode behind a quiet lock; the menu explains each choice and checks the active one.",
+      note: "A Claude chat's mode menu is Claude Code's own: Mode, then Auto (Recommended), Manual, Accept edits, Plan and Bypass permissions with their descriptions and keys 1 to 5, tight rows, the accent check on the chosen one. The button is the mode's symbol and its name, no pill at rest.",
       snapshot: chat(finished, {
         summary: {
           sessionId: "gallery-access",
           harness: "claude",
+          family: "claude",
           model: "claude-opus-5-5",
           effort: "high",
           cwd: CWD,
@@ -1770,12 +1878,59 @@ export default agentPaneEntry({
           usage: { used: 48_000, size: 200_000 },
           promptCapabilities: { image: true },
           modes: {
-            currentModeId: "ask",
+            currentModeId: "bypassPermissions",
+            // As acpmux reports a Claude chat (claude_stdio MODES).
             availableModes: [
-              { id: "ask", name: "Supervised", description: "Ask before changing files or running commands" },
-              { id: "edit", name: "Auto-accept edits", description: "Apply file edits without asking" },
-              { id: "auto", name: "Auto", description: "Choose the safest approval level for each action" },
-              { id: "bypassPermissions", name: "Full access", description: "Run actions without approval" },
+              { id: "auto", name: "Auto", description: "Claude handles permission decisions" },
+              { id: "default", name: "Manual", description: "Always ask before making changes" },
+              { id: "acceptEdits", name: "Accept edits", description: "Automatically accept all file edits" },
+              { id: "plan", name: "Plan", description: "Create a plan before making changes" },
+              { id: "bypassPermissions", name: "Bypass permissions", description: "Accepts all permissions" },
+            ],
+          },
+        },
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: '[aria-label="Mode"]' });
+        await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
+      },
+    },
+    "access-menu-codex": {
+      note: "A Codex chat's mode menu is Codex's own: How should actions be approved?, then Ask for approval (hand), Approve for me (terminal shield) and Full access (shield with !) with their descriptions. The button is the shield and Full access.",
+      snapshot: chat(finished, {
+        summary: {
+          sessionId: "gallery-access-codex",
+          harness: "codex",
+          family: "codex",
+          model: "gpt-6-astra",
+          cwd: CWD,
+          host: "This Mac",
+          hostKind: "local",
+          branch: "main",
+          turnCount: 1,
+          usage: { used: 48_000, size: 200_000 },
+          promptCapabilities: { image: true },
+          modes: {
+            currentModeId: "agent-full-access",
+            // As the Codex bridge reports it (cmux-codex-acp config.rs MODES), plus Codex's auto review.
+            availableModes: [
+              { id: "ask", name: "Ask", description: "Asks before every command and every edit" },
+              {
+                id: "read-only",
+                name: "Read Only",
+                description: "Reads files; asks before any edit or command that needs more",
+              },
+              {
+                id: "agent",
+                name: "Agent",
+                description: "Edits and runs commands in the workspace; asks to go outside it",
+              },
+              { id: "auto-review", name: "Auto review" },
+              {
+                id: "agent-full-access",
+                name: "Agent (full access)",
+                description: "Edits and runs anything without asking",
+              },
             ],
           },
         },

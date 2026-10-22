@@ -39,7 +39,7 @@ final class SidebarPriorityPanelView: NSView {
         scroll.contentView.drawsBackground = false
         scroll.documentView = document
         document.passesThrough = { [weak self] view in self?.closing.contains { $0 === view } ?? false }
-        SystemScrollers.follow(scroll)
+        SystemScrollers.followThin(scroll)
         empty.isHidden = true
         [header, count, fade, empty].forEach(addSubview)
         setAccessibilityElement(true)

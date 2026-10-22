@@ -46,7 +46,7 @@ jobs:
   build:
     name: headless debug cmux-tui
     if: github.repository_owner == 'manaflow-ai'
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-8vcpu-ubuntu-2404' }}
+    runs-on: ${{ !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
