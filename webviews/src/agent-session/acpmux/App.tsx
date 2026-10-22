@@ -1194,9 +1194,12 @@ type ReportDrawn = (id: string, version: number, height: number) => void;
 
 type TranscriptRange = { anchorId: string; focusId: string };
 
-/// Assistant and summary rows already expose the turn's copy action in TurnFooter. Keep the
-/// floating action for prompts and tool rows; it shows only for keyboard focus and a selected
-/// range (a prompt's hover shows the Copy under its bubble). The child view's "Subagent of" pill
+/// Assistant and summary rows already expose the turn's copy action in TurnFooter, and a prompt
+/// drawn as the person's bubble has its Copy in the row under the bubble. Keep the floating action
+/// for tool rows and the user rows drawn as a line (another agent's message, a task's result); it
+/// shows only for keyboard focus and a selected range. A prompt's floating Copy sat alone at the
+/// row's top left, far from the bubble (Leo, 2026-10-21: "top left??? just remove it"); a selected
+/// range and Cmd-C still copy the prompt. The child view's "Subagent of" pill
 /// is navigation, with nothing to copy. The Edited files card keeps its own controls in that
 /// corner, where the floating Copy covered View changes once focus was in the card (cx-ncc.106);
 /// a selected range still copies it.
@@ -1204,11 +1207,16 @@ type TranscriptRange = { anchorId: string; focusId: string };
 /// panel copies the page.
 const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
   row.kind !== "assistant" &&
+  !isPromptBubbleRow(row) &&
   row.kind !== RENDER &&
   row.kind !== "turnSummary" &&
   row.kind !== SUBAGENT_OF &&
   rowKind(row) !== "editedFiles" &&
   hasTranscriptCopyText(row);
+
+/// A user row MessageRow draws as the person's bubble (`.cv-user`): not a task's result nor another
+/// agent's message or notice.
+const isPromptBubbleRow = (row: AcpmuxRow) => row.kind === "user" && !row.received && !row.incoming;
 
 /// Slides the thread from `step` px below (above, when negative) to its place over GLIDE_MS, so
 /// content that grew at the latest row glides in. Glides stack (`composite: "add"`): two started
