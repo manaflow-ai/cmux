@@ -6,7 +6,7 @@
 // restart (a nested one is its parent subagent's to run), and only one whose prompt acpmux
 // recorded.
 import type { StringKey, Translate } from "../i18n";
-import type { Subagent, SubagentStopReason } from "./subagentFold";
+import { subagentName, type Subagent, type SubagentStopReason } from "./subagentFold";
 
 /// The short reason a stopped subagent's line adds (subagentFold.ts `stopReasonOf`).
 export const STOP_REASON_LABEL: Record<SubagentStopReason, StringKey> = {
@@ -21,9 +21,12 @@ export function canRestart(agent: Pick<Subagent, "state" | "parent" | "prompt">)
 }
 
 /// The prompt Restart sends the chat for `agent`, or undefined when it cannot restart.
-export function restartPrompt(agent: Pick<Subagent, "state" | "parent" | "prompt" | "name" | "kind">, t: Translate) {
+export function restartPrompt(
+  agent: Pick<Subagent, "state" | "parent" | "prompt" | "name" | "kind" | "unnamed">,
+  t: Translate,
+) {
   if (!canRestart(agent)) return undefined;
-  const values = { name: agent.name, prompt: agent.prompt! };
+  const values = { name: subagentName(agent, t), prompt: agent.prompt! };
   return agent.kind
     ? t("subagents.restartPromptKind", { ...values, kind: agent.kind })
     : t("subagents.restartPrompt", values);
