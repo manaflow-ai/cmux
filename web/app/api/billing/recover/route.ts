@@ -1,5 +1,6 @@
 import { checkRateLimit as checkVercelRateLimit } from "@vercel/firewall";
 import * as Effect from "effect/Effect";
+import { after } from "next/server";
 
 import { env } from "../../../env";
 import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
@@ -9,13 +10,16 @@ import englishMessages from "../../../../messages/en.json";
 import { readBoundedJsonObject } from "../../../../services/apns/routePolicy";
 import {
   requestEmailVerificationRecovery,
-  type EmailVerificationRecoveryResult,
 } from "../../../../services/auth/emailVerificationRecovery";
 import {
   findPaidBillingPurchaseByEmail,
   provisionPaidBillingPurchase,
 } from "../../../../services/billing/recovery";
-import { recordSpanError, withApiRouteSpan } from "../../../../services/telemetry";
+import {
+  processBillingRecovery,
+  type BillingRecoveryDeliveryDependencies,
+} from "../../../../services/billing/recoveryDelivery";
+import { recordSpanError, withApiRouteSpan, withSpan } from "../../../../services/telemetry";
 
 const MAX_REQUEST_BYTES = 4 * 1_024;
 const PRODUCTION_MAGIC_LINK_CALLBACK = "https://cmux.com/handler/after-sign-in";
@@ -23,38 +27,17 @@ export const BILLING_RECOVERY_RESPONSE_MESSAGE =
   (englishMessages as { billingRecovery: { message: string } }).billingRecovery
     .message;
 
-type PaidRecoveryResult =
-  | false
-  | true
-  | {
-      readonly deliveryEmail: string | null;
-      /** The completion recorder already used the delivery ledger. */
-      readonly deliveryHandled?: boolean;
-    }
-  | {
-      readonly skipped:
-        | "account_deletion_in_progress"
-        | "no_customer_email";
-    };
-
 type RateLimitCheck = typeof checkVercelRateLimit;
 
-export type BillingRecoveryRouteDependencies = {
-  readonly recoverPaid: (email: string) => Promise<PaidRecoveryResult>;
-  readonly sendMagicLink: (input: {
-    readonly email: string;
-    readonly callbackURL: string;
-  }) => Promise<void>;
-  readonly sendVerification: (input: {
-    readonly email: string;
-    readonly callbackURL: string;
-  }) => Promise<EmailVerificationRecoveryResult>;
+export type BillingRecoveryRouteDependencies = BillingRecoveryDeliveryDependencies & {
+  readonly afterResponse: (task: () => Promise<void>) => void;
   readonly checkRateLimit: RateLimitCheck;
   readonly rateLimitRuleID: () => string | undefined;
   readonly isVercel: () => boolean;
 };
 
 const productionDependencies: BillingRecoveryRouteDependencies = {
+  afterResponse: after,
   recoverPaid: async (email) => {
     if (!isStackConfigured()) return false;
     const stackApp = getStackServerApp();
@@ -127,60 +110,51 @@ export function makeBillingRecoveryHandler(
         const email = validEmail(body.value.email);
         if (!email) return json({ error: "invalid_email" }, 400);
 
-        const callbackURL = magicLinkCallbackURL(request);
-        const verificationURL = emailVerificationCallbackURL(request);
-        try {
-          const paid = await dependencies.recoverPaid(email);
-          if (paid && typeof paid === "object" && "skipped" in paid) {
-            // Do not expose whether a paid account exists or why delivery was
-            // skipped. Continue with the same generic response as every other
-            // address. No authentication message is sent for this outcome.
-          } else if (paid) {
-            const candidateDeliveryEmail =
-              typeof paid === "object" ? paid.deliveryEmail : null;
-            const deliveryHandled =
-              typeof paid === "object" && paid.deliveryHandled === true;
-            if (!deliveryHandled) {
-              const deliveryEmail =
-                candidateDeliveryEmail && validEmail(candidateDeliveryEmail)
-                  ? candidateDeliveryEmail
-                  : email;
-              await dependencies.sendMagicLink({
-                email: deliveryEmail,
-                callbackURL,
-              });
-            }
-          } else if (!paid) {
-            await dependencies.sendVerification({
-              email,
-              callbackURL: verificationURL,
-            });
-          }
-        } catch (error) {
-          // Never turn provider state into an account-enumeration signal. The
-          // span records the failure without customer identifiers or payloads.
-          recordSpanError(span, error);
-          console.error("billing.recovery.provider_failure", {
-            failure: "provider_unavailable",
-          });
-          // Keep the successful-address response generic. Returning a provider
-          // error only for addresses that reached a delivery path would let a
-          // caller distinguish paid or registered mailboxes.
-        }
-
-        return json(
+        // Construct the entire response before registering work. Account lookup,
+        // provisioning and delivery must not determine acceptance latency.
+        const response = json(
           {
             accepted: true,
-            // This is an accepted request, not proof that a message was sent.
-            // Keep the delivery state and retry guidance identical for every
-            // valid address so provider failures do not become an account-
-            // existence signal.
             delivery: "unconfirmed",
             retryable: true,
             message: await billingRecoveryResponseMessage(request),
           },
           202,
         );
+        const input = {
+          email,
+          callbackURL: magicLinkCallbackURL(request),
+          verificationURL: emailVerificationCallbackURL(request),
+        };
+        try {
+          // Pass a callback, not an already-started promise: Next invokes it
+          // after the response closes and keeps the Vercel function alive.
+          dependencies.afterResponse(() =>
+            withSpan(
+              "cmux-billing",
+              "cmux.billing.recovery.process",
+              { "cmux.subsystem": "billing" },
+              (processingSpan) => Effect.runPromise(
+                processBillingRecovery(input, dependencies).pipe(
+                  Effect.catchAll((error) => Effect.sync(() => {
+                    // The typed error deliberately carries no provider payload,
+                    // email, or cause. Raw SDK errors can contain customer data.
+                    recordSpanError(processingSpan, error);
+                    console.error("billing.recovery.provider_failure", {
+                      failure: "provider_unavailable",
+                    });
+                  })),
+                ),
+              ),
+            ),
+          );
+        } catch {
+          // No account-dependent work has started, so registration failure can
+          // safely fail closed without becoming an account-existence signal.
+          return json({ error: "recovery_unavailable" }, 503);
+        }
+        span.setAttribute("cmux.billing.recovery.response_ready", true);
+        return response;
       },
     );
   };

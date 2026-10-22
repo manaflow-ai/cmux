@@ -20,6 +20,7 @@ function dependencies(
   overrides: Partial<BillingRecoveryRouteDependencies> = {},
 ): BillingRecoveryRouteDependencies {
   return {
+    afterResponse: mock(() => undefined),
     recoverPaid: mock(async () => false),
     sendMagicLink: mock(async () => undefined),
     sendVerification: mock(async () => ({ delivery: "accepted" as const })),
@@ -34,6 +35,74 @@ function acceptedResponse(message = "If we found an account, check your email fo
   return { accepted: true, delivery: "unconfirmed", retryable: true, message };
 }
 
+function queuedHandler(deps = dependencies()) {
+  const tasks: Array<() => Promise<void>> = [];
+  const scheduled = { ...deps, afterResponse: (task: () => Promise<void>) => { tasks.push(task); } };
+  return { tasks, handle: makeBillingRecoveryHandler(scheduled) };
+}
+
+// Existing delivery assertions run the response and then the scheduled work.
+function completingHandler(deps = dependencies()) {
+  const { tasks, handle } = queuedHandler(deps);
+  return async (input: Request) => {
+    const response = await handle(input);
+    for (const task of tasks.splice(0)) await task();
+    return response;
+  };
+}
+
+describe("billing recovery response boundary", () => {
+  test("delivers the complete generic body before looking up account state", async () => {
+    const deps = dependencies();
+    const { handle, tasks } = queuedHandler(deps);
+    const response = await handle(request("fixture@example.invalid"));
+
+    expect(response.status).toBe(202);
+    expect(response.headers.get("content-type")?.split(";")[0]).toBe("application/json");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("location")).toBeNull();
+    const bytes = await response.arrayBuffer();
+    expect(bytes.byteLength).toBeGreaterThan(0);
+    expect(JSON.parse(new TextDecoder().decode(bytes))).toEqual(acceptedResponse());
+    expect(deps.recoverPaid).not.toHaveBeenCalled();
+    expect(deps.sendVerification).not.toHaveBeenCalled();
+    expect(tasks).toHaveLength(1);
+
+    await tasks[0]();
+    expect(deps.recoverPaid).toHaveBeenCalledTimes(1);
+    expect(deps.sendVerification).toHaveBeenCalledTimes(1);
+  });
+
+  test("fails closed when post-response work cannot be registered", async () => {
+    const deps = {
+      ...dependencies(),
+      afterResponse: () => { throw new Error("request lifecycle unavailable"); },
+    };
+    const response = await makeBillingRecoveryHandler(deps)(request("fixture@example.invalid"));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "recovery_unavailable" });
+    expect(deps.recoverPaid).not.toHaveBeenCalled();
+    expect(deps.sendMagicLink).not.toHaveBeenCalled();
+    expect(deps.sendVerification).not.toHaveBeenCalled();
+  });
+
+  test("never schedules invalid or throttled requests", async () => {
+    for (const [email, deps, status] of [
+      ["invalid", dependencies(), 400],
+      ["fixture@example.invalid", dependencies({ checkRateLimit: mock(async () => ({ rateLimited: true })) }), 429],
+      ["fixture@example.invalid", dependencies({ rateLimitRuleID: () => undefined }), 503],
+      ["fixture@example.invalid", dependencies({ checkRateLimit: mock(async () => ({ rateLimited: false, error: "blocked" as const })) }), 429],
+      ["fixture@example.invalid", dependencies({ checkRateLimit: mock(async () => { throw new Error("limiter unavailable"); }) }), 503],
+    ] as const) {
+      const { handle, tasks } = queuedHandler(deps);
+      const response = await handle(request(email));
+      expect(response.status).toBe(status);
+      expect(tasks).toHaveLength(0);
+      expect(deps.recoverPaid).not.toHaveBeenCalled();
+    }
+  });
+});
+
 describe("billing recovery route", () => {
   beforeEach(() => {
     delete process.env.VERCEL;
@@ -47,7 +116,7 @@ describe("billing recovery route", () => {
     }) as unknown as BillingRecoveryRouteDependencies["recoverPaid"];
     const sendMagicLink = mock(async () => undefined);
     const sendVerification = mock(async () => ({ delivery: "accepted" as const }));
-    const response = await makeBillingRecoveryHandler(
+    const response = await completingHandler(
       dependencies({ recoverPaid, sendMagicLink, sendVerification }),
     )(request(" Billing.Fixture@Gmail.com "));
 
@@ -63,7 +132,7 @@ describe("billing recovery route", () => {
 
   test("uses the provisioned account's literal email for a Gmail alias", async () => {
     const sendMagicLink = mock(async () => undefined);
-    const response = await makeBillingRecoveryHandler(
+    const response = await completingHandler(
       dependencies({
         recoverPaid: mock(async () => ({
           deliveryEmail: "billingfixture@gmail.com",
@@ -81,7 +150,7 @@ describe("billing recovery route", () => {
 
   test("does not send a second link when provisioning used the delivery ledger", async () => {
     const sendMagicLink = mock(async () => undefined);
-    const response = await makeBillingRecoveryHandler(
+    const response = await completingHandler(
       dependencies({
         recoverPaid: mock(async () => ({
           deliveryEmail: "buyer@example.com",
@@ -100,7 +169,7 @@ describe("billing recovery route", () => {
     const sendVerification = mock(async () => ({
       delivery: "accepted" as const,
     }));
-    const response = await makeBillingRecoveryHandler(
+    const response = await completingHandler(
       dependencies({
         recoverPaid: mock(async () => ({
           skipped: "account_deletion_in_progress" as const,
@@ -121,7 +190,7 @@ describe("billing recovery route", () => {
     const sendVerification = mock(async () => ({
       delivery: "accepted" as const,
     }));
-    const response = await makeBillingRecoveryHandler(
+    const response = await completingHandler(
       dependencies({
         recoverPaid: mock(async () => ({
           skipped: "no_customer_email" as const,
@@ -139,7 +208,7 @@ describe("billing recovery route", () => {
 
   test("sends standard verification when no paid purchase is found", async () => {
     const deps = dependencies();
-    const response = await makeBillingRecoveryHandler(deps)(
+    const response = await completingHandler(deps)(
       request("buyer@example.com"),
     );
 
@@ -153,10 +222,10 @@ describe("billing recovery route", () => {
   });
 
   test("keeps paid and unpaid outcomes indistinguishable", async () => {
-    const paid = await makeBillingRecoveryHandler(
+    const paid = await completingHandler(
       dependencies({ recoverPaid: mock(async () => true) }),
     )(request("paid@example.com"));
-    const unpaid = await makeBillingRecoveryHandler(
+    const unpaid = await completingHandler(
       dependencies({ recoverPaid: mock(async () => false) }),
     )(request("unpaid@example.com"));
 
@@ -165,7 +234,7 @@ describe("billing recovery route", () => {
   });
 
   test("localizes the generic response from Accept-Language", async () => {
-    const response = await makeBillingRecoveryHandler(dependencies())(
+    const response = await completingHandler(dependencies())(
       request("buyer@example.com").clone(),
     );
 
@@ -184,7 +253,7 @@ describe("billing recovery route", () => {
         body: JSON.stringify({ email: "buyer@example.com" }),
       },
     );
-    const japanese = await makeBillingRecoveryHandler(dependencies())(
+    const japanese = await completingHandler(dependencies())(
       japaneseRequest,
     );
     expect(await japanese.json()).toEqual(
@@ -193,7 +262,7 @@ describe("billing recovery route", () => {
   });
 
   test("keeps the valid-address response uniform when a provider fails", async () => {
-    const response = await makeBillingRecoveryHandler(
+    const response = await completingHandler(
       dependencies({
         recoverPaid: mock(async () => {
           throw new Error("provider unavailable");
@@ -207,7 +276,7 @@ describe("billing recovery route", () => {
 
   test("fails closed on the aggressive deployed rate limit", async () => {
     const recoverPaid = mock(async () => true);
-    const response = await makeBillingRecoveryHandler(
+    const response = await completingHandler(
       dependencies({
         recoverPaid,
         isVercel: () => true,
@@ -223,7 +292,7 @@ describe("billing recovery route", () => {
     const deps = dependencies({
       isVercel: () => false,
     });
-    const response = await makeBillingRecoveryHandler(deps)(
+    const response = await completingHandler(deps)(
       request("buyer@example.com"),
     );
 
@@ -236,7 +305,7 @@ describe("billing recovery route", () => {
 
   test("rejects malformed input without sending mail", async () => {
     const deps = dependencies();
-    const response = await makeBillingRecoveryHandler(deps)(
+    const response = await completingHandler(deps)(
       new Request("https://cmux.test/api/billing/recover", {
         method: "POST",
         headers: { "content-type": "application/json" },
