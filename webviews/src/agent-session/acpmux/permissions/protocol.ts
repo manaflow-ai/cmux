@@ -119,7 +119,8 @@ export function permissionGroups(value: unknown): PermissionGroupList {
   const batching = record(raw.batching, "error.invalid.permissionBatching");
   let allowRefused: string | undefined;
   if (typeof raw.allowRefused === "string") allowRefused = raw.allowRefused;
-  else if (raw.allowRefused !== undefined) throw new Error(translate("error.invalid.permissionGroups"));
+  else if (raw.allowRefused !== undefined && raw.allowRefused !== null)
+    throw new Error(translate("error.invalid.permissionGroups"));
   return {
     ...(allowRefused === undefined ? {} : { allowRefused }),
     groups: raw.groups.map(group),
