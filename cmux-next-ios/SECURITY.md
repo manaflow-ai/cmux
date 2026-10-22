@@ -372,7 +372,7 @@ read when the person reads them on the phone). Rule 2 answers:
 
 - Executes commands or opens content: no. An ask from a terminal agent (an
   approval or a question in its TUI) is not answered from the Feed; the item
-  opens the terminal tab.
+  opens the terminal tab. (A finished turn takes a typed reply: below.)
 - Mutates objects the session does not own: the read mark is the person's
   own, on their own tab, the same mark the Mac's panel sets.
 - Reads local state: the notification titles and bodies the Mac already shows
@@ -380,6 +380,62 @@ read when the person reads them on the phone). Rule 2 answers:
   journal accepts it, so the body is at most the tool an approval waits on.
 - Rule 6: `allows_the_terminal_feed` (policy) covers these exact lines and
   refuses the activity stream, the session journal and replies into a terminal.
+
+### Terminal agents' texts and the Feed reply to a terminal agent (`feat-cmux-next-terminal-agent-feed`)
+
+A terminal agent's Feed card now shows what a GUI chat's shows. Its prompt,
+its whole last answer, or a failed tool's error text ride on the daemon's
+live `notification` event (`id`, `prompt`, `message`). They are kept in the
+daemon's memory only, as the banner's `preview` already was: not in the
+ledger, the journal, a log or any daemon file. The behavior test
+`a_finished_turn_notification_carries_the_whole_prompt_and_answer_for_the_feed`
+checks the daemon's folders after a checkpoint. The texts are up to 4000
+characters each. The phone keeps them in its own Feed archive, as it keeps a
+GUI chat's preview. They never go into a push. The phone reads the texts
+through the `subscribe` it already had. No command was added.
+
+**Feed reply to a terminal agent.** A finished turn's card or an error's card
+takes a typed reply. The phone types it into that terminal's agent and
+submits it, as the Mac's `notify --reply` banner does (paste, then Return as
+its own key). It uses only lines the phone's terminal keyboard already sends:
+`process-info {surface}`, then
+`send {surface, text, paste: true, expect_foreground}` and
+`send {surface, text: "\r", expect_foreground}`. `notification-reply` stays
+refused. Policy test: `allows_the_terminal_feed_reply`.
+
+Who may reply:
+- **Owner only.** The paired owner's phone can reply, over its own approved
+  link (device key, owner-only admission, "Who the peer is"). The reply goes
+  to the item's own Mac, never another linked Mac
+  (`LiveCoordinator.terminalFeed(macID:)`), and over the daemon connection
+  the event came on. A reconnect refuses it (`connectionSerial`).
+
+When a reply goes in (`TerminalFeed.reply`):
+- **Only that waiting session.** The event must still be its terminal's
+  newest. A later event means the agent moved on.
+- The terminal must still run an agent of the same harness.
+- The agent must be at its prompt. A working agent is refused. So is one
+  blocked on an approval or question: typed text there would answer
+  something else, and those are answered in the terminal.
+- The foreground program must not be a shell.
+- The daemon checks `expect_foreground` again right before each write. So
+  text never lands in a shell that took the terminal back after the agent
+  exited.
+
+Rule 2 answers:
+- **Executes commands?** It types text into a program's input, which the
+  phone's terminal view already allows on any of the person's terminals. The
+  reply narrows that: one terminal, one waiting agent, a program that is not a
+  shell.
+- **Mutates objects the session does not own?** No. The terminal is the
+  person's own.
+- **Reads local state?** The agent's own prompt and answer, which the person
+  sees on the Mac's screen and in its banner.
+
+This is not a trust-policy change. A paired phone could already type into
+these terminals. The lock-screen notification reply (`cmux.terminal.reply`,
+`notification-reply`) is a different path. It stays held behind #13742 in
+the push-fallback branch, and this branch adds no notification action.
 
 ## `acpmux`: agent chats in the person's workspaces (`feat-cnx-ios-agentcwd`, in `feat-cnx-ios-parity`)
 

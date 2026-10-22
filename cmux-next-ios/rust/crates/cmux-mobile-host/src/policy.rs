@@ -989,6 +989,25 @@ mod tests {
         assert!(answer.contains("unavailable"));
     }
 
+    /// The exact lines a Feed reply to a terminal agent sends (CmuxMobileLive
+    /// TerminalFeed.reply): the foreground program, then the text pasted and
+    /// Return, each only while that program is still in the foreground. All
+    /// three were already on the allowlist (the phone's terminal keyboard
+    /// sends `send`); the reply opens nothing new, and `notification-reply`
+    /// stays refused.
+    #[test]
+    fn allows_the_terminal_feed_reply() {
+        for line in [
+            br#"{"cmd":"process-info","id":"m1","surface":7}"#.as_slice(),
+            br#"{"cmd":"send","expect_foreground":"claude","id":"m2","paste":true,"surface":7,"text":"run the tests"}"#,
+            br#"{"cmd":"send","expect_foreground":"claude","id":"m3","paste":false,"surface":7,"text":"\r"}"#,
+        ] {
+            assert_eq!(policy().evaluate(line), Verdict::Forward, "{}", String::from_utf8_lossy(line));
+        }
+        let line = br#"{"cmd":"notification-reply","id":"m4","notification":1,"text":"y"}"#.as_slice();
+        assert!(matches!(policy().evaluate(line), Verdict::Refuse(_)));
+    }
+
     /// The exact lines the iOS Feed sends for terminal agents (CmuxMobileLive
     /// TerminalFeed): the notification ledger read and the per-tab read mark
     /// the Mac's own notifications panel uses. Both were already on the
