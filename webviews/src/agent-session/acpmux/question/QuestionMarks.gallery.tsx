@@ -102,7 +102,11 @@ export default componentEntry({
   styles: () => Promise.all([import("../styles.css"), import("./QuestionMarks.gallery.css")]),
   load: async () => QuestionMarksInPane,
   variants: {
-    "single-tint": variant(single, "tint", "Shipped: inline code on a faint tint, as in the transcript; bold, italic and struck text as marks; a link as its label."),
+    "single-tint": variant(
+      single,
+      "tint",
+      "Shipped: inline code on a faint tint, as in the transcript; bold, italic and struck text as marks; a link as its label.",
+    ),
     "single-mono": variant(single, "mono", "Alternative: inline code in the mono face only, no tint."),
     "single-ring": variant(single, "ring", "Alternative: inline code in a hairline ring."),
     "multi-tint": variant(multi, "tint", "Shipped, multi-select: checkbox rows with marks."),

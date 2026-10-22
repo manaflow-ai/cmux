@@ -18,7 +18,9 @@ test("code, bold, italic and struck text draw as marks", () => {
   expect(html("the *standard* or _plain_ ~~old~~ way")).toBe(
     "the <em>standard</em> or <em>plain</em> <del>old</del> way",
   );
-  expect(html("**bold `code` inside**")).toBe('<strong>bold <code class="acpmux-question-code">code</code> inside</strong>');
+  expect(html("**bold `code` inside**")).toBe(
+    '<strong>bold <code class="acpmux-question-code">code</code> inside</strong>',
+  );
 });
 
 test("a link draws as its label, never an anchor", () => {
