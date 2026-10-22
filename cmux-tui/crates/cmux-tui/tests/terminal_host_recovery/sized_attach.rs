@@ -445,3 +445,33 @@ fn a_released_phone_size_returns_the_grid_at_once_and_its_drop_holds_nothing() {
     close_terminal_surface(&harness.socket, surface, 50);
     wait_for_no_host_records(&harness.host_root());
 }
+
+/// A leased phone whose connection drops (a dead link, hostd killed) holds
+/// the grid for the departed-view grace at most until its lease would have
+/// ended: a phone that can no longer refresh never pins the Mac's grid for
+/// longer than its lease.
+#[test]
+fn a_dropped_leased_phone_holds_the_grid_only_until_its_lease_ends() {
+    let (harness, surface) = lease_harness("size-lease-drop", "2000");
+    let (_mac_writer, _mac_reader, _) = attach_sized(&harness.socket, surface, 120, 39, 2);
+    let (phone_writer, phone_reader) = attach_leased_phone(&harness.socket, surface, 53, 42, 3);
+    wait_for_vt_size(&harness.socket, surface, 53, 39);
+    let claimed = Instant::now();
+    drop(phone_writer);
+    drop(phone_reader);
+
+    // The hold (60 s here) keeps the grid at first ...
+    std::thread::sleep(Duration::from_millis(500));
+    let state = request(&harness.socket, serde_json::json!({"cmd": "vt-state", "surface": surface}));
+    assert_eq!((state["cols"].as_u64(), state["rows"].as_u64()), (Some(53), Some(39)));
+    // ... and ends with the lease, not after 60 s.
+    wait_for_vt_size(&harness.socket, surface, 120, 39);
+    assert!(
+        claimed.elapsed() >= Duration::from_millis(1500),
+        "the grid grew {:?} after the claim, before its lease ended",
+        claimed.elapsed()
+    );
+
+    close_terminal_surface(&harness.socket, surface, 50);
+    wait_for_no_host_records(&harness.host_root());
+}
