@@ -228,7 +228,7 @@ impl Brain {
         let mut retry: Vec<Awaiting> = Vec::new();
         let mut failed: Vec<Awaiting> = Vec::new();
         for a in self.state.awaiting.iter_mut() {
-            if !a.due_ms.is_some_and(|d| d <= now) {
+            if a.due_ms.is_none_or(|d| d > now) {
                 continue;
             }
             if a.tries >= MAX_REPLY_TRIES {

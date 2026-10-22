@@ -1314,6 +1314,13 @@ impl Brain {
             }
             thread
         };
+        // The owner stopped the turn: its messages need no reply (the person
+        // asked for the silence; reply_ledger.rs).
+        let not_needed = if owner_stopped {
+            answers.clone()
+        } else {
+            Vec::new()
+        };
         match conversation {
             Some(conversation) if !text.is_empty() => {
                 // Every mention of a subagent is its link (Lawrence 2026-10-10).
@@ -1358,12 +1365,8 @@ impl Brain {
             _ => Vec::new(),
         };
         let main = self.turn_side().is_none();
-        // The owner stopped the turn: its messages need no reply (the person
-        // asked for the silence). Any other end leaves what no post answered
-        // to a retry check (reply_ledger.rs).
-        if owner_stopped {
-            self.reply_not_needed(&answers);
-        }
+        // Any other end leaves what no post answered to a retry check.
+        self.reply_not_needed(&not_needed);
         self.state.turn = None;
         self.stop_wanted = false;
         self.save_with(extra);
