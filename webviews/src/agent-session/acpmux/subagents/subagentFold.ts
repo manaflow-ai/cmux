@@ -67,7 +67,10 @@ export class SubagentFold {
       if ((update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update") && update.title)
         owner.action = String(update.title);
       const kind = update?.sessionUpdate;
-      if (kind !== "subagent_spawned" && kind !== "subagent_state_update") this.record(owner.id, { event, update });
+      // The Agent call that spawned it is the parent's, not a step of its own.
+      const spawnCall = typeof update?.toolCallId === "string" && this.spawnCalls.has(update.toolCallId);
+      if (kind !== "subagent_spawned" && kind !== "subagent_state_update" && !spawnCall)
+        this.record(owner.id, { event, update });
       this.touch(owner);
       return true;
     }
