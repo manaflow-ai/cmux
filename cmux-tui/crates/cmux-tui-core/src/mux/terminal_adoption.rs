@@ -847,6 +847,15 @@ impl Mux {
                         std::thread::sleep(Duration::from_millis(5));
                     }
                 }
+                // Test hook (fault injection, debug builds): the adoption starts
+                // this much later, so a test can act while the terminal adopts.
+                #[cfg(debug_assertions)]
+                if let Some(ms) = std::env::var("CMUX_TUI_TEST_ADOPTION_DELAY_MS")
+                    .ok()
+                    .and_then(|ms| ms.parse::<u64>().ok())
+                {
+                    std::thread::sleep(Duration::from_millis(ms));
+                }
                 let mut delay = first_delay;
                 let mut refusals = pending_terminals::RefusalStreak::default();
                 loop {

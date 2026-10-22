@@ -91,7 +91,8 @@ test("each state is the glyph's shape and the row's color, and no row says Merge
   const draft = pr("teamleaderleo/leo-workspace", 636);
   const conflicting = pr("manaflow-ai/cmux", 20560);
   const open = pr("manaflow-ai/cmuxterm-hq", 2681);
-  await render(container, [merged, closed, draft, conflicting, open], {
+  // Oldest first: the ended ones are the newest, and still go last.
+  await render(container, [draft, conflicting, open, closed, merged], {
     [draft.url]: { state: "draft" },
     [conflicting.url]: { state: "open", mergeable: "conflicting" },
     [open.url]: { state: "open", mergeable: "mergeable" },
@@ -105,8 +106,8 @@ test("each state is the glyph's shape and the row's color, and no row says Merge
     ["cmuxterm-hq #2681", "open", "open"],
     ["cmux #20560", "conflicting", "conflicting"],
     ["leo-workspace #636", "draft", "draft"],
-    ["glaeda #1546", "closed", "closed"],
     ["cmux #23377", "merged", "merged"],
+    ["glaeda #1546", "closed", "closed"],
   ]);
   // The words are for screen readers only, inside the glyph's label; the line shows none.
   for (const row of rows(container)) {
@@ -114,7 +115,7 @@ test("each state is the glyph's shape and the row's color, and no row says Merge
     expect(line).not.toMatch(/Merged|Closed|Open|Draft|conflicts/);
   }
   expect(container.querySelector(".acpmux-chat-inspector-pr__state")).toBeNull();
-  expect(rows(container)[4]!.querySelector(".acpmux-chat-inspector-sr-only")?.textContent).toBe("Merged");
+  expect(rows(container)[3]!.querySelector(".acpmux-chat-inspector-sr-only")?.textContent).toBe("Merged");
 });
 
 test("the title leads, then repo #N, the line counts, the comments, and the failing checks or a green dot", async () => {
@@ -183,11 +184,20 @@ test("a row's click opens its pull request beside the chat", async () => {
   expect(event.defaultPrevented).toBe(true);
 });
 
-test("open ones come first, newest first, then the merged and closed", () => {
-  const list = [pr("a/x", 1, "merged"), pr("a/x", 2), pr("a/x", 3, "closed"), pr("a/x", 4)];
-  const order = changesOrder(list, { [list[1]!.url]: { state: "merged" } }).map((item) => item.number);
-  // #2 the App reads as merged since: it goes with the ended ones.
-  expect(order).toEqual([4, 3, 2, 1]);
+test("open ones come first, the most recently touched first, then the merged and closed", () => {
+  // A merged and a closed one newer than the open ones still go after them.
+  const list = [pr("a/x", 1), pr("a/x", 2, "merged"), pr("a/x", 3), pr("a/x", 4, "closed"), pr("a/x", 5)];
+  const order = changesOrder(list, { [list[4]!.url]: { state: "merged" } }).map((item) => item.number);
+  // #5 the App reads as merged since: it goes with the ended ones, newest first.
+  expect(order).toEqual([3, 1, 5, 4, 2]);
+  // Where the chat last touched or named each one decides, not where it first did.
+  const touched = [
+    { ...pr("a/x", 1), touched: 9 },
+    { ...pr("a/x", 2), touched: 2 },
+    { ...pr("a/x", 3, "merged"), touched: 1 },
+    { ...pr("a/x", 4, "merged"), touched: 5 },
+  ];
+  expect(changesOrder(touched, {}).map((item) => item.number)).toEqual([1, 2, 4, 3]);
   expect(glyphState(pr("a/x", 5), { mergeable: "conflicting" })).toBe("conflicting");
   expect(glyphState(pr("a/x", 6, "merged"), { mergeable: "conflicting" })).toBe("merged");
 });

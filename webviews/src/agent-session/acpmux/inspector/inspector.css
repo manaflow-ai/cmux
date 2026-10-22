@@ -84,6 +84,25 @@
 .acpmux-chat-inspector[data-resizing] .acpmux-chat-inspector__resize::after {
   background: var(--agent-border);
 }
+/* Its own head: the panel's name and its close button (Leo, 2026-10-22: "WITHOUT BEING CLOSABLE"), so
+   it closes where the chat header and its toggle are out of reach (a diff in place). */
+.acpmux-chat-inspector__head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 6px 10px 0 14px;
+}
+.acpmux-chat-inspector__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--agent-muted);
+  font-weight: 500;
+}
 .acpmux-chat-inspector__body {
   flex: 1 1 auto;
   min-height: 0;
