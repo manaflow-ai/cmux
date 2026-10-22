@@ -12,6 +12,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 import yaml
 
@@ -104,6 +105,74 @@ class IssuePlanTests(unittest.TestCase):
         self.assertEqual((plan.open, plan.update), ([], []))
 
 
+class UnservedTests(unittest.TestCase):
+    def test_a_young_replacement_queue_on_an_unserved_label_is_unserved_not_starved(self) -> None:
+        jobs = {1: [job(created=3)]}
+        self.assertEqual(starved_labels.starved([{"id": 1}], jobs, now=NOW), [])
+        self.assertEqual(starved_labels.unserved([{"id": 1}], jobs, now=NOW), [SIDE])
+
+    def test_a_served_label_is_not_unserved(self) -> None:
+        jobs = {1: [job(created=3), job(status="in_progress", created=30, started=20, runner="mini-3")]}
+        self.assertEqual(starved_labels.unserved([{"id": 1}], jobs, now=NOW), [])
+
+
+def search_item(label: str, number: int, updated: float = 30) -> dict:
+    return {"number": number, "title": starved_labels.issue_title(label), "state": "open", "updated_at": iso(updated)}
+
+
+class FakeGitHub:
+    repo = "manaflow-ai/cmux"
+
+    def __init__(self, items: list) -> None:
+        self.items = items
+        self.calls: list = []
+
+    def request(self, method: str, path: str, body=None):
+        self.calls.append((method, path, body))
+        if method == "GET":
+            return {"items": self.items}
+        if method == "POST" and path.endswith("/issues"):
+            return {"number": 99}
+        return {}
+
+    def closed(self) -> list:
+        return [int(path.rsplit("/", 1)[1]) for method, path, body in self.calls
+                if method == "PATCH" and (body or {}).get("state") == "closed"]
+
+    def opened(self) -> int:
+        return sum(1 for method, path, _ in self.calls if method == "POST" and path.endswith("/issues"))
+
+
+class SyncIssuesTests(unittest.TestCase):
+    ENTRY = {"label": SIDE, "oldest_queued_minutes": 130, "queued": 2, "job_url": "u", "job": "j"}
+    GENERATED = iso(0)
+
+    def test_duplicate_titles_close_all_but_the_oldest(self) -> None:
+        github = FakeGitHub([search_item(SIDE, 12), search_item(SIDE, 7), search_item(SIDE, 15)])
+        starved_labels.sync_issues(github, [self.ENTRY], self.GENERATED)
+        self.assertEqual(sorted(github.closed()), [12, 15])
+        self.assertEqual(github.opened(), 0)
+        updated = [path for method, path, body in github.calls if method == "PATCH" and "state" not in (body or {})]
+        self.assertEqual(updated, ["/repos/manaflow-ai/cmux/issues/7"])
+
+    def test_an_unserved_young_queue_keeps_the_alert_open(self) -> None:
+        github = FakeGitHub([search_item(SIDE, 7)])
+        starved_labels.sync_issues(github, [], self.GENERATED, unserved=[SIDE])
+        self.assertEqual(github.closed(), [])
+        self.assertFalse(any(method == "POST" and "comments" in path for method, path, _ in github.calls))
+
+    def test_recovery_closes_once_with_one_comment(self) -> None:
+        github = FakeGitHub([search_item(SIDE, 7)])
+        starved_labels.sync_issues(github, [], self.GENERATED, unserved=[])
+        self.assertEqual(github.closed(), [7])
+        self.assertEqual(sum(1 for method, path, _ in github.calls if "comments" in path), 1)
+
+    def test_an_older_snapshot_never_closes_an_issue_updated_after_it(self) -> None:
+        github = FakeGitHub([search_item(SIDE, 7, updated=1)])
+        starved_labels.sync_issues(github, [], iso(5), unserved=[])
+        self.assertEqual(github.closed(), [])
+
+
 class MainTests(unittest.TestCase):
     def run_main(self, snapshot: dict, env: dict) -> tuple[int, str, str]:
         with tempfile.TemporaryDirectory() as tmp:
@@ -125,6 +194,14 @@ class MainTests(unittest.TestCase):
         self.assertIn("https://example.test/job/1", summary)
         self.assertIn("2h10m", summary)
 
+    def test_the_snapshot_carries_unserved_labels_into_the_sync(self) -> None:
+        github = FakeGitHub([search_item(SIDE, 7)])
+        with mock.patch.object(starved_labels, "client", return_value=github):
+            code, _, _ = self.run_main({"generated_at": iso(0), "starved": [], "unserved": [SIDE]},
+                                       env={"GH_REPO": "manaflow-ai/cmux", "GH_TOKEN": "t"})
+        self.assertEqual(code, 0)
+        self.assertEqual(github.closed(), [])
+
     def test_a_snapshot_without_the_starved_key_closes_nothing(self) -> None:
         code, out, _ = self.run_main({"pools": {}}, env={"GH_REPO": "manaflow-ai/cmux"})
         self.assertEqual(code, 0)
@@ -132,6 +209,10 @@ class MainTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_sweeps_are_serialized_and_never_cancelled_mid_reconcile(self) -> None:
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        self.assertEqual(workflow["concurrency"], {"group": "ci-queue-janitor", "cancel-in-progress": False})
+
     def test_the_alert_step_uses_the_bot_token_and_adds_no_permission(self) -> None:
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         sweep = workflow["jobs"]["sweep"]
