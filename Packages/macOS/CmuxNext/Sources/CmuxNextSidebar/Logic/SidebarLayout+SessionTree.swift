@@ -94,7 +94,7 @@ nonisolated extension SidebarLayout {
     }
 
     /// `treeRows` of one list, a section's loose rows or a group's members: `ids` its workspaces, `workspace` by index.
-    static func treeRows(_ ids: [WorkspaceID?], workspace: (Int) -> SidebarWorkspace?, tree live: SidebarSessionTreeState?,
+    static func treeRows(_ ids: [WorkspaceID?], workspace: @escaping (Int) -> SidebarWorkspace?, tree live: SidebarSessionTreeState?,
                          filtering: Bool) -> [TreeRow] {
         let tree = live.map { shown in
             var tree = shown
