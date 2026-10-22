@@ -96,20 +96,17 @@ struct ChiefWorkspaceRowsTests {
 
     /// Leo 2026-10-22, of a pinned Chief workspace drawn as a grey "A" tile over
     /// "a11 · Land pet dock PRs": "why is this a thing at the top". The top band reads the
-    /// workspace on its own machine, so it shows the task title, and an agent's mark, not a letter.
-    @Test func aPinnedChiefWorkspaceShowsItsTaskTitleAndItsAgentsMark() throws {
-        let (layout, refs, ref) = Self.pinnedChiefWorkspace("a11 · Land pet dock PRs", harness: "claude")
-        let info = try #require(SidebarWorkspaceItems.workspaceInfos(layout, refs: refs)[ref])
-        #expect(info.title == "Land pet dock PRs")
-        #expect(!info.textOnly)
-        #expect(info.brand == "claude")
-    }
-
-    @Test func aPinnedWorkspaceWithNoAgentKeepsItsLetterFromTheTaskTitle() throws {
-        let (layout, refs, ref) = Self.pinnedChiefWorkspace("a11 · Land pet dock PRs", harness: nil)
+    /// workspace on its own machine, so it shows the task title. A workspace with no icon of its
+    /// own stays text only, agent or not (WORKSPACE-ROWS-NO-DEFAULT-ICON); its tile's letter now
+    /// comes from the task title.
+    @Test(arguments: ["claude", nil] as [String?])
+    func aPinnedChiefWorkspaceShowsItsTaskTitle(harness: String?) throws {
+        let (layout, refs, ref) = Self.pinnedChiefWorkspace("a11 · Land pet dock PRs", harness: harness)
         let info = try #require(SidebarWorkspaceItems.workspaceInfos(layout, refs: refs)[ref])
         #expect(info.title == "Land pet dock PRs")
         #expect(info.textOnly)
         #expect(info.brand == nil)
+        // The letter a tile draws (`SidebarItemRowView.glyphImage`: the caption, else the title).
+        #expect((info.caption ?? info.title).first == "L")
     }
 }
