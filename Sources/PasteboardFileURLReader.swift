@@ -22,9 +22,11 @@ enum PasteboardFileURLReader {
         pasteboardTypes.contains(promisedFileURLPasteboardType)
     }
 
-    static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
+    static func fileURLs(
+        from pasteboard: NSPasteboard,
+        promisedFileURLs: [URL]? = nil
+    ) -> [URL] {
         var fileURLs: [URL] = []
-        var didReadPromisedFileURL = false
 
         let objects = pasteboard.readObjects(
             forClasses: [NSURL.self],
@@ -50,6 +52,19 @@ enum PasteboardFileURLReader {
             fileURLs.append(url.standardizedFileURL)
         }
 
+        fileURLs.append(contentsOf: promisedFileURLs ?? self.promisedFileURLs(from: pasteboard))
+
+        var seen: Set<String> = []
+        return fileURLs.filter { url in
+            seen.insert(url.path).inserted
+        }
+    }
+
+    /// Resolves promises separately so callers can retain each URL's provenance.
+    static func promisedFileURLs(from pasteboard: NSPasteboard) -> [URL] {
+        var fileURLs: [URL] = []
+        var didReadPromisedFileURL = false
+
         for item in pasteboard.pasteboardItems ?? [] {
             guard let rawPromisedFileURL = item.string(
                 forType: promisedFileURLPasteboardType
@@ -74,9 +89,7 @@ enum PasteboardFileURLReader {
             fileURLs.append(url.standardizedFileURL)
         }
 
-        var seen: Set<String> = []
-        return fileURLs.filter { url in
-            seen.insert(url.path).inserted
-        }
+        return fileURLs
     }
+
 }
