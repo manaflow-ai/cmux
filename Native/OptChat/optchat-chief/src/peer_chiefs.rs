@@ -539,7 +539,9 @@ pub enum Forwarded {
     Later(String),
 }
 
-/// Sorts a forward's answer: a 409 (`chief_not_answering`), 429 and 5xx wait, any other 4xx drops.
+/// Sorts a forward's answer: only a message the API refuses as such (400, 413, 422) drops; anything
+/// else waits: 401/403 (fix the install), 404 (the route is not deployed yet), 409 (the chief does
+/// not answer now), 429, 5xx and the network.
 pub fn forwarded(answer: Result<Value, String>) -> Forwarded {
     match answer {
         Ok(_) => Forwarded::Done,
@@ -550,9 +552,8 @@ pub fn forwarded(answer: Result<Value, String>) -> Forwarded {
                 .and_then(|r| r.get(..3))
                 .and_then(|c| c.parse::<u16>().ok());
             match code {
-                Some(409 | 429) | None => Forwarded::Later(e),
-                Some(c) if c >= 500 => Forwarded::Later(e),
-                Some(_) => Forwarded::Dropped(e),
+                Some(400 | 413 | 422) => Forwarded::Dropped(e),
+                _ => Forwarded::Later(e),
             }
         }
     }
