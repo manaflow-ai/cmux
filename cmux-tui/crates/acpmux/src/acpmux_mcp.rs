@@ -27,6 +27,9 @@ pub const SESSION_ENV: &str = "ACPMUX_SESSION_ID";
 /// message is on its way: under the shortest MCP tool timeout of the harnesses (Codex: 60 s).
 /// A session on a peer may take longer to answer; the send goes on behind the answer.
 const SEND_WAIT: Duration = Duration::from_secs(20);
+/// How long a send that outlived [`SEND_WAIT`] goes on behind the answer before it gives up, so
+/// a peer that never answers holds no task or connection past it.
+const SEND_MAX: Duration = Duration::from_secs(600);
 /// Most replies `last` returns.
 const MAX_LAST: u64 = 20;
 
@@ -150,7 +153,7 @@ pub(crate) async fn call(daemon: &Arc<Client>, params: &Value) -> Value {
 
 /// `send`: the request `acpmux send --no-wait` makes. It answers once the daemon recorded the
 /// message, or after [`SEND_WAIT`] with the message still on its way: the send goes on in this
-/// server, which lives as long as the session.
+/// server, which lives as long as the session, for up to [`SEND_MAX`].
 async fn send(daemon: &Arc<Client>, args: &Value) -> Value {
     let (Some(to), Some(text)) = (arg(args, "to"), args.get("text").and_then(Value::as_str)) else {
         return error_result("to and text are required".to_owned());
@@ -166,10 +169,11 @@ async fn send(daemon: &Arc<Client>, args: &Value) -> Value {
     let prompt = PromptId::new(None);
     let prompt_id = prompt.id.clone();
     let (client, session, body) = (daemon.clone(), id.clone(), text.to_owned());
-    let mut sending =
-        tokio::spawn(
-            async move { queue_prompt(client, &session, &body, steer, None, &prompt).await },
-        );
+    let mut sending = tokio::spawn(async move {
+        tokio::time::timeout(SEND_MAX, queue_prompt(client, &session, &body, steer, None, &prompt))
+            .await
+            .unwrap_or_else(|_| Err(anyhow::anyhow!("no answer in {} s", SEND_MAX.as_secs())))
+    });
     let accepted = match tokio::time::timeout(SEND_WAIT, &mut sending).await {
         Ok(Ok(Ok(accepted))) => accepted,
         Ok(Ok(Err(e))) => return refusal(e),
