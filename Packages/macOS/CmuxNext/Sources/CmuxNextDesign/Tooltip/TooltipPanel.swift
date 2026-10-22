@@ -1,14 +1,19 @@
 import AppKit
 
-/// The tooltip's ink, read in the hovered view's theme scope.
+/// The tooltip's ink and legibility tint, read in the panel's theme scope.
 struct TooltipStyle {
     var ink: NSColor
     var hint: NSColor
+    /// `TooltipSurface.tint`: the popup surface at the least alpha that keeps `ink` at 4.5:1 over
+    /// the tint laid on pure black and on pure white. Always translucent glass, never solid.
+    var tint: NSColor
 
     /// The scope's colors, frozen (the labels draw them as they are). theme-scoped
     @MainActor static func current() -> TooltipStyle {
         func frozen(_ color: NSColor) -> NSColor { color.usingColorSpace(.sRGB) ?? color }
-        return TooltipStyle(ink: frozen(Palette.textPrimary), hint: frozen(Palette.textSecondary))
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        let tint = TooltipSurface(tokens, lift: ChromeTunables.opaqueOverlayLift.value).tint.nsColor
+        return TooltipStyle(ink: frozen(Palette.textPrimary), hint: frozen(Palette.textSecondary), tint: tint)
     }
 }
 
@@ -17,7 +22,9 @@ struct TooltipStyle {
 /// surface of the shared overlay glass (`Glass.makeOverlayPanel`, as the hover cards'; Leo
 /// 2026-10-21: "WHERE IS THE GLASS EVERYWHERE, all these hover tooltips and hover previews"): the
 /// Liquid Glass in the hovered view's theme tint, the themed blur before macOS 26, the opaque popup
-/// surface only under Reduce Transparency. A small tight shadow sits under it, inset in the window
+/// surface only under Reduce Transparency. Over the glass and under the labels lies the legibility
+/// tint (`TooltipSurface.tint`), so the text keeps 4.5:1 over any backdrop the glass shows; it and
+/// the labels follow the panel's theme scope while shown. A small tight shadow sits under it, inset in the window
 /// by `margin` so the shadow has room. scripts/cmux-next/check-overlay-glass.py fails a tooltip or
 /// hover card window that is not this glass.
 ///
@@ -40,6 +47,12 @@ final class TooltipPanel: NSPanel {
     /// The shared overlay glass (its material follows Reduce Transparency); the labels sit in its
     /// `contentView`.
     let glass: OverlaySurfaceView
+    /// The legibility tint over the glass, under the labels (`TooltipStyle.tint`): the glass's own
+    /// theme tint is too light for the ink over a pure white or black backdrop (Codex review of
+    /// #23970). Clear on the opaque material (Reduce Transparency), already that surface. Its theme
+    /// hook (a theme change of the panel's scope, a Reduce Transparency switch) recolors it and the
+    /// labels while the tooltip shows.
+    let legibility = ThemeChangeView()
     /// The scope the glass draws in: the hovered view's, at full strength.
     private weak var adoptedScope: ThemeScope?
     /// Bumped by every show and fade-out, so a finished fade-out of an earlier one orders nothing out.
@@ -75,6 +88,14 @@ final class TooltipPanel: NSPanel {
         glass.translatesAutoresizingMaskIntoConstraints = true
         glass.autoresizingMask = [.width, .height]
         surface.addSubview(glass)
+        legibility.wantsLayer = true
+        legibility.translatesAutoresizingMaskIntoConstraints = true
+        legibility.autoresizingMask = [.width, .height]
+        legibility.layer?.cornerRadius = Self.radius
+        legibility.layer?.cornerCurve = .continuous
+        legibility.layer?.masksToBounds = true
+        legibility.onThemeChange = { [weak self] in self?.applyColors() }
+        glass.contentView.addSubview(legibility)
         for label in [text, hint] {
             label.font = Typography.caption
             label.isSelectable = false
@@ -108,9 +129,9 @@ final class TooltipPanel: NSPanel {
         NSSize(width: frame.width - Self.margin * 2, height: frame.height - Self.margin * 2)
     }
 
-    /// Lays out `text` and `shortcut` in `style` and sizes the window to them, on the glass of
-    /// `scope` (the hovered view's).
-    func show(text value: String, shortcut: String?, style: TooltipStyle, scope: ThemeScope, appearance: NSAppearance) {
+    /// Lays out `text` and `shortcut` and sizes the window to them, on the glass of `scope` (the
+    /// hovered view's), in its colors.
+    func show(text value: String, shortcut: String?, scope: ThemeScope, appearance: NSAppearance) {
         if adoptedScope !== scope {
             scope.adopt(self)
             adoptedScope = scope
@@ -118,10 +139,9 @@ final class TooltipPanel: NSPanel {
         self.appearance = appearance
         glass.refreshMaterial()
         glass.applyTheme()
+        applyColors()
         text.stringValue = value
-        text.textColor = style.ink
         hint.stringValue = shortcut ?? ""
-        hint.textColor = style.hint
         hint.isHidden = shortcut?.isEmpty ?? true
         let pad = Self.padding
         let hintSize = hint.isHidden ? .zero : hint.fittingSize
@@ -136,9 +156,19 @@ final class TooltipPanel: NSPanel {
         setContentSize(NSSize(width: width + Self.margin * 2, height: height + Self.margin * 2))
         surface.frame = NSRect(x: Self.margin, y: Self.margin, width: width, height: height)
         glass.frame = surface.bounds
+        legibility.frame = surface.bounds
         surface.layer?.shadowPath = CGPath(roundedRect: surface.bounds, cornerWidth: Self.radius, cornerHeight: Self.radius,
                                            transform: nil)
         configureSurfaceShadow()
+    }
+
+    /// Recolors the labels and the legibility tint in the panel's theme scope (the adopted one):
+    /// on show, and from the tint's theme hook while shown.
+    private func applyColors() {
+        let style = legibility.performWithTheme { TooltipStyle.current() }
+        text.textColor = style.ink
+        hint.textColor = style.hint
+        legibility.layer?.backgroundColor = glass.material == .opaque ? NSColor.clear.cgColor : style.tint.cgColor
     }
 
     /// Puts it on screen: fading in and rising when `fade`, else at once (a warm neighbor's, or new text).

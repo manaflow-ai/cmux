@@ -298,12 +298,74 @@ import Testing
             #expect((panel.glass.material == .opaque) == reduce, "reduce \(reduce): material \(panel.glass.material)")
             #expect(panel.glass.samplesBehindWindow)
             #expect(panel.glass.frame == panel.surface.bounds)
-            // No fill over the glass: the labels sit on it.
-            #expect(panel.glass.contentView.layer?.backgroundColor.map { $0.alpha == 0 } ?? true)
+            // The legibility tint over the glass, under the labels: translucent, and the text keeps
+            // 4.5:1 over it on pure black and pure white; clear on the opaque surface.
+            let tint = try Self.tint(of: panel)
+            if reduce {
+                #expect(tint.alpha == 0, "reduce: a tint over the opaque surface")
+            } else {
+                #expect(tint.alpha > 0 && tint.alpha < 1, "the legibility tint is \(tint.alpha): not glass")
+                let contrast = TooltipSurface.worstContrast(ink: try Self.ink(of: panel), tint: tint)
+                #expect(contrast >= ThemeTokens.minimumTextContrast, "the text reads \(contrast):1 over black or white")
+            }
+            #expect(panel.legibility.superview === panel.glass.contentView)
+            #expect(panel.legibility.frame == panel.surface.bounds)
+            #expect(panel.text.superview === panel.glass.contentView && panel.hint.superview === panel.glass.contentView)
             // A small tight shadow, no window shadow.
             #expect(!panel.hasShadow)
             #expect(panel.surface.layer?.shadowOpacity == Float(PopupStyle.elevation1.alpha))
             #expect((panel.surface.layer?.shadowRadius ?? 99) <= 2)
         }
+    }
+
+    /// Codex review of #23970: the glass's own theme tint is too light for the ink over a pure
+    /// white or black backdrop, and a theme change while the tooltip showed left the labels in the
+    /// old theme. In every theme, light and dark, plain, colored and low contrast, switched while
+    /// the tooltip shows, the labels take the new ink and the text keeps 4.5:1 over the tint the
+    /// panel draws, laid on pure black and pure white.
+    @Test func theTextReadsInEveryThemeAndFollowsAThemeChangeWhileShown() async throws {
+        ReduceTransparency.shared.override = false
+        defer { ReduceTransparency.shared.override = nil }
+        let clock = ManualClock()
+        let (window, buttons, presenter, scope) = try Self.toolbar(clock: clock)
+        defer {
+            presenter.dismiss()
+            window.orderOut(nil)
+        }
+        try await Self.rest(on: buttons[0], presenter, clock)
+        let panel = presenter.panel
+        #expect(panel.isVisible)
+        for (index, input) in Self.themes.enumerated() {
+            scope.setOverride(try #require(ThemeSpec("Tooltip Theme \(index)")), input: input, animated: false)
+            let name = "\(input.background)"
+            #expect(presenter.shown?.text == "Back", "\(name): the theme change put the tooltip away")
+            let ink = try Self.ink(of: panel)
+            let want = scope.perform { Palette.textPrimary }.usingColorSpace(.sRGB)
+            #expect(abs(ink.red - Double(want?.redComponent ?? -1)) < 0.01
+                && abs(ink.green - Double(want?.greenComponent ?? -1)) < 0.01
+                && abs(ink.blue - Double(want?.blueComponent ?? -1)) < 0.01, "\(name): the label kept the old ink")
+            let tint = try Self.tint(of: panel)
+            let expected = TooltipSurface(scope.tokens, lift: ChromeTunables.opaqueOverlayLift.value).tint
+            #expect(abs(tint.alpha - expected.alpha) < 0.01 && abs(tint.red - expected.red) < 0.01, "\(name): the tint kept the old theme")
+            #expect(tint.alpha < 1, "\(name): the tint is solid")
+            let contrast = TooltipSurface.worstContrast(ink: ink, tint: tint)
+            #expect(contrast >= ThemeTokens.minimumTextContrast, "\(name): the text reads \(contrast):1 over black or white")
+        }
+    }
+
+    /// The legibility tint the panel draws, in sRGB.
+    static func tint(of panel: TooltipPanel) throws -> ThemeRGB {
+        try rgb(try #require(panel.legibility.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))))
+    }
+
+    /// The primary ink the panel draws, in sRGB.
+    static func ink(of panel: TooltipPanel) throws -> ThemeRGB {
+        try rgb(try #require(panel.text.textColor))
+    }
+
+    static func rgb(_ color: NSColor) throws -> ThemeRGB {
+        let color = try #require(color.usingColorSpace(.sRGB))
+        return ThemeRGB(red: Double(color.redComponent), green: Double(color.greenComponent),
+                        blue: Double(color.blueComponent), alpha: Double(color.alphaComponent))
     }
 }
