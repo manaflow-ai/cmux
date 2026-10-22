@@ -150,6 +150,29 @@ import Testing
         #expect(watch.tint == Self.blue, "the left picture's sample returned and did not land")
     }
 
+    /// A picture overwritten at the same path is a new picture: it is sampled again, and the
+    /// Desktop Wallpaper background reloads it. The unchanged file is never sampled twice.
+    @Test func aPictureOverwrittenInPlaceIsSampledAgain() async throws {
+        let folder = try Self.folder()
+        let url = try Self.writePicture(Self.blue, named: "desktop.png", in: folder)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_000_000)], ofItemAtPath: url.path)
+        let color = OSAllocatedUnfairLock(initialState: Self.blue)
+        let watch = DesktopWallpaperWatch(read: { Self.reading(url, folder: folder) }, sample: { _ in color.withLock { $0 } })
+        watch.refresh()
+        await watch.settled()
+        watch.refresh()
+        #expect(watch.sampleCount == 1, "the same file, unchanged, is not sampled again")
+
+        _ = try Self.writePicture(Self.red, named: "desktop.png", in: folder)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 2_000_000)], ofItemAtPath: url.path)
+        color.withLock { $0 = Self.red }
+        watch.refresh()
+        await watch.settled()
+        #expect(watch.sampleCount == 2)
+        #expect(watch.tint == Self.red)
+        #expect(watch.generation == 1)
+    }
+
     /// A registered window material re-applies with each new color: its tint follows the picture.
     @Test func aWindowsTintFollowsThePicture() async throws {
         let folder = try Self.folder()

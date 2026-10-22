@@ -8,7 +8,9 @@ import Foundation
 /// macOS posts nothing public when the picture changes, so the watch re-reads
 /// `NSWorkspace.desktopImageURL(for:)` when one could have: a Space switch (each Space has its own
 /// picture), a screen change, waking, the app coming to the front (the person picked a picture in
-/// System Settings), the light or dark appearance flipping, macOS's own `com.apple.desktop` notice, and a write to the wallpaper store
+/// System Settings), another window becoming key or a window moving to another display (the main
+/// screen may now be a different one), the light or dark appearance flipping, macOS's own
+/// `com.apple.desktop` notice, and a write to the wallpaper store
 /// (`~/Library/Application Support/com.apple.wallpaper/Store`). A read that matches the last one
 /// costs nothing more; a new picture is decoded small and averaged off the main actor, once per
 /// picture (switching back to a Space reuses its color). Registered material views re-apply with
@@ -27,18 +29,31 @@ public final class DesktopWallpaperWatch {
     /// Where the last color is kept, so the next launch's first window has it before a sample.
     static let lastTintKey = "cmux.wallpaperTint.last"
 
-    /// What the desktop shows: the picture macOS reports, its fill color, and the appearance (a
-    /// dynamic picture has a frame for each).
+    /// What the desktop shows: the picture macOS reports, when it was last written, its fill color,
+    /// and the appearance (a dynamic picture has a frame for each).
     nonisolated struct Reading: Hashable, Sendable {
         let picture: DesktopPicture
         let dark: Bool
+        /// The reported file's modification date: a picture overwritten in place is a new picture.
+        let modified: Date?
+
+        /// - Parameters:
+        ///   - picture: The picture macOS reports.
+        ///   - dark: Whether the app is in the dark appearance.
+        init(picture: DesktopPicture, dark: Bool) {
+            self.picture = picture
+            self.dark = dark
+            modified = picture.reportedURL.flatMap { try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate }
+        }
 
         static func == (lhs: Reading, rhs: Reading) -> Bool {
-            lhs.picture.reportedURL == rhs.picture.reportedURL && lhs.picture.fill == rhs.picture.fill && lhs.dark == rhs.dark
+            lhs.picture.reportedURL == rhs.picture.reportedURL && lhs.modified == rhs.modified && lhs.picture.fill == rhs.picture.fill
+                && lhs.dark == rhs.dark
         }
 
         func hash(into hasher: inout Hasher) {
             hasher.combine(picture.reportedURL)
+            hasher.combine(modified)
             hasher.combine(picture.fill.red)
             hasher.combine(picture.fill.green)
             hasher.combine(picture.fill.blue)
@@ -92,7 +107,8 @@ public final class DesktopWallpaperWatch {
         for name in [NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.didWakeNotification] {
             observe(name, in: workspace)
         }
-        for name in [NSApplication.didChangeScreenParametersNotification, NSApplication.didBecomeActiveNotification] {
+        for name in [NSApplication.didChangeScreenParametersNotification, NSApplication.didBecomeActiveNotification,
+                     NSWindow.didBecomeKeyNotification, NSWindow.didChangeScreenNotification] {
             observe(name, in: .default)
         }
         // macOS's own notices: a new picture, and the light or dark appearance.
