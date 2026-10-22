@@ -326,10 +326,10 @@ impl PeerChiefs {
         if message.len() > MAX_TEXT {
             return Err(format!("tell: the message is over {MAX_TEXT} bytes"));
         }
-        if let Some(key) = key {
-            if self.sent.lock().expect("sent keys").contains(key) {
-                return Ok(format!("already sent to {} with key {key}", peer.label));
-            }
+        if let Some(key) = key
+            && self.sent.lock().expect("sent keys").contains(key)
+        {
+            return Ok(format!("already sent to {} with key {key}", peer.label));
         }
         let mut body = json!({"text": message});
         if let Some(key) = key {
