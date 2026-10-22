@@ -96,6 +96,10 @@ nonisolated enum AcpmuxPaneMethods {
         // The composer's Account menu (direct.ts routes, setChatRoute): read the routes, and pick
         // one for a chat in the pane's scope. Adding or changing a route stays the unix socket's.
         "_acpmux/route/list", "_acpmux/chat/route.set",
+        // Reconnect a failed MCP server of a chat in the pane's scope (direct.ts reconnectMcp, the
+        // Inspector's Connectors): acpmux sends Claude Code's mcp_reconnect for a server the chat
+        // already lists, on its running process; it starts nothing and refuses other harnesses.
+        "_acpmux/mcp/reconnect",
     ]
 
     /// Notifications (no `id`).
@@ -192,7 +196,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
         "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/watch_take_over",
-        "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set",
+        "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/mcp/reconnect",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
