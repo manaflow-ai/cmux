@@ -533,47 +533,39 @@ const envShell = (command: string) =>
     endedAt: minutesAgo(1.88),
   });
 
-/// A running turn with one call per run, none a shell: a finished fetch, a failed fetch and a read
-/// still going (Leo, 2026-10-21: "only show the green/red checkmark + time on hover for ours").
+/// An ended turn with one call per run, none a shell: a finished fetch and a failed one (Leo,
+/// 2026-10-21: "only show the green/red checkmark + time on hover for ours"). A running call keeps
+/// its spinner (transcript-codex-turn.test.tsx).
 const loneToolCalls = () =>
-  chat(
-    [
-      user("Read the API docs and the client.", 3),
-      activity(
-        [
-          tool("Fetch https://example.com/docs", "fetch", "completed", {
-            startedAt: minutesAgo(2.9),
-            endedAt: minutesAgo(2.88),
-          }),
-        ],
-        2.9,
-      ),
-      assistant("The docs page loaded; the API reference is next.", 2.8),
-      activity(
-        [
-          tool("Fetch https://example.com/api", "fetch", "failed", {
-            startedAt: minutesAgo(2.7),
-            endedAt: minutesAgo(2.69),
-          }),
-        ],
-        2.7,
-      ),
-      assistant("That page is gone; I'll read the client instead.", 2.6),
-      activity(
-        [
-          tool("Read client.ts", "read", "in_progress", {
-            locations: [{ path: "src/net/client.ts" }],
-            startedAt: minutesAgo(0.1),
-          }),
-        ],
-        0.1,
-      ),
-    ],
-    { isWorking: true },
-  );
+  chat([
+    user("Read the API docs and the reference.", 3),
+    activity(
+      [
+        tool("Fetch https://example.com/docs", "fetch", "completed", {
+          startedAt: minutesAgo(2.9),
+          endedAt: minutesAgo(2.88),
+        }),
+      ],
+      2.9,
+    ),
+    assistant("The docs page loaded; the API reference is next.", 2.8),
+    activity(
+      [
+        tool("Fetch https://example.com/api", "fetch", "failed", {
+          startedAt: minutesAgo(2.7),
+          endedAt: minutesAgo(2.69),
+        }),
+      ],
+      2.7,
+    ),
+    assistant("The reference page is gone; the docs cover what we need.", 2.6),
+    summary(2.6, { status: "completed", toolCount: 2, durationMs: 24_000 }),
+  ]);
 
-/// At rest the finished call's check and time are hidden and take their room; the failure's red word shows.
+/// Opens the turn's Worked for. At rest the finished call's check and time are hidden and keep
+/// their room; the failure's red word shows.
 const loneToolMetaAtRest = async (ctx: PlayContext) => {
+  await openWorked(ctx);
   await ctx.waitFor(() => ctx.document.querySelector(".cv-tool .cv-command__ok"));
   const view = ctx.document.defaultView!;
   for (const node of ctx.document.querySelectorAll(".cv-tool .cv-command__ok, .cv-tool .cv-command__time"))
@@ -1415,12 +1407,12 @@ export default agentPaneEntry({
       },
     },
     "tool-hover-meta-lone": {
-      note: "Calls that are not shells, at rest: a finished fetch shows no check or time, a failed one says failed in red, a running read keeps its spinner.",
+      note: "Calls that are not shells, at rest: a finished fetch shows no check or time, a failed one says failed in red. Play: open Worked for.",
       snapshot: loneToolCalls(),
       play: loneToolMetaAtRest,
     },
     "tool-hover-meta-lone-hovered": {
-      note: "The same calls with the finished fetch pointed at: its green check and run time fade in; the failure stays as it was.",
+      note: "The same calls with the finished fetch pointed at: its green check and run time fade in; the failure stays as it was. Play: open Worked for, hover the fetch.",
       snapshot: loneToolCalls(),
       play: async (ctx) => {
         await loneToolMetaAtRest(ctx);
