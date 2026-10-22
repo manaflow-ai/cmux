@@ -65,7 +65,7 @@ bun scripts/agent-pane/bundle.mjs node_modules/@pierre/diffs/dist/worker/worker.
 # sibling ahead of it (git.css before changes.css), so the line is dropped. Tailwind's entry is
 # compiled over the pane's sources and goes last (below), not as written.
 TAILWIND=src/agent-session/acpmux/tailwind.css
-SIBLING_IMPORT='s/^\@import\s+["\x27]\.\.?\/[^"\x27]+\.css["\x27];[ \t]*(?:\n|\z)//mg'
+SIBLING_IMPORT='s/^[ \t]*\@import\s+["\x27]\.\.?\/[^"\x27]+\.css["\x27];[ \t]*(?:\n|\z)//mg'
 [ -s "$WORK/sheets" ] || { echo "error: bundle.mjs listed no stylesheets for the agent pane" >&2; exit 1; }
 : > "$WORK/styles.css"
 while IFS= read -r sheet; do
@@ -82,7 +82,9 @@ while IFS= read -r sheet; do
   echo "error: the agent pane imports webviews/$sheet but its rules are missing from the page's styles" >&2
   exit 1
 done < "$WORK/sheets"
-if grep -n '^@import ' "$WORK/styles.css" >&2; then
+# Any other @import (indented, with a media or layer condition, mid-line) is left in place, where
+# the browser drops it: refuse it, outside comments.
+if perl -0777 -ne 's{/\*.*?\*/}{}gs; exit(/\@import\b/ ? 0 : 1)' "$WORK/styles.css"; then
   echo "error: an @import reached the agent pane's styles, where it never loads; import the sheet from a module (acpmux/pageStyles.ts) instead" >&2
   exit 1
 fi

@@ -117,18 +117,28 @@ export function readWebThemeBootstrap(file = WEB_THEME_SWIFT): string {
   return script.replace(/\\\\/g, "\\");
 }
 
+/** A sheet's `@import "./x.css";` of a sibling, which the page carries ahead of it (not inlined). */
+const SIBLING_IMPORT = /^[ \t]*@import\s+["'](\.\.?\/[^"']+\.css)["'];[ \t]*$/gm;
+
 /**
- * The pane's stylesheets in shipped order: the sheets acpmux/pageStyles.ts imports, then
- * acpmux/tailwind.css, which build-agent-pane-web.sh compiles and puts last. The page also ships
- * every sheet a component imports and pageStyles.ts leaves out, after these; in the gallery those
- * load with the pane's own modules (main.tsx), as they do in the dev server. (KaTeX's stylesheet
- * loads beside it; the shipped copy only inlines its fonts.)
+ * The pane's stylesheets in shipped order: the sheets acpmux/pageStyles.ts imports, each after the
+ * siblings it @imports (changes.css after git.css), then acpmux/tailwind.css, which
+ * build-agent-pane-web.sh compiles and puts last. The page also ships every sheet a component
+ * imports and pageStyles.ts leaves out, after these; in the gallery those load with the pane's own
+ * modules (main.tsx), as they do in the dev server. (KaTeX's stylesheet loads beside it; the
+ * shipped copy only inlines its fonts.)
  */
 export function agentPaneStylesheets(pageStyles = PANE_PAGE_STYLES): string[] {
   const text = fs.readFileSync(pageStyles, "utf8");
-  const files = [...text.matchAll(/^import\s+"([^"]+\.css)";/gm)].map((match) =>
-    path.resolve(path.dirname(pageStyles), match[1]!),
-  );
+  const files: string[] = [];
+  const add = (file: string) => {
+    if (files.includes(file)) return;
+    const css = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+    for (const match of css.matchAll(SIBLING_IMPORT)) add(path.resolve(path.dirname(file), match[1]!));
+    if (!files.includes(file)) files.push(file);
+  };
+  for (const match of text.matchAll(/^import\s+"([^"]+\.css)";/gm))
+    add(path.resolve(path.dirname(pageStyles), match[1]!));
   if (!files.some((file) => file.endsWith("agent-session/shared/styles.css")))
     throw new Error("gallery: acpmux/pageStyles.ts no longer imports shared/styles.css; update agentPaneStylesheets");
   return [...files, path.join(SESSION, "acpmux/tailwind.css")];
@@ -160,16 +170,6 @@ export function readRevision(root = repoRoot): Revision {
 }
 
 function agentPaneCSS(): string {
-  const inlineRelativeImports = (file: string, css: string, seen = new Set<string>()): string =>
-    css.replace(/^@import\s+["']([^"']+)["'];\s*$/gm, (statement, specifier: string) => {
-      if (!specifier.startsWith(".")) return statement;
-      const imported = path.resolve(path.dirname(file), specifier);
-      if (seen.has(imported)) return "";
-      seen.add(imported);
-      if (!fs.existsSync(imported)) return statement;
-      return inlineRelativeImports(imported, fs.readFileSync(imported, "utf8"), seen);
-    });
-
   return agentPaneStylesheets()
     .map((file) => {
       const css = fs.readFileSync(file, "utf8");
@@ -177,7 +177,7 @@ function agentPaneCSS(): string {
         ? css.replace(/^@import .*$/gm, "")
         : file.endsWith("acpmux/tailwind.css")
           ? `${css}\n${tailwindSources()}`
-          : inlineRelativeImports(file, css);
+          : css.replace(SIBLING_IMPORT, "");
       return `/* ${path.relative(webviewsRoot, file)} */\n${body}`;
     })
     .join("\n");

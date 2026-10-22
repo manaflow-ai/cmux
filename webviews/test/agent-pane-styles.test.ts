@@ -68,7 +68,7 @@ const shipped = (sheet: string) =>
   normalize(
     fs
       .readFileSync(path.join(webviews, sheet), "utf8")
-      .replace(/^@import\s+["']\.\.?\/[^"']+\.css["'];[ \t]*(?:\n|$)/gm, ""),
+      .replace(/^[ \t]*@import\s+["']\.\.?\/[^"']+\.css["'];[ \t]*(?:\n|$)/gm, ""),
   );
 
 describe("agent pane stylesheet list", () => {
@@ -95,9 +95,7 @@ describe("agent pane stylesheet list", () => {
     const gallery = agentPaneStylesheets()
       .map((file) => path.relative(webviews, file))
       .filter((sheet) => sheet !== TAILWIND);
-    expect(
-      sheets.filter((sheet) => sheet !== "src/agent-session/acpmux/changes/git.css").slice(0, gallery.length),
-    ).toEqual(gallery);
+    expect(sheets.slice(0, gallery.length)).toEqual(gallery);
   });
 });
 
@@ -120,7 +118,8 @@ describe.skipIf(!built)("agent pane page", () => {
   // Commit, Push and commit form shipped unstyled.
   test("inlines what its sheets @import, and carries no @import of its own", () => {
     const style = normalize(fs.readFileSync(page, "utf8"));
-    expect(style.match(/^@import .*$/gm) ?? []).toEqual([]);
+    // Outside comments, anywhere on a line: an indented or conditioned @import never loads either.
+    expect(style.replace(/\/\*[\s\S]*?\*\//g, "").match(/@import\b.*$/gm) ?? []).toEqual([]);
     const git = normalize(fs.readFileSync(path.join(webviews, "src/agent-session/acpmux/changes/git.css"), "utf8"));
     expect(style.includes(git)).toBe(true);
   });
