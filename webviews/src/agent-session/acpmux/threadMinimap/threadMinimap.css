@@ -128,19 +128,14 @@
     transition: none;
   }
 }
-/* Prompts on screen: the text at 75%, a clear step over the resting 40%; back to rest while the
-   pointer is on the rail. */
+/* Prompts on screen: the text at 75%, a clear step over the resting 40%. They stay lit while the
+   pointer is on the rail, so where the reader is shows beside the fisheye (Codex dims them there;
+   Leo, 2026-10-21, wants the lit band to show, as ChatGPT's rail does). */
 .acpmux-minimap__tick[data-tone="current"] {
   color: var(--acpmux-minimap-text);
 }
 .acpmux-minimap__tick[data-tone="current"] .acpmux-minimap__bar {
   opacity: 0.75;
-}
-.acpmux-minimap__rail[data-hovering] .acpmux-minimap__tick[data-tone="current"] {
-  color: var(--acpmux-minimap-rest);
-}
-.acpmux-minimap__rail[data-hovering] .acpmux-minimap__tick[data-tone="current"] .acpmux-minimap__bar {
-  opacity: 0.4;
 }
 /* The hovered, scrubbed or focused row: the text, at once (no color transition). */
 .acpmux-minimap__tick[data-tone="active"] {

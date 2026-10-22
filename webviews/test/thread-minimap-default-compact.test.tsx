@@ -202,6 +202,21 @@ test("a long chat with no override draws the compact rail: its first ticks lit a
     expect(lit()).toContain(0);
     expect(list.scrollTop).toBe(0);
     expect(list.hasAttribute("data-fade-top")).toBe(false);
+
+    // With the pointer resting on the rail (a wheel there scrolls the transcript), the list still
+    // follows the band to the end: it used to hold still while hovered.
+    await act(async () => {
+      const Event =
+        (dom.window as unknown as { PointerEvent?: typeof MouseEvent }).PointerEvent ?? dom.window.MouseEvent;
+      document
+        .querySelector('[data-tick="2"]')!
+        .dispatchEvent(new Event("pointerover", { bubbles: true, relatedTarget: document.body }));
+    });
+    expect(document.querySelector(".acpmux-minimap__rail[data-hovering]")).not.toBeNull();
+    await scrollTo(scroller, spacerHeight() - VIEWPORT);
+    expect(lit()).toContain(prompts - 1);
+    expect(list.scrollTop).toBeGreaterThan(0);
+    expect(list.hasAttribute("data-fade-bottom")).toBe(false);
   } finally {
     await act(async () => root.unmount());
   }

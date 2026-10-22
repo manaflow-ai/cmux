@@ -136,6 +136,10 @@ export function ThreadMinimap({
   /// A press is under way: the focus it brings is not keyboard focus.
   const pressing = useRef(false);
   const scrub = useRef<{ pointer: number; y: number; moved: boolean; at?: number } | undefined>(undefined);
+  /// The pointer's last height over the rail (undefined off it), and whether a row is hovered: the
+  /// band moving the list under a resting pointer hovers the row now under it.
+  const pointerY = useRef<number | undefined>(undefined);
+  const hoveredNow = useRef(false);
   const swallowClick = useRef(false);
   const windowHeight = globalThis.innerHeight || viewportHeight;
   /// The scroller's offset as of its last scroll event. The transcript hands `scrollTop` down a
@@ -160,6 +164,7 @@ export function ThreadMinimap({
   const shown = arm === "compact" && turns.length >= MIN_PROMPTS && gutter(width) >= MIN_GUTTER;
   const height = railHeight(turns.length, windowHeight, viewportHeight);
   const overflow = turns.length * ROW_PITCH > height;
+  hoveredNow.current = hovered !== undefined;
 
   /// What the handlers below read: the turns and layout as of the last commit.
   const live = useRef({
@@ -411,18 +416,29 @@ export function ThreadMinimap({
 
   // A rail longer than its room keeps the whole band in view, clear of its edge fades, while the
   // reader scrolls: at the end of the chat the last rows show lit with no fade over them, at the
-  // start the first rows do (railListTop). Keeping only the band's first row in view left the last
-  // prompts under the bottom fade or past the rail's end (Leo, 2026-10-21: "it didn't show the
-  // bottom bits being highlighted").
+  // start the first rows do (railListTop). It follows with the pointer on the rail too, since a
+  // wheel there scrolls the transcript: the list used to hold still while hovered (and kept only
+  // the band's first row in view), so the band ran off under the bottom fade and the chat's last
+  // prompts never showed lit (Leo, 2026-10-21: "it didn't show the bottom bits being highlighted").
+  // The row under a resting pointer then becomes the hovered one. A scrub moves the transcript to
+  // the row under the pointer, so the list holds still for it.
   useLayoutEffect(() => {
     const node = list.current;
     // The commit that added older turns placed the list itself, around the band.
-    if (!node || !overflow || hovered !== undefined || focused !== undefined || holding.current) return;
+    if (!node || !overflow || scrubbing || scrub.current?.moved || holding.current) return;
     const next = railListTop(onScreen.first, onScreen.last, turns.length, height, node.scrollTop);
     if (next === node.scrollTop) return;
     node.scrollTop = next;
     setListTop(node.scrollTop);
-  }, [onScreen.first, onScreen.last, turns.length, overflow, height, hovered, focused]);
+    const y = pointerY.current;
+    if (y === undefined || !hoveredNow.current) return;
+    const index = Math.max(
+      0,
+      Math.min(turns.length - 1, Math.floor((y - node.getBoundingClientRect().top + node.scrollTop) / ROW_PITCH)),
+    );
+    setHovered(index);
+    setCardRow(index);
+  }, [onScreen.first, onScreen.last, turns.length, overflow, height, scrubbing]);
 
   /// The rows' actions: stable for the memoized rows, reading the latest state through `live`.
   const actions = useMemo<TickActions>(
@@ -512,7 +528,11 @@ export function ThreadMinimap({
         data-hovering={hovered !== undefined || undefined}
         data-scrubbing={scrubbing || undefined}
         data-reduce={reduce || undefined}
+        onPointerMove={(event) => {
+          pointerY.current = event.clientY;
+        }}
         onPointerLeave={(event) => {
+          pointerY.current = undefined;
           if (scrub.current?.moved) return;
           setHovered(undefined);
           // Into the card keeps it; anywhere else it goes on this frame.
