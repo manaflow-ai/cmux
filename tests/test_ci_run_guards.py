@@ -220,6 +220,64 @@ class StepsFinish(unittest.TestCase):
         self.assertIn("nope", output)
 
 
+class CleanTreeStepsRunAlone(unittest.TestCase):
+    """The canonical guard profile (cmux_workload_profile.py run) refuses a checkout with source
+    changes. Run in the pool, it raced release-tooling's `init-submodule.sh ghostty` in the same
+    checkout and failed with "checkout has tracked source changes" (run 39702173417). It must
+    finish before any other guard step starts."""
+
+    PROFILE = "python3 scripts/ci/cmux_workload_profile.py run cmux.ci.guard --generation 1"
+
+    def test_the_workload_profile_finishes_before_any_other_step_starts(self) -> None:
+        import contextlib  # noqa: PLC0415
+        import io  # noqa: PLC0415
+        import threading  # noqa: PLC0415
+        import time  # noqa: PLC0415
+
+        Step, Unit = run_ci_guards.Step, run_ci_guards.Unit
+        units = [
+            Unit("workflow-guard-tests", "ci", [
+                Step("lint a", "python3 tests/a.py", {}, None),
+                Step("Run canonical CMUX CI guard profile", self.PROFILE, {}, None),
+                Step("lint b", "python3 tests/b.py", {}, None),
+            ]),
+            Unit("workflow-guard-tests", "ci", [
+                Step("Initialize Ghostty", "bash scripts/ci/init-submodule.sh ghostty", {}, None),
+                Step("Zig sync", "./tests/test_ghostty_zig_version_sync.sh", {}, None),
+            ]),
+        ]
+        events: list[tuple[str, str]] = []
+        lock = threading.Lock()
+
+        def fake_run_steps(unit, steps, base_env, base_sha, keep_going):
+            results = []
+            for step in steps:
+                with lock:
+                    events.append(("start", step.name))
+                time.sleep(0.3 if "cmux_workload_profile.py run" in step.run else 0.05)
+                with lock:
+                    events.append(("end", step.name))
+                results.append(run_ci_guards.StepResult(unit, step, True, 0.0, ""))
+            return results
+
+        saved = run_ci_guards.plan, run_ci_guards.run_steps
+        run_ci_guards.plan = lambda workflow, base_sha, head_sha: units
+        run_ci_guards.run_steps = fake_run_steps
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                code = run_ci_guards.main(["--group", "ci", "--jobs", "4", "--no-stamp"])
+        finally:
+            run_ci_guards.plan, run_ci_guards.run_steps = saved
+
+        self.assertEqual(code, 0)
+        names = [name for kind, name in events if kind == "start"]
+        self.assertEqual(sorted(names), sorted(step.name for unit in units for step in unit.steps))
+        profile_end = events.index(("end", "Run canonical CMUX CI guard profile"))
+        started_before = [name for kind, name in events[:profile_end]
+                          if kind == "start" and name != "Run canonical CMUX CI guard profile"]
+        self.assertEqual(started_before, [], f"steps started while the workload profile ran: {events}")
+
+
 class PortableSubstitutes(unittest.TestCase):
     PAYLOAD = ROOT / "scripts/ci/run_ci_guard_payload.sh"
 

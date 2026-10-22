@@ -12,6 +12,7 @@ import { formatDuration } from "../conversation/turns";
 import type { Subagent } from "./subagentFold";
 import { AgentTonesContext } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
+import { waveProps } from "../../../ui/wave";
 
 /// The chat's harness (claude, codex, ...): its subagents run on it, so their avatars carry its mark.
 export const SubagentHarnessContext = createContext<string | undefined>(undefined);
@@ -86,11 +87,17 @@ export function useNow(live: boolean): number {
   return now - offset;
 }
 
-/// A subagent's avatar: the harness's mark in the agent's tone, with its status dot when `dot`.
-export function Avatar({ agent, dot = false }: { agent: Subagent; dot?: boolean }) {
+/// A subagent's avatar: the harness's mark in the agent's tone, with its status dot when `dot`,
+/// and its place in the running wave (ui/wave.ts) when `wave` is set.
+export function Avatar({ agent, dot = false, wave }: { agent: Subagent; dot?: boolean; wave?: number }) {
   const harness = useContext(SubagentHarnessContext);
+  const { className, style } = waveProps(wave);
   return (
-    <span className="cv-subagent-avatar" data-state={agent.state}>
+    <span
+      className={className ? `cv-subagent-avatar ${className}` : "cv-subagent-avatar"}
+      style={style}
+      data-state={agent.state}
+    >
       {agentBrand(harness) ? <AgentMark agent={harness} size={14} /> : <Icon name="agent.session" size={14} />}
       {dot && <span className="cv-subagent-avatar__dot" aria-hidden="true" />}
     </span>

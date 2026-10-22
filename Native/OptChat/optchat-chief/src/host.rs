@@ -3,7 +3,7 @@
 //! launch for the same home exits 0 (the app launches it on every Home open).
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
@@ -1300,15 +1300,30 @@ fn start(
         );
     let workspaces: Option<Arc<dyn crate::workspaces::Workspaces>> = if workspaces_off {
         None
-    } else if crate::workspaces::AppWorkspaces::from_env(daemon_socket).is_some() {
-        // hq-6d 2026-10-09: always the Chief's owner daemon (`--daemon-socket`), also when the
-        // app started this host: one place, the Chief's machine row in the app, and the
-        // workspaces outlive the app. The tabs name the Chief home's acpmux (`chief:<home id>`).
+    } else if let Some(daemon) =
+        crate::workspaces::subagent_daemon(daemon_socket, &|k: &str| env(k))
+    {
+        // a423: workspaces an older host left on the owner daemon move into the user's
+        // session, once per start, off the start path (best effort; a failure is logged).
+        if Path::new(daemon_socket) != daemon.as_path() {
+            let (owner, app) = (PathBuf::from(daemon_socket), daemon.clone());
+            std::thread::spawn(move || {
+                match crate::workspaces::adopt_owner_workspaces(&owner, &app) {
+                    Ok(0) => {}
+                    Ok(n) => eprintln!("optchat: moved {n} workspaces into the user's session"),
+                    Err(e) => eprintln!("optchat: workspaces stay on the Chief's session: {e}"),
+                }
+            });
+        }
+        // a423 (2026-10-21): the app's daemon, the user's own session, so a subagent's
+        // workspace is the same kind of workspace as one the user makes (it outlives the app
+        // as the app's daemon does). The tabs name the Chief home's acpmux (`chief:<home id>`).
         Some(Arc::new(crate::workspaces::DaemonWorkspaces {
-            daemon: daemon_socket.into(),
+            daemon,
             host: crate::workspaces::chief_host(home),
             host_name: crate::workspaces::host_name(),
             harness: Some(sub_harness.clone()),
+            personal: true,
         }) as Arc<dyn crate::workspaces::Workspaces>)
     } else {
         cloud_install.map(|install| {
@@ -1317,6 +1332,7 @@ fn start(
                 host: format!("install:{install}"),
                 host_name: crate::workspaces::host_name(),
                 harness: Some(sub_harness.clone()),
+                personal: false,
             }) as Arc<dyn crate::workspaces::Workspaces>
         })
     };
