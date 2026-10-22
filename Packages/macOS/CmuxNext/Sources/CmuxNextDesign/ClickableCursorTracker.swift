@@ -21,8 +21,8 @@ public import AppKit
 /// (`ArrowCursorView`) after each pass and after each pointer move, sets the owner's hand again.
 @MainActor
 public final class ClickableCursorTracker: NSResponder {
-    /// The tracker whose hand shows now; nil when none does.
-    private(set) static weak var owner: ClickableCursorTracker?
+    /// The tracker whose hand shows now; nil when none does. Tests clear it before each case.
+    static weak var owner: ClickableCursorTracker?
 
     private weak var view: NSView?
     private let isClickable: @MainActor () -> Bool
@@ -127,14 +127,15 @@ public final class ClickableCursorTracker: NSResponder {
         return isClickable() && !view.isHiddenOrHasHiddenAncestor
     }
 
-    /// The pointer is over the view (its visible rect, or its bounds for a view that just hid) in
-    /// the top window under the pointer.
+    /// The pointer is over the view (what shows of it, `ClickableButton.cursorRect(of:)`, or its
+    /// bounds for a view that just hid) in the top window under the pointer.
     private func pointerOverView(visibleOnly: Bool) -> Bool {
         guard let view, let window = view.window,
               let point = ClickableButton.pointer(in: window, screenPoint: mouseLocation(), topWindowNumber: topWindowNumber) else {
             return false
         }
-        return (visibleOnly ? view.visibleRect : view.bounds).contains(view.convert(point, from: nil))
+        let rect = visibleOnly ? ClickableButton.cursorRect(of: view) ?? .zero : view.bounds
+        return rect.contains(view.convert(point, from: nil))
     }
 
     private static func hasHost(_ view: NSView) -> Bool {

@@ -7,10 +7,13 @@ import Testing
 /// toggle showed the arrow (Leo 2026-10-21: "STOP BUTTON, I HOVER OVER IT, MY CURSOR SHOULD ALSO
 /// SEE IT AS CLICKABLE"). Their `ClickableCursorTracker` sets the cursor itself then.
 @MainActor
+@Suite(.serialized)
 struct ClickableCursorTrackerTests {
     /// A parent window with buttons in it and a child window that has the key. `pointer` is where
-    /// the pointer is, in the parent window's coordinates; `cursors` is every cursor set, the last
-    /// one showing.
+    /// the pointer is, in the parent window's coordinates; `childOnTop` puts the child window over
+    /// it (windows never ordered in have no reliable window numbers, so the host answers for the
+    /// window list); `cursors` is every cursor set, the last one showing. The shared `owner` starts
+    /// empty, so no earlier case's tracker leaks in.
     private final class Host {
         let window = NSWindow(contentRect: NSRect(x: 100, y: 200, width: 300, height: 100), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -18,7 +21,7 @@ struct ClickableCursorTrackerTests {
                              backing: .buffered, defer: false)
         var buttons: [ClickableButton] = []
         var keyWindow: NSWindow?
-        var topWindow: Int?
+        var childOnTop = false
         var pointer = NSPoint(x: 30, y: 20)
         var cursors: [NSCursor] = []
 
@@ -28,7 +31,7 @@ struct ClickableCursorTrackerTests {
             window.addChildWindow(child, ordered: .above)
             if let container { window.contentView?.addSubview(container) }
             keyWindow = child
-            topWindow = window.windowNumber
+            ClickableCursorTracker.owner = nil
             add(at: NSRect(x: 10, y: 10, width: 40, height: 20), in: container)
         }
 
@@ -37,11 +40,14 @@ struct ClickableCursorTrackerTests {
             let button = ClickableButton(frame: frame)
             (container ?? window.contentView!).addSubview(button)
             let tracker = button.cursorTracker
-            tracker.isKey = { [unowned self] in $0 === keyWindow }
-            tracker.mouseLocation = { [unowned self] in window.convertPoint(toScreen: pointer) }
-            tracker.topWindowNumber = { [unowned self] _ in topWindow ?? 0 }
-            tracker.setCursor = { [unowned self] in cursors.append($0) }
-            tracker.currentCursor = { [unowned self] in cursors.last }
+            tracker.isKey = { [weak self] in $0 === self?.keyWindow }
+            tracker.mouseLocation = { [weak self] in self.map { $0.window.convertPoint(toScreen: $0.pointer) } ?? .zero }
+            tracker.topWindowNumber = { [weak self] _ in
+                guard let self, !self.childOnTop else { return Int.min }
+                return self.window.windowNumber
+            }
+            tracker.setCursor = { [weak self] in self?.cursors.append($0) }
+            tracker.currentCursor = { [weak self] in self?.cursors.last }
             buttons.append(button)
             return button
         }
@@ -87,7 +93,7 @@ struct ClickableCursorTrackerTests {
         host.button.isEnabled = false
         host.tracker.pointerEntered()
         #expect(host.cursors.isEmpty)
-        host.topWindow = host.child.windowNumber
+        host.childOnTop = true
         host.button.isEnabled = true
         host.tracker.pointerEntered()
         #expect(host.cursors.isEmpty)
@@ -122,7 +128,7 @@ struct ClickableCursorTrackerTests {
     @Test func aSwallowedExitNeverPutsTheArrowOverThePage() {
         let host = Host()
         host.tracker.pointerEntered()
-        host.topWindow = host.child.windowNumber
+        host.childOnTop = true
         host.cursors.append(NSCursor.pointingHand) // the page's link
         host.button.isEnabled = false
         host.button.isHidden = true
