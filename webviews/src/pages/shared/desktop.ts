@@ -5,11 +5,14 @@
 import "./desktop.css";
 // LIQUID GLASS: the `.ui-glass` surface and its tokens; its lens (ui/glass/lens.ts) loads after.
 import "../../ui/glass/glass.css";
+// RUNNING-WAVE: the one shimmer across running indicators (ui/wave.ts).
+import "../../ui/wave.css";
 import { parseComputedColor } from "../../backdrop";
 import { installScrollers } from "../../scrollers";
 import { installBackdropFallback } from "../../ui/glass/glassState";
 import { installSpinnerClock } from "../../ui/spinnerClock";
 import { installTooltips } from "../../ui/titleTooltips";
+import { installWave } from "../../ui/wave";
 import { installImeKeyLayer } from "./imeKeys";
 
 /** The marker desktopLayer.test.ts and debug checks read: the layer ran in this document. */
@@ -53,6 +56,8 @@ export function installDesktopLayer(doc: Document = document): void {
   installTooltips(doc);
   // SYNCED-SPINNERS: every `cmux-spin` spinner keeps the shared phase (ui/spinnerClock.ts).
   installSpinnerClock(doc);
+  // RUNNING-WAVE: no wave runs while the page is hidden (ui/wave.ts).
+  installWave(doc);
   const view = doc.defaultView;
   if (!view) return;
   // IME-KEYS: keys an input method is using never reach page handlers (imeKeys.ts).

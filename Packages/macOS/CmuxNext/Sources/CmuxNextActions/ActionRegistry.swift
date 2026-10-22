@@ -292,9 +292,9 @@ public final class ActionRegistry {
         return context.isSuperset(of: descriptor.requires)
     }
 
-    /// Bound, available, and its `isEnabled` predicate passes.
-    public func canPerform(_ id: ActionID) -> Bool {
-        guard let action = action(for: id), isAvailable(id) else { return false }
+    /// Bound, available in `context` (default: the current one), and its `isEnabled` predicate passes.
+    public func canPerform(_ id: ActionID, in context: ActionContext? = nil) -> Bool {
+        guard let action = action(for: id), isAvailable(id, in: context) else { return false }
         return action.isEnabled()
     }
 

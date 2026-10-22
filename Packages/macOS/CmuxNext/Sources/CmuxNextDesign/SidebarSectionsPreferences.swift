@@ -79,6 +79,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// age such as `3d`) on the name's line. Off by default (Lawrence 2026-10-19: "By default in the
     /// sidebar, we should never show timestamps"); the hover card keeps its times either way.
     public var showTimestamps = false
+    /// `sidebar.showLocalMachine`: with more than one machine listed, this Mac's workspace rows
+    /// carry its machine mark too. Off by default (Leo 2026-10-20): only another machine's rows
+    /// are marked, since that is the news; this Mac is where a row runs unless it says otherwise.
+    public var showLocalMachine = false
     /// `sidebar.groupHeader.memberCount`: a collapsed group's header shows how many workspaces it
     /// holds after its name. Off by default (Lawrence 2026-10-20: "All we care about is the
     /// loading"); the header shows only its loading spinner.

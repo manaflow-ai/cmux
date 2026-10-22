@@ -40,6 +40,10 @@ extension SidebarViewComponents {
         var history: SidebarChatHistoryState?
         /// Workspaces as tabs (`SidebarTunables.workspacesAsTabs`): one-line rows.
         var workspacesAsTabs: Bool
+        /// The "Done (N)" fold (`SidebarTunables.doneFold`): turning it on or off lays the list out again.
+        var foldsDone: Bool
+        /// The row limit (`SidebarTunables.groupRowLimit`): changing it lays the list out again.
+        var rowLimit: Int
         init(_ model: SidebarModel, _ design: DesignSettings) {
             sectionsRevision = model.observedStructureRevision
             selection = model.selection
@@ -60,10 +64,12 @@ extension SidebarViewComponents {
             fontSize = Typography.body.pointSize
             titlebarHeight = Metrics.titlebarHeight
             cards = SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
-            tree = SidebarSessionTree.shared.state
+            tree = SidebarSessionTree.shared.drawn
             pullRequests = SidebarSessionTree.shared.pullRequests
             history = SidebarChatHistory.shared.state
             workspacesAsTabs = SidebarTunables.workspacesAsTabs.value
+            foldsDone = SidebarTunables.doneFold.value
+            rowLimit = SidebarTunables.rowLimit
         }
     }
     func observe() {
@@ -98,8 +104,11 @@ extension SidebarViewComponents {
             || state.preferences.changesList(from: lastState?.preferences) || lastState?.tree != state.tree
             || lastState?.pullRequests != state.pullRequests
             || lastState?.history != state.history
-            || lastState?.workspacesAsTabs != state.workspacesAsTabs
+            || lastState?.workspacesAsTabs != state.workspacesAsTabs || lastState?.foldsDone != state.foldsDone
+            || lastState?.rowLimit != state.rowLimit
         let listChanged = rowsChanged || selectionChanged
+        // A selected session never hides in a fold (a notification, the palette or Cmd-number chose it).
+        if selectionChanged { state.selection.forEach(SidebarSessionTree.shared.reveal) }
         let previous = lastState == nil ? nil : lastSections
         model.applyListPreferences(state.preferences)
         // Minimal mode or an item's control changed: show or hide the chosen bands now.

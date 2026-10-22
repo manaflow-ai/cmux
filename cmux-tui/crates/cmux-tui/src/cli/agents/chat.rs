@@ -449,7 +449,14 @@ impl Transcript {
                 _ => {}
             },
             Some("in") if !kind.ends_with(".replay") && msg["method"] == "session/update" => {
-                self.apply_update(seq, &msg["params"]["update"]);
+                // A subagent's words (`_meta.acpmux.subagent`) are its own, never the chat's answer.
+                let words = matches!(
+                    msg["params"]["update"]["sessionUpdate"].as_str(),
+                    Some("agent_message_chunk" | "agent_thought_chunk")
+                );
+                if !words || msg["params"]["_meta"]["acpmux"]["subagent"].is_null() {
+                    self.apply_update(seq, &msg["params"]["update"]);
+                }
             }
             _ => {}
         }

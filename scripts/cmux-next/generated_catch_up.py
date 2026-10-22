@@ -6,7 +6,8 @@ The generated web bundles and strings tables (.gitattributes, merge driver
 cmux-generated-v1) collide on nearly every feat-cmux-next move, and GitHub
 ignores merge drivers, so each landed UI PR left the other open PRs
 conflicting until someone merged the base and rebuilt them by hand. CI does
-that now for a PR whose only conflicts are those files.
+that now for a PR whose only conflicts are those files, if Leo's agents
+opened it (teamleaderleo) or it carries the generated-catch-up label.
 
   generated_catch_up.py select --repo OWNER/REPO [--base BRANCH] [--limit N]
       JSON list of {number, branch, sha} to catch up, newest first.
@@ -31,6 +32,11 @@ DEFAULT_LIMIT = 12
 # GitHub computes mergeability lazily after a base move; a listing first
 # answers UNKNOWN.
 MERGEABLE_POLLS = 6
+# Whose branches CI pushes to. The rulebook forbids pushing to a teammate's PR
+# without Leo's OK (2026-10-21), so only Leo's agents (they act as
+# teamleaderleo) are caught up by default; any other owner opts in with the label.
+AGENT_AUTHORS = frozenset({"teamleaderleo"})
+OPT_IN_LABEL = "generated-catch-up"
 MERGEABLE_POLL_SECONDS = 20
 
 
@@ -72,13 +78,20 @@ def authored(paths: Iterable[str], patterns: list[str]) -> list[str]:
     return [path for path in paths if not is_generated(path, patterns)]
 
 
+def opted_in(pr: dict[str, Any]) -> bool:
+    """Leo's agent PRs, or a PR whose owner asked for catch-up with OPT_IN_LABEL."""
+    login = ((pr.get("author") or {}).get("login") or "").lower()
+    labels = {(label or {}).get("name") for label in pr.get("labels") or []}
+    return login in AGENT_AUTHORS or OPT_IN_LABEL in labels
+
+
 def select(prs: Iterable[dict[str, Any]], *, limit: int = DEFAULT_LIMIT) -> list[dict[str, Any]]:
-    """Same-repository, ready, conflicting PRs, at most `limit`."""
+    """Same-repository, ready, conflicting, opted-in PRs, at most `limit`."""
     chosen = []
     for pr in prs:
         if pr.get("isDraft") or pr.get("isCrossRepository") or pr.get("mergeable") != "CONFLICTING":
             continue
-        if pr.get("headRefName") in ("main", "feat-cmux-next"):
+        if pr.get("headRefName") in ("main", "feat-cmux-next") or not opted_in(pr):
             continue
         chosen.append({"number": pr["number"], "branch": pr["headRefName"], "sha": pr["headRefOid"]})
         if len(chosen) >= limit:
@@ -89,7 +102,7 @@ def select(prs: Iterable[dict[str, Any]], *, limit: int = DEFAULT_LIMIT) -> list
 def _list(repo: str, base: str) -> list[dict[str, Any]]:
     out = subprocess.run(
         ["gh", "pr", "list", "--repo", repo, "--base", base, "--state", "open", "--limit", "200",
-         "--json", "number,headRefName,headRefOid,isDraft,isCrossRepository,mergeable"],
+         "--json", "number,headRefName,headRefOid,isDraft,isCrossRepository,mergeable,author,labels"],
         check=True, capture_output=True, text=True,
     ).stdout
     return json.loads(out)

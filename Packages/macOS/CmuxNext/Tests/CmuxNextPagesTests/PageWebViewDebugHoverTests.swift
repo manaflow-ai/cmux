@@ -53,6 +53,15 @@ struct PageWebViewDebugHoverTests {
         view.close()
     }
 
+    /// The element's size comes back with the point, so a caller can check the point is inside it.
+    @Test func hoverReportsTheElementsSize() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (view, _) = try await chromiumPage(center: #"{"x":120.5,"y":40,"w":81,"h":30,"hit":true}"#)
+        let result = await view.debugHover(".chief-pet-card")
+        #expect(result == ["hovered": true, "native": true, "x": 120.5, "y": 40, "width": 81, "height": 30])
+        view.close()
+    }
+
     /// DevTools mouse input is in the viewport's CSS pixels, so a zoomed page (UI scale, a zoomed
     /// agent chat) gets the same center `getBoundingClientRect` gave.
     @Test func hoverOfAZoomedPageMovesToTheCSSCenter() async throws {
