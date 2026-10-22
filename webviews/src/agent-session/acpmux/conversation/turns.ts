@@ -494,10 +494,14 @@ function shapeTurn(
   if (preview) shaped.push({ id: `${PREVIEW}-${user.id}`, version, at: summary.at, kind: PREVIEW, text: preview });
   // The footer copies the answer, so it carries the answer's text; the last turn's also retries
   // its prompt, and stops offering to once a later prompt goes (or waits to). A last turn the
-  // reader stopped also offers Continue, as Codex does, until a prompt follows it or it runs again,
-  // and not once a turn the agent started on its own after it has ended (its later summary).
-  const resumable =
-    retryable && !live && isStopped(summary) && !turn.slice(end + 1).some((row) => row.kind === "turnSummary");
+  // reader stopped also offers Continue, as Codex does, until a prompt follows it or it runs again.
+  // After a turn the agent started on its own (a later summary in its tail), that turn's summary is
+  // the one that offers it, when the reader stopped that one.
+  let lastSummary = -1;
+  for (let at = turn.length - 1; at > end && lastSummary < 0; at -= 1)
+    if (turn[at]!.kind === "turnSummary") lastSummary = at - end - 1;
+  const offers = retryable && !live;
+  const resumable = offers && lastSummary < 0 && isStopped(summary);
   shaped.push({
     ...summary,
     folded,
@@ -521,6 +525,11 @@ function shapeTurn(
   // bare command rows stacked under "Worked for 1s"): its finished runs folded, the call in
   // flight on the one live line under them, timed from the summary.
   const tail = turn.slice(end + 1);
+  // Its version moves past any acpmux gives the row (VERSION_SPAN), so the memoized footer redraws.
+  if (offers && lastSummary >= 0 && isStopped(tail[lastSummary]!)) {
+    const stopped = tail[lastSummary]!;
+    tail[lastSummary] = { ...stopped, resumable: true, version: stopped.version + VERSION_SPAN };
+  }
   if (live && liveRuns && lineBelow && tail.some((row) => row.kind === "activity"))
     shaped.push(...liveTurn(summary, tail, clockOffset, liveRuns, sessionStatus, lineBelow));
   else shaped.push(...(live ? tail : tail.flatMap(withoutDrafts).map(endedPlan)));

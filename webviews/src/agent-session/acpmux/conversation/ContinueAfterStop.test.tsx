@@ -69,6 +69,26 @@ test("a stopped turn the agent went on from on its own offers no Continue once t
   expect(footers(rows).every((row) => !row.resumable)).toBe(true);
 });
 
+test("a turn the agent started on its own and the reader stopped offers Continue on its own footer", () => {
+  for (const status of ["cancelled", "interrupted"]) {
+    const rows = [
+      prompt("p1", 1_000),
+      answer("a1", 30_000),
+      summary("s1", 41_000),
+      answer("a2", 50_000),
+      summary("s2", 51_000, { status }),
+    ];
+    const [first, second] = footers(rows);
+    expect(first!.resumable).toBeUndefined();
+    expect(second!.resumable).toBe(true);
+    // Its version moves, so the memoized footer redraws with the button.
+    expect(second!.version).not.toBe(1);
+    // A prompt sent after it takes the button away again.
+    const sent = footers([...rows, prompt("p2", 60_000, { pending: true })]);
+    expect(sent.every((row) => !row.resumable)).toBe(true);
+  }
+});
+
 test("a turn a prompt sent now ended is not a stop, so it offers no Continue", () => {
   const rows = [prompt("p1", 1_000), summary("s1", 41_000, { status: "cancelled", continued: true })];
   expect(footers(rows).every((row) => !row.resumable)).toBe(true);
