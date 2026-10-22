@@ -40,7 +40,7 @@
 //! up to 1000, sessions up to 200 plain characters, secret names up to 128,
 //! secret values up to 64 KiB.
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};

@@ -55,7 +55,8 @@
 //! one requested snapshot per 500 ms (`snapshot_throttled {retry_after_ms}`).
 //! A channel transport maps its message onto [`handle_request`].
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
+use crate::panic_free::RecoverPoison;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -194,14 +195,14 @@ impl SnapshotViewers {
     fn register(&self, client: u64, surface: SurfaceId, stream: u64, gate: SnapshotRequestGate) {
         self.viewers
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .recover_poison()
             .entry((client, surface))
             .or_default()
             .push(RegisteredViewer { stream, gate });
     }
 
     fn unregister(&self, client: u64, surface: SurfaceId, stream: u64) {
-        let mut viewers = self.viewers.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut viewers = self.viewers.lock().recover_poison();
         if let Some(list) = viewers.get_mut(&(client, surface)) {
             list.retain(|viewer| viewer.stream != stream);
             if list.is_empty() {
@@ -213,7 +214,7 @@ impl SnapshotViewers {
     fn gates(&self, client: u64, surface: SurfaceId) -> Vec<SnapshotRequestGate> {
         self.viewers
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .recover_poison()
             .get(&(client, surface))
             .map(|list| list.iter().map(|viewer| viewer.gate.clone()).collect())
             .unwrap_or_default()

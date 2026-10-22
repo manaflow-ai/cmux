@@ -16,7 +16,7 @@ use crate::MuxEvent;
 use crate::SurfaceId;
 use crate::SurfaceKind;
 use crate::browser::BrowserPointerOwner;
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use crate::sizing_policy::TerminalDetachActor;
 use crate::sizing_policy::TerminalSizingState;
 use crate::sizing_policy::detach_reason;

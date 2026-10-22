@@ -32,7 +32,7 @@
 //! every other legacy command away from page JS; page JS never sends the
 //! `subscribe` (the host does, in its relay handshake).
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use cmux_link::app_caller::PeerToken;
 use cmux_local_auth::frontend_proof::{self, NONCE_LEN};
 use zeroize::Zeroizing;

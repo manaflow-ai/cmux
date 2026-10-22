@@ -8,7 +8,7 @@ use super::{
     resolve_tab_refs, validate_client_transaction, workspace_mutation,
 };
 use crate::mux::CloseReason;
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use serde_json::{Value, json};
 
 pub(crate) const CLOSE_REASON_CAPABILITY: &str = "close-reason-v1";

@@ -10,8 +10,8 @@ use super::MAX_CREATION_SELECTOR_FALLBACKS;
 use super::origin_gate;
 use super::paired_surface_size;
 use crate::WorkspaceMutation;
+use crate::panic_free::JsonFields;
 use crate::resource::ResourceOperation;
-use crate::server::wire_values::JsonFields;
 
 use crate::AgentRecord;
 use crate::AgentSource;

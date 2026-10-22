@@ -25,7 +25,7 @@
 //! for a trusted local connection (`is_unix`) refuse it, and its
 //! conversation principal is `remote_<install>`, never `user_local`.
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use std::io::{Read, Write};
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::net::{UnixListener, UnixStream};

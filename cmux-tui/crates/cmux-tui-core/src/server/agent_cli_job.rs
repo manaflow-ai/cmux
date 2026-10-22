@@ -1,7 +1,7 @@
 //! A user-admitted native update job on this owner. App execution scopes
 //! remain unsupported: an actor JSON field is never execution authority.
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;

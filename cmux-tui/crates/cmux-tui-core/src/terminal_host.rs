@@ -4,6 +4,7 @@
 //! separable security foundation used by `terminal_host_runtime`, where each
 //! PTY lives in an independently adoptable process.
 
+use crate::panic_free::RecoverPoison;
 use std::fmt;
 use std::io::{Read, Write};
 use std::ops::{BitOr, RangeInclusive};
@@ -395,7 +396,7 @@ impl CapabilityStore {
             return Err(HostHandshakeError::CapabilityDenied);
         }
         let now = Instant::now();
-        let mut grants = self.grants.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut grants = self.grants.lock().recover_poison();
         grants.retain(|grant| grant.expires_at > now);
         if grants.len() >= self.max_grants {
             return Err(HostHandshakeError::CapabilityCapacity);
@@ -428,7 +429,7 @@ impl CapabilityStore {
             negotiate_version(hello.min_version, hello.max_version, supported_versions)?;
         let now = Instant::now();
         let grant = {
-            let mut grants = self.grants.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut grants = self.grants.lock().recover_poison();
             grants.retain(|grant| grant.expires_at > now);
             let Some(index) =
                 grants.iter().position(|grant| grant.token.constant_time_eq(&hello.token))
@@ -454,7 +455,7 @@ impl CapabilityStore {
 
     pub fn active_grants(&self) -> usize {
         let now = Instant::now();
-        let mut grants = self.grants.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut grants = self.grants.lock().recover_poison();
         grants.retain(|grant| grant.expires_at > now);
         grants.len()
     }

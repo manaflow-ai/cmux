@@ -26,7 +26,7 @@
 //! from the same reviewed defaults. A step acpmux refuses stops the begin:
 //! the chat stays here, unmoved, with only the narrowing done so far.
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use std::time::Duration;
 
 use serde_json::{Map, Value, json};

@@ -1,3 +1,4 @@
+use crate::panic_free::RecoverPoison;
 use std::collections::{BTreeMap, HashMap, HashSet};
 #[cfg(all(test, target_os = "linux"))]
 use std::io::Read;
@@ -73,7 +74,7 @@ pub(crate) struct JournalHookRuntime {
 
 impl JournalHookRuntime {
     fn begin(&self) -> bool {
-        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.state.lock().recover_poison();
         if state.shutdown || state.running {
             return false;
         }
@@ -83,7 +84,7 @@ impl JournalHookRuntime {
     }
 
     fn finish(&self) {
-        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.state.lock().recover_poison();
         state.running = false;
         self.changed.notify_all();
     }
@@ -94,17 +95,14 @@ impl JournalHookRuntime {
 
     pub(crate) fn shutdown_until(&self, deadline: Instant) -> bool {
         self.cancelled.store(true, Ordering::Release);
-        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.state.lock().recover_poison();
         state.shutdown = true;
         while state.running {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 return false;
             }
-            let (next, timeout) = self
-                .changed
-                .wait_timeout(state, remaining)
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let (next, timeout) = self.changed.wait_timeout(state, remaining).recover_poison();
             state = next;
             if timeout.timed_out() && state.running {
                 return false;
@@ -397,7 +395,7 @@ fn run_delivery_worker(
     runtime: &JournalHookRuntime,
 ) {
     loop {
-        let job = match jobs.lock().unwrap_or_else(std::sync::PoisonError::into_inner).recv() {
+        let job = match jobs.lock().recover_poison().recv() {
             Ok(job) => job,
             Err(_) => return,
         };

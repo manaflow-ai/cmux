@@ -3,7 +3,7 @@
 //! id, revision: conversation rev}; the owner raises rev by exactly one per
 //! committed op, so a missed rev is detected and ends the stream with `gap`.
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use std::sync::Arc;
 use std::sync::mpsc::RecvTimeoutError;
 

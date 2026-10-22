@@ -4,6 +4,7 @@
 //! arm of `handle_command_with_cancellation`.
 
 use super::size_state_for_client;
+use crate::panic_free::RecoverPoison;
 
 use super::AttachWireShape;
 use super::AttachWorkerCommit;
@@ -416,9 +417,7 @@ pub(super) fn attach_surface(
                         break;
                     }
                 }
-                let update = std::mem::take(
-                    &mut *frames.slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
-                );
+                let update = std::mem::take(&mut *frames.slot.lock().recover_poison());
                 // A frame event applies its bitmap and authority
                 // atomically. Publish it before a paired state
                 // snapshot can expose the same positive token.

@@ -2,7 +2,7 @@
 //! scrubbed copies of its `manifest.json` and `session.json` the source
 //! serves in place of acpmux's own.
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use std::collections::HashMap;
 use std::path::{Component, Path};
 use std::sync::Arc;

@@ -3,7 +3,7 @@
 //! read shape is `Screen.columns[].rows` (screen_json.rs).
 
 use super::*;
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 
 /// `new-row`: one new terminal in a new pane, in a new row of
 /// `height_permille` below the row of `pane`.

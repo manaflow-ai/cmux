@@ -4,7 +4,7 @@
 
 use super::workspace_group_json;
 use super::workspace_groups_json;
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 
 use super::MutationRequest;
 use super::list_workspaces_reply;

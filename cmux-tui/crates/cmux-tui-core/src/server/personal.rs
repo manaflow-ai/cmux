@@ -2,7 +2,7 @@
 //! (`profiles-v1`, plans/cmux-next/data-model.md section 3). Rooms are
 //! `profile` on the wire. Every change emits `personal-changed`.
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use serde::Deserialize;
 use serde_json::{Value, json};
 

@@ -19,7 +19,7 @@
 //! A committed change publishes `participant-avatar-changed` on `subscribe`
 //! to the connections that echoed `participant-avatars-v1`.
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use std::sync::Arc;
 
 use base64::Engine as _;

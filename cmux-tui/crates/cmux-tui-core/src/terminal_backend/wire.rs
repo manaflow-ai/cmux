@@ -163,13 +163,13 @@ pub(crate) fn error_reply(id: &Value, error: &BackendError) -> Value {
         "t": "host.error", "id": id, "code": error.code(),
         "message": error.to_string(), "retryable": error.retryable(),
     });
-    if let BackendError::HostKey { decision, fingerprint } = error {
-        if let Some(fields) = reply.as_object_mut() {
-            fields.insert(
-                "details".to_owned(),
-                json!({ "decision": decision.name(), "fingerprint": fingerprint }),
-            );
-        }
+    if let BackendError::HostKey { decision, fingerprint } = error
+        && let Some(fields) = reply.as_object_mut()
+    {
+        fields.insert(
+            "details".to_owned(),
+            json!({ "decision": decision.name(), "fingerprint": fingerprint }),
+        );
     }
     reply
 }

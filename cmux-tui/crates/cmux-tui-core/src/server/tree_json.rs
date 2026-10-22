@@ -8,8 +8,8 @@ use super::raw_tab;
 use super::screen_json;
 use super::workspace_groups_json;
 use crate::SurfaceKind;
+use crate::panic_free::JsonFields;
 use crate::resource::ContentPublicId;
-use crate::server::wire_values::JsonFields;
 
 use crate::Mux;
 use crate::PaneId;

@@ -2,7 +2,7 @@
 //! palette, and the opted-in `overrides`), shared by attach, render and
 //! snapshot replies.
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use serde_json::{Value, json};
 
 use crate::{Rgb, TerminalColors};

@@ -9,6 +9,7 @@ use std::fs;
 use std::io as std_io;
 use std::io::Write;
 use std::sync::Arc;
+use std::sync::PoisonError;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -200,7 +201,7 @@ static RECORD_REMOVAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Wait until no stale-record removal of this process is in progress.
 pub(crate) fn wait_for_terminal_host_record_removals() {
-    drop(RECORD_REMOVAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+    drop(RECORD_REMOVAL.lock().unwrap_or_else(PoisonError::into_inner));
 }
 
 /// Remove a discovery record only after the process-lifetime proof says
@@ -210,7 +211,7 @@ pub fn remove_stale_terminal_host_record(
     record_path: &Path,
     expected: &TerminalHostRecord,
 ) -> anyhow::Result<bool> {
-    let _removal = RECORD_REMOVAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _removal = RECORD_REMOVAL.lock().unwrap_or_else(PoisonError::into_inner);
     if terminal_host_record_liveness(record_path, expected)? != TerminalHostLiveness::Dead {
         return Ok(false);
     }

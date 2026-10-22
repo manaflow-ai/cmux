@@ -35,9 +35,7 @@ impl PendingServer {
         self.mux.mark_server_lifecycle_ready();
         #[cfg(unix)]
         start_apps_when_ready(&self.mux);
-        // `path` is set at construction and taken only by these consuming
-        // methods, so it is always present here.
-        Ok(self.path.take().unwrap_or_default())
+        self.path.take().ok_or_else(|| anyhow::anyhow!("pending server path was already taken"))
     }
 
     /// Transfer socket cleanup while another startup owner publishes readiness.

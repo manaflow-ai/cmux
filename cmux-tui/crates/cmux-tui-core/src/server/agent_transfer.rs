@@ -69,7 +69,7 @@
 //! Bounds: pages of at most [`MAX_PAGE_BYTES`] (acpmux's own page size), 16
 //! receives and 16 moves remembered (24 h each), 8 calls at once.
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};

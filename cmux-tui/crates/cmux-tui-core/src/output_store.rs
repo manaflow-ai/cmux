@@ -443,11 +443,7 @@ impl OutputStore {
         let available = usize::try_from(end - start).unwrap_or(usize::MAX);
         let take = available.min(budget);
         let bytes = if from_pending {
-            state
-                .pending
-                .get(skip..skip.saturating_add(take))
-                .map(<[u8]>::to_vec)
-                .unwrap_or_default()
+            state.pending.get(skip..skip.saturating_add(take))?.to_vec()
         } else {
             state.tail.iter().skip(skip).take(take).copied().collect()
         };

@@ -1,6 +1,6 @@
 //! Per-client watch leases and their cancellation/acknowledgement fence.
 use super::*;
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use crate::server::{Response, send_response};
 use std::collections::HashMap;
 use std::path::PathBuf;

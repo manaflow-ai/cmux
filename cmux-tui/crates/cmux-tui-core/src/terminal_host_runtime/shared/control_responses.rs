@@ -3,6 +3,7 @@
 //! receipted-input window. The attachment's writers register waiters; the
 //! surface reader and the connection's frame reader resolve or fail them.
 
+use crate::panic_free::RecoverPoison;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::SyncSender;
@@ -68,12 +69,7 @@ impl ControlResponses {
         expected: (u16, u16),
         resolution: DeferredCellPixelResolution,
     ) {
-        if let Some(handler) = self
-            .deferred_cell_pixel_handler
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
-        {
+        if let Some(handler) = self.deferred_cell_pixel_handler.lock().recover_poison().clone() {
             handler(request_id, expected, resolution);
         }
     }
@@ -89,7 +85,7 @@ impl ControlResponses {
         let (sender, receiver) = sync_channel(1);
         self.waiters
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .recover_poison()
             .insert(request_id, ControlResponseWaiter::Blocking { kind, sender });
         receiver
     }
@@ -97,28 +93,19 @@ impl ControlResponses {
     /// Whether a blocking waiter for a response kind `select` picks is
     /// registered.
     pub(crate) fn has_waiter_where(&self, select: impl Fn(MessageKind) -> bool) -> bool {
-        self.waiters.lock().unwrap_or_else(std::sync::PoisonError::into_inner).values().any(
-            |waiter| match waiter {
-                ControlResponseWaiter::Blocking { kind, .. } => select(*kind),
-                ControlResponseWaiter::DeferredCellPixel { .. } => false,
-            },
-        )
+        self.waiters.lock().recover_poison().values().any(|waiter| match waiter {
+            ControlResponseWaiter::Blocking { kind, .. } => select(*kind),
+            ControlResponseWaiter::DeferredCellPixel { .. } => false,
+        })
     }
 
     /// Whether a waiter for `request_id` is registered.
     pub(crate) fn has_waiter(&self, request_id: u64) -> bool {
-        self.waiters
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .contains_key(&request_id)
+        self.waiters.lock().recover_poison().contains_key(&request_id)
     }
 
     pub(crate) fn resolve_after(&self, frame: &Frame, before_resolve: impl FnOnce()) -> bool {
-        let waiter = self
-            .waiters
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .remove(&frame.request_id);
+        let waiter = self.waiters.lock().recover_poison().remove(&frame.request_id);
         match waiter {
             Some(ControlResponseWaiter::Blocking { kind, sender }) => {
                 if kind != frame.kind {
@@ -137,11 +124,7 @@ impl ControlResponses {
                 }
                 self.latest_cell_pixel_ack.fetch_max(frame.request_id, Ordering::AcqRel);
                 before_resolve();
-                let handler = self
-                    .deferred_cell_pixel_handler
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .clone();
+                let handler = self.deferred_cell_pixel_handler.lock().recover_poison().clone();
                 if let Some(handler) = handler {
                     handler(
                         frame.request_id,
@@ -159,13 +142,11 @@ impl ControlResponses {
         &self,
         writer: &Mutex<HostStream>,
     ) -> std::io::Result<Arc<HostStream>> {
-        let mut cached =
-            self.input_ack_shutdown.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut cached = self.input_ack_shutdown.lock().recover_poison();
         if let Some(shutdown) = cached.as_ref() {
             return Ok(shutdown.clone());
         }
-        let shutdown =
-            Arc::new(writer.lock().unwrap_or_else(std::sync::PoisonError::into_inner).try_clone()?);
+        let shutdown = Arc::new(writer.lock().recover_poison().try_clone()?);
         *cached = Some(shutdown.clone());
         Ok(shutdown)
     }
@@ -174,8 +155,7 @@ impl ControlResponses {
         if bytes > MAX_PENDING_INPUT_ACK_BYTES {
             return false;
         }
-        let mut pending =
-            self.pending_input_acks.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut pending = self.pending_input_acks.lock().recover_poison();
         if pending.writes >= MAX_PENDING_INPUT_ACKS
             || bytes > MAX_PENDING_INPUT_ACK_BYTES.saturating_sub(pending.bytes)
         {
@@ -187,8 +167,7 @@ impl ControlResponses {
     }
 
     pub(crate) fn release_input_ack(&self, bytes: usize) {
-        let mut pending =
-            self.pending_input_acks.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut pending = self.pending_input_acks.lock().recover_poison();
         debug_assert!(pending.writes > 0, "terminal input ACK reservation underflow");
         debug_assert!(pending.bytes >= bytes, "terminal input ACK byte reservation underflow");
         pending.writes = pending.writes.saturating_sub(1);
@@ -197,13 +176,12 @@ impl ControlResponses {
 
     #[cfg(test)]
     pub(crate) fn pending_input_acks_for_test(&self) -> (usize, usize) {
-        let pending =
-            self.pending_input_acks.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let pending = self.pending_input_acks.lock().recover_poison();
         (pending.writes, pending.bytes)
     }
 
     pub(crate) fn defer_cell_pixel(&self, request_id: u64, expected: (u16, u16)) -> bool {
-        let mut waiters = self.waiters.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut waiters = self.waiters.lock().recover_poison();
         let Some(waiter) = waiters.get_mut(&request_id) else { return false };
         if !matches!(
             waiter,
@@ -225,8 +203,7 @@ impl ControlResponses {
     /// fails them when the stream ends.
     pub(crate) fn fail_all_except(&self, keep: impl Fn(MessageKind) -> bool) {
         let deferred = {
-            let mut waiters =
-                self.waiters.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut waiters = self.waiters.lock().recover_poison();
             let failed = waiters
                 .iter()
                 .filter(|(_, waiter)| match waiter {
@@ -245,11 +222,7 @@ impl ControlResponses {
                 })
                 .collect::<Vec<_>>()
         };
-        let handler = self
-            .deferred_cell_pixel_handler
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone();
+        let handler = self.deferred_cell_pixel_handler.lock().recover_poison().clone();
         if let Some(handler) = handler {
             for (request_id, expected) in deferred {
                 handler(request_id, expected, DeferredCellPixelResolution::Disconnected);
@@ -258,10 +231,7 @@ impl ControlResponses {
     }
 
     pub(crate) fn set_deferred_cell_pixel_handler(&self, handler: DeferredCellPixelHandler) {
-        *self
-            .deferred_cell_pixel_handler
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(handler);
+        *self.deferred_cell_pixel_handler.lock().recover_poison() = Some(handler);
     }
 
     pub(crate) fn latest_cell_pixel_ack(&self) -> u64 {

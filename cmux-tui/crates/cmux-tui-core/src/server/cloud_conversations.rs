@@ -5,7 +5,7 @@
 //! on a worker thread, so a slow cloud never delays the connection's other
 //! requests; their replies are matched by `id`.
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use std::sync::Arc;
 
 use serde::Deserialize;

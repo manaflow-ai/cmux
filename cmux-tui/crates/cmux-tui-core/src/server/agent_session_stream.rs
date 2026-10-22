@@ -1,6 +1,6 @@
 //! Attach replay and live-stream delivery, shared by every native attach caller.
 use super::*;
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn connect_and_attach(

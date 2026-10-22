@@ -4,6 +4,7 @@
 //! authentication, renderer-capability minting, and the per-client
 //! connection loop (`serve_client*`) over `HostStream`.
 
+use crate::panic_free::RecoverPoison;
 use std::io::Write;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::channel as mpsc_channel;
@@ -338,13 +339,12 @@ pub(crate) fn serve_client_with_snapshot_timeout(
             .vt_replay_bounded_theme_portable_with_aliases(crate::surface::VT_REPLAY_MAX_BYTES)?;
         let colors = term.color_overrides();
         let (osc_progress, shell_activity, program_status) = {
-            let metadata =
-                host.terminal_metadata.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let metadata = host.terminal_metadata.lock().recover_poison();
             // The parser feeds the records under the terminal lock held
             // here, so they match the replay.
             let records = program_status_negotiated.then(|| {
                 let records = metadata.program_status();
-                let records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let records = records.lock().recover_poison();
                 records.snapshot()
             });
             let shell_activity = shell_activity_negotiated.then(|| metadata.activity.snapshot());
@@ -375,12 +375,8 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                 Err(gap) => (host.smart.applied_cursor.load(Ordering::Acquire), Some(gap)),
             }
         } else {
-            let _broadcast =
-                host.broadcast_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            host.taps
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .insert(client, tap.clone());
+            let _broadcast = host.broadcast_lock.lock().recover_poison();
+            host.taps.lock().recover_poison().insert(client, tap.clone());
             (host.sequence.load(Ordering::Acquire), None)
         };
         (
@@ -476,15 +472,8 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                     if !granted_rights.contains(CapabilityRights::INPUT) {
                         break;
                     }
-                    let bracketed = command_host
-                        .term
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .mode(2004, false);
-                    let mut writer = command_host
-                        .writer
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let bracketed = command_host.term.lock().recover_poison().mode(2004, false);
+                    let mut writer = command_host.writer.lock().recover_poison();
                     if bracketed {
                         let _ = writer.write_all(b"\x1b[200~");
                     }
@@ -552,10 +541,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                     } else {
                         let mut response = Frame::new(MessageKind::TerminateAck, Vec::new());
                         response.request_id = frame.request_id;
-                        let _broadcast = command_host
-                            .broadcast_lock
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        let _broadcast = command_host.broadcast_lock.lock().recover_poison();
                         command_sender.try_send(response)
                     };
                     command_host.request_termination();
@@ -652,10 +638,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                     };
                     let mut response = Frame::new(MessageKind::ClearHistoryAck, vec![status]);
                     response.request_id = frame.request_id;
-                    let _broadcast = command_host
-                        .broadcast_lock
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let _broadcast = command_host.broadcast_lock.lock().recover_poison();
                     if !command_sender.try_send(response) {
                         break;
                     }
@@ -676,10 +659,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                     // with live frames. Serialize enqueueing with coupled
                     // Output/Resized + Colors publication so even an admin
                     // response cannot physically split an atomic pair.
-                    let _broadcast = command_host
-                        .broadcast_lock
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let _broadcast = command_host.broadcast_lock.lock().recover_poison();
                     if !command_sender.try_send(response) {
                         break;
                     }

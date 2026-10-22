@@ -3,12 +3,13 @@
 //! projection. It cannot replace this daemon's identity or route execution.
 
 use super::{ClientRegistry, ClientTransport};
+use crate::panic_free::JsonFields;
 use crate::request_origin::RequestOrigin;
 use crate::resource::MachinePublicId;
-use crate::server::wire_values::JsonFields;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
+use std::sync::PoisonError;
 
 pub(crate) const CAPABILITY: &str = "machine-catalog-publish-v1";
 
@@ -126,7 +127,7 @@ impl ClientRegistry {
         client: u64,
         publication: Publication,
     ) -> Result<Value, &'static str> {
-        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(record) = state.clients.get(&client) else {
             return Err("machine_catalog.not_trusted");
         };
@@ -160,7 +161,7 @@ impl ClientRegistry {
 
     /// A copy under the same lock that removes connections; no disconnected lease survives.
     pub(crate) fn remote_machine_catalog(&self) -> Option<(u64, Vec<Value>)> {
-        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         state.clients.iter().find_map(|(client, record)| {
             if !matches!(record.transport, ClientTransport::Unix)
                 || record.origin.derive() != RequestOrigin::User

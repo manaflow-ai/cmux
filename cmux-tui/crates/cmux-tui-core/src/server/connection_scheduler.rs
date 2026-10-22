@@ -3,6 +3,7 @@
 //! dispatcher thread that runs queued surface operations in order.
 
 use super::MessageWriter;
+use crate::panic_free::RecoverPoison;
 
 use super::CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY;
 use super::CONNECTION_SURFACE_QUEUE_CAPACITY;
@@ -126,7 +127,7 @@ impl ConnectionSurfaceScheduler {
         retained_bytes: usize,
         writer: MessageWriter,
     ) -> Option<bool> {
-        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.state.lock().recover_poison();
         if state.closed {
             return Some(false);
         }
@@ -207,7 +208,7 @@ impl ConnectionSurfaceScheduler {
         let handle = std::thread::Builder::new()
             .name("mux-control-dispatch".into())
             .spawn(move || run_connection_surface_dispatcher(scheduler, mux, client, writer))?;
-        *self.dispatcher.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(handle);
+        *self.dispatcher.lock().recover_poison() = Some(handle);
         Ok(())
     }
 
@@ -229,7 +230,7 @@ impl ConnectionSurfaceScheduler {
     }
 
     pub(super) fn next_request(&self) -> Option<PendingSurfaceRequest> {
-        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.state.lock().recover_poison();
         loop {
             if let Some(index) = Self::next_runnable_index(&state)
                 && let Some(pending) = state.requests.remove(index)
@@ -250,28 +251,28 @@ impl ConnectionSurfaceScheduler {
                 self.changed.notify_all();
                 return None;
             }
-            state = self.changed.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
+            state = self.changed.wait(state).recover_poison();
         }
     }
 
     pub(super) fn finish_clear(&self, surface: SurfaceId) {
-        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.state.lock().recover_poison();
         state.active_clear_surfaces.remove(&surface);
         self.changed.notify_all();
     }
 
     pub(super) fn finish_dispatcher(&self) {
         {
-            let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut state = self.state.lock().recover_poison();
             state.dispatcher_done = true;
             self.changed.notify_all();
         }
-        self.connection_permit.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+        self.connection_permit.lock().recover_poison().take();
     }
 
     pub(super) fn close(&self) {
         self.cancelled.cancel();
-        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.state.lock().recover_poison();
         state.closed = true;
         state.requests.clear();
         state.queued_bytes = 0;
@@ -282,12 +283,12 @@ impl ConnectionSurfaceScheduler {
         self.changed.notify_all();
         drop(state);
         if dispatcher_never_started {
-            self.connection_permit.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+            self.connection_permit.lock().recover_poison().take();
         }
     }
 
     pub(super) fn finish(&self) {
-        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.state.lock().recover_poison();
         state.closed = true;
         let dispatcher_never_started = !state.dispatcher_started;
         if dispatcher_never_started {
@@ -296,14 +297,14 @@ impl ConnectionSurfaceScheduler {
         self.changed.notify_all();
         drop(state);
         if dispatcher_never_started {
-            self.connection_permit.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+            self.connection_permit.lock().recover_poison().take();
         }
     }
 
     pub(super) fn wait_for_completion(&self, timeout: Option<Duration>) -> bool {
         // A timeout too large to represent waits without a deadline.
         let deadline = timeout.and_then(|timeout| Instant::now().checked_add(timeout));
-        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.state.lock().recover_poison();
         while !state.dispatcher_done
             || !state.active_clear_surfaces.is_empty()
             || state.active_creations != 0
@@ -313,23 +314,17 @@ impl ConnectionSurfaceScheduler {
                     break;
                 }
                 let remaining = deadline.saturating_duration_since(Instant::now());
-                let (next, _) = self
-                    .changed
-                    .wait_timeout(state, remaining)
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                let (next, _) = self.changed.wait_timeout(state, remaining).recover_poison();
                 state = next;
             } else {
-                state = self.changed.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
+                state = self.changed.wait(state).recover_poison();
             }
         }
         let drained = state.dispatcher_done
             && state.active_clear_surfaces.is_empty()
             && state.active_creations == 0;
         drop(state);
-        if drained
-            && let Some(dispatcher) =
-                self.dispatcher.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
-        {
+        if drained && let Some(dispatcher) = self.dispatcher.lock().recover_poison().take() {
             let _ = dispatcher.join();
         }
         drained
@@ -417,11 +412,7 @@ fn run_connection_surface_dispatcher(
                     let _worker_permit = worker_permit;
                     // The request is handed over exactly once: here, or to
                     // the spawn-failure path below.
-                    let Some(pending) = worker_pending
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .take()
-                    else {
+                    let Some(pending) = worker_pending.lock().recover_poison().take() else {
                         return;
                     };
                     if !run_pending_request(
@@ -435,9 +426,7 @@ fn run_connection_surface_dispatcher(
                     }
                 });
             if let Err(error) = spawn {
-                let Some(pending) =
-                    shared_pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
-                else {
+                let Some(pending) = shared_pending.lock().recover_poison().take() else {
                     scheduler.finish_clear(surface);
                     continue;
                 };

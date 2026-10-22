@@ -13,7 +13,8 @@ use super::terminal_colors_json;
 use super::write_pending_sequence_json;
 use crate::AttachFrame;
 use crate::SurfaceId;
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
+use crate::panic_free::RecoverPoison;
 use base64::Engine;
 use ghostty_vt::KittyReplayState;
 use serde::Serialize;
@@ -282,7 +283,7 @@ impl RenderService {
     }
 
     pub(super) fn encode_graphic(&self, data: &Arc<[u8]>) -> Arc<str> {
-        self.graphic_base64.lock().unwrap_or_else(std::sync::PoisonError::into_inner).encode(data)
+        self.graphic_base64.lock().recover_poison().encode(data)
     }
 
     pub(super) fn serialize<T: Serialize + ?Sized>(

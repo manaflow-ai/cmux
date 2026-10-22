@@ -39,7 +39,7 @@
 //! as `cmux acp` does) and connects again; otherwise
 //! `agent_session.acpmux_unavailable`.
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};

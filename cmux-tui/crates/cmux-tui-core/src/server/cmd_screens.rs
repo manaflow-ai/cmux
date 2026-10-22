@@ -9,7 +9,7 @@ use crate::Actor;
 use crate::Mux;
 use crate::ScreenId;
 use crate::WorkspaceId;
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use anyhow::Context;
 use serde_json::Value;
 use serde_json::json;

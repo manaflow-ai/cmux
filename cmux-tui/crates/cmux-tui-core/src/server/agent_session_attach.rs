@@ -5,7 +5,7 @@
 //! refused. Attachments have bounded pages, calls and outbound buffering, and
 //! close with a replay cursor when acpmux or the client falls behind.
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};

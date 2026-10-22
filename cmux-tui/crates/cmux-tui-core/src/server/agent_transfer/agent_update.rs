@@ -42,7 +42,7 @@
 //! (default deny); a WebSocket client is refused here. Unknown params are a
 //! bad request; `ids` are only names acpmux matches against its own rows.
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};

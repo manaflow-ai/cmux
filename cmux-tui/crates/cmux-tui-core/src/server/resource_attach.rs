@@ -35,6 +35,7 @@ use crate::RenderAttachStream;
 use crate::SurfaceId;
 use crate::SurfaceKind;
 use crate::SurfaceRenderFrame;
+use crate::panic_free::RecoverPoison;
 use crate::resource::BrowserPublicId;
 use crate::resource::RequestId as ResourceRequestId;
 use crate::resource::ResourceError;
@@ -96,40 +97,6 @@ pub(super) fn resource_stream_id(
     let selector = field.as_str().unwrap_or("").to_owned();
     serde_json::from_value(field).map_err(|_| {
         ResourceError::selector_invalid("stream", &selector, "expected an opaque stream id")
-    })
-}
-
-/// A paired optional size from validated request fields. The catalog checks
-/// both fields; a request that still breaks the pairing or range is a
-/// validation error, never a panic.
-fn paired_attach_size<T: TryFrom<u64>>(
-    request: &crate::resource_router::ParsedResourceRequest,
-    first: &str,
-    second: &str,
-) -> Result<Option<(T, T)>, ResourceError> {
-    let number = |field: &str, value: &Value| {
-        value.as_u64().and_then(|value| T::try_from(value).ok()).ok_or_else(|| {
-            ResourceError::validation_invalid(Some(field), "expected an in-range integer")
-        })
-    };
-    match (request.fields.get(first), request.fields.get(second)) {
-        (Some(a), Some(b)) => Ok(Some((number(first, a)?, number(second, b)?))),
-        (None, None) => Ok(None),
-        (Some(_), None) => Err(ResourceError::validation_invalid(
-            Some(second),
-            format!("{second} is required with {first}"),
-        )),
-        (None, Some(_)) => Err(ResourceError::validation_invalid(
-            Some(first),
-            format!("{first} is required with {second}"),
-        )),
-    }
-}
-
-/// The lease every successful surface attach mints, or a typed error.
-fn minted_lease(operation: &str, lease: Option<String>) -> Result<String, ResourceError> {
-    lease.ok_or_else(|| {
-        ResourceError::operation_failed(operation, "resource attach minted no lease", json!({}))
     })
 }
 
@@ -302,7 +269,7 @@ pub(super) fn prepare_terminal_resource_attach(
     let operation = "terminal.attach";
     let (terminal_id, surface) = resource_terminal_surface(mux, &request.selectors)?;
     let stream_id = resource_stream_id(request)?;
-    let initial_size = paired_attach_size::<u16>(request, "cols", "rows")?;
+    let initial_size = super::wire_values::paired_attach_size::<u16>(request, "cols", "rows")?;
     // A read-only attach watches: its size never reaches terminal sizing.
     let read_only = request.fields.get("read_only").and_then(Value::as_bool).unwrap_or(false);
     let initial_size = if read_only { None } else { initial_size };
@@ -335,7 +302,7 @@ pub(super) fn prepare_terminal_resource_attach(
             return Err(ResourceError::operation_failed(operation, error.to_string(), json!({})));
         }
     };
-    let lease = match minted_lease(operation, marked.lease) {
+    let lease = match super::wire_values::minted_lease(operation, marked.lease) {
         Ok(lease) => lease,
         Err(error) => {
             cleanup_resource_attach(mux, client, &common);
@@ -597,8 +564,9 @@ pub(super) fn prepare_browser_resource_attach(
     let operation = "browser.attach";
     let (browser_id, surface) = resource_browser_surface(mux, &request.selectors)?;
     let stream_id = resource_stream_id(request)?;
-    let initial_size = paired_attach_size::<u32>(request, "width_px", "height_px")?
-        .map(|(width, height)| browser_cells_for_pixels(mux, width, height));
+    let initial_size =
+        super::wire_values::paired_attach_size::<u32>(request, "width_px", "height_px")?
+            .map(|(width, height)| browser_cells_for_pixels(mux, width, height));
     let (common, marked) = prepare_resource_surface_attach(
         mux,
         client,
@@ -630,7 +598,7 @@ pub(super) fn prepare_browser_resource_attach(
             return Err(error);
         }
     };
-    let lease = match minted_lease(operation, marked.lease) {
+    let lease = match super::wire_values::minted_lease(operation, marked.lease) {
         Ok(lease) => lease,
         Err(error) => {
             cleanup_resource_attach(mux, client, &common);
@@ -744,13 +712,7 @@ pub(super) fn start_browser_resource_attach(
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                 }
-                let update = std::mem::take(
-                    &mut *start
-                        .frames
-                        .slot
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner),
-                );
+                let update = std::mem::take(&mut *start.frames.slot.lock().recover_poison());
                 let mut items = Vec::with_capacity(2);
                 if let Some(state) = update.state.as_ref() {
                     items.push(browser_resource_state(state));

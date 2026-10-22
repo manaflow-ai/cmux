@@ -5,7 +5,7 @@
 //! module. A plugin communicates through the local resource socket and writes
 //! normal journal events, so every frontend observes the same reducer state.
 
-#[cfg(windows)]
+use crate::panic_free::RecoverPoison;
 use std::mem::size_of;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
@@ -13,6 +13,7 @@ use std::os::unix::process::CommandExt;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
+#[cfg(windows)]
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -401,8 +402,7 @@ impl JournalPluginRuntime {
                 .spawn(move || supervise(shared));
             match handle {
                 Ok(handle) => {
-                    *self.thread.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
-                        Some(handle);
+                    *self.thread.lock().recover_poison() = Some(handle);
                 }
                 Err(error) => {
                     state.started = false;
@@ -435,8 +435,7 @@ impl JournalPluginRuntime {
         if let (Some(handler), Some((plugin_id, generation))) = retired {
             handler(&plugin_id, generation);
         }
-        if let Some(handle) =
-            self.thread.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
+        if let Some(handle) = self.thread.lock().recover_poison().take()
             && handle.join().is_err()
         {
             eprintln!("cmux-tui: journal plugin supervisor panicked during shutdown");
@@ -833,8 +832,7 @@ mod tests {
             "main".into(),
             17,
         );
-        let generation =
-            runtime.state.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).generation;
+        let generation = runtime.state.0.lock().recover_poison().generation;
         assert_eq!(generation, 17);
         runtime.shutdown();
     }

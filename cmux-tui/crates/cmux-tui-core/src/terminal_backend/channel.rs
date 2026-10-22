@@ -8,6 +8,7 @@
 //! keeps its last bytes after the app's `end` until the consumer has read
 //! them, so final output shows before the exit; a link ends at once.
 
+use crate::panic_free::RecoverPoison;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Condvar, Mutex};
 
@@ -86,7 +87,7 @@ impl<M: Clone> ChannelTable<M> {
         drain: bool,
         offset: u64,
     ) -> String {
-        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.state.lock().recover_poison();
         state.next += 1;
         let channel = format!("{}-{}", self.prefix, state.next);
         state.channels.insert(
@@ -106,7 +107,7 @@ impl<M: Clone> ChannelTable<M> {
 
     /// The first open channel whose app and metadata match.
     pub(crate) fn find(&self, pred: impl Fn(&str, &M) -> bool) -> Option<String> {
-        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let state = self.state.lock().recover_poison();
         state
             .channels
             .iter()
@@ -116,13 +117,13 @@ impl<M: Clone> ChannelTable<M> {
 
     /// Open channels of `app`.
     pub(crate) fn count(&self, app: &str) -> usize {
-        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let state = self.state.lock().recover_poison();
         state.channels.values().filter(|c| c.end.is_none() && c.app == app).count()
     }
 
     /// The app and metadata of an open channel.
     pub(crate) fn get(&self, channel: &str) -> Option<(String, M)> {
-        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let state = self.state.lock().recover_poison();
         state
             .channels
             .get(channel)
@@ -132,7 +133,7 @@ impl<M: Clone> ChannelTable<M> {
 
     /// Every open channel: id, app, metadata.
     pub(crate) fn list(&self) -> Vec<(String, String, M)> {
-        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let state = self.state.lock().recover_poison();
         state
             .channels
             .iter()
@@ -150,11 +151,7 @@ impl<M: Clone> ChannelTable<M> {
         app: &str,
         frame: Frame,
     ) -> Result<FrameOutcome, BackendError> {
-        let outcome = receive_locked(
-            &mut self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
-            app,
-            frame,
-        );
+        let outcome = receive_locked(&mut self.state.lock().recover_poison(), app, frame);
         self.changed.notify_all();
         outcome
     }
@@ -167,7 +164,7 @@ impl<M: Clone> ChannelTable<M> {
         max: usize,
     ) -> Result<(Vec<u8>, Option<Frame>), BackendError> {
         let bytes = {
-            let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut state = self.state.lock().recover_poison();
             let c = state.channels.get_mut(channel).ok_or_else(BackendError::not_open)?;
             let take = max.min(c.received.len());
             c.received.drain(..take).collect::<Vec<u8>>()
@@ -180,7 +177,7 @@ impl<M: Clone> ChannelTable<M> {
     /// They stay uncredited until [`Self::consumed`]. `invalid` once the
     /// channel ended and holds nothing more.
     pub(crate) fn wait_received(&self, channel: &str, max: usize) -> Result<Vec<u8>, BackendError> {
-        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.state.lock().recover_poison();
         loop {
             let c = state.channels.get_mut(channel).ok_or_else(BackendError::not_open)?;
             if !c.received.is_empty() {
@@ -193,7 +190,7 @@ impl<M: Clone> ChannelTable<M> {
                 self.changed.notify_all();
                 return Err(BackendError::not_open());
             }
-            state = self.changed.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
+            state = self.changed.wait(state).recover_poison();
         }
     }
 
@@ -204,7 +201,7 @@ impl<M: Clone> ChannelTable<M> {
         channel: &str,
         bytes: u64,
     ) -> Result<Option<Frame>, BackendError> {
-        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.state.lock().recover_poison();
         let c = state.channels.get_mut(channel).ok_or_else(BackendError::not_open)?;
         let credit = c.from_app.consume(Direction::Out, bytes)?;
         Ok(credit
@@ -223,8 +220,7 @@ impl<M: Clone> ChannelTable<M> {
     ) -> Result<(), BackendError> {
         while !bytes.is_empty() {
             let (frame, sent) = {
-                let mut state =
-                    self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let mut state = self.state.lock().recover_poison();
                 loop {
                     let c = state.channels.get_mut(channel).filter(|c| c.end.is_none());
                     let c = c.ok_or_else(BackendError::not_open)?;
@@ -234,8 +230,7 @@ impl<M: Clone> ChannelTable<M> {
                         let body = c.to_app.send(bytes.get(..n).unwrap_or(bytes).to_vec())?;
                         break (Frame { channel: channel.to_owned(), body }, n);
                     }
-                    state =
-                        self.changed.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
+                    state = self.changed.wait(state).recover_poison();
                 }
             };
             emit(frame);
@@ -246,7 +241,7 @@ impl<M: Clone> ChannelTable<M> {
 
     /// The host ends a channel with `end` (a close, or the app lost access).
     pub(crate) fn close(&self, channel: &str, end: End) -> Result<ChannelEnd, BackendError> {
-        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.state.lock().recover_poison();
         let c = state.channels.remove(channel).filter(|c| c.end.is_none());
         let c = c.ok_or_else(BackendError::not_open)?;
         if c.drain {
@@ -259,7 +254,7 @@ impl<M: Clone> ChannelTable<M> {
     /// Ends every channel of `app`, in id order.
     pub(crate) fn end_app(&self, app: &str, lost: &Lost) -> Vec<ChannelEnd> {
         let channels: Vec<String> = {
-            let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let state = self.state.lock().recover_poison();
             let open = state.channels.iter().filter(|(_, c)| c.app == app && c.end.is_none());
             open.map(|(id, _)| id.clone()).collect()
         };
@@ -271,7 +266,7 @@ impl<M: Clone> ChannelTable<M> {
     /// lost.
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn wait_end(&self, channel: &str) -> End {
-        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.state.lock().recover_poison();
         loop {
             if let Some(end) = state.ends.remove(channel) {
                 return end;
@@ -279,7 +274,7 @@ impl<M: Clone> ChannelTable<M> {
             if !state.channels.contains_key(channel) {
                 return End::Lost(Lost::new("the terminal channel is gone", false));
             }
-            state = self.changed.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
+            state = self.changed.wait(state).recover_poison();
         }
     }
 }

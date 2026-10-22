@@ -13,7 +13,7 @@
 //! with a host confirmation for exactly it). Transport: the Unix socket and
 //! authenticated WebSocket connections, as for the person's conversations.
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use serde::Deserialize;
 use serde_json::{Value, json};
 

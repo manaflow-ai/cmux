@@ -11,7 +11,7 @@
 //! relay refuses every resource-protocol frame before dispatch
 //! (remote_relay/gate.rs), so a paired device never reaches these.
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;

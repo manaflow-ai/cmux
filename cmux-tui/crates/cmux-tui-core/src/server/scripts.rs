@@ -15,7 +15,7 @@
 //! running cell (and its session). Only local connections that are not bound
 //! to an agent may run scripts; the connection's sessions end when it closes.
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use std::sync::Arc;
 
 use cmux_app_host::script::{LogSink, ScriptError};

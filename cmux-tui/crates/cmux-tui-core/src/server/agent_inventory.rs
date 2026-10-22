@@ -5,7 +5,7 @@
 #[path = "agent_inventory_watch.rs"]
 pub(super) mod watch;
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;

@@ -4,7 +4,7 @@
 
 use super::split_respawn::{frontend_shell, placement_spawn_options};
 use super::*;
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 
 /// `new-pane-right`: a viewport column after `pane`'s column.
 #[derive(Deserialize)]

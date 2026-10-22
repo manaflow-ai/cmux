@@ -1,7 +1,7 @@
 //! Error replies to raw protocol requests (moved out of server.rs, behavior
 //! unchanged).
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use serde_json::Value;
 
 use super::{MessageWriter, Response, ResponseErrorDelivery};

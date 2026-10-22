@@ -15,7 +15,7 @@
 //! tools socket under the daemon's Chief home (`chief_brains::tools_socket`),
 //! so the request acts on that Chief only. An unknown Chief reaches no brain.
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 

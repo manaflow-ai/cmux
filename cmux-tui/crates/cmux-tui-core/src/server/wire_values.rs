@@ -23,33 +23,6 @@ pub(super) fn default_renderer_capability_ttl_ms() -> u64 {
     30_000
 }
 
-/// Panic-free stand-ins for serde_json's `value[key]` read and write.
-pub(crate) trait JsonFields {
-    /// `value[key]` without the index operator: Null when the key is absent
-    /// or the value is not an object.
-    fn field(&self, key: &str) -> &Value;
-    /// `value[key] = field` without the panic: Null becomes an object (as
-    /// `IndexMut` does); any other non-object value is left unchanged.
-    fn set_field(&mut self, key: &str, field: Value);
-}
-
-static JSON_NULL: Value = Value::Null;
-
-impl JsonFields for Value {
-    fn field(&self, key: &str) -> &Value {
-        self.get(key).unwrap_or(&JSON_NULL)
-    }
-
-    fn set_field(&mut self, key: &str, field: Value) {
-        if self.is_null() {
-            *self = Value::Object(serde_json::Map::new());
-        }
-        if let Some(object) = self.as_object_mut() {
-            object.insert(key.to_owned(), field);
-        }
-    }
-}
-
 /// The idempotency key the catalog requires on a mutation, or a typed
 /// validation error when a request reaches the handler without one.
 pub(crate) fn required_idempotency_key(
@@ -71,4 +44,41 @@ pub(crate) fn unrouted_operation(handler: &str, operation: ResourceOperation) ->
         format!("the {handler} handler does not serve this operation"),
         json!({}),
     )
+}
+
+/// A paired optional size from validated request fields. The catalog checks
+/// both fields; a request that still breaks the pairing or range is a
+/// validation error, never a panic.
+pub(super) fn paired_attach_size<T: TryFrom<u64>>(
+    request: &crate::resource_router::ParsedResourceRequest,
+    first: &str,
+    second: &str,
+) -> Result<Option<(T, T)>, ResourceError> {
+    let number = |field: &str, value: &Value| {
+        value.as_u64().and_then(|value| T::try_from(value).ok()).ok_or_else(|| {
+            ResourceError::validation_invalid(Some(field), "expected an in-range integer")
+        })
+    };
+    match (request.fields.get(first), request.fields.get(second)) {
+        (Some(a), Some(b)) => Ok(Some((number(first, a)?, number(second, b)?))),
+        (None, None) => Ok(None),
+        (Some(_), None) => Err(ResourceError::validation_invalid(
+            Some(second),
+            format!("{second} is required with {first}"),
+        )),
+        (None, Some(_)) => Err(ResourceError::validation_invalid(
+            Some(first),
+            format!("{first} is required with {second}"),
+        )),
+    }
+}
+
+/// The lease every successful surface attach mints, or a typed error.
+pub(super) fn minted_lease(
+    operation: &str,
+    lease: Option<String>,
+) -> Result<String, ResourceError> {
+    lease.ok_or_else(|| {
+        ResourceError::operation_failed(operation, "resource attach minted no lease", json!({}))
+    })
 }

@@ -30,7 +30,7 @@ use super::start_session_event_stream;
 use super::start_session_journal_stream;
 use super::start_sidebar_resource_attach;
 use super::start_terminal_resource_attach;
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 
 use super::MessageWriter;
 use super::OutboundStream;
@@ -64,9 +64,13 @@ fn handle_resource_session_shutdown(
     writer: &MessageWriter,
 ) -> bool {
     let operation = ResourceOperation::SessionShutdown;
-    // The catalog requires the flag; a request without it is not forced.
-    let force = request.fields.get("force").and_then(Value::as_bool).unwrap_or(false);
-    let result = trusted_local_resource_client(mux, client, operation).and_then(|()| {
+    let force = || {
+        request.fields.get("force").and_then(Value::as_bool).ok_or_else(|| {
+            ResourceError::validation_invalid(Some("force"), "force must be a boolean")
+        })
+    };
+    let result = trusted_local_resource_client(mux, client, operation).and_then(|()| force());
+    let result = result.and_then(|force| {
         mux.begin_daemon_handoff(client, DaemonHandoffRequest::unfenced(force)).map_err(|error| {
             ResourceError::operation_failed(
                 "session.shutdown",

@@ -3,6 +3,7 @@
 //! are the terminal's channel. Parsing, journal, snapshots and attach stay
 //! the session host's, exactly as for a PTY child.
 
+use crate::panic_free::RecoverPoison;
 use std::io::{self, Read, Write};
 use std::sync::{Arc, Mutex};
 
@@ -52,7 +53,7 @@ impl BackendMaster {
 
 impl MasterPty for BackendMaster {
     fn resize(&self, size: PtySize) -> anyhow::Result<()> {
-        *self.size.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = size;
+        *self.size.lock().recover_poison() = size;
         let cell = |px: u16, cells: u16| (px > 0 && cells > 0).then(|| px / cells);
         self.side.event(
             wire::BACKEND_RESIZE,
@@ -66,7 +67,7 @@ impl MasterPty for BackendMaster {
     }
 
     fn get_size(&self) -> anyhow::Result<PtySize> {
-        Ok(*self.size.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
+        Ok(*self.size.lock().recover_poison())
     }
 
     fn try_clone_reader(&self) -> anyhow::Result<Box<dyn Read + Send>> {

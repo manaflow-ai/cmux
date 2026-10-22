@@ -16,7 +16,7 @@
 //! The person's own clients only (the app, an authenticated page), like every
 //! command that uses the lease.
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use base64::Engine;
 use serde_json::{Value, json};
 

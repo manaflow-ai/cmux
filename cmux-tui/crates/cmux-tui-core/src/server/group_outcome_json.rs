@@ -3,7 +3,7 @@
 //! behavior unchanged).
 
 use super::*;
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 
 pub(super) fn screen_group_outcome_json(outcome: &crate::ScreenGroupOutcome) -> Value {
     json!({

@@ -4,7 +4,7 @@
 //! this machine's acpmux socket, as the local unix-socket client acpmux
 //! requires for `_acpmux/prompt_withdraw`, and never starts acpmux.
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use std::sync::mpsc::sync_channel;
 use std::time::Duration;
 

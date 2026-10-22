@@ -13,7 +13,7 @@ use crate::GraphicsStatus;
 use crate::Mux;
 use crate::MuxEvent;
 use crate::SurfaceId;
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use crate::stream_interrupt::StreamInterrupt;
 use serde_json::Value;
 use serde_json::json;

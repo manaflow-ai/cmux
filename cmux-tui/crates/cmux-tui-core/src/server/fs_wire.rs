@@ -186,7 +186,7 @@ fn read_first_line(stream: &UnixStream, deadline: Duration) -> Option<(Vec<u8>, 
                 stream.set_read_timeout(None).ok()?;
                 return Some((buffer, Vec::new()));
             }
-            Ok(read) => buffer.extend_from_slice(chunk.get(..read).unwrap_or(&chunk)),
+            Ok(read) => buffer.extend_from_slice(chunk.get(..read)?),
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
             Err(_) => return None,
         }

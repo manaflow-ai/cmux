@@ -4,7 +4,7 @@
 //! only after that commit and never for a replay. Rejects carry `error_code`
 //! `conversation_rejected` and the reason code as the error text.
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use std::sync::Arc;
 
 use cmux_conversation::{Change, Op, Participant, Reject};

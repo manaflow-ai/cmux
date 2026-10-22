@@ -4,7 +4,7 @@
 //! release. Each function answers one `client.*`, `session.*` or
 //! `*.viewer.*` resource operation for the connection dispatcher.
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use std::sync::Arc;
 
 use serde_json::{Value, json};

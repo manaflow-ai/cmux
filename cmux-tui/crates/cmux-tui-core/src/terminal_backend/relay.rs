@@ -13,6 +13,7 @@
 //! - client to app: bytes from the socket become data frames within the
 //!   app's credit.
 
+use crate::panic_free::RecoverPoison;
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
@@ -93,25 +94,18 @@ impl RelaySet {
             gone,
         };
         std::thread::Builder::new().name("cmux-link-accept".into()).spawn(move || accept.run())?;
-        self.relays
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(channel.to_owned(), relay);
+        self.relays.lock().recover_poison().insert(channel.to_owned(), relay);
         Ok(path)
     }
 
     /// Stops the relay of an ended link: no new client, the client's socket
     /// shuts down, the file goes. Never waits for the threads.
     pub(crate) fn stop(&self, channel: &str) {
-        let Some(relay) =
-            self.relays.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(channel)
-        else {
+        let Some(relay) = self.relays.lock().recover_poison().remove(channel) else {
             return;
         };
         relay.stopped.store(true, Ordering::SeqCst);
-        if let Some(client) =
-            relay.client.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
-        {
+        if let Some(client) = relay.client.lock().recover_poison().take() {
             let _ = client.shutdown(Shutdown::Both);
         }
         // Wakes the accept thread, which sees `stopped` and exits.
@@ -121,11 +115,7 @@ impl RelaySet {
 
     /// The socket of an open link.
     pub(crate) fn socket(&self, channel: &str) -> Option<PathBuf> {
-        self.relays
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(channel)
-            .map(|r| r.path.clone())
+        self.relays.lock().recover_poison().get(channel).map(|r| r.path.clone())
     }
 }
 
@@ -165,7 +155,7 @@ impl Accept {
             if crate::platform::require_unix_peer_uid(&stream, uid).is_err() {
                 continue;
             }
-            let mut slot = self.client.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut slot = self.client.lock().recover_poison();
             if slot.is_some() {
                 continue;
             }

@@ -3,7 +3,7 @@
 //! pairing responses, machine usage and listening ports, and window titles.
 //! Each function is one `Command` arm of `handle_command_with_cancellation`.
 
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 use anyhow::Context;
 
 use super::PROTOCOL_VERSION;

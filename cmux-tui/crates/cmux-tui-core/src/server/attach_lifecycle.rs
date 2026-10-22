@@ -6,7 +6,7 @@
 
 use super::MessageWriter;
 use super::OutboundStream;
-use crate::server::wire_values::JsonFields;
+use crate::panic_free::JsonFields;
 
 use super::INITIAL_BROWSER_RESIZE_TIMEOUT;
 use super::SHARED_SIZING_CAPABILITY;

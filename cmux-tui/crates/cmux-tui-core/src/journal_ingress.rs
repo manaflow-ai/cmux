@@ -8,12 +8,12 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use crate::Mux;
 use crate::resource::{
     ContentPublicId, FrontendProjectionPublicId, PanePublicId, ScreenPublicId, TabPublicId,
     TerminalPublicId, WorkspacePublicId,
 };
 use crate::workspace_registry::registry_connection::JournalWriterCommitScope;
+use crate::{Mux, panic_free::RecoverPoison};
 
 // Output coalescing only ever held terminal output, which shipped builds no
 // longer journal (output_store.rs); the ingress tests still exercise it.
@@ -404,30 +404,25 @@ struct JournalWriterCompletion {
 
 impl JournalWriterCompletion {
     fn finish(&self, result: Result<(), String>) {
-        *self.result.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(result);
+        *self.result.lock().recover_poison() = Some(result);
         self.changed.notify_all();
     }
 
     fn wait_until(&self, deadline: Instant) -> anyhow::Result<()> {
-        let mut result = self.result.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut result = self.result.lock().recover_poison();
         while result.is_none() {
             let wait = deadline.saturating_duration_since(Instant::now());
             if wait.is_zero() {
                 anyhow::bail!("session journal writer did not stop before the shutdown deadline");
             }
-            let (next, timeout) = self
-                .changed
-                .wait_timeout(result, wait)
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let (next, timeout) = self.changed.wait_timeout(result, wait).recover_poison();
             result = next;
             if timeout.timed_out() && result.is_none() {
                 anyhow::bail!("session journal writer did not stop before the shutdown deadline");
             }
         }
-        match result.clone() {
-            Some(result) => result.map_err(anyhow::Error::msg),
-            None => anyhow::bail!("session journal writer did not report a result"),
-        }
+        let Some(result) = result.clone() else { anyhow::bail!("no journal writer result") };
+        result.map_err(anyhow::Error::msg)
     }
 }
 
@@ -521,12 +516,11 @@ struct JournalIngressState {
 
 impl JournalIngressState {
     fn failure(&self) -> Option<String> {
-        self.failure.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+        self.failure.lock().recover_poison().clone()
     }
 
     fn fail(&self, error: String) -> String {
-        let mut stored_failure =
-            self.failure.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut stored_failure = self.failure.lock().recover_poison();
         let failure = stored_failure.get_or_insert(error).clone();
         drop(stored_failure);
         self.publish_queue_space();
@@ -542,28 +536,21 @@ impl JournalIngressState {
     }
 
     fn close_admission(&self) {
-        let _admission =
-            self.enqueue_admission.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _admission = self.enqueue_admission.lock().recover_poison();
         self.closed.store(true, Ordering::Release);
         self.publish_queue_space();
     }
 
     #[cfg(test)]
     fn notify_failure_for_test(&self, failure: &str) {
-        if let Some(notifier) =
-            self.failure_notifier.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
-        {
+        if let Some(notifier) = self.failure_notifier.lock().recover_poison().take() {
             let _ = notifier.send(failure.to_string());
         }
     }
 
     #[cfg(test)]
     fn pause_nonretryable_failure_for_test(&self) -> bool {
-        let hook = self
-            .nonretryable_failure_hook
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take();
+        let hook = self.nonretryable_failure_hook.lock().recover_poison().take();
         let Some((entered, release)) = hook else { return false };
         entered.send(()).expect("nonretryable journal failure observer closed");
         release.recv().expect("nonretryable journal failure release closed");
@@ -571,19 +558,17 @@ impl JournalIngressState {
     }
 
     fn queue_space_epoch(&self) -> u64 {
-        *self.queue_space_epoch.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        *self.queue_space_epoch.lock().recover_poison()
     }
 
     fn publish_queue_space(&self) {
-        let mut epoch =
-            self.queue_space_epoch.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut epoch = self.queue_space_epoch.lock().recover_poison();
         *epoch = epoch.wrapping_add(1);
         self.queue_space_changed.notify_all();
     }
 
     fn wait_for_queue_space_until(&self, observed: u64, deadline: Instant) -> Result<(), String> {
-        let mut epoch =
-            self.queue_space_epoch.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut epoch = self.queue_space_epoch.lock().recover_poison();
         while *epoch == observed {
             if let Some(error) = self.admission_error() {
                 return Err(error);
@@ -595,10 +580,8 @@ impl JournalIngressState {
                     journal_durable_wait().as_millis()
                 ));
             }
-            let (next, result) = self
-                .queue_space_changed
-                .wait_timeout(epoch, remaining)
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let (next, result) =
+                self.queue_space_changed.wait_timeout(epoch, remaining).recover_poison();
             epoch = next;
             if result.timed_out() && *epoch == observed {
                 return Err(format!(
@@ -611,28 +594,19 @@ impl JournalIngressState {
     }
 
     fn wait_for_queue_space_change(&self, observed: u64) -> Result<(), String> {
-        let mut epoch =
-            self.queue_space_epoch.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut epoch = self.queue_space_epoch.lock().recover_poison();
         while *epoch == observed {
             if let Some(error) = self.admission_error() {
                 return Err(error);
             }
-            epoch = self
-                .queue_space_changed
-                .wait(epoch)
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            epoch = self.queue_space_changed.wait(epoch).recover_poison();
         }
         Ok(())
     }
 
     #[cfg(test)]
     fn notify_enqueue_full_for_test(&self) {
-        if let Some(notifier) = self
-            .enqueue_full_notifier
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take()
-        {
+        if let Some(notifier) = self.enqueue_full_notifier.lock().recover_poison().take() {
             let _ = notifier.send(());
         }
     }
@@ -705,8 +679,7 @@ impl JournalIngressSender {
     ) -> Result<(), JournalIngressTrySendError> {
         debug_assert!(event.lane() == JournalLane::Terminal);
         let Some(sender) = &self.terminal_sender else { return Ok(()) };
-        let _admission =
-            self.state.enqueue_admission.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _admission = self.state.enqueue_admission.lock().recover_poison();
         if let Some(error) = self.state.admission_error() {
             return Err(JournalIngressTrySendError::Failed { event: Box::new(event), error });
         }
@@ -869,7 +842,7 @@ impl JournalIngressSender {
             Done,
         }
         let action = {
-            let mut owner = self.writer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut owner = self.writer.lock().recover_poison();
             match std::mem::replace(&mut *owner, JournalWriterOwner::Closed) {
                 JournalWriterOwner::Running(writer) => {
                     let completion = Arc::new(JournalWriterCompletion::default());
@@ -881,9 +854,7 @@ impl JournalIngressSender {
                     CloseAction::Wait(completion)
                 }
                 JournalWriterOwner::Vacant | JournalWriterOwner::Closed => CloseAction::Done,
-                // A reservation never escapes its owner lock; if one did,
-                // the writer is gone and there is nothing to join.
-                JournalWriterOwner::Reserved => CloseAction::Done,
+                JournalWriterOwner::Reserved => CloseAction::Done, // never escapes the lock
             }
         };
         match action {
@@ -898,7 +869,7 @@ impl JournalIngressSender {
         name: &str,
         task: impl FnOnce() + Send + 'static,
     ) -> anyhow::Result<()> {
-        let mut owner = self.writer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut owner = self.writer.lock().recover_poison();
         anyhow::ensure!(
             matches!(*owner, JournalWriterOwner::Vacant),
             "session journal writer is already installed"
@@ -918,8 +889,7 @@ impl JournalIngressSender {
 
     #[cfg(test)]
     pub(crate) fn install_failure_notifier_for_test(&self, notifier: SyncSender<String>) {
-        *self.state.failure_notifier.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
-            Some(notifier);
+        *self.state.failure_notifier.lock().recover_poison() = Some(notifier);
     }
 
     #[cfg(test)]
@@ -928,20 +898,12 @@ impl JournalIngressSender {
         entered: SyncSender<()>,
         release: Receiver<()>,
     ) {
-        *self
-            .state
-            .nonretryable_failure_hook
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((entered, release));
+        *self.state.nonretryable_failure_hook.lock().recover_poison() = Some((entered, release));
     }
 
     #[cfg(test)]
     fn install_enqueue_full_notifier_for_test(&self, notifier: SyncSender<()>) {
-        *self
-            .state
-            .enqueue_full_notifier
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(notifier);
+        *self.state.enqueue_full_notifier.lock().recover_poison() = Some(notifier);
     }
 
     pub(crate) fn stats(&self) -> &crate::diagnostics::JournalWriterStats {
@@ -958,11 +920,7 @@ impl JournalIngressSender {
         loop {
             let space_epoch = self.state.queue_space_epoch();
             let result = {
-                let _admission = self
-                    .state
-                    .enqueue_admission
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                let _admission = self.state.enqueue_admission.lock().recover_poison();
                 if let Some(error) = self.state.admission_error() {
                     return Err(error);
                 }
@@ -1027,11 +985,7 @@ impl JournalIngressSender {
             }
             let space_epoch = self.state.queue_space_epoch();
             let result = {
-                let _admission = self
-                    .state
-                    .enqueue_admission
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                let _admission = self.state.enqueue_admission.lock().recover_poison();
                 if Instant::now() >= deadline {
                     return Err((
                         format!(
@@ -1092,11 +1046,7 @@ impl JournalIngressSender {
                 Err(anyhow::Error::msg(self.writer_error()))
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                let admission = self
-                    .state
-                    .commit_admission
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                let admission = self.state.commit_admission.lock().recover_poison();
                 match commit_fence.load(Ordering::Acquire) {
                     COMMIT_PENDING => {
                         commit_fence.store(COMMIT_CANCELED, Ordering::Release);
@@ -1171,11 +1121,7 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     // in a retry wait. Drain both ingress lanes so receipts
                     // for events that never entered the active batch cannot
                     // remain unresolved forever.
-                    let _admission = receivers
-                        .state
-                        .enqueue_admission
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let _admission = receivers.state.enqueue_admission.lock().recover_poison();
                     complete_queued_error(&receivers, &error);
                     return;
                 };
@@ -1266,11 +1212,7 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             nonretryable_delay = next_nonretryable_retry_delay(nonretryable_delay);
                             continue;
                         } else if batch.first().is_some_and(|event| event.completion.is_none()) {
-                            let _admission = receivers
-                                .state
-                                .enqueue_admission
-                                .lock()
-                                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                            let _admit = receivers.state.enqueue_admission.lock().recover_poison();
                             let failure = receivers.state.fail(format!(
                                 "session journal writer failed permanently: {summary}"
                             ));
@@ -1330,8 +1272,7 @@ fn admit_batch_commit(
     batch: &[QueuedJournalEvent],
     deadline: Instant,
 ) -> anyhow::Result<()> {
-    let _admission =
-        state.commit_admission.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _admission = state.commit_admission.lock().recover_poison();
     if Instant::now() >= deadline {
         return Err(contention::JournalContention::COMMIT_DEADLINE.into());
     }
@@ -1353,8 +1294,7 @@ fn stop_writer_after_retry_deadline(
     pending: VecDeque<Vec<QueuedJournalEvent>>,
     detail: &str,
 ) {
-    let _admission =
-        receivers.state.enqueue_admission.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _admission = receivers.state.enqueue_admission.lock().recover_poison();
     receivers.state.stats.deadline_expired();
     let failure = receivers.state.fail(format!(
         "session journal writer timed out after {} ms: {detail}",
@@ -2755,8 +2695,7 @@ mod tests {
             completed.send(()).unwrap();
         })
         .unwrap();
-        *sender.writer.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
-            JournalWriterOwner::Running(writer);
+        *sender.writer.lock().recover_poison() = JournalWriterOwner::Running(writer);
         entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
 
         let deadline = Instant::now() + Duration::from_millis(100);
@@ -2920,11 +2859,7 @@ mod tests {
     fn failed_admission_fence_blocks_enqueue_after_shutdown_drain() {
         let (sender, receivers) = JournalIngressSender::new(true);
         let receivers = receivers.expect("journal receivers");
-        let _admission = receivers
-            .state
-            .enqueue_admission
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _admission = receivers.state.enqueue_admission.lock().recover_poison();
         let terminal_id = Arc::new(public_id("term", 13, TerminalPublicId::parse));
         let enqueue = std::thread::spawn(move || {
             sender.try_send(JournalIngressEvent::TerminalOutput {
