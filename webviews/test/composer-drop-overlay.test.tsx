@@ -176,6 +176,15 @@ describe("the overlay drawn", () => {
     return { host, root, doc };
   }
 
+  test("with the app's animations off the landing ends at once", async () => {
+    let landed = 0;
+    const { root } = await render({ phase: "landing", summary: { count: 1, kind: "files", refused: false } }, () => {
+      landed += 1;
+    });
+    expect(landed).toBe(1);
+    await act(async () => root.unmount());
+  });
+
   test("nothing while no drag is over the pane", async () => {
     const { doc, root } = await render(HIDDEN_DROP);
     expect(doc.querySelector(".acpmux-drop-overlay")).toBeNull();
@@ -213,18 +222,23 @@ describe("the overlay drawn", () => {
 
   test("landing ends on its own animation, never on a timer", async () => {
     let landed = 0;
+    // The sheet's landing animation (dropOverlay.css): jsdom loads no stylesheet of the pane.
+    const style = dom.window.document.createElement("style");
+    style.textContent = ".acpmux-drop-overlay[data-phase=landing] .acpmux-drop-sheet{animation-name:acpmux-drop-land}";
+    dom.window.document.head.appendChild(style);
     const { doc, root } = await render(
       { phase: "landing", summary: { count: 1, kind: "photos", refused: false } },
       () => {
         landed += 1;
       },
     );
-    const sheet = doc.querySelector(".acpmux-drop-overlay")!;
+    const sheet = doc.querySelector(".acpmux-drop-sheet")!;
     expect(landed).toBe(0);
     await act(async () => {
       sheet.dispatchEvent(new dom.window.Event("animationend", { bubbles: true }));
     });
     expect(landed).toBe(1);
     await act(async () => root.unmount());
+    style.remove();
   });
 });
