@@ -379,7 +379,8 @@ impl Peer {
     }
 
     pub async fn notify(&self, m: &str, params: Value) -> Result<(), RpcError> {
-        if self.admitting.load(Ordering::SeqCst) {
+        // Never queued while down: it would go out on the next connection.
+        if !self.connected.load(Ordering::SeqCst) || self.admitting.load(Ordering::SeqCst) {
             return Err(self.unreachable_error());
         }
         let line = Message::notification(m, params).bounded_line().map_err(RpcError::too_large)?;
