@@ -90,14 +90,22 @@ test("a queue that is not paused sends after this turn and shows no Resume", asy
   expect(host.querySelector(".acpmux-queue-header")?.textContent).toContain("Sends after this turn");
 });
 
-test("the reason is the error of the chat's last turn", () => {
-  const row = (id: string, kind: string, error?: string) =>
-    ({ id, version: 1, at: 1, kind, ...(error ? { error } : {}) }) as AcpmuxRow;
-  expect(queuePauseReason([row("a", "turnSummary", "old failure"), row("b", "turnSummary", "overloaded")])).toBe(
-    "overloaded",
+test("the reason is the error of the chat's latest failed turn", () => {
+  const row = (id: string, kind: string, status?: string, error?: string) =>
+    ({ id, version: 1, at: 1, kind, ...(status ? { status } : {}), ...(error ? { error } : {}) }) as AcpmuxRow;
+  expect(
+    queuePauseReason([
+      row("a", "turnSummary", "failed", "old failure"),
+      row("b", "turnSummary", "failed", "overloaded"),
+    ]),
+  ).toBe("overloaded");
+  // A prompt sent meanwhile ran and ended well; the queue stays held for the earlier failure.
+  expect(
+    queuePauseReason([row("a", "turnSummary", "failed", "old failure"), row("b", "turnSummary", "completed")]),
+  ).toBe("old failure");
+  expect(queuePauseReason([row("a", "turnSummary", "failed", "  network down \n"), row("b", "assistant")])).toBe(
+    "network down",
   );
-  // A later turn that ended well: the queue it paused is not this turn's.
-  expect(queuePauseReason([row("a", "turnSummary", "old failure"), row("b", "turnSummary")])).toBeUndefined();
-  expect(queuePauseReason([row("a", "turnSummary", "  network down \n"), row("b", "assistant")])).toBe("network down");
+  expect(queuePauseReason([row("a", "turnSummary", "failed")])).toBeUndefined();
   expect(queuePauseReason([])).toBeUndefined();
 });
