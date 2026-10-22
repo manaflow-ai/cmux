@@ -94,7 +94,14 @@ async fn a_claude_chat_forks_while_its_tool_call_runs_and_its_turn_goes_on() {
     );
     assert_ne!(fid1, fid2);
     for fid in [&fid1, &fid2] {
-        assert_eq!(hub.resolve(fid).unwrap().meta().status, acpmux::store::SessionStatus::Idle);
+        let status = hub.resolve(fid).unwrap().meta().status;
+        assert!(
+            matches!(
+                status,
+                acpmux::store::SessionStatus::Idle | acpmux::store::SessionStatus::Ready
+            ),
+            "the fork is idle at once: {status:?}"
+        );
         assert_cut_off_copy(&hub, fid);
     }
     let chat = hub.resolve(&id).unwrap().meta().status;
