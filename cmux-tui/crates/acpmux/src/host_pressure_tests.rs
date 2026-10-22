@@ -105,14 +105,14 @@ fn the_file_overrides_defaults_then_the_host_entry_overrides_the_file() {
     let file = br#"{
         "enforce": true,
         "formula": {"load1_per_core": 1.5, "swap_growth_mb_per_min": 128},
-        "hosts": {"cosmic-gray": {"load1_per_core": 0.8}, "huge-blue": {"load1_per_core": 3}}
+        "hosts": {"cosmic-gray": {"load1_per_core": 0.5}, "huge-blue": {"load1_per_core": 3}}
     }"#;
     let b = parse_budget(Some(file), "cosmic-gray");
     assert!(b.enforce);
-    assert_eq!(b.formula.load1_per_core, 0.8);
+    assert_eq!(b.formula.load1_per_core, 0.5);
     assert_eq!(b.formula.swap_growth_mb_per_min, 128.0);
     assert_eq!(b.formula.sample_seconds, 3.0);
-    assert_eq!(evaluate("cosmic-gray", &calm(), None, &b).load_limit, 8.0);
+    assert_eq!(evaluate("cosmic-gray", &calm(), None, &b).load_limit, 7.5);
     assert_eq!(parse_budget(Some(file), "air-blue").formula.load1_per_core, 1.5);
 }
 
