@@ -29,8 +29,9 @@ export type QuickMenu = {
   effort?: { levels: Choice[]; current?: string; onPick(value: string): void };
   /// The chat's accounts (acpmux routes); absent for a chat with no session yet or off this Mac.
   account?: { sessionId: string; accounts: ChatAccounts };
-  /// Fast mode (Claude Code's Fast Mode, Codex's Fast service tier): the menu's last checkbox row,
-  /// its one place (the composer draws no bolt). Absent where the running model has none.
+  /// Fast mode (Claude Code's Fast Mode): the menu's last checkbox row, its one place. Absent where
+  /// the running model has none, and for Codex, whose bolt left of the mic is its control
+  /// (FastToggle.tsx, Leo 2026-10-21).
   fast?: { checked: boolean; onChange(on: boolean): void };
   /// The rail beside the list: Starred (when any), then each harness. Without it the menu lists
   /// `models` alone and More models opens the full picker.
