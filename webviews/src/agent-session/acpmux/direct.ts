@@ -411,8 +411,16 @@ export function mergeQueue(current: readonly QueuedPrompt[], listed: readonly an
     // acpmux lists its images (after a reload or a restart too); one that lists none (an older
     // acpmux) keeps those the pane had.
     const images = Array.isArray(entry?.images) ? withKnownBytes(promptImages(entry.images), had?.images) : had?.images;
-    // acpmux's list names no sender: the `queued` record the pane read did.
-    return queuedEntry(id, whole ? had.prompt : preview, had?.next === true, false, images, had?.message);
+    // acpmux's list names no sender: the `queued` record the pane read did, while its text is still
+    // the one listed (an edit the pane missed makes it the person's, as acpmux does).
+    return queuedEntry(
+      id,
+      whole ? had.prompt : preview,
+      had?.next === true,
+      false,
+      images,
+      whole ? had.message : undefined,
+    );
   });
 }
 

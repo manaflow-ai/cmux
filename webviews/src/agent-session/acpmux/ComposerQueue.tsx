@@ -145,8 +145,6 @@ export function ComposerQueue({
   const [editing, setEditingId] = useState<string>();
   // The images the open edit drops from its prompt.
   const [dropped, setDropped] = useState<ReadonlySet<string>>(new Set());
-  // An agent's message line opened or closed (its own state): the list fits again after it draws.
-  const [, refit] = useState(0);
   const setEditing = (id: string | undefined) => {
     setDropped(new Set());
     setEditingId(id);
@@ -190,8 +188,10 @@ export function ComposerQueue({
       setEditingId(undefined);
     }
   }, [queue, editing, onLost]);
-  // Whole rows only: the list's height, after every draw and when its width changes.
-  const watched = useRef<{ list: HTMLElement; observer: ResizeObserver }>(undefined);
+  // Whole rows only: the list's height, after every draw, when its width changes, and when a row's
+  // height does: an agent's message opened, or its Details, is that line's own state
+  // (IncomingMessageLine), which draws no queue again.
+  const watched = useRef<{ list: HTMLElement; observer: ResizeObserver; rows: ResizeObserver }>(undefined);
   const wasOpen = useRef(unfolded);
   useLayoutEffect(() => {
     const current = list.current;
@@ -201,6 +201,7 @@ export function ComposerQueue({
     wasOpen.current = unfolded;
     if (watched.current?.list !== current) {
       watched.current?.observer.disconnect();
+      watched.current?.rows.disconnect();
       watched.current = undefined;
       if (current && typeof ResizeObserver !== "undefined") {
         let width = current.clientWidth;
@@ -210,11 +211,24 @@ export function ComposerQueue({
           fitList(current);
         });
         observer.observe(current);
-        watched.current = { list: current, observer };
+        const rows = new ResizeObserver(() => fitList(current));
+        watched.current = { list: current, observer, rows };
       }
     }
+    // The rows drawn now; a row gone stops being watched with its element.
+    const rows = watched.current?.rows;
+    if (rows && current) {
+      rows.disconnect();
+      for (const row of current.querySelectorAll(":scope > .acpmux-queued")) rows.observe(row);
+    }
   });
-  useEffect(() => () => watched.current?.observer.disconnect(), []);
+  useEffect(
+    () => () => {
+      watched.current?.observer.disconnect();
+      watched.current?.rows.disconnect();
+    },
+    [],
+  );
   useLayoutEffect(() => {
     const id = refocus.current;
     const row = id ? list.current?.querySelector<HTMLElement>(`[data-prompt-id="${id}"]`) : null;
@@ -428,7 +442,6 @@ export function ComposerQueue({
       </span>
     );
   // Another agent's message: its received line, which finds its sender among the listed chats.
-  // Opening or closing it draws the queue again, so the list fits its new height.
   const received = (entry: QueuedEntry, message: NonNullable<QueuedEntry["message"]>) => {
     const line = (
       <IncomingMessageLine
@@ -436,7 +449,6 @@ export function ComposerQueue({
         message={message}
         onOpen={(sessionId) => subsessions?.open(sessionId)}
         actions={actions(entry)}
-        onToggle={() => refit((count) => count + 1)}
       />
     );
     return subsessions ? <SubsessionContext.Provider value={subsessions}>{line}</SubsessionContext.Provider> : line;
