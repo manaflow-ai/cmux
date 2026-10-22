@@ -15,7 +15,7 @@ PROTOCOL.md "Push notifications (API 0.13.0)". The trust analysis for PR B is
 | Finished turn | "<Agent> finished", the last line | the last lines, the composer | Reply (text) | the chat |
 | Error | "<Agent> stopped with an error" | same | Reply (text) | the chat |
 | Chief | "Chief", the reply's first lines | the last messages, the composer | Reply (text) | that Chief's conversation |
-| Terminal (OSC 9, 777, 99) | the program's title and body | the terminal's last screen as text | Reply (text, PR B, needs device unlock) | the terminal tab |
+| Terminal (OSC 9, 777, 99) | "Terminal · <workspace>", the program's title and body | the program's title and body (the screen stays on the Mac until PR B seals payloads) | none (Reply is PR B, needs device unlock) | the terminal tab |
 
 Thread per session (`thread-id`), the collapse rules from #23803 unchanged.
 
@@ -54,6 +54,30 @@ Thread per session (`thread-id`), the collapse rules from #23803 unchanged.
   checks. Notification content is sealed to the phone's push key and opened
   by a Notification Service Extension.
 
+## Security review (#24156)
+
+- **Retries.** A "Couldn't reach <Mac>" notification carries only the reply's
+  id; the reply waits in the app's own Application Support, never the App
+  Group, and is taken only for a notification the app posted itself. A
+  remote push can't carry a reply in.
+- **Answers name their labels.** A button or the form sends the option's
+  label with its index; the app refuses when the Mac's option there no longer
+  reads so (a cut label matches by its start). The Face ID sheet names the
+  chosen answers ("Answer “Yes, deploy”"), or the Mac's own title for an
+  Allow, with "…" when cut.
+- **Redaction.** The Mac redacts credentials in every text it sends
+  (PROTOCOL.md "Push notifications"). Titles and last lines can still name
+  paths and command arguments; terminal screens are never sent.
+- **Terminal notifications.** The banner title is "Terminal · <workspace>"
+  (a program never writes it); one per tab in 10 s, ten a minute, in their
+  own rate bucket on the Worker.
+- **Lock screen.** With Show previews off the static buttons stay (no option
+  labels); the saved chat loads into the long-press view only while the phone
+  is unlocked. With Require Face ID on, Reply and Deny open the app (behind
+  its lock) instead of running in the background.
+- **Leftovers.** Attachments are deleted once sent and after 15 minutes; the
+  outbox and retries are cleared on sign-out.
+
 ## Tap routing
 
 A tap opens the exact screen on the notification's Mac, in every app state:
@@ -65,9 +89,11 @@ A tap opens the exact screen on the notification's Mac, in every app state:
 | terminal | the terminal tab (`tabId`) in its workspace |
 | a browser tab (`tabId` names one) | the browser tab |
 
-The route waits for that Mac's tree once (cold launch), then falls back to the
-Feed item. A locked app (Settings → Require Face ID) opens the route after
-unlock.
+The route waits for that Mac's tree (cold launch) while it can still arrive:
+at most 10 s, and not at all when the Mac is offline, its last dial failed, or
+the phone may not dial it. Then the Feed opens. Going to another tab while it
+waits drops the route. A locked app (Settings → Require Face ID) opens the
+route after unlock.
 
 ## Settings → Notifications
 
@@ -78,7 +104,15 @@ unlock.
 - Show previews (`previews`).
 
 All three sync with `PUT /v1/devices/:id/push`; the Worker filters, and the
-notify answer's `wants` lets the Mac skip kinds no phone wants (terminal).
+notify answer's `wants` lets the Mac skip kinds no phone wants (terminal). The
+Mac tries a skipped kind again 15 s after the answer, so a phone that turns a
+kind on gets it within about that.
+
+Migration from the three earlier switches: Finished off becomes Only when I'm
+needed, anything else Needed and finished. Questions always push now (an ask
+needs an answer), and the default level no longer pushes errors: they are in
+Everything only. A phone that had Errors on (the old default) gets no error
+push until the person picks Everything.
 
 ## Extensions and signing
 

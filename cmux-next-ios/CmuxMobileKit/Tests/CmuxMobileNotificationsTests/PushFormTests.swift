@@ -14,7 +14,7 @@ import Testing
         var form = PushForm(payload: question([branch]))
         #expect(form.sendsOnTap)
         #expect(form.rows.map(\.style) == [.choice, .choice])
-        #expect(form.tap(form.rows[1]) == .option(1))
+        #expect(form.tap(form.rows[1]) == .option(1, label: "dev"))
         #expect(!form.showsSubmit)
     }
 

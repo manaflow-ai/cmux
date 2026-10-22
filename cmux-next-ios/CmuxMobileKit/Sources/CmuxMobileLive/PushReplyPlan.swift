@@ -40,16 +40,27 @@ public enum PushReplyPlan: Equatable, Sendable {
         }
         guard let pending else { throw Refusal(String(localized: "This was already answered.")) }
         switch (pending, reply.action) {
-        case (.question(let question), .option(let index)):
-            guard let item = question.items.first, item.options.indices.contains(index) else {
-                throw Refusal(String(localized: "That choice is no longer offered."))
+        case (.question(let question), .option(let index, let label)):
+            // The option there must still read as the button did (review M1): never guess another.
+            guard let item = question.items.first, item.options.indices.contains(index),
+                  PushLabel.matches(sent: label, live: item.options[index].label) else {
+                throw Refusal(String(localized: "That choice is no longer offered. Open the question to answer it."))
             }
             return .answer(question, AgentQuestionAnswer(selections: [item.id: .init(optionIDs: [item.options[index].id])]))
         case (.question(let question), .answers(let selected, let other)):
             var selections: [String: AgentQuestionAnswer.Selection] = [:]
             for (i, item) in question.items.enumerated() {
                 let labels = i < selected.count ? selected[i] : []
-                let ids = item.options.filter { labels.contains($0.label) }.map(\.id)
+                // Each label names exactly one live option (a cut label matches by its start).
+                var ids: [String] = []
+                for label in labels {
+                    let found = item.options.filter { PushLabel.matches(sent: label, live: $0.label) }
+                    guard found.count == 1, let option = found.first else {
+                        throw Refusal(String(localized: "That choice is no longer offered. Open the question to answer it."))
+                    }
+                    if !ids.contains(option.id) { ids.append(option.id) }
+                }
+                ids = item.options.map(\.id).filter(ids.contains)
                 selections[item.id] = .init(optionIDs: ids, other: i < other.count && item.allowsOther ? other[i] : nil)
             }
             let answer = AgentQuestionAnswer(selections: selections)

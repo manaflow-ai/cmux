@@ -41,9 +41,14 @@ final class NotificationViewController: UIViewController, @MainActor UNNotificat
     // UserNotificationsUI calls the extension on the main thread (an isolated conformance).
     func didReceive(_ notification: UNNotification) {
         let payload = PushPayload(userInfo: notification.request.content.userInfo)
-        model.load(payload: payload, group: PushAppGroup.current())
+        let group = PushAppGroup.current()
+        model.load(payload: payload, group: group)
         // The notification's own buttons: a question's options, the permission's offers.
-        if let payload { extensionContext?.notificationActions = PushActions().actions(for: payload) }
+        // With previews off the static buttons stay (review L1); Require Face ID opens the app (L2).
+        if let payload {
+            let actions = PushActions(defaults: PushActions.sharedDefaults(group)).extensionActions(for: payload)
+            if !actions.isEmpty { extensionContext?.notificationActions = actions }
+        }
     }
 
     /// Buttons go on to the app delegate, which owns delivery (and Face ID).

