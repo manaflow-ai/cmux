@@ -123,11 +123,15 @@ nonisolated final class StandInAcpmux {
 
     /// One `_acpmux/session_changed` with the session's new summary.
     func push(_ summary: [String: Any]) {
+        push(params: ["sessionId": summary["sessionId"] ?? "", "session": summary])
+    }
+
+    /// One `_acpmux/session_changed` with these params.
+    func push(params: [String: Any]) {
         if connected.wait(timeout: .now() + 5) == .success { connected.signal() }
         let fd = client.withLock { $0 }
         guard fd >= 0 else { return }
-        Self.write(fd, Self.line(["jsonrpc": "2.0", "method": "_acpmux/session_changed",
-                                  "params": ["sessionId": summary["sessionId"] ?? "", "session": summary]]))
+        Self.write(fd, Self.line(["jsonrpc": "2.0", "method": "_acpmux/session_changed", "params": params]))
     }
 
     private static func line(_ object: [String: Any]) -> Data {

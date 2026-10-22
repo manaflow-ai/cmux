@@ -110,8 +110,6 @@
   padding: 6px;
   border: 0;
   border-radius: 12px;
-  background-color: var(--surface-popup);
-  box-shadow: var(--acpmux-popup-elevation);
   /* Never past the room on its side (Base UI's --available-height, cx-m6jn0): the list scrolls. */
   max-height: var(--available-height, none);
   overflow-y: auto;

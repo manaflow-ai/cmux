@@ -37,6 +37,8 @@ mod prompt_context;
 mod prompt_ledger;
 #[path = "hub_integration/prompt_provenance.rs"]
 mod prompt_provenance;
+#[path = "hub_integration/prompt_supersede.rs"]
+mod prompt_supersede;
 #[path = "hub_integration/prompt_withdraw.rs"]
 mod prompt_withdraw;
 #[path = "hub_integration/protocol_serve.rs"]

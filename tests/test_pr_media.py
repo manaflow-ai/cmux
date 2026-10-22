@@ -296,6 +296,23 @@ class ConvertTests(unittest.TestCase):
             self.assertEqual(made, into / "clip.gif")
             self.assertEqual(made.read_bytes(), GIF)
 
+    def test_ffmpeg_runs_without_the_publish_steps_secrets(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            source = written(scratch, "clip.mp4", MP4)
+            seen = {}
+
+            def runner(argv, **kwargs):
+                seen.update(kwargs["env"])
+                Path(argv[-1]).write_bytes(GIF)
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+            secrets = {"PR_MEDIA_PRIVATE_TERMS": "secret-host", "GH_TOKEN": "t", "PATH": "/usr/bin"}
+            with self.ffmpeg(runner), mock.patch.dict(MODULE.os.environ, secrets):
+                MODULE.convert(self.upload(source), Path(scratch), 10, 900, runner=runner)
+            self.assertEqual(seen.get("PATH"), "/usr/bin")
+            self.assertFalse({"PR_MEDIA_PRIVATE_TERMS", "GH_TOKEN"} & set(seen))
+            self.assertLessEqual(set(seen), set(MODULE.TOOL_ENV_KEYS))
+
     def test_a_failed_conversion_says_what_ffmpeg_said(self):
         with tempfile.TemporaryDirectory() as scratch:
             source = written(scratch, "clip.mp4", MP4)
@@ -653,8 +670,9 @@ class PrivacyTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(prefix="pr-media-privacy-test-")
         self.addCleanup(temporary.cleanup)
         self.scratch = temporary.name
+        # A CI step inside .github/actions/pr-media-publish (PR_MEDIA_PUBLISH_GATE).
         self.env = {"HOME": self.scratch, "GITHUB_ACTIONS": "true", "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]',
-                    "PR_MEDIA_AGENT_AUTHORS": "bot-a"}
+                    "PR_MEDIA_AGENT_AUTHORS": "bot-a", "PR_MEDIA_PUBLISH_GATE": "1"}
         self.authors = {7: "bot-a", 8: "teammate"}
         self.ocr_calls = []
         self.lookups = []

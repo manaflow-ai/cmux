@@ -113,6 +113,8 @@ def context(ref, event="push", daemon_tests="true", daemon_result="success"):
     if daemon_result is not None:
         values[f"needs.{DAEMON}.result"] = daemon_result
         values[f"needs.{DAEMON}.outputs.key"] = KEY if daemon_result == "success" else ""
+        # The feat-cmux-next promotion gate runs the tests on its Mac pool.
+        values[f"needs.{DAEMON}.outputs.runner_os"] = "macOS"
     return values
 
 
