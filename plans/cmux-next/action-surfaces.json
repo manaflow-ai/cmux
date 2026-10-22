@@ -31701,6 +31701,35 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "action sidebar-hover-cards-toggle",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground",
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.hoverCards.toggle",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Hover Cards",
+      "title_key" : "action.sidebar.hoverCards.toggle",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "action sidebar-edit",
       "context_menu" : "offered",
       "context_menus" : [
@@ -38878,7 +38907,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.enableMinimalMode",
+              "id" : "sidebar.hoverCards.toggle",
               "kind" : "action",
               "order" : 2,
               "visible_when" : {
@@ -38891,9 +38920,22 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.disableMinimalMode",
+              "id" : "palette.enableMinimalMode",
               "kind" : "action",
               "order" : 3,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.disableMinimalMode",
+              "kind" : "action",
+              "order" : 4,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -38907,7 +38949,7 @@
               "id" : "sidebar.density.compact",
               "kind" : "action",
               "label" : "Compact Rows",
-              "order" : 4,
+              "order" : 5,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -38921,7 +38963,7 @@
               "id" : "sidebar.density.comfortable",
               "kind" : "action",
               "label" : "Comfortable Rows",
-              "order" : 5,
+              "order" : 6,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -38935,7 +38977,7 @@
               "id" : "sidebar.density.expanded",
               "kind" : "action",
               "label" : "Expanded Rows",
-              "order" : 6,
+              "order" : 7,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -38946,13 +38988,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 7
+              "order" : 8
             },
             {
               "enabled_when" : "can_perform",
               "id" : "sidebar.layout.reset",
               "kind" : "action",
-              "order" : 8,
+              "order" : 9,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -43700,6 +43742,19 @@
                   "kind" : "action",
                   "label" : "Expanded Rows",
                   "order" : 23,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "sidebar.hoverCards.toggle",
+                  "kind" : "action",
+                  "order" : 24,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
