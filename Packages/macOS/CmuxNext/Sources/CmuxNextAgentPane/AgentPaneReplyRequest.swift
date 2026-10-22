@@ -88,7 +88,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     }
 
     /// The request for `method` and `params`, nil when they break the contract.
-    init?(method: String, params: [String: Any]?) {
+    public init?(method: String, params: [String: Any]?) {
         guard let known = Self.knownParams[method] else { return nil }
         let params = params ?? [:]
         guard Set(params.keys).isSubset(of: known) else { return nil }
@@ -150,7 +150,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
 
     /// `text` as a URL a browser may open: http or https, a host, no user info, at most
     /// ``maximumURL`` characters. Nil for anything else (`javascript:`, `file:`, `cmux:`).
-    publicstatic func webURL(_ text: String) -> URL? {
+    static func webURL(_ text: String) -> URL? {
         guard text.utf8.count <= maximumURL, let url = URL(string: text),
               let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
               url.user == nil, url.password == nil,
@@ -162,7 +162,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     /// slash or one of its tabs, as `/files`, names the same one), rebuilt from its parts. Nil for
     /// anything else, so nothing but that URL ever reaches `gh`: no other host, no user info, no
     /// query or fragment, and no part that starts with `-`.
-    publicstatic func pullRequestURL(_ text: String) -> URL? {
+    static func pullRequestURL(_ text: String) -> URL? {
         guard text.utf8.count <= maximumURL, let url = URL(string: text), url.scheme == "https",
               url.host(percentEncoded: false)?.lowercased() == "github.com", url.port == nil,
               url.user == nil, url.password == nil, url.query == nil, url.fragment == nil else { return nil }

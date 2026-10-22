@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextAgentPane
-import CmuxNextDaemonService
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextUpdater
@@ -19,37 +18,45 @@ extension ReleaseNotesStore: ChangelogSource {}
 /// `reel {build}` (`url`: its nightly reel, else null). A highlight's action survives only when it
 /// is in ``PageDescriptor/changelogTryItActions``. Media arrive inlined (``ReleaseMediaStore``).
 ///
-/// A highlight's PR chip and its hover card (the agent page's card, shared) use two more:
-/// - `pr.inspect {url}`: what the host already has about a GitHub pull request, the same reply as
-///   the agent page's `pr.inspect` (``AgentPanePullRequestAnswer/reply``), from the app's one cache
-///   (``AgentReplyPullRequests``). Only a plain `https://github.com/<owner>/<repo>/pull/<n>`. Passive.
-/// - `link.open {url}`: opens an https URL in a cmux browser tab, as a link clicked in a chat opens.
-///   Spends one gesture of the person's in the page view (the host's record); anything but https
-///   (http, `file:`, `javascript:`, a URL with user info) is refused.
+/// A highlight's PR chip shows the agent page's link hover card, and the card's calls come here as
+/// `cmux.changelog.<method>` for its three methods (``AgentPaneReplyLinks/cardMethods``), with the
+/// agent page's params, checks and replies: they run through the same ``AgentPaneReplyLinks``.
+/// - `pr.inspect {url}`: what the app's pull request cache (``AgentReplyPullRequests``) has. Passive.
+/// - `browser.list {}`: the installed browsers, by opaque id. Passive.
+/// - `browser.openIn {url, browserId}`: opens the link in a cmux browser tab (`cmux`) or in a listed
+///   browser. Only https here (the notes link GitHub), and it spends one gesture of the person's in
+///   the page view (the host's record): page script cannot open a link by itself.
 @MainActor
 final class ChangelogPageProvider: PageProvider {
     private let source: (any ChangelogSource)?
     private let currentBuild: String
     /// Inlines checked release media as `data:` URLs (the page's CSP admits no remote image).
     private let media: ReleaseMediaStore?
-    /// What the app's pull request cache has for a link (``AgentReplyPullRequests/answer(_:)``).
-    private let pullRequests: @MainActor (URL) -> AgentPanePullRequestAnswer
+    /// The agent page's link card requests (``AgentPaneReplyLinks/respond(toCard:consumeGesture:openInCmux:)``).
+    private let links: AgentPaneReplyLinks
     /// Opens a checked https URL in a cmux browser tab from the page view (``anchor``); false when
     /// nothing opened.
     private let openLink: @MainActor (URL, NSView?) -> Bool
-    /// The gesture the last `link.open` spent: one key or click opens one link.
+    /// The gesture the last `browser.openIn` spent: one key or click opens one link.
     private var spentGesture: TimeInterval?
     /// The page view, so a link opens from the pane that shows it (nil: the active window's pane).
     var anchor: @MainActor () -> NSView? = { nil }
 
     init(source: (any ChangelogSource)?, currentBuild: String, media: ReleaseMediaStore? = nil,
-         pullRequests: @escaping @MainActor (URL) -> AgentPanePullRequestAnswer = { AgentReplyPullRequests.shared.answer($0) },
+         links: AgentPaneReplyLinks = ChangelogPageProvider.cardLinks(),
          openLink: @escaping @MainActor (URL, NSView?) -> Bool = { _, _ in false }) {
         self.source = source
         self.currentBuild = currentBuild
         self.media = media
-        self.pullRequests = pullRequests
+        self.links = links
         self.openLink = openLink
+    }
+
+    /// The card's links for the app: pull requests from the app's one cache, the installed browsers.
+    static func cardLinks() -> AgentPaneReplyLinks {
+        let links = AgentPaneReplyLinks()
+        links.pullRequest = { AgentReplyPullRequests.shared.answer($0) }
+        return links
     }
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
@@ -70,32 +77,34 @@ final class ChangelogPageProvider: PageProvider {
                 return highlight
             }
             return try Self.json(notes)
-        case "cmux.changelog.pr.inspect":
-            guard let url = AgentPaneReplyRequest.pullRequestURL(try Self.url(params)) else {
-                throw PageError.invalidParams("url must be a GitHub pull request")
-            }
-            return pullRequests(url).reply
-        case "cmux.changelog.link.open":
-            guard let url = AgentPaneReplyRequest.webURL(try Self.url(params)), url.scheme?.lowercased() == "https" else {
-                throw PageError.invalidParams("url must be an https link")
-            }
-            guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
-                throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
-            }
-            spentGesture = event
-            guard openLink(url, anchor()) else { throw PageError(code: "cmux.changelog.open_failed", message: url.absoluteString) }
-            return .null
         default:
-            throw PageError.unknownOp(op)
+            let method = String(op.dropFirst(Self.namespace.count))
+            guard op.hasPrefix(Self.namespace), AgentPaneReplyLinks.cardMethods.contains(method) else { throw PageError.unknownOp(op) }
+            return try card(method, op: op, params: params, context: context)
         }
     }
 
-    /// The one param of `pr.inspect` and `link.open`: `url`, a string, and no other key.
-    private static func url(_ params: JSONValue) throws -> String {
-        guard let members = params.objectValue, Set(members.keys) == ["url"], let url = members["url"]?.stringValue else {
-            throw PageError.invalidParams("url is required, and the only param")
+    private static let namespace = "cmux.changelog."
+
+    /// One link card call, parsed and answered as the agent page does; `browser.openIn` takes only https.
+    private func card(_ method: String, op: String, params: JSONValue, context: PageCallContext) throws -> JSONValue {
+        guard let request = AgentPaneReplyRequest(method: method, params: params.foundationObject as? [String: Any]) else {
+            throw PageError.invalidParams(op)
         }
-        return url
+        if case .openIn(let url, _) = request, url.scheme?.lowercased() != "https" {
+            throw PageError.invalidParams("\(op) opens only https links")
+        }
+        let reply = links.respond(toCard: request, consumeGesture: { spendGesture(context) },
+                                  openInCmux: { [anchor, openLink] url in openLink(url, anchor()) })
+        return try AgentPageProvider.value(of: reply)
+    }
+
+    /// Spends the person's key or click in the page view (the host's record, never the page's word):
+    /// true once per gesture.
+    private func spendGesture(_ context: PageCallContext) -> Bool {
+        guard context.userGesture, let event = context.gestureEvent, event != spentGesture else { return false }
+        spentGesture = event
+        return true
     }
 
     private static func json(_ value: some Encodable) throws -> JSONValue { try JSONValue.parse(JSONEncoder().encode(value)) }

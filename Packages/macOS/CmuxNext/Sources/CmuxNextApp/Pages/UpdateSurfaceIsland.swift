@@ -130,9 +130,9 @@ final class UpdateSurfaceProvider: PageProvider {
 
 extension PageFactory {
     /// One update surface: the changelog bundle on `#/surface/<kind>`, its
-    /// `cmux.changelog.surface.` ops to `provider`, and the other `cmux.changelog.`
-    /// ops (`list`, `get`, a PR chip's `pr.inspect` and `link.open`) to the page's verified
-    /// notes, so the Updated card sums up every build the update spans. The card shows no pictures: no media inlining.
+    /// `cmux.changelog.surface.` ops to `provider`, and the other `cmux.changelog.` ops
+    /// (`list`, `get`, a PR chip's `pr.inspect`, `browser.list` and `browser.openIn`) to the
+    /// page's verified notes, so the Updated card sums up every build the update spans. The card shows no pictures: no media inlining.
     func updateSurfacePage(kind: SidebarUpdateSurfaceKind, provider: UpdateSurfaceProvider) -> PageWebView? {
         let native = AppPageNativeProvider(services: services, page: .changelog)
         // PageRouter tries the longest prefix first: the surface's own ops before the notes.

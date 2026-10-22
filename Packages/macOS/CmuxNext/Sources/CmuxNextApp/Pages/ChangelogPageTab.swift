@@ -95,13 +95,14 @@ extension PageFactory {
     }
 
     /// The verified notes (`cmux.changelog.list`, `get`) for the page and the Updated card, and
-    /// their PR chips' card (`pr.inspect`, `link.open`). A DEV build reading the cmux-next nightly
-    /// notes is not in their list: no current build, so the page selects the newest listed one.
+    /// their PR chips' card (`pr.inspect`, `browser.list`, `browser.openIn`). A DEV build reading
+    /// the cmux-next nightly notes is not in their list: no current build, so the page selects the
+    /// newest listed one.
     func changelogNotes(media: ReleaseMediaStore? = nil) -> ChangelogPageProvider {
         ChangelogPageProvider(
             source: services.updater.changelogNotes, currentBuild: services.updater.changelogReadsDevelopmentNotes ? "" : services.updater.identity.build,
             media: media,
-            // As the agent page's card opens a link (`browser.openIn` with cmux's id): LinkOpener.openWeb,
+            // `browser.openIn` with cmux's id, as the agent page's card opens a link: LinkOpener.openWeb,
             // from the pane that shows the page.
             openLink: { [weak services] url, view in
                 guard let opener = services?.linkOpener else { return false }
