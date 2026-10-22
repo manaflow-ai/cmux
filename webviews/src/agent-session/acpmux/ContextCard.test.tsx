@@ -95,7 +95,6 @@ test("resting the pointer on the ring shows the card without a click", async () 
   });
   await until(() => card() !== null);
   expect(card()).not.toBeNull();
-  expect(document.querySelector(".acpmux-context-pop")).toBeNull();
 });
 
 test("keyboard focus opens the card at once, with the context line and a stacked bar", async () => {
@@ -149,6 +148,61 @@ test("with nowhere to open, the card has no Details link", async () => {
   await act(async () => ring.focus());
   await wait();
   expect(card()!.querySelector(".acpmux-context-card-details")).toBeNull();
+});
+
+test("Escape closes a card that keyboard focus opened", async () => {
+  const ring = await mount({ used: 60_000, size: 200_000 });
+  await act(async () => ring.focus());
+  await wait();
+  expect(card()).not.toBeNull();
+  await act(async () => {
+    document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
+  await until(() => card() === null);
+  expect(card()).toBeNull();
+});
+
+test("Escape closes a card that the pointer opened", async () => {
+  const ring = await mount({ used: 60_000, size: 200_000 });
+  await act(async () => {
+    ring.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
+  });
+  await until(() => card() !== null);
+  await act(async () => {
+    document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
+  await until(() => card() === null);
+  expect(card()).toBeNull();
+});
+
+test("the card's padding counts as inside the card", async () => {
+  const ring = await mount({ used: 60_000, size: 200_000 });
+  await act(async () => {
+    ring.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
+  });
+  await until(() => card() !== null);
+  const outer = card()!;
+  // The pointer leaves the ring for the card's padding (its outer element, not its content).
+  await act(async () => {
+    ring.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true, relatedTarget: outer }));
+    outer.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true, relatedTarget: ring }));
+  });
+  // fixed-wait: proving the card stays means outwaiting the close grace (200 ms) once.
+  await wait(400);
+  expect(card()).not.toBeNull();
+  // Pinned by a click, a press on the padding keeps it, and a press outside closes it.
+  await act(async () => ring.click());
+  await act(async () => {
+    outer.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true }));
+  });
+  await wait();
+  expect(card()).not.toBeNull();
+  await act(async () => {
+    outer.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true, relatedTarget: document.body }));
+    document.body.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true }));
+  });
+  await until(() => card() === null);
+  expect(card()).toBeNull();
 });
 
 test("before the first usage report the ring is inert and shows no card", async () => {

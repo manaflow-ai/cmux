@@ -148,7 +148,6 @@ describe("web popups draw one hairline edge", () => {
     for (const popup of [
       ".ui-popup.ui-context-menu",
       ":where(.ui-positioner)>.ui-popup",
-      ".acpmux-context-pop",
       ".acpmux-menu",
       ".acpmux-slash-menu",
       ".acpmux-omni",

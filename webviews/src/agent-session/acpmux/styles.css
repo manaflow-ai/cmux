@@ -97,31 +97,14 @@
 .acpmux-mp-refresh-spinner{width:12px;height:12px;border:1.5px solid color-mix(in srgb,currentColor 35%,transparent);border-top-color:currentColor;border-radius:50%}
 @media (prefers-reduced-motion: no-preference){.acpmux-mp-refresh-spinner{animation:cmux-spin var(--cmux-spinner-period,900ms) linear infinite}}
 :root[data-status-indicators=static] .acpmux-mp-refresh-spinner{animation:none}
-/* The context ring is a button the size of the mic; a click opens the usage details above the bar. */
+/* The context ring is a button the size of the mic; resting on it or focusing it shows the context card (contextCard.css). */
 .acpmux-context{flex:none}
 .acpmux-context-ring{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted)}
 .acpmux-context-ring:disabled{background:none;color:var(--agent-muted);opacity:.5}
 .acpmux-context-ring:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 .acpmux-context-full .acpmux-context-ring,.acpmux-context-full .acpmux-context-ring:hover{color:var(--acpmux-warning)}
-.acpmux-context-pop{width:240px;box-sizing:border-box;padding:12px;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);transform-origin:var(--transform-origin,bottom);color:var(--agent-text);font:13px/18px -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif}
-.acpmux-context-title{font-size:12px;color:var(--agent-muted)}
-.acpmux-context-percent{margin-top:2px;font-size:var(--text-body);line-height:var(--text-body--line-height);font-weight:var(--weight-emphasis)}
-.acpmux-context-bar{height:4px;margin-top:8px;border-radius:2px;background:color-mix(in srgb,var(--agent-text) 14%,transparent);overflow:hidden}
-.acpmux-context-bar span{display:block;height:100%;border-radius:2px;background:color-mix(in srgb,var(--agent-text) 55%,transparent)}
-.acpmux-context-pop.acpmux-context-full .acpmux-context-bar span{background:var(--acpmux-warning)}
-.acpmux-context-tokens{margin-top:8px;font-size:12px;color:var(--agent-muted);font-variant-numeric:tabular-nums}
 /* The right-click hosts around the context ring and, when it is hidden, the footer: no box of their own. */
 .acpmux-context-usage-menu,.acpmux-attachment-menu,.acpmux-plan-menu,.acpmux-mic-menu,.acpmux-chrome-area{display:contents}
-/* The details' split: the agent's setup (with what it holds under it), then the conversation. */
-.acpmux-context-parts{display:grid;gap:6px;margin-top:10px;font-size:12px}
-.acpmux-context-part{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;align-items:baseline}
-.acpmux-context-part-name{color:var(--agent-text)}
-.acpmux-context-part-tokens{color:var(--agent-muted);font-variant-numeric:tabular-nums}
-.acpmux-context-part-detail{grid-column:1/-1;color:var(--agent-muted);font-size:11px;line-height:15px}
-.acpmux-context-compact{width:100%;height:28px;margin-top:12px;border:0;border-radius:8px;background:var(--acpmux-menu-hover);color:var(--agent-text);font:inherit}
-.acpmux-context-compact:hover:not(:disabled){background:var(--acpmux-menu-press)}
-.acpmux-context-compact:disabled{opacity:.5}
-.acpmux-context-compact:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 /* Send is the row's height, not taller: a 28px circle with a 16px arrow. */
 /* Send is iMessage's send button on every theme: Messages' measured blue with a white arrow (theme/messages.css, the Home sent bubble's colors). */
 .acpmux-send{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:var(--acpmux-send-fill);color:var(--acpmux-send-ink)}
@@ -724,13 +707,12 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-permission-record{padding:4px 2px;color:var(--agent-muted);font-size:var(--text-detail);line-height:18px;overflow-wrap:anywhere}
 @media (prefers-reduced-motion:no-preference){.acpmux-question-row{transition:background-color var(--agent-motion-hover,120ms) var(--agent-ease-out,ease-out)}}
 /* Menus and popovers open from their trigger (ui/popupSurface.css), only when motion is allowed. */
-@media (prefers-reduced-motion:no-preference){.acpmux-menu,.acpmux-context-pop,.acpmux-slash-menu{animation:ui-popup-open var(--ui-popup-open) ease-out}}
+@media (prefers-reduced-motion:no-preference){.acpmux-menu,.acpmux-slash-menu{animation:ui-popup-open var(--ui-popup-open) ease-out}}
 
 /* Keep the legacy cascade and slash surfaces on the same surface as Base UI's Menu and Popover: the
    solid popup surface, unblurred (Leo, 2026-10-12: glass let the transcript read through). These
    menus keep their bespoke layout, but never their own material, border, shadow or motion. */
 .acpmux-menu,
-.acpmux-context-pop,
 .acpmux-slash-menu,
 .acpmux-mp {
   border: 0;

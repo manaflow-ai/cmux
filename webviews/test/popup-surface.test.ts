@@ -112,7 +112,6 @@ ${tooltips}
     ),
     body: `<div class="acpmux-shell">
 <div class="acpmux-menu" id="cascade">Model</div>
-<div class="acpmux-context-pop" id="context-pop">Context</div>
 <div class="acpmux-slash-menu" id="slash">/compact</div>
 <div class="ui-popup ui-picker-popup acpmux-mp" id="model-picker">Models</div>
 <div class="acpmux-changes"><div class="acpmux-file-menu-list" id="file-menu">Open</div></div>
@@ -128,7 +127,6 @@ ${tooltips}
 ${tooltips}`,
     surfaces: [
       "cascade",
-      "context-pop",
       "slash",
       "model-picker",
       "file-menu",

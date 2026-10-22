@@ -27,7 +27,7 @@ const SHAPES = new Set([
   ".acpmux-switch",
   ".acpmux-effort-track",
   ".acpmux-effort-fill",
-  ".acpmux-context-bar",
+  ".acpmux-context-card-bar",
   ".acpmux-pdf-sheet-lines i",
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-model .acpmux-picker-button",
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-effort .acpmux-picker-button",

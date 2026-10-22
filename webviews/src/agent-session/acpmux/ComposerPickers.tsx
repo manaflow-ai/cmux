@@ -982,8 +982,9 @@ export function isPlan(modeId: string): boolean {
 /// How much of the context window the session has used, as a ring that fills. Resting the pointer
 /// on it, or focusing it, shows the context card with no click (ContextCard.tsx; Leo 2026-10-21,
 /// after Claude's and Codex's): the share and tokens used, the window as a stacked bar, and
-/// Details ›, which opens the Inspector's Context section. A click pins the card until Escape or a
-/// press outside. The ring itself never takes a hover pill (contextCard.css).
+/// Details ›, which opens the Inspector's Context section. A click pins the card until a press
+/// outside; Escape closes it however it opened. The ring itself never takes a hover pill
+/// (contextCard.css).
 export function ContextRing({
   used,
   size,
@@ -1006,7 +1007,7 @@ export function ContextRing({
   const [pinned, setPinned] = useState(false);
   const wrapper = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const cardBody = useRef<HTMLDivElement>(null);
+  const card = useRef<HTMLDivElement>(null);
   const known = used !== undefined && size !== undefined && size > 0;
   const fraction = known ? Math.min(1, Math.max(0, used / size)) : 0;
   const percent = Math.round(fraction * 100);
@@ -1028,23 +1029,32 @@ export function ContextRing({
     // Usage can disappear when a session resets: no pinned card over a stale reading.
     if (!known) setPinned(false);
   }, [known]);
+  const dismissHover = hover.dismiss;
   useEffect(() => {
-    // A pinned card goes on Escape or a press outside the ring and the card.
-    if (!pinned) return;
+    // Escape closes the card however it opened (hover, keyboard focus or a click), and takes the
+    // press, so it doesn't also reach the composer.
+    if (!shown) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setPinned(false);
-    };
-    const onPress = (event: PointerEvent) => {
-      const target = event.target as Node | null;
-      if (target && (wrapper.current?.contains(target) || cardBody.current?.contains(target))) return;
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
       setPinned(false);
+      dismissHover();
     };
     document.addEventListener("keydown", onKey, true);
-    document.addEventListener("pointerdown", onPress, true);
-    return () => {
-      document.removeEventListener("keydown", onKey, true);
-      document.removeEventListener("pointerdown", onPress, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [shown, dismissHover]);
+  useEffect(() => {
+    // A pinned card goes on a press outside the ring and the card. The card is its outer element,
+    // so a press on its padding is inside.
+    if (!pinned) return;
+    const onPress = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (target && (wrapper.current?.contains(target) || card.current?.contains(target))) return;
+      setPinned(false);
     };
+    document.addEventListener("pointerdown", onPress, true);
+    return () => document.removeEventListener("pointerdown", onPress, true);
   }, [pinned]);
   const full = fraction >= 0.8 ? " acpmux-context-full" : "";
   return (
@@ -1098,9 +1108,13 @@ export function ContextRing({
         side="top"
         interactive
         ariaLabel={t("context.title")}
+        popupRef={card}
+        // On the card's outer element, so its padding counts as inside the card.
+        onPointerEnter={hover.card.onPointerEnter}
+        onPointerLeave={hover.card.onPointerLeave}
       >
         {known && (
-          <div ref={cardBody} {...hover.card}>
+          <div onFocusCapture={hover.card.onFocusCapture} onBlurCapture={hover.card.onBlurCapture}>
             <ContextCardBody
               used={used}
               size={size}

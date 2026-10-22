@@ -2,7 +2,7 @@
 // control carries `aria-label`, the tooltip is the sighted hint. It opens on hover and on keyboard
 // focus, and Escape closes it. It looks like the native tooltip and the title tooltip
 // (pages/shared/desktop.css): the solid popup surface, primary ink, an optional shortcut hint.
-import { useState, type PointerEventHandler, type ReactElement, type ReactNode } from "react";
+import { useState, type PointerEventHandler, type ReactElement, type ReactNode, type Ref } from "react";
 import { Tooltip as BaseTooltip } from "@base-ui/react/tooltip";
 import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
@@ -75,6 +75,8 @@ export interface AnchoredCardProps {
   ariaLabel?: string;
   onPointerEnter?: PointerEventHandler<HTMLDivElement>;
   onPointerLeave?: PointerEventHandler<HTMLDivElement>;
+  /** The card's own element (its padding included), for a caller's inside/outside checks. */
+  popupRef?: Ref<HTMLDivElement>;
   children: ReactNode;
 }
 
@@ -95,6 +97,7 @@ export function AnchoredCard({
   ariaLabel,
   onPointerEnter,
   onPointerLeave,
+  popupRef,
   children,
 }: AnchoredCardProps) {
   const container = usePortalContainer();
@@ -109,6 +112,7 @@ export function AnchoredCard({
           sideOffset={6}
         >
           <BaseTooltip.Popup
+            ref={popupRef}
             id={id}
             className={cx("ui-tooltip ui-card", className)}
             data-state={state}
