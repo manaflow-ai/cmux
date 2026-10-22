@@ -236,11 +236,11 @@ fn under_waiters(daemon: &Daemon, chat: &str, waiting_on: &[String], secs: u64) 
     for id in waiting_on {
         let mut w = Rpc::connect(&daemon.socket);
         w.next += 1;
+        // Each wait times out just after the records: its timed-out answer then proves it
+        // stayed open through all of them.
         let line = json!({"jsonrpc": "2.0", "id": w.next, "method": "_acpmux/wait",
-                          "params": {"sessions": [id], "until": ["closed"], "timeoutMs": 600_000}});
+                          "params": {"sessions": [id], "until": ["closed"], "timeoutMs": secs * 1000 + 3_000}});
         w.writer.write_all(format!("{line}\n").as_bytes()).unwrap();
-        // The connection answers a later request only once it has read the wait.
-        w.call("_acpmux/sessions", json!({}));
         waits.push(w);
     }
     let mut rpc = Rpc::connect(&daemon.socket);
@@ -256,7 +256,12 @@ fn under_waiters(daemon: &Daemon, chat: &str, waiting_on: &[String], secs: u64) 
     }
     let cpu = cpu_ms(daemon.child.id()) - cpu0;
     let grew = (daemon.rss_bytes() as i64 - rss0) / (1024 * 1024);
-    drop(waits);
+    for mut w in waits {
+        let mut text = String::new();
+        w.reader.read_line(&mut text).unwrap();
+        let v: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(v["result"]["timedOut"], true, "a wait ended before the records did: {v}");
+    }
     (records, cpu, grew)
 }
 
