@@ -63,12 +63,16 @@ const summary = {
   ],
 };
 
-async function show(container: HTMLElement, onReconnectMcp?: (server: string) => Promise<unknown>) {
+async function show(
+  container: HTMLElement,
+  onReconnectMcp?: (server: string) => Promise<unknown>,
+  servers = summary.mcpServers,
+) {
   await act(async () => {
     root ??= createRoot(container);
     root.render(
       <ChatInspector
-        summary={summary}
+        summary={{ ...summary, mcpServers: servers }}
         sections={{ ...DEFAULT_SECTIONS, connectors: true }}
         onSection={() => undefined}
         onReconnectMcp={onReconnectMcp}
@@ -112,6 +116,15 @@ test("a failed server's Reconnect asks for that server, waits, and offers Try ag
   expect(asked).toEqual(["linear", "linear"]);
   await act(async () => answer!.resolve());
   expect(buttons[0]!.textContent).toBe(translate("chatInspector.connectors.reconnectAction"));
+  const after = await show(container, () => Promise.resolve(), [
+    { name: "github", status: "connected" as const },
+    { name: "linear", status: "connected" as const },
+  ]);
+  expect(reconnectButtons(after)).toEqual([]);
+  const linear = [...after.querySelectorAll("li")].find((row) => row.textContent?.startsWith("linear"))!;
+  const state = linear.querySelector<HTMLElement>(".acpmux-chat-inspector-row__end")!;
+  expect(state.tagName).toBe("SPAN");
+  expect(state.textContent).toBe(translate("composer.envConnected"));
 });
 
 test("where acpmux reconnects nothing, a failed server's state is plain text, not a button", async () => {

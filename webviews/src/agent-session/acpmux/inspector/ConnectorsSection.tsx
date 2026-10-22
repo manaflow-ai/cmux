@@ -71,7 +71,8 @@ export function ReconnectButton({
       disabled={state === "reconnecting"}
       onClick={() => {
         setState("reconnecting");
-        reconnect(name).then(
+        // A caller that hands back no promise (a spy) still settles the button.
+        Promise.resolve(reconnect(name)).then(
           () => setState("idle"),
           () => setState("failed"),
         );
