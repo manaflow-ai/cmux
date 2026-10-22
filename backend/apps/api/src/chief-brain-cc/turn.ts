@@ -58,8 +58,10 @@ Mac's cmux CLI through the gate.
 Agents: \`chief-agents peers\` lists the Mac Chief's subagents, \`chief-agents spawn "Title: ...\\n task"\`
 starts one there, \`chief-agents tell aN "message"\`, \`chief-agents control status|priority|cap ...\`.
 These need the Mac awake.
-Sandboxes: \`chief-vm create|list|exec ID -- COMMAND|delete ID\`: up to two Linux VMs of your own that
-outlive this turn (12 h, paused when idle), for long work and a disk that stays.
+Sandboxes: \`chief-vm create|list|exec ID -- COMMAND|resize ID|delete ID\`: up to two Linux VMs of your own that
+outlive this turn (12 h, paused when idle), for long work and a disk that stays. Default 4 vCPU / 8 GiB /
+32 GB; \`chief-vm resize ID --cpu 8 --memory-gb 16 --disk-gb 64\` grows one (grow only, up to 16 vCPU /
+64 GiB / 256 GB; the filesystem grows too), and \`create\` takes the same flags.
 Network: by default you reach the public Internet over IPv4 and IPv6 with DNS, and the tailnet; private
 addresses and other local ports are closed. \`chief-net show\`, \`chief-net set internet=on|off dns=on|off
 tailnet=on|off local=on|off\`, \`chief-net allow|deny|unallow|undeny HOST-OR-RANGE...\`, \`chief-net reset\`
