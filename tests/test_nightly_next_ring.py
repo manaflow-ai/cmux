@@ -138,6 +138,60 @@ class SelectTests(unittest.TestCase):
         self.assertEqual(summary, {"kept": [], "dropped": ["300"]})
 
 
+class LegacyTests(unittest.TestCase):
+    """The old cmux NIGHTLY-identity feed after a build is copied (nightly_next_ring.py legacy)."""
+
+    def verdicts(self, **passed):
+        return lambda build: "pass" if passed.get(f"b{build}") else None
+
+    def test_a_dev_build_joins_beside_the_nightly_one(self):
+        out, summary = ring.legacy(feed(item("300")), feed(item("200")), "on", self.verdicts(b200=True))
+        self.assertEqual(summary["channels"], {"300": "cmux-next-dev", "200": "cmux-next"})
+        self.assertEqual(offered(out, NIGHTLY_RING), ["200"])
+        self.assertEqual(offered(out, DEV_RING), ["300", "200"])
+        self.assertEqual(offered(out, PRE_RING_BUILD), ["200"])
+        self.assertEqual(offered(out, MAIN_BUILD), [])
+
+    def test_a_promoted_build_replaces_the_older_nightly_item(self):
+        current = feed(item("300", "cmux-next-dev"), item("200"))
+        out, summary = ring.legacy(feed(item("400")), current, "on", self.verdicts(b200=True, b300=True))
+        self.assertEqual(summary["channels"], {"400": "cmux-next-dev", "300": "cmux-next"})
+        self.assertEqual(summary["dropped"], ["200"])
+        self.assertEqual(offered(out, NIGHTLY_RING), ["300"])
+
+    def test_at_most_five_dev_items_above_the_nightly_one(self):
+        current = feed(*(item(str(b), "cmux-next-dev") for b in range(301, 307)), item("200"))
+        out, summary = ring.legacy(feed(item("400")), current, "on", self.verdicts(b200=True))
+        self.assertEqual(list(summary["channels"]), ["400", "306", "305", "304", "303", "200"])
+
+    def test_a_nightly_build_copied_below_a_dev_one_keeps_both(self):
+        current = feed(item("300", "cmux-next-dev"), item("100"))
+        out, summary = ring.legacy(feed(item("200")), current, "on", self.verdicts(b100=True, b200=True))
+        self.assertEqual(summary["channels"], {"300": "cmux-next-dev", "200": "cmux-next"})
+        self.assertEqual(offered(out, NIGHTLY_RING), ["200"])
+
+    def test_off_keeps_only_the_newest_build_on_nightly(self):
+        current = feed(item("300", "cmux-next-dev"), item("200"))
+        out, summary = ring.legacy(feed(item("400")), current, "off", self.verdicts())
+        self.assertEqual(summary["channels"], {"400": "cmux-next"})
+        self.assertEqual(out.count("<item>"), 1)
+
+    def test_no_current_feed_and_the_guard_passes(self):
+        out, summary = ring.legacy(feed(item("300")), None, "on", self.verdicts())
+        self.assertEqual(summary["channels"], {"300": "cmux-next-dev"})
+        self.assertTrue(out.startswith('<?xml version="1.0"'))
+        self.assertTrue(out.endswith("    </channel>\n</rss>\n"))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "appcast-arm64.xml"
+            path.write_text(out)
+            result = subprocess.run([sys.executable, str(GUARD), "appcast", str(path)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_refuses_a_new_appcast_with_no_items(self):
+        with self.assertRaises(ring.Refused):
+            ring.legacy(feed(), feed(item("200")), "on", self.verdicts())
+
+
 class CliTests(unittest.TestCase):
     def run_cli(self, *args: str) -> subprocess.CompletedProcess:
         return subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True)
@@ -181,7 +235,8 @@ class WorkflowTests(unittest.TestCase):
         ring_expr = "vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'cmux-next-dev' || 'cmux-next'"
         tags = re.findall(r"^\s+SPARKLE_CHANNEL: (.*)$", text, re.MULTILINE)
         # First publication, its deltas and a recovered build follow the switch;
-        # the old cmux NIGHTLY-identity feed stays on cmux-next (pre-ring builds).
+        # the old cmux NIGHTLY-identity feed's item starts on cmux-next and is
+        # retagged from its verdict (nightly_next_ring.py legacy).
         self.assertEqual(sum(ring_expr in tag for tag in tags), 3, tags)
         self.assertEqual(tags.count("cmux-next"), 1, tags)
 
@@ -191,10 +246,53 @@ class WorkflowTests(unittest.TestCase):
         retag = job.index("nightly_next_ring.py retag")
         self.assertLess(retag, job.index("publish-release-assets.py"))
 
-    def test_the_old_feed_follows_nightly_only(self):
+    def test_the_old_feed_copies_nightly_first_then_dev(self):
         text = NIGHTLY_YML.read_text()
         job = text[text.index("\n  legacy-identity-target:"):text.index("\n  sign-nightly-identity-legacy:")]
-        self.assertLess(job.index("nightly_next_ring.py select"), job.index("nightly-next-legacy-target.py"))
+        target = job.index("nightly-next-legacy-target.py")
+        self.assertLess(job.index("nightly_next_ring.py select --feed next-all.xml"), target)
+        self.assertLess(job.index("nightly_next_ring.py select --feed old-all.xml"), target)
+        # The full feeds (Dev too) only when the old feed's Nightly is current and the ring is on.
+        self.assertLess(job.index('elif [ "$DEV_RING" = on ]; then\n            cp next-all.xml next.xml'), target)
+
+    def test_the_old_feed_is_merged_from_verdicts_before_its_guard(self):
+        text = NIGHTLY_YML.read_text()
+        job = text[text.index("\n  publish-nightly-identity-legacy:"):]
+        merge = job.index("nightly_next_ring.py legacy --new")
+        self.assertLess(merge, job.index('nightly-next-guard.py appcast "legacy-out/$LEGACY_APPCAST"'))
+        self.assertIn('--verdicts-base "$NIGHTLY_NEXT_FEED_BASE"', job[merge:merge + 400])
+
+    def test_signing_and_publishing_skip_the_same_builds(self):
+        # A Dev item above the old feed's Nightly must not hold back an older
+        # Nightly build in either job (else Nightly installs stay stuck).
+        text = NIGHTLY_YML.read_text()
+        rule = [
+            'nightly_next_ring.py select --feed "$RUNNER_TEMP/old-feed.xml" --out "$RUNNER_TEMP/old-nightly.xml" --channel cmux-next',
+            'grep -q "<sparkle:version>${NIGHTLY_BUILD}</sparkle:version>" "$RUNNER_TEMP/old-feed.xml"',
+            '{ [ -n "$current" ] && [ "$NIGHTLY_BUILD" -le "$current" ]; }',
+        ]
+        for start, end in (("\n  sign-nightly-identity-legacy:", "Initialize cmux-next notices submodule"),
+                           ("\n  publish-nightly-identity-legacy:", "name: Select Xcode")):
+            begin = text.index(start)
+            step = text[text.index("name: Skip a build the old feed already has", begin):text.index(end, begin)]
+            for line in rule:
+                self.assertIn(line, step, start)
+
+    def test_a_pending_build_the_old_feed_lists_is_not_continued(self):
+        text = NIGHTLY_YML.read_text()
+        job = text[text.index("\n  legacy-identity-target:"):text.index("\n  sign-nightly-identity-legacy:")]
+        stale = job.index('grep -q "<sparkle:version>${pending_build}</sparkle:version>" old-all.xml')
+        self.assertLess(stale, job.index("pending_args=(--pending-meta"))
+
+    def test_a_verdict_promotes_on_the_old_feed_too(self):
+        text = VERDICT_YML.read_text()
+        main = text.index("name: Move builds whose canary passed to Nightly")
+        legacy = text.index("name: Move the old feed's builds whose canary passed to Nightly")
+        self.assertLess(main, legacy)
+        step = text[legacy:]
+        self.assertIn("${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${NIGHTLY_APPCAST}", step)
+        self.assertIn("--replace-sha256", step)
+        self.assertIn('verdicts/${KEY##*/}', text)
 
     def test_a_verdict_promotes_on_the_live_feed_with_if_match(self):
         text = VERDICT_YML.read_text()
