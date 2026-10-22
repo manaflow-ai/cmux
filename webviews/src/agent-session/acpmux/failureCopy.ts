@@ -42,7 +42,8 @@ const AUTH = /\b40[13]\b|unauthori[sz]ed|forbidden|authenticat|\boauth\b/i;
 /// write, a socket, the agent) reads as that kind too.
 const DISK_FULL = /ENOSPC|no space left on device|disk (?:is )?full|out of disk space|disk quota exceeded|EDQUOT/i;
 /// A chat on another machine that its tailnet no longer reaches: the tailnet named, and a sign that
-/// it did not connect. A tailnet host that answered (a 401, a 529) is that answer, not Tailscale.
+/// it did not connect. A tailnet host that answered (a 401, a 529) is that answer, not Tailscale,
+/// even when its body says "logged out" (`answered`).
 const TAILSCALE = /tailscale|tailnet|\.ts\.net\b/i;
 const TAILNET_DOWN = /not connected|logged out|needs login|is (?:down|stopped|offline)|no route|i\/o timeout/i;
 /// The agent's process ended mid-turn (acpmux's "agent process closed", a signal, a broken pipe).
@@ -93,7 +94,10 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   if (DISK_FULL.test(message)) return "disk-full";
   // Capacity and network first: their messages often mention authentication or keys in passing.
   if (RATE.test(message)) return "rate-limited";
-  if (TAILSCALE.test(message) && (UNREACHABLE.test(message) || TAILNET_DOWN.test(message))) return "tailscale";
+  // An HTTP sign-in refusal came from a host that answered: the tailnet reached it.
+  const answered = AUTH.test(message);
+  if (TAILSCALE.test(message) && !answered && (UNREACHABLE.test(message) || TAILNET_DOWN.test(message)))
+    return "tailscale";
   if (UNREACHABLE.test(message)) return "unreachable";
   const via = failureVia(message, route);
   // A signed-out Claude CLI says "Invalid API key · Please run /login": its way out is the login.

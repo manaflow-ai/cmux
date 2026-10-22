@@ -28,6 +28,10 @@ test("disk, tailnet, quit and start failures each name their cause", () => {
     ["agent process closed\nstderr: invalid x-api-key", "invalid-key"],
     // A tailnet host that answered is that answer, not Tailscale.
     ["HTTP 401 Unauthorized from https://proxy.tail123.ts.net/v1/messages", "proxy-auth"],
+    [
+      "HTTP 401 Unauthorized from https://proxy.tail123.ts.net/v1/messages: user is logged out; please sign in again",
+      "proxy-auth",
+    ],
     ["API Error: 529 overloaded_error from https://proxy.tail123.ts.net/v1/messages", "rate-limited"],
     ["dial tcp proxy.tail123.ts.net:443: connect: connection refused", "tailscale"],
   ];
