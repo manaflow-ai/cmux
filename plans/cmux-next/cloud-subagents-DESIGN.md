@@ -411,3 +411,13 @@ Limits to check before 200: the `deploy.sh` daily budget guard is 20 USD/day,
 which 50 running agents use in about 2.4 h (then new subagents run on the
 Mac); Freestyle's concurrent-VM limit on the Pro plan; Tailscale's device
 count for 200 more nodes. Raising any of them is a money decision for the user.
+
+### Base without a working tree (2026-10-22, cmuxterm-hq #2989)
+
+The base clone is now `--no-checkout` (depth 1, one branch, HEAD blobs kept
+in the pack, no `--filter`): subagents use their own worktrees, so the
+checkout in `~/src/cmux` was unused bytes. Base snapshot
+`sh-494cda79998f4c5e809f5180060690ec`: 6.42 GB used (was 7.44 GB). Fork test
+`chief-sub-a9465`: up in 8.7 s, `worktree add` in 8 s with no blob download
+(32,137 files), 7.48 GB used in total (was 8.49 GB), 1.06 GB its own; then
+deleted. The old base snapshot is deleted.
