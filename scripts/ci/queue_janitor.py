@@ -464,7 +464,10 @@ def starved_result(github: "GitHub", runs: Sequence[Mapping[str, Any]],
             listed = github.completed_runs(workflow, (now - STARVED_EVIDENCE_LOOKBACK).strftime("%Y-%m-%dT%H:%M:%SZ"))
             recent = sorted((run for run in listed if (parse_time(run.get("updated_at")) or dt.datetime.min.replace(
                 tzinfo=dt.timezone.utc)) >= window), key=lambda run: str(run.get("updated_at") or ""), reverse=True)
-            for run in evidence_runs(recent, known=set(fleet_jobs) | set(evidence), cap=LOST_EVIDENCE_RUNS_PER_WORKFLOW):
+            # Any conclusion: a run cancelled after its fleet job started still shows a runner took it
+            # (starved_labels judges service from each job's runner and start).
+            known = set(fleet_jobs) | set(evidence)
+            for run in [run for run in recent if run.get("id") not in known][:LOST_EVIDENCE_RUNS_PER_WORKFLOW]:
                 evidence[run["id"]] = github.jobs(run["id"])
         except RuntimeError as error:
             incomplete = True
