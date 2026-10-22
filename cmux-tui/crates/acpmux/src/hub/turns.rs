@@ -1070,7 +1070,14 @@ impl Hub {
                 }),
                 remote: None,
             });
-            self.store.delete(&session.id).map_err(|e| RpcError::internal(e.to_string()))?;
+            // A purge refuses every later write of this id (`Store::purge`); a chat that comes
+            // back under it (a move back, `transfer_in.rs`) is replaced, not purged.
+            if replaced {
+                self.store.delete(&session.id)
+            } else {
+                self.store.purge(&session.id)
+            }
+            .map_err(|e| RpcError::internal(e.to_string()))?;
             // The files dropped into the chat go with it (`file_uploads.rs`), unless the chat
             // itself comes back under this id.
             if !replaced {
