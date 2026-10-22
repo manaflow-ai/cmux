@@ -889,6 +889,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_tui_routes_avoid_nightly_label.py
 
+      - name: Validate pin pushes run the cmux_next_ daemon tests on Linux
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_tui_daemon_tests_linux.py
+
       - name: Validate the tui publish dispatch budget
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_tui_publish_dispatch_budget.py
