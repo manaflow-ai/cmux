@@ -1,4 +1,5 @@
-import CmuxNextChiefMemory
+import AppKit
+@testable import CmuxNextChiefMemory
 import Foundation
 import Testing
 
@@ -157,4 +158,43 @@ private final class Person {
         #expect(ChiefMemoryTarget.message(42).queryValue == "message:42")
         #expect(ChiefMemoryTarget.line("0+8").queryValue == "node:0+8")
     }
+
+    private static func subviews(of root: NSView) -> [NSView] {
+        root.subviews.flatMap { [$0] + subviews(of: $0) }
+    }
+
+    private static func shown(_ id: String, in root: NSView) -> [NSView] {
+        subviews(of: root).filter { $0.accessibilityIdentifier() == id && !$0.isHiddenOrHasHiddenAncestor }
+    }
+
+    /// The Memory Inspector is AppKit (plans/cmux-next/no-swiftui-DESIGN.md): no SwiftUI bridge; its
+    /// view lists the lines newest first, a line click opens it in the detail column, and the change
+    /// list shows each change with Undo on the ones not undone.
+    @Test func theInspectorIsAppKitListsOpensAndShowsChanges() async throws {
+        _ = NSApplication.shared
+        let model = ChiefMemoryInspectorModel(source: FakeMemory(), confirmDelete: { _, _ in true })
+        await model.reload()
+        let view = ChiefMemoryInspectorView(model: model)
+        view.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
+        view.reload()
+        view.layoutSubtreeIfNeeded()
+        #expect(!hostsSwiftUI(view))
+        let lines = Self.shown("chief-memory.line", in: view)
+        #expect(lines.compactMap { $0.accessibilityLabel() }.map { $0.components(separatedBy: ",").first ?? "" } == ["32+32", "0+32"])
+        #expect(Self.shown("chief-memory.undo", in: view).count == 1, "Undo only on the change not undone")
+        let first = try #require(lines.last as? NSButton)
+        first.performClick(nil)
+        await model.open("0+32")
+        view.reload()
+        #expect(Self.shown("chief-memory.detail", in: view).isEmpty == false)
+    }
+}
+
+/// Whether `root`'s own view tree (not the inside of an AppKit control, whose private views on
+/// macOS 26 include hosting views of AppKit's own) holds a SwiftUI hosting bridge.
+@MainActor
+private func hostsSwiftUI(_ root: NSView) -> Bool {
+    if String(describing: type(of: root)).contains("Hosting") { return true }
+    if root is NSControl { return false }
+    return root.subviews.contains { hostsSwiftUI($0) }
 }
