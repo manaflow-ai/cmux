@@ -792,7 +792,61 @@ class WiringTests(unittest.TestCase):
         self.assertIn('mv "$state/text-boxes.json.part" "$state/text-boxes.json"', job)
         self.assertNotIn("set -euo pipefail\n          swiftc", job)
         self.assertIn("--states scripts/cmux-next/visual-gate/states", job)
-        self.assertIn("case $? in 0) verdict=pass ;; 1) verdict=fail ;; *) verdict=unavailable ;; esac", job)
+
+    def step_body(self, job, name):
+        """The `run: |` body of the named step, dedented."""
+        text = self.job(job)
+        start = text.index(f"- name: {name}\n")
+        body = text[text.index("run: |\n", start) + len("run: |\n"):]
+        lines = []
+        for line in body.splitlines():
+            if line.strip() and not line.startswith(" " * 10):
+                break
+            lines.append(line[10:])
+        return "\n".join(lines) + "\n"
+
+    def test_every_exit_code_of_the_gate_records_a_verdict(self):
+        # Actions runs `run:` under `bash -e`: a failed gate must still write its verdict, or
+        # enforce never holds the build it failed.
+        body = self.step_body("visual-gate-nightly", "Run the visual gate")
+        for code, verdict, blocks in ((0, "pass", "false"), (1, "fail", "true"), (3, "unavailable", "false"),
+                                      (2, "unavailable", "false")):
+            with tempfile.TemporaryDirectory() as tmp, self.subTest(code=code):
+                tmp = Path(tmp)
+                gate = tmp / "scripts/cmux-next/visual-gate/visual_gate.py"
+                gate.parent.mkdir(parents=True)
+                gate.write_text(f"import sys\nsys.exit({code})\n")
+                (tmp / "runner/visual-gate/home").mkdir(parents=True)
+                out = tmp / "output"
+                env = dict(os.environ, RUNNER_TEMP=str(tmp / "runner"), GITHUB_OUTPUT=str(out),
+                           GITHUB_STEP_SUMMARY=str(tmp / "summary"), GATE_MODE="enforce", GATE_WHY="test",
+                           BUILD_SHA="abc")
+                done = subprocess.run(["bash", "-e", "-c", body], cwd=tmp, env=env, capture_output=True,
+                                      text=True, timeout=60)
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertEqual(out.read_text().split(), [f"verdict={verdict}", f"blocks={blocks}"])
+                # A capture cut off by a timeout or a cancel never fails the build.
+                out.unlink()
+                done = subprocess.run(["bash", "-e", "-c", body], cwd=tmp, capture_output=True, text=True,
+                                      timeout=60, env=dict(env, CAPTURE_OUTCOME="cancelled"))
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertEqual(out.read_text().split(), ["verdict=unavailable", "blocks=false"])
+
+    def test_a_bad_gate_variable_never_stops_a_recovery(self):
+        find = self.job("find-nightly-next-recovery")
+        step = find[find.index("- name: Read the visual gate's verdicts"):]
+        self.assertIn("continue-on-error: true", step[:step.index("run: |")])
+        body = self.step_body("find-nightly-next-recovery", "Read the visual gate's verdicts")
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            resolver = tmp / "scripts/ci/nightly_next_canary_mode.py"
+            resolver.parent.mkdir(parents=True)
+            resolver.write_text("import sys\nif sys.argv[1] == 'resolve':\n    sys.exit(2)\nprint('{}')\n")
+            out = tmp / "output"
+            done = subprocess.run(["bash", "-e", "-c", body], cwd=tmp, capture_output=True, text=True, timeout=60,
+                                  env=dict(os.environ, GITHUB_OUTPUT=str(out)))
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertEqual(out.read_text().split(), ["mode=report", "verdicts={}"])
 
     def test_the_gate_uses_the_shared_mode_resolver(self):
         route = self.job("route-visual-gate-nightly")

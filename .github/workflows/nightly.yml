@@ -4451,17 +4451,22 @@ jobs:
       - name: Read the visual gate's verdicts
         id: visual-gate
         if: steps.find.outputs.found == 'true'
+        # A bad gate variable never stops a recovery: admit reads an empty mode as report.
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           NIGHTLY_NEXT_VISUAL_GATE: ${{ vars.NIGHTLY_NEXT_VISUAL_GATE }}
           NIGHTLY_NEXT_VISUAL_GATE_ENFORCE_AFTER: ${{ vars.NIGHTLY_NEXT_VISUAL_GATE_ENFORCE_AFTER }}
         run: |
           set -euo pipefail
-          python3 scripts/ci/nightly_next_canary_mode.py resolve --variable NIGHTLY_NEXT_VISUAL_GATE \
+          if ! resolved="$(python3 scripts/ci/nightly_next_canary_mode.py resolve --variable NIGHTLY_NEXT_VISUAL_GATE \
             --default-enforce-after 2026-10-28T16:00:00Z --gate "visual gate" \
             --issue-title "nightly-next visual gate" --failure-prefix "cmux NEXT visual gate failed " \
-            --pass-prefix "cmux NEXT visual gate passed " --min-passes 3 \
-            | tee -a "$GITHUB_OUTPUT"
+            --pass-prefix "cmux NEXT visual gate passed " --min-passes 3)"; then
+            echo "::warning title=nightly-next visual gate::could not resolve the gate's mode; a recovered build is admitted in report mode"
+            resolved="mode=report"
+          fi
+          echo "$resolved" | tee -a "$GITHUB_OUTPUT"
           verdicts="$(python3 scripts/ci/nightly_next_canary_mode.py verdicts --issue-title "nightly-next visual gate" \
             --pass-prefix "cmux NEXT visual gate passed " --failure-prefix "cmux NEXT visual gate failed ")"
           echo "verdicts=$verdicts" >> "$GITHUB_OUTPUT"
@@ -4939,6 +4944,7 @@ jobs:
       # then stops the app and its daemon itself. Exit 1 only means a state
       # had a failed step, which the gate reports.
       - name: Capture the states
+        id: capture
         continue-on-error: true
         env:
           APP: ${{ steps.build.outputs.app }}
@@ -4972,20 +4978,25 @@ jobs:
         env:
           # 1 once the capture Macs draw at 2x (a HiDPI display): stills below 2x then fail.
           VISUAL_GATE_REQUIRE_2X: ${{ vars.NIGHTLY_NEXT_VISUAL_GATE_REQUIRE_2X }}
+          CAPTURE_OUTCOME: ${{ steps.capture.outcome }}
         # visual_gate.py exits 0 (every state passed), 1 (a check failed: the
         # build's fault), 3 (a state could not be judged) or 2 (bad input or a
         # crash). Only 1 is `fail`; a gate that could not judge is
         # `unavailable`, never a build failure. --states fails each state file
-        # with no capture folder (a state the capture never reached).
+        # with no capture folder (a state the capture never reached), so a
+        # capture cut off by a timeout or a cancel is `unavailable` instead.
         run: |
           set -uo pipefail
           states=("$RUNNER_TEMP"/visual-gate/*/)
-          if [ ! -d "${states[0]}" ]; then
+          if [ ! -d "${states[0]}" ] || [ "${CAPTURE_OUTCOME:-}" = cancelled ]; then
             verdict=unavailable
           else
+            # Actions runs this step under `bash -e`: catch the exit code, or a
+            # failed gate would end the step before its verdict is written.
+            rc=0
             python3 scripts/cmux-next/visual-gate/visual_gate.py --json "$RUNNER_TEMP/visual-gate/report.json" \
-              --summary "$GITHUB_STEP_SUMMARY" --states scripts/cmux-next/visual-gate/states "${states[@]}"
-            case $? in 0) verdict=pass ;; 1) verdict=fail ;; *) verdict=unavailable ;; esac
+              --summary "$GITHUB_STEP_SUMMARY" --states scripts/cmux-next/visual-gate/states "${states[@]}" || rc=$?
+            case $rc in 0) verdict=pass ;; 1) verdict=fail ;; *) verdict=unavailable ;; esac
           fi
           blocks=false
           if [ "$verdict" = fail ] && [ "$GATE_MODE" = enforce ]; then blocks=true; fi
