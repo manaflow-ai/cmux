@@ -289,10 +289,7 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
         // works after the terminal's row is gone.
         let relaunch =
             crate::workspace_registry::relaunch_store::closed_fields(connection, &content_id)?;
-        record.insert(
-            "cwd",
-            relaunch.as_ref().map_or(Value::Null, |fields| fields["cwd"].clone()),
-        );
+        record.insert("cwd", relaunch.as_ref().map_or(Value::Null, |fields| fields["cwd"].clone()));
         record.insert("relaunch", relaunch.unwrap_or(Value::Null));
         record.insert("terminal_id", json!(content_id));
     } else {
