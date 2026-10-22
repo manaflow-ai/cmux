@@ -90,9 +90,11 @@ public nonisolated struct AcpmuxDaemonSummary: Sendable, Equatable {
     /// The daemon of `environment` now; nil `environment` (no acpmux) is not running.
     @concurrent public static func current(_ environment: AcpmuxEnvironment?) async -> Self {
         guard let environment else { return Self(build: nil, state: .notRunning) }
-        let restarting = restartingHomes.withLock { $0.contains(environment.home.standardizedFileURL.path) }
         let bundled = await AcpmuxVersionHandoff.bundledBuild(environment)
         let status = try? await AcpmuxStatusClient.status(socketPath: environment.socketPath)
+        // Read after the awaits: a handoff whose shutdown failed meanwhile cleared its mark and
+        // used up its build, so the daemon it kept is not the app's build, not restarting.
+        let restarting = restartingHomes.withLock { $0.contains(environment.home.standardizedFileURL.path) }
         guard let status, status.serves(home: environment.home) else {
             return Self(answered: false, running: nil, bundled: bundled, restarting: restarting)
         }
