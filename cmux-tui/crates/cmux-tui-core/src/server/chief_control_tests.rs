@@ -189,6 +189,16 @@ fn engine_speed_and_a_named_stop_reach_the_brain() {
         ),
         json!({"tool":"engine","action":"set","speed":"fast","compactor_speed":"default","compactor_harness":"claude-sr","compactor_model":"default"})
     );
+    // The reaction classifier's fields reach the brain too (a416).
+    assert_eq!(
+        tool_line(
+            ResourceOperation::ChiefEngineSet,
+            &fields(json!({"classifier_model":"claude-haiku-5-5","classifier_harness":"claude",
+                "classifier_prompt":"Wake only on 👎.","reactions_can_wake":"false"}))
+        ),
+        json!({"tool":"engine","action":"set","classifier_model":"claude-haiku-5-5","classifier_harness":"claude",
+            "classifier_prompt":"Wake only on 👎.","reactions_can_wake":"false"})
+    );
     assert_eq!(
         tool_line(ResourceOperation::ChiefStop, &fields(json!({"name":"a3"}))),
         json!({"tool":"stop","name":"a3"})
