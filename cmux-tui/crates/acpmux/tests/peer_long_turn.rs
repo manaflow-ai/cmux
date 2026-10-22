@@ -164,7 +164,7 @@ async fn until_pending(a: &Hub, n: usize) -> usize {
 }
 
 #[tokio::test]
-async fn a_peer_turn_longer_than_the_request_deadline_still_answers() {
+async fn peer_long_turn_a_peer_turn_longer_than_the_request_deadline_still_answers() {
     let Pair { a, home } = pair("long").await;
     // The fake agent's "mute" turn says nothing for 2 s, then answers.
     let mut ca = client(a.clone()).await;
@@ -179,7 +179,7 @@ async fn a_peer_turn_longer_than_the_request_deadline_still_answers() {
 }
 
 #[tokio::test]
-async fn a_forwarded_prompt_stops_waiting_when_its_client_goes() {
+async fn peer_long_turn_a_forwarded_prompt_stops_waiting_when_its_client_goes() {
     // The outbox gives an attempt up after 120 s and drops its connection; a CLI may exit.
     // The forwarded prompt must not wait on the peer's turn for nobody.
     let Pair { a, home } = pair("gone").await;
@@ -194,7 +194,7 @@ async fn a_forwarded_prompt_stops_waiting_when_its_client_goes() {
 }
 
 #[tokio::test]
-async fn a_forwarded_prompt_stops_waiting_when_its_socket_client_exits() {
+async fn peer_long_turn_a_forwarded_prompt_stops_waiting_when_its_socket_client_exits() {
     // A CLI on the daemon's unix socket that exits mid-turn, while the turn says nothing: the
     // daemon's writer for it has nothing to write, so only its read side learns it closed.
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
