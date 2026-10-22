@@ -376,7 +376,8 @@ fn up_to_finish(
     record.receive_id = Some(receive_id.to_owned());
     record.session_id = received.field("session_id").as_str().map(str::to_owned);
     records.save(record).map_err(|e| Failed::state(&e))?;
-    let files = manifest["files"]
+    let files = manifest
+        .field("files")
         .as_array()
         .ok_or_else(|| Failed::bad_answer("the begin manifest lists no files"))?;
     let mut bytes = 0;

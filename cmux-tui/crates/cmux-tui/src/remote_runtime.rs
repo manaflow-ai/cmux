@@ -1297,7 +1297,7 @@ async fn select_reconnect_route<T: Send>(
                 sanitized_route(&route.endpoint),
                 ProviderError::UnsupportedClientAuth {
                     scheme: route.endpoint.scheme().into(),
-                    auth
+                    auth,
                 }
             ));
             continue;

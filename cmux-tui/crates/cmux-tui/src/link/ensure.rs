@@ -131,7 +131,7 @@ impl Served {
         if status.get("session_socket").is_none() && status.get("server_config").is_none() {
             return true;
         }
-        status["session_socket"] == json!(self.session_socket)
+        *status.field("session_socket") == json!(self.session_socket)
             && *status.field("server_config").field("path") == json!(self.server_config)
             && *status.field("server_config").field("sha256") == json!(self.server_config_sha256)
     }

@@ -621,7 +621,10 @@ async fn serve_websocket_bridge(
                 stream.close().await?;
                 return Ok::<(), anyhow::Error>(());
             }
-            stream.send(Bytes::copy_from_slice(buffer.get(..read).ok_or_else(|| anyhow!("read reported more bytes than its buffer"))?)).await?;
+            let chunk = buffer
+                .get(..read)
+                .ok_or_else(|| anyhow!("read reported more bytes than its buffer"))?;
+            stream.send(Bytes::copy_from_slice(chunk)).await?;
         }
     };
     let download = async {

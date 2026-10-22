@@ -307,7 +307,7 @@ impl Live {
         let ours = peers
             .field("peers")
             .as_array()
-            .and_then(|all| all.iter().find(|p| p["name"] == self.name.as_str()));
+            .and_then(|all| all.iter().find(|p| *p.field("name") == self.name.as_str()));
         let Some(ours) = ours else {
             return Err("the peer is gone".into());
         };

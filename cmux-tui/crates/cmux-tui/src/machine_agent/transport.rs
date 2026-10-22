@@ -243,7 +243,10 @@ fn read_bounded_json_line<R: io::BufRead>(reader: &mut R, limit: usize) -> io::R
                     "cmux response is too large",
                 ));
             }
-            bytes.extend_from_slice(available.get(..newline).unwrap_or(available));
+            let line = available
+                .get(..newline)
+                .ok_or_else(|| io::Error::other("cmux response line is out of range"))?;
+            bytes.extend_from_slice(line);
             reader.consume(newline + 1);
             return Ok(bytes);
         }

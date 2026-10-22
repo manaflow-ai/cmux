@@ -837,19 +837,27 @@ fn enqueue_bounded_with_evictions(
         projected_bytes = projected_bytes.saturating_sub(RESERVED_RELEASE_BYTES);
     }
     while projected > capacity || projected_bytes > max_bytes {
-        let Some(removed) = events
+        let Some((removed_index, removed)) = events
             .iter()
             .position(|queued| queued.kind == PtyInputKind::Motion)
-            .and_then(|index| events.remove(index))
+            .and_then(|index| events.remove(index).map(|removed| (index, removed)))
         else {
             if let Some((index, previous)) = replaced.take() {
                 *queued_bytes += previous.queued_byte_len();
-                // Evictions above may have shortened the queue below the
-                // replaced event's old index; `insert` panics past the end.
+                // The index tracks evictions in front of it (below), so the
+                // event goes back between the same neighbors; the clamp only
+                // keeps `insert` from panicking.
                 events.insert(index.min(events.len()), previous);
             }
             return BoundedEnqueueOutcome { accepted: false, evicted, superseded: None };
         };
+        // An eviction in front of the replaced event's slot moves the slot
+        // one place forward.
+        if let Some((index, _)) = replaced.as_mut()
+            && removed_index < *index
+        {
+            *index -= 1;
+        }
         *queued_bytes = queued_bytes.saturating_sub(removed.queued_byte_len());
         projected -= 1;
         projected_bytes = projected_bytes.saturating_sub(removed.queued_byte_len());

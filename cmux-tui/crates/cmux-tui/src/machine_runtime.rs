@@ -128,7 +128,8 @@ impl MachineRuntime {
         key
     }
 
-    /// The first configured machine; an external catalog has none.
+    /// The first machine of the catalog (the current one for `new`); an
+    /// empty catalog is an error instead of a panic.
     pub fn initial_key(&self) -> anyhow::Result<MachineKey> {
         self.entries
             .first()

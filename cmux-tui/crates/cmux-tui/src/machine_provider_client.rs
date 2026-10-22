@@ -1395,7 +1395,8 @@ fn read_bounded_frame_with_progress<R: BufRead>(
             if frame.len().saturating_add(newline) > limit {
                 return Err(FrameReadFailure::TooLarge { limit });
             }
-            frame.extend_from_slice(available.get(..newline).unwrap_or(available));
+            let line = available.get(..newline).ok_or(FrameReadFailure::Truncated)?;
+            frame.extend_from_slice(line);
             reader.consume(newline + 1);
             on_progress(&frame);
             if frame.last() == Some(&b'\r') {

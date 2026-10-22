@@ -1822,7 +1822,10 @@ fn read_json_line_with_progress_bounded<R: BufRead>(
                 ));
             }
             let consumed = complete_at.map_or(available.len(), |index| index + 1);
-            bytes.extend_from_slice(available.get(..payload_bytes).unwrap_or(available));
+            let payload = available.get(..payload_bytes).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidData, "remote session line is out of range")
+            })?;
+            bytes.extend_from_slice(payload);
             (consumed, complete_at.is_some())
         };
         reader.consume(consumed);

@@ -61,7 +61,12 @@ pub(super) fn read_frame<R: BufRead>(reader: &mut R) -> Result<Envelope, FrameRe
                 frame.zeroize();
                 return Err(FrameReadError::TooLarge);
             }
-            frame.extend_from_slice(available.get(..newline).unwrap_or(available));
+            // `newline` indexes `available`, so the prefix always exists.
+            let Some(line) = available.get(..newline) else {
+                frame.zeroize();
+                return Err(FrameReadError::Truncated);
+            };
+            frame.extend_from_slice(line);
             reader.consume(newline + 1);
             if frame.last() == Some(&b'\r') {
                 frame.pop();

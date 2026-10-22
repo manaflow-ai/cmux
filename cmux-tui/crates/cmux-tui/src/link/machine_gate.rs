@@ -144,7 +144,7 @@ fn read_line(reader: &mut BufReader<UnixStream>, deadline: Instant) -> Option<Ve
             Some(end) => (end + 1, true),
             None => (available.len(), false),
         };
-        line.extend_from_slice(available.get(..taken).unwrap_or(available));
+        line.extend_from_slice(available.get(..taken)?);
         reader.consume(taken);
         if line.len() as u64 > MAX_ANSWER_BYTES + 1 {
             return None;

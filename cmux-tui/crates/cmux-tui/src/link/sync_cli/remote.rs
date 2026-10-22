@@ -141,7 +141,7 @@ impl Remote {
         };
         for _ in 0..MAX_LIST_PAGES {
             for entry in page.field("entries").as_array().into_iter().flatten() {
-                let name = entry["name"].as_str().unwrap_or_default().to_string();
+                let name = entry.field("name").as_str().unwrap_or_default().to_string();
                 // The machine is not trusted: a listed name is one plain
                 // component, or the whole listing is refused.
                 if !super::names::plain_name(&name) {
