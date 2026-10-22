@@ -104,8 +104,17 @@ class KillSwitchLintTest(unittest.TestCase):
     def test_one_evaluation_site_per_key_and_surface(self):
         files = {**self.call(), "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/Other.swift": 'killSwitch("pr-23456")\n'}
         self.assert_fails(self.run_lint({"pr-23456": entry()}, files), "pr-23456: 2 Swift call sites")
+        # Two evaluations in one file are two sites too.
+        files = {SWIFT: 'let a = killSwitch("pr-23456")\nlet b = killSwitch("pr-23456")\n'}
+        self.assert_fails(self.run_lint({"pr-23456": entry()}, files), "pr-23456: 2 Swift call sites")
         # One Swift site and one web site is one per surface.
         files = {**self.call(), "webviews/src/tabs/newTab.ts": 'const off = killSwitch("pr-23456");\n'}
+        done = self.run_lint({"pr-23456": entry()}, files)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
+    def test_a_call_split_over_lines_is_a_call_site(self):
+        files = {SWIFT: 'if killSwitch(\n    "pr-23456"\n) { old() }\n'}
+        self.assert_fails(self.run_lint({}, files), f"{SWIFT}:1: pr-23456 is not in")
         done = self.run_lint({"pr-23456": entry()}, files)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
 

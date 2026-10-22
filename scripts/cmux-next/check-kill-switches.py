@@ -41,7 +41,7 @@ SURFACES = {
 }
 NOT_CALL_SITES = re.compile(r"(\.test\.tsx?|/test/|/tests/|Tests/)")
 KEY = re.compile(r"^pr-([1-9][0-9]*)$")
-CALL = re.compile(r"(?<![\w.])killSwitch\s*\(\s*([^)]*)\)")
+CALL = re.compile(r"(?<![\w.])killSwitch\s*\(([^)]*)\)")
 LITERAL = re.compile(r'^"(pr-[1-9][0-9]*)"$')
 DEFINITION = re.compile(r"\b(func|function|const|let|export)\s+killSwitch\b")
 COMMENT = re.compile(r"^\s*(//|/\*|\*)")
@@ -99,18 +99,19 @@ def call_sites(root: Path, errors: list[str]) -> dict[str, dict[str, list[str]]]
                 continue
             if "killSwitch" not in text:
                 continue
-            for number, line in enumerate(text.splitlines(), 1):
-                if COMMENT.match(line) or DEFINITION.search(line):
+            # Comments and the definition are not call sites; blank them, keeping line numbers.
+            code = "\n".join("" if COMMENT.match(line) or DEFINITION.search(line) else line
+                              for line in text.split("\n"))
+            for call in CALL.finditer(code):
+                number = code.count("\n", 0, call.start()) + 1
+                literal = LITERAL.match(call.group(1).strip())
+                if not literal:
+                    errors.append(f"{rel}:{number}: not a literal: killSwitch takes \"pr-<N>\"")
                     continue
-                for call in CALL.finditer(line):
-                    literal = LITERAL.match(call.group(1).strip())
-                    if not literal:
-                        errors.append(f"{rel}:{number}: not a literal: killSwitch takes \"pr-<N>\"")
-                        continue
-                    files = found.setdefault(surface, {}).setdefault(literal.group(1), [])
-                    if rel not in files:
-                        files.append(rel)
-                    found[surface].setdefault("@" + literal.group(1), []).append(f"{rel}:{number}")
+                files = found.setdefault(surface, {}).setdefault(literal.group(1), [])
+                if rel not in files:
+                    files.append(rel)
+                found[surface].setdefault("@" + literal.group(1), []).append(f"{rel}:{number}")
     return found
 
 
@@ -151,8 +152,10 @@ def check(root: Path, today: datetime.date) -> list[str]:
             if key not in switches:
                 for site in keys["@" + key]:
                     errors.append(f"{site}: {key} is not in {REGISTRY}")
-            if len(files) > 1:
-                errors.append(f"{key}: {len(files)} {surface} call sites ({', '.join(files)}); one per surface")
+            evaluations = keys["@" + key]
+            if len(evaluations) > 1:
+                errors.append(f"{key}: {len(evaluations)} {surface} call sites ({', '.join(evaluations)}); "
+                              f"one per surface")
     for key in switches:
         if KEY.match(key) and key not in used:
             errors.append(f"{key}: no killSwitch(\"{key}\") call; remove the entry with the switch")

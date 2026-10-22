@@ -107,6 +107,7 @@ import Testing
         """#))
         let switches = KillSwitches()
         let (updater, reader) = try Self.reader(store: try fixture.store(network), switches: switches)
+        defer { withExtendedLifetime(updater) {} }
         // Nothing is off before a verified document is read.
         #expect(!switches.isOff("pr-23456"))
         await reader.read()?.value
@@ -123,7 +124,9 @@ import Testing
         defer { fixture.tearDown() }
         let network = Network(files: try fixture.served(Self.offPR))
         let switches = KillSwitches()
-        let (_, reader) = try Self.reader(store: try fixture.store(network), switches: switches)
+        let (updater, reader) = try Self.reader(store: try fixture.store(network), switches: switches)
+        // The reader holds the updater weakly.
+        defer { withExtendedLifetime(updater) {} }
         await reader.read()?.value
         #expect(switches.isOff("pr-23456"))
         // The next document is signed by someone else: ignored, and the verified cache still answers.
