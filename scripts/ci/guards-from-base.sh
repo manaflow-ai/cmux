@@ -37,8 +37,8 @@ trap 'rm -rf "$work"' EXIT
 git -C "$dir" archive "$base" scripts/ci/merge-compile-guard-hook.sh scripts/ci/merge_compile_guard.py \
   scripts/ci/base-merge-warning-hook.sh scripts/ci/base_merge_warning.py | tar -x -C "$work" \
   || cannot "cmux guards: cannot read the guards at origin/feat-cmux-next ${base:0:12}"
-# Each guard runs: a refusal from either is the answer at once. Otherwise their warnings are joined, so a
-# merge's warning never hides the update-branch warning of the same command. A guard that crashes or exits
+# Each guard runs: a refusal from either is the answer. Otherwise their warnings are joined, so a merge's
+# warning never hides the update-branch warning of the same command. A guard that crashes or exits
 # non-zero (exit 2 would block the tool call in Claude Code) is only a warning: no guard blocks on its own failure.
 said=()
 for hook in merge-compile-guard-hook.sh base-merge-warning-hook.sh; do
@@ -47,17 +47,21 @@ for hook in merge-compile-guard-hook.sh base-merge-warning-hook.sh; do
   if ((status != 0)); then
     out="cmux guards: $hook exited $status, so it judged nothing"
   fi
-  [[ -n "$out" ]] || continue
-  if [[ $out == *'"permissionDecision": "deny"'* || $out == *'"permissionDecision":"deny"'* ]]; then
-    printf '%s\n' "$out"
-    exit 0
-  fi
-  said+=("$out")
+  [[ -n "$out" ]] && said+=("$out")
 done
 ((${#said[@]})) || exit 0
-# One answer from every warning: a guard's JSON gives its systemMessage and additionalContext, any other text
-# is a note. The person sees the systemMessage, the agent the additionalContext.
+# One answer: a guard's refusal (read as JSON, whatever its spacing) as it is; else every warning joined. A
+# guard's JSON gives its systemMessage and additionalContext, any other text is a note. The person sees the
+# systemMessage, the agent the additionalContext.
 python3 -I -c 'import json, sys
+for out in sys.argv[2:]:
+    try:
+        spec = json.loads(out).get("hookSpecificOutput") or {}
+    except (ValueError, AttributeError):
+        continue
+    if isinstance(spec, dict) and spec.get("permissionDecision") == "deny":
+        sys.stdout.write(out + "\n")
+        sys.exit(0)
 shown, context = [], []
 for out in sys.argv[2:]:
     try:
