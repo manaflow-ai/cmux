@@ -5,7 +5,8 @@
 # MODE: fmt (cargo fmt --check), clippy (-D warnings), test [FILTER] (cargo nextest, a
 # failed test reruns once alone: see workspace_tests), or all [FILTER];
 # optchat-chief [FILTER]: tests, clippy -D warnings and fmt --check of
-# Native/OptChat/optchat-chief (its own workspace and lockfile), tests first so
+# Native/OptChat/optchat-chief (its own workspace and lockfile), then optchat-host's unit and
+# memory-fork tests, tests first so
 # a red run still reports them; without --locked, so a new dependency resolves
 # into its Cargo.lock (return it with --artifact Native/OptChat/optchat-chief/Cargo.lock);
 # rd-host: clippy and tests of cmux-tui/crates/cmux-rd-host (its own workspace, so the
@@ -720,6 +721,11 @@ if [[ "$mode" == optchat-chief ]]; then
   step "optchat-chief test" cargo test ${no_fail_fast[@]+"${no_fail_fast[@]}"} ${filter:+"$filter"}
   step "optchat-chief clippy" cargo clippy --all-targets -- -D warnings
   step "optchat-chief fmt" cargo fmt --check
+  # The memory store it links (optchat-host, its own workspace): its unit tests and the memory
+  # fork's (db/fork.rs, the copy behind chief.profile.create's fork), which no other step runs.
+  cd "$root/Native/OptChat/optchat-host"
+  export CARGO_TARGET_DIR="$root/.build/optchat-host-target"
+  step "optchat-host test" cargo test --lib --test fork
   finish
 fi
 if [[ "$mode" == rd-host ]]; then
