@@ -205,7 +205,10 @@ test("a subagent no tool call of the turn started runs on after the turn complet
   const native: Step = [
     "in",
     "subagent_spawned",
-    update({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "t1", parent: null, name: "Auditor", state: "running" }] }),
+    update(
+      { sessionUpdate: "subagent_spawned" },
+      { subagents: [{ id: "t1", parent: null, name: "Auditor", state: "running" }] },
+    ),
   ];
   const rows = await connect(
     fakeDaemon(record([...turn("Audit with Codex"), native, ["mux", "turn_result", { status: "completed" }]])),
