@@ -78,7 +78,9 @@ const settle = () => act(async () => void (await new Promise((resolve) => setTim
 async function render(files: ReturnType<typeof turn>, folder: string | null = "/repo") {
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
-  await act(async () => root.render(<DiffPanel files={files} {...(folder === null ? {} : { root: folder })} onClose={() => {}} />));
+  await act(async () =>
+    root.render(<DiffPanel files={files} {...(folder === null ? {} : { root: folder })} onClose={() => {}} />),
+  );
   await settle();
   const blocks = () => [...container.querySelectorAll<HTMLElement>(".acpmux-diff-file")];
   return {
@@ -203,7 +205,14 @@ test("orderByKind sorts by kind and hands back a list of one kind untouched", ()
 test("a Last turn file's kind ignores the folders above the chat's folder", async () => {
   const { kindPath } = await import("../src/agent-session/acpmux/DiffPanel");
   const { fileKind } = await import("../src/fileKinds");
-  const file = (path: string) => ({ path, displayPath: path.split("/").pop()!, edits: [], additions: 1, deletions: 0, created: false });
+  const file = (path: string) => ({
+    path,
+    displayPath: path.split("/").pop()!,
+    edits: [],
+    additions: 1,
+    deletions: 0,
+    created: false,
+  });
   const kind = (path: string, root?: string) => fileKind(kindPath("lastTurn", file(path), root));
   expect(kind("/home/me/tests/repo/src/app.ts", "/home/me/tests/repo")).toBe("code");
   expect(kind("/home/me/docs/repo/src/app.ts", "/home/me/docs/repo/")).toBe("code");
