@@ -72,8 +72,12 @@ extension SidebarListViewComponents {
         }
         o.excludedWorkspaces.formUnion(leaving)
         (o.openDoneFolds, o.openShowMore) = (openDoneFolds, openShowMore)
-        // A drop resolves by the drawn rows' model indexes: while a drag runs, every row shows in its place.
-        if shownDrag != nil || external != nil { (o.foldsDone, o.rowLimit) = (false, 0) }
+        // A drag keeps the "Done (N)" rows folded, so its lift and its drop move no other row (ask-13d9bbd5e3): a drop
+        // resolves by the drawn rows' model indexes, which a fold leaves as they are, and a drop gap at an index the
+        // fold hides opens before the next drawn row (`SidebarLayout.gapEntry`). "Show N more" (off by default) still
+        // opens while a drag runs: its limit counts rows, so the drag's base rows (without the dragged ones) and the
+        // drop's result would show different rows.
+        if shownDrag != nil || external != nil { o.rowLimit = 0 }
         if includeGap, case let .newWorkspace(section, group, index)? = external?.proposal {
             o.gap = DropPosition(section: section, group: group, index: index)
             o.gapHeight = metrics.rowHeight
