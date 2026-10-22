@@ -91,10 +91,11 @@ extension HomeService {
         return true
     }
 
-    /// The signed-in account is `account` now (nil: signed out). A sign-out or account change forgets the
-    /// last read, so signing in again, even to the same account, waits for a fresh read.
+    /// The signed-in account changed to `account` (nil: signed out). The last account's cloud Chiefs go, even
+    /// with no Chief tab check to read again, and signing in again, even to the same account, waits for a fresh read.
     func noteCloudAccount(_ account: String?) {
-        if cloudChiefsCheckedAccount != account { cloudChiefsCheckedAccount = nil }
+        cloudChiefsCheckedAccount = nil
+        setCloudChiefs(HomeCloudChiefs())
     }
 
     private func startLocalBrain(asked: Bool) {

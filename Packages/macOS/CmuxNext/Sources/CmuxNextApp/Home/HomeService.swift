@@ -178,12 +178,13 @@ final class HomeService {
         homeObservation = Task { [weak self] in
             // A sign-in or account change re-reads the placed chief (G6), so the Chief tab follows it; so does a
             // change of the default Chief: Debug Settings' choice, or this Mac's host starting or stopping (HomeService+ChiefDefault).
+            var lastAccount: String??
             for await (connection, account, _) in ObservationStream({
                 (local.supports(DaemonCapabilities.shared.workspaceKind) ? local.connection : nil, auth.isSignedIn ? auth.user?.id : nil,
                  prefersLocal())
             }) {
                 guard let self else { continue }
-                noteCloudAccount(account)
+                if lastAccount != .some(account) { lastAccount = account; noteCloudAccount(account) }
                 guard let connection else { continue }
                 ensureHomeWorkspace(connection)
                 // The Chief's daemon link names this connection's socket, known only once it is up.
