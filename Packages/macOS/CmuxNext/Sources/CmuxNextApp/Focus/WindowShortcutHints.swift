@@ -92,7 +92,7 @@ final class WindowShortcutHints {
         if let content = controller.content,
            let focused = content.panes.values.first(where: { $0.paneKey == controller.focus.state.pane }),
            let screen = content.layoutModel.screen(containing: focused.layoutPaneID) {
-            let plan = PaneNavigationHintPlan(order: screen.layout.panes, focused: focused.layoutPaneID) { move in
+            let plan = PaneNavigationHintPlan(order: screen.layout.visualPanes, focused: focused.layoutPaneID) { move in
                 let direction: LayoutDirection? = switch move {
                 case .left: .left
                 case .right: .right

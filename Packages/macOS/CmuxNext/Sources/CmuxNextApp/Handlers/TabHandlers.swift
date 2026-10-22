@@ -238,7 +238,7 @@ enum TabHandlers {
     private static func moveToSiblingPane(_ ctx: AppActionContext, _ invocation: ActionInvocation, offset: Int) {
         guard let (pane, id) = ctx.tab(invocation), let content = pane.workspace else { return }
         guard let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return }
-        let order = screen.layout.panes
+        let order = screen.layout.visualPanes
         guard order.count > 1, let index = order.firstIndex(of: pane.layoutPaneID) else {
             return ctx.refuseQuietly(RefusalStrings.screenHasNoOtherPane)
         }
