@@ -8,8 +8,9 @@ use serde_json::{Value, json};
 
 use super::*;
 use crate::SurfaceOptions;
-use crate::scripts::router::{DaemonRouter, STREAMS};
+use crate::scripts::router::{DaemonRouter, STREAMS, ScriptIds, script_event};
 use crate::server::{BoundedOutbound, ClientTransport, QueuedSink};
+use crate::{MuxEvent, SurfaceId};
 
 /// A connection over `transport`, bound to an agent when `agent`.
 fn connection(
@@ -94,10 +95,54 @@ fn a_connection_closes_only_its_own_sessions() {
 fn the_router_admits_only_ops_this_daemon_owns() {
     let mux = Mux::new_for_test("scripts-router-admit", SurfaceOptions::default());
     let router = DaemonRouter::new(&mux, "scr_t");
-    for op in ["net.fetch", "app.storage.get", "action.run", "integration.request", "made.up"] {
+    for op in ["net.fetch", "app.storage.get", "integration.request", "fs.pick", "made.up"] {
         let error = router.call(op, json!({}), json!({})).unwrap_err();
         assert_eq!(error["code"], "operation.unsupported", "{op}");
     }
+}
+
+#[test]
+fn the_router_sends_app_actions_to_the_app_provider() {
+    let mux = Mux::new_for_test("scripts-router-action", SurfaceOptions::default());
+    let router = DaemonRouter::new(&mux, "scr_t");
+    // No Mac app is connected here: the provider answer, at once (APP-R1).
+    for op in ["action.run", "action.list"] {
+        let error = router.call(op, json!({ "id": "newWindow" }), json!({})).unwrap_err();
+        assert_eq!(error["code"], "provider.unavailable", "{op}");
+    }
+}
+
+#[test]
+fn terminal_events_become_script_streams_with_public_ids() {
+    let ids = |surface: SurfaceId| {
+        (surface == 7).then(|| ScriptIds { tab: "tab_x".into(), terminal: Some("term_x".into()) })
+    };
+    let at = json!({ "terminal": "term_x", "tab": "tab_x" });
+    let with = |extra: Value| {
+        let mut fields = at.clone();
+        fields.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        fields
+    };
+    assert_eq!(script_event(&MuxEvent::Bell(7), &ids), Some(("terminal.bell", at.clone())));
+    assert_eq!(
+        script_event(&MuxEvent::SurfaceOutput(7), &ids),
+        Some(("terminal.output", at.clone()))
+    );
+    assert_eq!(
+        script_event(&MuxEvent::TitleChanged { surface: 7, title: "vim".into() }, &ids),
+        Some(("terminal.title_changed", with(json!({ "title": "vim" }))))
+    );
+    assert_eq!(
+        script_event(&MuxEvent::ProgramStatusChanged { surface: 7, status: None }, &ids),
+        Some(("terminal.program_status_changed", with(json!({ "program_status": null }))))
+    );
+    assert_eq!(
+        script_event(&MuxEvent::SurfaceExited(7, None), &ids),
+        Some(("terminal.exited", at.clone()))
+    );
+    // A surface with no public ids, and events that are not a terminal's.
+    assert_eq!(script_event(&MuxEvent::Bell(8), &ids), None);
+    assert_eq!(script_event(&MuxEvent::TreeChanged, &ids), None);
 }
 
 #[test]
@@ -114,8 +159,9 @@ fn the_router_publishes_every_family_stream_on_a_committed_change_until_dropped(
     let router = DaemonRouter::new(&mux, "scr_t");
     let seen: Arc<Mutex<Vec<String>>> = Arc::default();
     let sink = seen.clone();
-    let guard =
-        router.watch(Arc::new(move |stream: &str| sink.lock().unwrap().push(stream.to_string())));
+    let guard = router.watch(Arc::new(move |stream: &str, _fields: Value| {
+        sink.lock().unwrap().push(stream.to_string());
+    }));
     let deadline = Instant::now() + Duration::from_secs(10);
     // The watcher reads the epoch when it starts; bump until it has seen one.
     while seen.lock().unwrap().is_empty() {

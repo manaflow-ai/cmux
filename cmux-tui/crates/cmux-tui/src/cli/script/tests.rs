@@ -94,7 +94,7 @@ fn typescript_files_are_refused_and_other_sources_load() {
 #[test]
 fn types_are_the_generated_global_plus_the_script_additions() {
     assert!(TYPES.contains("declare const cmux: CmuxGlobal"));
-    assert!(TYPES.contains("wait<T = unknown>(stream: string"));
+    assert!(TYPES.contains("wait<S extends string, T = unknown>(stream: S"));
     assert!(
         TYPES.find("declare const cmux").unwrap()
             < TYPES.find("args: Record<string, unknown>").unwrap()

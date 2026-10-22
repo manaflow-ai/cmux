@@ -20,5 +20,5 @@ pub mod prelude;
 mod session;
 
 pub use session::{
-    DEFAULT_TIMEOUT, LogSink, MAX_TIMEOUT, ScriptError, ScriptRouter, Session, codes,
+    DEFAULT_TIMEOUT, LogSink, MAX_TIMEOUT, Publish, ScriptError, ScriptRouter, Session, codes,
 };

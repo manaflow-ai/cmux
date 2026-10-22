@@ -52,15 +52,19 @@ pub mod codes {
     pub const BUSY: &str = "script.busy";
 }
 
+/// What a [`ScriptRouter`] calls for each event: stream name and fields.
+pub type Publish = Arc<dyn Fn(&str, Value) + Send + Sync>;
+
 /// Checks and runs the ops a script calls. The daemon implements it.
 pub trait ScriptRouter: Send + Sync + 'static {
     /// Runs one op. Ok is the ABI ok body (`{value, ...}`), Err the ABI error
     /// body (`{code, message, details?, retryable}`).
     fn call(&self, op: &str, params: Value, options: Value) -> Result<Value, Value>;
-    /// Starts calling `publish` with stream names (`resource.changed`, ...)
-    /// until the returned guard drops. Called at most once per session, on
-    /// its first subscription.
-    fn watch(&self, publish: Arc<dyn Fn(&str) + Send + Sync>) -> Box<dyn Send>;
+    /// Starts calling `publish` with a stream name (`resource.changed`,
+    /// `terminal.exited`, ...) and the event's fields (an object; the session
+    /// adds `stream`) until the returned guard drops. Called at most once per
+    /// session, on its first subscription.
+    fn watch(&self, publish: Publish) -> Box<dyn Send>;
 }
 
 /// Receives the cell's console output: `(level, message)`.
@@ -141,14 +145,23 @@ impl Shared {
         let _ = self.killer.shutdown(std::net::Shutdown::Both);
     }
 
-    fn publish(&self, stream: &str) {
+    fn publish(&self, stream: &str, fields: Value) {
         let subs: Vec<u64> = lock(&self.subs)
             .iter()
             .filter(|(_, s)| s.as_str() == stream)
             .map(|(id, _)| *id)
             .collect();
+        if subs.is_empty() {
+            return;
+        }
+        let mut body = match fields {
+            Value::Object(fields) => fields,
+            _ => serde_json::Map::new(),
+        };
+        body.insert("stream".into(), Value::String(stream.to_string()));
+        let body = Value::Object(body);
         for sub in subs {
-            self.send(&ToHost::Event { sub, body: json!({ "stream": stream }) });
+            self.send(&ToHost::Event { sub, body: body.clone() });
         }
     }
 
@@ -202,9 +215,9 @@ impl Shared {
                 let mut watch = lock(&self.watch);
                 if watch.is_none() {
                     let me: Weak<Self> = Arc::downgrade(self);
-                    let publish: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(move |stream| {
+                    let publish: Publish = Arc::new(move |stream, fields| {
                         if let Some(me) = me.upgrade() {
-                            me.publish(stream);
+                            me.publish(stream, fields);
                         }
                     });
                     *watch = Some(self.router.watch(publish));
@@ -390,6 +403,23 @@ impl Session {
     /// the cell's last expression statement as JSON. A timeout, a limit or a
     /// cancel ends the session; later cells fail with the same error.
     pub fn eval(&self, code: &str, args: Value, timeout: Duration) -> Result<Value, ScriptError> {
+        self.cell(code, args, timeout, false)
+    }
+
+    /// [`Self::eval`] for a one-shot run: after the cell, it lasts while the
+    /// script holds `cmux.on` handlers, until `cmux.stop(value)` (whose
+    /// value is then the result) or the last handler goes.
+    pub fn run(&self, code: &str, args: Value, timeout: Duration) -> Result<Value, ScriptError> {
+        self.cell(code, args, timeout, true)
+    }
+
+    fn cell(
+        &self,
+        code: &str,
+        args: Value,
+        timeout: Duration,
+        hold: bool,
+    ) -> Result<Value, ScriptError> {
         let Ok(_turn) = self.turn.try_lock() else {
             return Err(ScriptError::new(codes::BUSY, "another cell of this session is running"));
         };
@@ -405,7 +435,7 @@ impl Session {
         self.shared.send(&ToHost::Run {
             cb,
             export: "eval".into(),
-            args: json!({ "code": code, "args": args }),
+            args: json!({ "code": code, "args": args, "hold": hold }),
             gesture: None,
         });
         let timeout = timeout.min(MAX_TIMEOUT);
