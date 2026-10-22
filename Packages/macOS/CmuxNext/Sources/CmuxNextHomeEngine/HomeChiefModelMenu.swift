@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextHome
 import Foundation
 
 /// The Chief's Model popup below its "Default" item, built from the models acpmux offers for the
@@ -93,6 +94,24 @@ nonisolated struct HomeChiefModelMenu: Equatable {
             ?? models.first { $0.id == base }
     }
 
+    /// The name a person reads for model `id`: the catalog's name for the release it runs (with
+    /// its context variant), else the name acpmux gave it, else the id made readable
+    /// (``Swift/String/chiefModelName``), never the raw id.
+    static func name(of id: String, in models: [ChiefEngineReport.Model]) -> String {
+        if let release = release(of: id, in: models), release.family != nil {
+            let name = displayName(release)
+            return baseID(id) == id ? name : variantTitle(base: name, id: id)
+        }
+        if let own = models.first(where: { $0.id == id }) { return readable(own) }
+        return id.chiefModelName
+    }
+
+    /// `model`'s own name, or its id made readable when acpmux named it by its id.
+    static func readable(_ model: ChiefEngineReport.Model) -> String {
+        let name = model.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty || name == model.id ? model.id.chiefModelName : name
+    }
+
     /// `id` without a context-window suffix (`opus[1m]` → `opus`).
     static func baseID(_ id: String) -> String {
         guard id.hasSuffix("]"), let open = id.lastIndex(of: "[") else { return id }
@@ -126,9 +145,9 @@ nonisolated struct HomeChiefModelMenu: Equatable {
             // A variant's key is its release's with the same suffix, so `opus[1m]` and
             // `claude-opus-5-5[1m]` are one row.
             let key = ((release?.family != nil ? release?.id : nil) ?? base) + model.id.dropFirst(base.count)
-            var title = isPlan ? planTitle(model) : (release?.family != nil ? release.map(displayName) : nil) ?? model.name
+            var title = isPlan ? planTitle(model) : (release?.family != nil ? release.map(displayName) : nil) ?? readable(model)
             if variant { title = variantTitle(base: title, id: model.id) }
-            let detail: String? = isPlan ? model.name : (model.description ?? release?.description)
+            let detail: String? = isPlan ? model.name : (model.description ?? release?.description ?? (title == model.id ? nil : model.id))
             let row = Row(item: Item(value: model.id, title: title, detail: detail), family: release?.family,
                           release: release?.releaseDate, kind: isPlan ? .plan : .model, key: key, variant: variant)
             if let index = seen[key] {
@@ -141,7 +160,9 @@ nonisolated struct HomeChiefModelMenu: Equatable {
             rows.append(row)
         }
         if let chosen, chosen != "default", !rows.contains(where: { $0.item.value == chosen }) {
-            rows.append(Row(item: Item(value: chosen, title: chosen), family: nil, release: nil, kind: .model, key: chosen, variant: false))
+            // Named by its id made readable; the id itself is the row's tooltip.
+            rows.append(Row(item: Item(value: chosen, title: chosen.chiefModelName, detail: chosen), family: nil, release: nil,
+                            kind: .model, key: chosen, variant: false))
         }
         return rows
     }

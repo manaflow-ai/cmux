@@ -142,6 +142,8 @@ extension HomeChiefSettingsView {
         for item in all {
             button.addItem(withTitle: item.title)
             button.lastItem?.representedObject = item.value
+            // A value shown by a name keeps its id where a person can still find it.
+            button.lastItem?.toolTip = item.title == item.value ? nil : item.value
         }
         if let current, let index = all.firstIndex(where: { $0.value == current }) {
             button.selectItem(at: index + 1)
