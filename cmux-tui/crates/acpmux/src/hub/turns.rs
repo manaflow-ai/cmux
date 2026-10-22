@@ -763,6 +763,8 @@ impl Hub {
             self.set_status(session, SessionStatus::Disconnected);
         }
         self.save_meta(session);
+        // The turn was counted: its lane's parent hears it failed (`lane_reports.rs`).
+        self.lane_turn_ended(session);
     }
 
     /// Waits until the inbound loop handled every agent message queued before

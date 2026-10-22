@@ -2,8 +2,9 @@
 //! Claude subagent's parent hears when it stops: at the end of each of the lane's turns its
 //! parent gets one short report, without the lane having to remember `acpmux send`.
 //!
-//! Who a lane reports to is its tag `lane.reportsTo` (the parent's exact session id), set from
-//! the session its connection proved it runs in (its caller token):
+//! Who a lane reports to is the link the daemon keeps, set from the session its connection
+//! proved it runs in (its caller token). The lane's tag `lane.reportsTo` (the parent's exact
+//! session id) shows it; changing or removing that tag changes nothing.
 //!
 //! - `session/new` from inside a session: that session is the new one's parent. A run tied to
 //!   its connection (`--ephemeral`) is no lane and gets none.
@@ -33,8 +34,8 @@
 //! - A report the same as the lane's last one (state, reply, pull requests and commits) is not
 //!   sent again; the turn still counts as reported.
 //! - A turn that ran on lane reports only (a report, or a turn of agent messages, `digest.rs`,
-//!   that took in nothing else) sends none, so a parent's turn on reports never reports upward and
-//!   a report never answers a report. The hub alone sets a report's provenance
+//!   that took in nothing else, and nothing else steered into it) sends none, so a parent's turn
+//!   on reports never reports upward and a report never answers a report. The hub alone sets a report's provenance
 //!   (`prompt_provenance.rs` takes only `agent_message` from a client), so no prompt passes for
 //!   one. A report never steers: it waits for the parent's turn to end, so it never becomes part
 //!   of a turn that reports.
@@ -51,7 +52,7 @@
 
 use super::*;
 use regex::Regex;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::sync::LazyLock;
 
 /// The lane's tag naming the session it reports to.
@@ -100,9 +101,10 @@ struct Link {
 #[derive(Default)]
 pub(crate) struct LaneReports {
     links: StdMutex<BTreeMap<String, Link>>,
-    /// Lanes with a report on its way.
-    inflight: StdMutex<HashSet<String>>,
-    /// Sessions whose current turn ran on lane reports only, by that turn's number.
+    /// Lanes with a check or report on its way, and whether another check came meanwhile.
+    inflight: StdMutex<HashMap<String, bool>>,
+    /// The last turn of each session that ran on lane reports only. A later turn leaves it, so a
+    /// report of that turn still sees it once the next has started.
     report_turns: StdMutex<HashMap<String, u64>>,
 }
 
@@ -190,11 +192,6 @@ fn state(summary: &Value) -> String {
     }
 }
 
-/// The session a summary's lane reports to.
-fn parent_of(summary: &Value) -> Option<&str> {
-    summary.pointer(&format!("/tags/{}", TAG.replace('/', "~1"))).and_then(Value::as_str)
-}
-
 /// The last agent message among transcript events, oldest first.
 fn last_reply(events: &[Value]) -> Option<String> {
     let mut t = crate::transcript::Transcript::default();
@@ -225,8 +222,28 @@ impl Hub {
         f(&mut self.lane_reports.links.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
-    fn lane_inflight(&self) -> std::sync::MutexGuard<'_, HashSet<String>> {
+    fn lane_inflight(&self) -> std::sync::MutexGuard<'_, HashMap<String, bool>> {
         self.lane_reports.inflight.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Takes `lane`'s one check; when another has it, that one checks again once done.
+    fn lane_claim(&self, lane: &str) -> bool {
+        let mut inflight = self.lane_inflight();
+        match inflight.get_mut(lane) {
+            Some(again) => {
+                *again = true;
+                false
+            }
+            None => {
+                inflight.insert(lane.to_owned(), false);
+                true
+            }
+        }
+    }
+
+    /// Gives `lane`'s check back: whether another came meanwhile.
+    fn lane_release(&self, lane: &str) -> bool {
+        self.lane_inflight().remove(lane).unwrap_or(false)
     }
 
     /// The summary of session `id` (exact).
@@ -235,12 +252,11 @@ impl Hub {
         Some(self.session_summary(&s))
     }
 
-    /// Whether `ancestor` is `id`'s parent, or its parent's, up the lanes' tags.
+    /// Whether `ancestor` is `id`'s parent, or its parent's, up the links.
     fn lane_below(&self, id: &str, ancestor: &str) -> bool {
         let mut at = id.to_owned();
         for _ in 0..MAX_DEPTH {
-            let Some(parent) =
-                self.lane_summary(&at).and_then(|s| parent_of(&s).map(str::to_owned))
+            let Some(parent) = self.lane_links(|links| links.get(&at).map(|l| l.parent.clone()))
             else {
                 return false;
             };
@@ -275,16 +291,30 @@ impl Hub {
     /// `session`'s turn started (its turn count counts it), with `provenance` for the whole turn
     /// (`digest.rs`).
     pub(super) fn lane_turn_started(&self, session: &Session, provenance: Option<&Value>) {
-        let turn = session.meta().turn_count;
-        let mut marked = self.lane_reports.report_turns.lock().unwrap_or_else(|e| e.into_inner());
         if reports_only(provenance) {
-            marked.insert(session.id.clone(), turn);
-        } else {
+            let turn = session.meta().turn_count;
+            self.lane_report_turns().insert(session.id.clone(), turn);
+        }
+    }
+
+    /// A prompt that is not a lane report steered into `session`'s running turn: that turn did
+    /// more than take in reports.
+    pub(super) fn lane_turn_steered(&self, session: &Session, provenance: Option<&Value>) {
+        if reports_only(provenance) {
+            return;
+        }
+        let turn = session.meta().turn_count;
+        let mut marked = self.lane_report_turns();
+        if marked.get(&session.id) == Some(&turn) {
             marked.remove(&session.id);
         }
     }
 
-    /// A local session's turn ended.
+    fn lane_report_turns(&self) -> std::sync::MutexGuard<'_, HashMap<String, u64>> {
+        self.lane_reports.report_turns.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// A local session's turn ended, or failed before its agent started (`turns.rs`).
     pub(super) fn lane_turn_ended(self: &Arc<Self>, session: &Arc<Session>) {
         self.lane_check(&session.id, true);
     }
@@ -292,34 +322,42 @@ impl Hub {
     /// Sends `lane`'s report when a turn of it ended since the last one. `ended`: its turn just
     /// ended here, so a prompt that already started behind it does not hold the report back.
     fn lane_check(self: &Arc<Self>, lane: &str, ended: bool) {
-        let Some(link) =
-            self.lane_reports.links.lock().unwrap_or_else(|e| e.into_inner()).get(lane).cloned()
-        else {
-            return;
-        };
-        let Some(summary) = self.lane_summary(lane) else { return };
-        // Another session has the lane now.
-        if parent_of(&summary) != Some(link.parent.as_str()) {
+        // One check at a time, so two never read the same link and send the same turn twice; a
+        // turn end meanwhile is checked once it is done.
+        if !self.lane_links(|links| links.contains_key(lane)) || !self.lane_claim(lane) {
             return;
         }
+        let due = self.lane_due(lane, ended);
+        let Some((link, summary, turns, on_reports)) = due else {
+            if self.lane_release(lane) {
+                self.lane_check(lane, true);
+            }
+            return;
+        };
+        let (hub, lane) = (self.clone(), lane.to_owned());
+        tokio::spawn(async move {
+            let done = hub.lane_report(&lane, &link, &summary, turns, on_reports).await;
+            let again = hub.lane_release(&lane);
+            // Turns that ended while it was on its way: reported now, or the same report.
+            if done || again {
+                hub.lane_check(&lane, again);
+            }
+        });
+    }
+
+    /// `lane`'s link, summary and turn count when a turn of it is due a report, and whether that
+    /// turn ran on lane reports only, read now: a turn that starts later changes neither.
+    fn lane_due(&self, lane: &str, ended: bool) -> Option<(Link, Value, u64, bool)> {
+        let link = self.lane_links(|links| links.get(lane).cloned())?;
+        let summary = self.lane_summary(lane)?;
         let turns = summary.get("turnCount").and_then(Value::as_u64).unwrap_or(0);
         let running = summary.get("turn").is_some_and(|t| !t.is_null())
             || summary.get("status").and_then(Value::as_str) == Some("running");
         if turns <= link.reported || (!ended && running) {
-            return;
+            return None;
         }
-        if !self.lane_inflight().insert(lane.to_owned()) {
-            return;
-        }
-        let (hub, lane) = (self.clone(), lane.to_owned());
-        tokio::spawn(async move {
-            let done = hub.lane_report(&lane, &link, &summary, turns).await;
-            hub.lane_inflight().remove(&lane);
-            // Turns that ended while it was on its way: reported now, or the same report.
-            if done {
-                hub.lane_check(&lane, false);
-            }
-        });
+        let on_reports = self.lane_report_turns().get(lane) == Some(&turns);
+        Some((link, summary, turns, on_reports))
     }
 
     /// Reports turn `turns` of `lane`; true once it counts as reported (sent, or nothing due).
@@ -329,16 +367,15 @@ impl Hub {
         link: &Link,
         summary: &Value,
         turns: u64,
+        on_reports: bool,
     ) -> bool {
         let now = now_ms();
-        let recent: Vec<u64> =
-            link.sent.iter().copied().filter(|t| now.saturating_sub(*t) < WINDOW_MS).collect();
-        let on_reports =
-            self.lane_reports.report_turns.lock().unwrap_or_else(|e| e.into_inner()).get(lane)
-                == Some(&turns);
+        let recent = |sent: &[u64]| -> Vec<u64> {
+            sent.iter().copied().filter(|t| now.saturating_sub(*t) < WINDOW_MS).collect()
+        };
         let report = if on_reports {
             None
-        } else if recent.len() >= MAX_REPORTS {
+        } else if recent(&link.sent).len() >= MAX_REPORTS {
             tracing::warn!(lane, "lane report not sent: {MAX_REPORTS} in the last 10 minutes");
             None
         } else {
@@ -365,7 +402,7 @@ impl Hub {
             let Some(l) = links.get_mut(lane).filter(|l| l.parent == link.parent) else { return };
             l.reported = l.reported.max(turns);
             l.pending = None;
-            l.sent = recent;
+            l.sent = recent(&l.sent);
             if let Some(report) = &report {
                 l.last = Some(report.content.clone());
                 l.prs.extend(report.prs.iter().cloned());
