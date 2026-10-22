@@ -103,6 +103,15 @@ public nonisolated enum SidebarTunables {
         help: "Workspaces marked Done move into one Done row at the end of their group or list, in their order; click the row to show them.",
         default: true, code: "SidebarTunables.doneFold")
 
+    /// A group or list longer than this shows its first rows, the ones that need you and the active one, then a
+    /// "Show N more" row (`SidebarLayout+DoneFold`). 0, the default for now, shows every row.
+    public static let groupRowLimit = Tunable<Double>.number(
+        "sidebar.groupRowLimit", .sidebar, "Rows before Show more",
+        help: "A group or list longer than this shows its first rows, the ones that need you and the active one, then a Show more row. 0 shows every row.",
+        default: 0, range: 0...100, step: 1, unit: .count, code: "SidebarTunables.groupRowLimit")
+    /// `groupRowLimit` as a row count.
+    public static var rowLimit: Int { max(0, Int(groupRowLimit.value)) }
+
     /// The workspace hover card says what its agents did since the person last looked at it
     /// (`SidebarLookedStore`): turns done, questions, failures. On by default.
     public static let sinceLooked = Tunable<Bool>.toggle(
@@ -145,6 +154,14 @@ public nonisolated enum SidebarTunables {
         "sidebar.multiView", .sidebar, "Navigate on release (multi-view prototype)",
         help: "A press on a workspace row changes nothing until the button comes up on that row; holding and dragging moves the row without switching to it. A row dropped on a pane edge shows its workspace beside the shown one. Rows of every workspace on screen get a soft highlight.",
         default: false, code: "SidebarTunables.multiView")
+
+    /// A workspace nobody named whose name says nothing ("workspace-11", "~") reads in the
+    /// secondary ink while idle, read and not selected (Leo 2026-10-20: such rows clutter the
+    /// sidebar). On by default; off draws every name in the full ink.
+    public static let quietUnnamedRows = Tunable<Bool>.toggle(
+        "sidebar.quietUnnamedRows", .sidebar, "Quiet unnamed workspaces",
+        help: "An idle workspace nobody named (workspace-11, ~) shows its name dimmed until it has activity, something unread or the selection.",
+        default: true, code: "SidebarTunables.quietUnnamedRows")
 
     /// Sample rows with 1 to 7 pending items (`SidebarSection.rowBadgePreview()`).
     public static let rowBadgePreview = Tunable<Bool>.toggle(
@@ -195,6 +212,7 @@ public nonisolated enum SidebarTunables {
             evenRowText.descriptor,
             groupEdgeFraction.descriptor,
             groupExitFraction.descriptor,
+            groupRowLimit.descriptor,
             laneStatus.descriptor,
             rowStatus.descriptor,
             pullRequestBadges.descriptor,
@@ -205,6 +223,7 @@ public nonisolated enum SidebarTunables {
             NotificationBadgeLook.tunable.descriptor,
             NotificationIconLook.tunable.descriptor,
             presenceDots.descriptor,
+            quietUnnamedRows.descriptor,
             pullRequestCard.descriptor,
             rowBadgePreview.descriptor,
             sectionTopFraction.descriptor,
