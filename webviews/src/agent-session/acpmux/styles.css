@@ -405,13 +405,14 @@
 .acpmux-fh-name{display:flex;align-items:center;min-width:0;overflow:hidden;border:0;padding:0;background:none;color:inherit;font:inherit;font-family:var(--cv-code-font,var(--cv-mono,ui-monospace,"SF Mono",Menlo,monospace));font-size:var(--text-detail);white-space:nowrap;cursor:pointer}
 .acpmux-fh-name>span{overflow:hidden;text-overflow:ellipsis}
 /* The folder gives way first; in a pane too narrow for the name, the name ends in an ellipsis instead of running under the New badge. */
-.acpmux-fh-name>span:not(.acpmux-fh-dir){flex:0 1 auto;min-width:min(6ch,100%)}
+.acpmux-fh-name>span:not(.acpmux-fh-dir){flex:0 1 auto;min-width:0}
 .acpmux-fh-dir{flex:0 1000 auto;min-width:0;color:var(--agent-muted)}
 .acpmux-fh-chevron{display:none;flex:none;margin-left:8px;color:var(--agent-muted)}
 .acpmux-file-header:hover .acpmux-fh-chevron,.acpmux-fh-name:focus-visible .acpmux-fh-chevron,.acpmux-fh-name[aria-expanded=false] .acpmux-fh-chevron{display:block}
 .acpmux-fh-name[aria-expanded=false] .acpmux-fh-chevron{transform:rotate(-90deg)}
 .acpmux-file-header[data-viewed] .acpmux-fh-name{color:var(--agent-muted)}
-.acpmux-fh-badge{flex:none;font-size:var(--text-detail);line-height:16px;color:var(--agent-muted)}
+/* A badge gives its room to the file's name before the name shrinks. */
+.acpmux-fh-badge{flex:0 1000 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-detail);line-height:16px;color:var(--agent-muted)}
 .acpmux-file-header .acpmux-diff-counts{gap:5px;font-size:var(--text-detail)}
 .acpmux-fh-btn{display:inline-flex;align-items:center;justify-content:center;flex:none;width:22px;height:22px;border:0;border-radius:6px;background:none;color:var(--agent-muted);cursor:pointer}
 .acpmux-fh-btn:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));color:var(--agent-text)}
