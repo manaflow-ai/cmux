@@ -1,5 +1,6 @@
 import Dispatch
 public import Foundation
+import os
 
 /// Where a verdict comes from: acpmux's `host_pressure` when the daemon
 /// reports one (the one implementation of the budget), else this Mac's own
@@ -47,8 +48,8 @@ public actor LocalHostPressureSource: HostPressureSource {
         let formula = formula
         let cores = sampler.cores(formula.cores)
         let rate = sampler.swappedOutBytes().flatMap { swap.feed(bytes: $0, seconds: ProcessInfo.processInfo.systemUptime) }
-        return HostBudgetVerdict(host: host, cores: cores, load1: sampler.load1(), loadLimit: formula.loadLimit(cores: cores),
-                                 pressure: sampler.memoryPressure(), swapMBPerMin: rate, swapLimit: formula.swapGrowthMBPerMin)
+        return HostBudgetVerdict(host: host, cores: cores, load1: sampler.load1(), pressure: sampler.memoryPressure(),
+                                 availableRAMFraction: sampler.availableRAMFraction(), swapMBPerMin: rate, formula: formula)
     }
 }
 
@@ -59,7 +60,8 @@ public actor LocalHostPressureSource: HostPressureSource {
 /// (event-driven). Load and swap, and acpmux's verdict, are read on one
 /// timer every `interval` (15 s), never per frame. Stop condition: `stop()`,
 /// which the app calls when its last window closes or it quits; cleanup:
-/// it cancels the dispatch source, the timer and any read in flight.
+/// it cancels the dispatch source, the timer and any read in flight, and ends
+/// the run, so a hop or a level change already queued from it is dropped.
 public actor HostPressureMonitor {
     public typealias Change = @MainActor @Sendable (HostPressureLevel, HostBudgetVerdict) -> Void
 
@@ -73,6 +75,10 @@ public actor HostPressureMonitor {
     private var reading: Task<HostBudgetVerdict, Never>?
     private var onChange: Change?
     private var running = false
+    /// Which run is live: start() and stop() each begin a new one. A source
+    /// hop or a main-actor delivery from an earlier run sees a newer number
+    /// and does nothing (read from the main actor too, hence the lock).
+    private let run = OSAllocatedUnfairLock(initialState: 0)
     /// Off in tests, which drive `read()` and `memoryPressureChanged(_:)` themselves.
     private let ticks: Bool
 
@@ -93,20 +99,28 @@ public actor HostPressureMonitor {
         self.onChange = onChange
         guard !running else { return }
         running = true
+        let generation = run.withLock { state in
+            state += 1
+            return state
+        }
         guard ticks else { return }
-        (memorySource, timer) = Self.makeSources(for: self, queue: queue, interval: interval)
+        (memorySource, timer) = Self.makeSources(for: self, generation: generation, queue: queue, interval: interval)
     }
+
+    /// The live run's number (tests drive the hops with it).
+    var generation: Int { run.withLock { $0 } }
 
     /// The memory pressure source and the timer, built outside the actor:
     /// their handlers run on `queue` and only hop into the monitor.
-    private nonisolated static func makeSources(for monitor: HostPressureMonitor, queue: DispatchQueue, interval: Duration)
+    private nonisolated static func makeSources(for monitor: HostPressureMonitor, generation: Int, queue: DispatchQueue,
+                                                interval: Duration)
         -> (any DispatchSourceMemoryPressure, any DispatchSourceTimer) {
         let memory = DispatchSource.makeMemoryPressureSource(eventMask: [.normal, .warning, .critical], queue: queue)
         memory.setEventHandler { [weak monitor, weak memory] in
             guard let monitor, let event = memory?.data else { return }
             let pressure: HostMemoryPressure = event.contains(.critical) ? .critical : event.contains(.warning) ? .warn : .normal
             // task-owner: one hop per kernel event into the monitor; it ends when the event is applied
-            Task { await monitor.memoryPressureChanged(pressure) }
+            Task { await monitor.memoryPressureChanged(pressure, generation: generation) }
         }
         memory.activate()
         // wakeup-allow: load and swap have no event; one 15 s read with 2 s leeway, cancelled by stop()
@@ -116,7 +130,7 @@ public actor HostPressureMonitor {
         tick.setEventHandler { [weak monitor] in
             guard let monitor else { return }
             // task-owner: one hop per tick; the read itself is `reading`, which stop() cancels
-            Task { await monitor.read() }
+            Task { await monitor.read(generation: generation) }
         }
         tick.activate()
         return (memory, tick)
@@ -125,6 +139,7 @@ public actor HostPressureMonitor {
     /// Cancels the dispatch source, the timer and a read in flight.
     public func stop() {
         running = false
+        run.withLock { $0 += 1 }
         memorySource?.cancel()
         memorySource = nil
         timer?.cancel()
@@ -136,9 +151,15 @@ public actor HostPressureMonitor {
         tracker = HostPressureTracker(calmSamples: tracker.calmSamples)
     }
 
+    /// Whether a hop from run `generation` (nil: the live one) may apply.
+    private func isLive(_ generation: Int?) -> Bool {
+        running && (generation.map { $0 == self.generation } ?? true)
+    }
+
     /// One timer tick: acpmux's verdict, else the local one.
-    func read() async {
-        guard running, reading == nil else { return }
+    func read(generation: Int? = nil) async {
+        guard isLive(generation), reading == nil else { return }
+        let generation = self.generation
         let source = source
         // task-owner: this read; stop() cancels it, and a cancelled read applies nothing
         let task = Task { () -> HostBudgetVerdict in
@@ -149,13 +170,13 @@ public actor HostPressureMonitor {
         let verdict = await task.value
         // A stop() and start() during the read may have begun a newer one.
         if reading == task { reading = nil }
-        guard running, !task.isCancelled else { return }
+        guard isLive(generation), !task.isCancelled else { return }
         // The event source's level is newer than a sampled one until the next event.
         apply(eventPressure.map { verdict.with(pressure: $0) } ?? verdict)
     }
 
-    func memoryPressureChanged(_ pressure: HostMemoryPressure) {
-        guard running else { return }
+    func memoryPressureChanged(_ pressure: HostMemoryPressure, generation: Int? = nil) {
+        guard isLive(generation) else { return }
         eventPressure = pressure
         guard let last = tracker.verdict else { return }
         apply(last.with(pressure: pressure))
@@ -163,7 +184,13 @@ public actor HostPressureMonitor {
 
     private func apply(_ verdict: HostBudgetVerdict) {
         guard let level = tracker.feed(verdict), let onChange else { return }
-        // task-owner: hands one level change to the main actor; ends after the call
-        Task { @MainActor in onChange(level, verdict) }
+        let run = run
+        let generation = self.generation
+        // task-owner: hands one level change to the main actor; ends after the call, and
+        // drops it when stop() ended this run while it waited for the main actor
+        Task { @MainActor in
+            guard run.withLock({ $0 }) == generation else { return }
+            onChange(level, verdict)
+        }
     }
 }

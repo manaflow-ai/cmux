@@ -7,9 +7,14 @@ public import Foundation
 public struct HostBudgetFormula: Equatable, Sendable {
     /// Over when the 1-minute load reaches `cores * load1PerCore`.
     public var load1PerCore = 1.0
-    /// Which cores count: "performance" (hw.perflevel0.physicalcpu) or "all".
+    /// Which cores count: "performance" (hw.perflevel0.physicalcpu, else the
+    /// physical cores) or "logical" (every CPU).
     public var cores = "performance"
-    /// Over when the swap-out rate reaches this many MB a minute.
+    /// The highest memory pressure within budget: "normal" or "warn".
+    public var pressure = "normal"
+    /// Over when available RAM (kern.memorystatus_level) is under this fraction.
+    public var minAvailableRAMFraction = 0.10
+    /// Over when the swap-out rate is over this many MB a minute.
     public var swapGrowthMBPerMin = 64.0
 
     public init() {}
@@ -23,18 +28,26 @@ public struct HostBudgetFormula: Equatable, Sendable {
 public struct HostBudgetOverride: Decodable, Equatable, Sendable {
     public var load1PerCore: Double?
     public var cores: String?
+    public var pressure: String?
+    public var minAvailableRAMFraction: Double?
     public var swapGrowthMBPerMin: Double?
 
     enum CodingKeys: String, CodingKey {
         case load1PerCore = "load1_per_core"
-        case cores
+        case cores, pressure
+        case minAvailableRAMFraction = "min_available_ram_fraction"
         case swapGrowthMBPerMin = "swap_growth_mb_per_min"
     }
 
+    /// acpmux's rules: positive numbers, a fraction in (0, 1], known words only.
     func applied(to formula: HostBudgetFormula) -> HostBudgetFormula {
         var formula = formula
         if let load1PerCore, load1PerCore > 0 { formula.load1PerCore = load1PerCore }
-        if let cores { formula.cores = cores }
+        if let cores, ["performance", "logical"].contains(cores) { formula.cores = cores }
+        if let pressure, ["normal", "warn"].contains(pressure) { formula.pressure = pressure }
+        if let minAvailableRAMFraction, minAvailableRAMFraction > 0, minAvailableRAMFraction <= 1 {
+            formula.minAvailableRAMFraction = minAvailableRAMFraction
+        }
         if let swapGrowthMBPerMin, swapGrowthMBPerMin > 0 { formula.swapGrowthMBPerMin = swapGrowthMBPerMin }
         return formula
     }
@@ -87,8 +100,12 @@ public enum HostMemoryPressure: String, Comparable, Sendable, Codable {
 
     private var rank: Int { self == .critical ? 2 : self == .warn ? 1 : 0 }
     public static func < (lhs: Self, rhs: Self) -> Bool { lhs.rank < rhs.rank }
-    /// Over the budget (its default `pressure: normal` allows only normal).
-    public var isOver: Bool { rank > 0 }
+
+    /// Over a budget whose formula allows up to `allowed` ("normal" or "warn"):
+    /// critical always is.
+    public func isOver(allowing allowed: String) -> Bool {
+        rank > (allowed == "warn" ? 1 : 0)
+    }
 }
 
 /// The contract's verdict, as acpmux reports it in `host_pressure` (in
@@ -104,36 +121,53 @@ public struct HostBudgetVerdict: Codable, Equatable, Sendable {
     public var pressure: HostMemoryPressure
     /// nil until two samples.
     public var swapMBPerMin: Double?
+    /// nil when the host could not read it.
+    public var availableRAMFraction: Double?
     public var over: [String]
     public var ok: Bool
+    /// The formula's allowance this verdict was judged with (only the key
+    /// `with(pressure:)` needs).
+    public var formula: Allowance?
     /// What acpmux knows and the app does not (absent in a local verdict).
     public var localTurns: Int?
     public var backgroundProcesses: Int?
     public var top: [HostBudgetSession]?
 
     enum CodingKeys: String, CodingKey {
-        case host, cores, load1, pressure, over, ok, top
+        case host, cores, load1, pressure, over, ok, top, formula
         case loadLimit = "load_limit"
+        case availableRAMFraction = "available_ram_fraction"
         case swapMBPerMin = "swap_mb_per_min"
         case localTurns = "local_turns"
         case backgroundProcesses = "background_processes"
     }
 
-    /// A verdict from this Mac's own numbers, with acpmux's reasons and tests:
-    /// load at or over its limit, memory pressure over normal, swap growing
-    /// faster than its limit.
-    public init(host: String, cores: Int, load1: Double, loadLimit: Double, pressure: HostMemoryPressure,
-                swapMBPerMin: Double?, swapLimit: Double) {
+    /// `formula.pressure` of a verdict: the highest memory pressure within budget.
+    public struct Allowance: Codable, Equatable, Sendable {
+        public var pressure: String?
+    }
+
+    /// A verdict from this Mac's own numbers with acpmux's reasons and tests
+    /// (cmux-tui host_pressure.rs `evaluate`): load at or over its limit, memory
+    /// pressure over the formula's allowance, available RAM under its fraction,
+    /// swap growing faster than its limit.
+    public init(host: String, cores: Int, load1: Double, pressure: HostMemoryPressure, availableRAMFraction: Double?,
+                swapMBPerMin: Double?, formula: HostBudgetFormula = HostBudgetFormula()) {
         self.host = host
         self.cores = cores
         self.load1 = load1
-        self.loadLimit = loadLimit
+        loadLimit = formula.loadLimit(cores: cores)
         self.pressure = pressure
+        self.availableRAMFraction = availableRAMFraction
         self.swapMBPerMin = swapMBPerMin
+        self.formula = Allowance(pressure: formula.pressure)
         var over: [String] = []
         if load1 >= loadLimit { over.append(String(format: "load1 %.1f >= %g", load1, loadLimit) + " (\(cores) P-cores)") }
-        if pressure.isOver { over.append(Self.memoryReason(pressure)) }
-        if let swapMBPerMin, swapMBPerMin > swapLimit { over.append(String(format: "swap +%.0f MB/min", swapMBPerMin)) }
+        if pressure.isOver(allowing: formula.pressure) { over.append(Self.memoryReason(pressure)) }
+        if let availableRAMFraction, availableRAMFraction < formula.minAvailableRAMFraction {
+            over.append(String(format: "available RAM %.0f%% < %.0f%%", availableRAMFraction * 100, formula.minAvailableRAMFraction * 100))
+        }
+        if let swapMBPerMin, swapMBPerMin > formula.swapGrowthMBPerMin { over.append(String(format: "swap +%.0f MB/min", swapMBPerMin)) }
         self.over = over
         ok = over.isEmpty
     }
@@ -148,7 +182,7 @@ public struct HostBudgetVerdict: Codable, Equatable, Sendable {
         var copy = self
         copy.pressure = newer
         copy.over.removeAll { $0.hasPrefix(Self.memoryPrefix) }
-        if newer.isOver { copy.over.append(Self.memoryReason(newer)) }
+        if newer.isOver(allowing: formula?.pressure ?? "normal") { copy.over.append(Self.memoryReason(newer)) }
         copy.ok = copy.over.isEmpty
         return copy
     }

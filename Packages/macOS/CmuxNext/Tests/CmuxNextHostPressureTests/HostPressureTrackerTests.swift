@@ -5,8 +5,10 @@ import Testing
 /// The warning and the banner come from the shared host budget (12 performance
 /// cores here, so a load limit of 12) and do not flicker.
 struct HostPressureTrackerTests {
-    private func verdict(load: Double = 2, pressure: HostMemoryPressure = .normal, swap: Double = 0) -> HostBudgetVerdict {
-        HostBudgetVerdict(host: "gray", cores: 12, load1: load, loadLimit: 12, pressure: pressure, swapMBPerMin: swap, swapLimit: 64)
+    private func verdict(load: Double = 2, pressure: HostMemoryPressure = .normal, ram: Double = 0.5, swap: Double = 0,
+                         formula: HostBudgetFormula = HostBudgetFormula()) -> HostBudgetVerdict {
+        HostBudgetVerdict(host: "gray", cores: 12, load1: load, pressure: pressure, availableRAMFraction: ram, swapMBPerMin: swap,
+                          formula: formula)
     }
 
     @Test func aBusyButFineMacShowsNothing() {
@@ -22,17 +24,38 @@ struct HostPressureTrackerTests {
     }
 
     @Test(arguments: [
-        (12.0, HostMemoryPressure.normal, 0.0, HostPressureLevel.warning),
-        (2, .warn, 0, .warning),
-        (2, .normal, 65, .warning),
-        (2, .normal, 64, .normal),
-        (2, .critical, 0, .critical),
-        (146, .warn, 0, .critical),
-        (2, .warn, 200, .critical),
-        (146, .normal, 0, .warning),
+        (12.0, HostMemoryPressure.normal, 0.5, 0.0, HostPressureLevel.warning),
+        (2, .warn, 0.5, 0, .warning),
+        (2, .normal, 0.5, 65, .warning),
+        (2, .normal, 0.5, 64, .normal),
+        (2, .normal, 0.04, 0, .warning),
+        (2, .normal, 0.10, 0, .normal),
+        (13, .normal, 0.04, 0, .critical),
+        (2, .critical, 0.5, 0, .critical),
+        (146, .warn, 0.5, 0, .critical),
+        (2, .warn, 0.5, 200, .critical),
+        (146, .normal, 0.5, 0, .warning),
     ])
-    func eachPartOfTheBudget(load: Double, pressure: HostMemoryPressure, swap: Double, level: HostPressureLevel) {
-        #expect(HostPressureTracker.level(for: verdict(load: load, pressure: pressure, swap: swap), holding: .normal) == level)
+    func eachPartOfTheBudget(load: Double, pressure: HostMemoryPressure, ram: Double, swap: Double, level: HostPressureLevel) {
+        #expect(HostPressureTracker.level(for: verdict(load: load, pressure: pressure, ram: ram, swap: swap), holding: .normal) == level)
+    }
+
+    /// acpmux's phrases, in its order, for each part of the budget.
+    @Test func theLocalReasonsAreAcpmuxs() {
+        #expect(verdict(load: 13, pressure: .warn, ram: 0.04, swap: 70).over == [
+            "load1 13.0 >= 12 (12 P-cores)", "memory pressure warn", "available RAM 4% < 10%", "swap +70 MB/min",
+        ])
+    }
+
+    /// A formula that allows warn pressure counts only critical, sampled or from an event.
+    @Test func anAllowedWarnIsWithinBudget() {
+        var formula = HostBudgetFormula()
+        formula.pressure = "warn"
+        let busy = verdict(load: 13, formula: formula)
+        #expect(verdict(pressure: .warn, formula: formula).ok)
+        #expect(busy.with(pressure: .warn).over.count == 1)
+        #expect(HostPressureTracker.level(for: busy.with(pressure: .warn), holding: .normal) == .warning)
+        #expect(HostPressureTracker.level(for: busy.with(pressure: .critical), holding: .normal) == .critical)
     }
 
     @Test func aRaisedLevelFallsOnlyAfterCalmSamples() {
@@ -70,6 +93,7 @@ struct HostPressureTrackerTests {
 
     @Test func theDispatchSourcesPressureReplacesTheSampledOne() {
         let sampled = verdict(load: 13, swap: 70)
+        #expect(sampled.formula?.pressure == "normal")
         #expect(sampled.over == ["load1 13.0 >= 12 (12 P-cores)", "swap +70 MB/min"])
         let newer = sampled.with(pressure: .warn)
         #expect(newer.over == ["load1 13.0 >= 12 (12 P-cores)", "swap +70 MB/min", "memory pressure warn"])
@@ -87,6 +111,8 @@ struct HostBudgetFormulaTests {
         #expect(formula.loadLimit(cores: 12) == 12)
         #expect(formula.cores == "performance")
         #expect(formula.swapGrowthMBPerMin == 64)
+        #expect(formula.pressure == "normal")
+        #expect(formula.minAvailableRAMFraction == 0.10)
     }
 
     @Test func aHostOverrideBeatsTheFilesFormula() throws {
@@ -97,6 +123,17 @@ struct HostBudgetFormulaTests {
         #expect(gray.load1PerCore == 1.5)
         #expect(gray.swapGrowthMBPerMin == 128)
         #expect(file.formula(host: "air-blue").swapGrowthMBPerMin == 64)
+    }
+
+    @Test func theOverrideKeepsAcpmuxsRules() throws {
+        let json = #"{"formula": {"pressure": "warn", "min_available_ram_fraction": 0.2, "cores": "logical"},"#
+            + #" "hosts": {"bad": {"pressure": "critical", "min_available_ram_fraction": 2, "cores": "all"}}}"#
+        let file = try JSONDecoder().decode(HostBudgetFile.self, from: Data(json.utf8))
+        let formula = file.formula(host: "gray")
+        #expect(formula.pressure == "warn")
+        #expect(formula.minAvailableRAMFraction == 0.2)
+        #expect(formula.cores == "logical")
+        #expect(file.formula(host: "bad") == formula)
     }
 
     @Test func theEnvironmentPathComesFirst() {
@@ -122,7 +159,17 @@ struct HostBudgetFormulaTests {
         #expect(verdict.pressure == .warn)
         #expect(verdict.localTurns == 39)
         #expect(verdict.top?.first?.name == "app-efficiency")
+        #expect(verdict.availableRAMFraction == 0.04)
         #expect(HostPressureTracker.level(for: verdict, holding: .normal) == .critical)
+    }
+
+    /// acpmux judged with `pressure: warn` allowed: a warn event adds no reason.
+    @Test func acpmuxsAllowanceDecodes() throws {
+        let json = #"{"host":"gray","cores":12,"load1":13,"load_limit":12,"pressure":"normal","swap_mb_per_min":0,"#
+            + #""over":["load1 13.0 >= 12 (12 P-cores)"],"ok":false,"formula":{"load1_per_core":1,"pressure":"warn"}}"#
+        let verdict = try JSONDecoder().decode(HostBudgetVerdict.self, from: Data(json.utf8))
+        #expect(verdict.with(pressure: .warn).over.count == 1)
+        #expect(HostPressureTracker.level(for: verdict.with(pressure: .warn), holding: .normal) == .warning)
     }
 
     /// Before its second sample acpmux has no swap rate, and it may not read the load or pressure.
@@ -132,7 +179,7 @@ struct HostBudgetFormulaTests {
         let verdict = try JSONDecoder().decode(HostBudgetVerdict.self, from: Data(json.utf8))
         #expect(verdict.load1 == nil)
         #expect(verdict.swapMBPerMin == nil)
-        #expect(!verdict.pressure.isOver)
+        #expect(!verdict.pressure.isOver(allowing: "normal"))
         #expect(HostPressureTracker.level(for: verdict, holding: .normal) == .normal)
     }
 

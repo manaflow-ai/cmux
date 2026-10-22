@@ -8,10 +8,20 @@ import Foundation
 public struct HostSampler: Sendable {
     public init() {}
 
-    /// The cores the budget counts ("performance", else every physical core).
+    /// The cores the budget counts: "performance" (else the physical cores),
+    /// or "logical" (every CPU), as acpmux counts them.
     public func cores(_ which: String) -> Int {
-        if which == "performance", let count = Self.sysctlInt32("hw.perflevel0.physicalcpu"), count > 0 { return Int(count) }
-        return Int(Self.sysctlInt32("hw.physicalcpu") ?? Int32(ProcessInfo.processInfo.activeProcessorCount))
+        let logical = ProcessInfo.processInfo.activeProcessorCount
+        guard which == "performance" else { return max(1, logical) }
+        if let count = Self.sysctlInt32("hw.perflevel0.physicalcpu"), count > 0 { return Int(count) }
+        if let count = Self.sysctlInt32("hw.physicalcpu"), count > 0 { return Int(count) }
+        return max(1, logical)
+    }
+
+    /// The share of RAM available (kern.memorystatus_level, the "System-wide
+    /// memory free percentage" memory_pressure prints), nil when unreadable.
+    public func availableRAMFraction() -> Double? {
+        Self.sysctlInt32("kern.memorystatus_level").map { Double($0) / 100 }
     }
 
     /// This Mac's name from kern.hostname (never a blocking name lookup).
@@ -38,12 +48,16 @@ public struct HostSampler: Sendable {
         var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size)
         let result = withUnsafeMutablePointer(to: &stats) { pointer in
             pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count)
+                host_statistics64(Self.hostPort, HOST_VM_INFO64, $0, &count)
             }
         }
         guard result == KERN_SUCCESS else { return nil }
         return stats.swapouts &* UInt64(vm_kernel_page_size)
     }
+
+    /// One send right for the process's life: each `mach_host_self()` adds a
+    /// user reference that is never released.
+    private static let hostPort = mach_host_self()
 
     private static func sysctlInt32(_ name: String) -> Int32? {
         var value: Int32 = 0
