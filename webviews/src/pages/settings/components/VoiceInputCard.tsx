@@ -1,5 +1,5 @@
-// Settings > Chief > Voice input (Leo's list): the message box's mic, which is the Debug toggle
-// home.voiceInput itself. The host sends `voice_input` only where that tunable exists (DEV and
+// Settings > Chief > Behavior: one glass card with how the Chief behaves. Its Voice input row (Leo's
+// list) is the message box's mic, which is the Debug toggle home.voiceInput itself. The host sends `voice_input` only where that tunable exists (DEV and
 // NIGHTLY); Release has no row and keeps the mic's default.
 import { useId } from "react";
 import { useSettingsState, useStore } from "../context";
@@ -13,7 +13,8 @@ export function VoiceInputCard() {
   const labelId = useId();
   if (!voice) return null;
   return (
-    <section className="group" data-card="voice-input">
+    <section className="group ui-glass" data-card="voice-input">
+      <h3 className="group-title">{t("settingsPage.chief.behavior")}</h3>
       <div className="rows">
         <div className="row" tabIndex={-1}>
           <div className="row-main">
