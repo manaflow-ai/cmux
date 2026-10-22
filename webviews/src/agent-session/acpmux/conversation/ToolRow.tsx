@@ -26,6 +26,7 @@ import { useBlockWrap } from "./blockWrap";
 import { Lines, lineCount, PreviewMore, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
 import { cleanText } from "./mcpCalls";
 import { useFold } from "./fold";
+import { WriteLabel, writeCall } from "./WriteLabel";
 import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 
 /// ACP tool kinds (`ToolKind`) to row glyphs.
@@ -81,6 +82,8 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
     t(foreground ? "tools.runningUnnamed" : "tools.ranUnnamed"),
   );
   const failed = tool.status === "failed";
+  // A Write reads as an edit does: "Writing notes.md", then "Wrote notes.md +18" (WriteLabel.tsx).
+  const write = writeCall(tool);
   // A shell that went on in the background says how it stands there, and its time once it ended.
   const background = !failed && !foreground && tool.background;
   // A finished call's check and run time, at the row's right edge and only on hover
@@ -100,7 +103,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
     <>
       <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>
       <span className="cv-tool__text" data-find-skip={(shell && (open || !drawsCommand)) || undefined}>
-        {label}
+        {write ? <WriteLabel tool={tool} write={write} t={t} /> : label}
         {failed && <span className="cv-tool__detail"> {t("tools.failed")}</span>}
       </span>
       {background ? (
