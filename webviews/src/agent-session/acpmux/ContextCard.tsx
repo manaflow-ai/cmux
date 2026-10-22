@@ -10,10 +10,11 @@ import { useT } from "./i18n";
 export type ContextSegment = { kind: "setup" | "conversation" | "used"; tokens: number; percent: number };
 
 /// The bar's stretches: the agent's setup and the conversation when the setup is known (and
-/// within what is used), else what is used as one. The rest of the track is free.
+/// within what is used), else what is used as one. The rest of the track is free. Together they
+/// never pass the whole track, even when a harness reports more used than its window.
 export function contextSegments(used: number, size: number, setup?: number): ContextSegment[] {
   if (!(size > 0)) return [];
-  const share = (tokens: number) => Math.min(100, Math.max(0, (tokens / size) * 100));
+  const share = (tokens: number) => Math.max(0, (tokens / size) * 100);
   const parts: Array<Omit<ContextSegment, "percent">> =
     setup !== undefined && setup > 0 && setup <= used
       ? [
@@ -21,7 +22,14 @@ export function contextSegments(used: number, size: number, setup?: number): Con
           { kind: "conversation", tokens: used - setup },
         ]
       : [{ kind: "used", tokens: used }];
-  return parts.filter((part) => part.tokens > 0).map((part) => ({ ...part, percent: share(part.tokens) }));
+  let left = 100;
+  return parts
+    .filter((part) => part.tokens > 0)
+    .map((part) => {
+      const percent = Math.min(left, share(part.tokens));
+      left -= percent;
+      return { ...part, percent };
+    });
 }
 
 export function ContextCardBody({

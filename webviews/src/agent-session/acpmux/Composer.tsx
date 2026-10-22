@@ -1678,6 +1678,7 @@ export function Composer({
             <ContextRing
               used={usage?.used}
               size={usage?.size}
+              setup={usage?.setup}
               working={snapshot.isWorking}
               onOpenDetails={onOpenContext}
             />

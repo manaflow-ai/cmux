@@ -10,6 +10,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ContextRing } from "./ComposerPickers";
+import { contextSegments } from "./ContextCard";
 import { translate } from "./i18n";
 
 let dom: JSDOM | undefined;
@@ -201,6 +202,49 @@ test("the card's padding counts as inside the card", async () => {
     outer.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true, relatedTarget: document.body }));
     document.body.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true }));
   });
+  await until(() => card() === null);
+  expect(card()).toBeNull();
+});
+
+test("the split never passes the whole bar, even with more used than the window", () => {
+  const total = (segments: ReturnType<typeof contextSegments>) =>
+    segments.reduce((sum, segment) => sum + segment.percent, 0);
+  expect(total(contextSegments(520_000, 475_000, 20_000))).toBeCloseTo(100, 5);
+  expect(total(contextSegments(520_000, 475_000))).toBeCloseTo(100, 5);
+  const [setup, conversation] = contextSegments(520_000, 475_000, 20_000);
+  expect(setup.percent).toBeCloseTo(4.2, 1);
+  expect(conversation.percent).toBeCloseTo(95.8, 1);
+});
+
+test("Tab from the ring reaches Details ›, and Tab past it leaves the card", async () => {
+  let opened = 0;
+  const ring = await mount({ used: 60_000, size: 200_000, onOpenDetails: () => opened++ });
+  const after = document.createElement("button");
+  after.textContent = "after";
+  document.body.append(after);
+  await act(async () => ring.focus());
+  await wait();
+  const tab = (target: Element, shiftKey = false) =>
+    act(async () => {
+      target.dispatchEvent(
+        new window.KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true }),
+      );
+    });
+  await tab(ring);
+  const details = card()!.querySelector<HTMLButtonElement>(".acpmux-context-card-details")!;
+  expect(document.activeElement).toBe(details);
+  // Return on the focused link opens the Inspector, as a click does.
+  await act(async () => details.click());
+  expect(opened).toBe(1);
+  await act(async () => ring.focus());
+  await wait();
+  await tab(ring);
+  // Shift-Tab goes back to the ring; Tab past the last button goes on past the ring.
+  await tab(document.activeElement!, true);
+  expect(document.activeElement).toBe(ring);
+  await tab(ring);
+  await tab(document.activeElement!);
+  expect(document.activeElement).toBe(after);
   await until(() => card() === null);
   expect(card()).toBeNull();
 });

@@ -1059,11 +1059,16 @@ export function isPlan(modeId: string): boolean {
   return /(^|[-_])plan$/i.test(modeId);
 }
 
+/// What the keyboard tabs to, for leaving the context card forward.
+const TABBABLE =
+  'a[href],button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex]:not([tabindex="-1"])';
+
 /// How much of the context window the session has used, as a ring that fills. Resting the pointer
 /// on it, or focusing it, shows the context card with no click (ContextCard.tsx; Leo 2026-10-21,
 /// after Claude's and Codex's): the share and tokens used, the window as a stacked bar, and
 /// Details ›, which opens the Inspector's Context section. A click pins the card until a press
-/// outside; Escape closes it however it opened. The ring itself never takes a hover pill
+/// outside; Escape closes it however it opened. Tab from the ring moves into the card's buttons,
+/// and Tab past them goes on to what follows the ring. The ring itself never takes a hover pill
 /// (contextCard.css).
 export function ContextRing({
   used,
@@ -1118,6 +1123,9 @@ export function ContextRing({
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopPropagation();
+      // Focus in the card goes back to the ring, before the card closes (the ring's focus would
+      // open it again otherwise).
+      if (card.current?.contains(document.activeElement)) trigger.current?.focus();
       setPinned(false);
       dismissHover();
     };
@@ -1137,6 +1145,43 @@ export function ContextRing({
     return () => document.removeEventListener("pointerdown", onPress, true);
   }, [pinned]);
   const full = fraction >= 0.8 ? " acpmux-context-full" : "";
+  /// The card's buttons the keyboard reaches (Compact, Details ›).
+  const cardButtons = () => [...(card.current?.querySelectorAll<HTMLElement>("button:not(:disabled)") ?? [])];
+  /// Leaves the card forward: to whatever the page tabs to after the ring, and the card closes.
+  const tabPastCard = () => {
+    const ring = trigger.current;
+    if (!ring) return;
+    const order = [...ring.ownerDocument.querySelectorAll<HTMLElement>(TABBABLE)].filter(
+      (element) => element.tabIndex >= 0 && !card.current?.contains(element),
+    );
+    const next = order[order.indexOf(ring) + 1];
+    if (next) next.focus();
+    else ring.blur();
+    setPinned(false);
+    dismissHover();
+  };
+  // Tab inside the open card: Shift-Tab off its first button goes back to the ring, Tab off its
+  // last goes on past the ring. A document listener, as Escape's, since the card is a portal.
+  const tabFromCard = useRef<(event: KeyboardEvent) => void>(() => {});
+  tabFromCard.current = (event) => {
+    if (event.key !== "Tab") return;
+    const buttons = cardButtons();
+    const at = buttons.indexOf(event.target as HTMLElement);
+    if (at < 0) return;
+    if (event.shiftKey && at === 0) {
+      event.preventDefault();
+      trigger.current?.focus();
+    } else if (!event.shiftKey && at === buttons.length - 1) {
+      event.preventDefault();
+      tabPastCard();
+    }
+  };
+  useEffect(() => {
+    if (!shown) return;
+    const onKey = (event: KeyboardEvent) => tabFromCard.current(event);
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [shown]);
   return (
     // tooltip-allow: before any usage the inert ring says why; once usage is known the card replaces it.
     <span
@@ -1156,6 +1201,15 @@ export function ContextRing({
         disabled={!known}
         {...hover.trigger}
         onClick={() => setPinned((was) => !was)}
+        onKeyDown={(event) => {
+          // Tab goes into the open card (it sits in a portal, out of the page's tab order).
+          if (event.key !== "Tab" || event.shiftKey || !shown) return;
+          const first = cardButtons()[0];
+          if (!first) return;
+          event.preventDefault();
+          setPinned(true);
+          first.focus();
+        }}
       >
         <svg width={14} height={14} viewBox="0 0 14 14" aria-hidden="true" focusable="false">
           <circle
