@@ -340,6 +340,8 @@ pub(crate) struct UpdateOptions {
     pub binary_dir: Option<PathBuf>,
     /// Leave a peer whose sessions run a turn or wait on a permission alone.
     pub if_idle: bool,
+    /// The session this command runs in (`ACPMUX_SESSION_ID`).
+    pub caller: Option<String>,
 }
 
 /// Update one peer: read it, push the binary, restart the daemon, check it
