@@ -4,10 +4,12 @@
 // open, its Changes across repositories with line breakdowns, comments, failing checks and owners
 // (all of them after Show more), its subagents' list open with
 // the chats its agent started, its finished tasks open (a background Bash only the transcript knows
-// among them), a Cloud chat before its first usage report, and the panel over the chat (Overlay). Light and dark come from the gallery's theme switch.
+// among them), a Cloud chat before its first usage report, the running subagents' wave held mid-sweep,
+// and the panel over the chat (Overlay). Light and dark come from the gallery's theme switch.
 import type { ComponentProps } from "react";
 import { componentEntry } from "../../../gallery/format";
-import type { Play } from "../../../gallery/play";
+import type { Play, PlayContext } from "../../../gallery/play";
+import { WAVE_CLASS, WAVE_KEYFRAMES } from "../../../ui/wave";
 import { activity, chat, CWD, tool } from "../../../gallery/fixtures/acpmux";
 import type { StartedSession } from "../started/startedSessions";
 import type { Subagent } from "../subagents/subagentFold";
@@ -120,6 +122,58 @@ const agents: Subagent[] = Array.from({ length: 43 }, (_, index) => ({
   ...(index < 3 ? { action: "Reading ChatInspector.tsx" } : { endedAt: started - index * 100_000 }),
 }));
 
+/// The running wave (ui/wave.ts, Leo 2026-10-21: "THESE GLIMMER AT DIFFERENT INTERVALS ... it would
+/// look cool if they went in a wave, like how thinking glimmers in ChatGPT"): five running subagents,
+/// then one done and one failed, which stay out of the wave.
+const RUNNING = 5;
+const waveAgents: Subagent[] = Array.from({ length: RUNNING + 2 }, (_, index) => ({
+  id: `wave-${index}`,
+  parent: null,
+  name: NAMES[index]!,
+  task: "Check one part of the change",
+  state: index < RUNNING ? "running" : index === RUNNING ? "completed" : "failed",
+  startedAt: started - (index + 1) * 60_000,
+  ...(index < RUNNING ? { action: "Reading ChatInspector.tsx" } : { endedAt: started - index * 30_000 }),
+}));
+
+/// Where the play holds every wave loop: one point on each loop's own timeline, past its delay (the
+/// delay is never positive, wave.css), so each avatar's phase differs only by its index. At 560 ms
+/// the crest (20% of the 1.6 s period) is on the third avatar: the two before it fall from it, the
+/// two after it rise toward it, so a still reads dim, brighter, crest, brighter, dim.
+const WAVE_HOLD_MS = 560;
+
+/// The page's wave loops (CSS animations of `cmux-wave`).
+const waveLoops = (ctx: PlayContext) =>
+  ctx.document
+    .getAnimations()
+    .filter((animation) => (animation as CSSAnimation).animationName === WAVE_KEYFRAMES) as CSSAnimation[];
+
+/// Holds the wave mid-sweep for a still. A loop is held only once installWave has moved it onto the
+/// shared epoch (its start is a whole number of periods of Unix time): a loop paused before that is
+/// restarted by the realignment, which scrambled the wave. Then all of them pause at one point.
+const holdWave: Play = async (ctx) => {
+  const items = () => ctx.document.querySelectorAll(`.acpmux-chat-inspector-avatars .${WAVE_CLASS}`);
+  await ctx.waitFor(() => items().length === RUNNING);
+  // Reduce Motion, the motion gate or static indicators run no wave: there is nothing to hold.
+  const view = ctx.document.defaultView!;
+  if (view.getComputedStyle(items()[0]!).animationName !== WAVE_KEYFRAMES) return;
+  const origin = view.performance.timeOrigin;
+  const aligned = (animation: CSSAnimation) => {
+    const period = Number(animation.effect?.getTiming().duration);
+    if (!(period > 0) || animation.startTime === null) return false;
+    const phase = (((Number(animation.startTime) + origin) % period) + period) % period;
+    return Math.min(phase, period - phase) < 1;
+  };
+  await ctx.waitFor(() => {
+    const loops = waveLoops(ctx);
+    return loops.length === RUNNING && loops.every((loop) => loop.playState === "running" && aligned(loop));
+  });
+  for (const loop of waveLoops(ctx)) {
+    loop.pause();
+    loop.currentTime = WAVE_HOLD_MS;
+  }
+};
+
 /// Chats the agent started: one waits on the person, one runs on a Cloud VM, one is done.
 const sessions: StartedSession[] = [
   { sessionId: "child-1", title: "Rename the settings keys", state: "waiting", createdAt: started - 600_000 },
@@ -231,6 +285,11 @@ export default componentEntry<Props>({
         await ctx.click({ role: "button", name: /Show 46 subagents/ });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-chat-inspector-subagents__list") !== null);
       },
+    },
+    "subagents-wave": {
+      note: "Five running subagents share one shimmer that sweeps across their avatars, left to right, held mid-sweep for the still: dim, brighter, the crest, brighter, dim. The done and the failed one after them stay at full strength.",
+      props: { ...full, agents: waveAgents, sessions: [] },
+      play: holdWave,
     },
     "tasks-finished": {
       note: "Background tasks: the running watcher with how long it has run and Stop, the transcript's pytest without Stop, then the four finished commands, open.",
