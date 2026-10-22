@@ -35,8 +35,13 @@ nonisolated extension ChromeTunables {
         help: "Dark themes: black over the chrome around the curved main pane, so the pane reads as a card.",
         default: 0.28, range: 0...0.8, step: 0.01, unit: .fraction, code: "ChromeTunables.mainPaneShadeDark")
 
+    /// EXPERIMENT (app-eff wssw, not for merge): a parked workspace goes to alpha 0 instead of hidden.
+    public static let experimentParkByAlpha = Tunable<Bool>.toggle(
+        "chrome.experiment.parkByAlpha", .sidebar, "Experiment: park by alpha",
+        help: "Experiment only.", default: false, code: "ChromeTunables.experimentParkByAlpha")
+
     static var mainPane: [TunableDescriptor] {
-        [mainPaneCurved.descriptor, mainPaneCornerRadius.descriptor, mainPaneGutter.descriptor, mainPaneShadeLight.descriptor,
+        [experimentParkByAlpha.descriptor, mainPaneCurved.descriptor, mainPaneCornerRadius.descriptor, mainPaneGutter.descriptor, mainPaneShadeLight.descriptor,
          mainPaneShadeDark.descriptor]
     }
 }

@@ -329,6 +329,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         }
         view.autoresizingMask = [.width, .height]
         view.isHidden = false
+        if view.alphaValue != 1 { view.alphaValue = 1 }
         let paneCards = (view as? WorkspaceContentView)?.layoutView as? any PaneCardSource
         if holds, let outgoing {
             paintHold.begin(outgoing: outgoing, incoming: view, in: contentHost, release: { [weak self] outgoing in
@@ -358,7 +359,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             window.endEditing(for: nil)
             window.makeFirstResponder(nil)
         }
-        view.isHidden = true
+        if ChromeTunables.experimentParkByAlpha.value { view.alphaValue = 0 } else { view.isHidden = true }
         view.autoresizingMask = []
     }
 
