@@ -1278,7 +1278,7 @@ const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
 const isPromptBubbleRow = (row: AcpmuxRow) => row.kind === "user" && !row.received && !row.incoming;
 
 /// The longest a chat opened cold takes to fade in (Leo 2026-10-21: "a fast fade in").
-const CHAT_OPEN_FADE_MS = 150;
+const CHAT_OPEN_FADE_MS = 150; // motion-allow: a ceiling on the host's fade-in token (micro, 120 ms), not a duration of its own
 
 /// Fades the transcript of a chat this page opened cold in over the host's fade-in token (the
 /// motion scale's micro step without the host), at most CHAT_OPEN_FADE_MS: opacity only, so no row
