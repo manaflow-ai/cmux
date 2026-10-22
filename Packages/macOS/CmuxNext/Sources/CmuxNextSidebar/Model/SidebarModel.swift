@@ -413,9 +413,9 @@ public final class SidebarModel {
         return true
     }
 
-    /// A content change that changes which rows the list draws.
+    /// A content change that changes which rows the list draws: a folder, Done (the Done fold) or the listed tabs.
     private static func movesRows(from old: SidebarWorkspace, to new: SidebarWorkspace, groupsByFolder: Bool, listsTabs: Bool) -> Bool {
-        if groupsByFolder && old.folder != new.folder { return true }
+        if groupsByFolder && old.folder != new.folder || SidebarTunables.doneFold.value && (old.taskStatus == .done) != (new.taskStatus == .done) { return true }
         return listsTabs && !old.tabs.elementsEqual(new.tabs) { $0.id == $1.id && $0.kind == $1.kind }
     }
 
@@ -522,7 +522,7 @@ public final class SidebarModel {
         var o = SidebarLayoutOptions()
         o.filterMatches = filterMatches
         // Workspaces as tabs lists no tab rows under a workspace, as minimal mode.
-        o.workspacesAsTabs = SidebarTunables.workspacesAsTabs.value
+        (o.workspacesAsTabs, o.foldsDone) = (SidebarTunables.workspacesAsTabs.value, SidebarTunables.doneFold.value)
         o.showWorkspaceTabs = showWorkspaceTabs && !o.workspacesAsTabs
         o.collapsedWorkspaces = collapsedWorkspaces
         o.activeWorkspaceID = activeWorkspaceID
