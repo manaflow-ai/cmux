@@ -29,6 +29,7 @@ impl Hub {
             keep_harness_mode,
             route,
             subsession,
+            restricted,
             disallowed_tools,
         } = req;
         // An adopted session's harness names the head unless one was given.
@@ -44,7 +45,18 @@ impl Hub {
             return Err(terminal_harness_refusal(agent));
         }
         let family = crate::config::derive_family(agent, &profile);
-        let policy = policy.or(defaults.policy);
+        // A restricted chat (`restricted.rs`) is Claude Code as acpmux runs it, from no preset,
+        // and asks: anything else in a folder the person did not trust is refused as before.
+        if restricted && (remote || preset_name.is_some() || !super::restricted::supports(&profile))
+        {
+            let folder = cwd.as_deref().map(|c| c.to_string_lossy().into_owned());
+            return Err(crate::server::trust_gate::refusal(
+                crate::trust::Level::Untrusted,
+                folder.as_deref().unwrap_or_default(),
+            ));
+        }
+        let policy =
+            if restricted { Some(PermissionPolicy::Ask) } else { policy.or(defaults.policy) };
         // `${model}` in argv or env: the model is a spawn parameter, not a
         // set_model call.
         let spawn_model = profile_takes_model_at_spawn(&profile)
@@ -58,7 +70,8 @@ impl Hub {
         // The start mode also skips a remote-origin session (the remote
         // guard settles its mode) and a profile that pins its mode.
         let mode_eligible =
-            super::start_mode::mode_eligible(eligible, remote, keep_harness_mode, &profile);
+            super::start_mode::mode_eligible(eligible, remote, keep_harness_mode, &profile)
+                && !restricted;
         // A harness that takes its model at spawn (Claude Code's `--model`)
         // gets the start model there (`model_request` below).
         let model_pinned = model.is_some()
@@ -132,6 +145,7 @@ impl Hub {
             (session_env, chat_store, adopted_cwd, git.branch, git.head);
         meta.workspace_id = workspace_id;
         meta.subsession = subsession;
+        meta.restricted = restricted;
         meta.tools
             .off
             .extend(disallowed_tools.iter().map(|t| format!("{}{t}", super::tools::BUILT_IN)));
@@ -479,6 +493,9 @@ impl Hub {
         let meta = session.meta();
         let tap = self.session_tap(session);
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
+        // A restricted chat starts only as Claude Code, with the command line `restricted_plan`
+        // builds below: any other harness would start with the folder's own config.
+        self.refuse_unrestricted_start(session, profile)?;
         let mut existing_sid = session.meta().agent_session_id.clone();
         // Cleared only once the fork has started; a failed start retries it.
         let fork_from = session.fork_from.lock().unwrap().clone();
@@ -541,6 +558,8 @@ impl Hub {
             } else {
                 super::start_mode::resumable_mode(mode, "default")
             };
+            // A restricted chat runs in an asking mode only (`restricted.rs`).
+            let mode = if meta.restricted { super::restricted::asking_mode(mode) } else { mode };
             if mode != saved_mode {
                 tracing::info!(session = %session.id, "resume: full access is off; {saved_mode} runs as {mode}");
                 self.write_mode_state(session, [ModeWrite::CurrentMode(json!(mode))]);
@@ -566,6 +585,8 @@ impl Hub {
                 Some(&model),
             );
             let (plan, profile) = self.remote_chain_plan(session, profile, plan).await?;
+            // A restricted chat: no project settings, hooks or MCP, and every tool asks.
+            let (plan, profile) = self.restricted_plan(session, profile, plan)?;
             // A fresh process was given its id; a resumed one already has it.
             let known = if fork { None } else { fresh_id.clone().or_else(|| existing_sid.clone()) };
             if self.agent_hosts_enabled() {

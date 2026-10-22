@@ -37,8 +37,11 @@ impl Hub {
         // Claude Code also leaves them out for `--strict-mcp-config`; an ACP
         // harness gets them in `mcpServers` whatever its args.
         let args: &[String] = if claude { &profile.argv } else { &[] };
-        let remote = session.meta().remote_origin;
-        let left_out = crate::agent_tools::left_out(remote, &profile.env, args);
+        let meta = session.meta();
+        // A restricted chat starts with no MCP server: `restricted_plan` adds
+        // `--strict-mcp-config` after this (`restricted.rs`).
+        let left_out =
+            crate::agent_tools::left_out(meta.remote_origin, &profile.env, args) || meta.restricted;
         session.launched_with_tools.store(if left_out { 2 } else { 1 }, Ordering::SeqCst);
         let mut cmux = if left_out {
             Vec::new()
