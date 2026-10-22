@@ -11,13 +11,15 @@ the panes rest:
   column      New Column (newColumn), then its close (column-close)
   zoom        Cmd-Shift-Enter (toggleSplitZoom) and back (unzoom)
   drag        the first vertical divider pressed and dragged 120 pt out and back, one event per 120 Hz frame
+  page        a browser page opening on the right (splitBrowserRight, Leo's "opening up a new thing on the
+              right"), then its close (page-close)
 
 Per action: display frame intervals p50/p95/p99/max and missed frames (`debug.frames`), the layout's main-thread
 work per frame (`debug.motion` clock), frames the springs moved, grids sent to the PTY owner
 (`debug.window_transition`) and hangs (`debug.hangs`). With --record, a second pass records each action with
 `debug.window_record` (frames/ in --out; the recording itself costs frames, so it never runs in the timed pass).
 
-Usage: pane-perf-terminal.py --tag <tag> --app PATH [--layouts 1x2,4x2,6x5] [--actions split,close,column,zoom,drag]
+Usage: pane-perf-terminal.py --tag <tag> --app PATH [--layouts 1x2,4x2,6x5] [--actions split,close,column,zoom,drag,page]
        [--rounds 3] [--scrollback 5000] [--stream] [--record] [--json PATH] [--out DIR] [--gate] [--missed-budget N]
 """
 import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
@@ -154,7 +156,7 @@ def drag_divider():
 def perform(name):
     """Runs one action; returns an error string or None."""
     verbs = {"split": "splitRight", "close": "closePane", "column": "newColumn", "column-close": "closePane",
-             "zoom": "toggleSplitZoom", "unzoom": "toggleSplitZoom"}
+             "zoom": "toggleSplitZoom", "unzoom": "toggleSplitZoom", "page": "splitBrowserRight", "page-close": "closePane"}
     if name == "drag":
         return drag_divider()
     reply = action(verbs[name])
@@ -193,7 +195,7 @@ def measure(label, name):
 
 
 SEQUENCE = {"split": ["split", "close"], "close": [], "column": ["column", "column-close"], "zoom": ["zoom", "unzoom"],
-            "drag": ["drag"]}
+            "drag": ["drag"], "page": ["page", "page-close"]}
 
 
 def steps():
@@ -221,7 +223,7 @@ def profile(name, label):
     thread's heaviest frames (the report's "Sort by top of stack" list) and keeps the whole report."""
     pair = {"split": ["split", "close"], "close": ["split", "close"], "column": ["column", "column-close"],
             "column-close": ["column", "column-close"], "zoom": ["zoom", "unzoom"], "unzoom": ["zoom", "unzoom"],
-            "drag": ["drag"]}[name]
+            "drag": ["drag"], "page": ["page", "page-close"], "page-close": ["page", "page-close"]}[name]
     path = os.path.join(opts.out, f"sample-{label}.txt")
     seconds = max(3, int(opts.sample_repeats * len(pair) * 1.0) + 1)
     sampler = subprocess.Popen(["/usr/bin/sample", str(app.pid), str(seconds), "1", "-mayDie", "-file", path],
