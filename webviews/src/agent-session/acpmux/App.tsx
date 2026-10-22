@@ -191,6 +191,13 @@ import type { MarkdownFieldHandle } from "./MarkdownField";
 import type { ChangesSource } from "./changes/model";
 import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
 import { transcriptRepositories, type RepositoryCache } from "./conversation/transcriptRepositories";
+import {
+  newReferenceScopeCache,
+  ReferenceScopeContext,
+  referenceScopes,
+  turnOpener,
+  type ReferenceScope,
+} from "./conversation/bareReferences";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { PromptActions, ReceivedActions } from "./conversation/MessageActions";
@@ -1352,6 +1359,7 @@ const RowFrame = React.memo(function RowFrame({
   onRowKeyDown,
   onCopyRow,
   copyable,
+  referenceScope,
   children,
 }: {
   row: AcpmuxRow;
@@ -1391,6 +1399,8 @@ const RowFrame = React.memo(function RowFrame({
   onToggleActivity: (id: string) => void;
   onOpenDiff?: OpenDiff;
   githubRepository?: string;
+  /// Which repository the row's bare `#N` names (conversation/bareReferences.ts).
+  referenceScope?: ReferenceScope;
   children: React.ReactNode;
 }) {
   acpmuxPerf.span("row.renders", 1);
@@ -1466,7 +1476,7 @@ const RowFrame = React.memo(function RowFrame({
           {...copyTabStop}
         />
       )}
-      {children}
+      <ReferenceScopeContext.Provider value={referenceScope ?? null}>{children}</ReferenceScopeContext.Provider>
     </article>
   );
 }, sameRowFrame);
@@ -1750,6 +1760,7 @@ export function VirtualTranscript({
   historyFrom,
   githubRepository,
   fallbackRepository,
+  sourceRows,
   find,
   reveal,
   working = false,
@@ -1802,6 +1813,9 @@ export function VirtualTranscript({
   /// The repository a bare `#N` means when `githubRepository` is unknown and the transcript names
   /// none before it (the header pull request's).
   fallbackRepository?: string;
+  /// The client's rows, which still hold the work a closed "Worked for" folds away: where a bare
+  /// `#N`'s repository is looked for (conversation/bareReferences.ts). Else `rows`.
+  sourceRows?: readonly AcpmuxRow[];
   /// Find in Chat (chatFind.ts): its bar, the query to highlight and the match to bring into view.
   find?: ChatFind;
   /// A row to bring into view (a count on the running line, WorkingFor.tsx); a new `key` asks again.
@@ -1833,6 +1847,11 @@ export function VirtualTranscript({
     () => (githubRepository ? undefined : transcriptRepositories(rows, fallbackRepository, repositoryCache.current)),
     [githubRepository, fallbackRepository, rows],
   );
+  // Which repository each row's bare `#N` names, by the transcript's evidence
+  // (conversation/bareReferences.ts): one scope object per turn, kept while nothing new is named;
+  // a streaming reply reads only its own row again.
+  const referenceCache = useRef(newReferenceScopeCache());
+  const scopeOf = useMemo(() => referenceScopes(sourceRows ?? rows, referenceCache.current), [rows, sourceRows]);
   // `scroll` events also fire for layout-driven writes to scrollTop. Keep the user's intent in a
   // ref so those events cannot turn a pinned transcript into a one-frame jump when the composer
   // stack changes height.
@@ -3361,6 +3380,7 @@ export function VirtualTranscript({
                       onToggleActivity={onToggleActivity}
                       onOpenDiff={onOpenDiff}
                       githubRepository={githubRepository ?? rowRepositories?.[absoluteIndex]}
+                      referenceScope={scopeOf(turnOpener(rows, absoluteIndex))}
                     >
                       <Component
                         row={row}
@@ -7049,6 +7069,7 @@ function AcpmuxPane() {
                                               {(find) => (
                                                 <VirtualTranscript
                                                   rows={transcriptRows}
+                                                  sourceRows={childRows ? undefined : sourceRows}
                                                   working={snapshot.isWorking}
                                                   // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
                                                   jumpButton={!quick}

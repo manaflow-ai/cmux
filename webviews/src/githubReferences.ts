@@ -4,6 +4,8 @@ export type GithubReference = {
   end: number;
   text: string;
   href: string;
+  /** A bare `#N`, which named no repository: its number (`href` is `repository`'s). */
+  bare?: number;
 };
 
 // Not after a word, a path or URL (`x.com/#12`) or an HTML entity (`&#123;`). GitHub numbers
@@ -45,6 +47,7 @@ export function githubReferences(
       end: match.index! + match[0].length,
       text: match[0],
       href: `https://github.com/${repo}/${kind}/${number.slice(1)}`,
+      ...(match.groups?.bareNumber ? { bare: Number(number.slice(1)) } : {}),
     });
   }
   return out;

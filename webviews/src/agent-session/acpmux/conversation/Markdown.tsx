@@ -22,6 +22,7 @@ import { MathDisplay, MathInline } from "./Math";
 import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
+import { BareReferenceChip } from "../chips/BareReferenceChip";
 import { codePath, linkPath, pathName, textLinks } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import "../../../markdown-task-checkbox.css";
@@ -402,6 +403,16 @@ function linkedGithubText(text: string, key: string, repository?: string, enable
         {reference.text}
       </UrlChip>,
     );
+    // A bare `#N` names the repository the transcript's evidence says, not only `repository`.
+    if ("bare" in reference && reference.bare)
+      out[out.length - 1] = (
+        <BareReferenceChip
+          key={`${key}-${index}`}
+          number={reference.bare}
+          href={reference.href}
+          text={reference.text}
+        />
+      );
     at = reference.end;
   });
   if (at < text.length) out.push(...linkedText(text.slice(at), `${key}-after`));
