@@ -1,6 +1,6 @@
 import { useEffect } from "react";
-import { useT } from "../i18n";
 import { PanelToggle } from "../header/PanelToggle";
+import { useT } from "../i18n";
 import { registerPicker } from "../pickerOpeners";
 import type { SummaryCardControl } from "./cardState";
 

@@ -74,13 +74,15 @@ const menuRows = (): ChatMenuItem[] => [
   { key: "close", label: "Close", icon: "tab.close", shortcutAction: "closeTab", onSelect: () => undefined },
 ];
 
-// The summary's panel toggle as the App passes it (summary/SummaryButton.tsx), closed.
-const summary = createElement(PanelToggle, {
-  className: "acpmux-summary-button",
-  label: "Summary",
-  shown: false,
-  onToggle: () => undefined,
-});
+// The summary's panel toggle as the App passes it (summary/SummaryButton.tsx).
+const panelToggle = (shown: boolean) =>
+  createElement(PanelToggle, {
+    className: "acpmux-summary-button",
+    label: "Chat summary",
+    shown,
+    onToggle: () => undefined,
+  });
+const summary = panelToggle(false);
 
 const openMenu: Play = async (ctx) => {
   await ctx.focus({ role: "button", name: "Chat actions" });
@@ -96,21 +98,25 @@ const panelsOpen: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-header-tool[aria-pressed="true"]'));
 };
 
-// One row of icons (Leo, 2026-10-21: "THE TOP RIGHT ICONS AND FIXING THE SPACING"): no separators,
-// the right-side panel's toggle first as in Claude and ChatGPT desktop, then every button on one
-// 24px pitch, each 26px tall, with no gap between them.
-const oneRow: Play = async (ctx) => {
-  const tools = ctx.find({ selector: ".acpmux-header-tools" });
-  if (tools.querySelector("hr, [role=separator]")) throw new Error("the header's icons must have no separators");
-  const buttons = [...tools.querySelectorAll<HTMLElement>("button")];
-  if (!buttons[0]?.classList.contains("acpmux-summary-button"))
+// Claude Code desktop's top strip (Leo 2026-10-21): no separators, the right-side panel's toggle
+// first, every button a 24px square on one 26px pitch, every glyph the same size.
+const groupedControls: Play = async (ctx) => {
+  const first = ctx.document.querySelector(".acpmux-header-tools button");
+  if (!first?.classList.contains("acpmux-summary-button"))
     throw new Error("the panel toggle must be the first of the header's icons");
-  const boxes = buttons.map((button) => button.getBoundingClientRect());
-  if (boxes.some((box) => Math.round(box.width) !== 24 || Math.round(box.height) !== 26))
-    throw new Error("every header icon must be 24 by 26");
-  boxes.slice(1).forEach((box, index) => {
-    if (Math.round(box.left - boxes[index].right) !== 0) throw new Error("the header's icons must sit on one pitch");
-  });
+  if (ctx.document.querySelector(".acpmux-header-tools hr, .acpmux-header-separator"))
+    throw new Error("the header tools draw a separator");
+  const tools = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools button")];
+  for (const button of tools) {
+    const box = button.getBoundingClientRect();
+    if (Math.round(box.width) !== 24 || Math.round(box.height) !== 24)
+      throw new Error(`header button ${button.getAttribute("aria-label")} is not a 24px square`);
+  }
+  const lefts = tools.map((button) => button.getBoundingClientRect().left);
+  if (lefts.slice(1).some((left, index) => Math.round(left - lefts[index]!) !== 26))
+    throw new Error("header buttons are not on one 26px pitch");
+  const glyphs = new Set(tools.map((button) => button.querySelector("svg")?.getAttribute("width")));
+  if (glyphs.size !== 1) throw new Error(`header glyphs come in several sizes: ${[...glyphs].join(", ")}`);
 };
 
 // The App found the chat branch's pull request: open, 3 of 5 checks passed, one failing (cx-tcwj).
@@ -323,14 +329,18 @@ export default componentEntry<HeaderToolsProps>({
       },
       play: panelsOpen,
     },
+    "panel-open": {
+      note: "The right-side panel is open: its toggle, first of the icons, is pressed and its glyph's column filled.",
+      props: { ...base, summary: panelToggle(true) },
+    },
     "browser-preview": {
       note: "The chat's last turn named a local page: Browser opens it beside the chat and its tooltip names it; there is no separate Preview button.",
       props: { ...base, previewUrl: "http://localhost:5173/", onPreview: () => undefined },
     },
-    "one-row": {
-      note: "One row of icons: the panel toggle first, then the quick actions and the chat menu, flush on one 24px pitch with no separators.",
-      props: { ...base, hasChanges: true, onChanges: () => undefined },
-      play: oneRow,
+    "grouped-controls": {
+      note: "Claude Code desktop's strip: the panel toggle first, no separators, 24px square buttons on one 26px pitch, one glyph size.",
+      props: base,
+      play: groupedControls,
     },
     "pull-request": {
       note: "The chat branch's pull request leads the tools: its number, its state and how its checks stand (cx-tcwj).",

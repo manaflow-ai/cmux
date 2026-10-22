@@ -32,11 +32,11 @@ import {
 } from "react";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
+import { PanelToggle } from "../header/PanelToggle";
 import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { PanelToggle } from "../header/PanelToggle";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { registerPicker } from "../pickerOpeners";
 import { subagentsIn } from "../subagents/subagentRows";

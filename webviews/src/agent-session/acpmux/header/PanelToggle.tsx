@@ -3,6 +3,7 @@
 // inspector/ChatInspector.tsx): a frame with one divider, its column filled and the button pressed
 // while the panel is open.
 import { Icon } from "../icons/Icon";
+import { HEADER_GLYPH } from "./ChatHeaderTools";
 import { tooltipProps } from "../shortcuts";
 
 export function PanelToggle({
@@ -26,7 +27,7 @@ export function PanelToggle({
       {...tooltipProps(label, undefined)}
       onClick={onToggle}
     >
-      <Icon name="panel.right" size={15} selected={shown} />
+      <Icon name="panel.right" size={HEADER_GLYPH} selected={shown} />
     </button>
   );
 }
