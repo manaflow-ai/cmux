@@ -10,7 +10,7 @@
    "cmux-tui": 1
   },
   "expect": {
-   "acpmux": 10,
+   "acpmux": 5,
    "chatmux-relay": 81,
    "cmux-app-host": 2,
    "cmux-browser-host": 1,
@@ -33,7 +33,7 @@
    "cmux-tui-core": 36
   },
   "unwrap": {
-   "acpmux": 179,
+   "acpmux": 140,
    "chatmux-relay": 7,
    "cmux-remote": 25,
    "cmux-terminal-client": 30,

@@ -14,6 +14,7 @@
 
 use super::Origin;
 use crate::hub::Hub;
+use crate::no_panic::JsonExt;
 use serde_json::{Value, json};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -75,9 +76,9 @@ pub(super) async fn add_peer_harnesses(hub: &Hub, origin: Origin, params: &Value
             }
             let mut h = h.clone();
             let agent = h.get("harness").and_then(Value::as_str).unwrap_or("").to_owned();
-            h["harness"] = Value::String(format!("{}/{}", peer.name, agent));
-            h["peer"] = Value::String(peer.name.clone());
-            h["isDefault"] = Value::Bool(false);
+            h.set("harness", Value::String(format!("{}/{}", peer.name, agent)));
+            h.set("peer", Value::String(peer.name.clone()));
+            h.set("isDefault", Value::Bool(false));
             arr.push(h);
         }
     }

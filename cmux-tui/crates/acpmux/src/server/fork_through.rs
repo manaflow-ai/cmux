@@ -13,6 +13,7 @@
 //! session/fork's checks.
 
 use super::*;
+use crate::no_panic::JsonExt;
 use crate::store::SessionStatus;
 
 /// Advertised in `initialize` as `_meta.acpmux.operations`.
@@ -104,7 +105,7 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     }
     let mut out = json!({"sessionId": session.id});
     if !mux.is_empty() {
-        out["_meta"] = json!({"acpmux": mux});
+        out.set("_meta", json!({"acpmux": mux}));
     }
     Ok(out)
 }
