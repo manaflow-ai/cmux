@@ -53,7 +53,7 @@ import Testing
         defer { pane.teardown() }
         services.linkOpener.placement = { .splitRight }
         var placed: (@MainActor (SurfaceID) -> Void)?
-        let opened = services.linkOpener.open(from: pane, cmdClick: true) { _, then in
+        let opened = services.linkOpener.open(from: pane) { _, then in
             placed = then
             return true
         }
@@ -114,7 +114,7 @@ import Testing
         services.linkOpener.placement = { .splitRight }
         let standIn = ProvisionalTab()
         var placed: (@MainActor (SurfaceID) -> Void)?
-        let opened = services.linkOpener.open(from: pane, cmdClick: true) { target, then in
+        let opened = services.linkOpener.open(from: pane) { target, then in
             services.daemon.store.intend(.createTab(pane: target.pane.handle, provisional:
                 TabSnapshot(surface: standIn.surface, tabResourceID: ResourceID(rawValue: standIn.id), title: "page")),
                                          transaction: .generate())
