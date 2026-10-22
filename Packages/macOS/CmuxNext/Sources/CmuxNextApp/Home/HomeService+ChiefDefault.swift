@@ -39,7 +39,7 @@ extension HomeService {
     /// else, while the cloud Chiefs are unknown, keeps the ask for ``noteCloudChiefsChecked()``.
     func ensureLocalBrain(asked: Bool, for conversation: String?) {
         if startsLocalBrain(for: conversation) {
-            brain.ensure(asked: asked)
+            startLocalBrain(asked: asked)
         } else if cloudChiefsUnknown {
             waitingHomeAsk = (waitingHomeAsk ?? false) || asked
         }
@@ -52,7 +52,11 @@ extension HomeService {
         cloudChiefsChecked = true
         guard let asked = waitingHomeAsk else { return }
         waitingHomeAsk = nil
-        if startsLocalBrain(for: nil) { brain.ensure(asked: asked) }
+        if startsLocalBrain(for: nil) { startLocalBrain(asked: asked) }
+    }
+
+    private func startLocalBrain(asked: Bool) {
+        if let startsBrain { startsBrain(asked) } else { brain.ensure(asked: asked) }
     }
 
     /// The brain keeper reports this Mac's host as it starts, exits for good or is shut down

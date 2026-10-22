@@ -36,17 +36,20 @@ struct HomeChiefDefaultHostTests {
     /// host started then would keep Auto on this Mac's Chief once the Hosted Chief is known.
     @Test func beforeTheCloudChiefsAreReadHomeStartsNoHost() {
         let home = HomeChiefDefaultTests.services().home
+        let starts = Self.recordStarts(home)
         home.signedInToCloud = { true }
         home.localChiefRunning = false
         #expect(!home.startsLocalBrain(for: nil))
         #expect(!home.startsLocalBrain(for: HomeChiefDefaultTests.local), "Home's first conversation, the Hosted Chief not known yet")
         home.ensureLocalBrain(asked: true, for: HomeChiefDefaultTests.local)
         #expect(home.waitingHomeAsk == true, "the ask waits for the check")
+        #expect(starts.value.isEmpty)
         // The check finds the Hosted Chief: the waited ask starts nothing, and Home keeps showing the Hosted Chief.
         home.setCloudChiefs(HomeCloudChiefs(hosted: HomeChiefDefaultTests.hosted))
         home.noteCloudChiefsChecked()
         #expect(home.waitingHomeAsk == nil)
-        #expect(!home.localChiefRunning && home.cloudChief == HomeChiefDefaultTests.hosted)
+        #expect(starts.value.isEmpty, "no host starts under the Hosted Chief")
+        #expect(home.cloudChief == HomeChiefDefaultTests.hosted)
         #expect(!home.startsLocalBrain(for: nil))
         #expect(home.startsLocalBrain(for: HomeChiefDefaultTests.local), "the person opens this Mac's Chief")
         // Signed in without a cloud Chief: Home's Chief is this Mac's and starts as before.
@@ -54,22 +57,56 @@ struct HomeChiefDefaultHostTests {
         #expect(home.startsLocalBrain(for: nil))
     }
 
+    /// Signed in without a cloud Chief: the check finds none, so the ask that waited starts this Mac's host.
+    @Test func aCheckThatFindsNoHostedChiefStartsTheWaitedHost() {
+        let home = HomeChiefDefaultTests.services().home
+        let starts = Self.recordStarts(home)
+        home.signedInToCloud = { true }
+        home.ensureLocalBrain(asked: true, for: nil)
+        #expect(starts.value.isEmpty)
+        home.noteCloudChiefsChecked()
+        #expect(starts.value == [true], "the waited ask starts the host, still asked")
+        #expect(home.waitingHomeAsk == nil)
+    }
+
+    /// While this Mac's history is still being copied into the Hosted Chief, the Chief tab shows this Mac's
+    /// Chief (``HomeService/tabChiefs``), but the Hosted Chief is known: no host starts, so Auto still
+    /// gives the Hosted Chief the tab once the copy settles (review of #23813).
+    @Test func thePendingHistoryCopyStartsNoHost() throws {
+        let root = Self.root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = HomeChiefDefaultTests.services().home
+        let starts = Self.recordStarts(home)
+        Self.wire(home.hostedChief, home: ChiefHome(root: root, isolated: true))
+        home.signedInToCloud = { true }
+        home.localChiefRunning = false
+        home.ensureLocalBrain(asked: false, for: nil)
+        home.setCloudChiefs(HomeCloudChiefs(hosted: HomeChiefDefaultTests.hosted))
+        home.hostedChief.start(HomeChiefDefaultTests.hosted)
+        try #require(home.hostedChief.pending, "the one copy is due")
+        #expect(home.cloudChief == nil, "this Mac's Chief keeps the tab while the copy runs")
+        home.noteCloudChiefsChecked()
+        #expect(starts.value.isEmpty, "the waited ask starts no host under the Hosted Chief")
+        #expect(!home.startsLocalBrain(for: nil), "Home itself (a reconnect) starts none either")
+        #expect(home.startsLocalBrain(for: HomeChiefDefaultTests.local), "the person opens this Mac's Chief")
+    }
+
     // MARK: The running state follows the brain keeper
 
-    @Test func aChangeOfTheRunningStateReRunsTheChiefTabCheck() {
+    @Test func theKeepersReportChangesTheDefaultChief() {
         let home = HomeChiefDefaultTests.services().home
         home.setCloudChiefs(HomeCloudChiefs(hosted: HomeChiefDefaultTests.hosted))
         home.localChiefRunning = true
         #expect(home.cloudChief == nil)
-        // HomeService.start's Chief tab check re-runs on a change of what it reads: the default Chief.
+        // HomeService.start's Chief tab check observes the default Chief: a change of it re-runs the check.
         let fired = ChiefDefaultFlag()
         withObservationTracking { _ = home.prefersLocalChief } onChange: { fired.set() }
         // The keeper saw the host exit for good (a crash past its retries, `cmux chief shutdown`).
         home.wireChiefDefault()
         home.brain.onHostChange?(false)
-        #expect(fired.value, "the Chief tab check runs again")
+        #expect(fired.value, "the default Chief's observers hear the change")
         #expect(home.cloudChief == HomeChiefDefaultTests.hosted, "Auto falls back to the Hosted Chief")
-        // No change, no new check.
+        // No change, nothing to hear.
         let again = ChiefDefaultFlag()
         withObservationTracking { _ = home.prefersLocalChief } onChange: { again.set() }
         home.noteLocalChiefHost(running: false)
@@ -167,10 +204,21 @@ struct HomeChiefDefaultHostTests {
 
     static func migration(home: ChiefHome) -> HostedChiefMigration {
         let migration = HostedChiefMigration()
+        wire(migration, home: home)
+        return migration
+    }
+
+    static func wire(_ migration: HostedChiefMigration, home: ChiefHome) {
         migration.wire(.init(apiBase: { URL(fileURLWithPath: "/dev/null") }, token: { throw CancellationError() },
                              ops: { _ in throw CancellationError() }, user: { "user_default_chief" }, debugBuild: false,
                              owner: ChiefConversationOwner(home: home), localChief: "agent_mux", refreshTab: {}))
-        return migration
+    }
+
+    /// Records each start of this Mac's brain host instead of starting it (its `asked`).
+    private static func recordStarts(_ home: HomeService) -> ChiefDefaultStarts {
+        let starts = ChiefDefaultStarts()
+        home.startsBrain = { starts.append($0) }
+        return starts
     }
 }
 
@@ -179,4 +227,10 @@ private nonisolated final class ChiefDefaultFlag: Sendable {
     private let state = Mutex(false)
     var value: Bool { state.withLock { $0 } }
     func set() { state.withLock { $0 = true } }
+}
+
+/// The brain host starts a test recorded (``HomeChiefDefaultHostTests/recordStarts(_:)``).
+@MainActor private final class ChiefDefaultStarts {
+    private(set) var value: [Bool] = []
+    func append(_ asked: Bool) { value.append(asked) }
 }
