@@ -5568,6 +5568,14 @@ jobs:
                 echo "::warning::skipping pending artifact $meta_id of run $meta_run: the bundle of run $bundle_run is gone"
                 continue
               fi
+              # The target compares a pending build with the old feed's Nightly
+              # only, so a Dev build the old feed already lists would look
+              # continuable again; it is stale.
+              pending_build="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["build"])' pending/pending.json || true)"
+              if [ -n "$pending_build" ] && grep -q "<sparkle:version>${pending_build}</sparkle:version>" old-all.xml; then
+                echo "pending build $pending_build of run $meta_run is already in the old feed; not continued"
+                break
+              fi
               pending_args=(--pending-meta pending/pending.json --pending-run "$meta_run" --now "$(date +%s)")
               break
             fi
@@ -5739,16 +5747,21 @@ jobs:
           persist-credentials: false
 
       # Checked again here: another run may have moved the old feed meanwhile.
-      - name: Skip a build older than the old feed's
+      - name: Skip a build the old feed already has
         id: order
         run: |
           set -euo pipefail
           [[ "$NIGHTLY_BUILD" =~ ^[0-9]+$ ]] || { echo "invalid build '$NIGHTLY_BUILD'" >&2; exit 1; }
-          current="$(curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}" \
-            | sed -n 's#.*<sparkle:version>\([0-9][0-9]*\)</sparkle:version>.*#\1#p' | sort -n | tail -1)"
-          echo "old feed build: ${current:-none}; requested: $NIGHTLY_BUILD"
+          # The same rule as the publish job's: skipped is a build the feed
+          # already lists, or one no newer than its newest Nightly item. A Dev
+          # item above it does not hold back an older Nightly build.
+          curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o "$RUNNER_TEMP/old-feed.xml" "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"
+          python3 scripts/ci/nightly_next_ring.py select --feed "$RUNNER_TEMP/old-feed.xml" --out "$RUNNER_TEMP/old-nightly.xml" --channel cmux-next >/dev/null
+          current="$(sed -n 's#.*<sparkle:version>\([0-9][0-9]*\)</sparkle:version>.*#\1#p' "$RUNNER_TEMP/old-nightly.xml" | sort -n | tail -1)"
+          echo "old feed Nightly build: ${current:-none}; requested: $NIGHTLY_BUILD"
           echo "### cmux NIGHTLY-identity requirement in use: required: ${REQUIRED:-none}" >> "$GITHUB_STEP_SUMMARY"
-          if [ -n "$current" ] && [ "$NIGHTLY_BUILD" -le "$current" ]; then
+          if grep -q "<sparkle:version>${NIGHTLY_BUILD}</sparkle:version>" "$RUNNER_TEMP/old-feed.xml" \
+             || { [ -n "$current" ] && [ "$NIGHTLY_BUILD" -le "$current" ]; }; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "### Old feed already at $current; build $NIGHTLY_BUILD skipped" >> "$GITHUB_STEP_SUMMARY"
           else

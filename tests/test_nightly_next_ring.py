@@ -262,6 +262,28 @@ class WorkflowTests(unittest.TestCase):
         self.assertLess(merge, job.index('nightly-next-guard.py appcast "legacy-out/$LEGACY_APPCAST"'))
         self.assertIn('--verdicts-base "$NIGHTLY_NEXT_FEED_BASE"', job[merge:merge + 400])
 
+    def test_signing_and_publishing_skip_the_same_builds(self):
+        # A Dev item above the old feed's Nightly must not hold back an older
+        # Nightly build in either job (else Nightly installs stay stuck).
+        text = NIGHTLY_YML.read_text()
+        rule = [
+            'nightly_next_ring.py select --feed "$RUNNER_TEMP/old-feed.xml" --out "$RUNNER_TEMP/old-nightly.xml" --channel cmux-next',
+            'grep -q "<sparkle:version>${NIGHTLY_BUILD}</sparkle:version>" "$RUNNER_TEMP/old-feed.xml"',
+            '{ [ -n "$current" ] && [ "$NIGHTLY_BUILD" -le "$current" ]; }',
+        ]
+        for start, end in (("\n  sign-nightly-identity-legacy:", "Initialize cmux-next notices submodule"),
+                           ("\n  publish-nightly-identity-legacy:", "name: Select Xcode")):
+            begin = text.index(start)
+            step = text[text.index("name: Skip a build the old feed already has", begin):text.index(end, begin)]
+            for line in rule:
+                self.assertIn(line, step, start)
+
+    def test_a_pending_build_the_old_feed_lists_is_not_continued(self):
+        text = NIGHTLY_YML.read_text()
+        job = text[text.index("\n  legacy-identity-target:"):text.index("\n  sign-nightly-identity-legacy:")]
+        stale = job.index('grep -q "<sparkle:version>${pending_build}</sparkle:version>" old-all.xml')
+        self.assertLess(stale, job.index("pending_args=(--pending-meta"))
+
     def test_a_verdict_promotes_on_the_old_feed_too(self):
         text = VERDICT_YML.read_text()
         main = text.index("name: Move builds whose canary passed to Nightly")
