@@ -11,7 +11,8 @@ bench launches and quits the app itself), and maps their reports to budget rows 
   pane-perf-terminal.py          split / close / New Column / zoom: frame intervals during the motion (4x2 terminals)
   tab-switch-matrix.py           tab switch: input to committed frame (terminal and Chromium, 10 tabs)
   palette-open-stages.py         Cmd-Shift-P / Cmd-P: key-down to committed frame (p90 as its p95: the bench keeps p90)
-  sidebar-stress-bench.py        400 workspaces: scroll frames, scroll while 15 rows tick, workspace switch click to idle
+  sidebar-stress-bench.py        400 workspaces, 15 ticking: scroll, ticks (frames, CPU, main ms/s), row drag, and the
+                                 workspace switch matrix (click, Cmd-1..4, Ctrl-Cmd-]/[ x terminal, Chromium)
   home-perf.py                   Home: typing key dispatch, chat scroll frames
   agent-engine-bench.py          ACP chat composer: keydown to next frame (the page's typingStats)
   bench_idle.py                  idle CPU of the app with terminals open
@@ -175,9 +176,16 @@ def rows_sidebar(rep, size):
     out[f"sidebar.{size}.drag.frame"] = p50_p95((s.get("drag") or {}).get("frames"))
     out[f"sidebar.{size}.workspace_switch.click_to_idle"] = p50_p95((s.get("switch") or {}).get("click_to_idle_ms"))
     ticks = s.get("ticks") or {}
-    cpu = (ticks.get("cpu") or {}).get("cpu_pct") if isinstance(ticks.get("cpu"), dict) else None
-    if cpu is not None:
+    out[f"sidebar.{size}.ticking.frame"] = p50_p95(ticks.get("frames_while_ticking"))
+    cpu = (ticks.get("ticking") or {}).get("cpu_pct") if isinstance(ticks.get("ticking"), dict) else None
+    if isinstance(cpu, (int, float)):
         out[f"sidebar.{size}.ticking.cpu_pct"] = (cpu, cpu)
+    if isinstance(ticks.get("main_ms_per_s"), (int, float)):
+        out[f"sidebar.{size}.ticking.main_ms_per_s"] = (ticks["main_ms_per_s"], ticks["main_ms_per_s"])
+    for key, m in (s.get("switch_matrix") or {}).items():
+        if isinstance(m, dict) and "input_to_idle_ms" in m:
+            out[f"workspace_switch.{key}.input_to_idle"] = p50_p95(m["input_to_idle_ms"])
+            out[f"workspace_switch.{key}.longest_frame"] = p50_p95(m.get("longest_frame_ms"))
     return out
 
 
@@ -241,6 +249,8 @@ def main():
     ap.add_argument("--json")
     ap.add_argument("--only", default=",".join(BENCHES))
     ap.add_argument("--sidebar-size", type=int, default=400)
+    ap.add_argument("--sidebar-tickers", type=int, default=15, help="ticking (agent-like) workspaces in the sidebar bench")
+    ap.add_argument("--sidebar-scenarios", default="ticks,scroll,scroll_ticking,switch,switch_matrix,drag")
     ap.add_argument("--gate", action="store_true")
     ap.add_argument("--baseline", help="baseline JSON (default: perf-budgets-baseline/<host class>.json)")
     ap.add_argument("--write-baseline")
@@ -270,6 +280,7 @@ def main():
         "palette": ([py, S("palette-open-stages.py"), *common, "--rounds", "6", "--no-gate",
                      "--out", o("palette"), "--json", o("palette.json")], "palette.json", rows_palette),
         "sidebar": ([py, S("sidebar-stress-bench.py"), *common, "--sizes", str(opts.sidebar_size), "--stop",
+                     "--tickers", str(opts.sidebar_tickers), "--scenarios", opts.sidebar_scenarios,
                      *([] if opts.profile else ["--no-trace"]), "--out", o("sidebar")], os.path.join("sidebar", "results.json"),
                     lambda r: rows_sidebar(r, opts.sidebar_size)),
         "home": ([py, S("home-perf.py"), "--tag", opts.tag, "--out", o("home.json")], "home.json", rows_home),

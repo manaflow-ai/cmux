@@ -56,6 +56,16 @@ class MappingTests(unittest.TestCase):
         self.assertEqual(pb.rows_idle({"scenarios": {"terminals": {"processes": [{"kind": "app", "cpu_percent": 0.4},
                                                                                  {"kind": "daemon", "cpu_percent": 2}]}}}),
                          {"idle.terminals.app_cpu_pct": (0.4, 0.4)})
+        sidebar = {"sizes": {"400": {"ticks": {"ticking": {"cpu_pct": 12.5}, "main_ms_per_s": 80.0,
+                                               "frames_while_ticking": {"p50_ms": 8.3, "p95_ms": 9.1}},
+                                     "switch_matrix": {"tickers": 15, "terminal.click": {
+                                         "input_to_idle_ms": {"p50": 20, "p95": 41}, "longest_frame_ms": {"p50": 17, "p95": 33}}}}}}
+        rows = pb.rows_sidebar(sidebar, 400)
+        self.assertEqual(rows["workspace_switch.terminal.click.input_to_idle"], (20, 41))
+        self.assertEqual(rows["workspace_switch.terminal.click.longest_frame"], (17, 33))
+        self.assertEqual(rows["sidebar.400.ticking.cpu_pct"], (12.5, 12.5))
+        self.assertEqual(rows["sidebar.400.ticking.main_ms_per_s"], (80.0, 80.0))
+        self.assertEqual(rows["sidebar.400.ticking.frame"], (8.3, 9.1))
         # An older build's report with another shape (or none) leaves the rows empty, never raises.
         self.assertEqual(pb.rows_panes(None), {})
         self.assertEqual(pb.rows_sidebar(None, 400)["sidebar.400.scroll.frame"], (None, None))
@@ -67,7 +77,9 @@ class MappingTests(unittest.TestCase):
                  "home.typing.key_dispatch", "acp.chromium.typing.to_frame", "cmd_n.idle.key_to_visible",
                  "cmd_t.load.key_to_visible", "ctrl_backtick.idle.key_to_visible", "cmd_d.idle.key_to_visible",
                  "cmd_shift_d.idle.key_to_visible", "tab_switch.chromium.10.e2e",
-                 "palette.home_cmd_p.key_to_frame", "idle.terminals.app_cpu_pct"]
+                 "palette.home_cmd_p.key_to_frame", "idle.terminals.app_cpu_pct",
+                 "workspace_switch.chromium.cmd_digit.input_to_idle", "workspace_switch.terminal.next_prev.longest_frame",
+                 "sidebar.400.ticking.frame", "sidebar.400.ticking.main_ms_per_s", "sidebar.400.drag.frame"]
         for name in names:
             self.assertTrue(pb.budget_for(name, budgets).get("p95"), name)
         for pattern in budgets["rows"]:

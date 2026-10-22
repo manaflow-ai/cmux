@@ -33,6 +33,10 @@ parser.add_argument("--out", required=True)
 parser.add_argument("--sizes", default="100,500,1000")
 parser.add_argument("--groups", type=int, default=10)
 parser.add_argument("--tick-share", type=float, default=0.05)
+parser.add_argument("--tickers", type=int, default=0, help="exact number of ticking workspaces (overrides --tick-share)")
+parser.add_argument("--scenarios", default="ticks,scroll,scroll_ticking,switch,drag,hitches",
+                    help="which scenarios to run per size; add switch_matrix for the workspace switch matrix")
+parser.add_argument("--switches", type=int, default=16, help="switch_matrix: switches per input and kind")
 parser.add_argument("--no-trace", action="store_true")
 parser.add_argument("--stop", action="store_true", help="quit the launched app at the end (jobs without $NX_APP_STOP)")
 opts = parser.parse_args()
@@ -105,8 +109,8 @@ def wait(predicate, seconds, step=0.25):
     return None
 
 
-def action(name, args=None, target=None):
-    params = {"action": name, "args": args or {}, "focus": False, "origin": "script"}
+def action(name, args=None, target=None, focus=False):
+    params = {"action": name, "args": args or {}, "focus": focus, "origin": "script"}
     if target:
         params["target"] = target
     return rpc("action.run", params)
@@ -289,7 +293,7 @@ def create_ticker(name):
 def grow(target):
     """Adds workspaces until the sidebar holds `target`, ~tick-share of them tickers, spread over groups."""
     have = len(made["workspaces"])
-    want_tickers = max(1, round(target * opts.tick_share))
+    want_tickers = opts.tickers or max(1, round(target * opts.tick_share))
     t0 = time.monotonic()
     for i in range(have, target):
         name = f"ws {i:04d}"
@@ -467,6 +471,94 @@ def scenario_switch(pid, size, count=24):
     return {"clicks": count, "click_to_idle_ms": percentiles(lat), "noop_rpc_ms": noop_ms(), "frames": stats,
             "selected_after": selected[:3], "trace": os.path.relpath(tr.path, OUT), "profile": main_thread_profile(tr.path)}
 
+def switch_targets():
+    """Two terminal and two Chromium workspaces at the top of the sidebar (Cmd-1..4), made once:
+    positions 1-2 Chromium (a page each), 3-4 terminal (a shell each)."""
+    if made.get("switch_targets"):
+        return made["switch_targets"]
+    refs = {}
+    for name in ("sw term b", "sw term a"):
+        refs[name] = cli("workspace", "create", "--name", name).stdout.strip() or name
+    for index, name in enumerate(("sw chromium b", "sw chromium a")):
+        refs[name] = cli("workspace", "create", "--name", name).stdout.strip() or name
+        path = os.path.join(SCRATCH, f"switch-page-{index}.html")
+        open(path, "w").write("<!doctype html><title>p</title><body style='font:14px system-ui'>" +
+                              "".join(f"<p>row {i} <b>bold</b> <code>code</code></p>" for i in range(400)) + "</body>")
+        action("goToWorkspace", {"workspace": refs[name]}, focus=True)
+        time.sleep(0.5)
+        reply = action("openBrowser.chromium", {"url": "file://" + path}, focus=True)
+        if isinstance(reply, dict) and reply.get("error"):
+            note(f"switch matrix: openBrowser.chromium: {reply['error']}")
+        time.sleep(2)
+    # Move to top in reverse so the order is chromium a, chromium b, term a, term b.
+    for name in ("sw term b", "sw term a", "sw chromium b", "sw chromium a"):
+        action("palette.moveWorkspaceToTop", target={"kind": "workspace", "id": refs[name]})
+        time.sleep(0.3)
+    made["switch_targets"] = refs
+    time.sleep(2)
+    return refs
+
+
+def selected_title():
+    return next((r.get("title") for r in workspace_rows() if r.get("selected")), None)
+
+
+def scenario_switch_matrix(pid, size):
+    """Workspace switch, input to the main thread idle after the switch drew, and the longest frame
+    of the switch, per input (click on the row, Cmd-1..4, Ctrl-Cmd-] / [) and per kind (terminal,
+    Chromium page) while the tickers tick. Old builds answer every call it makes."""
+    refs = switch_targets()
+    scroll_to_top()
+    time.sleep(1)
+    ticking(True)
+    time.sleep(2)
+    out = {"tickers": len(made["tickers"])}
+    rows = {r.get("title"): r for r in workspace_rows()}
+    order = [r.get("title") for r in workspace_rows()[:4]]
+    out["top_rows"] = order
+    pairs = {"chromium": ("sw chromium a", "sw chromium b", 1), "terminal": ("sw term a", "sw term b", 3)}
+    tr = Trace(pid, f"{size}-switch-matrix", 4 + 3 * 2 * opts.switches * 0.45 + 10)
+    tr.__enter__()
+    for kind, (a, b, first) in pairs.items():
+        for how in ("click", "cmd_digit", "next_prev"):
+            lat, longest, wrong = [], [], 0
+            action("goToWorkspace", {"workspace": refs[a]}, focus=True)
+            time.sleep(0.6)
+            for i in range(opts.switches):
+                to_b = i % 2 == 0
+                target = b if to_b else a
+                if how == "click":
+                    f = (rows.get(target) or {}).get("window_frame")
+                    if not f:
+                        break
+                    send = lambda: rpc("debug.mouse", {"action": "click", "x": f["x"] + 60, "y": f["y"] + f["height"] / 2})  # noqa: E731
+                elif how == "cmd_digit":
+                    digit = str(first + (1 if to_b else 0))
+                    send = lambda: rpc("debug.key", {"key": digit, "modifiers": ["command"]})  # noqa: E731
+                else:
+                    key = "]" if to_b else "["
+                    send = lambda: rpc("debug.key", {"key": key, "modifiers": ["control", "command"]})  # noqa: E731
+                frames("start")
+                t0 = time.perf_counter()
+                send()
+                rpc("debug.frames", {"action": "read"})  # answered once the main thread handled the input and its render
+                lat.append((time.perf_counter() - t0) * 1000)
+                time.sleep(0.25)
+                stats = frames("stop") or {}
+                if isinstance(stats.get("max_ms"), (int, float)):
+                    longest.append(stats["max_ms"])
+                if i % 4 == 3 and selected_title() != target:
+                    wrong += 1
+                time.sleep(0.2)
+            out[f"{kind}.{how}"] = {"switches": len(lat), "input_to_idle_ms": percentiles(lat),
+                                    "longest_frame_ms": percentiles(longest), "wrong_selection_checks": wrong}
+            note(f"switch matrix {kind} {how}: {out[f'{kind}.{how}']['input_to_idle_ms']}")
+    tr.__exit__(None, None, None)
+    ticking(False)
+    out["trace"] = os.path.relpath(tr.path, OUT)
+    out["profile"] = main_thread_profile(tr.path)
+    return out
+
 
 def scenario_drag(pid, size, moves=180):
     scroll_to_top()
@@ -576,16 +668,25 @@ def main():
             time.sleep(2)
             entry = {"rows_listed": len(workspace_rows()), "load": os.getloadavg(), "noop_rpc_ms": noop_ms()}
             entry["memory"] = cpu_share(app.pid, 3)
-            entry["ticks"] = scenario_ticks(app.pid, size)
+            want = set(opts.scenarios.split(","))
+            if "ticks" in want:
+                entry["ticks"] = scenario_ticks(app.pid, size)
             ticking(False)
             time.sleep(1)
-            entry["scroll"] = scenario_scroll(app.pid, size, "scroll")
-            ticking(True)
-            entry["scroll_while_ticking"] = scenario_scroll(app.pid, size, "scroll-ticking", trace=False)
-            ticking(False)
-            entry["switch"] = scenario_switch(app.pid, size)
-            entry["drag"] = scenario_drag(app.pid, size)
-            entry["hitches"] = scenario_hitches(app.pid, size)
+            if "scroll" in want:
+                entry["scroll"] = scenario_scroll(app.pid, size, "scroll")
+            if "scroll_ticking" in want:
+                ticking(True)
+                entry["scroll_while_ticking"] = scenario_scroll(app.pid, size, "scroll-ticking", trace=False)
+                ticking(False)
+            if "switch" in want:
+                entry["switch"] = scenario_switch(app.pid, size)
+            if "switch_matrix" in want:
+                entry["switch_matrix"] = scenario_switch_matrix(app.pid, size)
+            if "drag" in want:
+                entry["drag"] = scenario_drag(app.pid, size)
+            if "hitches" in want:
+                entry["hitches"] = scenario_hitches(app.pid, size)
             entry["hangs"] = rpc("debug.hangs", {})
             results["sizes"][str(size)] = entry
             with open(os.path.join(OUT, "results.json"), "w") as f:
