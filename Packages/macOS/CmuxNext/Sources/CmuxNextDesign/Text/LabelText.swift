@@ -297,4 +297,14 @@ final class LabelSelectionView: NSTextView {
         if resigned { didResign?() }
         return resigned
     }
+
+    /// A non-breaking hyphen (U+2011, which a label draws to keep a name such as
+    /// "claude-sr2-pipe" on one line) copies as the hyphen it shows, so a pasted name matches.
+    override func writeSelection(to pboard: NSPasteboard, types: [NSPasteboard.PasteboardType]) -> Bool {
+        guard super.writeSelection(to: pboard, types: types) else { return false }
+        if let plain = pboard.string(forType: .string), plain.contains("\u{2011}") {
+            pboard.setString(plain.replacingOccurrences(of: "\u{2011}", with: "-"), forType: .string)
+        }
+        return true
+    }
 }

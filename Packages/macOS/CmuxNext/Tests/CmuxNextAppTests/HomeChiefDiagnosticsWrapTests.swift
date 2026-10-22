@@ -18,12 +18,14 @@ import Testing
             let drawn = name.replacingOccurrences(of: "-", with: "\u{2011}")
             let range = (text as NSString).range(of: drawn)
             #expect(range.location != NSNotFound, "\(name) is not in \(text)")
-            // The text system's own line breaker finds no place to break inside the name.
-            let inside = NSRange(location: range.location + 1, length: range.length - 1)
-            #expect(shown.lineBreak(before: NSMaxRange(range), within: inside) == NSNotFound, "\(text) can break inside \(name)")
+            // The text system's own line breaker: the last place a line can break before the name's
+            // end is where the name starts (the space before it), never inside it. With no break in
+            // the range it answers the range's start, so the range starts at the line's start.
+            let breakAt = shown.lineBreak(before: NSMaxRange(range), within: NSRange(location: 0, length: NSMaxRange(range)))
+            #expect(breakAt <= range.location, "\(text) breaks at \(breakAt), inside \(name) at \(range.location)")
+            // And a line still breaks between words: at the space just before the name.
+            #expect(breakAt > 0 && breakAt == range.location, "\(text) has no break before \(name)")
         }
-        // Between the words a line still breaks.
-        #expect(shown.lineBreak(before: shown.length, within: NSRange(location: 1, length: shown.length - 1)) != NSNotFound)
     }
 
     /// The names read as typed: only their hyphens change, to the non-breaking hyphen that draws the same.

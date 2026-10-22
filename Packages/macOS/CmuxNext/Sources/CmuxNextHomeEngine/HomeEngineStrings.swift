@@ -191,7 +191,8 @@ public nonisolated enum HomeEngineStrings {
     /// "claude-sr2-pipe, claude-opus-5-5": the turn's harness and model, each kept on one line.
     /// The card's diagnostics wrap at its width, and a line broke after a hyphen inside a name
     /// ("claude-sr2-" / "pipe", Leo's screenshot 2026-10-20), so a name's hyphens are
-    /// non-breaking (U+2011, drawn the same); the labels are not selectable, so none is copied.
+    /// non-breaking (U+2011, drawn the same); a copy from the label gives plain hyphens
+    /// (`LabelSelectionView`), so a pasted name matches.
     static func engineTitle(_ turn: HomeEngineTurn) -> String {
         [turn.harness, turn.model].compactMap { $0?.replacingOccurrences(of: "-", with: "\u{2011}") }.joined(separator: ", ")
     }
