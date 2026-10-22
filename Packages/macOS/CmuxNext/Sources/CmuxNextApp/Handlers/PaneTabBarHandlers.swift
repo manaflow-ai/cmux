@@ -32,9 +32,10 @@ enum PaneTabBarHandlers {
         // An app workspace's one pane shows its app without a tab bar (`app-screens-v1`).
         // After both binds: `bind` registers a fresh action and drops an earlier hide rule.
         for id in [toggle, newTab] {
-            // The Home Chief pane has no tab bar to show and takes no new tab (home-chief-pane.md).
+            // A pinned dock closed to other tabs has no tab bar to show and takes no new tab
+            // (home-chief-pane.md); Home's dock takes tabs and offers both.
             ActionTargetVisibility.hide(id, in: registry) { invocation in
-                ctx.paneController(invocation).map { $0.isAppPane || $0.isPinnedDockPane } ?? false
+                ctx.paneController(invocation).map { $0.isAppPane || $0.isClosedPinnedDockPane } ?? false
             }
             // The palette, the CLI and MCP say why instead of reporting a run that did nothing.
             ctx.setTargetReason(id) { invocation in ctx.paneController(invocation).flatMap(noTabBarReason) }
@@ -43,7 +44,7 @@ enum PaneTabBarHandlers {
 
     /// Why `controller` takes no tab bar change and no new tab, or nil.
     static func noTabBarReason(_ controller: PaneController) -> String? {
-        if controller.isPinnedDockPane { return RefusalStrings.chiefPaneHasNoTabBar }
+        if controller.isClosedPinnedDockPane { return RefusalStrings.chiefPaneHasNoTabBar }
         if controller.isAppPane { return RefusalStrings.appPaneHasNoTabBar }
         return nil
     }
@@ -53,12 +54,19 @@ extension PaneController {
     /// An app workspace's pane: it never shows a tab bar.
     var isAppPane: Bool { daemon.store.workspace(containing: pane.handle)?.app != nil }
 
-    /// A pane of a pinned dock that takes no other tab (the Home Chief pane, `pinned-dock-v1`):
-    /// it shows no tab bar and never closes.
-    var isPinnedDockPane: Bool {
+    /// A pane of a pinned dock (the Home Chief pane, `pinned-dock-v1`): it never closes.
+    var isPinnedDockPane: Bool { pinnedDock != nil }
+
+    /// A pane of a pinned dock that takes no other tab (`allow_tabs` off): it shows no tab bar.
+    /// Home's dock takes tabs (Leo 2026-10-21), so this is only a dock the person closed to tabs.
+    var isClosedPinnedDockPane: Bool { pinnedDock.map { !$0.takesTabs } ?? false }
+
+    /// The pinned dock this pane is in, if any.
+    private var pinnedDock: DockColumn? {
         let column = daemon.store.workspace(containing: pane.handle)?.screens.lazy.flatMap(\.columns)
             .first { $0.layout.paneIDs.contains(self.pane.handle) }
-        return column?.dock.map { !LayoutMapping.dock($0).takesTabs } ?? false
+        guard let dock = column?.dock.map({ LayoutMapping.dock($0) }), dock.isPinned else { return nil }
+        return dock
     }
 
     /// Shows or hides this pane's tab bar now. Shown is the default, so it is no choice.

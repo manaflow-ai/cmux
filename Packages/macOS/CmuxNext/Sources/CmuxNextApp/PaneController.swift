@@ -176,8 +176,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let dock = ownWorkspace?.screens.lazy.flatMap(\.columns).first { $0.layout.paneIDs.contains(pane.handle) }?.dock
         let pinned = dock?.isPinned == true
         let tabs = pane.tabs.filter { !hidden.contains($0.id) }
-        // The Home Chief pane (a pinned dock that takes no other tab) shows no tab bar at all
-        // (plans/cmux-next/home-chief-pane.md).
+        // A pinned dock the person closed to other tabs shows no tab bar; Home's dock takes tabs and
+        // shows its strip (plans/cmux-next/home-chief-pane.md).
         let homeChief = dock.map { LayoutMapping.dock($0).hidesTabBar(shownTabs: tabs.count + local.count) } ?? false
         return Snapshot(tabs: tabs, items: local, groups: groups,
                          defaultIndex: pane.defaultTabIndex, generation: store.generation?.rawValue,
@@ -185,7 +185,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
                          hidesStrip: hidesTabBar || ownWorkspace?.app != nil || homeChief,
                          fullWidthTab: services.paneFullWidthTabs.contains(paneKey),
                          keepsFirstTab: pinned && tabs.first?.id == pane.tabs.first?.id,
-                         takesNewTabs: !pinned || dock?.allowsTabs == true)
+                         // What Home's pinned dock opens goes beside it (ChatColumnPlacement), and a
+                         // link from it never lands in it (LinkOpener), so its strip has no +.
+                         takesNewTabs: !pinned)
     }
 
     /// Daemon tab `tab`'s strip item; observed one tab at a time (`tabItems`).
