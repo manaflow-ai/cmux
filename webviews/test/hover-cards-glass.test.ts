@@ -53,7 +53,8 @@ function rules(file: string, css: string): Rule[] {
         stack.push(prelude);
         out.push(...rules(file, inner).map((rule) => ({ ...rule, context: [...stack, rule.context].join(" ") })));
         stack.pop();
-        if (!prelude.startsWith("@")) out.push({ file, selector: prelude, context: stack.join(" "), body: inner.replace(/[^;{}]*\{[^}]*\}/g, "") });
+        if (!prelude.startsWith("@"))
+          out.push({ file, selector: prelude, context: stack.join(" "), body: inner.replace(/[^;{}]*\{[^}]*\}/g, "") });
       } else {
         out.push({ file, selector: prelude, context: stack.join(" "), body: inner });
       }
@@ -81,7 +82,13 @@ function declarations(body: string): Map<string, string> {
   for (const part of body.split(";")) {
     const colon = part.indexOf(":");
     if (colon < 0) continue;
-    map.set(part.slice(0, colon).trim().toLowerCase(), part.slice(colon + 1).replace(/!important/, "").trim());
+    map.set(
+      part.slice(0, colon).trim().toLowerCase(),
+      part
+        .slice(colon + 1)
+        .replace(/!important/, "")
+        .trim(),
+    );
   }
   return map;
 }
@@ -89,7 +96,11 @@ function declarations(body: string): Map<string, string> {
 /// The hover card a selector styles: the root class in its subject (last) compound, as a whole
 /// class name (`.cv-link-preview`, not `.cv-link-preview__open` or `.nt-hovercard-body`).
 function cardOf(selector: string, roots: readonly string[]): string | null {
-  const subject = selector.trim().split(/\s*[\s>+~]\s*/).pop() ?? "";
+  const subject =
+    selector
+      .trim()
+      .split(/\s*[\s>+~]\s*/)
+      .pop() ?? "";
   for (const root of roots) {
     if (new RegExp(`\\.${root.replaceAll("-", "\\-")}(?![\\w-])`).test(subject)) return root;
   }
