@@ -99,6 +99,9 @@ export class SubagentFold {
       const kind = update?.sessionUpdate;
       // The Agent call that spawned it is the parent's, not a step of its own.
       const spawnCall = typeof update?.toolCallId === "string" && this.spawnCalls.has(update.toolCallId);
+      // A nested subagent's Agent call is its parent's update: what it says of the subagent it
+      // started (its worktree, its agentId) is read here too.
+      if (spawnCall) this.readSpawnCall(update.toolCallId, update);
       if (kind !== "subagent_spawned" && kind !== "subagent_state_update" && !spawnCall)
         this.record(owner.id, { event, update });
       this.touch(owner);
@@ -302,7 +305,8 @@ export function agentIdIn(text: string): string | undefined {
 /// something (`worktreePath: /repo/.claude/worktrees/x` and `worktreeBranch: worktree-x`, a line
 /// each), or undefined.
 export function worktreeIn(text: string): { path: string; branch?: string } | undefined {
-  const path = /^worktreePath:[ \t]*(\/\S*)/m.exec(text)?.[1];
+  // The rest of the line: a worktree path may hold a space.
+  const path = /^worktreePath:[ \t]*(\/[^\r\n]*?)[ \t]*$/m.exec(text)?.[1];
   if (!path) return undefined;
   const branch = /^worktreeBranch:[ \t]*(\S+)/m.exec(text)?.[1];
   return branch ? { path, branch } : { path };
