@@ -341,6 +341,7 @@
         "CmuxNextApp",
         "CmuxNextApps",
         "CmuxNextBrowserHistory",
+        "CmuxNextBrowserImport",
         "CmuxNextChiefPetWiring",
         "CmuxNextChromiumRuntime",
         "CmuxNextCompat",
