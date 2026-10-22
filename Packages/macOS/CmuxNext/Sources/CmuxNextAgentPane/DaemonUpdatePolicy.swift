@@ -184,10 +184,11 @@ public actor DaemonUpdatePolicy {
             }
             guard deps.enabled() else {
                 Self.logger.info("daemon update stopped: agent.updatePeers turned off")
-                for retried in queue where retried.firstBusy != nil {
-                    await deps.report(DaemonUpdateEvent(retried.target, .cleared))
-                }
+                let retried = queue.filter { $0.firstBusy != nil }
                 queue.removeAll()
+                for each in retried {
+                    await deps.report(DaemonUpdateEvent(each.target, .cleared))
+                }
                 break
             }
             let pending = queue.remove(at: index)
