@@ -18,7 +18,11 @@ fn timed_out() -> Value {
 /// ask: `bookmark.list` of the profile's bar (starting with `bookmarks`),
 /// `bookmark.importFromBrowser`, `bookmark remove --target bookmark:ID` (the
 /// node and its children), and `browser.importCookies`, whose consent panel
-/// the person allows while `allow` is set. The import puts one "Imported
+/// the person allows while `allow` is set. While `loading` counts down,
+/// `bookmark.list` answers an empty list that is not `loaded` yet, as the
+/// app does before its stored bookmarks arrive. `bookmark.importSources`
+/// names the source keys a Chrome profile name stands for (`moved` names
+/// one the import then does not write). The import puts one "Imported
 /// from" folder per browser on the bar, or refreshes the folder of that
 /// source in place (same id, the new title and children) as the app's
 /// `importDrafts` does, and answers as the app does: `chrome` at once; `arc` lands but the app
@@ -30,6 +34,7 @@ fn timed_out() -> Value {
 struct FakeBrowserApp {
     bookmarks: Arc<Mutex<Vec<Value>>>,
     allow: Arc<std::sync::atomic::AtomicBool>,
+    loading: Arc<std::sync::atomic::AtomicUsize>,
     requests: Arc<Mutex<Vec<Value>>>,
 }
 
@@ -41,9 +46,11 @@ impl FakeBrowserApp {
         let app = Self {
             bookmarks: Arc::new(Mutex::new(bookmarks)),
             allow: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            loading: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             requests: Arc::new(Mutex::new(Vec::new())),
         };
-        let (bookmarks, allow) = (app.bookmarks.clone(), app.allow.clone());
+        let (bookmarks, allow, loading) =
+            (app.bookmarks.clone(), app.allow.clone(), app.loading.clone());
         serve_app(listener, app.requests.clone(), move |method, params| {
             let ran = json!({"action": params["action"], "ran": true, "waited": true});
             let land = |id: &str, key: &str, title: &str| {
@@ -64,11 +71,32 @@ impl FakeBrowserApp {
                     "title": "cmux", "url": "https://cmux.com/"}));
             };
             Some(match (method, params["action"].as_str()) {
-                ("bookmark.list", _) => Ok(json!({
-                    "profile": params["profile"].as_str().unwrap_or("default"),
-                    "storage": "file",
-                    "bookmarks": *bookmarks.lock().unwrap(),
-                })),
+                ("bookmark.list", _) => {
+                    let loaded = loading
+                        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                        .is_err();
+                    let listed = if loaded { bookmarks.lock().unwrap().clone() } else { vec![] };
+                    Ok(json!({
+                        "profile": params["profile"].as_str().unwrap_or("default"),
+                        "storage": "file",
+                        "loaded": loaded,
+                        "bookmarks": listed,
+                    }))
+                }
+                ("bookmark.importSources", _) => {
+                    let source = params["source"].as_str().unwrap_or_default().to_lowercase();
+                    let folder = match (params["browser"].as_str(), source.as_str()) {
+                        (Some("chrome"), "default" | "person 1") => Some("Default"),
+                        (Some("chrome"), "work" | "profile 1") => Some("Profile 1"),
+                        (Some("chrome"), "moved") => Some("Profile 3"),
+                        _ => None,
+                    };
+                    let sources = folder.map(|folder| {
+                        json!({"source_key": format!("chrome/{folder}"),
+                        "browser": "chrome", "folder": folder, "name": source})
+                    });
+                    Ok(json!({"sources": sources.into_iter().collect::<Vec<_>>()}))
+                }
                 ("action.run", Some("bookmark.importFromBrowser")) => {
                     match params["args"]["browser"].as_str().unwrap_or_default() {
                         "chrome" => {
@@ -321,18 +349,30 @@ fn cmux_setup_browser_import_undoes_only_what_it_imported() {
     assert_eq!(*app.bookmarks.lock().unwrap(), vec![own, firefox]);
 }
 
-/// A profile named in a way the folder no longer shows (the person renamed
-/// it) imports again, and the app refreshes that folder in place: `changed`
-/// with the folder in `after.refreshed`, no undo (setup's remove would take
-/// the person's folder), and a note naming the app's toast Undo.
+/// A named profile is matched by the source keys the app's import would
+/// use, never by the folder's title, which is localized and the person may
+/// rename. When the import writes another folder than the one the app's
+/// sources named (the browser's profiles changed in between), the app
+/// refreshes that folder in place: `changed` with the folder in
+/// `after.refreshed`, no undo (setup's remove would take the person's
+/// folder), and a note naming the app's toast Undo.
 #[test]
 fn cmux_setup_browser_import_reports_a_folder_refreshed_in_place() {
     let mut world = World::new("bifresh");
     let renamed = json!({"id": "mine", "kind": "folder", "parent": "bar", "title": "Chrome",
         "source_key": "chrome/Default"});
-    let app = FakeBrowserApp::start(&mut world, vec![renamed]);
+    let japanese = json!({"id": "ja", "kind": "folder", "parent": "bar",
+        "title": "Google Chrome (Work) から読み込み", "source_key": "chrome/Profile 1"});
+    let app = FakeBrowserApp::start(&mut world, vec![renamed, japanese]);
+    let run = |args: &[&str]| world.json(&[&["setup", "browser-import"][..], args].concat());
 
-    let refreshed = world.json(&["setup", "browser-import", "--browser", "chrome:Person 1"]);
+    assert_eq!(run(&["--browser", "chrome:Work"])["state"], "ok");
+    assert_eq!(run(&["--browser", "chrome:Person 1"])["state"], "ok");
+    let gone = run(&["--browser", "chrome:Nobody"]);
+    assert_eq!(gone["user_action"]["kind"], "browser", "{gone}");
+    assert!(app.runs().is_empty(), "{:?}", app.runs());
+
+    let refreshed = run(&["--browser", "chrome:Moved"]);
     assert_eq!(refreshed["state"], "changed", "{refreshed}");
     assert_eq!(refreshed["undo"], Value::Null, "{refreshed}");
     assert_eq!(refreshed["after"]["folders"], json!([]), "{refreshed}");
@@ -343,5 +383,25 @@ fn cmux_setup_browser_import_reports_a_folder_refreshed_in_place() {
     assert_eq!(app.runs().len(), 1, "{:?}", app.runs());
     // The folder kept its id: it is the person's, with the new bookmarks in it.
     let ids = app.bookmarks.lock().unwrap().iter().map(|n| n["id"].clone()).collect::<Vec<_>>();
-    assert_eq!(ids, [json!("mine"), json!("mine_1")]);
+    assert_eq!(ids, [json!("mine"), json!("ja"), json!("mine_1")]);
+}
+
+/// Before the app has its stored bookmarks, `bookmark.list` is empty and not
+/// `loaded`: setup reads again rather than taking the folders already there
+/// for new ones, and says to wait when the app takes too long.
+#[test]
+fn cmux_setup_browser_import_waits_for_the_apps_bookmarks() {
+    let mut world = World::new("biload");
+    let chrome = json!({"id": "c", "kind": "folder", "parent": "bar",
+        "title": "Imported from Google Chrome (Person 1)", "source_key": "chrome/Default"});
+    let app = FakeBrowserApp::start(&mut world, vec![chrome]);
+
+    app.loading.store(3, Ordering::SeqCst);
+    let ok = world.json(&["setup", "browser-import", "--browser", "chrome"]);
+    assert_eq!(ok["state"], "ok", "{ok}");
+
+    app.loading.store(usize::MAX, Ordering::SeqCst);
+    let wait = world.json(&["setup", "browser-import", "--browser", "chrome"]);
+    assert_eq!(wait["user_action"]["kind"], "wait", "{wait}");
+    assert!(app.runs().is_empty(), "{:?}", app.runs());
 }
