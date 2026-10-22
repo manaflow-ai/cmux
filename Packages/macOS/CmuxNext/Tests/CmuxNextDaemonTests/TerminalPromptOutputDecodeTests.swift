@@ -31,15 +31,15 @@ import Testing
         #expect(touched == [.terminal("term_7")], "newer output is a change")
     }
 
-    /// A command starting drops the prompt and the last output from the record: the mirror clears
-    /// both, so no stale prompt or output time survives.
+    /// A record that drops the prompt and the last output (nothing else changed): the mirror clears
+    /// both, and that alone is a change, so no stale prompt or output time survives.
     @Test func aTerminalWithoutThemHasNeither() throws {
         var mirror = SessionStateMirror()
         mirror.apply(try delta(#"{"prompt":{"since_ms":"1700000000000"},"last_output":{"at_ms":"1700000012000"}}"#)[0])
         #expect(mirror.terminalLastOutputMs["term_7"] == 1_700_000_012_000)
 
-        let changes = try delta(#"{"busy":{"since_ms":"1700000020000"}}"#)
-        #expect(changes == [.terminal("term_7", nil, busySinceMs: 1_700_000_020_000)])
+        let changes = try delta("{}")
+        #expect(changes == [.terminal("term_7", nil)])
         var touched: Set<SessionStateMirror.Touched> = []
         mirror.apply(changes[0], touched: &touched)
         #expect(mirror.terminalPromptSinceMs["term_7"] == nil)

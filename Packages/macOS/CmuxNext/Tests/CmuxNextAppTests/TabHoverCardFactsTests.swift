@@ -134,6 +134,14 @@ struct TabHoverCardFactsTests {
         #expect(TabHoverCardLines.tone(item) == .secondary)
     }
 
+    /// A daemon whose clock runs ahead names a prompt in this Mac's future: it counts from when this
+    /// Mac saw it, so two minutes on the shell reads as quiet, not as output that never ages.
+    @Test func aPromptFromADaemonAheadCountsFromWhenItArrived() throws {
+        let item = try terminalItem(extra: #"{"prompt":{"since_ms":"\#(ms(-600))"}}"#)
+        let later = TabHoverCardLines.make(item, report: nil, now: Date().addingTimeInterval(120))
+        #expect(later.status == "Idle · 2m", "counted from its arrival: \(String(describing: later.status))")
+    }
+
     /// With no shell integration the daemon sends no prompt: no claim that the shell is idle.
     @Test func aTerminalWithNoPromptRecordSaysNothingAboutOutput() throws {
         let item = try terminalItem(extra: #"{"last_output":{"at_ms":"\#(ms(12))"}}"#)
