@@ -25,6 +25,7 @@ mod keybinding_tools;
 mod messages;
 mod render_tool;
 mod schema;
+mod terminal_talk_tools;
 #[cfg(test)]
 mod tests;
 mod transport;
@@ -101,7 +102,9 @@ const INSTRUCTIONS: &str = "These tools drive the cmux terminal app and its sess
     *_list tools report; a unique prefix works, and <session>:<id> reaches another session. \
     A change takes idempotency_key: when a call fails with state in_progress, retry it with the \
     key from the error so it cannot apply twice. Tools never move the user's focus unless the \
-    call passes focus: true or the tool's purpose is focus.";
+    call passes focus: true or the tool's purpose is focus. \
+    In a cmux chat reply, show UI rather than describe it: ![alt](/abs/path.png), a bare image \
+    path or an https image address draws as a thumbnail, and two in one paragraph sit side by side.";
 
 /// A catalog entry that is not a tool, and why.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -550,6 +553,7 @@ impl<B: Backend> Server<B> {
         tools.push(super::agents_doctor::mcp_tool());
         tools.push(agent_wait_tool::descriptor());
         tools.push(agent_events_tool::descriptor());
+        tools.extend(terminal_talk_tools::descriptors());
         tools.push(render_tool::descriptor());
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
@@ -748,6 +752,13 @@ impl<B: Backend> Server<B> {
         if name == agent_events_tool::NAME {
             return Ok(agent_events_tool::call(&self.backend, &arguments));
         }
+        if name == terminal_talk_tools::LIST {
+            return Ok(terminal_talk_tools::call_list(&self.backend, &arguments));
+        }
+        if name == terminal_talk_tools::SEND {
+            let progress = agent_wait_tool::Progress::requested(params, self.notes.as_ref());
+            return Ok(terminal_talk_tools::call_send(&self.backend, &arguments, progress));
+        }
         if name == render_tool::NAME {
             return Ok(match render_tool::receipt(&arguments, &mut self.renders) {
                 Ok(receipt) => success(receipt, false),
@@ -869,7 +880,11 @@ fn initialize(params: &Value, list_changed: bool, code_mode: bool) -> Value {
         "protocolVersion": version,
         "capabilities": {"tools": {"listChanged": list_changed}},
         "serverInfo": {"name": "cmux", "title": "cmux", "version": env!("CARGO_PKG_VERSION")},
-        "instructions": if code_mode { code_mode::INSTRUCTIONS } else { INSTRUCTIONS },
+        "instructions": format!(
+            "{} {}",
+            if code_mode { code_mode::INSTRUCTIONS } else { INSTRUCTIONS },
+            acpmux::agent_tools::ASKING_RULE
+        ),
     })
 }
 

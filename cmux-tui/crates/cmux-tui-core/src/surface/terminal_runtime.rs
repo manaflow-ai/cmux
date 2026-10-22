@@ -62,6 +62,9 @@ impl PtyTerminalRuntime {
         bytes: &[u8],
     ) -> Vec<crate::terminal_metadata::TerminalNotification> {
         let mut metadata = self.terminal_metadata.lock().unwrap();
+        if !bytes.is_empty() {
+            metadata.activity.note_output(crate::workspace_registry::unix_epoch_ms().unwrap_or(0));
+        }
         metadata.observe_output(bytes);
         metadata.take_admitted_notifications(Instant::now())
     }

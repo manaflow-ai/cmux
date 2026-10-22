@@ -14,6 +14,8 @@ import os
 ///   not the agent pane's relay: no page frame ever reaches it.
 /// - Each pending prompt becomes one feed `approve` request (tool, the exact
 ///   command, a short input summary; secret shapes scrubbed, env never sent).
+///   A question (`acpmuxIsQuestion`) becomes a notice instead, with no answer:
+///   the person answers it in the chat.
 ///   The ids of the items it posted are kept in memory for this launch only:
 ///   a look-alike item another local client posted through `feed.request` is
 ///   never trusted, whatever its poster says.
@@ -48,6 +50,8 @@ final class AcpmuxPermissionFeedBridge {
         let shown: String
         /// The Mac cut what it posted: an allow from the phone is refused.
         let truncated: Bool
+        /// A question's notice: withdrawn when answered elsewhere, never answered from the feed.
+        var notice = false
     }
 
     /// This Mac's context and the owner's presence keys, read fresh for each
@@ -225,6 +229,7 @@ final class AcpmuxPermissionFeedBridge {
     /// The feed.post body for one prompt: what the person must see to decide.
     /// `host`: this Mac's install id (`context.host`), the install the phone's proof names.
     nonisolated static func postBody(session: String, permission: String, request: [String: Any], host: String) -> [String: Any] {
+        if request.acpmuxIsQuestion { return questionBody(session: session, permission: permission, request: request, host: host) }
         let call = request["toolCall"] as? [String: Any] ?? [:]
         let rawTitle = call["title"] as? String ?? ""
         let title = rawTitle.secretsScrubbed.acpmuxVisible
@@ -264,6 +269,38 @@ final class AcpmuxPermissionFeedBridge {
         return ["op": "feed.post", "params": params, "idempotency_key": String(key.prefix(200)), "origin": "script"]
     }
 
+    /// A question an agent asks (`acpmuxIsQuestion`) is never a permission (Leo 2026-10-21): it
+    /// posts as a notice that names the agent and its question and opens the chat that asks,
+    /// with no Allow or Deny. The person answers it in the chat.
+    nonisolated static func questionBody(session: String, permission: String, request: [String: Any], host: String) -> [String: Any] {
+        let call = request["toolCall"] as? [String: Any] ?? [:]
+        let normalized = request.acpmuxQuestion
+        let firstItem = (normalized?["items"] as? [[String: Any]])?.first
+        let asked = ((call["rawInput"] as? [String: Any])?["questions"] as? [[String: Any]])?.first
+        let text = (firstItem?["prompt"] as? String ?? asked?["question"] as? String ?? call["title"] as? String ?? "")
+            .secretsScrubbed.acpmuxVisible.acpmuxCut(160)
+        let agent = (normalized?["agent"] as? String).map { $0.acpmuxVisible.acpmuxCut(60) }.flatMap { $0.isEmpty ? nil : $0 }
+            ?? String(localized: "feed.bridge.question.agent", defaultValue: "An agent", bundle: .module)
+        let key = "acpmux:\(permission)"
+        let heading = text.isEmpty
+            ? String(localized: "feed.bridge.question.untitled", defaultValue: "\(agent) asks a question", bundle: .module)
+            : String(localized: "feed.bridge.question.title", defaultValue: "\(agent) asks: \(text)", bundle: .module)
+        let params: [String: Any] = [
+            "type": "notice",
+            "kind": "notice",
+            "title": heading.acpmuxCut(200),
+            // The agent waits on the answer: push it as soon as a permission request, and let it
+            // lapse with the request's 24 hours rather than a notice's week.
+            "priority": "high",
+            "expires_in_ms": 86_400_000,
+            "context": ["host": String(host.prefix(128)), "acp_session": String(session.prefix(128))],
+            "dedupe_key": String(key.prefix(200)),
+            "thread": String("acpmux:\(session)".prefix(200)),
+            "poster": ["label": String(localized: "feed.bridge.poster", defaultValue: "Agent", bundle: .module)],
+        ]
+        return ["op": "feed.post", "params": params, "idempotency_key": String(key.prefix(200)), "origin": "script"]
+    }
+
     private func post(session: String, permission: String, request: [String: Any]) async {
         guard isSignedIn(), postedPermissions.insert(permission).inserted else { return }
         do {
@@ -281,7 +318,8 @@ final class AcpmuxPermissionFeedBridge {
             let action = ((body["params"] as? [String: Any])?["prompt"] as? [String: Any])?["action"] as? [String: Any] ?? [:]
             posted[id] = Posted(session: session, permission: permission, digest: request.acpmuxDigest,
                                 shown: FeedApproveProofCheck.shownSHA256(action: action),
-                                truncated: action["truncated"] as? Bool ?? false)
+                                truncated: action["truncated"] as? Bool ?? false,
+                                notice: (body["params"] as? [String: Any])?["type"] as? String == "notice")
             logger.info("feed bridge: posted \(id, privacy: .public) for \(permission, privacy: .public)")
         } catch {
             postedPermissions.remove(permission)
@@ -307,7 +345,7 @@ final class AcpmuxPermissionFeedBridge {
     /// the person answered.
     func itemsChanged(_ items: [FeedItem]) {
         for item in items where item.state != .open {
-            guard let entry = posted.removeValue(forKey: item.id) else { continue }
+            guard let entry = posted.removeValue(forKey: item.id), !entry.notice else { continue }
             guard let answer = item.answer, case .approve(let decision) = answer.value else {
                 logger.info("feed bridge: \(item.id, privacy: .public) closed without an answer; nothing answered")
                 continue
