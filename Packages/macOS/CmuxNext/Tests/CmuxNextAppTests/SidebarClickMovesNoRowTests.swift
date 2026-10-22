@@ -67,6 +67,8 @@ struct SidebarClickMovesNoRowTests {
         ], activeWorkspaceID: WorkspaceID("b1"))
         let (sidebar, window) = Self.sidebar(model)
         defer { window.close() }
+        // The pointer stays over the rows it clicks; it leaving folds the member away (SidebarCollapsedGroupMemberTests).
+        sidebar.list.pointerIsOverList = { _ in true }
         let before = Self.tops(sidebar.list)
         #expect(before[.workspace(WorkspaceID("b1"))] != nil, "the collapsed group does not draw its selected member")
 
@@ -79,7 +81,7 @@ struct SidebarClickMovesNoRowTests {
         sidebar.renderNow()
         #expect(Self.tops(sidebar.list) == before, "a second click moved rows")
 
-        // A later full layout (any structural set) draws the same rows: the group keeps the member it showed.
+        // A later full layout under the pointer (any structural set) draws the same rows: the group keeps the member it showed.
         sidebar.list.reload(animated: false, fromModel: true)
         #expect(Self.tops(sidebar.list) == before, "the next layout dropped the member the group showed")
 
