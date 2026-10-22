@@ -38,6 +38,7 @@ test("disk, tailnet, quit and start failures each name their cause", () => {
       "tailscale",
     ],
     ["authentication failed: dial tcp proxy.tail123.ts.net:443: connect: connection refused", "tailscale"],
+    ['{"url":"https://proxy.tail123.ts.net/v1/messages","status":401,"message":"logged out"}', "proxy-auth"],
     ["API Error: 529 overloaded_error from https://proxy.tail123.ts.net/v1/messages", "rate-limited"],
     ["dial tcp proxy.tail123.ts.net:443: connect: connection refused", "tailscale"],
   ];

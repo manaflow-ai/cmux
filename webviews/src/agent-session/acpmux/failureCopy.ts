@@ -45,8 +45,9 @@ const DISK_FULL = /ENOSPC|no space left on device|disk (?:is )?full|out of disk 
 /// it did not connect. A tailnet host that answered (a 401, a 529) is that answer, not Tailscale,
 /// even when its body says "logged out" (`ANSWERED`).
 const TAILSCALE = /tailscale|tailnet|\.ts\.net\b/i;
-/// URLs and tailnet host names, with their paths and ports: their words are not a host's answer.
-const ADDRESSES = /https?:\/\/\S+|\S+\.ts\.net\S*/gi;
+/// URLs and tailnet host names, with their paths and ports: their words are not a host's answer. They
+/// end at a quote, bracket or comma, so a serialized error's next field (`"status":401`) stays.
+const ADDRESSES = /https?:\/\/[^\s"'<>()[\]{},]+|[^\s"'<>()[\]{},:/]+\.ts\.net[^\s"'<>()[\]{},]*/gi;
 /// An HTTP refusal: a status or its reason phrase. Not "oauth" or "authentication", which name what
 /// was being attempted ("OAuth token refresh failed: … i/o timeout") rather than a reply.
 const ANSWERED = /\b40[13]\b|unauthori[sz]ed|forbidden/i;
