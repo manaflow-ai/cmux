@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextHome
 import Testing
 import WebKit
 
@@ -155,6 +156,44 @@ import WebKit
         let native = shot.all(in: fixture.plain.frame.insetBy(dx: 2, dy: 2), size: size)
         #expect(!native.isEmpty)
         #expect(native.allSatisfy(Self.isGreen), "pixels outside browser pages are left as they are")
+    }
+
+    /// The handler's choice: a socket run, even one claiming `user`, gets the masked image and
+    /// `masked`; only a person's own run in the app gets the raw one. The pane crop is masked too.
+    @Test(.enabled("this host puts windows on screen") { await MaskedScreenshotTests.hostShowsWindows() })
+    func theHandlerMasksEverySocketRunAndOnlyThePersonsIsRaw() async throws {
+        let fixture = fixture()
+        defer { fixture.close() }
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let page = fixture.pageRect
+        _ = try await rawCapture(fixture)
+        var claimed = ActionInvocation(origin: .user)
+        claimed.viaControlSocket = true
+        for invocation in [claimed, ActionInvocation(origin: .mcp), ActionInvocation(origin: .cli)] {
+            let shot = try await ScreenshotHandlers.shown(fixture.window, crop: nil, for: invocation, services: services)
+            #expect(shot.masked ?? 0 >= 1, "\(invocation.origin) is masked")
+            #expect(!Pixels(shot.image).everyPixel.contains(where: Self.isRed))
+            let crop = try await ScreenshotHandlers.shown(fixture.window, crop: fixture.chrome.pageArea, for: invocation, services: services)
+            #expect(crop.masked != nil)
+            #expect(Pixels(crop.image).everyPixel.allSatisfy(Self.isMask), "the page area crop is all mask")
+        }
+        let person = try await ScreenshotHandlers.shown(fixture.window, crop: nil, for: ActionInvocation(), services: services)
+        #expect(person.masked == nil)
+        #expect(Self.isRed(Pixels(person.image).at(CGPoint(x: page.midX, y: page.midY), size: fixture.window.frame.size)))
+    }
+
+    /// App pages are masked unless checked to show nothing secret: a new page is masked by default.
+    @Test func appPagesAreMaskedUnlessListedAndHomeIsMasked() {
+        #expect(!ScreenshotMask.shownAppPages.contains("cmux.agent"))
+        #expect(!ScreenshotMask.shownAppPages.contains("cmux.passwords"))
+        #expect(!ScreenshotMask.shownAppPages.contains("cmux.home-channels"))
+        #expect(!ScreenshotMask.shownAppPages.contains("cmux.settings"))
+        #expect(ScreenshotMask.covers(HomeSidebarView()))
+        let fixture = fixture(onScreen: false)
+        defer { fixture.close() }
+        let list = HomeSidebarView(frame: NSRect(x: 4, y: 4, width: 60, height: 60))
+        fixture.plain.addSubview(list)
+        #expect(ScreenshotMask.read(fixture.window).regions.contains(list.convert(list.bounds, to: nil)))
     }
 
     /// The screen lags the view tree: a page shown for one run loop turn while the capture

@@ -1,15 +1,18 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextBrowser
+import CmuxNextHome
 import CmuxNextPages
 import CmuxNextWakeups
 import WebKit
 
 /// What an agent's or a script's capture of a window (`cmux window|pane|tab screenshot` over the
-/// control socket) covers: every browser page area and every chat the window shows. A page's
-/// pixels reach automation only through the browser host's guarded capture (`cmux browser page
-/// screenshot`, which hides the secrets sessions typed), and a chat's text only through `cmux
-/// agents chat read`, which masks secrets; a window capture masks both whole.
+/// control socket) covers: every browser page area, every chat and conversation, and every app
+/// page not known to show nothing secret. A page's pixels reach automation only through the
+/// browser host's guarded capture (`cmux browser page screenshot`, which hides the secrets
+/// sessions typed), and a chat's text only through `cmux agents chat read`, which masks
+/// secrets; a window capture masks them whole. App pages are masked unless listed in
+/// ``shownAppPages``, so a new page is masked until someone checks it.
 ///
 /// The areas come from the window's view tree, not from what a pane's model says it shows, so a
 /// page a pane keeps on screen while its next tab paints (`PanePaintHold`), a sleeping page's
@@ -76,12 +79,22 @@ struct ScreenshotMask {
         return mask
     }
 
-    /// Whether a capture covers `view` whole: a browser tab's page, an agent chat (the agent
-    /// page, also the New Tab page) or a conversation. Any other web view is covered unless
-    /// it is one of the app's own pages (``read(_:)``).
+    /// The app pages a capture shows: they hold no secret, chat or browsing data, and nothing an
+    /// agent cannot read another way (files, diffs, keys, the changelog). Every other app page
+    /// (Settings with its key fields, Passwords, History, Home Channels, the agent page, Agent
+    /// Activity's screen frames, the Chief's pages) is masked.
+    static let shownAppPages: Set<String> = [
+        "cmux.keybindings", "cmux.changelog", "cmux.icon-picker", "cmux.apps", "cmux.diff", "cmux.markdown", "cmux.editor",
+        "cmux.files", "cmux.debug-settings",
+    ]
+
+    /// Whether a capture covers `view` whole: a browser tab's page, an agent chat, a Home
+    /// conversation, list or draft, or an app page not in ``shownAppPages``. Any other web view is
+    /// covered unless a shown app page holds it (``read(_:)``).
     static func covers(_ view: NSView) -> Bool {
-        BrowserChromeView.isPageContent(view) || view is AgentPaneView || view is HomeHostView
-            || (view as? PageWebView)?.descriptor.id == PageDescriptor.agent.id
+        if let page = view as? PageWebView { return !shownAppPages.contains(page.descriptor.id) }
+        return BrowserChromeView.isPageContent(view) || view is AgentPaneView || view is HomeHostView || view is TopHomePageView
+            || view is HomeNewMessageView || view is HomeDockSwitchView || view is HomeSidebarView || view is HomeNativeTranscriptView
     }
 
     /// Whether `view` or a view holding it is covered: its own image is not painted in.

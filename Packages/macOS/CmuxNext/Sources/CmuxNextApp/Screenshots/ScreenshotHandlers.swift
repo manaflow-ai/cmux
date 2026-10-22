@@ -40,7 +40,7 @@ enum ScreenshotHandlers {
             let output = try ScreenshotOutput(invocation)
             guard let window = try context.window(invocation).window else { throw ActionFailure(message: ScreenshotStrings.notOnScreen) }
             start(output: output, invocation: invocation, context: context) {
-                try await shown(window, crop: nil, masked: !isPersonsRun(invocation), services: context.services)
+                try await shown(window, crop: nil, for: invocation, services: context.services)
             }
         })
         registry.bind("pane.screenshot", run: { invocation in
@@ -55,7 +55,7 @@ enum ScreenshotHandlers {
             }
             let view = pane.view
             start(output: output, invocation: invocation, context: context) {
-                try await shown(window, crop: view, masked: !isPersonsRun(invocation), services: context.services)
+                try await shown(window, crop: view, for: invocation, services: context.services)
             }
         })
         registry.bind("tab.screenshot", run: { invocation in
@@ -65,7 +65,7 @@ enum ScreenshotHandlers {
                !controller.view.contentHost.isHiddenOrHasHiddenAncestor {
                 let view = controller.view.contentHost
                 start(output: output, invocation: invocation, context: context) {
-                    try await shown(window, crop: view, masked: !isPersonsRun(invocation), services: context.services)
+                    try await shown(window, crop: view, for: invocation, services: context.services)
                 }
                 return
             }
@@ -114,10 +114,11 @@ enum ScreenshotHandlers {
         var masked: Int?
     }
 
-    /// `window` as on screen, cropped to `crop`'s frame when given; `masked` for automation.
-    private static func shown(_ window: NSWindow, crop view: NSView?, masked: Bool, services: AppServices) async throws -> Capture {
+    /// `window` as on screen, cropped to `crop`'s frame when given: raw for a person's own run,
+    /// masked for any other (``isPersonsRun(_:)``).
+    static func shown(_ window: NSWindow, crop view: NSView?, for invocation: ActionInvocation, services: AppServices) async throws -> Capture {
         let shot: (image: CGImage, masked: Int?)
-        if masked {
+        if !isPersonsRun(invocation) {
             let result = try await AppWindowImage.maskedCapture(window)
             shot = (result.image, result.masked)
         } else {
