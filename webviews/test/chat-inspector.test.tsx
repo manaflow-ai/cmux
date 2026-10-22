@@ -197,13 +197,19 @@ test("the Inspector opens with a first chat: its environment, context use and ou
   expect(rows[1]!.getAttribute("title")).toBe(CWD);
   expect(rows.map((row) => row.textContent)).toContain("main");
 
-  // Context: 48K of 200K is 24% with a bar, folded until asked; then the tokens.
+  // Context: 48K of 200K is 24% with a bar, folded until asked; then, as Claude Code desktop's, the
+  // percent used with the tokens, a bar, and the used and free parts with their shares.
   const context = section(container, "context")!;
   expect(meta(context)).toContain("24%");
   expect(context.querySelector(".acpmux-chat-inspector-meter")).not.toBeNull();
   expect(context.textContent).not.toContain("tokens");
   await click(head(context));
-  expect(section(container, "context")!.textContent).toMatch(/48K of 200K tokens/);
+  const open = section(container, "context")!;
+  expect(open.querySelector(".acpmux-chat-inspector-context__total")?.textContent).toBe("24% used48K / 200K");
+  const bar = open.querySelector<HTMLElement>('.acpmux-chat-inspector-context__bar [data-part="used"]');
+  expect(bar?.style.width).toBe("24%");
+  const parts = [...open.querySelectorAll<HTMLElement>(".acpmux-chat-inspector-row[data-part]")];
+  expect(parts.map((row) => row.textContent)).toEqual(["Used48K24%", "Free space152K76%"]);
 
   // Outputs: the changed and the created file, each opening its diff by path.
   const files = [
@@ -235,7 +241,7 @@ test("open, closed, folds and width hold in every chat pane, following another p
   await render(container, localChat);
   expect(panel(container)).toBeNull();
   await click(toggle(container)!);
-  expect(section(container, "context")!.textContent).toMatch(/48K of 200K tokens/);
+  expect(section(container, "context")!.textContent).toContain("48K / 200K");
   expect(inspectorState().sections.context).toBe(true);
 
   // Another pane closes it: this one follows its storage event.
@@ -362,7 +368,7 @@ test("an output whose diff split leaves no room to push the chat closes the Insp
   paneWidth = 0;
 });
 
-test("Connectors counts the connected servers and the ones to reconnect; a harness that reports none has no section", async () => {
+test("Connectors says how many to reconnect, else how many connected; open, each server's status", async () => {
   const container = installDom(true);
   const base = chat([]);
   await render(container, {
@@ -378,14 +384,23 @@ test("Connectors counts the connected servers and the ones to reconnect; a harne
   });
   expect(sectionIds(container)).toEqual(["environment", "context", "connectors"]);
   const connectors = section(container, "connectors")!;
-  expect(meta(connectors)).toBe("1 connected · 1 to reconnect");
+  // As Claude Code desktop's head: the servers to reconnect, when any failed.
+  expect(meta(connectors)).toBe("1 to reconnect");
   expect(connectors.querySelector(".acpmux-chat-inspector-row")).toBeNull();
   await click(head(connectors));
   const rows = [...section(container, "connectors")!.querySelectorAll(".acpmux-chat-inspector-row")].map(
     (row) => row.textContent,
   );
-  expect(rows).toEqual(["github", "linearNeeds reconnect", "sentryConnecting"]);
+  expect(rows).toEqual(["githubConnected", "linearNeeds reconnect", "sentryConnecting"]);
 
+  // None failed: how many are connected.
+  await render(container, {
+    ...base,
+    summary: { ...base.summary!, mcpServers: [{ name: "github", status: "connected" }] },
+  });
+  expect(meta(section(container, "connectors"))).toBe("1 connected");
+
+  // A harness that reports none has no section.
   await render(container, base);
   expect(section(container, "connectors")).toBeNull();
 });

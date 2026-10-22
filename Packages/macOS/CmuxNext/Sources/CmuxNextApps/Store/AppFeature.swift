@@ -23,11 +23,15 @@ public nonisolated struct AppFeature: Sendable, Hashable, Identifiable {
 
     public enum Category: String, Sendable, Hashable, CaseIterable {
         case backgrounds
+        case appearance
         case chief
         case newTab
         case sidebar
         case media
+        case editor
+        case devices
         case browser
+        case layout
     }
 
     /// What the card shows above its name.

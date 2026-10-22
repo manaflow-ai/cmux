@@ -171,6 +171,7 @@ impl Hub {
                 // The person rewrote it: it is no longer the sender's message.
                 provenance: None,
                 agent: None,
+                supersede: None,
             });
             q.preview = short_text(&text, 200);
             (q.turn_id.clone(), q.run.clone(), text)
@@ -240,6 +241,7 @@ impl Hub {
                     trust_gate: q.run.trust_gate,
                     provenance: q.run.provenance.clone(),
                     agent: q.run.agent.clone(),
+                    supersede: q.run.supersede.clone(),
                 };
                 (q.run, q.steer) = (Arc::new(run), true);
             }
