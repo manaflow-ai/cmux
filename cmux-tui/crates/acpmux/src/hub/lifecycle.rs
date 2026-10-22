@@ -147,7 +147,8 @@ impl Hub {
                 && route.is_none()
                 && meta.tools.off.is_empty()
                 && !(crate::codex_app_server::is_profile_launch(&profile.argv)
-                    && (name.is_some() || self.config.read().await.titles.generate == Some(false))) =>
+                    && (name.is_some()
+                        || self.config.read().await.titles.generate == Some(false))) =>
             {
                 self.pool_claim(&meta, &profile, &defaults.env).await
             }
