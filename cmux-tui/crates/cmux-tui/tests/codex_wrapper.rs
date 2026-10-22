@@ -381,14 +381,31 @@ fn codex_typed_in_a_terminal_reports_to_that_terminal_after_startup_files_reorde
     }
 }
 
-/// Runs `command` from a shell whose own argv looks like Codex's shared
-/// app-server daemon (`codex app-server --listen unix:// --managed-daemon`),
-/// with `env` as the environment that daemon inherited.
-fn run_under_codex_daemon(command: &str, env: &[(&str, &std::ffi::OsStr)], daemon: bool) {
+/// Runs `command` the way Codex's shared app-server daemon
+/// (`codex app-server --listen unix:// --managed-daemon`) runs a hook: a
+/// process with the daemon's argv starts `$SHELL -lc <command>`, and the
+/// shell forks the compound hook command. `extra_shells` adds shells between
+/// them (a tool command of a daemon-hosted session that runs its own hooks
+/// further down). `env` is the environment the daemon inherited.
+fn run_under_codex_daemon(
+    command: &str,
+    env: &[(&str, &std::ffi::OsStr)],
+    daemon: bool,
+    extra_shells: usize,
+) {
+    // Each layer forks the next (`; :` keeps sh from exec'ing it).
+    let mut layers = vec![format!("{command}; :")];
+    for _ in 0..=extra_shells {
+        let index = layers.len() - 1;
+        layers.push(format!("/bin/sh -c \"$CDH_LAYER_{index}\"; :"));
+    }
     let mut process = Command::new("/bin/sh");
-    process.arg("-c").arg(format!("{command}; :")).env_clear();
+    process.arg("-c").arg(layers.last().unwrap()).env_clear();
     if daemon {
         process.args(["app-server", "--listen", "unix://", "--managed-daemon"]);
+    }
+    for (index, layer) in layers.iter().enumerate().take(layers.len() - 1) {
+        process.env(format!("CDH_LAYER_{index}"), layer);
     }
     for (name, value) in env {
         process.env(name, value);
@@ -400,9 +417,11 @@ fn run_under_codex_daemon(command: &str, env: &[(&str, &std::ffi::OsStr)], daemo
 }
 
 /// The shared daemon keeps the environment of the shell that started it. An
-/// installed hook it runs must not post to that shell's terminal: the event
-/// may come from any Codex session, in another terminal or outside cmux. The
-/// wrapper's hooks name their own terminal and still route.
+/// installed hook it runs (daemon, `$SHELL -lc`, hook) must not post to that
+/// shell's terminal: the event may come from any Codex session, in another
+/// terminal or outside cmux. A hook one shell further down belongs to
+/// something a daemon tool started (a cmux-tui server, a test run) and still
+/// posts. The wrapper's hooks name their own terminal and always route.
 #[test]
 fn codex_daemon_hooks_never_post_to_the_terminal_whose_environment_the_daemon_inherited() {
     let launch = Launch::new();
@@ -414,19 +433,26 @@ fn codex_daemon_hooks_never_post_to_the_terminal_whose_environment_the_daemon_in
     ];
     let installed = "\"$CMUX_TUI_HOOK\" codex Stop";
 
-    run_under_codex_daemon(installed, &inherited, false);
+    run_under_codex_daemon(installed, &inherited, false, 0);
     let received = launch.event();
     assert_eq!(received["payload"]["native_event"], "Stop", "the control run must post");
 
-    run_under_codex_daemon(installed, &inherited, true);
+    run_under_codex_daemon(installed, &inherited, true, 0);
     assert_eq!(
         launch.listener.accept().unwrap_err().kind(),
         std::io::ErrorKind::WouldBlock,
         "a hook in Codex's daemon posted to the terminal that started the daemon"
     );
 
+    run_under_codex_daemon(installed, &inherited, true, 1);
+    let received = launch.event();
+    assert_eq!(
+        received["payload"]["native_event"], "Stop",
+        "a hook below a daemon tool's own shell must still post"
+    );
+
     let argv = launch.argv(launch.command().env("CMUX_TUI_TERMINAL_ID", TERMINAL_TWO));
-    run_under_codex_daemon(&hook_command(&settings(&argv), "Stop"), &inherited, true);
+    run_under_codex_daemon(&hook_command(&settings(&argv), "Stop"), &inherited, true, 0);
     let received = launch.event();
     assert!(
         received["subjects"]

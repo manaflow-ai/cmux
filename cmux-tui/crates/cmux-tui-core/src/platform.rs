@@ -1126,14 +1126,18 @@ pub fn foreground_process_name(pid: u32) -> Option<String> {
 /// (`codex app-server ... --managed-daemon`, started by the first Codex TUI
 /// that needed it). That daemon keeps the environment of whichever shell
 /// started it, so `CMUX_TUI_*` values seen by a hook it runs may belong to an
-/// unrelated, possibly closed, terminal. Codex starts a hook as `$SHELL -lc
-/// <command>`, so the hook's parent is that shell and its grandparent the
-/// daemon. The walk stops one level above that: the daemon also hosts the
-/// tool commands of every Codex session, so a process further down (a
-/// cmux-tui server or a test run started by Codex, and its hooks) is not
-/// running a hook for the daemon.
+/// unrelated, possibly closed, terminal. Codex starts a hook or a tool command
+/// as `$SHELL -lc <command>`: the hook's parent is that shell and its
+/// grandparent the daemon, and a single-command tool (`codex ...` through the
+/// shim, which execs) has the daemon as its parent. The walk stops there:
+/// the daemon also hosts every Codex session's tool commands, so a process
+/// further down (a cmux-tui server or a `cargo test` started by Codex, and
+/// the shells, wrappers and hooks below it) is not running for the daemon.
+/// A launcher between the daemon and the shell (a sandbox wrapper that
+/// forks, or one that hides the daemon's argv) makes this return false, so
+/// such a hook keeps the old behavior and posts by its inherited route.
 pub fn descends_from_codex_app_server_daemon() -> bool {
-    const MAX_ANCESTORS: usize = 3;
+    const MAX_ANCESTORS: usize = 2;
     // SAFETY: getppid has no preconditions.
     #[cfg(unix)]
     let mut pid = u32::try_from(unsafe { libc::getppid() }).ok();

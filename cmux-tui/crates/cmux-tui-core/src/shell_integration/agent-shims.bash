@@ -27,7 +27,7 @@ if [[ -n "${CMUX_TUI_AGENT_SHIMS-}" ]]; then
   # the redirection, as Ghostty does for its own hook.
   if [[ -n "${bash_preexec_imported-}${__bp_imported-}" ]]; then
     precmd_functions+=(_cmux_tui_agent_shims_first)
-  elif [[ $(builtin declare -p PROMPT_COMMAND 2>/dev/null) == "declare -a "* ]]; then
+  elif [[ $(builtin declare -p PROMPT_COMMAND 2>/dev/null) == "declare -a"* ]]; then
     PROMPT_COMMAND+=("_cmux_tui_agent_shims_first 2>/dev/null")
   elif [[ -z "${PROMPT_COMMAND-}" ]]; then
     PROMPT_COMMAND="_cmux_tui_agent_shims_first 2>/dev/null"
