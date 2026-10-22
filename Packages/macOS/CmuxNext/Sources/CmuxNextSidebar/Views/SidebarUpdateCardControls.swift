@@ -11,9 +11,10 @@ public nonisolated enum SidebarUpdateButtonStyle: String, Sendable, CaseIterable
     /// button style"): the theme's accent fill and its ink (`Palette.accentFill` / `onAccent`, the
     /// selected menu row's pair), emphasized text. With no chosen accent (`accentFill` is then the
     /// primary text, a white slab on a dark card) it is the dialogs' prominent neutral button
-    /// instead: the selection fill with the primary text (2026-10-22, "just make it look better").
+    /// instead: the selection fill with the primary text (2026-10-22, "just make it look better"). A Debug
+    /// Settings choice since Lawrence 2026-10-21 asked for the bordered button back.
     case primary
-    /// The app's button (the default until 2026-10-20, Leo 2026-10-19: no light slab): the
+    /// The app's button (the default; Leo 2026-10-19: no light slab, Lawrence 2026-10-21: the old styling): the
     /// hover fill with a hairline edge and the primary text, as the Updated
     /// card's See What's New and every themed popover button.
     case bordered
@@ -41,7 +42,7 @@ nonisolated extension SidebarTunables {
     public static let updateCardButton = Tunable<SidebarUpdateButtonStyle>.choice(
         "sidebar.updateCard.button", .sidebar, "Update card button",
         help: "The fill of the update card's Restart to Update button (UPDATE-CARD prototype).",
-        default: .primary, code: "SidebarTunables.updateCardButton")
+        default: .bordered, code: "SidebarTunables.updateCardButton")
 }
 
 /// The update card's full-width Restart to Update button: one click
@@ -219,7 +220,13 @@ final class SidebarUpdateButton: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
-        guard SidebarUpdateToggle.isActivationKey(event) else { return super.keyDown(with: event) }
+        guard Self.isActivationKey(event) else { return super.keyDown(with: event) }
         press()
+    }
+
+    /// Space or Return without modifiers: presses a sidebar card's button (Full Keyboard Access).
+    static func isActivationKey(_ event: NSEvent) -> Bool {
+        event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.function).isEmpty
+            && [" ", "\r", "\u{3}"].contains(event.charactersIgnoringModifiers ?? "")
     }
 }
