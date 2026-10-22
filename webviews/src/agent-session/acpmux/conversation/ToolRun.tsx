@@ -1,5 +1,6 @@
 // A settled run of tool calls: one summary line ("Read files, ran commands")
-// that opens to the calls themselves, in a list that scrolls past nine rows.
+// that opens to the calls themselves, in a list that scrolls past nine rows. Scrolled, the list's
+// top fades out under the summary line (useScrollEdges, conversation.css .cv-tool-run).
 import { useFindReveal } from "./chatFind";
 import { useId, type ReactNode } from "react";
 import { useT } from "../i18n";
@@ -8,6 +9,7 @@ import { ChevronRight, Globe, Magnifier, Pencil, TerminalSquare, ToolGroup } fro
 import { toolRunCategories, toolRunSummary, type ToolRunCategory } from "./toolRunSummary";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useFold } from "./fold";
+import { useScrollEdges } from "../summary/scrollEdges";
 
 /// The summary's glyph: its leading category's, with searches and reads both as the magnifier.
 function runIcon(category: ToolRunCategory | undefined): ReactNode {
@@ -40,6 +42,7 @@ export function ToolRun({
   useFindReveal(items, () => setOpen(true));
   const fold = useFold(open);
   const list = useId();
+  const edges = useScrollEdges();
   return (
     <>
       <button
@@ -61,7 +64,7 @@ export function ToolRun({
       </button>
       {fold.present && (
         <div ref={fold.ref} className="cv-fold">
-          <div className="cv-tool-run" id={list}>
+          <div className="cv-tool-run" id={list} ref={edges}>
             {children}
           </div>
         </div>
