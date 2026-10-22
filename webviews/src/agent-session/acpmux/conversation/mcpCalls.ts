@@ -6,7 +6,6 @@
 import { createContext } from "react";
 import type { Translate } from "../i18n";
 import type { AcpmuxActivity } from "../model";
-import { peelEnvelope, printable, printedAsEnvelope } from "./toolResult";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -261,30 +260,22 @@ function deepClean(value: unknown, depth = 0): unknown {
   return value;
 }
 
-/// An MCP response as a value: its envelope (`{content: [{type: "text", text}]}`, perhaps under
-/// `result`; toolResult.ts) unwrapped to its texts, or its structured content when it has no text.
+/// An MCP response as a value: a `{content: [{type: "text", text}]}` result unwrapped to its texts.
 function mcpValue(output: string | undefined): unknown {
   if (!output) return undefined;
   const parsed = parseJSON(output);
   if (parsed === undefined) return output;
-  const peeled = printedAsEnvelope(output) ? peelEnvelope(parsed) : undefined;
-  if (!peeled) return parsed;
-  // What it holds nested too deep to indent: the output as it came (toolResult.ts does the same).
-  if (!peeled.rest.every(printable)) return output;
-  const texts = peeled.texts.filter((text) => text.trim());
-  // An envelope with no text: what it holds besides, or, empty, the JSON it is.
-  if (!texts.length) return peeled.rest.length === 0 ? parsed : peeled.rest.length === 1 ? peeled.rest[0] : peeled.rest;
-  if (!peeled.rest.length) return texts.length === 1 ? texts[0] : texts;
-  // Text, then what it holds besides (an error's data, a block drawn as neither text nor image) as JSON.
-  return [...texts, ...peeled.rest.map((rest) => JSON.stringify(deepClean(rest), null, 2))].join("\n\n");
+  const content =
+    isRecord(parsed) && Array.isArray(parsed.content) ? parsed.content : Array.isArray(parsed) ? parsed : undefined;
+  if (content && content.length && content.every((block) => isRecord(block) && block.type === "text")) {
+    const texts = content.map((block) => String((block as { text?: unknown }).text ?? ""));
+    return texts.length === 1 ? texts[0] : texts;
+  }
+  return parsed;
 }
 
 /// A value as the opened call shows it: text as itself, anything else as indented JSON.
 export function prettyValue(value: unknown): string | undefined {
-  // Nested too deep to indent (each level would indent every line below it): on one line, as it came.
-  const raw = typeof value === "string" ? parseJSON(value) : value;
-  if (raw !== undefined && !printable(raw))
-    return typeof value === "string" ? value.replace(/\n$/, "") : oneLine(value);
   const clean = deepClean(value);
   if (clean === undefined || clean === null || clean === "") return undefined;
   if (typeof clean === "string") return clean.replace(/\n$/, "");
@@ -295,14 +286,6 @@ export function prettyValue(value: unknown): string | undefined {
 /// The opened call's response.
 export function prettyOutput(output: string | undefined): string | undefined {
   return prettyValue(mcpValue(output));
-}
-
-function oneLine(value: unknown): string | undefined {
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return undefined;
-  }
 }
 
 function parseJSON(text: string | undefined): unknown {
