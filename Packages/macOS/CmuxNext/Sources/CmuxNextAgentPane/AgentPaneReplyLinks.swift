@@ -29,6 +29,14 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     public var revealFolder: @MainActor (URL) -> Void = { NSWorkspace.shared.revealInBackground([$0]) }
     /// Selects a file in Finder (the image viewer's Show in Finder).
     public var revealFile: @MainActor (URL) -> Void = { NSWorkspace.shared.revealInBackground([$0]) }
+    /// Where the context menu's Copy Image writes (``AgentPaneImageCopies``).
+    public var pasteboard: NSPasteboard = .general
+    /// Save Image As…: asks where to save the file under the name (the system save panel).
+    public var saveFile: @MainActor (_ file: URL, _ name: String) -> Void = { AgentPaneImageCopies.askToSave($0, name: $1) }
+    /// Quick Look on a file (the system's preview panel).
+    public lazy var quickLookFile: @MainActor (URL) -> Void = { [quickLook] in quickLook.show($0) }
+    /// The Quick Look panel's source for ``quickLookFile``.
+    private let quickLook = AgentPaneQuickLook()
     /// Where the image viewer keeps the copies it shows or opens (``AgentPaneImageCopies``).
     public var imageFolder = AgentPaneImageCopies.defaultFolder()
     public var browsers: any AgentPaneBrowserApps = AgentPaneWorkspaceBrowsers()
@@ -113,7 +121,8 @@ extension AgentPaneModel {
             guard transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
             replyLinks.browsers.open(url, withApplicationAt: app)
             return AgentPaneReply.success()
-        case .revealImage, .openImageInPane: return await AgentPaneImageCopies.respond(to: request, in: self)
+        case .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage:
+            return await AgentPaneImageCopies.respond(to: request, in: self)
         }
     }
 

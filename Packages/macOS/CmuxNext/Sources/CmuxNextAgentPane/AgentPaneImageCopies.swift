@@ -79,6 +79,16 @@ extension AgentPaneImageCopies {
         switch request {
         case .revealImage(let src, let name, let path): return await reveal(src, name: name, path: path, in: model)
         case .openImageInPane(let src, let name): return await openInPane(src, name: name, in: model)
+        case .copyImage(let src, let name):
+            return await withCopy(src, name: name, in: model) { file in
+                AgentPaneImageCopies.write(file, data: await AgentPaneImageCopies.imageBytes(file), to: model.replyLinks.pasteboard)
+            }
+        case .saveImage(let src, let name):
+            return await withCopy(src, name: name, in: model) { file in
+                model.replyLinks.saveFile(file, AgentPaneImageCopies.savedName(name, file: file))
+            }
+        case .quickLookImage(let src, let name):
+            return await withCopy(src, name: name, in: model) { model.replyLinks.quickLookFile($0) }
         default: return AgentPaneModel.replyFailure(.openFailed)
         }
     }
