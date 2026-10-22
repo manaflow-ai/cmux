@@ -22,7 +22,10 @@ import Testing
             window.close()
         }
         let intents = Intents()
-        let engine = WebKitEngine()  // the tab holds its engine weakly
+        let downloads = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cn-remote-video-dl-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: downloads) }
+        let engine = WebKitEngine(downloadsDirectory: downloads)  // the tab holds its engine weakly
         let page = engine.makeWebKitTab()
         defer { page.close() }
         page.delegate = intents
@@ -46,10 +49,23 @@ import Testing
         #expect(!intents.downloaded, "the video downloaded")
 
         // The player has its own place in the back list: Back shows b, Forward the video again.
+        func list() -> [String] {
+            let history = page.webView.backForwardList
+            return (history.backList + [history.currentItem].compactMap(\.self) + history.forwardList).map(\.url.lastPathComponent)
+        }
+        #expect(list() == ["a", "b", "reel.mp4"])
         page.goBack()
         try await Self.until("Back shows b") { await title() == .string("b") }
         page.goForward()
-        try await Self.until("Forward shows the video") { page.state.url == reel }
+        try await Self.until("Forward shows the video") { await title() == .string("reel.mp4") }
+        #expect(list() == ["a", "b", "reel.mp4"])
+        #expect(!intents.downloaded, "the video downloaded")
+
+        // A video a form posts for cannot be fetched again, so it still downloads.
+        page.load(server.url("/c"))
+        try await Self.until("c loads") { await title() == .string("c") }
+        _ = try await page.evaluate("document.forms[0].submit(); true", world: .page)
+        try await Self.until("the posted video downloads") { intents.downloaded }
     }
 
     @Test func onlyWebVideosPlayInTheTab() throws {
@@ -62,7 +78,7 @@ import Testing
     }
 
     /// One second of a 64-pixel H.264 video, as an .mp4. Off the main actor: it writes and reads a file.
-    private nonisolated static func makeVideo() async throws -> Data {
+    @concurrent private nonisolated static func makeVideo() async throws -> Data {
         let file = FileManager.default.temporaryDirectory
             .appendingPathComponent("cn-remote-video-\(UUID().uuidString.prefix(8).lowercased()).mp4")
         defer { try? FileManager.default.removeItem(at: file) }
@@ -104,7 +120,8 @@ import Testing
         }
     }
 
-    /// Serves `/a`, which links to `/b`, which links to `/reel.mp4`; and `video` at `/reel.mp4` the
+    /// Serves `/a`, which links to `/b`, which links to `/reel.mp4`; `/c`, a form that posts to
+    /// `/reel.mp4`; and `video` at `/reel.mp4` (for any method) the
     /// way raw.githubusercontent.com does: a generic file, never sniffed, in byte ranges on request.
     nonisolated final class VideoServer: @unchecked Sendable {
         private let listener: NWListener
@@ -165,7 +182,8 @@ import Testing
             connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [self] data, _, _, _ in
                 let request = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
                 let path = request.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
-                if let page = ["/a": "<title>a</title><a href='/b'>b</a>", "/b": "<title>b</title><a href='/reel.mp4'>reel</a>"][path] {
+                if let page = ["/a": "<title>a</title><a href='/b'>b</a>", "/b": "<title>b</title><a href='/reel.mp4'>reel</a>",
+                              "/c": "<title>c</title><form method='post' action='/reel.mp4'><input name='q' value='1'></form>"][path] {
                     let head = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(page.utf8.count)\r\nConnection: close\r\n\r\n"
                     connection.send(content: Data((head + page).utf8), completion: .contentProcessed { _ in connection.cancel() })
                     return

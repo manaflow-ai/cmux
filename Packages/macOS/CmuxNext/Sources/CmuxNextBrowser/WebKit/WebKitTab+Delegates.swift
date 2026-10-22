@@ -20,6 +20,10 @@ extension WebKitTab: WKNavigationDelegate {
             return
         }
 
+        if navigationAction.targetFrame?.isMainFrame ?? true {
+            mainFrameNavigationMayPlayVideo = (navigationAction.request.httpMethod?.uppercased() ?? "GET") == "GET"
+                && navigationAction.navigationType != .backForward
+        }
         let isUserLinkClick = navigationAction.navigationType == .linkActivated
         if isUserLinkClick, Self.isWebScheme(url) {
             switch LinkClick(navigationAction, in: self) {
@@ -67,7 +71,7 @@ extension WebKitTab: WKNavigationDelegate {
             .flatMap { $0.value(forHTTPHeaderField: "Content-Disposition") }?
             .lowercased()
             .hasPrefix("attachment") ?? false
-        if navigationResponse.isForMainFrame, !isAttachment, !navigationResponse.canShowMIMEType,
+        if navigationResponse.isForMainFrame, !isAttachment, !navigationResponse.canShowMIMEType, mainFrameNavigationMayPlayVideo,
            let url = navigationResponse.response.url, RemoteVideoPage.plays(url) {
             // A video sent as a generic file plays in the tab, at its own address. A simulated
             // load, not `loadHTMLString`: the player takes the video's place in the back list.
