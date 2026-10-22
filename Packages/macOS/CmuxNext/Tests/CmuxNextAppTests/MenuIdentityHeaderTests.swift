@@ -96,6 +96,58 @@ struct MenuIdentityHeaderTests {
         #expect(menu.items.contains { ActionRegistry.menuRun(of: $0)?.id == "renameWorkspace" })
     }
 
+    /// u9783 (2026-10-21): "right click workspace, add color, i can no longer remove the color". The
+    /// header's swatches (c7ebff44c93) took the color row's place but kept only the colors, and
+    /// Reset Workspace Color sat in More. The color row ends with Remove Color, checked while the
+    /// workspace has no color, and the header offers it as its first swatch.
+    private func colorMenu(current: String?, resets: Box) -> (ActionRegistry, NSMenu) {
+        let registry = ActionRegistry.standard()
+        registry.bind("renameWorkspace", invoke: { _ in })
+        registry.bind("palette.workspaceColor", invoke: { _ in })
+        registry.bind("palette.resetWorkspaceColor", invoke: { _ in resets.names.append("reset") })
+        ActionTargetTitles.setChoiceState("palette.workspaceColor", in: registry) { _ in current }
+        return (registry, registry.makeContextMenu(for: .workspaceRow, target: target))
+    }
+
+    private func colorRows(_ menu: NSMenu) throws -> [NSMenuItem] {
+        let row = try #require(menu.items.first { $0.submenu?.items.contains { ActionRegistry.menuRun(of: $0)?.id == "palette.workspaceColor" } == true })
+        return row.submenu?.items ?? []
+    }
+
+    @Test func theColorRowEndsWithRemoveColorCheckedWhileTheWorkspaceHasNone() throws {
+        let (_, unset) = colorMenu(current: nil, resets: Box())
+        let rows = try colorRows(unset)
+        let remove = try #require(rows.first { ActionRegistry.menuRun(of: $0)?.id == "palette.resetWorkspaceColor" }, "the color row can remove the color")
+        #expect(remove.state == .on, "no color: Remove Color is checked")
+        #expect(!rows.contains { MenuIdentityHeader.color(of: $0) != nil && $0.state == .on })
+
+        let (_, blue) = colorMenu(current: "blue", resets: Box())
+        let blueRows = try colorRows(blue)
+        #expect(blueRows.first { MenuIdentityHeader.color(of: $0) == .blue }?.state == .on, "the workspace's color is checked")
+        #expect(blueRows.first { ActionRegistry.menuRun(of: $0)?.id == "palette.resetWorkspaceColor" }?.state == .off)
+
+        // One Remove Color: More holds no second Reset Workspace Color row.
+        func count(_ menu: NSMenu) -> Int {
+            menu.items.reduce(0) { $0 + (ActionRegistry.menuRun(of: $1)?.id == "palette.resetWorkspaceColor" ? 1 : 0) + ($1.submenu.map(count) ?? 0) }
+        }
+        #expect(count(blue) == 1)
+    }
+
+    @Test(arguments: [true, false])
+    func theSwatchesOfferNoColorAndItRemovesTheColor(oneRow: Bool) throws {
+        let resets = Box()
+        let (registry, menu) = colorMenu(current: nil, resets: resets)
+        MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: oneRow ? "api" : nil, rename: "renameWorkspace")
+        let strip = try #require((menu.items.first?.view as? MenuIdentityHeaderView)?.strip)
+        let actions = strip.accessibilityCustomActions() ?? []
+        let removeTitle = try #require(try colorRows(colorMenu(current: nil, resets: Box()).1)
+            .first { ActionRegistry.menuRun(of: $0)?.id == "palette.resetWorkspaceColor" }?.title)
+        let remove = try #require(actions.first { $0.name == removeTitle }, "the swatches offer \(removeTitle)")
+        #expect(strip.accessibilityValue() as? String == removeTitle, "no color is the current choice")
+        _ = remove.handler?()
+        #expect(resets.names == ["reset"], "the no-color swatch removes the color")
+    }
+
     /// The group menu's colors are per-color actions (`workspaceGroup.color.<color>`).
     @Test func theGroupMenuReadsItsPerColorRows() {
         let registry = ActionRegistry.standard()
