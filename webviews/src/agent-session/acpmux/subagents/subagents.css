@@ -325,8 +325,6 @@ button.cv-subagent > :last-child {
   overflow-y: auto;
   border: 0;
   border-radius: var(--ui-popup-radius);
-  background: var(--surface-popup);
-  box-shadow: var(--acpmux-popup-elevation);
   color: var(--agent-text);
   font-family: var(--cv-font);
   font-size: var(--text-control);
