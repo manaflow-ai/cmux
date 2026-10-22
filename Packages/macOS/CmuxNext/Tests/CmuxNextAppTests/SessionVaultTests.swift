@@ -48,6 +48,38 @@ struct SessionVaultTests {
         return (services, vault, copied)
     }
 
+    private static func subviews(of root: NSView) -> [NSView] {
+        root.subviews.flatMap { [$0] + subviews(of: $0) }
+    }
+
+    private static func shown(_ id: String, in root: NSView) -> [NSView] {
+        subviews(of: root).filter { $0.accessibilityIdentifier() == id && !$0.isHiddenOrHasHiddenAncestor }
+    }
+
+    /// The vault list is AppKit (plans/cmux-next/no-swiftui-DESIGN.md): no SwiftUI bridge; a row per
+    /// session, the search field filters them, a click selects one and a double click opens it.
+    @Test func theListIsAppKitFiltersSelectsAndOpens() async throws {
+        let (services, vault, copied) = await Self.services([Self.session("abc", cwd: "/tmp/alpha"),
+                                                              Self.session("t-9", provider: "codex", cwd: "/tmp/beta")])
+        let host = VaultHostView(vault: vault, registry: services.registry)
+        host.frame = NSRect(x: 0, y: 0, width: 320, height: 480)
+        host.layoutSubtreeIfNeeded()
+        #expect(!hostsSwiftUI(host))
+        #expect(Self.shown("cmux.vault.row", in: host).count == 2)
+        let search = try #require(Self.shown("cmux.vault.search", in: host).first as? NSTextField)
+        search.stringValue = "beta"
+        // The field's delegate hears the edit as AppKit's field editor tells it (no global post).
+        search.delegate?.controlTextDidChange?(Notification(name: NSControl.textDidChangeNotification, object: search))
+        #expect(vault.filter == "beta")
+        let rows = Self.shown("cmux.vault.row", in: host)
+        #expect(rows.count == 1)
+        let row = try #require(rows.first as? VaultRowView)
+        row.activate(clickCount: 1)
+        #expect(vault.selection == "local/codex/t-9")
+        services.registry.perform("vaultCopyResumeCommand")
+        #expect(copied.texts.count == 1 && copied.texts[0].hasSuffix("codex resume t-9"), "the clicked row is the selected one")
+    }
+
     @Test func everyVaultActionIsAvailable() {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -121,4 +153,13 @@ struct SessionVaultTests {
         vault.filter = "claude"
         #expect(vault.shownRows.map(\.session.sessionID) == ["abc"])
     }
+}
+
+/// Whether `root`'s own view tree (not the inside of an AppKit control, whose private views on
+/// macOS 26 include hosting views of AppKit's own) holds a SwiftUI hosting bridge.
+@MainActor
+private func hostsSwiftUI(_ root: NSView) -> Bool {
+    if String(describing: type(of: root)).contains("Hosting") { return true }
+    if root is NSControl { return false }
+    return root.subviews.contains { hostsSwiftUI($0) }
 }
