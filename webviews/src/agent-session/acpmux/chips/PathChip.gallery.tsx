@@ -6,6 +6,7 @@ const folder = "/Users/you/src/atlas-web/src/net/";
 const outside = "/Users/you/Documents/notes.md";
 const denied = "/Users/you/.ssh/id_ed25519";
 const shot = "/tmp/cmux-shots/after-opened.png";
+const projectShot = "/Users/you/src/atlas-web/shots/after-opened.png";
 const log = "/Users/you/src/atlas-web/logs/build.log";
 // A 16x10 PNG, public and tiny, standing in for a screenshot.
 const shotImage =
@@ -17,10 +18,15 @@ const outsideConfirm: ChipHostFixture = {
   paths: { [outside]: { place: "outside", folder: false } },
   policy: { outsideRoots: "confirm" },
 };
+// The host draws no thumbnail of an image outside the folders (until #23879), so its card is
+// the plain file card: name, path and Open.
 const outsidePreview: ChipHostFixture = {
   paths: { [shot]: { place: "outside", folder: false } },
   policy: { outsideRoots: "confirm" },
-  images: { [shot]: shotImage },
+};
+const imagePreview: ChipHostFixture = {
+  paths: { [projectShot]: { place: "root", folder: false } },
+  images: { [projectShot]: shotImage },
 };
 const textPreview: ChipHostFixture = {
   paths: { [log]: { place: "root", folder: false } },
@@ -67,13 +73,22 @@ export default componentEntry<{ path: string; label?: string; written?: string }
       chipHost: outsideText,
       props: { path: outside, written: outside },
     },
+    "image-preview": {
+      note: "A screenshot chip in the project previews on hover: its thumbnail and Open.",
+      chipHost: imagePreview,
+      props: { path: projectShot },
+      play: async (ctx) => {
+        await ctx.focus({ selector: ".cv-chip.is-path" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-path-preview__image"));
+      },
+    },
     "outside-preview": {
-      note: "A locked screenshot chip outside the roots still previews on hover: its thumbnail and Open.",
+      note: "A locked screenshot chip outside the roots still has its card and Open; the host draws no thumbnail there.",
       chipHost: outsidePreview,
       props: { path: shot },
       play: async (ctx) => {
         await ctx.focus({ selector: ".cv-chip.is-outside" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-path-preview__image"));
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-path-preview .cv-link-preview__open"));
       },
     },
     "text-preview": {

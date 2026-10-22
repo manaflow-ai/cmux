@@ -137,6 +137,9 @@ extension AgentPaneModel {
     /// Opens a path chip (D4): the deny list first, then a gesture; inside a root it opens in
     /// cmux's file pages (a folder in Finder); outside, `agentPane.links.outsideRoots` decides.
     func openReplyPath(_ text: String) async -> Result<Void, AgentPaneReplyError> {
+        // A chat on another machine never opens this Mac's files (cx-k21v): its agent names paths
+        // there, and a path here with the same spelling is not its file.
+        guard !remoteChat, !transport.remoteWire else { return .failure(.pathOutsideRoots) }
         guard let resolved = replyPaths().resolve(text) else { return .failure(.pathInvalid) }
         switch resolved.place {
         case .denied: return .failure(.pathDenied)
@@ -192,6 +195,9 @@ extension AgentPaneModel {
             case .failure(let error): return Self.replyFailure(error)
             }
         }
+        // A chat on another machine never reads this Mac's disk (cx-k21v): its agent names paths
+        // there, and a path here with the same spelling is not its file.
+        guard !remoteChat, !transport.remoteWire else { return Self.replyFailure(.pathOutsideRoots) }
         guard let resolved = replyPaths().resolve(src) else { return Self.replyFailure(.pathInvalid) }
         switch resolved.place {
         case .root: return Self.replyImage(await AgentPaneReplyImages.local(resolved.path))
