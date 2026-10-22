@@ -17,7 +17,13 @@ struct NewTabSuccessionKeepsShownTabsTests {
             let window = try #require(services.windows.active)
             let pane = try #require(window.focusedPane)
             let store = services.daemon.store
-            let anchor = try #require(pane.orderedIDs.last)
+            // Anchored on the first of two tabs, the new tab's slot is not where the daemon puts
+            // it, so the open stays (as it does for a move's round trip) instead of ending at once.
+            if pane.pane.tabs.count < 2 {
+                let other = try await connection.newTab(in: pane.pane.handle).surface
+                try await PasswordManagerRouteTests.until { store.tab(surface: other) != nil && pane.orderedIDs.count >= 2 }
+            }
+            let anchor = try #require(pane.orderedIDs.first)
             let open = NewTabSuccession.begin(after: anchor.rawValue, in: pane.pane, services: services)
             // A new tab the strip shows and selects while the open is placed.
             let surface = try await connection.newTab(in: pane.pane.handle).surface
