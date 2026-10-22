@@ -178,10 +178,12 @@ public actor AgentSessionAttachClient {
             throw AgentSessionAttachError(code: Self.answersUnsupported,
                                           message: "the daemon on that machine does not take a question's answers: update cmux there")
         }
-        guard (try? JSONSerialization.jsonObject(with: answers)) is [String: Any] else {
+        // Encoded again here, compact (one line: the daemon reads one request per line).
+        guard let object = (try? JSONSerialization.jsonObject(with: answers)) as? [String: Any],
+              let compact = try? JSONSerialization.data(withJSONObject: object) else {
             throw AgentSessionAttachError(code: "agent_session.refused", message: "a question's answers must be a JSON object")
         }
-        _ = try await call("agent-session-permission", params, answers: answers)
+        _ = try await call("agent-session-permission", params, answers: compact)
     }
 
     /// The code ``permission(id:option:answers:decisionNonce:personDecision:)`` throws for answers
