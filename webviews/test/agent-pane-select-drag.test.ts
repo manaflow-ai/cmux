@@ -176,8 +176,12 @@ await requireBrowserLane("agent-pane-select-drag.test.ts", async () => {
     const results: { line: number; selected: string; expected: string }[] = [];
     for (let index = 1; index < lines.length; index++) {
       const line = lines[index]!;
-      const from = line[0]!;
-      const to = line[Math.min(3, line.length - 1)]!;
+      // A line's last words can be a short tail; it needs a start word, two whole words and an end.
+      if (line.length < 5) continue;
+      // From the second word, not the first: a first word of one letter ("I") puts the press on
+      // the line's left edge.
+      const from = line[1]!;
+      const to = line[4]!;
       await page.evaluate(() => window.getSelection()?.removeAllRanges());
       await page.mouse.move(from.x, from.y);
       await page.mouse.down();
@@ -186,9 +190,9 @@ await requireBrowserLane("agent-pane-select-drag.test.ts", async () => {
       await page.mouse.up();
       const selected = (await page.evaluate(() => window.getSelection()?.toString() ?? "")).trim();
       const words = line.map((word) => word.word);
-      // The selection runs from inside the first word to inside the fourth: it holds the words
+      // The selection runs from inside the second word to inside the fifth: it holds the words
       // between them in full, and nothing from another line.
-      const expected = words.slice(1, Math.min(3, words.length - 1)).join(" ");
+      const expected = words.slice(2, 4).join(" ");
       const onLine = words.join(" ");
       results.push({
         line: index,
@@ -197,6 +201,7 @@ await requireBrowserLane("agent-pane-select-drag.test.ts", async () => {
           onLine.includes(selected) && selected.includes(expected) ? selected : `${expected} (within: ${onLine})`,
       });
     }
+    expect(results.length).toBeGreaterThanOrEqual(2);
     expect(results.map(({ line, selected }) => ({ line, selected }))).toEqual(
       results.map(({ line, expected }) => ({ line, selected: expected })),
     );

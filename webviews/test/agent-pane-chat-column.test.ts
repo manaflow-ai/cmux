@@ -283,7 +283,12 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
           scrollTop: Math.round(scroller.scrollTop),
           lastLine: Math.round(foot - (lines.at(-1)?.getBoundingClientRect().bottom ?? foot)),
           top: row ? Math.round(row.getBoundingClientRect().top) : null,
-          placed: row ? row.getBoundingClientRect().top - new DOMMatrix(getComputedStyle(thread!).transform).m42 : null,
+          // Less the thread's lift (its `top`) and any glide still moving it (a transform).
+          placed: row
+            ? row.getBoundingClientRect().top -
+              (Number.parseFloat(thread!.style.top) || 0) -
+              new DOMMatrix(getComputedStyle(thread!).transform).m42
+            : null,
           glides: thread?.getAnimations().length ?? 0,
           glided: glided - (glided = 0),
         };
