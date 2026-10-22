@@ -118,6 +118,7 @@ export function ComposerQueue({
   queue,
   chat,
   paused,
+  pauseReason,
   t,
   onRemove,
   onChange,
@@ -132,6 +133,8 @@ export function ComposerQueue({
   chat?: string;
   /// A turn failed and the queue waits for Resume (acpmux `queuePaused`).
   paused?: boolean;
+  /// That turn's error (queuePause.ts), which the paused note names.
+  pauseReason?: string;
   t: Translate;
   /// Withdraws a waiting prompt; false when it already started (it then leaves with the turn).
   onRemove?(id: string): Promise<boolean>;
@@ -602,7 +605,12 @@ export function ComposerQueue({
       >
         {paused && (
           <li className="acpmux-queue-paused">
-            <span>{t("composer.queuePaused")}</span>
+            <span
+              // tooltip-allow: a long error is cut to the row; its whole text is the tooltip
+              title={pauseReason}
+            >
+              {pauseReason ? t("composer.queuePausedWhy", { error: pauseReason }) : t("composer.queuePaused")}
+            </span>
             {onChange && (
               <button
                 type="button"
@@ -620,7 +628,8 @@ export function ComposerQueue({
           index === steering && (
             <li key="queued" className="acpmux-queue-header" aria-hidden="true">
               <span className="acpmux-queued-kind">{t("composer.queued")}</span>
-              <span>{t("composer.queueAfterTurn")}</span>
+              {/* Held by a paused queue, the prompts wait for Resume, not for the turn. */}
+              <span>{t(paused ? "composer.queueHeld" : "composer.queueAfterTurn")}</span>
             </li>
           ),
           // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- A row takes focus from ↑ on the prompt and has its keys (edit, move, send now, remove); its buttons do the same by pointer.

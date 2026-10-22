@@ -258,7 +258,7 @@ export function installScrollEdges(element: HTMLElement): () => void {
 /**
  * The card scroller (every scrollable card, 2026-10-20): a 3 px thumb on no track, hidden at rest
  * and shown while the card scrolls or its thumb is under the pointer, whatever the macOS setting
- * (the native twin is CardScroller.swift). An edge with more content past it fades out over
+ * (the native twin is ThinScroller.swift). An edge with more content past it fades out over
  * `--cmux-card-fade`; the scroller's own column never fades.
  */
 export const CARD_SCROLLER_CSS = `

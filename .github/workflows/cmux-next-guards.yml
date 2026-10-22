@@ -391,7 +391,7 @@ jobs:
   tooling-tests:
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -463,6 +463,65 @@ jobs:
 
       - name: The web lint pre-push hook
         run: python3 tests/test_web_lint_prepush.py
+
+      # Tests of feat-cmux-next tooling that no feat pull request ran: some had no registry entry,
+      # others ran only from a push, schedule, release or main-only job, so a feat pull request
+      # that broke their code landed green (tests/test_pr_lane_coverage.py). Each is stdlib Python
+      # with fakes for the binaries and network it calls. They run even after an earlier red so
+      # one red does not hide another.
+      - name: The app-linked crate license gate (check_app_crate_licenses.py)
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_app_crate_licenses.py
+
+      - name: The package lane's prebuild-one compiles or fails (package-test-lane.sh)
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_ci_package_lane_prebuild.py
+
+      - name: The exact-run SwiftPM test product transport (swiftpm_test_product.py)
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_swiftpm_test_product.py
+
+      - name: The String Catalog compile of the CmuxNext test bundles
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_compile_string_catalogs.py
+
+      - name: The deferred DEV publication notifier (cmux_next_tree_notify.py)
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_cmux_next_dev_daily_notify_cli.py
+
+      - name: The cmux-tui tree publication (publish-cmux-tui-tree.py)
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_publish_cmux_tui_tree.py
+
+      - name: The tour media publisher's extra windows (media/publish.py)
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_cmux_next_media_publish_windows.py
+
+      - name: The Mach-O filter of the app thinning (list-macho-candidates.py)
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_list_macho_candidates.py
+
+      - name: The Linux cross build's macOS link stubs and Mach-O parity verdict
+        if: ${{ !cancelled() }}
+        run: |
+          python3 tests/test_ci_macos_stubs.py
+          python3 tests/test_ci_macho_parity.py
+
+      - name: The cmux-browser-host release package
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_browser_host_release_package.py
+
+      - name: install-zig-ci.sh installs only a reviewed Zig
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_install_zig_ci_reviewed_version.py
+
+      - name: The Xcode project normalizer of the commit hook and merge driver (normalize-pbxproj.py)
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_normalize_pbxproj.py
+
+      - name: The web verdict of feat-cmux-next pushes and web routing (web_validation.py)
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_web_validation.py
 
   # Every web bundle build runs gen-strings.mjs strict, but only pull requests
   # that touch webviews/ run its tests. 2c661dec960b renamed a setting in Swift
