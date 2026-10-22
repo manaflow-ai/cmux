@@ -12,7 +12,9 @@ struct RowMotion {
     var targets: [(SidebarRowView, NSRect)]
     var appearing: [(SidebarRowView, NSRect)]
     var leaving: [(SidebarRowView, NSRect)]
-    var lines: (changes: () -> Void, leaving: [NSView])
+    var lines: SidebarGroupLineViews.LineMotion
+    /// The chat history blocks with their frames (`SidebarChatHistoryViews.place`): they move with the rows.
+    var companions: [(NSView, NSRect)] = []
 
     func run(in list: SidebarListView, from old: SidebarLayout, to layout: SidebarLayout, animated: Bool) {
         let moves = {
@@ -47,6 +49,8 @@ struct RowMotion {
                 }
             }
             SidebarDragSpring.stop(views)
+            // Movement off: the lines and history blocks land too, their earlier springs off (`move`'s snap).
+            SidebarDragSpring.move(lines.springs + companions, in: list)
             leaving.forEach { Self.closed($0.0, in: list) }
             lines.leaving.forEach { $0.removeFromSuperview() }
             return
@@ -65,8 +69,8 @@ struct RowMotion {
             if list.rowMoves == move { Self.land(list) }
             list.pruneOffscreen()
         }
-        Self.animate(frames: targets + appearing + leaving, fades: Self.fades(targets: targets, appearing: appearing, leaving: leaving),
-                     lines: lines.changes, in: list, ended: ended)
+        Self.animate(frames: targets + appearing + leaving, companions: lines.springs + companions,
+                     fades: Self.fades(targets: targets, appearing: appearing, leaving: leaving), lines: lines.changes, in: list, ended: ended)
     }
 
     /// The views whose opacity this move changes and to what: an opening row and a target still fading in to 1,
@@ -86,8 +90,10 @@ struct RowMotion {
     /// main thread per display frame (AppKit's SwiftUI spring wrote each moving row's frame every frame). Only the
     /// opacity of the few rows that open, close or still fade runs on AppKit's `.move` spring, with the group lines'
     /// fades (`lines`). `ended` runs once both have ended, or at once when the display sleeps (`settleAtSleep`).
-    private static func animate(frames: [(SidebarRowView, NSRect)], fades: [(NSView, CGFloat)], lines: () -> Void,
-                                in list: SidebarListView, ended: RowMotionEnd) {
+    /// `companions`: the group lines and chat history blocks, on the same springs in the same transaction, so the
+    /// springs' leg (and the display's sleep) waits for them too, even when no row moves (a line growing offscreen).
+    private static func animate(frames: [(SidebarRowView, NSRect)], companions: [(NSView, NSRect)], fades: [(NSView, CGFloat)],
+                                lines: () -> Void, in list: SidebarListView, ended: RowMotionEnd) {
         let settle = Self.settle(list)
         // Nothing draws while the display sleeps: the rows, group lines and history blocks show their places now, the
         // springs gone with the move. Both legs carry it, and it runs once: the opacity leg alone ends at once when
@@ -106,7 +112,7 @@ struct RowMotion {
         CATransaction.begin()
         // Runs once every spring added in this transaction has ended or was removed (a reused view, a snap).
         CATransaction.setCompletionBlock { MainActor.assumeIsolated { springsEnded() } } // main-proof: CATransaction.h: the completion block is called on the main thread
-        SidebarDragSpring.move(frames, in: list)
+        SidebarDragSpring.move(frames.map { ($0.0 as NSView, $0.1) } + companions, in: list)
         Motion.sidebar.animate(.move, in: list, {
             for (view, alpha) in fades { view.animator().alphaValue = alpha }
             lines()

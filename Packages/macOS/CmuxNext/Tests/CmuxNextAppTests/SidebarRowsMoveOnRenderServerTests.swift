@@ -24,10 +24,10 @@ struct SidebarRowsMoveOnRenderServerTests {
 
     private static func ws(_ id: String) -> CmuxNextSidebar.SidebarWorkspace { CmuxNextSidebar.SidebarWorkspace(id: CmuxNextSidebar.WorkspaceID(id), title: id) }
 
-    /// The ungrouped workspaces `top`, then group Work (open, three members, so it draws its line).
-    private static func grouped(_ top: [String]) -> [CmuxNextSidebar.SidebarSection] {
+    /// The ungrouped workspaces `top`, then group Work (open, its `members`, so it draws its line).
+    private static func grouped(_ top: [String], members: [String] = ["docs", "web", "api"]) -> [CmuxNextSidebar.SidebarSection] {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
-        let work = CmuxNextSidebar.SidebarGroup(id: GroupID("g-work"), name: "Work", color: .blue, workspaces: ["docs", "web", "api"].map(ws))
+        let work = CmuxNextSidebar.SidebarGroup(id: GroupID("g-work"), name: "Work", color: .blue, workspaces: members.map(ws))
         return [CmuxNextSidebar.SidebarSection(kind: .machine(machine), nodes: top.map { .workspace(ws($0)) } + [.group(work)])]
     }
 
@@ -255,5 +255,62 @@ struct SidebarRowsMoveOnRenderServerTests {
 
         #expect(Self.springing(list).isEmpty, "still springing with the display asleep: \(Self.springing(list))")
         #expect(Self.offSlot(list).isEmpty, "not at their slots: \(Self.offSlot(list))")
+    }
+
+    /// Codex review of #24187 (a4789e79): a member added past the realized rows of a long open group moved only the
+    /// group's line. Its spring ran outside the rows' tracked transaction, which held nothing and ended at once,
+    /// with AppKit's empty leg, so the display's sleep no longer reached the line.
+    @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    })
+    func aLineThatAloneMovesStillEndsWhenTheDisplaySleeps() async throws {
+        let members = (1...60).map { "m\($0)" }
+        let (model, list, _, restore) = try Self.sidebar(Self.grouped(["w1"], members: members))
+        defer { restore() }
+        DesignSettings.shared.animationSpeed = .normal
+        model.sections = Self.grouped(["w1"], members: members + ["m61"])
+        list.reload(animated: true)
+        #expect(list.rowViews.values.allSatisfy { Self.positionSprings($0) + Self.sizeSprings($0) == 0 },
+                "a realized row moved: the case under test is a line moving alone")
+        // Past the turns both empty legs take to end.
+        try await Task.sleep(for: .milliseconds(30))
+        let lines = list.subviews.compactMap { $0 as? GroupLineView }
+        try #require(lines.contains { Self.sizeSprings($0) + Self.positionSprings($0) > 0 }, "the group's line did not move")
+
+        let workspace = NSWorkspace.shared.notificationCenter
+        workspace.post(name: NSWorkspace.screensDidSleepNotification, object: NSWorkspace.shared)
+        defer { workspace.post(name: NSWorkspace.screensDidWakeNotification, object: NSWorkspace.shared) }
+
+        #expect(Self.springing(list).isEmpty, "still springing with the display asleep: \(Self.springing(list))")
+    }
+
+    /// Codex review of #24187 (a4789e79): with movement off, a history block already at its slot (an earlier move set
+    /// its model frame) kept that move's spring: `place` handed on only the blocks whose frame changed.
+    @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    })
+    func aHistoryBlockAtItsSlotLosesItsSpringWhenMovementGoesOff() throws {
+        let (_, list, _, restore) = try Self.sidebar(count: 3)
+        defer { restore() }
+        let state = SidebarChatHistoryState(pinned: [SidebarHistoryChat(id: "c1", title: "chat 1", updatedAt: Date(timeIntervalSince1970: 0))])
+        var options = SidebarLayoutOptions()
+        options.sessionTree = SidebarSessionTreeState()
+        options.chatHistory = state
+        let layout = SidebarLayout.make(sections: Self.sections([1, 2, 3]), metrics: .standard, options: options)
+        try #require(layout.pinnedChatsY != nil)
+        let history = SidebarChatHistoryViews()
+        history.place(layout, state: state, metrics: .standard, in: list, animated: false)
+        let block = history.pinned
+        let slot = block.frame
+        // An earlier move: the block's model frame is at its slot, a spring still carries it there.
+        Motion.withoutAnimation { block.frame = slot.offsetBy(dx: 0, dy: 40) }
+        SidebarDragSpring.move([(block as NSView, slot)], in: list)
+        try #require(Self.positionSprings(block) > 0, "the block did not move on the render server")
+
+        Motion.reduceMotionOverride = true
+        SidebarDragSpring.move(history.place(layout, state: state, metrics: .standard, in: list, animated: true), in: list)
+
+        #expect(Self.positionSprings(block) == 0, "the block kept its spring with movement off")
+        #expect(block.frame == slot)
     }
 }
