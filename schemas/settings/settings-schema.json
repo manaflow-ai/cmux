@@ -28949,7 +28949,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "moderate",
+      "default" : "aggressive",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.memory",
