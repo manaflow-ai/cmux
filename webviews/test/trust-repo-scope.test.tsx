@@ -166,7 +166,9 @@ test("the question names the repo, its path, the chat's worktree and what trusti
   expect(path.getAttribute("title")).toBe(repoRoot);
   expect(host.querySelector(".acpmux-trust-ask-where")!.textContent).toBe("This chat is in a worktree of atlas-web.");
   const detail = host.querySelector(".acpmux-trust-ask-detail")!.textContent!;
-  expect(detail).toBe("Claude Code can run commands and edit files in it, and its hooks, MCP servers and settings load.");
+  expect(detail).toBe(
+    "Claude Code can run commands and edit files in it, and its hooks, MCP servers and settings load.",
+  );
   // The common case first and marked primary.
   expect(buttons()).toEqual(["Trust repo", "Only this folder", "Not now"]);
   expect(host.querySelector("button.acpmux-trust-ask-primary")!.textContent).toBe("Trust repo");
