@@ -200,6 +200,10 @@ public final class SidebarModel {
     public var hidesWorkspaces = false
     /// Minimal mode (`sidebar.minimal`): rows draw only icon, name and marks.
     public var minimal = false
+    /// `sidebar.style`: the standard sidebar or the thin rail (plans/cmux-next/minimal-sidebar.md).
+    public var style: SidebarLayoutStyle = .standard
+    /// The rail's full sidebar is open over the content (`SidebarRailPeek`); window view state.
+    public var isRailOpen = false
     /// Expanded rows (`sidebar.density`), unless minimal.
     public var expanded = false
     /// Row badges draw each state apart (`sidebar.detailedStatusIcons`), not Working or Ready only.
@@ -265,6 +269,9 @@ public final class SidebarModel {
         case .hidden: 0
         }
     }
+
+    /// How far the content sits from the sidebar's window edge (before the gutter).
+    public var contentInset: CGFloat { displayWidth }
 
     /// Current filter matches, or nil when not filtering.
     public var filterMatches: Set<WorkspaceID>? { SidebarFilter.matches(filterText, in: sections) }

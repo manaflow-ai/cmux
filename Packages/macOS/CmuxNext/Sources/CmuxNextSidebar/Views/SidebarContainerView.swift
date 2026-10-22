@@ -35,6 +35,8 @@ public final class SidebarContainerView: NSView {
     /// (`SidebarContainerView+Resize`).
     lazy var panelWidth: NSLayoutConstraint = panel.widthAnchor.constraint(equalToConstant: model.width)
     let handle: SidebarResizeHandle
+    /// The thin rail (`sidebar.style` = rail), shown while the full sidebar is closed.
+    public let railView = SidebarRailView()
     private var observation: Task<Void, Never>?
     /// Width the constraint is at or animating to. The animator reports
     /// intermediate constants, so compare against this instead. Internal for
@@ -244,6 +246,9 @@ public final class SidebarContainerView: NSView {
         apply()
         panel.layoutSubtreeIfNeeded()
     }
+
+    /// Opens the rail's full sidebar now (a rename, the filter, a reveal).
+    public func revealRail() {}
 
     // MARK: Resize
 
