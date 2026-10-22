@@ -208,6 +208,7 @@ import { IncomingMessageLine, IncomingNotice } from "./conversation/IncomingMess
 import type { IncomingMessage } from "./conversation/incomingMessage";
 import { CompactionNote, FailoverNote, PolicyUnenforcedNote } from "./conversation/CompactionNote";
 import { AgentPairNote } from "./conversation/AgentPairNote";
+import { installGutterSelect } from "./conversation/gutterSelect";
 import { SessionStartNote } from "./conversation/SessionStartNote";
 import {
   SessionCwdContext,
@@ -3138,6 +3139,12 @@ export function VirtualTranscript({
       for (const name of releases) node?.removeEventListener(name, release);
       removeWheel?.();
     };
+  }, []);
+  // A drag from the empty margins either side of the column selects text (gutterSelect.ts).
+  useEffect(() => {
+    const node = ref.current;
+    const host = thread.current;
+    return node && host ? installGutterSelect(node, host) : undefined;
   }, []);
   // A turn's footer (TurnFooter) shows for the turn the reader points at: anywhere after its prompt
   // to its footer. Marked on the mounted rows, so a hover renders nothing.
