@@ -112,6 +112,27 @@ function toggleFast(current: "on" | "off"): Play {
   };
 }
 
+// The composer pill's spacing, three ways (composerLocation.css .acpmux-pill; Leo 2026-10-22,
+// ask-d4eed794c9). Each sets the --acpmux-pill-* tokens on the page and points at the model button so
+// its pill shows. "even" is the shipped default.
+const PILL_SPACINGS = {
+  tight: { height: "22px", pad: "4px", radius: "5px", inset: "6px" },
+  even: { height: "24px", pad: "6px", radius: "6px", inset: "7px" },
+  roomy: { height: "28px", pad: "8px", radius: "7px", inset: "8px" },
+} as const;
+
+function pillSpacing(name: keyof typeof PILL_SPACINGS): Play {
+  const tokens = PILL_SPACINGS[name];
+  return async (ctx) => {
+    const style = ctx.document.documentElement.style;
+    style.setProperty("--acpmux-pill-height", tokens.height);
+    style.setProperty("--acpmux-pill-pad", tokens.pad);
+    style.setProperty("--acpmux-pill-radius", tokens.radius);
+    style.setProperty("--acpmux-box-inset", tokens.inset);
+    await ctx.hover({ selector: ".acpmux-model .acpmux-picker-button" });
+  };
+}
+
 const LONG_MODEL = "claude-opus-5-5-1m";
 const longCatalog = CATALOG.map((entry) =>
   entry.id === "claude"
@@ -158,6 +179,21 @@ export default agentPaneEntry({
     "claude-auto": {
       note: "Auto on the left; one model button, Opus 5.5  Medium, then the context ring on the right; mic and Send in the box.",
       snapshot: row(),
+    },
+    "pills-tight": {
+      note: "Pill spacing, tight: 22 px labels with 4 px sides (Claude Code's hover inset), a 6 px box inset. The model button is hovered.",
+      snapshot: row(),
+      play: pillSpacing("tight"),
+    },
+    "pills-even": {
+      note: "Pill spacing, even (the default): 24 px labels with 6 px sides, so a pill is as far from its text at the sides as above and below; + 7 px from the box's left, top and bottom. The model button is hovered.",
+      snapshot: row(),
+      play: pillSpacing("even"),
+    },
+    "pills-roomy": {
+      note: "Pill spacing, roomy: 28 px labels with 8 px sides, an 8 px box inset. The model button is hovered.",
+      snapshot: row(),
+      play: pillSpacing("roomy"),
     },
     "long-model": {
       note: "A long model name: it shows whole while the row has room and is the last label to shorten.",

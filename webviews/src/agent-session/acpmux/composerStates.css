@@ -215,7 +215,6 @@
 .acpmux-picker-button:active,
 .acpmux-picker-button[data-press-active],
 :where(button).acpmux-plan:active,
-.acpmux-steer:active,
 .acpmux-mic:active,
 .acpmux-fast:active,
 .acpmux-location-button:active {
@@ -228,38 +227,9 @@
   outline: none;
 }
 
-/* Steer (or Interrupt) beside Send while a turn runs: a quiet chip, as Plan is; Send queues. */
-.acpmux-steer {
-  height: 28px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  color: var(--agent-muted);
-  /* Keep the running-turn action on the same control step as the other composer chips. */
-  font-size: var(--text-control);
-  line-height: var(--text-control--line-height);
-  white-space: nowrap;
-  cursor: pointer;
-}
-.acpmux-steer:hover {
-  background: var(--acpmux-composer-hover);
-  color: var(--agent-text);
-}
-.acpmux-steer:focus-visible {
-  outline: 1.5px solid var(--agent-text);
-  outline-offset: 2px;
-}
-
 /* Send, Stop and ↵ are plain glyphs, as the mic is (Leo 2026-10-21: "no solid discs"; Claude Code
-   desktop's): at rest the glyph alone (styles.css), hovered or keyboard-focused the mic's soft pill,
-   and a press adds nothing (Leo 2026-10-19: no mousedown feedback). Hover only under a fine pointer,
-   so a tap never leaves a wash behind. */
-@media (hover: hover) and (pointer: fine) {
-  .acpmux-send:not(:disabled):hover {
-    background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
-  }
-}
+   desktop's): at rest the glyph alone (styles.css), hovered (the composer pill's, composerLocation.css)
+   or keyboard-focused the soft pill, and a press adds nothing (Leo 2026-10-19: no mousedown feedback). */
 .acpmux-send:focus-visible {
   background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
 }
@@ -277,10 +247,9 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   cursor: default;
 }
 
-/* Dictation: the mic steps like the bar's other quiet controls; a lit mic's hover is dictation.css's.
-   The notice's buttons step too. */
+/* Dictation: the mic's hover is the composer pill's (composerLocation.css); a lit mic's is
+   dictation.css's. The notice's buttons step too. */
 .acpmux-mic:not([data-state="starting"], [data-state="listening"], [data-state="finalizing"]):hover {
-  background: var(--acpmux-composer-hover);
   color: var(--agent-text);
 }
 .acpmux-dictation-settings:hover,
@@ -316,8 +285,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 /* Hover and press colors ease, and the picker and slash menus fade in; with Reduce Motion they apply at once. */
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-picker-button,
-  :where(button).acpmux-plan,
-  .acpmux-steer {
+  :where(button).acpmux-plan {
     transition:
       background-color var(--agent-motion-hover) var(--agent-ease-out),
       color var(--agent-motion-hover) var(--agent-ease-out);

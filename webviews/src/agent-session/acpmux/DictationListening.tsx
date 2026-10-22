@@ -52,7 +52,7 @@ export function DictationFinishButton({ dictation }: { dictation: Dictation }) {
   return (
     <button
       type="button"
-      className="acpmux-dictation-finish"
+      className="acpmux-dictation-finish acpmux-pill acpmux-pill-icon"
       aria-label={label}
       // The last words are still landing: nothing is left to finish.
       disabled={dictation.state === "finalizing"}

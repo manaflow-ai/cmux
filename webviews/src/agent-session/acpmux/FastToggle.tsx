@@ -56,7 +56,7 @@ export function FastToggle({ speed }: { speed: SpeedTiers }) {
   return (
     <button
       type="button"
-      className="acpmux-fast"
+      className="acpmux-fast acpmux-pill acpmux-pill-icon"
       data-tier={at < 0 ? "off" : at === 0 ? "fast" : "ultrafast"}
       aria-pressed={at >= 0}
       aria-label={label}

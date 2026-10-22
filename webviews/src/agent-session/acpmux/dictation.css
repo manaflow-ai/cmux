@@ -43,16 +43,12 @@
   }
 }
 
-/* The finish key: a quiet icon button like +, with the bar's hover pill. */
+/* The finish key: a quiet icon button like +, the composer pill (composerLocation.css). */
 .acpmux-dictation-finish {
   flex: none;
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
   border: 0;
-  border-radius: 50%;
   background: transparent;
   color: var(--agent-muted);
   cursor: default;
@@ -62,16 +58,11 @@
 .acpmux-fit-mic .acpmux-dictation-finish {
   margin-inline-end: 4px;
 }
-.nt-pickers .acpmux-dictation-finish {
-  width: 24px;
-  height: 24px;
-}
 .acpmux-dictation-finish:disabled {
   opacity: 0.45;
 }
 @media (hover: hover) and (pointer: fine) {
   .acpmux-dictation-finish:not(:disabled):hover {
-    background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
     color: var(--agent-text);
   }
 }
@@ -87,9 +78,9 @@
   }
 }
 
-/* The lit mic: an accent-tinted rounded square with the accent glyph, while a session runs. */
+/* The lit mic: an accent-tinted pill (the composer pill's square) with the accent glyph, while a
+   session runs. */
 .acpmux-mic:is([data-state="starting"], [data-state="listening"], [data-state="finalizing"]) {
-  border-radius: 8px;
   background: color-mix(in srgb, var(--acpmux-dictation-accent) 20%, transparent);
   color: var(--acpmux-dictation-accent);
 }

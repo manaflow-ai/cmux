@@ -31,7 +31,7 @@ export function AgentOptionsMenu({
     <span className="acpmux-picker acpmux-options" data-fit-title={face} data-fit-title-unit="options">
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton
-          className="acpmux-picker-button acpmux-options-trigger"
+          className="acpmux-picker-button acpmux-pill acpmux-options-trigger"
           label={label}
           /* tooltip-allow: the chip names one option or reads Options; the tooltip lists every current choice */
           title={tooltip}
