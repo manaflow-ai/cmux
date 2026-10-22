@@ -91,3 +91,17 @@ test("a result that says it was not delivered never reads as delivered", async (
   // An empty error field is no error.
   expect(done('{"success":true,"error":"","message":"Message delivered to grid-fix"}')).toBe("delivered");
 });
+
+test("a send's own words are never read as its receipt", async () => {
+  const { messageDelivery } = await import("./agentMessages");
+  const done = (output: string) => ({ status: "completed", output });
+  expect(messageDelivery(done("Message wasn't delivered\n"))).toBe("failed");
+  expect(messageDelivery(done("It hasn't been sent"))).toBe("failed");
+  // A mailbox write echoes what it wrote.
+  const note = "The earlier message was not delivered; resending.";
+  expect(messageDelivery(done(`${note}\n`), { channel: "mailbox", text: note })).toBe("sent");
+  // A send that echoes its message before its receipt reads the receipt.
+  expect(
+    messageDelivery(done(`${note}\ndelivered to leoli-24 (id 9defc4d0ed87)\n`), { channel: "coordinator", text: note }),
+  ).toBe("delivered");
+});

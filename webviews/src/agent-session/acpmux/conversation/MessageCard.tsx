@@ -30,7 +30,7 @@ export function MessageCard({ item, message }: { item: AcpmuxActivity; message: 
   );
   const from = message.from ?? t("message.self");
   const to = message.to ? (recipientName(message.to, names) ?? t("message.agent")) : t("message.unknown");
-  const delivery = messageDelivery(tool);
+  const delivery = messageDelivery(tool, message);
   const running = delivery === "sending";
   const failed = delivery === "failed";
   const status = deliveryWord(t, delivery, tool);

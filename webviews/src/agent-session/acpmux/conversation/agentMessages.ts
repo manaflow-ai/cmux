@@ -167,10 +167,17 @@ function sendMessage(args: string[]): AgentMessage | undefined {
 /// that says it failed reads as failed.
 export type Delivery = "sending" | "sent" | "queued" | "delivered" | "failed";
 
-export function messageDelivery(tool: Pick<Tool, "status" | "exitCode" | "output">): Delivery {
+export function messageDelivery(
+  tool: Pick<Tool, "status" | "exitCode" | "output">,
+  message?: Pick<AgentMessage, "channel" | "text">,
+): Delivery {
   if (tool.status === "pending" || tool.status === "in_progress") return "sending";
   if (tool.status === "failed" || (tool.exitCode !== undefined && tool.exitCode !== 0)) return "failed";
-  const output = (tool.output ?? "").trim();
+  // A mailbox write prints what it wrote (`tee -a`), never a receipt: its words are the message's.
+  if (message?.channel === "mailbox") return "sent";
+  // Nor is the message itself, echoed back, a receipt ("the earlier message was not delivered").
+  const echoed = message?.text.trim();
+  const output = (echoed ? (tool.output ?? "").split(echoed).join("") : (tool.output ?? "")).trim();
   if (!output) return "sent";
   const value = parseJson(output);
   if (value && typeof value === "object" && !Array.isArray(value)) {
@@ -194,9 +201,9 @@ export function messageDelivery(tool: Pick<Tool, "status" | "exitCode" | "output
 /// A send's printed words, read for how far it got.
 function deliveryWords(text: string): Delivery {
   if (/^\s*(?:error|failed|failure)\b/im.test(text)) return "failed";
-  // "could not be delivered", "not delivered", "failed to deliver", "undeliverable".
+  // "could not be delivered", "wasn't delivered", "failed to deliver", "undeliverable".
   if (
-    /\b(?:not|never|n['’]t)\s+(?:be\s+|been\s+)?(?:delivered|sent|queued)\b|\bfailed to (?:deliver|send|queue)\b|\bundeliver/i.test(
+    /(?:\bnot|\bnever|n['’]t)\s+(?:be\s+|been\s+)?(?:delivered|sent|queued)\b|\bfailed to (?:deliver|send|queue)\b|\bundeliver/i.test(
       text,
     )
   )
