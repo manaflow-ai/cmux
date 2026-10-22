@@ -261,6 +261,37 @@ impl Translator {
                             json!({"type": "control_request", "request_id": format!("stop-{}", id), "request": {"subtype": "stop_task", "task_id": task}}),
                         ])
                     }
+                    BACKGROUND_TASKS => {
+                        let tool = p.get("toolCallId").and_then(Value::as_str);
+                        let tool = tool.filter(|t| !t.is_empty());
+                        // The foreground shells it may move are the person's once they
+                        // move (`inbound.rs` `origin`).
+                        let mut asked = Vec::new();
+                        for (call, shell) in self.background_shells.lock().await.iter_mut() {
+                            if !shell.background && tool.is_none_or(|t| t == call) {
+                                shell.asked = true;
+                                asked.push(call.clone());
+                            }
+                        }
+                        // The hub stops waiting after `timeoutMs`, and the marks go then
+                        // (`end_background_asks`); without one, at the turn's end.
+                        let wait = p.get("timeoutMs").and_then(Value::as_u64);
+                        let deadline = wait.and_then(|ms| {
+                            std::time::Instant::now()
+                                .checked_add(std::time::Duration::from_millis(ms))
+                        });
+                        self.pending
+                            .lock()
+                            .await
+                            .insert(id.to_string(), Pending::Background(asked, deadline));
+                        let mut request = json!({"subtype": "background_tasks"});
+                        if let Some(tool) = tool {
+                            request["tool_use_id"] = json!(tool);
+                        }
+                        Outbound::Lines(vec![
+                            json!({"type": "control_request", "request_id": format!("bg-{}", id), "request": request}),
+                        ])
+                    }
                     method::MUX_SUBAGENT_STOP => self.subagent_stop(id, &p).await,
                     // Send now on a steer Claude Code has not read: its step stops, so it
                     // reads the steer; with none waiting nothing stops.
@@ -367,12 +398,20 @@ impl Translator {
 }
 
 /// An ACP `resource` or `resource_link` block as prompt text, so embedded
-/// context reaches Claude instead of an empty string.
+/// context reaches Claude instead of an empty string. A `file://` URI also
+/// names its decoded path: the URI is percent-encoded (`Application%20Support`),
+/// and Claude's tools open paths.
 fn resource_text(b: &Value) -> String {
     let r = b.get("resource").unwrap_or(b);
     let uri = r.get("uri").and_then(Value::as_str).unwrap_or("");
+    let path = reqwest::Url::parse(uri)
+        .ok()
+        .filter(|url| url.scheme() == "file")
+        .and_then(|url| url.to_file_path().ok())
+        .map(|path| format!(" path=\"{}\"", path.display().to_string().replace('"', "&quot;")))
+        .unwrap_or_default();
     match r.get("text").and_then(Value::as_str) {
-        Some(text) => format!("<resource uri=\"{uri}\">\n{text}\n</resource>"),
-        None => format!("<resource uri=\"{uri}\" />"),
+        Some(text) => format!("<resource uri=\"{uri}\"{path}>\n{text}\n</resource>"),
+        None => format!("<resource uri=\"{uri}\"{path} />"),
     }
 }

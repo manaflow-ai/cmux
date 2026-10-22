@@ -45,6 +45,7 @@ extension SettingsController {
             } else {
                 try await file.set(value, at: descriptor.path)
             }
+            if descriptor.kind == .fontFamily, let family = value.stringValue { recentFonts.record(family) }
             await reloadAfterWrite()
         } else {
             if let legacy { try await file.remove(legacy) }
@@ -80,6 +81,9 @@ extension SettingsController {
         let managed = file.managedGuard.managedKeys
         for descriptor in SettingsSchema.all where managed[descriptor.id] == nil && !SettingsSchema.keptOnResetAll.contains(descriptor.path) {
             try await removePruning(descriptor.path)
+        }
+        for key in SettingsSchema.retiredKeys.keys.sorted() where managed[key] == nil {
+            try await removePruning(CmuxConfigFile.keyPath(from: key))
         }
         try await file.remove(["shortcuts", "bindings"])
         if case .object(let members)? = try await file.value(at: ["shortcuts"]) {

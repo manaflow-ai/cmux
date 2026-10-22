@@ -409,7 +409,7 @@ impl Brain {
         sub.status == SubStatus::Running && sub.session_id.is_some()
     }
 
-    fn control_interrupt(
+    pub(super) fn control_interrupt(
         &mut self,
         sub: &SubRecord,
         message: Option<&str>,
@@ -754,7 +754,9 @@ impl Brain {
                 },
                 None => outcome(
                     "done",
-                    format!("{id} is cancelled; it is still starting and gets nothing more"),
+                    format!(
+                        "{id} is cancelled; it is still starting, and its turn stops as soon as it starts"
+                    ),
                 ),
             },
             SubStatus::Done | SubStatus::Reported => {
@@ -763,7 +765,7 @@ impl Brain {
         }
     }
 
-    fn control_restart(
+    pub(super) fn control_restart(
         &mut self,
         sub: &SubRecord,
         message: Option<&str>,

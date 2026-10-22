@@ -96,9 +96,10 @@ extension AgentActivityLane {
         return Int(parts[3].dropFirst())
     }
 
-    /// The subagent's short name (`a7`), with acpmux's title when it has one of its own.
+    /// The subagent's task title (acpmux's title when it has one of its own), else "Subagent":
+    /// its `a7` id is the Chief's to use, never shown (Leo 2026-10-21).
     nonisolated var subagentTitle: String {
-        let short = subagentNumber.map { "a\($0)" } ?? name
-        return title == name || title.isEmpty ? short : "\(short) · \(title)"
+        guard title != name, let task = title.chiefTaskTitle else { return ChiefToolStrings.subagent }
+        return task
     }
 }

@@ -4,7 +4,9 @@ import { sections } from "../schema";
 import { text } from "../strings";
 import { AccountsSection } from "./AccountsSection";
 import { AgentHarnesses } from "./AgentHarnesses";
+import { AgentIntegrations } from "./AgentIntegrations";
 import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
+import { ChannelsCard } from "./ChannelsCard";
 import { ChiefsCard } from "./ChiefsCard";
 import { ComputerUseCard } from "./ComputerUseCard";
 import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
@@ -13,11 +15,13 @@ import { HarnessesCard } from "./HarnessesCard";
 import { APPEARANCE_CATEGORIES } from "../appearanceUndo";
 import { AppearanceBar } from "./AppearanceBar";
 import { MobileCard } from "./MobileCard";
+import { ImportSuggestionsCard } from "./ImportSuggestionsCard";
 import { AdvancedInfo, BACKDROP_ROWS, Backdrops, TerminalInfo, useBackdropsShown } from "./HostCards";
 import { DENSITY_ROWS } from "../density";
 import { DensityCard } from "./DensityCard";
 import { BrowserProfiles, MachinesSection, SpacesSection } from "./HostSections";
 import { PlaceholderSection } from "./PlaceholderSection";
+import { VoiceInputCard } from "./VoiceInputCard";
 import { SectionActions } from "./SectionActions";
 import { ACCENT_KEY, APP_THEME_KEY, THEME_EDITS_KEY, THEME_KEY, ThemeStudio } from "./ThemeStudio";
 
@@ -36,6 +40,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   machines: () => <MachinesSection title={machinesTitle()} />,
   accounts: () => <AccountsSection />,
   agentHarnesses: (focus) => <AgentHarnesses focus={focus} />,
+  agentIntegrations: (focus) => <AgentIntegrations focus={focus} />,
   chiefs: () => <ChiefsCard />,
   advancedInfo: () => <AdvancedInfo />,
   advancedActions: () => <PlaceholderSection section="advanced" />,
@@ -43,6 +48,9 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   mobile: () => <MobileCard />,
   chiefPet: (focus) => <ChiefPetCard focus={focus} />,
   density: () => <DensityCard />,
+  importSuggestions: () => <ImportSuggestionsCard />,
+  channels: () => <ChannelsCard />,
+  voiceInput: () => <VoiceInputCard />,
 };
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */
@@ -66,16 +74,13 @@ export function SectionView({
   const pet = category.lead.includes("chiefPet");
   // The density card draws appearance.density and the custom density keys.
   const densityCard = [...category.lead, ...category.trail].includes("density");
-  // appearance.themeEdits is the pickers' "(custom)" themes, never a row of its own. The page has no
-  // editor for any other string_map (browser.siteEngines, edited in cmux.json): an empty row would
-  // be a title with no control.
+  // appearance.themeEdits is the pickers' "(custom)" themes, never a row of its own.
   const groups = category.groups
     .map((group) => ({
       ...group,
       rows: group.rows.filter(
         (row) =>
           row.key !== THEME_EDITS_KEY &&
-          row.kind !== "string_map" &&
           !drawn.has(row.key) &&
           !(picker && BACKDROP_ROWS.has(row.key)) &&
           !(pet && CHIEF_PET_ROWS.has(row.key)) &&

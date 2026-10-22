@@ -6,6 +6,9 @@ struct SidebarPress {
     var key: SidebarRowKey
     var point: NSPoint
     var deferredClick: WorkspaceID?
+    /// A plain press on a workspace row with `sidebar.multiView` on: it navigates only if the button comes up on
+    /// the same row without a drag.
+    var clickOnRelease: WorkspaceID?
     var cancelled = false
     /// An item row that switched on mouse-down (`LayoutItemRef.activatesOnPress`): its release does not run it again.
     var activatedOnPress = false

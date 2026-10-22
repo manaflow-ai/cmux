@@ -38,7 +38,9 @@ impl Hub {
         // harness gets them in `mcpServers` whatever its args.
         let args: &[String] = if claude { &profile.argv } else { &[] };
         let remote = session.meta().remote_origin;
-        let mut cmux = if crate::agent_tools::left_out(remote, &profile.env, args) {
+        let left_out = crate::agent_tools::left_out(remote, &profile.env, args);
+        session.launched_with_tools.store(if left_out { 2 } else { 1 }, Ordering::SeqCst);
+        let mut cmux = if left_out {
             Vec::new()
         } else {
             crate::agent_tools::current().scoped(&profile.env).tool_rows(claude, claude)
@@ -166,12 +168,21 @@ impl Hub {
     }
 }
 
-/// `--disallowedTools mcp__<server>` for each server the chat turned off, in
-/// Claude Code's spelling of a server name: other than `[A-Za-z0-9_-]`
-/// becomes `_`, and for a `claude.ai ` connector runs of `_` collapse and
-/// the ends trim (Claude Code 2.1.299).
+/// The prefix of an off row that names a Claude Code built-in tool the chat
+/// was started without (`NewRequest::disallowed_tools`), not an MCP server.
+pub(super) const BUILT_IN: &str = "tool:";
+
+/// `--disallowedTools <tool>` for each built-in tool the chat was started
+/// without, then `--disallowedTools mcp__<server>` for each server the chat
+/// turned off, in Claude Code's spelling of a server name: other than
+/// `[A-Za-z0-9_-]` becomes `_`, and for a `claude.ai ` connector runs of `_`
+/// collapse and the ends trim (Claude Code 2.1.299).
 pub(super) fn disallowed_args(tools: &ToolInventory) -> Vec<String> {
     let mut args = Vec::new();
+    for tool in tools.off.iter().filter_map(|id| id.strip_prefix(BUILT_IN)) {
+        args.push("--disallowedTools".to_owned());
+        args.push(tool.to_owned());
+    }
     for server in tools.off.iter().filter_map(|id| id.strip_prefix("mcp:")) {
         let mut name: String = server
             .chars()

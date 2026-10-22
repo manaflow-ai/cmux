@@ -1,17 +1,17 @@
-// P0 #8 (Leo, on a preview build): the reasoning control could not be clicked on its own. On the
-// New Tab composer and a new chat's composer, before the session reported its options, the
-// Reasoning chip was a picture (PendingChip: aria-hidden, pointer-events: none): a click fell
-// through to the chips row, Tab skipped it, and the only way to the levels was the model chip's
-// menu. Reasoning is its own control: its own hit target, its own accessible name, its own menu.
+// The model button is the composer's one model control (Leo 2026-10-20: "Opus 5.5  Medium", no
+// separate Reasoning dropdown). Earlier (P0 #8) Reasoning was its own chip beside the model; now the
+// effort is named inside the model button, and its levels are the Effort row of that button's menu.
+// Effort must stay reachable and live before the session reports its options (P0 #8's point): the
+// menu's Effort row lists real levels with one checked, never a picture.
 //
-// At the boundary a person meets, in real Chromium: a pointer press at each chip's centre (so
-// whatever is on top takes it) at 760, 400 and 300 px, on the New Tab page, a new chat and a live
-// chat; and Tab from the model chip lands on the reasoning chip, each with its own name.
+// At the boundary a person meets, in real Chromium: a pointer press at the model button's centre
+// (so whatever is on top takes it) at 760, 400 and 300 px, on the New Tab page, a new chat and a
+// live chat. No other control is named Effort or Reasoning, and the button never says "Reasoning".
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("reasoning-own-control.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -28,7 +28,7 @@ await requireBrowserLane("reasoning-own-control.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const url = (entry: string, variant: string, width: number) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}&frame=component&width=${width}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant, frame: "component", width })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -37,20 +37,9 @@ await requireBrowserLane("reasoning-own-control.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
-    // The first load can run Vite's dependency optimizer and reload mid-compile.
-    const warm = await browser.newPage({ viewport: { width: 800, height: 600 } });
-    await warm.goto(url("agent-pane.composer", "new-chat-reasoning", 760));
-    for (;;) {
-      try {
-        await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-        break;
-      } catch (error) {
-        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-      }
-    }
-    await warm.close();
+    await warmGalleryFrame(vite, "agent-pane.composer", { browser, params: { variant: "new-chat-reasoning" } });
+    await warmGalleryFrame(vite, ["agent-pane.new-tab", "agent-pane.composer-row"], { browser });
   });
   afterAll(async () => {
     await browser?.close();
@@ -64,7 +53,6 @@ await requireBrowserLane("reasoning-own-control.test.ts", async () => {
       timeout: 120_000,
     });
     await page.locator(".acpmux-chips .acpmux-model .acpmux-picker-button").waitFor();
-    await page.locator(".acpmux-chips .acpmux-effort").waitFor();
     await page.evaluate(() => document.fonts.ready);
     return page;
   };
@@ -76,13 +64,6 @@ await requireBrowserLane("reasoning-own-control.test.ts", async () => {
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   };
 
-  /** Which menus are open: the reasoning menu and the model picker. */
-  const menus = (page: Page) =>
-    page.evaluate(() => ({
-      reasoning: document.querySelector(".acpmux-effort-menu") !== null,
-      model: document.querySelector(".acpmux-mp") !== null,
-    }));
-
   const cases: [string, string, string][] = [
     ["New Tab", "agent-pane.new-tab", "reasoning-chip"],
     ["new chat", "agent-pane.composer", "new-chat-reasoning"],
@@ -90,37 +71,38 @@ await requireBrowserLane("reasoning-own-control.test.ts", async () => {
   ];
   for (const [where, entry, variant] of cases)
     for (const width of [760, 400, 300]) {
-      test(`${where} at ${width} px: the reasoning chip opens the reasoning menu, the model chip the model menu`, async () => {
+      test(`${where} at ${width} px: one model button names the effort; no separate Reasoning control`, async () => {
         const page = await open(entry, variant, width);
-        await pressCentre(page, ".acpmux-chips .acpmux-effort");
-        await page.locator(".acpmux-effort-menu").waitFor();
-        expect(await menus(page)).toEqual({ reasoning: true, model: false });
-        await page.keyboard.press("Escape");
-        await page.locator(".acpmux-effort-menu").waitFor({ state: "detached" });
-        expect(await menus(page)).toEqual({ reasoning: false, model: false });
-        await pressCentre(page, ".acpmux-chips .acpmux-model .acpmux-picker-button");
-        await page.locator(".acpmux-mp").waitFor();
-        expect(await menus(page)).toEqual({ reasoning: false, model: true });
+        expect(await page.locator(".acpmux-effort, .acpmux-effort-menu, .acpmux-fast").count()).toBe(0);
+        expect(await page.getByRole("button", { name: /^(Effort|Reasoning)$/ }).count()).toBe(0);
+        expect(await page.getByRole("button", { name: "Model", exact: true }).count()).toBe(1);
+        const face = await page.locator(".acpmux-chips .acpmux-model .acpmux-picker-button").innerText();
+        expect(face).not.toContain("Reasoning");
+        // The effort is drawn inside the button, after the model's name.
+        expect(await page.locator(".acpmux-chips .acpmux-model .acpmux-model-detail").count()).toBeGreaterThan(0);
         await page.close();
       });
 
-      test(`${where} at ${width} px: Tab reaches the model and reasoning chips separately, each by its own name`, async () => {
+      test(`${where} at ${width} px: the model button opens its menu, whose Effort row lists live levels`, async () => {
         const page = await open(entry, variant, width);
-        await page.locator(".acpmux-chips .acpmux-model .acpmux-picker-button").focus();
-        const named = () =>
-          page.evaluate(() => {
-            const focused = document.activeElement as HTMLElement | null;
-            return {
-              name: focused?.getAttribute("aria-label") ?? "",
-              chip: focused?.closest(".acpmux-model") ? "model" : focused?.closest(".acpmux-effort") ? "effort" : "",
-            };
-          });
-        expect(await named()).toEqual({ name: "Model", chip: "model" });
-        await page.keyboard.press("Tab");
-        expect(await named()).toEqual({ name: "Effort", chip: "effort" });
-        // Its own name in the accessibility tree, beside the model chip's.
-        expect(await page.getByRole("button", { name: "Effort", exact: true }).count()).toBe(1);
-        expect(await page.getByRole("button", { name: "Model", exact: true }).count()).toBe(1);
+        await pressCentre(page, ".acpmux-chips .acpmux-model .acpmux-picker-button");
+        await page.locator(".acpmux-quick-menu").first().waitFor();
+        // The compact menu, not the full picker: that one is More models.
+        expect(await page.locator(".acpmux-mp").count()).toBe(0);
+        const effortRow = page.getByRole("menuitem", { name: /^Effort/ });
+        expect(await effortRow.count()).toBe(1);
+        await effortRow.click();
+        await page.waitForFunction(() => document.querySelectorAll(".acpmux-quick-menu").length >= 2);
+        const levels = page.locator(".acpmux-quick-menu").last().locator('[role="menuitemradio"]');
+        expect(await levels.count()).toBeGreaterThan(1);
+        expect(
+          await page
+            .locator(".acpmux-quick-menu")
+            .last()
+            .locator('[role="menuitemradio"][aria-checked="true"]')
+            .count(),
+        ).toBe(1);
+        await page.keyboard.press("Escape");
         await page.close();
       });
     }
