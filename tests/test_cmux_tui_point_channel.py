@@ -186,10 +186,16 @@ def main():
         _check(result.returncode == 0 and after == current and not uploads,
                f"{why}: left as it is (exit {result.returncode}, uploads {uploads}): {result.stdout}{result.stderr}")
 
-    # A file that names no commit is no pointer: replaced, by a swap on it.
-    result, after, uploads = run("not json")
-    _check(result.returncode == 0 and commit_of(after) == SHA and uploads == ["replace cmux-tui/channels/feat-cmux-next.json"],
-           f"a pointer that names no commit is replaced: {uploads} {result.stdout}{result.stderr}")
+    # A file that names no commit proves nothing about ancestry: an older run
+    # must not overwrite it, so it is left for a person to look at.
+    for why, current in [
+        ("a pointer that is not JSON", "not json"),
+        ("a pointer without a commit", '{"key": "' + "a" * 40 + '"}'),
+        ("a pointer with a malformed commit", pointer("not-a-commit")),
+    ]:
+        result, after, uploads = run(current)
+        _check(result.returncode == 0 and after == current and not uploads,
+               f"{why}: left as it is (exit {result.returncode}, uploads {uploads}): {result.stdout}{result.stderr}")
 
     # Two runs at once: a newer push writes between this run's compare and its
     # write. The swap fails, the pointer is read again, and this run, now
