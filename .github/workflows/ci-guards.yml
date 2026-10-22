@@ -715,6 +715,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_gallery_select.py
 
+      - name: Validate that gallery health renders a pull request merged with its base
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_gallery_health_merge_ref.py
+
       - name: Validate the feat-cmux-next PR merge-tree publisher
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_cmux_next_pr_merge_tree.py
@@ -865,6 +869,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_are_bounded.py
 
+      - name: Validate superseded pull request runs are cancelled
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_runs_cancel_superseded.py
+
       - name: Validate required checks have no paths filters
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_have_no_path_filters.py
@@ -888,6 +896,10 @@ jobs:
       - name: Validate cmux-tui macOS routes avoid the nightly label
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_tui_routes_avoid_nightly_label.py
+
+      - name: Validate pin pushes run the cmux_next_ daemon tests on Linux
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_tui_daemon_tests_linux.py
 
       - name: Validate the tui publish dispatch budget
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1223,11 +1235,11 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_publisher_testing.py
 
-      - name: Validate when the cmux-next tour runs (merges, media-tour, Swift UI a tour covers)
+      - name: Validate when the cmux-next tour runs (merges, dispatches, adding media-tour)
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_media_tour_gate.py
 
-      - name: Validate which pull requests get a native media tour
+      - name: Validate that a pull request tours once, when media-tour is added
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_media_auto_tour.py
 
