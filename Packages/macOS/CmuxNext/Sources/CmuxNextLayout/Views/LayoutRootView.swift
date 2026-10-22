@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextCompat
-import CmuxNextDesign
+public import CmuxNextDesign
 import Observation
 
 /// The workspace content area: renders every screen of a `LayoutModel`,
@@ -336,8 +336,14 @@ public final class LayoutRootView: NSView {
                 view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, attention: snapshot.attention,
                                   animated: chromeAnimated && !structureChanged, flashAnimated: chromeAnimated)
             } else if chromeChanged {
+                // A focus move alone changes the chrome of two panes, the one left and the one focused: every
+                // other pane keeps its ring, dim and tab emphasis (O(2), not O(panes); speed-of-sound 3.2).
+                let focusMoveOnly = previous.map {
+                    !sharedChanged && $0.dimsInactive == snapshot.dimsInactive && $0.attention == snapshot.attention
+                } ?? false
                 view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, attention: snapshot.attention,
-                                  animated: chromeAnimated)
+                                  animated: chromeAnimated,
+                                  only: focusMoveOnly ? Set([previous?.focused, snapshot.focused].compactMap { $0 }) : nil)
             }
             // A changed layout or focus reaches the scroll reducer: it anchors
             // the camera on layout changes, reveals focus, and springs back
@@ -431,6 +437,8 @@ public final class LayoutRootView: NSView {
     /// Layout passes of every root (`debug.layout_counters`): a window resize lays out the shown
     /// workspace only; a parked one keeps its frame until it shows again.
     public static var layoutPasses: UInt64 = 0
+    /// Panes whose chrome (ring, dim, tab emphasis) a sync re-ran, all windows (`debug.layout_counters`).
+    public static var paneChromeUpdates: UInt64 = 0
 
     override public func layout() {
         super.layout()
@@ -459,10 +467,13 @@ public final class LayoutRootView: NSView {
         if overlayPlane.syncFrame() || moved { setNeedsOverlaySync() }
     }
 
-    /// In a window and not hidden: the only state in which this root takes events, runs frames,
-    /// lends its overlay plane to the window and reports visible panes. A parked workspace stays in
-    /// its window, hidden (`WindowRootView.show`), so hiding is what parks it, as leaving did.
+    /// In a window and not hidden or parked: the only state in which this root takes events, runs
+    /// frames, lends its overlay plane to the window and reports visible panes. A parked workspace
+    /// stays in its window, hidden or parked (`WindowRootView.show`, ``ParkingContainer``), so that is
+    /// what parks it, as leaving did.
     public private(set) var isLive = false
+
+    private var isShown: Bool { window != nil && !isHiddenOrHasHiddenAncestor && !isParkedOrHasParkedAncestor }
 
     override public func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
@@ -471,7 +482,7 @@ public final class LayoutRootView: NSView {
 
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        setLive(window != nil && !isHiddenOrHasHiddenAncestor)
+        setLive(isShown)
     }
 
     override public func viewDidHide() {
@@ -481,8 +492,10 @@ public final class LayoutRootView: NSView {
 
     override public func viewDidUnhide() {
         super.viewDidUnhide()
-        setLive(window != nil && !isHiddenOrHasHiddenAncestor)
+        setLive(isShown)
     }
+
+    public func parkingDidChange() { setLive(isShown) }
 
     /// One transition per park or show: O(1) registrations, then one visibility report (the panes
     /// that hide or show), never per frame or per event.
@@ -516,3 +529,5 @@ public final class LayoutRootView: NSView {
     }
 
 }
+
+extension LayoutRootView: ParkingObserver {}

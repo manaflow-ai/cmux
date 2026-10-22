@@ -34,6 +34,12 @@ install -m 755 "$src/scripts/cmux-next/cmux-code-mode-runner" "$bin/cmux-code-mo
 # refresh a user's managed `cmux` shim from it (plans/cmux-next/version-skew.md).
 install -m 755 "$src/scripts/lib/cmux-dev-shim-install" "$bin/cmux-dev-shim-install"
 install -m 755 "$src/scripts/cmux-next/cmux-code-mode-macos-profile" "$bin/cmux-code-mode-macos-profile"
+# The URL opener a terminal's BROWSER names and its `open` / `xdg-open` shims
+# (BundledCLIEnvironment, TerminalLinkOpener). Only this app's bin dir, which
+# only its terminals put on PATH: never Resources/bin, which classic shares.
+for shim in cmux-open-url open xdg-open; do
+  install -m 755 "$src/scripts/cmux-next/url-open/$shim" "$bin/$shim"
+done
 
 # Rust and Zig standard library notices for every bundled binary that links
 # them (cmux-tui/build-support/notices/toolchains; check_bundle_notices.py

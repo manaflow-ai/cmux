@@ -49,6 +49,17 @@ impl Surface {
             .prompt_since()
     }
 
+    /// When the terminal last printed anything: `extra.last_output`
+    /// (`terminal-activity-v1`).
+    pub(crate) fn terminal_last_output(&self) -> Option<u64> {
+        self.as_pty()?
+            .terminal_metadata
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .activity
+            .last_output()
+    }
+
     /// The terminal's OSC 7501 program status records as the public value
     /// (`extra.program_status`); `running` false hides the records that end
     /// with the process. `None` when nothing is shown.

@@ -2593,8 +2593,8 @@
      "quiet"
     ],
     "default": "fade",
-    "strength": 0.6,
-    "cmuxJson": "focus.inactiveTabStyle (Settings > Appearance > Unfocused Pane Tabs); the Debug Settings tunable of the same name overrides it. focus.inactiveTabStrength (0.6) stays a Debug tunable."
+    "strength": 0.4,
+    "cmuxJson": "focus.inactiveTabStyle (Settings > Appearance > Unfocused Pane Tabs); the Debug Settings tunable of the same name overrides it. focus.inactiveTabStrength (0.4) stays a Debug tunable."
    },
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/PaneFocusSettings.swift (PaneFocusSettings.inactiveTabStylePath); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DesignSettings.swift (DesignSettings.inactiveTabStyle, effectiveInactiveTabStyle); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FocusIndicatorTunables.swift:9-16 (FocusIndicatorTunables.inactiveTabStyle)"
   },
@@ -3228,7 +3228,7 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FocusIndicatorTunables.swift:9-16 (FocusIndicatorTunables.inactiveTabStyle)"
    ],
    "metrics": {
-    "strength": 0.6,
+    "strength": 0.4,
     "floors": {
      "primary": 3.5,
      "secondary": 2.5,
@@ -3239,7 +3239,7 @@
    },
    "variants": {
     "focus.inactiveTabStyle": {
-     "fade": "text tiers mixed toward the page by strength until contrast floors; selectionFill and hoverFill alpha *(1-strength)",
+     "fade": "text tiers mixed toward the page by strength until contrast floors; selectionFill alpha *max(1-strength, 0.4), hoverFill alpha *(1-strength/2)",
      "tonal": "primary<-secondary, secondary<-tertiary, tertiary faded strength/2; selectionFill = hoverFill alpha *(1-strength/2)",
      "quiet": "primary<-secondary, secondary/tertiary faded strength/2; selectionFill transparent"
     },

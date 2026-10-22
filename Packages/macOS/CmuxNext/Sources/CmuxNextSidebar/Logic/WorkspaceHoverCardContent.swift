@@ -33,11 +33,14 @@ struct WorkspaceHoverCardContent: Equatable {
         var accessory: HoverCardAccessory?
         /// The text's own ink, over the message or metadata ink (an offline machine's warning).
         var ink: HoverCardTone?
+        /// The machine a machine row names: its icon draws that machine's color pick, if any.
+        var machine: String?
 
         /// The row the shared hover card row draws (`HoverCardRowView`).
         var row: HoverCardRowContent {
             HoverCardRowContent(text: text, ink: ink ?? (isMessage ? .primary : .secondary), lines: lines, status: status,
-                                statusTone: statusTone, additions: additions, deletions: deletions, accessory: accessory)
+                                statusTone: statusTone, additions: additions, deletions: deletions, accessory: accessory,
+                                iconMachine: machine)
         }
 
         /// What someone said or asked (a waiting reason, a notification, the task, the last
@@ -204,10 +207,8 @@ struct WorkspaceHoverCardContent: Equatable {
             // that is not connected says how, in its color, under it.
             let own = ownIcon(remote.icon)
             let tone = connectionTone(remote.status)
-            // The Chief's subagent workspaces say who started them here, not on their row.
-            let name = remote.id.isLocalChief ? Strings.startedByChief : remote.name
-            facts.append(Fact(icon: hostIcon(remote), text: name, mark: own.mark, image: own.image, kind: "machine",
-                              accessory: .dot(tone)))
+            facts.append(Fact(icon: hostIcon(remote), text: remote.name, mark: own.mark, image: own.image, kind: "machine",
+                              accessory: .dot(tone), machine: remote.name))
             if let word = connectionWord(remote.status) {
                 facts.append(Fact(icon: .statusDisconnected, text: word, kind: "machineStatus", ink: tone))
             }
@@ -297,12 +298,14 @@ struct WorkspaceHoverCardContent: Equatable {
         return HoverCardRowContent(text: line, ink: tone == .secondary ? .secondary : tone, accessory: bars)
     }
 
-    /// A machine's link as a color: green connected, yellow on its way, red when it cannot connect.
+    /// A machine's link as a color: green connected, yellow on its way, red when it cannot connect,
+    /// grey when paused (it resumes on attach).
     static func connectionTone(_ status: SidebarMachine.Status) -> HoverCardTone {
         switch status {
         case .connected, .updateAvailable: .success
         case .connecting, .reconnecting, .installing, .updateRequired, .installRequired: .attention
         case .offline, .authFailed, .unreachable, .failed: .danger
+        case .paused, .pausedIdle: .secondary
         }
     }
 

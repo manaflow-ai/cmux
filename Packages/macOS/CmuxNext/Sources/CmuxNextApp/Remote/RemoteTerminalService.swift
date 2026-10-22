@@ -111,15 +111,17 @@ final class RemoteTerminalService {
     /// The placeholder tab `key` shows now, if any.
     func existingPlaceholder(_ key: String) -> RemoteTerminalPlaceholderView? { placeholders[key] }
 
-    /// The machine name on a remote-terminal tab (the subtle machine badge).
-    func badge(for tab: TabModel) -> String? {
-        guard let ref = tab.remote else { return nil }
-        return machineName(ref)
+    /// The machine name on a remote-terminal tab (the subtle machine badge), and the name its
+    /// color comes from (`MachineRegistry.tabColorName`: the machine's sidebar name).
+    func badge(for tab: TabModel) -> (text: String?, colorName: String?) {
+        guard let ref = tab.remote else { return (nil, nil) }
+        let text = machineName(ref)
+        return (text, services.machines.tabColorName(services.machines.daemon(session: ref.sessionID)?.machineID, badge: text))
     }
 
     func machineName(_ ref: RemoteTerminalRef) -> String {
         if let daemon = services.machines.daemon(session: ref.sessionID) {
-            if daemon.isLocal { return daemon.identity?.machineName ?? MacName().kernelHostName() }
+            if daemon.isLocal { return daemon.identity?.machineName ?? MacName().hostName() }
             return services.machines.machineBadge(daemon.machineID) ?? daemon.identity?.machineName ?? ref.sessionName
         }
         return ref.sessionName
@@ -183,7 +185,10 @@ final class RemoteTerminalService {
             let service = services.ssh
             return { service.reconnect(ssh) }
         }
-        if let cloud = machines.session(daemon.machineID) { return { cloud.connect(origin: .user) } }
+        // A paused Cloud machine (idle auto-pause) resumes on Connect.
+        if let cloud = machines.session(daemon.machineID) {
+            return { cloud.machine.status == .paused ? cloud.attach(origin: .user) : cloud.connect(origin: .user) }
+        }
         if let server = machines.server(daemon.machineID) { return { server.connect() } }
         return nil
     }

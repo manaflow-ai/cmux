@@ -19,13 +19,23 @@ extension HomeStore {
         viewCache.setScrollAnchor(anchor, for: id)
     }
 
+    /// The cache's conversations and sends in `rows` now, before `start()` connects: a view built
+    /// before the store starts (the Home list at launch) draws its first frame complete. Idempotent.
+    public func primeFromCache() {
+        guard !stopped else { return }
+        restoreCache()
+    }
+
     /// Writes the coalesced cache batch now (app quit), without stopping.
     public func flushCache() {
         viewCache.flush()
     }
 
-    /// Shows what the cache holds before the owner answers.
+    /// Shows what the cache holds before the owner answers. Once per store: the Home list calls it
+    /// before its first frame (``primeFromCache()``), `start()` again.
     func restoreCache() {
+        guard !cacheRestored else { return }
+        cacheRestored = true
         guard let snapshot = cache?.load() else { return }
         viewCache.restore(snapshot) {
             mirror.seed(snapshot)

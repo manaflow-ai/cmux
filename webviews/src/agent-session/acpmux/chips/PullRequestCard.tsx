@@ -3,9 +3,13 @@
 // but "github.com · https://github.com/.../pull/22777, Open", while the older, richer card said
 // "GitHub rate limit · resets 9:11 PM" where the pull request should have been.
 //
-// The card reads: the state pill (draft, open, merged, closed, and conflicts beside it),
-// `owner/repo#N`, the title, the author with a monogram, when GitHub last saw it change,
-// `base ← head`, the checks summed, the review decision and labels, and the files with `+/−`.
+// The card reads: the pull request glyph in its state's colour beside the title (in the link card's
+// head when it has one, cut to two lines) — open green, merged purple, closed red, draft grey, as
+// Claude draws it, with no state word (Leo 2026-10-21) — then `owner/repo#N` (its link, blue like
+// every link), conflicts, the author with a monogram and when GitHub last saw it change,
+// `base ← head`, an open pull request's checks as a compact ✓/✗ count (a merged or closed one's no
+// longer matter), with how many reds are also red on base (when every one is, the ✗ reads muted,
+// not as this pull request's), the review decision and labels, and the files with `+/−`.
 // Hovering (or focusing) the `+/−` breaks those lines down by kind — Code, Tests, Mocks, Docs,
 // Evals, Generated — from the one classifier the diff viewer groups by (src/fileKinds.ts), and
 // says so when code changed with no test.
@@ -13,7 +17,7 @@
 // Nothing here calls GitHub. The host answers from its own cache and reads gh in the background
 // (pullRequestStore.ts, AgentReplyPullRequests); when its answer is not fresh the card prints how
 // old it is instead of an error.
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { FILE_KINDS, kindTotals, missingTests, type FileKind } from "../../../fileKinds";
 import { usePaneLanguage, useT, type PaneLanguage, type StringKey, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -61,13 +65,26 @@ export function pullRequestRef(href: string): { repo: string; number: number; ur
 export type KnownPullRequest = { repo: string; number: number; title?: string; state?: string };
 
 /// The card's content; its frame (AnchoredCard) belongs to the caller. `open` asks the host.
-export function PullRequestCardBody({ url, known, open }: { url: string; known: KnownPullRequest; open: boolean }) {
+/// `head` draws the caller's head row around the title and the state glyph (LinkHoverCard: glyph,
+/// title, Open, Open in); without it the glyph leads the body's first row, under the title.
+export function PullRequestCardBody({
+  url,
+  known,
+  open,
+  head,
+}: {
+  url: string;
+  known: KnownPullRequest;
+  open: boolean;
+  head?: (title: string, glyph: ReactNode) => ReactNode;
+}) {
   const t = useT();
   // Every age in the card is worded in the pane's own language, like a message's time
   // (UserBubble): without it Intl falls back to the host's ICU default and a Japanese pane reads
   // "vor 3 Minuten".
   const language = usePaneLanguage();
-  const plain = pullRequestRef(url)?.url ?? url;
+  const link = pullRequestRef(url)?.url;
+  const plain = link ?? url;
   const answer = usePullRequestAnswer(plain, open);
   const read = answer?.pullRequest ?? undefined;
   const title = read?.title || known.title;
@@ -77,86 +94,114 @@ export function PullRequestCardBody({ url, known, open }: { url: string; known: 
   // unparsed date to `Intl.DateTimeFormat`, which raises RangeError on NaN, and a raise in here
   // takes the whole card down over one string the host passed through from GitHub.
   const updatedAt = read?.updatedAt == null ? Number.NaN : Date.parse(read.updatedAt);
+  const reference = `${known.repo}#${known.number}`;
+  const glyph = (
+    <span className="acpmux-pr-card__glyph" data-state={state || undefined}>
+      {/* The state's word is the glyph's accessible name only; the card shows its colour. */}
+      <Icon name="git.pullrequest" size={14} title={state && BADGES[state] ? t(BADGES[state]!) : undefined} />
+    </span>
+  );
   return (
-    <div className="acpmux-pr-card__body">
-      <div className="acpmux-pr-card__facts">
-        <Icon name="git.pullrequest" size={13} />
-        {state && (
-          <span className="acpmux-pr-card__state" data-state={state}>
-            {BADGES[state] ? t(BADGES[state]!) : state}
-          </span>
-        )}
-        {read?.mergeable === "conflicting" && (
-          <span className="acpmux-pr-card__state" data-state="conflicts">
-            {t("header.prConflicts")}
-          </span>
-        )}
-        <span className="acpmux-pr-card__ref">
-          {known.repo}#{known.number}
-        </span>
-      </div>
-      {title && <div className="acpmux-pr-card__title">{title}</div>}
-      {read?.author && (
-        <div className="acpmux-pr-card__who">
-          <Monogram login={read.author} />
-          <span className="acpmux-pr-card__author">{read.author}</span>
-          {Number.isFinite(updatedAt) && (
-            <span className="acpmux-pr-card__when">
-              {t("prCard.updated", { ago: relativeTime(updatedAt, now, language) })}
+    <>
+      {head?.(title || reference, glyph)}
+      <div className="acpmux-pr-card__body">
+        {!head && title && <div className="acpmux-pr-card__title">{title}</div>}
+        <div className="acpmux-pr-card__facts">
+          {!head && glyph}
+          {/* The pull request's link, styled as one (Leo 2026-10-20: "the hovers need to be
+              styled"); a click takes the host's link-click path, as the bar's and chip's anchors
+              do. Only a parsed pull request address becomes a link; anything else stays text. */}
+          {link ? (
+            <a className="acpmux-pr-card__ref" href={link} rel="noreferrer">
+              {reference}
+            </a>
+          ) : (
+            <span className="acpmux-pr-card__ref">{reference}</span>
+          )}
+          {read?.mergeable === "conflicting" && state !== "merged" && state !== "closed" && (
+            <span className="acpmux-pr-card__conflicts">{t("header.prConflicts")}</span>
+          )}
+          {read?.author && (
+            <span className="acpmux-pr-card__who">
+              <Monogram login={read.author} />
+              <span className="acpmux-pr-card__author">{read.author}</span>
+              {Number.isFinite(updatedAt) && (
+                <span className="acpmux-pr-card__when">
+                  {t("prCard.updated", { ago: relativeTime(updatedAt, now, language) })}
+                </span>
+              )}
             </span>
           )}
         </div>
-      )}
-      {read?.baseRef && read.headRef && (
-        <div className="acpmux-pr-card__branches">
-          <span className="acpmux-pr-card__branch">{read.baseRef}</span>
-          <span aria-hidden="true">←</span>
-          <span className="acpmux-pr-card__branch">{read.headRef}</span>
-        </div>
-      )}
-      <Checks read={read} t={t} />
-      <Review read={read} t={t} />
-      <Changes read={read} t={t} />
-      <Freshness answer={answer} now={now} t={t} language={language} />
-    </div>
+        {read?.baseRef && read.headRef && (
+          <div className="acpmux-pr-card__branches">
+            <span className="acpmux-pr-card__branch">{read.baseRef}</span>
+            <span aria-hidden="true">←</span>
+            <span className="acpmux-pr-card__branch">{read.headRef}</span>
+          </div>
+        )}
+        {state !== "merged" && state !== "closed" && <Checks read={read} t={t} />}
+        <Review read={read} t={t} />
+        <Changes read={read} t={t} />
+        <Freshness answer={answer} now={now} t={t} language={language} />
+      </div>
+    </>
   );
 }
 
-/// The checks summed: how many passed, how many are failing, and how many of those failures the
-/// base branch's tip has too — a red the pull request did not cause, which is what decides whether
-/// anyone has to go and look at it. The host works that out (AgentPanePullRequest `failingOnBase`,
-/// which only compares each workflow's newest run, so a run the concurrency group cancelled can
-/// never excuse a red); the card only reads it.
+/// An open pull request's checks, compact: ✓ passed, ✗ failing, ◷ still running, and how many of
+/// the failures the base branch's tip has too — a red the pull request did not cause, which is
+/// what decides whether anyone has to go and look at it. The host works that out
+/// (AgentPanePullRequest `failingOnBase`, which only compares each workflow's newest run, so a run
+/// the concurrency group cancelled can never excuse a red); the card only reads it. The whole
+/// sentence is for screen readers; the glyphs are for the eye.
 function Checks({ read, t }: { read: LinkedPullRequest | undefined; t: Translate }) {
   const checks = read?.checks;
   if (!checks) return null;
   if (checks.total === 0) return <div className="acpmux-pr-card__checks">{t("header.prNoChecks")}</div>;
   const rows = read?.checkList ?? [];
   const failed = rows.filter((check) => check.state === "failed").length || 0;
-  const failing = failed || checks.total - checks.passed;
+  const failing = failed > 0 || checks.state === "failing" ? failed || checks.total - checks.passed : 0;
+  const pending = Math.max(0, checks.total - checks.passed - failing);
   // The host's own count, because it counts the whole rollup while `checkList` is truncated; the
   // rows are the fallback for a host that marks them without counting them. Clamped, so the line
   // stays arithmetically honest whatever the two halves say.
   const marked = rows.filter((check) => check.state === "failed" && check.onBase === true).length;
   const onBase = Math.min(checks.failingOnBase ?? marked, failing);
+  const counts = { passed: checks.passed, total: checks.total, failed: failing };
+  const sentence =
+    failing > 0
+      ? onBase > 0
+        ? t("prCard.checksFailingOnBase", { ...counts, onBase })
+        : t("prCard.checksFailing", counts)
+      : t("prCard.checks", counts);
   return (
     <div
       className="acpmux-pr-card__checks"
       data-state={checks.state}
-      // Every red is base's: the dot drops from danger to warning, because nothing here is this
+      // Every red is base's: the ✗ reads muted rather than danger, because nothing here is this
       // pull request's to fix (the merge rules say so too).
       data-on-base={onBase > 0 && onBase >= failing ? "all" : undefined}
     >
-      {failed > 0 || checks.state === "failing"
-        ? onBase > 0
-          ? t("prCard.checksFailingOnBase", {
-              passed: checks.passed,
-              total: checks.total,
-              failed: failing,
-              onBase,
-            })
-          : t("prCard.checksFailing", { passed: checks.passed, total: checks.total, failed: failing })
-        : t("prCard.checks", { passed: checks.passed, total: checks.total })}
+      <span className="acpmux-pr-card__sr">{sentence}</span>
+      <span className="acpmux-pr-card__passed" aria-hidden="true">
+        ✓ {checks.passed}
+      </span>
+      {failing > 0 && (
+        <span className="acpmux-pr-card__failed" aria-hidden="true">
+          ✗ {failing}
+        </span>
+      )}
+      {onBase > 0 && (
+        <span className="acpmux-pr-card__onBase" aria-hidden="true">
+          {t("chatInspector.changes.failingOnBase", { count: onBase })}
+        </span>
+      )}
+      {pending > 0 && (
+        <span className="acpmux-pr-card__pending" aria-hidden="true">
+          ◷ {pending}
+        </span>
+      )}
     </div>
   );
 }

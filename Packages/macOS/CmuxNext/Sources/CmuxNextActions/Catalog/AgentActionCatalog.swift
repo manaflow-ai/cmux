@@ -369,6 +369,16 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 category: .agents, symbol: "brain", surfaces: [.palette], cliName: "chief memory",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
+            // The Home header's Memory toggle (top right, like Claude desktop's panel buttons): closes
+            // the window's Memory Inspector tabs when one shows, else opens one as the action above
+            // (the same `chief` and `server` arguments).
+            ActionDescriptor(
+                id: "chief.toggleMemoryInspector",
+                title: String(localized: "action.chief.toggleMemoryInspector", defaultValue: "Chief: Toggle Memory Inspector", bundle: .module),
+                keywords: ["chief", "memory", "inspector", "panel", "show", "hide", "close"],
+                category: .agents, symbol: "brain", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
             // Chief Usage (chief-usage-analytics-DESIGN.md): tokens, cost, cache hit and turn
             // time of this Mac's Chiefs, as a page tab (Home's right column in Home). The
             // Chief's row menu in Home runs it too. `cmux chief usage` prints the same summary.

@@ -6,7 +6,6 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
-import CmuxNextImportCards
 import Observation
 
 /// The Home top page, two columns: MessagesLab's conversation list
@@ -42,6 +41,7 @@ final class TopHomePageView: NSView {
     private var chiefObservation: Task<Void, Never>?
     private var accountObservation: Task<Void, Never>?
     private var requestsObservation: Task<Void, Never>?
+    private var unreadColorObservation: Task<Void, Never>?
 
     init(services: AppServices, windowKey: @escaping () -> String) {
         self.services = services
@@ -53,7 +53,6 @@ final class TopHomePageView: NSView {
         split.frame = bounds
         split.autoresizingMask = [.width, .height]
         addSubview(split)
-        ImportCardsStripView.mount(over: transcriptColumn, in: self)
         wireList(services)
         observe(services.home)
         // task-owner: lives as long as this view; one read of the team and Chiefs
@@ -72,6 +71,7 @@ final class TopHomePageView: NSView {
             chiefObservation?.cancel()
             accountObservation?.cancel()
             requestsObservation?.cancel()
+            unreadColorObservation?.cancel()
         }
     }
 
@@ -183,9 +183,9 @@ final class TopHomePageView: NSView {
             // (a picture set by a tool or the CLI) reads the rows again, and the pictures with them.
             var picturedRows: [HomeInboxRequest.Response?]?
             var picturedChiefs: Set<String>?
-            // The chosen pet character is the avatar of a Chief with none of its own: a new one redraws the list.
+            // Each Chief's pet character is its avatar when it has none of its own: a new pick redraws the list.
             for await (all, archived, _, _, _, _, owned, _, _, _) in ObservationStream({
-                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.directory.chiefAvatars,
+                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.chiefFaces,
                  sidebar.ownerRows, home.directory.chiefHarnesses, home.chiefRoster, home.services.settings?.snapshot.homeChiefPetMascot)
             }) {
                 guard let self else { return }
@@ -230,6 +230,13 @@ final class TopHomePageView: NSView {
         // task-owner: lives as long as this view; event-driven (Observation)
         requestsObservation = Task { [weak self] in
             for await count in ObservationStream({ home.requests.items.count }) { self?.list.showRequests(count) }
+        }
+        // task-owner: lives as long as this view; event-driven (Observation). The unread dot is
+        // the unread rings' color (`notifications.attention.color`, nil: the notification blue).
+        unreadColorObservation = Task { [weak self] in
+            for await color in ObservationStream({ home.services.settings?.snapshot.attention.color }) {
+                self?.list.unreadDotColor = color?.nsColor
+            }
         }
         // task-owner: lives as long as this view; event-driven (Observation)
         selectionObservation = Task { [weak self] in

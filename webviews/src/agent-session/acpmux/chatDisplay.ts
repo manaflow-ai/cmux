@@ -29,9 +29,11 @@ export interface ChatDisplay {
   /// Code as a share of the text size, or null for the chat's own code sizes (13px inline and
   /// 12px blocks at 14px text, scaled with the text).
   codeScale: number | null;
-  /// Where the Inspector goes when open (inspector/ChatInspector.tsx): `overlay` (the default) lies
-  /// over the chat, so opening, closing or updating it never reflows the chat (Leo, 2026-10-20);
-  /// `push` moves the chat aside. Not a look: the Text & Width popover's Reset leaves it.
+  /// Where the Inspector goes when open (inspector/ChatInspector.tsx): `overlay` (the default) floats
+  /// in the chat's right gutter, so opening, closing or updating it never reflows the chat (Leo,
+  /// 2026-10-20), and pushes the chat aside only when the gutter has no room for it, so it never
+  /// lies over the transcript's text (Leo, 2026-10-21); `push` always moves the chat aside. Not a
+  /// look: the Text & Width popover's Reset leaves it.
   inspector: "push" | "overlay";
 }
 

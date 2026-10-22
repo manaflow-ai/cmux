@@ -28,6 +28,7 @@ const SHAPES = new Set([
   ".acpmux-effort-track",
   ".acpmux-effort-fill",
   ".acpmux-context-bar",
+  ".acpmux-chat-inspector-context__bar",
   ".acpmux-pdf-sheet-lines i",
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-model .acpmux-picker-button",
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-effort .acpmux-picker-button",

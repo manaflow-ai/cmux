@@ -177,6 +177,10 @@ final class GroupHeaderRowView: SidebarRowView {
     override var debugDisclosure: (icon: String, frame: CGRect, shown: Bool)? { (chevronIcon.rawValue, chevron.frame, !chevron.isHidden) }
 
     override var titleFrame: NSRect { name.frame }
+    /// The unread state the header's badge shows (nested-groups tests: a folded parent's roll-up).
+    var debugBadge: UnreadState { badge.state }
+    /// Whether the header shows a loading or activity mark.
+    var debugActivityVisible: Bool { activity.state.isVisible }
     /// The member count a collapsed header shows, nil when it shows none.
     var countText: String? { count.isHidden || count.stringValue.isEmpty ? nil : count.stringValue }
     /// The count's label, laid out (`SidebarGroupChromeLookTests`).
@@ -395,7 +399,8 @@ final class GroupHeaderRowView: SidebarRowView {
         // The cx-rcby chip: one full-width rounded bar, the row's full height like a workspace row's fill.
         pill.frame = NSRect(x: 0, y: 0, width: b.width, height: b.height)
         pill.cornerRadius = SidebarStyle.rowCornerRadius // one radius with the pinned and workspace rows
-        // The dot is centred on the group line's x, where the line starts (SidebarListView+GroupLines).
+        // The quiet styles' dot sits in the header's leading corner; the members' line runs just
+        // left of the rows (SidebarStyle.groupLineX), as the rows keep the ungrouped rows' left edge.
         let dotSide = SidebarStyle.groupDotSize
         dot.frame = CGRect(x: SidebarStyle.groupBarX + SidebarStyle.groupBarWidth / 2 - dotSide / 2, y: (b.height - dotSide) / 2,
                            width: dotSide, height: dotSide)

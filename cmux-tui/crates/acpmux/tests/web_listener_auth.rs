@@ -182,3 +182,34 @@ async fn a_wide_bind_keeps_the_host_rule() {
         assert_eq!(status(port, upgrade(&query, &host, None)).await, 101, "{host}");
     }
 }
+
+#[tokio::test]
+async fn a_frame_past_sixteen_mib_is_read() {
+    // A prompt with a few screenshots is one frame past tungstenite's 16 MiB default. The listener
+    // reads it and answers, instead of resetting the socket mid-send (2026-10-20, "The agent
+    // connection was interrupted").
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+    let port = listener().await;
+    let url = format!("ws://127.0.0.1:{port}/?token={TOKEN}");
+    let (mut ws, _) =
+        tokio_tungstenite::connect_async_with_config(url, Some(acpmux::server::ws_config()), false)
+            .await
+            .expect("upgrade");
+    let init = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {"protocolVersion": 1, "clientInfo": {"name": "test"}, "pad": "x".repeat(24 << 20)}});
+    ws.send(Message::Text(init.to_string().into())).await.unwrap();
+    loop {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(30), ws.next())
+            .await
+            .expect("an answer in time")
+            .expect("the connection stays open")
+            .expect("no reset");
+        if let Message::Text(t) = frame {
+            let v: serde_json::Value = serde_json::from_str(&t).unwrap();
+            if v.get("id") == Some(&serde_json::json!(1)) {
+                break;
+            }
+        }
+    }
+}

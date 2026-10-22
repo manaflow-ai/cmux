@@ -20,6 +20,7 @@ import {
   type AccountsRun,
   type AgentsRun,
   type AgentsState,
+  type ChannelSwitch,
   type ChannelsState,
   type AccountsState,
   type HarnessesRun,
@@ -203,6 +204,12 @@ export class MockSettingsProvider {
           });
         return {};
       },
+      "cmux.settings.devices.remove": (params) => {
+        const devices = this.host.devices;
+        if (devices)
+          this.setHost({ ...this.host, devices: { ...devices, rows: devices.rows.filter((r) => r.id !== params.id) } });
+        return {};
+      },
       "cmux.settings.mobile.remove_phone": (params) => {
         const iphone = this.host.iphone;
         if (iphone)
@@ -212,12 +219,22 @@ export class MockSettingsProvider {
           });
         return {};
       },
+      // The fixture's way back is Nightly's whatever channel the card asks about, as a late
+      // reply for an earlier pick would be: the card shows it only on the Nightly row.
       "cmux.settings.channels.state": () => {
         if (!this.channels) throw new ProtocolError("cmux.page.unavailable", "no updater");
-        return this.channels;
+        return { ...this.channels, switch: this.channelSwitch };
+      },
+      "cmux.settings.channels.go_back": (params) => {
+        this.wentBack = params.build as string;
+        return {};
       },
       "cmux.settings.agents.state": () => this.agents.state,
       "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
+      "cmux.settings.voice_input.set": (params) => {
+        if (this.host.voice_input) this.setHost({ ...this.host, voice_input: { on: params.on === true } });
+        return {};
+      },
       // Agents > Chiefs (ChiefsCard): the host's page relay to the Chief owner and harness center.
       "cmux.chief.profile.list": () => ({ chiefs: this.chiefs }),
       "cmux.chief.profile.avatar.get": (params) => ({ avatar: this.chiefAvatars.get(params.chief as string) ?? null }),
@@ -353,6 +370,8 @@ export class MockSettingsProvider {
       "cmux.settings.backdrop.workspace.preview": () => ({}),
       "cmux.settings.art.search": () => ({ results: this.museumArt }),
       "cmux.settings.art.use": () => ({ id: "" }),
+      "cmux.settings.web_updates.check": () => ({}),
+      "cmux.settings.web_updates.rollback": () => ({}),
       "cmux.settings.folders.add": (params) => {
         const key = String((params as { key: string }).key);
         const current = Array.isArray(this.values.get(key)) ? (this.values.get(key) as string[]) : [];
@@ -429,9 +448,11 @@ export class MockSettingsProvider {
       "cmux.settings.preview.end",
       "cmux.settings.sound.play",
       "cmux.settings.host.lists",
+      "cmux.settings.devices.remove",
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
       "cmux.settings.channels.state",
+      "cmux.settings.channels.go_back",
       "cmux.settings.agents.state",
       "cmux.settings.agents.run",
       "cmux.chief.profile.list",
@@ -462,6 +483,8 @@ export class MockSettingsProvider {
       "cmux.settings.backdrop.workspace.preview",
       "cmux.settings.art.search",
       "cmux.settings.art.use",
+      "cmux.settings.web_updates.check",
+      "cmux.settings.web_updates.rollback",
       "cmux.settings.section.actions",
       "cmux.app.action.run",
       "cmux.app.clipboard.write",
@@ -497,6 +520,10 @@ export class MockSettingsProvider {
 
   /** Settings > Updates' channels; null: the host has no updater. */
   channels: ChannelsState | null = mockChannels;
+  /** The way back the host answers with (Nightly's: the fixture runs a Dev build). */
+  channelSwitch: ChannelSwitch | null = null;
+  /** The build the card's Go Back asked for. */
+  wentBack: string | null = null;
   /** Custom Chief pictures by Chief id (`chief.profile.avatar.get`); a Chief without one reads null. */
   chiefAvatars = new Map<string, Params>();
 
@@ -611,7 +638,48 @@ export class MockSettingsProvider {
       { id: "default", title: "Default", subtitle: null, active: true },
       { id: "work", title: "Work", subtitle: null, active: false },
     ],
-    machines: [{ id: "ssh:build", title: "build-mac", subtitle: "cmux@build-mac", active: true }],
+    machines: [
+      {
+        id: "ssh:build",
+        title: "build-mac",
+        subtitle: "cmux@build-mac",
+        active: true,
+        color: "#7F5FA8",
+        color_key: "build-mac",
+      },
+    ],
+    devices: {
+      title: "Devices",
+      help: "Computers and phones linked to this one.",
+      empty: "No other device can reach this computer yet.",
+      add_title: "Add Device…",
+      remove_title: "Remove",
+      remove_confirm_title: "Remove for Good",
+      remove_help: "It stops working with this computer at once. To use it again, add it again.",
+      activity_title: "Recent activity",
+      error: null,
+      rows: [
+        {
+          id: "peer:mini-7",
+          title: "mini-7",
+          subtitle: "Runs your agents · Connected",
+          detail: null,
+          state: "connected",
+          removable: true,
+        },
+        {
+          id: "phone:p1",
+          title: "Lawrence's iPhone",
+          subtitle: "Phone: approvals and terminals · Offline",
+          detail: null,
+          state: "offline",
+          removable: true,
+        },
+      ],
+      activity: [{ time: "2026-10-22T07:12:00Z", what: "Added", subject: "mini-7" }],
+    },
+    // A DEV build: the home.voiceInput tunable exists, on as Leo set it.
+    voice_input: { on: true },
     browser_profiles: [
       { id: "p-default", name: "Default", color: null, icon: null, is_default: true, source: null },
       { id: "p-work", name: "Work", color: "green", icon: null, is_default: false, source: "Google Chrome · Work" },

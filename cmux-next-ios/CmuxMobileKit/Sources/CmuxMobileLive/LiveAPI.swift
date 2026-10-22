@@ -1,5 +1,6 @@
 import Foundation
 import struct CmuxMobileModel.ServiceFailureMessage
+import struct CmuxMobileModel.TeamAppearance
 
 /// The `cmux-mobile-api` HTTP surface the app uses (PROTOCOL.md "HTTP").
 public struct LiveAPI: Sendable {
@@ -42,10 +43,20 @@ public struct LiveAPI: Sendable {
     public struct Prefs: Codable, Hashable, Sendable {
         public var color: String?
         public var emoji: String?
+        /// No filled background behind the icon. A Worker that predates it omits the key.
+        public var transparent: Bool?
 
-        public init(color: String?, emoji: String?) {
+        public init(color: String?, emoji: String?, transparent: Bool? = nil) {
             self.color = color
             self.emoji = emoji
+            self.transparent = transparent
+        }
+
+        /// The appearance these prefs describe; nil when no color is stored
+        /// yet (the app keeps its local appearance then).
+        public var appearance: TeamAppearance? {
+            guard let color, color.hasPrefix("#") else { return nil }
+            return TeamAppearance(colorHex: color, emoji: emoji, transparent: transparent ?? false)
         }
     }
 
@@ -179,10 +190,15 @@ public struct LiveAPI: Sendable {
         try JSONDecoder().decode(Prefs.self, from: try await call("GET", "v1/teams/\(teamID)/prefs"))
     }
 
-    /// `PUT /v1/teams/:id/prefs`. A nil emoji clears it.
-    public func putPrefs(teamID: String, color: String, emoji: String?) async throws {
-        let body: [String: Any] = ["color": color, "emoji": emoji ?? NSNull()]
-        _ = try await call("PUT", "v1/teams/\(teamID)/prefs", body: body)
+    /// `PUT /v1/teams/:id/prefs` with the whole appearance.
+    public func putPrefs(teamID: String, appearance: TeamAppearance) async throws {
+        _ = try await call("PUT", "v1/teams/\(teamID)/prefs", body: Self.prefsBody(appearance))
+    }
+
+    /// The `PUT /prefs` body: the color always (the fallback when the badge is
+    /// transparent), the emoji (`null` clears it to automatic) and `transparent`.
+    static func prefsBody(_ appearance: TeamAppearance) -> [String: Any] {
+        ["color": appearance.colorHex, "emoji": appearance.emoji ?? NSNull(), "transparent": appearance.isTransparent]
     }
 
     /// `POST /v1/teams/:id/invites {email}`: Stack emails the invitation.

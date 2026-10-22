@@ -23,31 +23,40 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
     }
 
     /// One recent turn's end, as the brain summarizes its trace.
+    /// Every field is optional (decoded only when present), so an older brain's summary, which
+    /// lacks `ts`, `effort`, `error` and the usage's `output`, still decodes.
     public struct Turn: Decodable, Sendable, Equatable {
         public var harness: String?
         public var model: String?
+        /// The effort the turn ran at (`high`), nil when the harness has none or the brain is older.
+        public var effort: String?
         public var status: String?
+        /// When the turn ended, in milliseconds since 1970.
+        public var ts: Double?
         public var ms: Double?
         public var tools: Int?
         public var toolErrors: Int?
         public var costUSD: Double?
         public var usage: Usage?
         public var reply: String?
+        /// The first characters of the error a failed turn ended with.
+        public var error: String?
 
         public struct Usage: Decodable, Sendable, Equatable {
             public var cacheRead: Double?
             public var cacheWrite: Double?
             public var input: Double?
+            public var output: Double?
 
             enum CodingKeys: String, CodingKey {
-                case input
+                case input, output
                 case cacheRead = "cache_read"
                 case cacheWrite = "cache_write"
             }
         }
 
         enum CodingKeys: String, CodingKey {
-            case harness, model, status, ms, tools, usage, reply
+            case harness, model, effort, status, ts, ms, tools, usage, reply, error
             case toolErrors = "tool_errors"
             case costUSD = "cost_usd"
         }

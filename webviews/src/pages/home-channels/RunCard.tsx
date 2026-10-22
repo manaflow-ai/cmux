@@ -1,6 +1,6 @@
 // An agent run in the conversation: under the reply it ended with, or under the message it works
 // on while it runs. One quiet line (a status mark, "Working for 42s" or "Worked for 1m 12s", the
-// step count, the cost) opens the run's last steps below; "Open" shows the whole run in the run
+// step count, the tokens) opens the run's last steps below; "Open" shows the whole run in the run
 // sheet. Tool calls and thoughts draw with the agent pane's own rows (ToolRows), so a run reads the
 // same here as in the agent pane.
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
@@ -10,7 +10,7 @@ import { formatDuration } from "../../agent-session/acpmux/conversation/turns";
 import type { AcpmuxActivity, AcpmuxRow } from "../../agent-session/acpmux/model";
 import type { Strings } from "../shared/i18n";
 import { liveReply, tail, useLiveRun, type LiveBook } from "./live";
-import { isStale, runCost, useLiveRuns, useRunEntry, type RunBook, type RunEntry } from "./runs";
+import { isStale, runTokens, useLiveRuns, useRunEntry, type RunBook, type RunEntry } from "./runs";
 import { Avatar } from "./Avatar";
 import type { HomeMessage, HomeParticipant, HomeRun, HomeRunStep } from "./types";
 
@@ -166,7 +166,9 @@ export function RunCard({ entry, author, strings, onOpen, onLoad, live, draftTur
     return runBlocks(run, work.slice(-CARD_STEPS));
   }, [run, steps]);
   const count = run.stepCount;
-  const cost = runCost(run.costUsd);
+  // Tokens, not dollars: most runs go through a subscription or a router, where the harness's dollar
+  // figure (pay-per-token API prices) is not what anyone pays. The run sheet keeps it, labelled.
+  const tokens = runTokens(run);
   return (
     <section className={`lg-run ${status}`} aria-label={run.title || strings.t("run.title")} aria-busy={running}>
       <div className="lg-run-bar">
@@ -174,7 +176,7 @@ export function RunCard({ entry, author, strings, onOpen, onLoad, live, draftTur
           {author && <Avatar participant={author} size={16} />}
           <RunMark status={status} />
           <span className="lg-run-label">{runLabel(run, now, strings)}</span>
-          {(count > 0 || cost) && (
+          {(count > 0 || tokens) && (
             // One line with the label when the card is wide; its own line under it when narrow.
             <span className="lg-run-metas">
               {count > 0 && (
@@ -182,7 +184,7 @@ export function RunCard({ entry, author, strings, onOpen, onLoad, live, draftTur
                   {count === 1 ? strings.t("run.steps.one") : strings.format("run.steps.many", String(count))}
                 </span>
               )}
-              {cost && <span className="lg-run-meta">{cost}</span>}
+              {tokens && <span className="lg-run-meta">{strings.format("run.tokens", tokens)}</span>}
             </span>
           )}
           <ChevronRight size={14} strokeWidth={1.2} className={`lg-run-chevron cv-rotor${open ? " is-open" : ""}`} />

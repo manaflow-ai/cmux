@@ -1,0 +1,81 @@
+#!/bin/sh
+# BROWSER in cmux-next terminals (BundledCLIEnvironment.urlOpenerName), and the
+# target of the bundled `open` and `xdg-open` shims for http(s) URLs.
+#
+# Each http(s) URL goes to the app with the names of the programs that opened
+# it (this process's parents: `aws`, `gh`, `python3.12`, ...). The app opens it
+# where `terminal.linkOpener` says (TerminalLinkOpener: a cmux browser tab by
+# default, beside this terminal). The URL travels on stdin (`cmux open -`), never
+# in argv, where other local processes could read a token in it. When the app
+# cannot be reached, or the argument is not an http(s) URL, it goes to the
+# system's `open`, which uses the default browser. The macOS default browser is
+# never changed.
+#
+# CMUX_SYSTEM_OPEN names the system opener (tests); /usr/bin/open by default.
+system_open=${CMUX_SYSTEM_OPEN:-/usr/bin/open}
+cli=${CMUX_BUNDLED_CLI_PATH:-$(dirname "$0")/cmux}
+
+# The process names of up to 8 parents, comma-separated: each one's executable,
+# the first word of its title (`npm login` runs as `node`), and for a script
+# interpreter, the script (`gcloud.py` -> `gcloud`).
+callers() {
+  pid=$PPID
+  names=
+  depth=0
+  while [ "$depth" -lt 8 ] && [ "${pid:-0}" -gt 1 ] 2>/dev/null; do
+    line=$(ps -o ppid= -o comm= -p "$pid" 2>/dev/null) || break
+    [ -n "$line" ] || break
+    # shellcheck disable=SC2086
+    set -- $line
+    parent=$1
+    shift
+    exe="$*"
+    exe=${exe##*/}
+    args=$(ps -o args= -p "$pid" 2>/dev/null)
+    # shellcheck disable=SC2086
+    set -- $args
+    title=${1##*/}
+    script=
+    case $(printf '%s' "$exe" | tr '[:upper:]' '[:lower:]') in
+      python*|node|ruby|perl*|bash|sh|zsh|dash|bun|deno)
+        shift
+        module=
+        for arg in "$@"; do
+          if [ -n "$module" ]; then script=$arg; break; fi
+          case "$arg" in
+            -c|-e) break ;;
+            -m) module=1 ;;
+            -*) ;;
+            *) script=${arg##*/}; script=${script%.*}; break ;;
+          esac
+        done
+        ;;
+    esac
+    for name in "$exe" "$title" "$script"; do
+      name=$(printf '%s' "$name" | tr -d ', ')
+      [ -n "$name" ] || continue
+      case ",$names," in *",$name,"*) ;; *) names=${names:+$names,}$name ;; esac
+    done
+    pid=$parent
+    depth=$((depth + 1))
+  done
+  printf '%s' "$names"
+}
+
+status=0
+names=
+for target in "$@"; do
+  case "$target" in
+    http://*|https://*|HTTP://*|HTTPS://*)
+      [ -n "$names" ] || names=$(callers)
+      if [ -x "$cli" ] && printf '%s\n' "$target" | "$cli" open --link --caller "${names:-unknown}" - >/dev/null 2>&1; then
+        continue
+      fi
+      "$system_open" "$target" || status=$?
+      ;;
+    *)
+      "$system_open" "$target" || status=$?
+      ;;
+  esac
+done
+exit "$status"

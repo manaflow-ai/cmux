@@ -62,6 +62,14 @@ const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp
 const CONVERTIBLE_TYPES = new Set(["image/heic", "image/heif", "image/tiff", "image/bmp", "image/avif"]);
 const CONVERTIBLE_NAME = /\.(heic|heif|tiff?|bmp|avif)$/i;
 
+/// Whether `file` is a picture the composer attaches as an image (as it is, or converted), by its
+/// type or name alone: what its chip looks like before its bytes are read.
+export function isImageFile(file: File): boolean {
+  return (
+    IMAGE_TYPES.has(file.type) || CONVERTIBLE_TYPES.has(file.type) || (!file.type && CONVERTIBLE_NAME.test(file.name))
+  );
+}
+
 function isPdf(file: File): boolean {
   return file.type === "application/pdf" || /\.pdf$/i.test(file.name);
 }
@@ -509,10 +517,12 @@ export function dragHasFiles(transfer: DataTransfer | null): boolean {
   return Boolean(transfer && [...transfer.types].includes("Files"));
 }
 
-/** Installs the document-level file-drop contract used by the composer. */
+/** Installs the document-level file-drop contract used by the composer. `onActiveChange` gets the
+ *  drag event that changed it (none on a reset), so the drop overlay (composer/dropOverlayState.ts)
+ *  can read what the drag holds and where the pointer is, and refuse it (`dropEffect`). */
 export function installFileDropLifecycle(
   onDrop: (files: File[]) => void,
-  onActiveChange: (active: boolean) => void,
+  onActiveChange: (active: boolean, event?: DragEvent) => void,
   target: Document = document,
   view: Window = window,
 ): () => void {
@@ -525,17 +535,17 @@ export function installFileDropLifecycle(
     if (!dragHasFiles(event.dataTransfer)) return;
     event.preventDefault();
     depth += 1;
-    onActiveChange(true);
+    onActiveChange(true, event);
   };
   const over = (event: DragEvent) => {
     if (!dragHasFiles(event.dataTransfer)) return;
     event.preventDefault();
-    onActiveChange(true);
+    onActiveChange(true, event);
   };
   const leave = (event: DragEvent) => {
     if (!dragHasFiles(event.dataTransfer)) return;
     depth = Math.max(0, depth - 1);
-    if (depth === 0) onActiveChange(false);
+    if (depth === 0) onActiveChange(false, event);
   };
   const drop = (event: DragEvent) => {
     if (!dragHasFiles(event.dataTransfer)) return;

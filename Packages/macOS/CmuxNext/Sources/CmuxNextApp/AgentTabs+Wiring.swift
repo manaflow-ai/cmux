@@ -124,9 +124,11 @@ extension AgentTabStore {
         // This Mac's stable install id (the Cloud device id): only this host attaches to its acpmux.
         tabs.blankChatHandler = { [weak services] key in
             guard let services, let (tab, pane) = services.locateTab(key), let controller = services.paneController(for: pane) else { return nil }
-            return NewTabPage.handler(services, cwd: tab.cwd) { [weak controller, weak tabs] key, request in
+            // A chat tab has no daemon folder: its own exact folder (a shell block's Open in Terminal, cx-zld).
+            let cwd = tab.cwd ?? NewTerminalStart.folder(of: tab, services: services)
+            return NewTabPage.handler(services, cwd: cwd) { [weak controller, weak tabs] key, request in
                 guard let controller else { return }
-                NewTabPage.replace(key, with: request, cwd: request.cwd ?? tab.cwd, in: controller, keep: tabs?.sessions[key] != nil)
+                NewTabPage.replace(key, with: request, cwd: request.cwd ?? cwd, in: controller, keep: tabs?.sessions[key] != nil)
             }
         }
         tabs.firstPageNewTab = { [weak services] cwd, beside in
@@ -311,8 +313,9 @@ extension AgentTabStore {
         }
         // task-owner: one read of this Mac's name, shown to Macs that see its tabs and on every
         // pane's location row (a pane's handshake awaits it)
+        let showcase = services.environment.showcase
         AgentPaneModel.localMachineName = Task { [weak tabs] in
-            let name = await MacName().computerName()
+            let name = await AgentTabStore.localMachineName(showcase: showcase) { await MacName().displayName() }
             tabs?.localHostName = name
             return AgentPaneModel.rememberLocalMachineName(AgentTabStore.displayName(name) ?? name)
         }

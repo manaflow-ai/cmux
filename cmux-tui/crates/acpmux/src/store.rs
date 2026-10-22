@@ -5,6 +5,7 @@
 //! Both expose the same API so the hub does not care which is active.
 
 use crate::config::{StoreConfig, StoreMode, write_atomic};
+use crate::no_panic::LockExt;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -314,11 +315,14 @@ pub struct SubsessionLimits {
     /// The deepest level a session under this one may be started at.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_depth: Option<u32>,
+    /// Most children running a turn at once (`hub/subsession_runs.rs`); more wait their turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_running: Option<u32>,
 }
 
 impl SubsessionLimits {
     pub fn is_empty(&self) -> bool {
-        self.max_children.is_none() && self.max_depth.is_none()
+        self.max_children.is_none() && self.max_depth.is_none() && self.max_running.is_none()
     }
 }
 
@@ -579,20 +583,20 @@ pub struct MemoryStore {
 
 impl Store for MemoryStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
-        Ok(self.inner.lock().unwrap().values().map(|(m, _)| m.clone()).collect())
+        Ok(self.inner.lock_or_recover().values().map(|(m, _)| m.clone()).collect())
     }
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
-        Ok(self.inner.lock().unwrap().get(id).map(|(m, _)| m.clone()))
+        Ok(self.inner.lock_or_recover().get(id).map(|(m, _)| m.clone()))
     }
     fn save(&self, meta: &SessionMeta) -> Result<()> {
-        let mut g = self.inner.lock().unwrap();
+        let mut g = self.inner.lock_or_recover();
         g.entry(meta.id.clone())
             .and_modify(|(m, _)| *m = meta.clone())
             .or_insert_with(|| (meta.clone(), Vec::new()));
         Ok(())
     }
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
-        let mut g = self.inner.lock().unwrap();
+        let mut g = self.inner.lock_or_recover();
         if let Some((_, events)) = g.get_mut(id) {
             events.push(record.clone());
             // Bound memory: keep the newest 20k events.
@@ -604,13 +608,13 @@ impl Store for MemoryStore {
         Ok(())
     }
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
-        let g = self.inner.lock().unwrap();
+        let g = self.inner.lock_or_recover();
         Ok(g.get(id)
             .map(|(_, ev)| ev.iter().filter(|e| e.seq > after).take(limit).cloned().collect())
             .unwrap_or_default())
     }
     fn delete(&self, id: &str) -> Result<()> {
-        self.inner.lock().unwrap().remove(id);
+        self.inner.lock_or_recover().remove(id);
         Ok(())
     }
 }
@@ -704,12 +708,18 @@ struct StatusOnly {
 /// record's own (its fields before `msg` hold numbers and a fixed word). None for a line
 /// that does not start that way; the caller then parses it.
 fn record_kind(line: &[u8]) -> Option<&[u8]> {
-    const KEY: &[u8] = b"\"kind\":\"";
-    let head = &line[..line.len().min(160)];
+    record_head_field(line, b"\"kind\":\"")
+}
+
+/// The string value after `key` (`"name":"`) in the first 160 bytes of a record, before
+/// its `"msg":`; None when it is not there.
+fn record_head_field<'a>(line: &'a [u8], key: &[u8]) -> Option<&'a [u8]> {
+    let head = line.get(..160).unwrap_or(line);
     let msg = head.windows(6).position(|w| w == b"\"msg\":").unwrap_or(head.len());
-    let start = head[..msg].windows(KEY.len()).position(|w| w == KEY)? + KEY.len();
-    let len = line[start..].iter().position(|&b| b == b'"')?;
-    Some(&line[start..start + len])
+    let start = head.get(..msg)?.windows(key.len()).position(|w| w == key)? + key.len();
+    let rest = line.get(start..)?;
+    let len = rest.iter().position(|&b| b == b'"')?;
+    rest.get(..len)
 }
 
 /// The `seq` of one serialized record, read without parsing it: records are written
@@ -720,17 +730,12 @@ fn record_seq(line: &[u8]) -> Option<u64> {
     if digits == 0 || digits > 19 || rest.get(digits) != Some(&b',') {
         return None;
     }
-    std::str::from_utf8(&rest[..digits]).ok()?.parse().ok()
+    std::str::from_utf8(rest.get(..digits)?).ok()?.parse().ok()
 }
 
 /// The `dir` of one serialized record, read without parsing it, as `record_kind` reads its kind.
 fn record_dir(line: &[u8]) -> Option<&[u8]> {
-    const KEY: &[u8] = b"\"dir\":\"";
-    let head = &line[..line.len().min(160)];
-    let msg = head.windows(6).position(|w| w == b"\"msg\":").unwrap_or(head.len());
-    let start = head[..msg].windows(KEY.len()).position(|w| w == KEY)? + KEY.len();
-    let len = line[start..].iter().position(|&b| b == b'"')?;
-    Some(&line[start..start + len])
+    record_head_field(line, b"\"dir\":\"")
 }
 
 /// The byte offset in segment `path` where its first record with `seq >= before` starts (the
@@ -750,7 +755,7 @@ fn offset_of_seq(path: &Path, before: u64) -> Result<u64> {
         file.read_exact(&mut buf)?;
         let body = buf.strip_suffix(b"\n").unwrap_or(&buf);
         if let Some(nl) = body.iter().rposition(|&b| b == b'\n')
-            && record_seq(&body[nl + 1..]).is_some_and(|seq| seq < before)
+            && body.get(nl + 1..).and_then(record_seq).is_some_and(|seq| seq < before)
         {
             return Ok(len);
         }
@@ -760,14 +765,14 @@ fn offset_of_seq(path: &Path, before: u64) -> Result<u64> {
     let mut line_at = |pos: u64| -> Result<Option<(u64, Option<u64>)>> {
         file.seek(SeekFrom::Start(pos))?;
         let mut filled = 0;
-        while filled < PROBE {
-            let n = file.read(&mut buf[filled..])?;
+        while let Some(rest) = buf.get_mut(filled..).filter(|rest| !rest.is_empty()) {
+            let n = file.read(rest)?;
             if n == 0 {
                 break;
             }
             filled += n;
         }
-        let data = &buf[..filled];
+        let data = buf.get(..filled).unwrap_or_default();
         let start = if pos == 0 {
             0
         } else {
@@ -779,7 +784,7 @@ fn offset_of_seq(path: &Path, before: u64) -> Result<u64> {
         if start >= data.len() {
             return Ok(None);
         }
-        Ok(Some((pos + start as u64, record_seq(&data[start..]))))
+        Ok(Some((pos + start as u64, data.get(start..).and_then(record_seq))))
     };
     let (mut lo, mut hi, mut end) = (0u64, len, len);
     while hi - lo > PROBE as u64 {
@@ -828,14 +833,16 @@ fn for_each_line_rev_from(
         file.seek(SeekFrom::Start(start))?;
         file.read_exact(&mut block)?;
         let mut cut = block.len();
-        while let Some(newline) = block[..cut].iter().rposition(|&b| b == b'\n') {
-            let head = &block[newline + 1..cut];
+        while let Some(newline) =
+            block.get(..cut).unwrap_or_default().iter().rposition(|&b| b == b'\n')
+        {
+            let head = block.get(newline + 1..cut).unwrap_or_default();
             let whole;
             let line = if carry.is_empty() {
                 head
             } else {
                 whole = joined(head, &mut carry);
-                &whole[..]
+                whole.as_slice()
             };
             if !line.iter().all(u8::is_ascii_whitespace) && !visit(line) {
                 return Ok(());
@@ -941,11 +948,13 @@ impl Store for LocalStore {
     }
 
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
-        let mut writers = self.writers.lock().unwrap();
+        let mut writers = self.writers.lock_or_recover();
         if !writers.contains_key(id) {
             writers.insert(id.to_owned(), self.open_writer(id)?);
         }
-        let w = writers.get_mut(id).unwrap();
+        let Some(w) = writers.get_mut(id) else {
+            anyhow::bail!("no segment writer for session {id}");
+        };
         if w.written >= self.segment_bytes {
             let index = w.index + 1;
             let path = self.dir(id).join("events").join(format!("{index:06}.ndjson"));
@@ -1106,7 +1115,7 @@ impl Store for LocalStore {
     }
 
     fn flush(&self) -> Result<()> {
-        for w in self.writers.lock().unwrap().values() {
+        for w in self.writers.lock_or_recover().values() {
             w.file.sync_data()?;
         }
         Ok(())
@@ -1122,7 +1131,7 @@ impl Store for LocalStore {
     }
 
     fn delete(&self, id: &str) -> Result<()> {
-        self.writers.lock().unwrap().remove(id);
+        self.writers.lock_or_recover().remove(id);
         let dir = self.dir(id);
         // macOS returns ENOTEMPTY when a file lands mid-removal; retry briefly.
         let mut last = None;

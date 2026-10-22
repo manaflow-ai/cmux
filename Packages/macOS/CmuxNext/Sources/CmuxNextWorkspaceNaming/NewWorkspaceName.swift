@@ -79,14 +79,8 @@ public nonisolated struct NewWorkspaceName {
         return tabName
     }
 
-    /// True for a name the daemon gave (`workspace-N`, its default).
-    /// A user could name a workspace `workspace-7` by hand; the daemon
-    /// records no "named by the user" flag, so that name reads as default.
-    public static func isDefaultWorkspaceName(_ name: String) -> Bool {
-        guard name.hasPrefix("workspace-") else { return false }
-        let number = name.dropFirst("workspace-".count)
-        return !number.isEmpty && number.allSatisfy(\.isASCII) && number.allSatisfy(\.isNumber)
-    }
+    /// True for a name the daemon gave (`workspace-N`, its default; `WorkspaceModel.isDefaultName`).
+    public static func isDefaultWorkspaceName(_ name: String) -> Bool { WorkspaceModel.isDefaultName(name) }
 
     /// The name for a workspace made from a tab group: its name, else its
     /// first tab's.

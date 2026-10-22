@@ -1,7 +1,8 @@
 // Settings > Updates' Channels card fixture (`cmux.settings.channels.state`): the host's texts as
 // the app sends them in English, a Nightly track with a pulled, a held and a promoted build, the
-// installed one among them, and the other rings empty until CI publishes ring-tagged builds.
-import type { ChannelBuild, ChannelsState } from "./ops";
+// installed one among them, Dev with every build, the other rings empty until CI publishes
+// ring-tagged builds, and the Go Back a Mac on a Dev build sees when it picks Nightly.
+import type { ChannelBuild, ChannelSwitch, ChannelsState } from "./ops";
 
 const repo = "https://github.com/manaflow-ai/cmux";
 const titles = { promoted: "Promoted", held: "Held", pulled: "Pulled", pending: "Awaiting Verdict" } as const;
@@ -31,9 +32,25 @@ function build(
 
 const empty = "No builds on this channel yet.";
 
+const nightlyBuilds = [
+  build(3421, "9f1e2d3c", "pulled", { pulled_reason: "Crashes on launch" }),
+  build(3420, "8e0d1c2b", "held"),
+  build(3419, "3c1d9e0a", "promoted", { installed: true, compare_url: null }),
+  build(3418, "2b0c8d9f", "promoted", { kept: true }),
+];
+
+/** Picking Nightly on a Dev build Nightly has not reached: restart into the kept Nightly build. */
+export const mockGoBack: ChannelSwitch = {
+  ring: "nightly",
+  build: "3418",
+  action: "Go Back to Nightly",
+  detail: "Restarts once into 1.0.0-nightly.3418, kept on this Mac. Settings and sessions stay.",
+};
+
 export const mockChannels: ChannelsState = {
   title: "Channels",
   installed: "This Mac runs 1.0.0-nightly.3419.",
+  switch: null,
   labels: {
     you_are_here: "You Are Here",
     following: "Following",
@@ -50,14 +67,9 @@ export const mockChannels: ChannelsState = {
       followed: true,
       release_url: `${repo}/releases/tag/nightly-next`,
       empty: null,
-      builds: [
-        build(3421, "9f1e2d3c", "pulled", { pulled_reason: "Crashes on launch" }),
-        build(3420, "8e0d1c2b", "held"),
-        build(3419, "3c1d9e0a", "promoted", { installed: true, compare_url: null }),
-        build(3418, "2b0c8d9f", "promoted", { kept: true }),
-      ],
+      builds: nightlyBuilds,
     },
     { ring: "canary", title: "Canary", followed: false, release_url: null, empty, builds: [] },
-    { ring: "dev", title: "Dev", followed: false, release_url: null, empty, builds: [] },
+    { ring: "dev", title: "Dev", followed: false, release_url: null, empty: null, builds: nightlyBuilds },
   ],
 };

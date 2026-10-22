@@ -152,7 +152,7 @@ extension MessagesWindowView {
         }
         guard let i = model.rows.firstIndex(where: { !$0.ghost && $0.spec.key.hasPrefix("part:") && RowBuilder.key($0.spec.key, belongsTo: id) })
         else { return false }
-        let y = layout.contentTop(i) - (Fixture.headerHeight + 8 - MessagesWindowView.cvTop) - 8
+        let y = layout.contentTop(i) - (rowsTopInset - MessagesWindowView.cvTop) - 8
         setOffset(min(max(minOffset, y), pinnedOffset))
         collection.setNeedsLayout(); collection.layoutIfNeeded()
         userScrolled()

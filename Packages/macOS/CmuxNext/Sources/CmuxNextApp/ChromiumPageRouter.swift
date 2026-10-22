@@ -1,11 +1,13 @@
 import CmuxNextBrowser
+import CmuxNextHistory
 import CmuxNextSettings
 import Foundation
 
 /// CHROME-INTERNAL-PAGES routing on the person's paths (omnibar, New Tab
 /// field, bookmarks): `chrome://history` and `chrome://bookmarks` show cmux's
 /// own pages, `chrome://settings` opens Settings > Browser, Chromium's
-/// password manager opens the Passwords page, every other page is Chromium's.
+/// password manager opens the Passwords page, `cmux://stashed` the Stashed Tabs page, every
+/// other page is Chromium's.
 /// Agent paths refuse these URLs before they get here (AgentURLPolicy).
 /// `openBrowser` uses the same route (BrowserOpenPlan).
 @MainActor
@@ -14,6 +16,11 @@ enum ChromiumPageRouter {
     /// itself, nil when Settings or the Passwords page opened instead (nothing
     /// to load), else `url`.
     static func routed(_ url: URL, services: AppServices, focus: Bool = true) -> URL? {
+        // Stashed Tabs is a top page, not a browser page: it opens instead, and nothing loads.
+        if url.isStashedPage {
+            _ = try? StashHandlers.show(services, focus: focus)
+            return nil
+        }
         switch ChromiumPageRoute(url) {
         case .cmuxPage(let page)?:
             return page
