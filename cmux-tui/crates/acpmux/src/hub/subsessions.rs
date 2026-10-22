@@ -12,6 +12,10 @@
 //! - Width: a session has at most `maxChildren` open children (not closed).
 //!   Depth: a session is started at depth `parent.depth + 1` only when that
 //!   is at most the parent's `maxDepth`.
+//! - Running: at most `maxRunning` children run a turn at once; a start or a
+//!   message past it waits its turn, queued (`subsession_runs.rs`). It also
+//!   takes a workspace's value (`_acpmux/subsession/limits {workspaceId}`)
+//!   between an ancestor's override and the settings.
 //! - A session's limit is its own override (`SessionMeta::subsession_limits`),
 //!   else its nearest ancestor's override, else the settings
 //!   (`agents.subsessions.maxChildren`, `agents.subsessions.maxDepth`, read
@@ -77,6 +81,9 @@ use std::collections::BTreeSet;
 pub const SETTING_ENABLED: &str = "agents.subsessions.enabled";
 pub const SETTING_MAX_CHILDREN: &str = "agents.subsessions.maxChildren";
 pub const SETTING_MAX_DEPTH: &str = "agents.subsessions.maxDepth";
+pub const SETTING_MAX_RUNNING: &str = "agents.subsessions.maxRunning";
+/// `maxRunning`'s default and ceiling until the catalog has its row.
+const MAX_RUNNING_FALLBACK: NumberSetting = NumberSetting { default: 16, max: 1000 };
 pub const SETTING_ANSWER_QUESTIONS: &str = "agents.subsessions.answerQuestions";
 /// The settings catalog source of those keys: their defaults and ranges have
 /// one definition, shared with the app's Settings.
@@ -96,6 +103,7 @@ pub struct Catalog {
     pub answer_questions: bool,
     pub max_children: NumberSetting,
     pub max_depth: NumberSetting,
+    pub max_running: NumberSetting,
 }
 
 /// The catalog, parsed once from the embedded source.
@@ -129,6 +137,7 @@ fn parse_catalog(source: &str) -> Option<Catalog> {
         answer_questions: row(SETTING_ANSWER_QUESTIONS)?["default"].as_bool()?,
         max_children: number(SETTING_MAX_CHILDREN)?,
         max_depth: number(SETTING_MAX_DEPTH)?,
+        max_running: number(SETTING_MAX_RUNNING).unwrap_or(MAX_RUNNING_FALLBACK),
     })
 }
 
@@ -276,6 +285,8 @@ pub enum Source {
     Session,
     /// An ancestor's override.
     Inherited,
+    /// The session's workspace's (`subsession_runs.rs`).
+    Workspace,
     Settings,
     Default,
 }
@@ -285,6 +296,7 @@ impl Source {
         match self {
             Self::Session => "session",
             Self::Inherited => "inherited",
+            Self::Workspace => "workspace",
             Self::Settings => "settings",
             Self::Default => "default",
         }
@@ -298,6 +310,8 @@ pub struct Effective {
     pub max_children_source: Source,
     pub max_depth: u32,
     pub max_depth_source: Source,
+    pub max_running: u32,
+    pub max_running_source: Source,
 }
 
 /// Who changes a session's limits.
@@ -392,6 +406,7 @@ impl Hub {
     pub fn subsession_effective(&self, m: &SessionMeta) -> Effective {
         let mut children: Option<(u32, Source)> = None;
         let mut depth: Option<(u32, Source)> = None;
+        let mut running: Option<(u32, Source)> = None;
         let mut limits = m.subsession_limits.clone();
         let mut parent = m.subsession.as_ref().map(|l| l.started_by.clone());
         let mut source = Source::Session;
@@ -406,7 +421,11 @@ impl Hub {
             if depth.is_none() {
                 depth = limits.max_depth.map(|n| (n.clamp(1, catalog().max_depth.max), source));
             }
-            if children.is_some() && depth.is_some() {
+            if running.is_none() {
+                running =
+                    limits.max_running.map(|n| (n.clamp(1, catalog().max_running.max), source));
+            }
+            if children.is_some() && depth.is_some() && running.is_some() {
                 break;
             }
             let Some(id) = parent.take() else { break };
@@ -436,7 +455,26 @@ impl Hub {
         );
         let (max_depth, max_depth_source) =
             pick(depth, SETTING_MAX_DEPTH, catalog().max_depth.max, catalog().max_depth.default);
-        Effective { max_children, max_children_source, max_depth, max_depth_source }
+        // The workspace's value sits between the family's overrides and the settings.
+        let running = running.or_else(|| {
+            let ws = m.workspace_id.as_deref()?;
+            let n = self.subsession_runs.workspace_limit(ws)?;
+            Some((n.clamp(1, catalog().max_running.max), Source::Workspace))
+        });
+        let (max_running, max_running_source) = pick(
+            running,
+            SETTING_MAX_RUNNING,
+            catalog().max_running.max,
+            catalog().max_running.default,
+        );
+        Effective {
+            max_children,
+            max_children_source,
+            max_depth,
+            max_depth_source,
+            max_running,
+            max_running_source,
+        }
     }
 
     /// The summary's `subsessionLimits` for `m`.
@@ -447,6 +485,11 @@ impl Hub {
             "maxChildrenSource": e.max_children_source.as_str(),
             "maxDepth": e.max_depth,
             "maxDepthSource": e.max_depth_source.as_str(),
+            "maxRunning": e.max_running,
+            "maxRunningSource": e.max_running_source.as_str(),
+            // Its sub-sessions running a turn now, and the ones waiting for a slot.
+            "running": self.subsession_runs.running(&m.id),
+            "queued": self.subsession_runs.waiting(&m.id),
         })
     }
 
@@ -666,6 +709,9 @@ impl Hub {
             "harness": cm.harness,
             "mode": crate::web_modes::mode_of(&probe.meta()),
             "turnId": accepted.get("turnId"),
+            // Its parent runs as many sub-sessions as `maxRunning` allows: its first prompt
+            // waits for a run slot (`subsession_runs.rs`).
+            "waitsForSlot": accepted["waitsForSlot"].as_bool().unwrap_or(false),
             "session": row,
         });
         if let Some(kept) = &worktree {
@@ -855,6 +901,9 @@ impl Hub {
                 "openChildren": self.subsessions.open_count(&caller.id),
                 "maxChildren": e.max_children,
                 "maxDepth": e.max_depth,
+                "maxRunning": e.max_running,
+                "running": self.subsession_runs.running(&caller.id),
+                "queued": self.subsession_runs.waiting(&caller.id),
             },
         })
     }
@@ -970,10 +1019,13 @@ impl Hub {
         target: &Session,
         max_children: Option<Option<u32>>,
         max_depth: Option<Option<u32>>,
+        max_running: Option<Option<u32>>,
     ) -> Result<Value, RpcError> {
         let tm = target.meta();
         let ceiling = match actor {
-            LimitsActor::Person => (catalog().max_children.max, catalog().max_depth.max),
+            LimitsActor::Person => {
+                (catalog().max_children.max, catalog().max_depth.max, catalog().max_running.max)
+            }
             LimitsActor::Session(caller) => {
                 if !self.subsession_is_ancestor(caller, &tm) {
                     return Err(refused(
@@ -984,7 +1036,7 @@ impl Hub {
                 }
                 let cm = self.resolve(caller)?.meta();
                 let e = self.subsession_effective(&cm);
-                (e.max_children, e.max_depth)
+                (e.max_children, e.max_depth, e.max_running)
             }
         };
         let check = |v: Option<Option<u32>>, max: u32, what: &str| -> Result<(), RpcError> {
@@ -999,17 +1051,30 @@ impl Hub {
         };
         check(max_children, ceiling.0, "maxChildren")?;
         check(max_depth, ceiling.1, "maxDepth")?;
+        check(max_running, ceiling.2, "maxRunning")?;
+        let changed = max_children.is_some() || max_depth.is_some() || max_running.is_some();
+        // Nothing to set: only reads the limits (the CLI's `acpmux session limits NAME`).
+        if !changed {
+            let limits = self.subsession_limits_value(&tm);
+            return Ok(json!({"sessionId": target.id, "subsessionLimits": limits}));
+        }
         {
             let mut m = target.meta.lock().unwrap_or_else(|e| e.into_inner());
-            let SubsessionLimits { max_children: c, max_depth: d } = &mut m.subsession_limits;
+            let SubsessionLimits { max_children: c, max_depth: d, max_running: r } =
+                &mut m.subsession_limits;
             if let Some(v) = max_children {
                 *c = v;
             }
             if let Some(v) = max_depth {
                 *d = v;
             }
+            if let Some(v) = max_running {
+                *r = v;
+            }
         }
         self.save_meta(target);
+        // A raised limit starts waiting sub-sessions now; a lowered one stops none.
+        self.subsession_runs.wake();
         let limits = self.subsession_limits_value(&target.meta());
         self.append(target, "mux", RECORD_KIND, json!({"event": "limits", "limits": limits}));
         Ok(json!({"sessionId": target.id, "subsessionLimits": limits}))

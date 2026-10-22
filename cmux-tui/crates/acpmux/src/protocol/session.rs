@@ -60,6 +60,12 @@ pub struct SessionSummary {
     pub queued: u64,
     /// A turn failed: the prompts behind it wait for a client to resume them.
     pub queue_paused: bool,
+    /// A sub-session whose queued prompt waits for a free run slot of its parent: the parent
+    /// runs as many sub-sessions as its `maxRunning` allows (`hub/subsession_runs.rs`). Absent
+    /// otherwise, and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(default)]
+    pub waits_for_slot: bool,
     /// Being moved to another daemon; it takes no prompt meanwhile.
     pub moving: bool,
     /// The family of a conversation another app runs that this chat only shows; null otherwise.
