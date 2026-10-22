@@ -74,7 +74,7 @@ struct SidebarUniformRowSpacingTests {
         (a.folder, b.folder) = ("~/one", "~/two")
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         var options = SidebarLayoutOptions()
-        options.groupsByFolder = true
+        options.grouping.by = .folder
         let layout = SidebarLayout.make(sections: [CmuxNextSidebar.SidebarSection(kind: .machine(machine), nodes: [.workspace(a), .workspace(b)])],
                                         metrics: m, options: options)
         let rowA = try Self.row(layout, "a")
