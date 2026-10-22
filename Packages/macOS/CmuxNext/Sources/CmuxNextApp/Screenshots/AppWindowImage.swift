@@ -20,7 +20,8 @@ struct AppWindowImage {
     /// run) every browser page area is opaque black (``ScreenshotPrivacyMask``),
     /// no Chromium browser page image is painted, and the overlay panels and
     /// other windows, which can hold web content, are left out.
-    /// - Throws: ``WindowScreenshotFailure`` when the window server gives no image.
+    /// - Throws: ``WindowScreenshotFailure`` when the window server gives no image,
+    ///   or a masked image cannot be painted.
     func capture(_ window: NSWindow, masked: Bool = false) async throws -> CGImage {
         // The masks are measured before the capture, which can yield to a layout pass.
         let masks = masked ? ScreenshotPrivacyMask.rects(in: window, services: services).map(WindowImageLayer.mask) : []
@@ -33,7 +34,12 @@ struct AppWindowImage {
                 guard let image = await page.chromiumImage() else { continue }
                 layers.append(.page(image, rect))
             }
-            return WindowImageLayer.composite(base: base, window: window, layers: layers) ?? base
+            if layers.isEmpty { return base }
+            // A mask that cannot be painted never lets the unmasked image out.
+            guard let image = WindowImageLayer.composite(base: base, window: window, layers: layers) else {
+                throw WindowScreenshotFailure.blank
+            }
+            return image
         }
         for (page, rect) in DebugWindowSnapshot.chromiumPages(in: window, services: services) {
             // A page that cannot give its image keeps the window server's
