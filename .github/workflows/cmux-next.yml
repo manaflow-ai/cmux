@@ -672,16 +672,23 @@ jobs:
           TIP_SWIFT_SUITE: ${{ inputs.tip_swift_suite || false }}
           SAME_TREE_SHA: ${{ inputs.same_tree_sha }}
           GH_TOKEN: ${{ github.token }}
+          # The labels at the push. A re-run keeps that event, so it reads them
+          # live: adding full-ci or dev-build and re-running routes on them.
+          EVENT_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
         run: |
           set -euo pipefail
           changed="$RUNNER_TEMP/changed-files.txt"
           labels=""
           if [[ "$EVENT_NAME" == pull_request ]]; then
             git diff --no-renames --name-only HEAD^1 HEAD > "$changed"
-            labels="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" --jq '[.[].name] | join(",")' 2>/dev/null)" || {
-              echo "::warning::could not read the pull request labels; routing on its paths only"
-              labels=""
-            }
+            if [[ "$GITHUB_RUN_ATTEMPT" == 1 ]]; then
+              labels="$EVENT_LABELS"
+            else
+              labels="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" --jq '[.[].name] | join(",")' 2>/dev/null)" || {
+                echo "::warning::could not read the pull request labels; routing on its paths only"
+                labels=""
+              }
+            fi
           else
             : > "$changed"
           fi
@@ -1629,6 +1636,8 @@ jobs:
           python3 tests/test_next_batch_groups.py
           python3 tests/test_cmux_next_base_autofix_finishes.py
           python3 tests/test_cmux_next_pr_autofix_settings.py
+          python3 tests/test_cmux_next_pr_changed_paths.py
+          python3 tests/test_pr_capture_check_paths.py
           python3 tests/test_car_guards.py
 
       # The cmux NEXT DEV update script (an unchanged build is left alone; an
@@ -4310,6 +4319,8 @@ jobs:
       contents: read
       pull-requests: write
     uses: ./.github/workflows/pr-red-checks-comment.yml
+    with:
+      own_checks_green: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
 
   push-attribution:
     needs: [checks, generated-files, swift-canary, swift-test, daemon-test, release-compile, cmux-scheme-compile, perf-gate]
