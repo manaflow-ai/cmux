@@ -27,7 +27,17 @@ export type MessageMenuTarget = {
 
 /// What the page reports on `contextmenu`: the message under the pointer, and the selected
 /// transcript text when the pointer is inside it (Quote in Reply, Search the Web...).
-export type MessageMenuReport = Partial<MessageMenuTarget> & { selection?: string; openImage?: true; part?: MenuPart };
+export type MessageMenuReport = Partial<MessageMenuTarget> & {
+  selection?: string;
+  openImage?: true;
+  /// The pointer is on an image (a reply's, one I sent, the gallery's): the menu's Copy Image,
+  /// Save Image As…, Quick Look and Show in Finder act on it (imageMenuActions.ts).
+  image?: true;
+  part?: MenuPart;
+  /// The message's More button (MessageActions.tsx MessageMore), in CSS px: the host opens the
+  /// menu a right-click on the message opens under it, now (the report is the right-click's).
+  popUp?: { left: number; top: number; right: number; bottom: number };
+};
 
 /// Whether acpmux can fork the chat at all here: it serves forks, the pane is connected and the
 /// chat is on this computer (acpmux refuses the rest).
@@ -222,7 +232,42 @@ export function setMessageMenuSource(next: MessageSource | undefined) {
 
 type Handler = { postMessage(body: unknown): void };
 
+const webkitHandler = () =>
+  (window as unknown as { webkit?: { messageHandlers?: Record<string, Handler | undefined> } }).webkit
+    ?.messageHandlers?.[MESSAGE_MENU_HANDLER];
+/// Where reports go: the handler `installMessageMenuReporter` was given.
+let menuHandler: () => Handler | undefined = () => undefined;
+
+/// Whether a host shows this page's message menu (its More button would do nothing without one).
+export const hasMessageMenuHost = () => menuHandler() !== undefined;
+
+/// More (…) on row `rowId`'s action row: asks the host for the menu a right-click on that message
+/// opens, with the same report, shown under `anchor`. False when the row is not a message or no
+/// host shows the menu.
+export function openMessageMenu(rowId: string, anchor: Element): boolean {
+  const message = source?.(rowId);
+  const handler = menuHandler();
+  if (!message || !handler) return false;
+  reportedImage = undefined;
+  reportedPicture = undefined;
+  const { left, top, right, bottom } = anchor.getBoundingClientRect();
+  handler.postMessage({ ...message, popUp: { left, top, right, bottom } } satisfies MessageMenuReport);
+  return true;
+}
+
 let reportedImage: HTMLElement | undefined;
+let reportedPicture: HTMLImageElement | undefined;
+
+/// The image the last report named, for one image action: its source, its name (alt text) and the
+/// file a reply read it from (`data-image-path`). Undefined when the report named none; it is used up.
+export function takeReportedPicture(): { src: string; name: string; path?: string } | undefined {
+  const picture = reportedPicture;
+  reportedPicture = undefined;
+  const src = picture?.currentSrc || picture?.getAttribute("src") || "";
+  if (!picture || !src) return undefined;
+  const path = picture.closest<HTMLElement>("[data-image-path]")?.getAttribute("data-image-path") || undefined;
+  return { src, name: picture.getAttribute("alt") ?? "", ...(path ? { path } : {}) };
+}
 
 /// Open Image: opens the image the last report named as its click does; false when it named none.
 export function openReportedImage(): boolean {
@@ -236,30 +281,35 @@ export function openReportedImage(): boolean {
 /// stops the event still reports). Returns the remover.
 export function installMessageMenuReporter(
   doc: Document,
-  handler: () => Handler | undefined = () =>
-    (window as unknown as { webkit?: { messageHandlers?: Record<string, Handler | undefined> } }).webkit
-      ?.messageHandlers?.[MESSAGE_MENU_HANDLER],
+  handler: () => Handler | undefined = webkitHandler,
 ): () => void {
+  menuHandler = handler;
   const report = (event: Event) => {
     const target = event.target as Element | null;
     const rowId = target?.closest?.("[data-row-id]")?.getAttribute("data-row-id");
     const message = (rowId && source?.(rowId)) || undefined;
     reportedImage = target?.closest?.<HTMLElement>("[data-open-image]") ?? undefined;
+    const picture = reportedImage?.querySelector("img") ?? target?.closest?.("img") ?? undefined;
+    reportedPicture = picture && (picture.currentSrc || picture.getAttribute("src")) ? picture : undefined;
     const selection = selectionAt(doc, target);
     const part = selection ? undefined : menuPartAt(target);
     const body: MessageMenuReport | null =
-      message || selection || reportedImage || part
+      message || selection || reportedImage || reportedPicture || part
         ? {
             ...message,
             ...(selection ? { selection } : {}),
             ...(reportedImage ? { openImage: true as const } : {}),
+            ...(reportedPicture ? { image: true as const } : {}),
             ...(part ? { part } : {}),
           }
         : null;
     handler()?.postMessage(body);
   };
   doc.addEventListener("contextmenu", report, true);
-  return () => doc.removeEventListener("contextmenu", report, true);
+  return () => {
+    doc.removeEventListener("contextmenu", report, true);
+    if (menuHandler === handler) menuHandler = () => undefined;
+  };
 }
 
 /// The selected transcript text when the right-click is inside the selection; nothing for a

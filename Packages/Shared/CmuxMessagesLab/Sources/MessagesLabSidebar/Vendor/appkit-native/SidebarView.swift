@@ -1144,7 +1144,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     }
     static func tileKeys(_ c: ConversationSummary, natural n: (name: CGFloat, bubble: CGFloat), tileWidth tw: CGFloat,
                          emphasized: Bool, generation: Int) -> (name: SidebarBitmapKey, bubble: SidebarBitmapKey?) {
-        let name = SidebarBitmapKey(kind: .tile, id: c.id, version: c.version, width: SidebarDraw.tileNameKeyWidth(natural: n.name, tileWidth: tw),
+        let name = SidebarBitmapKey(kind: .tile, id: c.id, version: c.version, width: SidebarDraw.tileNameKeyWidth(natural: n.name, tileWidth: tw, unread: c.unread),
                                     emphasized: emphasized, generation: generation)
         let bubble = c.unread && !c.typing
             ? SidebarBitmapKey(kind: .tileBubble, id: c.id, version: c.version, width: SidebarDraw.tileBubbleKeyWidth(natural: n.bubble, tileWidth: tw),
@@ -1188,7 +1188,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         }
         configureSenders(l, c, avatar: ar)
         l.dot.isHidden = !c.unread
-        l.dot.cornerRadius = metrics.compact ? SidebarMetrics.dotDiameter / 2 : 6
+        l.dot.cornerRadius = (metrics.compact ? SidebarMetrics.dotDiameter : SidebarDraw.tileDotDiameter) / 2
         l.dot.backgroundColor = palette.unread
         // cmux: in the compact list a pinned avatar is row-sized, so a thin ring 2 pt outside it
         // (inside the selection disc's footprint) says "pinned"; the selection disc replaces it.
@@ -1218,7 +1218,10 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             let nw = CGFloat(name?.width ?? 0) / s // an unallocated name shows nothing
             l.content.isHidden = false
             l.content.contents = name
-            l.content.frame = CGRect(x: ((f.width - nw) / 2).rounded(), y: ar.maxY + SidebarMetrics.pinNameGap, width: nw, height: SidebarMetrics.pinNameHeight)
+            // The name, with the unread dot inline before it (SidebarDraw.tileLabel).
+            let label = SidebarDraw.tileLabel(metrics, nameWidth: nw, unread: c.unread)
+            l.content.frame = label.name
+            if let dot = label.dot { l.dot.frame = dot }
             if let bk = keys.bubble, let b = tileImage(bk, c) { // an unallocated bubble is not shown
                 // The newest unread message over the avatar's top (the typing bubble, a layer,
                 // takes its place while someone types).
@@ -1231,11 +1234,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
                 l.time.isHidden = true
             }
         }
-        // The unread dot on the tile's leading edge, below the bubble when one shows, so a wide
-        // bubble never covers it (SidebarDraw.tileUnreadDot; the bubble rect without its tail).
-        let bubble = l.time.isHidden || metrics.compact ? nil
-            : CGRect(x: l.time.frame.minX + 1, y: l.time.frame.minY, width: l.time.frame.width - 1, height: l.time.frame.height - 5)
-        l.dot.frame = SidebarDraw.tileUnreadDot(metrics, bubble: bubble)
+        if metrics.compact { l.dot.frame = SidebarDraw.compactTileUnreadDot(metrics) }
         // Configured for this width (the stale check compares it).
         l.shownKey = SidebarBitmapKey(kind: .tile, id: c.id, version: c.version, width: metrics.tileWidth, emphasized: false, generation: generation)
         l.contentsScaleAll(s)

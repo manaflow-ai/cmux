@@ -1,0 +1,48 @@
+[package]
+name = "cmux-weft"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Weft: cmux's own WireGuard mesh (coordination + ACL service, relay, userspace client)"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "weft-coord"
+path = "src/bin/weft_coord.rs"
+
+[[bin]]
+name = "weft-relay"
+path = "src/bin/weft_relay.rs"
+
+[[bin]]
+name = "weft"
+path = "src/bin/weft.rs"
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+base64.workspace = true
+cmux-wg = { path = "../cmux-wg" }
+futures-util.workspace = true
+getrandom.workspace = true
+hex.workspace = true
+ip_network.workspace = true
+reqwest.workspace = true
+ring.workspace = true
+rusqlite.workspace = true
+rustls.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+tokio.workspace = true
+tokio-tungstenite = { workspace = true, features = ["rustls-tls-webpki-roots"] }
+x25519-dalek.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+proptest = { version = "1", default-features = false, features = ["std"] }
