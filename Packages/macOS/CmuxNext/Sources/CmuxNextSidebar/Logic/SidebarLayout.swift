@@ -389,8 +389,10 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         y = Self.appendEmptyRow(group, section: section.id, parent: index, metrics: m, to: &rows, y: y)
                     }
                     let fold = SidebarDoneFoldID(section: section.id, group: group.id)
-                    let drawn = Self.foldingDone(Self.treeOrder(Self.workspaceIDs(members), parents: o.sessionTree?.parents),
-                                                 workspace: { if case let .workspace(ws) = members[$0] { ws } else { nil } }, fold: fold, options: o)
+                    let memberWorkspace: (Int) -> SidebarWorkspace? = { if case let .workspace(ws) = members[$0] { ws } else { nil } }
+                    let memberTree = Self.treeRows(Self.workspaceIDs(members), workspace: memberWorkspace, tree: o.sessionTree, filtering: filtering)
+                    let memberTreeRow = Dictionary(memberTree.map { ($0.index, $0) }, uniquingKeysWith: { first, _ in first })
+                    let drawn = Self.foldingDone(memberTree.map { ($0.index, $0.depth) }, workspace: memberWorkspace, fold: fold, options: o)
                     for (position, (childIndex, depth)) in drawn.enumerated() {
                         if childIndex < 0 {
                             Self.appendFold(childIndex, fold, count: depth, parent: index, color: group.color, last: position == drawn.count - 1,
@@ -415,6 +417,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         }
                         var content = o.rowContent(ws, machine: machineLabel)
                         content.treeDepth = depth
+                        (content.treeFold, content.rollUp) = (memberTreeRow[childIndex]?.fold, memberTreeRow[childIndex]?.rollUp)
                         let h = m.height(for: content)
                         rows.append(SidebarRow(
                             key: .workspace(ws.id), y: y, height: h, section: section.id,

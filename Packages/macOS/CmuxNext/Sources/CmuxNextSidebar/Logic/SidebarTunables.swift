@@ -134,6 +134,15 @@ public nonisolated enum SidebarTunables {
         help: "Lists every computer's rows under the Priority view's states (Needs you, Done, Failed, CI failing, Working, Idle) with counts, in your order inside each. Rows move as their state changes; the active row stays put until another row is active.",
         default: false, code: "SidebarTunables.groupByStatus")
 
+    /// Lineage nesting (Leo 2026-10-21: "A LOT OF THESE SESSIONS ID IMAGINE DIDNT NECESSSARILY NEED TO SHOW UP ON THE
+    /// SIDE BY DEFAULT"): a workspace whose agent another workspace's agent started lists under that workspace, at any
+    /// depth, and a parent below the top level starts folded with its roll-up. Only person-started sessions are top
+    /// level. On by default; the rest of `sidebar.sessionTree` (keycaps, chat history) stays opt-in.
+    public static let lineageNesting = Tunable<Bool>.toggle(
+        "sidebar.lineageNesting", .sidebar, "Nest agent-started sessions",
+        help: "A workspace an agent started lists under the workspace whose agent started it, at any depth. Sessions a lane started stay folded under it until you open them. Off lists every workspace at the top level.",
+        default: true, code: "SidebarTunables.lineageNesting")
+
     /// Workspaces marked Done fold into one "Done (N)" row at the end of their group or list (`SidebarLayout+DoneFold`).
     public static let doneFold = Tunable<Bool>.toggle(
         "sidebar.doneFold", .sidebar, "Fold Done workspaces",
@@ -293,6 +302,7 @@ public nonisolated enum SidebarTunables {
             groupExitFraction.descriptor,
             groupRowLimit.descriptor,
             laneStatus.descriptor,
+            lineageNesting.descriptor,
             rowStatus.descriptor,
             pullRequestBadges.descriptor,
             laneFixture.descriptor,
