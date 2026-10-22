@@ -18,9 +18,9 @@
 //
 // Another agent's message waiting in the queue (`message`, direct.ts `queuedMessage`) is not the
 // person's prompt: its row is the message's received line (conversation/IncomingMessageCard.tsx), as
-// the transcript draws it once it runs: the sender's mark, its name as a chip that opens its chat, a
-// one-line preview, and the message as a card when opened. Its actions, Steer too, sit at the
-// line's end (Leo, 2026-10-21).
+// the transcript draws it once it runs: the sender's mark, its name as a chip that opens its chat,
+// and the message as a card under it, cut to six lines when longer. Its actions, Steer too, sit at
+// the line's end (Leo, 2026-10-21).
 //
 // A prompt's images show as small thumbnails under its text (QueuedImages.tsx), each opening the
 // image viewer; while it is edited each has a remove control, and Save keeps only the images left
@@ -118,6 +118,7 @@ export function ComposerQueue({
   queue,
   chat,
   paused,
+  pauseReason,
   t,
   onRemove,
   onChange,
@@ -132,13 +133,16 @@ export function ComposerQueue({
   chat?: string;
   /// A turn failed and the queue waits for Resume (acpmux `queuePaused`).
   paused?: boolean;
+  /// That turn's error (queuePause.ts), which the paused note names.
+  pauseReason?: string;
   t: Translate;
   /// Withdraws a waiting prompt; false when it already started (it then leaves with the turn).
   onRemove?(id: string): Promise<boolean>;
   /// Changes a waiting prompt (`_acpmux/queue_edit`); false when it already started.
   onChange?(id: string, edit: QueueEdit): Promise<boolean>;
   /// An edit of a prompt that started meanwhile: its text goes back to the prompt, so it is kept.
-  onLost?(text: string): void;
+  /// `id` is the prompt's row.
+  onLost?(text: string, id: string): void;
   /// Focus leaves the queue for the prompt.
   onLeave?(): void;
   /// Reads an image a queued prompt sends by its acpmux id, as a data URL (`_acpmux/attachment`).
@@ -192,7 +196,7 @@ export function ComposerQueue({
     });
     if (editing && !queue.some((entry) => entry.id === editing)) {
       const open = draft.current;
-      if (open?.id === editing && open.text.trim() && open.text !== open.original) onLost?.(open.text.trim());
+      if (open?.id === editing && open.text.trim() && open.text !== open.original) onLost?.(open.text.trim(), editing);
       draft.current = undefined;
       setDropped(new Set());
       setEditingId(undefined);
@@ -343,7 +347,7 @@ export function ComposerQueue({
       ? { op: "update", text: next, images: kept.map((image) => image.id) }
       : { op: "update", text: next };
     void onChange(entry.id, edit).then((ok) => {
-      if (!ok) onLost?.(next);
+      if (!ok) onLost?.(next, entry.id);
     });
   };
   const rowKeyDown = (event: React.KeyboardEvent<HTMLElement>, entry: QueuedEntry, index: number) => {
@@ -576,7 +580,7 @@ export function ComposerQueue({
     <>
       <ol
         ref={list}
-        className="ui-glass acpmux-composer-queue"
+        className="ui-glass ui-glass-floats acpmux-composer-queue"
         data-unfolded={foldable && !folded ? "" : undefined}
         // A row that takes focus from the keyboard (keys, a move, ↑ from the prompt) scrolls in whole.
         onFocus={(event) => {
@@ -602,7 +606,12 @@ export function ComposerQueue({
       >
         {paused && (
           <li className="acpmux-queue-paused">
-            <span>{t("composer.queuePaused")}</span>
+            <span
+              // tooltip-allow: a long error is cut to the row; its whole text is the tooltip
+              title={pauseReason}
+            >
+              {pauseReason ? t("composer.queuePausedWhy", { error: pauseReason }) : t("composer.queuePaused")}
+            </span>
             {onChange && (
               <button
                 type="button"
@@ -620,7 +629,8 @@ export function ComposerQueue({
           index === steering && (
             <li key="queued" className="acpmux-queue-header" aria-hidden="true">
               <span className="acpmux-queued-kind">{t("composer.queued")}</span>
-              <span>{t("composer.queueAfterTurn")}</span>
+              {/* Held by a paused queue, the prompts wait for Resume, not for the turn. */}
+              <span>{t(paused ? "composer.queueHeld" : "composer.queueAfterTurn")}</span>
             </li>
           ),
           // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- A row takes focus from ↑ on the prompt and has its keys (edit, move, send now, remove); its buttons do the same by pointer.
@@ -643,7 +653,7 @@ export function ComposerQueue({
       </ol>
       {/* The fold sits under the list, outside its scrolling, so no row ever runs under it. */}
       {foldable && (
-        <div className="ui-glass acpmux-queue-foldbar">
+        <div className="ui-glass ui-glass-floats acpmux-queue-foldbar">
           <button
             ref={foldButton}
             type="button"
