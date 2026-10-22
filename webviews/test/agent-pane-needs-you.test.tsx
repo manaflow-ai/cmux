@@ -181,11 +181,33 @@ test("a waiting chat shows the question or permission it waits on, never its las
 });
 
 test("a chat with nothing pending is not listed as waiting", () => {
+  // acpmux says the chat is idle: a stale dot claims no wait.
   const items = needsYouItems({
-    sessions: [session("done", { indicator: "input", updatedAt: 5, preview: "All set." })],
+    sessions: [session("done", { status: "idle", indicator: "input", updatedAt: 5, preview: "All set." })],
     asks: [],
   });
   expect(items).toEqual([]);
+});
+
+// Review of #23875: acpmux marks a chat `waiting` for a secret request too (hub/secrets.rs), with no
+// pending permission and no `waitingOn`. That chat stays listed, with the plain waiting line and
+// never its last message.
+test("a local chat waiting on a secret stays listed and shows no last message", () => {
+  const items = needsYouItems({
+    sessions: [
+      session("secret", { status: "waiting", indicator: "input", updatedAt: 5, preview: "I need the deploy token." }),
+    ],
+    asks: [],
+  });
+  expect(items.map((item) => [item.id, item.kind, item.ask])).toEqual([["chat:secret", "input", ""]]);
+  const html = renderToStaticMarkup(
+    <NeedsYouPanel
+      items={items}
+      actions={{ answer: async () => undefined, goTo: () => undefined, ask: async () => "" }}
+    />,
+  );
+  expect(html).toContain(translate("needsYou.waiting"));
+  expect(html).not.toContain("I need the deploy token.");
 });
 
 test("the open chat's held agent pair messages are one item with Resume; a resumed pair is not", () => {
