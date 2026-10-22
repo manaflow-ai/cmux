@@ -562,10 +562,10 @@ const loneToolCalls = () =>
     summary(2.6, { status: "completed", toolCount: 2, durationMs: 24_000 }),
   ]);
 
-/// Opens the turn's Worked for. At rest the finished call's check and time are hidden and keep
-/// their room; the failure's red word shows.
+/// Opens the turn's Worked for and its folded run ("Searched the web"). At rest the finished
+/// call's check and time are hidden and keep their room; the failure's red word shows.
 const loneToolMetaAtRest = async (ctx: PlayContext) => {
-  await openWorked(ctx);
+  await openGroupedRun(ctx);
   await ctx.waitFor(() => ctx.document.querySelector(".cv-tool .cv-command__ok"));
   const view = ctx.document.defaultView!;
   for (const node of ctx.document.querySelectorAll(".cv-tool .cv-command__ok, .cv-tool .cv-command__time"))
@@ -1407,12 +1407,12 @@ export default agentPaneEntry({
       },
     },
     "tool-hover-meta-lone": {
-      note: "Calls that are not shells, at rest: a finished fetch shows no check or time, a failed one says failed in red. Play: open Worked for.",
+      note: "Calls that are not shells, at rest: a finished fetch shows no check or time, a failed one says failed in red. Play: open Worked for and its run.",
       snapshot: loneToolCalls(),
       play: loneToolMetaAtRest,
     },
     "tool-hover-meta-lone-hovered": {
-      note: "The same calls with the finished fetch pointed at: its green check and run time fade in; the failure stays as it was. Play: open Worked for, hover the fetch.",
+      note: "The same calls with the finished fetch pointed at: its green check and run time fade in; the failure stays as it was. Play: open Worked for and its run, hover the fetch.",
       snapshot: loneToolCalls(),
       play: async (ctx) => {
         await loneToolMetaAtRest(ctx);
