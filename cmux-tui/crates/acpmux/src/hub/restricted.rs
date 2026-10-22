@@ -229,25 +229,67 @@ fn folder_args(args: &[String], cwd: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Refuses a value of the profile's `env` (the spawn's, `${cwd}` already expanded) with a word
-/// (split at `:`, `=` and spaces, as path lists and option strings are) that names a path inside
-/// the chat's folder `cwd`, as `folder_args` does: a launcher's shell or interpreter reads it
-/// before anything asks. Keys the restricted chat sets itself (`BLANKED_ENV`, PATH) or checks
-/// (`SETTINGS_ROOTS`) are left to that. Allowed when `cwd` holds the person's home.
+/// Refuses a value of the profile's `env` (the spawn's, `${cwd}` already expanded) that names a
+/// path inside the chat's folder `cwd`, as `folder_args` does: an entry of a `:` list, the value
+/// of an `=` option, a word, or the folder's own path anywhere in it (a path with a space). A
+/// launcher's shell or interpreter reads it before anything asks. Keys the restricted chat sets
+/// itself (`BLANKED_ENV`, PATH) or checks (`SETTINGS_ROOTS`) are left to that. Allowed when `cwd`
+/// holds the person's home.
 fn folder_env(env: &BTreeMap<String, String>, cwd: &Path) -> Result<(), String> {
+    let given = cwd.to_string_lossy().into_owned();
     let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
     if held_home(&cwd).is_some() {
         return Ok(());
     }
+    let folders = [given, cwd.to_string_lossy().into_owned()];
     let set_here = |key: &str| {
         key == "PATH" || BLANKED_ENV.contains(&key) || SETTINGS_ROOTS.iter().any(|(k, _)| *k == key)
     };
     for (key, value) in env.iter().filter(|(key, _)| !set_here(key.as_str())) {
         // A value that is a Keychain item is a secret, not a path.
         let Ok(value) = env_refs_read(key, value) else { continue };
-        let mut words = value.split(|c: char| c == ':' || c == '=' || c.is_whitespace());
+        let entries = value.split(':').flat_map(|e| [Some(e), e.split_once('=').map(|(_, v)| v)]);
+        let words = value.split(|c: char| c == ':' || c == '=' || c.is_whitespace());
+        let mut words = entries.flatten().chain(words);
         if let Some(word) = words.find(|w| !w.is_empty() && in_folder(w, &cwd)) {
             return Err(format!("{key}={word} is inside the chat's folder"));
+        }
+        if folders.iter().any(|folder| holds_path(&value, folder)) {
+            return Err(format!("{key}={value} names the chat's folder"));
+        }
+    }
+    Ok(())
+}
+
+/// Whether `text` holds the absolute path `folder` whole: not as part of a longer name
+/// (`/a/chat2`) or a deeper path (`/x/a/chat`).
+fn holds_path(text: &str, folder: &str) -> bool {
+    let folder = folder.trim_end_matches('/');
+    let name = |c: char| c.is_alphanumeric() || "._-~+@".contains(c);
+    !folder.is_empty()
+        && text.match_indices(folder).any(|(at, _)| {
+            let before = text[..at].chars().next_back();
+            let after = text[at + folder.len()..].chars().next();
+            before.is_none_or(|c| !name(c) && c != '/') && after.is_none_or(|c| !name(c))
+        })
+}
+
+/// Refuses an inherited `ZDOTDIR` (the daemon's or the login shell's, which the spawn hands to
+/// zsh: `login_env::agent_shell_env`) that is relative or inside the chat's folder `cwd`: a zsh
+/// launcher sources the `.zshenv` there before anything asks. Allowed when `cwd` holds the
+/// person's home.
+fn inherited_zdotdir<'v>(
+    values: impl IntoIterator<Item = &'v str>,
+    cwd: &Path,
+) -> Result<(), String> {
+    let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+    let home = held_home(&cwd);
+    for value in values.into_iter().filter(|v| !v.is_empty()) {
+        if !Path::new(value).is_absolute() {
+            return Err(format!("ZDOTDIR={value} is a relative path"));
+        }
+        if home.is_none() && in_folder(value, &cwd) {
+            return Err(format!("ZDOTDIR={value} is inside the chat's folder"));
         }
     }
     Ok(())
@@ -647,6 +689,13 @@ impl Hub {
         launcher(own.first().map_or("", String::as_str)).map_err(refused)?;
         folder_args(own.get(1..).unwrap_or_default(), &meta.cwd).map_err(refused)?;
         folder_env(&profile.env, &meta.cwd).map_err(refused)?;
+        let zdotdir = [
+            crate::login_env::var("ZDOTDIR"),
+            std::env::var("ZDOTDIR").ok(),
+            std::env::var(crate::login_env::AGENT_USER_ZDOTDIR_ENV).ok(),
+        ];
+        inherited_zdotdir(zdotdir.iter().flatten().map(String::as_str), &meta.cwd)
+            .map_err(refused)?;
         let mut plan = command_line(own, plan).map_err(refused)?;
         plan.program = frozen_program(&plan.program, &meta.cwd).map_err(refused)?;
         for &(key, under) in SETTINGS_ROOTS {
@@ -871,6 +920,22 @@ mod tests {
         assert!(folder_env(&env(&[("ZDOTDIR", "./my dots")]), &spaced).is_err());
         let sibling = root.join("my chat2").to_string_lossy().into_owned();
         assert!(folder_env(&env(&[("ZDOTDIR", &sibling)]), &spaced).is_ok());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_inherited_zdotdir_relative_or_in_the_chat_folder_is_refused() {
+        let root = std::env::temp_dir().join(format!("restricted-zdot-{}", std::process::id()));
+        let (chat, elsewhere) = (root.join("chat"), root.join("elsewhere"));
+        std::fs::create_dir_all(chat.join("dots")).unwrap();
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        let dots = chat.join("dots").to_string_lossy().into_owned();
+        assert!(inherited_zdotdir(["."], &chat).is_err());
+        assert!(inherited_zdotdir(["zsh"], &chat).is_err());
+        assert!(inherited_zdotdir([dots.as_str()], &chat).is_err());
+        let theirs = elsewhere.to_string_lossy().into_owned();
+        assert!(inherited_zdotdir(["", theirs.as_str()], &chat).is_ok());
+        assert!(inherited_zdotdir([dots.as_str()], &elsewhere).is_ok());
         let _ = std::fs::remove_dir_all(&root);
     }
 
