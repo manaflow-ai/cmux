@@ -150,7 +150,7 @@ struct NotificationContentView: View {
             Image(systemName: symbol(payload.kind)).foregroundStyle(tint(payload.kind))
             VStack(alignment: .leading, spacing: 2) {
                 Text(headline(payload)).font(.headline).lineLimit(1)
-                Text([payload.placeName, payload.macDisplayName].compactMap(\.self).joined(separator: " · "))
+                Text([payload.placeName, payload.macDisplayName].compactMap { $0 }.joined(separator: " · "))
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 4)

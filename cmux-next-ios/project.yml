@@ -303,7 +303,6 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CmuxMobileAppGroup: group.$(CMUX_MOBILE_APP_BUNDLE_ID)
-        NSPhotoLibraryUsageDescription: Attach photos to your reply.
         NSExtension:
           NSExtensionPointIdentifier: com.apple.usernotifications.content-extension
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationViewController

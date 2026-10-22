@@ -8,7 +8,7 @@ import UserNotificationsUI
 /// "Expanded view"). It has no link to the Mac: what it sends goes to the
 /// App Group outbox, and the app (opened by `performNotificationDefaultAction`)
 /// sends it over that Mac's link, asking Face ID for an answer or an Allow.
-final class NotificationViewController: UIViewController, UNNotificationContentExtension {
+final class NotificationViewController: UIViewController, @MainActor UNNotificationContentExtension {
     private let model = NotificationContentModel()
     private var host: UIHostingController<NotificationContentView>?
 
@@ -38,6 +38,7 @@ final class NotificationViewController: UIViewController, UNNotificationContentE
         preferredContentSize = CGSize(width: view.bounds.width, height: container.preferredContentSize.height)
     }
 
+    // UserNotificationsUI calls the extension on the main thread (an isolated conformance).
     func didReceive(_ notification: UNNotification) {
         let payload = PushPayload(userInfo: notification.request.content.userInfo)
         model.load(payload: payload, group: PushAppGroup.current())
