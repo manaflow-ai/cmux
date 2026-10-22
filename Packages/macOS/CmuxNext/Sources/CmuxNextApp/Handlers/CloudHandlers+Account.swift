@@ -58,10 +58,14 @@ extension CloudHandlers {
                     windows.claim(workspaceID: id, in: state, select: false)
                 }
             },
-            // A person, the CLI or Chief asked for a machine the plan does not include:
-            // the person sees one offer of cmux Pro; Upgrade opens the pricing page.
-            planRequired: {
-                CloudPresenter.offerPro(in: windows.active?.window) { try? context.open(UpgradeToPro.pricingURL) }
+            // A person, the CLI or Chief asked for a machine cmux Pro would allow: the
+            // person sees one offer; Upgrade opens the refusal's checkout, else pricing.
+            planRequired: { refusal in
+                CloudPresenter.offerPro(refusal.message, in: windows.active?.window) {
+                    do { try context.open(refusal.upgradeURL ?? UpgradeToPro.pricingURL) } catch {
+                        cloud.logger.error("cmux Pro upgrade did not open: \(String(describing: error), privacy: .public)")
+                    }
+                }
             }
         )
     }

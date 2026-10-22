@@ -46,7 +46,17 @@ struct CloudAPIClientPlanRequiredTests {
             {"error":"vm_active_limit_exceeded","message":"Cloud VMs require a cmux Pro subscription.",
              "limit":0,"upgradeRequired":true,"upgradeUrl":"https://cmux.com/pricing","details":{"limit":0,"upgradeRequired":true}}
             """#)
-        #expect(error as? CloudAPIError == .planRequired(message: "Cloud VMs require a cmux Pro subscription."))
+        #expect(error as? CloudAPIError == .planRequired(message: "Cloud VMs require a cmux Pro subscription.",
+                                                          upgradeURL: URL(string: "https://cmux.com/pricing")))
+    }
+
+    @Test func aProBudgetThatNamesMaxStaysAnHTTPRefusal() async {
+        let error = await create(answering: #"""
+            {"error":"vm_compute_budget_reached","message":"This month's compute budget is used up.",
+             "upgradeRequired":true,"upgradePlanId":"max","upgradeUrl":"https://cmux.com/api/billing/checkout?plan=max"}
+            """#)
+        #expect(error as? CloudAPIError == .http(status: 402, code: "vm_compute_budget_reached",
+                                                  message: "This month's compute budget is used up."))
     }
 
     @Test func aPaidPlansLimitStaysAnHTTPRefusal() async {

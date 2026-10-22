@@ -62,11 +62,18 @@ final class CloudMachineCreation: Identifiable {
         phase = .created
     }
 
-    /// A create refused because the plan has no Cloud machine: the legacy
-    /// `/api/vm` refusal with `upgradeRequired`, or the app server's `plan_required`.
-    nonisolated static func needsPro(_ error: any Error) -> Bool {
-        if case CloudAPIError.planRequired = error { return true }
-        return (error as? CloudAppOpFailure)?.code == CloudAppOpFailure.planRequired
+    /// What a create refused for cmux Pro tells the person: the server's text and its upgrade link.
+    struct ProRefusal: Equatable, Sendable {
+        var message: String?
+        var upgradeURL: URL?
+    }
+
+    /// A create cmux Pro would allow: the legacy `/api/vm` refusal that names Pro
+    /// (``CloudAPIError/planRequired(message:upgradeURL:)``), or the app server's `plan_required`.
+    nonisolated static func proRefusal(_ error: any Error) -> ProRefusal? {
+        if case let CloudAPIError.planRequired(message, url) = error { return ProRefusal(message: message, upgradeURL: url) }
+        guard let failure = error as? CloudAppOpFailure, failure.code == CloudAppOpFailure.planRequired else { return nil }
+        return ProRefusal(message: failure.message.isEmpty ? nil : failure.message, upgradeURL: nil)
     }
 
     func fail(_ error: any Error) {
@@ -143,8 +150,8 @@ struct CloudCreationFlow {
     let open: @MainActor (CloudMachineSession) async throws -> String
     /// Places the opened workspace (`creation.workspaceID`) in its window.
     let show: @MainActor (String, CloudMachineCreation) -> Void
-    /// The account's plan has no Cloud machine (``CloudMachineCreation/needsPro(_:)``): offers cmux Pro.
-    var planRequired: @MainActor () -> Void = {}
+    /// A refusal cmux Pro lifts (``CloudMachineCreation/proRefusal(_:)``): offers cmux Pro.
+    var planRequired: @MainActor (CloudMachineCreation.ProRefusal) -> Void = { _ in }
 
     /// Starts a creation and, when a window asked, shows it there at once
     /// (before any await): the click focuses the new work, not the old one.
@@ -204,7 +211,7 @@ struct CloudCreationFlow {
             } catch {
                 guard !Task.isCancelled else { return }
                 creation.fail(error)
-                if CloudMachineCreation.needsPro(error) { planRequired() }
+                if let refusal = CloudMachineCreation.proRefusal(error) { planRequired(refusal) }
             }
         }
     }

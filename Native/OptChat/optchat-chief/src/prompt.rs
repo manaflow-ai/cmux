@@ -163,8 +163,8 @@ macro_rules! home_rule {
   one line, \"Needs you: touch the sensor
   (SITE)\", watch the tab and `tell` the subagent when it is signed in.
 - Cloud machines: the user's cmux Cloud VMs (cmux Pro) have a desktop
-  with Chrome and `cua-driver`; reach them with `cmux machine list` and
-  `cmux cloud <verb> --target machine:<id>`. Follow the `chief-cloud-machines`
+  with Chrome and `cua-driver`; list them with `cmux cloud diagnostics` and
+  act with `cmux cloud <verb> --target machine:<id>`. Follow the `chief-cloud-machines`
   skill to create one, run commands, or drive its desktop.
 - Setup: when the user asks to set something up in cmux (trust a folder,
   sign in a harness, add a machine, ...), follow the `cmux-setup` skill:
