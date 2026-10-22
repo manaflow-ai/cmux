@@ -46,6 +46,7 @@ fn serve(listener: UnixListener) {
                                  "cost": {"input": 15}},
                             ]},
                         ]}),
+                        "_acpmux/harnesses" => harnesses(),
                         _ => json!({}),
                     };
                     writeln!(
@@ -58,6 +59,34 @@ fn serve(listener: UnixListener) {
             });
         }
     });
+}
+
+/// The fake's `_acpmux/harnesses`: Claude Code through sr and directly,
+/// a Claude ACP adapter the gate refuses, codex, an OpenCode whose launcher
+/// is missing, the built-in UniiChat, and a terminal-only harness.
+fn harnesses() -> Value {
+    json!({
+        "harnesses": {
+            "claude-sr": {"kind": "claude-stdio", "argv": ["sr", "claude", "proxy"], "family": "claude"},
+            "claude": {"kind": "claude-stdio", "argv": ["claude"], "family": "claude"},
+            "claude-acp": {"kind": "acp", "argv": ["claude-code-acp"], "family": "claude"},
+            "codex": {"kind": "acp", "argv": ["codex-acp"], "family": "codex"},
+            "opencode": {"kind": "acp", "argv": ["opencode", "acp"], "family": "opencode",
+                         "displayName": "OpenCode", "icon": "opencode",
+                         "capabilities": {"effort": ["low", "high"], "resume": true, "permissionModes": true},
+                         "auth": {"login": "opencode auth login"},
+                         "unavailable": "opencode is not on PATH"},
+            "unii": {"kind": "acp", "argv": ["/Applications/cmux.app/acpmux", "uniichat-agent"],
+                     "family": "unii", "displayName": "UniiChat",
+                     "description": "UniiChat: one chat that never ends (uniichat.com)",
+                     "capabilities": {"resume": true}},
+            "aider": {"kind": "terminal", "argv": ["aider"], "family": "aider"},
+        },
+        "catalog": {"harnesses": [
+            {"id": "claude", "name": "Claude Code", "profiles": ["claude", "claude-sr"]},
+            {"id": "codex", "name": "Codex", "profiles": ["codex"]},
+        ]},
+    })
 }
 
 /// A brain over the fake acpmux, its engine.json in `dir`, knowing
@@ -286,4 +315,95 @@ fn a_chief_switches_its_turn_harness_to_uniichat_and_back() {
         optchat_chief::engine::load(&dir.path().join("engine.json")).harness,
         None
     );
+}
+
+/// The engine picker lists every harness a Chief turn can run on, from
+/// acpmux's `_acpmux/harnesses` (Leo #89: "users choose the Chief's engine
+/// ... each one lists what it supports"): its name, family, what it takes,
+/// and why it cannot run when it cannot. A terminal-only harness never runs
+/// a Chief turn and is not offered.
+#[test]
+fn the_engine_answer_offers_every_harness_with_what_it_supports() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut brain = brain(dir.path(), &[]);
+    let answer = engine(&mut brain, EngineRequest::Show);
+    let offered = answer["offered"]["harnesses"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no offered harnesses: {answer:#}"));
+    let ids: Vec<&str> = offered.iter().filter_map(|h| h["id"].as_str()).collect();
+    assert_eq!(
+        ids,
+        [
+            "claude",
+            "claude-acp",
+            "claude-sr",
+            "codex",
+            "opencode",
+            "unii"
+        ],
+        "{answer:#}"
+    );
+    let by_id = |id: &str| offered.iter().find(|h| h["id"] == id).unwrap();
+
+    let codex = by_id("codex");
+    assert_eq!(codex["displayName"], "Codex", "{codex:#}");
+    assert_eq!(codex["family"], "codex");
+    assert_eq!(codex["chiefFamily"], "codex");
+    assert_eq!(codex["kind"], "acp");
+    assert_eq!(codex["unavailable"], false);
+    assert_eq!(codex.get("unavailableReason"), None);
+    assert_eq!(codex["capabilities"]["speeds"], json!(["default", "fast"]));
+    assert_eq!(
+        codex["capabilities"]["efforts"],
+        json!(["minimal", "low", "medium", "high", "xhigh", "max"])
+    );
+
+    // Two profiles of one catalog harness keep apart by their ids.
+    let sr = by_id("claude-sr");
+    assert_eq!(sr["displayName"], "Claude Code (claude-sr)", "{sr:#}");
+    assert_eq!(by_id("claude")["displayName"], "Claude Code (claude)");
+    assert_eq!(sr["chiefFamily"], "claude");
+    assert_eq!(sr["capabilities"]["speeds"], json!(["default"]));
+    assert_eq!(sr["unavailable"], false);
+
+    // A launcher acpmux could not find: listed, with acpmux's reason, the
+    // profile's declared efforts and flags, and how to sign in.
+    let opencode = by_id("opencode");
+    assert_eq!(opencode["displayName"], "OpenCode", "{opencode:#}");
+    assert_eq!(opencode["family"], "opencode");
+    assert_eq!(opencode["chiefFamily"], "other");
+    assert_eq!(opencode["icon"], "opencode");
+    assert_eq!(opencode["unavailable"], true);
+    assert!(
+        opencode["unavailableReason"]
+            .as_str()
+            .is_some_and(|r| r.contains("opencode is not on PATH")),
+        "{opencode:#}"
+    );
+    assert_eq!(opencode["capabilities"]["efforts"], json!(["low", "high"]));
+    assert_eq!(opencode["capabilities"]["resume"], true);
+    assert_eq!(opencode["capabilities"]["permissionModes"], true);
+    assert_eq!(opencode["capabilities"]["speeds"], json!(["default"]));
+    assert_eq!(opencode["login"], "opencode auth login");
+
+    // A Claude ACP adapter: the harness gate refuses it, and says why.
+    let refused = by_id("claude-acp");
+    assert_eq!(refused["unavailable"], true, "{refused:#}");
+    assert!(
+        refused["unavailableReason"]
+            .as_str()
+            .is_some_and(|r| r.contains("claude-stdio")),
+        "{refused:#}"
+    );
+
+    // UniiChat: its own family, laid out as Other, with its description.
+    let unii = by_id("unii");
+    assert_eq!(unii["displayName"], "UniiChat", "{unii:#}");
+    assert_eq!(unii["family"], "unii");
+    assert_eq!(unii["chiefFamily"], "other");
+    assert_eq!(
+        unii["description"],
+        "UniiChat: one chat that never ends (uniichat.com)"
+    );
+    assert_eq!(unii["unavailable"], false);
 }

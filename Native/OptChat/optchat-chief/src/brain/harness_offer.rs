@@ -1,0 +1,147 @@
+//! chief.engine.get's `offered.harnesses`: the engines the Chief's picker
+//! lists (Leo #89 item 3: Claude Code via sr2, Codex, OpenCode, the other
+//! acpmux harnesses, UniiChat), each with what it supports and, when it
+//! cannot run a turn, why. Read from acpmux's `_acpmux/harnesses` at each
+//! answer, so a harness installed or signed in since is seen at once.
+//!
+//! Row: `{"id", "displayName", "family", "chiefFamily", "kind",
+//! "capabilities": {"efforts", "speeds", "resume"?, "permissionModes"?,
+//! "fast"?}, "unavailable": bool, "unavailableReason"?, "description"?,
+//! "icon"?, "login"?}`, by id. `family` is acpmux's (opencode, unii, ...);
+//! `chiefFamily` is the layout the Chief gives it (claude, codex, other),
+//! which decides the speeds. A terminal-only harness never runs a Chief
+//! turn and is not listed.
+
+use std::collections::BTreeMap;
+
+use serde_json::{Map, Value, json};
+
+use crate::acpmux::Family;
+
+/// The rows for an `_acpmux/harnesses` answer.
+pub(super) fn offered_harnesses(answer: &Value) -> Vec<Value> {
+    let Some(profiles) = answer.get("harnesses").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    // The curated catalog's name of each profile (`Claude Code` for both
+    // `claude` and `claude-sr`).
+    let mut catalog_names: BTreeMap<&str, &str> = BTreeMap::new();
+    for h in answer
+        .pointer("/catalog/harnesses")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let Some(name) = h.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        for p in h
+            .get("profiles")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if let Some(p) = p.as_str() {
+                catalog_names.insert(p, name);
+            }
+        }
+    }
+    let mut rows: Vec<Value> = profiles
+        .iter()
+        .filter(|(_, p)| p.get("kind").and_then(Value::as_str) != Some("terminal"))
+        .map(|(id, p)| row(answer, id, p, catalog_names.get(id.as_str()).copied()))
+        .collect();
+    rows.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+    // Two profiles under one name keep apart by their ids.
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    for r in &rows {
+        *counts
+            .entry(r["displayName"].as_str().unwrap_or_default().to_owned())
+            .or_default() += 1;
+    }
+    for r in &mut rows {
+        let name = r["displayName"].as_str().unwrap_or_default().to_owned();
+        let id = r["id"].as_str().unwrap_or_default().to_owned();
+        if counts.get(&name).copied().unwrap_or(0) > 1 && name != id {
+            r["displayName"] = json!(format!("{name} ({id})"));
+        }
+    }
+    rows
+}
+
+fn row(answer: &Value, id: &str, profile: &Value, catalog_name: Option<&str>) -> Value {
+    let str_of = |key: &str| {
+        profile
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+    };
+    // The gate the turn passes (harness_gate): acpmux's own unavailable
+    // reason, a Claude adapter that is not acpmux's, a route with no profile.
+    let plan = crate::harness_gate::plan(answer, id);
+    let chief_family = plan.family;
+    let reason = plan.admitted.err();
+    let family = str_of("family").unwrap_or(family_name(chief_family));
+    let display = str_of("displayName").or(catalog_name).unwrap_or(id);
+
+    let mut capabilities = Map::new();
+    let declared = profile.get("capabilities").and_then(Value::as_object);
+    for (key, value) in declared.into_iter().flatten() {
+        if key != "effort" && !value.is_null() {
+            capabilities.insert(key.clone(), value.clone());
+        }
+    }
+    // The efforts the profile declares, else every one a set accepts.
+    let efforts = declared
+        .and_then(|c| c.get("effort"))
+        .and_then(Value::as_array)
+        .filter(|e| !e.is_empty())
+        .cloned()
+        .unwrap_or_else(|| {
+            super::engine_control::EFFORTS
+                .iter()
+                .map(|e| json!(e))
+                .collect()
+        });
+    capabilities.insert("efforts".into(), Value::Array(efforts));
+    let speeds: Vec<&str> = crate::engine::SPEEDS
+        .iter()
+        .copied()
+        .filter(|speed| crate::engine::check_speed(speed, chief_family).is_ok())
+        .collect();
+    capabilities.insert("speeds".into(), json!(speeds));
+
+    let mut row = json!({
+        "id": id,
+        "displayName": display,
+        "family": family,
+        "chiefFamily": family_name(chief_family),
+        "kind": str_of("kind").unwrap_or("acp"),
+        "capabilities": capabilities,
+        "unavailable": reason.is_some(),
+    });
+    if let Some(reason) = reason {
+        row["unavailableReason"] = json!(reason);
+    }
+    for (key, value) in [
+        ("description", str_of("description")),
+        ("icon", str_of("icon")),
+        (
+            "login",
+            profile.pointer("/auth/login").and_then(Value::as_str),
+        ),
+    ] {
+        if let Some(value) = value {
+            row[key] = json!(value);
+        }
+    }
+    row
+}
+
+fn family_name(family: Family) -> &'static str {
+    match family {
+        Family::Claude => "claude",
+        Family::Codex => "codex",
+        Family::Other => "other",
+    }
+}

@@ -28,6 +28,7 @@ mod desk;
 mod drafts;
 mod engine_control;
 pub mod files;
+mod harness_offer;
 mod image_fit;
 pub mod images;
 mod inbox;
