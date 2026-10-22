@@ -34,6 +34,7 @@ INDEX = os.path.join(FIXTURE, "index.html")
 CONFIG = os.path.join(SCRATCH, "cmux.json")
 GHOSTTY = os.path.join(SCRATCH, "ghostty")
 ROWS, launched = [], []
+CUA = os.path.expanduser("~/.local/bin/cua-driver")
 
 
 def say(*parts):
@@ -74,17 +75,12 @@ def wait(predicate, timeout):
     return None
 
 
-def snapshot(name):
+def snapshot(name, desktop=True):
     path = os.path.join(opts.out, f"{name}.png")
-    cap = os.environ.get("NX_CAPTURE")
-    pid = launched[0].pid if launched else None
-    if cap and pid:
-        r = subprocess.run(["bash", cap, "shot", "--pid", str(pid), "--with-popups", "--out", path], capture_output=True, text=True, timeout=60)
-        if r.returncode == 0 and os.path.exists(path):
-            say(f"shot {name}: {path}")
-            return path
     reply = rpc("debug.window_snapshot", {"path": path})
     say(f"snapshot {name}: {(reply or {}).get('path') or reply}")
+    if desktop and os.path.exists(CUA):
+        cua("get_desktop_state", {"screenshot_out_file": os.path.join(opts.out, f"{name}-desktop.png")})
     return path
 
 
@@ -154,9 +150,6 @@ def open_index():
     return wait(lambda: tab_showing("index.html"), 20)
 
 
-CUA = os.path.expanduser("~/.local/bin/cua-driver")
-
-
 def cua(tool, args):
     r = subprocess.run([CUA, "call", tool, json.dumps(args)], capture_output=True, text=True, timeout=60)
     try:
@@ -215,34 +208,34 @@ def run_menu():
         return
     pid = launched[0].pid
     win = cua_window(pid)
+    snapshot("menu-0-before")
+    # The window state right before the click: cua's click needs its screenshot context.
     state = cua("get_window_state", {"pid": pid, "window_id": win, "include_accessibility_tree": False})
     scale = state.get("screenshot_scale") or 1
+    say("window state:", json.dumps({k: state.get(k) for k in ("screenshot_scale", "window_bounds")}))
     b = row_["balloon"]
     # rows: window points, bottom-left origin; cua: window pixels, top-left origin.
     x = (b["x"] + b["width"] / 2) * scale
     y = (rows["windowHeight"] - (b["y"] + b["height"] / 2)) * scale
-    snapshot("menu-0-before")
     say("right_click:", json.dumps(cua("right_click", {"pid": pid, "window_id": win, "x": round(x), "y": round(y), "delivery_mode": "background"}))[:300])
     time.sleep(1.0)  # test harness: the menu opens and the highlight fades in
-    cua("get_desktop_state", {"screenshot_out_file": os.path.join(opts.out, "menu-1-open-desktop.png")})
+    snapshot("menu-1-open")
     items = menu_items(cua("get_window_state", {"pid": pid, "window_id": win, "max_elements": 5000}))
     say("menu items:", items)
     row("the attachment's menu opens", bool(items), items)
     cua("press_key", {"pid": pid, "window_id": win, "key": "escape", "delivery_mode": "background"})
     time.sleep(0.8)  # test harness: the menu and its highlight close
     snapshot("menu-2-closed")
-    say("highlights after close:", json.dumps(drive("highlights")))
     drive("focus")
     drive("type", text="Sending a message after the right-click.")
     say("send:", json.dumps(drive("send")))
     start = time.time()
-    for ms in (100, 400, 1500):
+    for ms in (100, 300, 700, 1500):
         delay = start + ms / 1000 - time.time()
         if delay > 0:
             time.sleep(delay)  # test harness: timed captures
         snapshot(f"menu-3-sent-{ms:04d}ms")
     say("rows after send:", json.dumps(drive("rows"))[:1500])
-    say("highlights after send:", json.dumps(drive("highlights")))
 
 
 def run_text():
