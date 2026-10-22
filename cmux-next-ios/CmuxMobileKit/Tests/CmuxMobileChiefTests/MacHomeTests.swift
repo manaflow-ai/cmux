@@ -12,7 +12,7 @@ import Testing
 /// and the Chief's typing. The phone reads the same rows from the same Mac
 /// over the link and draws them as they come, so the two lists cannot drift.
 @Suite struct MacHomeListTests {
-    static let reply: [String: Any] = ["me": "user_local", "cloud": "not_asked", "rows": [
+    nonisolated(unsafe) static let reply: [String: Any] = ["me": "user_local", "cloud": "not_asked", "rows": [
         ["id": "conv_build", "owner": "local", "kind": "chief", "name": "Builder", "unread": 0, "activity_at": "2026-10-21T08:00:00Z",
          "preview": "**Done**: 3 tests", "chief": "agent_build", "chief_state": "working", "pinned": true, "pin_position": 5,
          "marked_unread": false, "muted": false],

@@ -69,7 +69,16 @@ pub const ALLOWED_COMMANDS: &[(&str, &[&str])] = &[
         ],
     ),
     ("conversation-attachment-read", &["conversation", "hash", "variant", "offset", "length"]),
+    // Home: the Mac's Home list (the local owner's rows only, narrowed to the
+    // scope) and the person's own pin and unread mark of a conversation in it.
+    ("home-inbox", &["owners"]),
+    ("conversation-inbox-op", &["conversation", "op"]),
 ];
+
+/// `conversation-inbox-op` kinds a phone may send, with their exact fields
+/// (`inbox.mute` is the Cloud owner's and is not here).
+const ALLOWED_INBOX_OPS: &[(&str, &[&str])] =
+    &[("inbox.pin", &["pinned", "position"]), ("inbox.mark_unread", &["unread"])];
 
 /// Op kinds a phone may send, with their exact fields. Refused by omission:
 /// `participants.add` (it would widen the conversation, and the scope), and
@@ -112,7 +121,7 @@ const ALLOWED_RESOURCE_OPERATIONS: &[(&str, &[&str])] = &[
 const RESOURCE_FIELDS: &[&str] = &["protocol", "type", "id", "operation", "params", "idempotency_key"];
 
 /// Events a phone receives, for conversations in scope only.
-const FORWARDED_EVENTS: &[&str] = &["conversation-changed", "conversation-typing"];
+const FORWARDED_EVENTS: &[&str] = &["conversation-changed", "conversation-typing", "conversation-inbox-changed"];
 
 /// Requests a phone may have waiting for a reply at once.
 pub const MAXIMUM_IN_FLIGHT: usize = 256;
@@ -124,6 +133,8 @@ enum Pending {
     List,
     /// `conversation-search`: keep only hits in scope.
     Search,
+    /// `home-inbox`: keep only the local owner's rows in scope.
+    Inbox,
 }
 
 #[derive(Debug, Default)]
@@ -270,9 +281,21 @@ impl ChiefPolicy {
         {
             return refuse(format!("{command}: {why}"));
         }
+        if command == "home-inbox" && let Err(why) = check_home_inbox(&object) {
+            return refuse(format!("{command}: {why}"));
+        }
+        if command == "conversation-inbox-op" {
+            if !object.contains_key("conversation") {
+                return refuse(format!("{command}: missing conversation"));
+            }
+            if let Err(why) = check_inbox_op(object.get("op")) {
+                return refuse(format!("{command}: {why}"));
+            }
+        }
         let pending = match command {
             "conversation-list" => Some(Pending::List),
             "conversation-search" => Some(Pending::Search),
+            "home-inbox" => Some(Pending::Inbox),
             _ => None,
         };
         self.with_scope(|scope| scope.in_flight.insert(key, pending));
@@ -338,6 +361,23 @@ impl ChiefPolicy {
                     .unwrap_or_default();
                 data.insert("hits".into(), Value::Array(kept));
             }
+            Pending::Inbox => {
+                let allowed = self.with_scope(|scope| scope.allowed.clone());
+                let kept: Vec<Value> = data
+                    .get("rows")
+                    .and_then(Value::as_array)
+                    .map(|all| {
+                        all.iter()
+                            .filter(|row| {
+                                row.get("owner").and_then(Value::as_str).unwrap_or("local") == "local"
+                                    && row.get("id").and_then(Value::as_str).is_some_and(|c| allowed.contains(c))
+                            })
+                            .cloned()
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                data.insert("rows".into(), Value::Array(kept));
+            }
         }
         serde_json::to_vec(&Value::Object(object)).ok()
     }
@@ -354,6 +394,10 @@ impl ChiefPolicy {
             return false;
         }
         let Some(conversation) = object.get("conversation").and_then(Value::as_str) else { return false };
+        // The person's own list state, never an agent's.
+        if event == "conversation-inbox-changed" && object.get("participant").and_then(Value::as_str) != Some(OWNER) {
+            return false;
+        }
         let change = object.get("change");
         if change.and_then(|c| c.get("kind")).and_then(Value::as_str) == Some("conversation")
             && let Some(summary) = change.and_then(|c| c.get("conversation"))
@@ -444,6 +488,37 @@ fn check_part(part: &Value) -> Result<(), String> {
         Some(other) => Err(format!("{other} parts are not available to a phone")),
         None => Err("a part has no type".into()),
     }
+}
+
+/// `home-inbox` asks for the local owner's rows only: the person's Cloud
+/// inbox never crosses the link.
+fn check_home_inbox(object: &Map<String, Value>) -> Result<(), String> {
+    match object.get("owners").and_then(Value::as_array).map(Vec::as_slice) {
+        Some([only]) if only.as_str() == Some("local") => Ok(()),
+        _ => Err("owners must be [\"local\"]".into()),
+    }
+}
+
+/// A pin (with an optional position) or an unread mark, values typed.
+fn check_inbox_op(value: Option<&Value>) -> Result<(), String> {
+    let Some(Value::Object(op)) = value else { return Err("op is not an object".into()) };
+    let Some(kind) = op.get("kind").and_then(Value::as_str) else { return Err("op has no kind".into()) };
+    let Some((_, fields)) = ALLOWED_INBOX_OPS.iter().find(|(name, _)| *name == kind) else {
+        return Err(format!("op {kind} is not available to a phone"));
+    };
+    check_fields(op, fields, &["kind"])?;
+    for key in ["pinned", "unread"] {
+        if op.get(key).is_some_and(|v| !v.is_boolean()) {
+            return Err(format!("{key} is not a bool"));
+        }
+    }
+    if op.get("position").is_some_and(|v| !v.is_u64()) {
+        return Err("position is not an unsigned integer".into());
+    }
+    if kind == "inbox.pin" && !op.contains_key("pinned") || kind == "inbox.mark_unread" && !op.contains_key("unread") {
+        return Err(format!("op {kind} is missing its value"));
+    }
+    Ok(())
 }
 
 /// An upload names a conversation (checked above) on `begin`; the other
