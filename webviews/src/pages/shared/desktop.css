@@ -271,7 +271,10 @@ input:is(
    locked choice's label (no `for`, a disabled field inside and no enabled one: Cloud's locked
    memory sizes), apart from a link or button in it. CSS cannot follow `for` to its control, so a
    `for` label keeps the hand. A surface that shows another cursor there (`not-allowed`) says so
-   with !important on a :disabled rule. */
+   with !important on a :disabled rule. Inert content takes no pointer input at all (a sheet's
+   background, a closing popup), so it and everything in it keep the arrow too. */
+[inert],
+[inert] *,
 [aria-disabled="true"],
 [aria-disabled="true"] *,
 :disabled:not(fieldset),
