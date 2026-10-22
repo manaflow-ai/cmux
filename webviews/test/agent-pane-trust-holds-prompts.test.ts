@@ -5,7 +5,8 @@
 // prompt to send after Trust. Now Send stays on: every prompt sent while the question is open waits
 // in the composer's queue under "Waiting for folder trust" and goes, in order, after Trust; Not now
 // leaves them there to edit or remove. The chat's question card stays under the trust question and
-// its answer goes at once (acpmux takes it whatever the folder's trust).
+// its answer goes at once (acpmux takes it whatever the folder's trust), and a chat whose agent
+// already runs takes its prompts and steers at once (acpmux lets them through: pending_passes).
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux
 // daemon whose folders have no trust answer yet.
 //
@@ -89,11 +90,13 @@ await requireBrowserLane("agent-pane-trust-holds-prompts.test.ts", async () => {
       },
     ],
   ];
-  const chats: Record<string, { cwd: string; steps: Step[]; status: string; shown: string }> = {
-    [WARM]: { cwd: "/home/dev/warm", steps: done, status: "idle", shown: "Read it." },
-    [HELD]: { cwd: "/home/dev/held", steps: done, status: "idle", shown: "Read it." },
-    [NOT_NOW]: { cwd: "/home/dev/not-now", steps: done, status: "idle", shown: "Read it." },
-    [ASKING]: { cwd: "/home/dev/asking", steps: asking, status: "waiting", shown: "Add auth to the API" },
+  // `turns`: the turns acpmux ran of the chat. HELD and NOT_NOW show a conversation acpmux ran no
+  // turn of (as an adopted one's replayed turns), so its prompts wait for the folder's answer.
+  const chats: Record<string, { cwd: string; steps: Step[]; status: string; shown: string; turns: number }> = {
+    [WARM]: { cwd: "/home/dev/warm", steps: done, status: "idle", shown: "Read it.", turns: 0 },
+    [HELD]: { cwd: "/home/dev/held", steps: done, status: "idle", shown: "Read it.", turns: 0 },
+    [NOT_NOW]: { cwd: "/home/dev/not-now", steps: done, status: "idle", shown: "Read it.", turns: 0 },
+    [ASKING]: { cwd: "/home/dev/asking", steps: asking, status: "waiting", shown: "Add auth to the API", turns: 1 },
   };
   const record = (sessionId: string, [dir, kind, msg]: Step, seq: number) => ({
     sessionId,
@@ -110,7 +113,7 @@ await requireBrowserLane("agent-pane-trust-holds-prompts.test.ts", async () => {
     harness: "claude",
     family: "claude",
     status: chats[sessionId]!.status,
-    turnCount: 1,
+    turnCount: chats[sessionId]!.turns,
     updatedAt: START,
   });
 
@@ -140,8 +143,10 @@ await requireBrowserLane("agent-pane-trust-holds-prompts.test.ts", async () => {
         trust.set(params.cwd, params.level);
         return { cwd: params.cwd, level: params.level };
       case "session/prompt": {
-        // acpmux's trust gate (`trust_gate.rs`): a folder without Trust gets no prompt.
-        if (trust.get(chats[id]!.cwd) !== "trusted") return { refused: true };
+        // acpmux's trust gate (`trust_gate.rs`): a folder without Trust gets no prompt, except a
+        // chat whose agent already runs, while the question is open (pending_passes).
+        const level = trust.get(chats[id]!.cwd);
+        if (level !== "trusted" && (level === "untrusted" || chats[id]!.turns === 0)) return { refused: true };
         const text = (params.prompt as { type: string; text?: string }[])
           .filter((block) => block.type === "text")
           .map((block) => block.text)
@@ -293,7 +298,7 @@ await requireBrowserLane("agent-pane-trust-holds-prompts.test.ts", async () => {
     await page.context().close();
   });
 
-  test("the chat's question card shows under the open trust question and its answer goes at once", async () => {
+  test("a running chat's question card and its steer go at once under the open trust question", async () => {
     const page = await open(ASKING);
     await trustAsk(page).waitFor({ timeout: 10_000 });
     const choice = page.locator(".acpmux-question-row", { hasText: "API keys" });
@@ -301,10 +306,14 @@ await requireBrowserLane("agent-pane-trust-holds-prompts.test.ts", async () => {
     expect(await trustAsk(page).count()).toBe(1);
     await choice.click();
     await until(() => answers.some((params) => params.permissionId === "perm-ask"), "the question's answer");
-    // A steer typed into the running turn waits for Trust too, with Send on.
+    // A steer typed into the running turn goes now: acpmux takes it whatever the open question.
     await send(page, "use OAuth after all");
-    await heldRow(page, "use OAuth after all").waitFor({ timeout: 10_000 });
-    expect(prompts.filter((prompt) => prompt.sessionId === ASKING)).toEqual([]);
+    await until(() => prompts.some((prompt) => prompt.sessionId === ASKING), "the steer");
+    expect(prompts.filter((prompt) => prompt.sessionId === ASKING).map((prompt) => prompt.text)).toEqual([
+      "use OAuth after all",
+    ]);
+    expect(await heldRow(page, "use OAuth after all").count()).toBe(0);
+    expect(await trustAsk(page).count()).toBe(1);
     await page.context().close();
   });
 });

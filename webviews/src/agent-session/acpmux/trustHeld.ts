@@ -9,7 +9,9 @@
 // prompts keep their order.
 //
 // Each keeps the gesture of its own send (heldPrompt.ts): the Trust click's gesture goes to the
-// trust answer, and the host keeps one ticket per held prompt (AgentPaneGestureIntent.slot).
+// trust answer, and the host keeps one ticket per held prompt (AgentPaneGestureIntent.slot). A
+// ticket is spent when its prompt goes, so a prompt acpmux refuses again goes back into the
+// composer, to be sent with a new gesture, and so does one a released page held (`pane.wakeState`).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComposerAttachment } from "./attachments";
 import { attachedImages } from "./direct";
@@ -86,21 +88,27 @@ export function useTrustHeldPrompts({
   // Bumped when a flush ends, so prompts that came due meanwhile (a new chat's session started) go.
   const [rounds, setRounds] = useState(0);
 
-  // A new chat's held prompts follow it into its session: the first one sent started it.
+  // A new chat's held prompts follow it into the session its first one started, whatever folder
+  // the host filled in. Only a start this hook sent moves them: a new chat left for another one
+  // keeps its prompts.
+  const starting = useRef(false);
   const lastChat = useRef(chat);
   useEffect(() => {
     const was = lastChat.current;
     lastChat.current = chat;
-    if (was !== undefined || chat === undefined) return;
+    if (was !== undefined || chat === undefined || !starting.current) return;
+    starting.current = false;
     setHeld((list) =>
-      list.some((entry) => entry.chat === undefined && entry.cwd === cwd)
-        ? list.map((entry) => (entry.chat === undefined && entry.cwd === cwd ? { ...entry, chat } : entry))
+      list.some((entry) => entry.chat === undefined)
+        ? list.map((entry) => (entry.chat === undefined ? { ...entry, chat, cwd: entry.cwd ?? cwd } : entry))
         : list,
     );
   }, [chat, cwd]);
 
   useEffect(() => {
     if (holds || flushing.current || !held.some((entry) => entry.chat === chat)) return;
+    // A new chat's first prompt is starting it: the rest wait for its session.
+    if (chat === undefined && starting.current) return;
     flushing.current = true;
     void (async () => {
       // One at a time, each once acpmux took the one before. A new chat's first prompt starts it;
@@ -111,15 +119,16 @@ export function useTrustHeldPrompts({
         if (!entry || shown.holds || shown.chat !== chat) break;
         now.current = { ...shown, held: shown.held.filter((item) => item.id !== entry.id) };
         setHeld((list) => list.filter((item) => item.id !== entry.id));
+        if (chat === undefined) starting.current = true;
         try {
           await latest.current.send(entry);
         } catch (error) {
-          if (latest.current.refusedForTrust(error)) {
-            // acpmux holds the folder again: this prompt and the rest wait for the next answer.
-            setHeld((list) => [entry, ...list]);
-            break;
-          }
+          // A start that came to nothing moves no prompts later.
+          if (chat === undefined) starting.current = false;
+          // Refused: its ticket is spent, so it goes back into the composer. A trust refusal
+          // (acpmux holds the folder again) leaves the rest waiting for the next answer.
           latest.current.putBack(entry);
+          if (latest.current.refusedForTrust(error)) break;
         }
       }
       flushing.current = false;
@@ -145,6 +154,14 @@ export function useTrustHeldPrompts({
     hold,
     /// Whether `id` is a held prompt (its queue row's actions are the pane's).
     has: (id: string) => held.some((entry) => entry.id === id),
+    /// Takes every held prompt out, for a page about to let go (`pane.wakeState`): their tickets
+    /// end with the page, so they go back into the composer.
+    release: () => {
+      const all = now.current.held;
+      now.current = { ...now.current, held: [] };
+      setHeld([]);
+      return all;
+    },
     remove: (id: string) => setHeld((list) => list.filter((entry) => entry.id !== id)),
     edit: (id: string, edit: QueueEdit) => setHeld((list) => editHeld(list, id, edit)),
   };

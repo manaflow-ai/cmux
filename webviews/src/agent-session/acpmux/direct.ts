@@ -343,7 +343,7 @@ function recordImages(msg: any): QueuedPromptImage[] {
 
 /// The images of a prompt this pane sends, from the composer's attachments: its queue row shows
 /// them from the send on, before acpmux names them.
-function attachedImages(attachments: readonly ComposerAttachment[]): QueuedPromptImage[] {
+export function attachedImages(attachments: readonly ComposerAttachment[]): QueuedPromptImage[] {
   return attachments.flatMap((attachment) =>
     attachment.kind === "image" && attachment.data
       ? [
