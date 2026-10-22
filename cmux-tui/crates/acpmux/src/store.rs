@@ -946,9 +946,11 @@ impl Store for LocalStore {
 
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         let mut writers = self.writers.lock_or_recover();
-        let w = match writers.entry(id.to_owned()) {
-            std::collections::hash_map::Entry::Occupied(slot) => slot.into_mut(),
-            std::collections::hash_map::Entry::Vacant(slot) => slot.insert(self.open_writer(id)?),
+        if !writers.contains_key(id) {
+            writers.insert(id.to_owned(), self.open_writer(id)?);
+        }
+        let Some(w) = writers.get_mut(id) else {
+            anyhow::bail!("no segment writer for session {id}");
         };
         if w.written >= self.segment_bytes {
             let index = w.index + 1;
