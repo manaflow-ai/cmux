@@ -79,6 +79,46 @@ public nonisolated struct KeyBindingDefaults {
         ]
     }()
 
+    /// Home's chat list has the keyboard (Lawrence 2026-10-21: "ctrl 1-9 and cmd shift [] and ctrl
+    /// tab ... need to work for cycling through chiefs (only for home chief, if user opens chief in
+    /// tab, then the kb shortcuts should be for normal tab stuff"): the Home top page or the docked
+    /// Home's tab. A conversation opened as a pane tab (`surfaceKind == home`, no `topPage`) is a
+    /// normal tab, so the tab keys keep their meaning there.
+    public static let onHomeChats = WhenClause.or([
+        .equals(KeyContext.topPage, .string("home")),
+        .equals(KeyContext.surfaceKind, .string("home-dock")),
+    ])
+
+    /// The actions that step or pick a Home conversation: every key of theirs (a default, a cmux.json
+    /// or a Settings rebind) runs only where ``onHomeChats`` holds, so a rebind never takes the key
+    /// from a terminal or a pane's tabs (`RegistryKeyBindings`).
+    public static let homeChatScoped: Set<ActionID> = [
+        "home.nextConversation", "home.previousConversation", "home.selectConversationByNumber",
+    ]
+
+    /// The tab keys on Home: the keys that cycle a pane's tabs move through Home's chat list in
+    /// sidebar order, wrapping as tabs do. Ctrl-Tab / Ctrl-Shift-Tab and Ctrl-1…9 are also the
+    /// actions' catalog keys; Cmd-Shift-] / [ are aliases. They go after the Chrome tab keys
+    /// (``tabSwitching``), which they replace on Home only.
+    public static let homeChatSwitching: [KeyBinding] = {
+        func bind(_ key: String, _ modifiers: NSEvent.ModifierFlags, _ id: ActionID, _ argument: String? = nil) -> KeyBinding {
+            KeyBinding(keys: [Shortcut(key, modifiers: modifiers)], command: id, argument: argument, when: onHomeChats)
+        }
+        return [
+            bind("\t", [.control], "home.nextConversation"), bind("\t", [.control, .shift], "home.previousConversation"),
+            bind("]", [.command, .shift], "home.nextConversation"), bind("[", [.command, .shift], "home.previousConversation"),
+        ] + (1...9).map { bind(String($0), [.control], "home.selectConversationByNumber", String($0)) }
+    }()
+
+    /// The Home tab keys whose action is on and keeps its default key: a rebound action (cmux.json,
+    /// Settings) keeps only its own key, still scoped to Home (``homeChatScoped``).
+    @MainActor static func homeChatSwitching(registry: ActionRegistry) -> [KeyBinding] {
+        homeChatSwitching.filter { binding in
+            registry.disabledFeature(for: binding.command) == nil && registry.effectiveShortcut(for: binding.command) != nil
+                && registry.shortcutOverrides[binding.command] == nil && registry.chordOverrides[binding.command] == nil
+        }
+    }
+
     /// The workspaces-as-tabs keys while the tunable is on, whose action is on and not removed or rebound in cmux.json.
     @MainActor static func workspacesAsTabs(registry: ActionRegistry) -> [KeyBinding] {
         guard registry.includesWorkspaceTabKeys() else { return [] }

@@ -88,6 +88,7 @@ from pr_runner_pool import persistent as owned_pool  # noqa: E402
 from pr_runner_pool import CAPABILITY_LABELS, pool_label, root_label, side_label  # noqa: E402
 from pr_runner_pool import GitHub as PoolClient  # noqa: E402
 import owned_warm_state  # noqa: E402
+import starved_labels  # noqa: E402
 
 
 API = "https://api.github.com"
@@ -1582,6 +1583,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                         capability_markers[run["id"]] = capability
         snapshot = pool_load_snapshot(runs, jobs_by_run, now=now, settings=pool_settings, markers=markers,
                                       capability_markers=capability_markers)
+        # Fleet labels no runner is taking jobs from; the workflow's alert step
+        # (starved_labels.py) annotates them and keeps one issue per label.
+        snapshot["starved"] = starved_labels.starved(runs, jobs_by_run, now=now)
+        snapshot["unserved"] = starved_labels.unserved(runs, jobs_by_run, now=now)
         # Warm affinity on: which root runner kept a build of which main
         # commits (owned_warm_state.py). A failure leaves `warm` out, and the
         # picker then routes admission by the root label as before.

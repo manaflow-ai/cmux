@@ -355,7 +355,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAgentPaneTests",
-            dependencies: ["CmuxNextAgentPane", "CmuxNextDaemon", "CmuxNextActions", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextPages", "CmuxNextRemoteFetch", "CmuxNextSettings"],
+            dependencies: ["CmuxNextAgentPane", "CmuxNextDaemon", "CmuxNextActions", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextRemoteFetch", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         // Dictation (the composer's mic): the on-device speech engines and
@@ -471,10 +471,10 @@ let package = Package(
         // The agent question card (plans/cmux-next/agent-questions.md): one
         // AppKit view and layout for Home rows, agent panes and the UI Gallery.
         // The launch window's connecting and failure screen with Retry Now and
-        // Restart cmux-tui, and the App Store banner's recovery actions (cx-jniyz.1).
+        // Restart cmux-tui (cx-jniyz.1).
         .target(
             name: "CmuxNextDaemonRecovery",
-            dependencies: ["CmuxNextApps", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextDesign", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextDesign", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -547,7 +547,7 @@ let package = Package(
         .testTarget(
             name: "CmuxNextHomeEngineTests",
             dependencies: [
-                "CmuxNextHomeEngine", "CmuxNextDaemon",
+                "CmuxNextHomeEngine", "CmuxNextDaemon", "CmuxNextDesign",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
             ],
             swiftSettings: daemonSwiftSettings
@@ -637,9 +637,17 @@ let package = Package(
             resources: [.copy("Resources/pages"), .process("Localizable.xcstrings")],
             swiftSettings: uiSwiftSettings
         ),
+        // The one test double of PageChromiumPage / PageChromiumHosting, for every test target
+        // that shows a page in Chromium: a protocol change edits one fake, compiled by the
+        // protocol's own tests (a private copy in CmuxNextAgentPaneTests broke the test build).
+        .target(
+            name: "CmuxNextPagesTestSupport",
+            dependencies: ["CmuxNextPages", "CmuxNextSettings"],
+            swiftSettings: uiSwiftSettings
+        ),
         .testTarget(
             name: "CmuxNextPagesTests",
-            dependencies: ["CmuxNextPages", "CmuxNextSettings", "CmuxNextDesign"],
+            dependencies: ["CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign"],
             swiftSettings: uiSwiftSettings
         ),
         // Settings > Agents > Agent integrations: the coding-agent hooks the bundled CLI
@@ -694,7 +702,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextWorkspaceNamingTests",
-            dependencies: ["CmuxNextWorkspaceNaming", "CmuxNextBridge", "CmuxNextDaemon"],
+            dependencies: ["CmuxNextWorkspaceNaming", "CmuxNextBridge", "CmuxNextDaemon", "CmuxNextSidebar"],
             swiftSettings: uiSwiftSettings
         ),
         // Phone tabs (plans/cmux-next/phone.md): simulators through simctl, real
@@ -1213,6 +1221,7 @@ let package = Package(
                 .process("ServerActions.xcstrings"),
                 .process("SettingsActions.xcstrings"),
                 .process("SidebarSectionActions.xcstrings"),
+                .process("StashActions.xcstrings"),
                 .process("ShortcutRecorder.xcstrings"),
                 .process("ThemeActions.xcstrings"),
                 .process("WorkspaceActions.xcstrings"),
@@ -1325,7 +1334,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextBrowserTests",
-            dependencies: ["CmuxNextBrowser", "CmuxNextRemoteFetch"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextDesign", "CmuxNextRemoteFetch"],
             swiftSettings: uiSwiftSettings
         ),
         // The WebKit driver for the Rust browser host (plans/cmux-next/browser-host.md).
@@ -1404,6 +1413,11 @@ let package = Package(
             dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextPages", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
+        // Test-only: every exit() of the test process prints its stack (TestProcessExitTests).
+        .target(
+            name: "CmuxNextTestExitTrace",
+            path: "Tests/Support/CmuxNextTestExitTrace"
+        ),
         .testTarget(
             name: "CmuxNextAppTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
@@ -1414,6 +1428,7 @@ let package = Package(
                 "CmuxNextApp",
                 "CmuxNextApps",
                 "CmuxNextBrowserHistory",
+                "CmuxNextBrowserImport",
                 "CmuxNextChiefPetWiring",
                 "CmuxNextChromiumRuntime",
                 "CmuxNextCompat",
@@ -1429,6 +1444,7 @@ let package = Package(
                 "CmuxNextFeed",
                 "CmuxNextFileGrid",
                 "CmuxNextFiles",
+                "CmuxNextFilesUI",
                 "CmuxNextFloating",
                 "CmuxNextFocus",
                 "CmuxNextFocusUI",
@@ -1447,6 +1463,7 @@ let package = Package(
                 "CmuxNextTabs",
                 "CmuxNextTasks",
                 "CmuxNextTerminalGeometry",
+                "CmuxNextTestExitTrace",
                 "CmuxNextVSCodeServer",
                 "CmuxNextWakeups",
                 "CmuxNextWorkspaceNaming",

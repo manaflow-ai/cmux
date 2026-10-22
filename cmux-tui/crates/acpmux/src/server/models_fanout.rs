@@ -14,6 +14,7 @@
 
 use super::Origin;
 use crate::hub::Hub;
+use crate::no_panic::JsonExt;
 use serde_json::{Value, json};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -55,7 +56,7 @@ pub(super) async fn add_peer_harnesses(hub: &Hub, origin: Origin, params: &Value
     let in_flight = hub.models_fanouts.fetch_add(1, Ordering::SeqCst);
     let _in_flight = InFlight(&hub.models_fanouts);
     if !asks_peers(origin, params, in_flight) {
-        cat[PEERS_OMITTED] = Value::Bool(true);
+        cat.set(PEERS_OMITTED, Value::Bool(true));
         return;
     }
     let deadline = tokio::time::Instant::now() + PEERS_BUDGET;
@@ -70,14 +71,15 @@ pub(super) async fn add_peer_harnesses(hub: &Hub, origin: Origin, params: &Value
         let Some(hs) = remote.get("harnesses").and_then(Value::as_array) else { continue };
         for h in hs {
             // An older peer may still have added its own peers' rows.
-            if h.get("peer").is_some() {
+            // A row that is not an object cannot be marked as the peer's: leave it out.
+            if h.get("peer").is_some() || !h.is_object() {
                 continue;
             }
             let mut h = h.clone();
             let agent = h.get("harness").and_then(Value::as_str).unwrap_or("").to_owned();
-            h["harness"] = Value::String(format!("{}/{}", peer.name, agent));
-            h["peer"] = Value::String(peer.name.clone());
-            h["isDefault"] = Value::Bool(false);
+            h.set("harness", Value::String(format!("{}/{}", peer.name, agent)));
+            h.set("peer", Value::String(peer.name.clone()));
+            h.set("isDefault", Value::Bool(false));
             arr.push(h);
         }
     }
