@@ -151,3 +151,19 @@ test("a PDF over the put cap is not put: its put would pass the frame limit", as
     client.close();
   }
 });
+
+test("a prompt withdrawn while its images are put is never sent", async () => {
+  let open!: () => void;
+  const { client, sent } = await connect(true, new Promise<void>((resolve) => (open = resolve)));
+  try {
+    const sending = client.send("look at this", [shot("a")], "p-withdrawn");
+    await settle(() => sent.some((frame) => frame.method === "_acpmux/attachment_put"));
+    // acpmux has no such prompt yet, so only the pane can withdraw it: it says so at once.
+    expect(await client.removeQueued("p-withdrawn")).toEqual({ removed: true });
+    open();
+    await sending;
+    expect(sent.filter((frame) => frame.method === "session/prompt")).toEqual([]);
+  } finally {
+    client.close();
+  }
+});
