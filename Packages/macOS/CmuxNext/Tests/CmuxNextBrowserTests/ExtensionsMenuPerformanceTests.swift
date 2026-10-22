@@ -5,8 +5,9 @@ import Foundation
 import Testing
 
 /// The Extensions menu opens and hovers within a frame budget (u2229: "this extensions context
-/// menu is also extremely laggy", u2426: "menu visible within one frame"). Budgets: an open under 16 ms, a second open under 10 ms, a
-/// hover under 16 ms, with 40 extensions.
+/// menu is also extremely laggy", u2426: "menu visible within one frame"). Budgets: an open under 16 ms, the
+/// first open under 50 ms, a hover under 16 ms, with 40 extensions, each scaled to the runner by its reference
+/// workload (Budgets, FrameBudgetCalibration), or skipped with the reason printed on a runner too slow or noisy.
 @MainActor @Suite(.serialized) struct ExtensionsMenuPerformanceTests {
     static let count = 40
 
@@ -72,8 +73,8 @@ import Testing
         var open = 16.0, firstOpen = 50.0, hover = 16.0
         let calibration: FrameBudgetCalibration
 
-        /// `nominal` ms, scaled to this runner. A stub: it does not scale yet.
-        func scaled(_ nominal: Double) -> Double { nominal }
+        /// `nominal` ms, scaled to this runner.
+        func scaled(_ nominal: Double) -> Double { calibration.budget(nominal) }
 
         /// Each timing over its scaled budget, described; empty when every one holds.
         func overruns(open measuredOpen: Double? = nil, firstOpen measuredFirst: Double? = nil, hover measuredHover: Double? = nil) -> [String] {
@@ -157,6 +158,8 @@ import Testing
         defer { window.close() }
         let handler = ExtensionsMenu.DirectHandler(host: tab) { _ in }
         let controller = ExtensionsMenuController()
+        var calibration = FrameBudgetCalibration()
+        calibration.checkpoint()
         // The toolbar prepares the rows and the panel when a tab binds, off the click's path.
         let prepare = Self.mainThreadCPU { controller.prepare(host: tab) }
         let first = Self.mainThreadCPU { controller.show(host: tab, handler: handler, anchor: anchor) }
@@ -167,10 +170,12 @@ import Testing
             controller.show(host: tab, handler: handler, anchor: anchor)
             controller.close()
         }
+        calibration.checkpoint()
         print("TOOLBAR-PERF extensions.prepare=\(Self.milliseconds(prepare)) ms extensions.firstOpen=\(Self.milliseconds(first)) ms "
-              + "extensions.open=\(Self.milliseconds(open)) ms")
-        #expect(Self.milliseconds(open) < 16, "an open and close took \(Self.milliseconds(open)) ms")
-        #expect(Self.milliseconds(first) < 50, "the first open took \(Self.milliseconds(first)) ms")
+              + "extensions.open=\(Self.milliseconds(open)) ms | \(calibration.summary)")
+        if let reason = calibration.skipReason { return print("TOOLBAR-PERF skipped the extensions open budgets: \(reason)") }
+        let overruns = Budgets(calibration: calibration).overruns(open: Self.milliseconds(open), firstOpen: Self.milliseconds(first))
+        #expect(overruns.isEmpty, "\(overruns.joined(separator: "; "))")
     }
 
     @Test(.enabled("a bubble needs a screen to show") { await Self.hasDisplay() })
@@ -197,6 +202,8 @@ import Testing
         let controller = ExtensionsMenuController()
         controller.show(host: tab, handler: ExtensionsMenu.DirectHandler(host: tab) { _ in }, anchor: anchor)
         try #require(controller.isShown, "\(Self.environment(window))")
+        var calibration = FrameBudgetCalibration()
+        calibration.checkpoint()
         let enter = try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0,
                                                         windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
         let exit = try #require(NSEvent.enterExitEvent(with: .mouseExited, location: .zero, modifierFlags: [], timestamp: 0,
@@ -210,10 +217,13 @@ import Testing
                 row.primary.mouseExited(with: exit)
             })
         }
+        calibration.checkpoint()
         let slowest = hovers.max() ?? .zero
-        print("TOOLBAR-PERF extensions.hover.max=\(Self.milliseconds(slowest)) ms")
-        #expect(Self.milliseconds(slowest) < 16, "slowest hover took \(Self.milliseconds(slowest)) ms")
         controller.close()
+        print("TOOLBAR-PERF extensions.hover.max=\(Self.milliseconds(slowest)) ms | \(calibration.summary)")
+        if let reason = calibration.skipReason { return print("TOOLBAR-PERF skipped the extensions hover budget: \(reason)") }
+        let overruns = Budgets(calibration: calibration).overruns(hover: Self.milliseconds(slowest))
+        #expect(overruns.isEmpty, "\(overruns.joined(separator: "; "))")
     }
 
     @Test(.enabled("a bubble needs a screen to show") { await Self.hasDisplay() })
