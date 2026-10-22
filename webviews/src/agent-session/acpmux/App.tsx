@@ -21,6 +21,7 @@ import { isAgentMotionOff } from "../shared/motion";
 import { entranceAllowed } from "../shared/pageReveal";
 import {
   layoutConversation,
+  onlyQuietThoughts,
   type ConversationLayout,
   type RowHeights,
   paneHeader,
@@ -872,6 +873,9 @@ const MessageRow = memo(
 /// Tool calls and thoughts as quiet rows (inside an open "Worked for", or live).
 const ToolActivityRow = memo(
   function ToolActivityRow({ row, sessionId }: RowProps) {
+    // A finished step of only quiet thoughts draws nothing: no `.cv-tools` box either, so the row's
+    // article is empty and takes no room (model.ts onlyQuietThoughts, conversation.css `:empty`).
+    if (onlyQuietThoughts(row)) return null;
     return <ToolRows row={row} sessionId={sessionId} />;
   },
   (previous, next) =>
@@ -1251,6 +1255,8 @@ const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
   row.kind !== "turnSummary" &&
   row.kind !== SUBAGENT_OF &&
   rowKind(row) !== "editedFiles" &&
+  // A row that draws nothing has nothing to copy, and its Copy would give it a box.
+  !onlyQuietThoughts(row) &&
   hasTranscriptCopyText(row);
 
 /// The longest a chat opened cold takes to fade in (Leo 2026-10-21: "a fast fade in").

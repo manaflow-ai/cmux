@@ -203,7 +203,9 @@ await requireBrowserLane("transcript-fold-no-blank-space-browser.test.ts", async
           for (const child of node.querySelectorAll<HTMLElement>("*")) {
             const rect = child.getBoundingClientRect();
             const style = getComputedStyle(child);
-            if (rect.width <= 0 || rect.height <= 0 || style.visibility === "hidden" || style.opacity === "0") continue;
+            if (rect.width <= 0 || rect.height <= 0 || style.visibility === "hidden") continue;
+            // Drawn at all: an opacity-0 ancestor (a row's Copy at rest) hides its icon too.
+            if (!child.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
             // A wrapper with no text of its own is measured through what it holds.
             if (child.children.length > 0 && !child.textContent?.trim()) continue;
             top = Math.min(top, rect.top);
@@ -214,6 +216,8 @@ await requireBrowserLane("transcript-fold-no-blank-space-browser.test.ts", async
             top: box.top,
             height: box.height,
             content: bottom > top ? bottom - top : 0,
+            // A turn's footer keeps its line and the turn gap at rest; its actions show on hover.
+            footer: node.classList.contains("acpmux-turnSummary"),
           };
         })
         .sort((a, b) => a.top - b.top),
@@ -233,6 +237,7 @@ await requireBrowserLane("transcript-fold-no-blank-space-browser.test.ts", async
       .filter((each) => Math.abs(each.gap) > 1)
       .map((each) => `${Math.round(each.gap)}px between ${each.after} and ${each.before}`);
     const empty = rows
+      .filter((row) => !row.footer)
       .filter((row) => (row.content === 0 ? row.height > 1 : row.height > 40 && row.height - row.content > 40))
       .map((row) => `${row.id} is ${Math.round(row.height)}px with ${Math.round(row.content)}px drawn`);
     return { ids: rows.map((row) => row.id), blank: [...gaps, ...empty] };
@@ -267,6 +272,10 @@ await requireBrowserLane("transcript-fold-no-blank-space-browser.test.ts", async
     const opened = await blankSpace(page);
     expect(opened.ids).toContain("a4");
     expect(opened.blank).toEqual([]);
+    // The steps of only quiet thoughts draw no element and take no room, mounted.
+    const quietRows = (await drawnRows(page)).filter((row) => ["a3", "a5", "a7"].includes(row.id));
+    expect(quietRows.length).toBeGreaterThan(0);
+    expect(quietRows.map((row) => [row.id, row.height])).toEqual(quietRows.map((row) => [row.id, 0]));
 
     await toggle(page);
     const closed = await blankSpace(page);

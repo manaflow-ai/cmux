@@ -1003,8 +1003,9 @@ function lexIncrementally(entry: PreparedRow, text: string): void {
 
 /// An activity row whose items are all thoughts that draw no row once done (thoughts.ts
 /// `isQuietThought`, after `mergeThoughts` joins neighbours as ToolRows does). The live turn's latest
-/// step may still stream its thought, so it is never one.
-const onlyQuietThoughts = (row: AcpmuxRow) =>
+/// step may still stream its thought, so it is never one. Such a row draws no element at all
+/// (App.tsx ToolActivityRow), so its article is empty and takes no room (conversation.css).
+export const onlyQuietThoughts = (row: AcpmuxRow) =>
   row.kind === "activity" &&
   !row.live &&
   (row.items?.length ?? 0) > 0 &&
