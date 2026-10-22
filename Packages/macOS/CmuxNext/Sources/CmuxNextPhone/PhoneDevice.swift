@@ -23,4 +23,10 @@ public struct PhoneDevice: Sendable, Hashable, Codable, Identifiable {
     }
 
     public var mode: PhoneMode { id.mode }
+
+    /// False for a simulator the backend cannot run (its iOS version is not installed).
+    public var isUsable: Bool {
+        if case .unavailable = state { return false }
+        return true
+    }
 }

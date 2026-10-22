@@ -35,4 +35,16 @@ import Testing
         #expect(result.status != 0)
         #expect(clock.now - start < .seconds(20))
     }
+
+    @Test func withoutXcodeNothingStartsSoMacOSShowsNoToolsInstallerPopUp() async throws {
+        await #expect(throws: PhoneError.missingTool(.xcode)) {
+            _ = try await PhoneProcessRunner(developerDirectory: { nil }).run(["simctl", "list", "devices", "-j"], stdin: nil, deadline: .seconds(20))
+        }
+    }
+
+    @Test func commandsRunUnderTheInstalledXcodeEvenWhenXcodeSelectPointsElsewhere() async throws {
+        let runner = PhoneProcessRunner(launcher: nil, developerDirectory: { "/Applications/Xcode-beta.app/Contents/Developer" })
+        let result = try await runner.run(["/usr/bin/env"], stdin: nil, deadline: .seconds(20))
+        #expect(String(decoding: result.stdout, as: UTF8.self).contains("DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer\n"))
+    }
 }

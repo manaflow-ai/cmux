@@ -11,6 +11,7 @@ final class FakeSimulatorHID: SimulatorHIDSending {
         case keys([PhoneKeyStroke])
         case button(page: UInt32, usage: UInt32)
         case softwareKeyboard
+        case dropConnection
     }
 
     private let state = Mutex<[Sent]>([])
@@ -25,6 +26,7 @@ final class FakeSimulatorHID: SimulatorHIDSending {
         state.withLock { $0.append(.button(page: page, usage: usage)) }
     }
     func toggleSoftwareKeyboard(on udid: String) async throws { state.withLock { $0.append(.softwareKeyboard) } }
+    func dropConnection(to udid: String) async { state.withLock { $0.append(.dropConnection) } }
 }
 
 @Suite struct SimulatorLiveInputTests {
@@ -122,5 +124,14 @@ final class FakeSimulatorHID: SimulatorHIDSending {
         #expect(PhoneKeyboard().usage(forMacKeyCode: 123) == 0x50) // Left arrow
         #expect(PhoneKeyboard().usage(forMacKeyCode: 0) == 0x04) // a
         #expect(PhoneKeyboard().usage(forMacKeyCode: 9999) == nil)
+    }
+
+    @Test func bootingOrShuttingDownForgetsTheDeadInputConnection() async throws {
+        let hid = FakeSimulatorHID()
+        let backend = XcodePhoneBackend(runner: FakePhoneRunner(), hid: hid)
+        try await backend.shutdown(sim)
+        try await backend.boot(sim)
+        // Without this, touches after a reboot went to the old simulator's closed HID connection.
+        #expect(hid.sent == [.dropConnection, .dropConnection])
     }
 }

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import Testing
 @testable import CmuxNextPhone
@@ -67,5 +68,31 @@ import Testing
                                            android: AndroidPhoneBackend(sdk: AndroidSDK(root: URL(fileURLWithPath: "/sdk")), runner: runner))
         #expect(try await backend.devices().map(\.id.description) == ["avd:Pixel_8"])
         #expect(await backend.missingTools == [.xcode])
+    }
+
+    @Test func androidStudioInstalledWhileCmuxRunsShowsItsPhonesWithoutARestart() async throws {
+        let runner = FakePhoneRunner()
+        runner.answer(["simctl", "list"], PhoneCommandResult(status: 0, stdout: try fixture("simctl-list")))
+        runner.answer(["devicectl"], PhoneCommandResult(status: 1))
+        runner.answer(["/sdk/emulator/emulator", "-list-avds"], PhoneCommandResult(status: 0, stdout: Data("Pixel_8\n".utf8)))
+        runner.answer(["/sdk/platform-tools/adb", "devices", "-l"], PhoneCommandResult(status: 0, stdout: Data("List of devices attached\n".utf8)))
+        let installed = InstallFlag()
+        let backend = PlatformPhoneBackend(ios: XcodePhoneBackend(runner: runner), locateAndroid: {
+            installed.isOn ? AndroidPhoneBackend(sdk: AndroidSDK(root: URL(fileURLWithPath: "/sdk")), runner: runner) : nil
+        })
+        #expect(try await backend.devices().allSatisfy { $0.mode == .simulator })
+        #expect(await backend.missingTools == [.androidSDK])
+        installed.isOn = true
+        #expect(try await backend.devices().contains { $0.mode == .emulator })
+        #expect(await backend.missingTools.isEmpty)
+    }
+}
+
+/// A flag the test flips while the backend reads it from its locate closure.
+final class InstallFlag: Sendable {
+    private let state = Mutex(false)
+    var isOn: Bool {
+        get { state.withLock { $0 } }
+        set { state.withLock { $0 = newValue } }
     }
 }

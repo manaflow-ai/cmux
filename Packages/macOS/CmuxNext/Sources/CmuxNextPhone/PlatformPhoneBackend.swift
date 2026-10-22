@@ -6,18 +6,27 @@ public import Foundation
 /// what is missing so the phone tab can show how to get it.
 public actor PlatformPhoneBackend: PhoneBackend {
     private let ios: XcodePhoneBackend
-    private let android: AndroidPhoneBackend?
+    private var android: AndroidPhoneBackend?
+    private let locateAndroid: @Sendable () -> AndroidPhoneBackend?
     /// The tools the last ``devices()`` call found missing.
     public private(set) var missingTools: Set<PhoneTool> = []
 
     /// - Parameter android: nil when no Android SDK is installed (``AndroidSDK/locate(environment:home:fileExists:)``).
     public init(ios: XcodePhoneBackend, android: AndroidPhoneBackend?) {
+        self.init(ios: ios, locateAndroid: { android })
+    }
+
+    /// - Parameter locateAndroid: finds the Android SDK; asked again by every ``devices()`` until it answers,
+    ///   so Android Studio installed while cmux runs shows its phones without a restart.
+    public init(ios: XcodePhoneBackend, locateAndroid: @escaping @Sendable () -> AndroidPhoneBackend?) {
         self.ios = ios
-        self.android = android
+        self.locateAndroid = locateAndroid
+        android = locateAndroid()
         if android == nil { missingTools = [.androidSDK] }
     }
 
     public func devices() async throws -> [PhoneDevice] {
+        if android == nil { android = locateAndroid() }
         var missing: Set<PhoneTool> = android == nil ? [.androidSDK] : []
         var phones: [PhoneDevice] = []
         var firstError: (any Error)?
@@ -37,7 +46,7 @@ public actor PlatformPhoneBackend: PhoneBackend {
     }
 
     public nonisolated func capabilities(for device: PhoneDevice) -> PhoneCapabilities {
-        device.mode.isAndroid ? (android?.capabilities(for: device) ?? []) : ios.capabilities(for: device)
+        device.mode.isAndroid ? AndroidPhoneBackend.capabilities(for: device) : ios.capabilities(for: device)
     }
 
     public func boot(_ id: PhoneDeviceID) async throws { try await route(id).boot(id) }

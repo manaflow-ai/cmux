@@ -16,6 +16,7 @@ public final class PhoneScreenView: NSView {
     private var contentSize: CGSize = .zero
     private var occlusion: Task<Void, Never>?
     private var lastVisible: Bool?
+    private var scroll = PhoneScrollGesture()
 
     /// A touch at a 0...1 screen point (top-left origin).
     var onTouch: (@MainActor (PhoneTouch.Phase, CGPoint) -> Void)?
@@ -132,6 +133,25 @@ public final class PhoneScreenView: NSView {
         let clamped = CGPoint(x: min(max(local.x, rect.minX), rect.maxX), y: min(max(local.y, rect.minY), rect.maxY))
         guard let point = mapping.normalized(viewPoint: phase == .began ? local : clamped) else { return }
         onTouch?(phase, point)
+    }
+
+    override public func scrollWheel(with event: NSEvent) {
+        guard let onTouch, event.momentumPhase.isEmpty else { return }
+        let phase: PhoneScrollGesture.Phase
+        switch event.phase {
+        case .began: phase = .began
+        case .changed: phase = .changed
+        case .ended, .cancelled: phase = .ended
+        case []: phase = .wheel
+        default: return
+        }
+        let local = convert(event.locationInWindow, from: nil)
+        let rect = mapping.drawnRect
+        guard let point = mapping.normalized(viewPoint: CGPoint(x: min(max(local.x, rect.minX), rect.maxX), y: min(max(local.y, rect.minY), rect.maxY)))
+        else { return }
+        // A positive scrollingDeltaY moves content down: a finger moving down the phone's screen.
+        let delta = CGVector(dx: event.scrollingDeltaX, dy: event.scrollingDeltaY)
+        for (touchPhase, at) in scroll.touches(phase, at: point, delta: delta, screen: rect.size) { onTouch(touchPhase, at) }
     }
 
     override public func keyDown(with event: NSEvent) {

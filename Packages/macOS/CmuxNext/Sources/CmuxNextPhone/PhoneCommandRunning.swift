@@ -37,3 +37,18 @@ extension PhoneCommandRunning {
         try await run(arguments, stdin: nil, deadline: deadline)
     }
 }
+
+/// One event of a streamed command: output as it arrives, then the exit.
+public enum PhoneOutputEvent: Sendable, Hashable {
+    /// A chunk of stdout or stderr (may hold several lines, or `\r` updates).
+    case output(String)
+    /// The process ended with `status`; `stderr` is its last 16 KB of errors.
+    case exited(Int32, stderr: String)
+}
+
+/// Runs a long command and streams its output (a setup download's progress).
+public protocol PhoneStreamingRunning: Sendable {
+    /// Starts `arguments` (under `xcrun`, like ``PhoneCommandRunning/run(_:stdin:deadline:)``) and yields its
+    /// output, then one ``PhoneOutputEvent/exited(_:stderr:)``. Cancelling the consumer interrupts the process.
+    func stream(_ arguments: [String]) -> AsyncThrowingStream<PhoneOutputEvent, any Error>
+}

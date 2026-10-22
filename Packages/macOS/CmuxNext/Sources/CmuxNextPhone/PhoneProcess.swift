@@ -22,8 +22,15 @@ final class PhoneProcess: PhoneRunningCommand, Sendable {
     private let state = Mutex(State())
     private let killTimer = DemandTimer(owner: "phone.process.deadline")
 
-    init(launcher: URL?, arguments: [String], stdin: Data?, stdoutFile: URL?, captureStdout: Bool) throws {
+    /// - Parameters:
+    ///   - environment: variables set on top of the app's environment (`DEVELOPER_DIR`).
+    ///   - onOutput: when set, every stdout and stderr chunk as it arrives (a setup download's progress).
+    init(launcher: URL?, arguments: [String], stdin: Data?, stdoutFile: URL?, captureStdout: Bool,
+         environment: [String: String] = [:], onOutput: (@Sendable (Data) -> Void)? = nil) throws {
         let process = Process()
+        if !environment.isEmpty {
+            process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, new in new }
+        }
         if let launcher {
             process.executableURL = launcher
             process.arguments = arguments
@@ -39,6 +46,7 @@ final class PhoneProcess: PhoneRunningCommand, Sendable {
             // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
             let data = handle.availableData
             if data.isEmpty { handle.readabilityHandler = nil; return }
+            onOutput?(data)
             self?.state.withLock { state in
                 state.stderr.append(data)
                 if state.stderr.count > 16_384 { state.stderr.removeFirst(state.stderr.count - 16_384) }
@@ -58,6 +66,7 @@ final class PhoneProcess: PhoneRunningCommand, Sendable {
                     self?.settle { $0.outputClosed = true }
                     return
                 }
+                onOutput?(data)
                 self?.state.withLock { $0.stdout.append(data) }
             }
             state.withLock { $0.outputClosed = false }

@@ -1,0 +1,32 @@
+{
+  "runtimes" : [
+    {
+      "identifier" : "com.apple.CoreSimulator.SimRuntime.iOS-18-0",
+      "name" : "iOS 18.0", "platform" : "iOS", "isAvailable" : true, "version" : "18.0",
+      "supportedDeviceTypes" : [
+        { "identifier" : "com.apple.CoreSimulator.SimDeviceType.iPhone-16", "name" : "iPhone 16", "productFamily" : "iPhone" },
+        { "identifier" : "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M4-8GB", "name" : "iPad Pro 11-inch (M4)", "productFamily" : "iPad" }
+      ]
+    },
+    {
+      "identifier" : "com.apple.CoreSimulator.SimRuntime.iOS-27-0",
+      "name" : "iOS 27.0", "platform" : "iOS", "isAvailable" : true, "version" : "27.0",
+      "supportedDeviceTypes" : [
+        { "identifier" : "com.apple.CoreSimulator.SimDeviceType.iPhone-17", "name" : "iPhone 17", "productFamily" : "iPhone" },
+        { "identifier" : "com.apple.CoreSimulator.SimDeviceType.iPhone-18", "name" : "iPhone 18", "productFamily" : "iPhone" },
+        { "identifier" : "com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro-Max", "name" : "iPhone 18 Pro Max", "productFamily" : "iPhone" },
+        { "identifier" : "com.apple.CoreSimulator.SimDeviceType.iPhone-17e", "name" : "iPhone 17e", "productFamily" : "iPhone" }
+      ]
+    },
+    {
+      "identifier" : "com.apple.CoreSimulator.SimRuntime.watchOS-11-0",
+      "name" : "watchOS 11.0", "platform" : "watchOS", "isAvailable" : true, "version" : "11.0",
+      "supportedDeviceTypes" : []
+    },
+    {
+      "identifier" : "com.apple.CoreSimulator.SimRuntime.iOS-17-5",
+      "name" : "iOS 17.5", "platform" : "iOS", "isAvailable" : false, "version" : "17.5",
+      "supportedDeviceTypes" : []
+    }
+  ]
+}

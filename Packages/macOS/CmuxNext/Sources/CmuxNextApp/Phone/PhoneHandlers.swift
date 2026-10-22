@@ -30,13 +30,20 @@ enum PhoneHandlers {
         }
 
         work("phone.show") { invocation, phones in
-            let device = try await device(invocation, phones)
-            if page.view(showing: device.id) == nil { page.nextDevice = device.id }
+            // With no phone named and none on this Mac, the tab still opens: it shows the setup screen
+            // (install Xcode, download iOS, create an iPhone) instead of failing with nothing on screen.
+            let device: PhoneDevice?
+            if let name = invocation["device"]?.stringValue, !name.isEmpty {
+                device = try await Self.device(invocation, phones)
+            } else {
+                device = try? await Self.device(invocation, phones)
+            }
+            if let device, page.view(showing: device.id) == nil { page.nextDevice = device.id }
             // One phone tab per window: an open tab switches to the named phone.
             let shown = services.pages.show(.phone, in: services.windows.active, focus: invocation.allowsViewChange)
             page.nextDevice = nil
-            if shown == nil { throw PhoneError.unsupported(mode: device.mode, what: "a phone tab without a window") }
-            page.anyView?.select(device.id)
+            if shown == nil { throw PhoneError.unsupported(mode: device?.mode ?? .simulator, what: "a phone tab without a window") }
+            if let device { page.anyView?.select(device.id) }
         }
         work("phone.boot") { invocation, phones in
             try await phones.boot(try await device(invocation, phones).id)
@@ -74,6 +81,8 @@ enum PhoneHandlers {
             var result: [String: ActionResultValue] = ["count": .int(listed.count), "devices": .string(try json(rows))]
             let missing = await phones.missingTools.map(\.rawValue).sorted()
             if !missing.isEmpty { result["missing"] = .string(missing.joined(separator: ",")) }
+            // The next iOS simulator setup step (install-xcode, finish-xcode, download-ios, create-iphone, ready).
+            if let step = await phones.setup.refresh() { result["setup"] = .string(step.rawValue) }
             return result
         }
         work("phone.shutdown") { invocation, phones in

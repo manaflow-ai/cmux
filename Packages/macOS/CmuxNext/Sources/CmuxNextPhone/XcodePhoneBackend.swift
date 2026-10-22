@@ -40,6 +40,7 @@ public struct XcodePhoneBackend: PhoneBackend {
 
     public func boot(_ id: PhoneDeviceID) async throws {
         try requireSimulator(id, "boot")
+        await hid?.dropConnection(to: id.raw)
         let result = try await runner.run(["simctl", "boot", id.raw], deadline: .seconds(120))
         // Booting a booted simulator is success for us.
         guard result.status == 0 || result.stderr.contains("current state: Booted") else {
@@ -49,6 +50,7 @@ public struct XcodePhoneBackend: PhoneBackend {
 
     public func shutdown(_ id: PhoneDeviceID) async throws {
         try requireSimulator(id, "shut down")
+        await hid?.dropConnection(to: id.raw)
         let result = try await runner.run(["simctl", "shutdown", id.raw], deadline: .seconds(60))
         guard result.status == 0 || result.stderr.contains("current state: Shutdown") else {
             throw PhoneError.commandFailed(command: "simctl shutdown", status: result.status, stderr: result.stderr)

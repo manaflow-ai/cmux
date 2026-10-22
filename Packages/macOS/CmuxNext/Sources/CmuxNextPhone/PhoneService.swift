@@ -14,6 +14,10 @@ public final class PhoneService {
     /// Bumped after every input, boot or recording change, so phone tabs
     /// refresh their still frame on an event instead of a timer.
     public private(set) var changeCount = 0
+    /// Phones with a boot or shutdown running now (the tab's status line reads it, so it never goes stale).
+    public private(set) var busy: [PhoneDeviceID: PhoneBusy] = [:]
+    /// The iOS simulator setup flow (install Xcode, download iOS, create an iPhone).
+    public let setup: PhoneSetupCoordinator
 
     public let backend: any PhoneBackend
     /// Live simulator screens and direct input; nil when SimulatorKit is unavailable.
@@ -26,11 +30,14 @@ public final class PhoneService {
     /// - Parameters:
     ///   - recordings: folder for recordings (build-scoped, from the App).
     ///   - scratch: folder for still frames and ad hoc screenshots.
-    public init(backend: any PhoneBackend, recordings: URL, scratch: URL, live: SimulatorKitHID? = nil) {
+    ///   - setup: the setup flow; the default has no checks (tests, Macs where simulators cannot run).
+    public init(backend: any PhoneBackend, recordings: URL, scratch: URL, live: SimulatorKitHID? = nil,
+                setup: PhoneSetupCoordinator? = nil) {
         self.backend = backend
         self.live = live
         recorder = PhoneRecorder(backend: backend, root: recordings)
         self.scratch = scratch
+        self.setup = setup ?? PhoneSetupCoordinator(check: nil)
     }
 
     /// For tests: a recorder with injected clocks.
@@ -39,6 +46,7 @@ public final class PhoneService {
         live = nil
         self.recorder = recorder
         self.scratch = scratch
+        setup = PhoneSetupCoordinator(check: nil)
     }
 
     @discardableResult
@@ -61,7 +69,7 @@ public final class PhoneService {
         if let recording { return recording.device }
         if devices.isEmpty { try await reload() }
         let ready = devices.filter(\.state.isReady)
-        guard let pick = ready.first(where: { $0.mode == .simulator }) ?? ready.first ?? devices.first(where: { $0.mode == .simulator })
+        guard let pick = ready.first(where: { $0.mode == .simulator }) ?? ready.first ?? devices.first(where: \.isUsable)
         else { throw PhoneError.unknownDevice("(none)") }
         return pick
     }
@@ -71,15 +79,19 @@ public final class PhoneService {
     }
 
     public func boot(_ id: PhoneDeviceID) async throws {
+        busy[id] = .booting
+        changeCount += 1
+        defer { busy[id] = nil; changeCount += 1 }
         try await backend.boot(id)
         try? await reload()
-        changeCount += 1
     }
 
     public func shutdown(_ id: PhoneDeviceID) async throws {
+        busy[id] = .shuttingDown
+        changeCount += 1
+        defer { busy[id] = nil; changeCount += 1 }
         try await backend.shutdown(id)
         try? await reload()
-        changeCount += 1
     }
 
     /// Sends `input`, logging it into the running recording first so its

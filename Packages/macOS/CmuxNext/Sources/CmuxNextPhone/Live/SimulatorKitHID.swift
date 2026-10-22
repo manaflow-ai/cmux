@@ -21,8 +21,16 @@ public final class SimulatorKitHID: SimulatorHIDSending {
     /// - Parameters:
     ///   - developerDirectory: the active Xcode's Developer folder (`xcode-select -p`).
     ///   - clock: paces touch events; tests pass a virtual clock.
-    public init(developerDirectory: String, clock: any Clock<Duration> = ContinuousClock()) {
-        runtime = SimulatorKitRuntime(developerDirectory: developerDirectory)
+    public convenience init(developerDirectory: String, clock: any Clock<Duration> = ContinuousClock()) {
+        self.init(xcode: { developerDirectory }, clock: clock)
+    }
+
+    /// - Parameters:
+    ///   - xcode: the installed Xcode's Developer folder, asked when SimulatorKit first loads (nil: no
+    ///     Xcode yet; the next use asks again, so an Xcode installed while cmux runs works without a restart).
+    ///   - clock: paces touch events; tests pass a virtual clock.
+    public init(xcode: @escaping @Sendable () -> String?, clock: any Clock<Duration> = ContinuousClock()) {
+        runtime = SimulatorKitRuntime(developerDirectory: xcode)
         self.clock = clock
     }
 
@@ -50,6 +58,7 @@ public final class SimulatorKitHID: SimulatorHIDSending {
         try await mainPress(page: page, usage: usage, udid)
     }
     public nonisolated func toggleSoftwareKeyboard(on udid: String) async throws { try await mainToggleSoftwareKeyboard(udid) }
+    public nonisolated func dropConnection(to udid: String) async { await reset(udid) }
 
     private func mainToggleSoftwareKeyboard(_ udid: String) throws {
         try transport(udid).toggleSoftwareKeyboard()

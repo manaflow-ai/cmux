@@ -6,13 +6,28 @@ import Testing
 /// Records every argv and answers from canned results keyed by the argv
 /// prefix. Started commands write their output file when interrupted, like
 /// `simctl io recordVideo` finalizing on SIGINT.
-final class FakePhoneRunner: PhoneCommandRunning {
+final class FakePhoneRunner: PhoneCommandRunning, PhoneStreamingRunning {
     struct Started: Sendable {
         let arguments: [String]
         let command: FakeRunning
     }
 
     private let state = Mutex<(runs: [[String]], stdins: [Data], started: [Started], answers: [([String], PhoneCommandResult)])>(([], [], [], []))
+    private let streams = Mutex<[([String], [PhoneOutputEvent])]>([])
+
+    /// The events a streamed command with this argv prefix yields.
+    func stream(_ prefix: [String], _ events: [PhoneOutputEvent]) {
+        streams.withLock { $0.append((prefix, events)) }
+    }
+
+    func stream(_ arguments: [String]) -> AsyncThrowingStream<PhoneOutputEvent, any Error> {
+        state.withLock { $0.runs.append(arguments) }
+        let events = streams.withLock { all in all.last(where: { arguments.starts(with: $0.0) })?.1 } ?? [.exited(0, stderr: "")]
+        return AsyncThrowingStream { continuation in
+            for event in events { continuation.yield(event) }
+            continuation.finish()
+        }
+    }
 
     func answer(_ prefix: [String], _ result: PhoneCommandResult) {
         state.withLock { $0.answers.append((prefix, result)) }

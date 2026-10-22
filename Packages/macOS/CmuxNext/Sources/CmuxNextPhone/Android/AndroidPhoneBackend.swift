@@ -54,6 +54,11 @@ public actor AndroidPhoneBackend: PhoneBackend {
     }
 
     public nonisolated func capabilities(for device: PhoneDevice) -> PhoneCapabilities {
+        Self.capabilities(for: device)
+    }
+
+    /// What an Android phone can do (the same for every SDK).
+    static func capabilities(for device: PhoneDevice) -> PhoneCapabilities {
         var caps: PhoneCapabilities = [.screenshot, .recordVideo, .deviceLog, .openURL, .touch, .keyboard, .buttons,
                                        .appearance, .apps, .accessibility, .liveScreen]
         if device.mode == .emulator { caps.formUnion([.boot, .location, .rotate, .locale]) }

@@ -8,18 +8,23 @@ import ObjectiveC.runtime
 /// Xcode); the phone tab then falls back to still frames from `simctl`.
 @MainActor
 final class SimulatorKitRuntime {
-    let developerDirectory: String
+    private let locate: @Sendable () -> String?
+    /// The Developer folder SimulatorKit loaded from (set by the first successful ``load()``).
+    private(set) var developerDirectory = ""
     private(set) var simulatorKit: UnsafeMutableRawPointer?
     private var deviceSet: NSObject?
 
-    /// - Parameter developerDirectory: `xcode-select -p` (…/Xcode.app/Contents/Developer).
-    init(developerDirectory: String) {
-        self.developerDirectory = developerDirectory
+    /// - Parameter developerDirectory: the installed Xcode's Developer folder (…/Xcode.app/Contents/Developer),
+    ///   asked at each load attempt until one succeeds; nil while no Xcode is installed.
+    init(developerDirectory: @escaping @Sendable () -> String?) {
+        locate = developerDirectory
     }
 
-    /// Loads both frameworks; throws when this Xcode lacks them.
+    /// Loads both frameworks; throws when there is no Xcode or this Xcode lacks them.
     func load() throws {
         guard simulatorKit == nil else { return }
+        guard let developerDirectory = locate() else { throw PhoneError.missingTool(.xcode) }
+        self.developerDirectory = developerDirectory
         let core = ["/Library/Developer/PrivateFrameworks/CoreSimulator.framework/CoreSimulator",
                     "\(developerDirectory)/Library/PrivateFrameworks/CoreSimulator.framework/CoreSimulator"]
         guard Self.open(core) != nil else { throw PhoneError.missingTool(.xcode) }

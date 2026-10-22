@@ -14,10 +14,15 @@ public protocol SimulatorHIDSending: Sendable {
     func press(page: UInt32, usage: UInt32, on udid: String) async throws
     /// Shows or hides the simulator's software keyboard (Simulator's I/O > Keyboard > Toggle Software Keyboard).
     func toggleSoftwareKeyboard(on udid: String) async throws
+    /// Forgets the input connection to `udid`: a simulator that shut down or
+    /// booted again has a new HID service, and the old XPC connection is dead.
+    func dropConnection(to udid: String) async
 }
 
 extension SimulatorHIDSending {
     public func toggleSoftwareKeyboard(on udid: String) async throws {
         throw PhoneError.unsupported(mode: .simulator, what: "the software keyboard")
     }
+
+    public func dropConnection(to udid: String) async {}
 }

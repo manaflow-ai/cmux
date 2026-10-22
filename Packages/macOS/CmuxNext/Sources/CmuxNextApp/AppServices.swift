@@ -161,13 +161,17 @@ final class AppServices {
     /// (plans/cmux-next/phone.md, simulators-DESIGN.md).
     private(set) lazy var phones: PhoneService = {
         let folder = SidebarSnapshotFile.buildDirectory(launch: environment.launch).appending(path: "phone", directoryHint: .isDirectory)
+        // Xcode is found on disk at each use (never through xcrun, which would pop up the command line
+        // tools installer on a Mac without them), so an Xcode installed while cmux runs works at once.
+        let xcode = XcodeLocator()
+        let xcrun = PhoneProcessRunner(developerDirectory: { xcode.developerDirectory() })
         // One SimulatorKit host serves the iOS backend's input and the phone tabs' live screens.
-        let simulatorKit = SimulatorKitHID(developerDirectory: SimulatorKitHID.selectedDeveloperDirectory())
-        let backend = PlatformPhoneBackend(ios: XcodePhoneBackend(hid: simulatorKit),
-                                           android: AndroidSDK.locate().map { AndroidPhoneBackend(sdk: $0) })
+        let simulatorKit = SimulatorKitHID(xcode: { xcode.developerDirectory() })
+        let backend = PlatformPhoneBackend(ios: XcodePhoneBackend(runner: xcrun, hid: simulatorKit),
+                                           locateAndroid: { AndroidSDK.locate().map { AndroidPhoneBackend(sdk: $0) } })
         return PhoneService(backend: backend, recordings: folder.appending(path: "recordings", directoryHint: .isDirectory),
                             scratch: FileManager.default.temporaryDirectory.appending(path: "cmux-phone", directoryHint: .isDirectory),
-                            live: simulatorKit)
+                            live: simulatorKit, setup: PhoneSetupCoordinator(check: PhoneSetupCheck(xcode: xcode, runner: xcrun)))
     }()
     private(set) lazy var phoneFeedback = PhoneChiefFeedback(home: home)
     /// The Task Manager page and Kill Process (`TaskManagerPageService`).

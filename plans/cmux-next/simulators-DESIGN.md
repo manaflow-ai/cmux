@@ -184,15 +184,110 @@ from that one place and the five actions bind to `PhoneService`.
 - No polling anywhere. The one wait loop is Android's device-side boot
   check, which adb documents as the boot signal.
 
-## 10. Missing tools
+## 10. Missing tools and onboarding (u9770, 2026-10-22)
 
-`PlatformPhoneBackend` lists whatever platform answers. No Xcode: iOS rows
-are missing, `phone list` answers `missing: xcode`, iOS actions fail with
-"Xcode is not installed …". No Android SDK: Android actions fail with "the
-Android SDK is not installed; install Android Studio or set ANDROID_HOME".
-SimulatorKit that does not load (a new Xcode changed it): the iOS tab shows
-still frames and touch is off; nothing crashes. No phones at all: the tab
-says how to add one in Xcode or Android Studio.
+Goal: a person who has never made an iPhone app opens a phone tab and is
+told, in plain words, what to install and why, with one button for the next
+step. No dead ends, no raw tool output, no restart.
+
+**Never run `xcrun` without Xcode.** On a Mac with no developer tools,
+`/usr/bin/xcrun` is a stub that pops up macOS's "install the command line
+developer tools" dialog. Those tools have no simulators, so that dialog is a
+trap for a new user. `XcodeLocator` finds Xcode on disk (`DEVELOPER_DIR`, the
+`xcode-select` link when it is an Xcode, `Xcode.app`, then any `Xcode*.app`,
+in `/Applications` and `~/Applications`) and `PhoneProcessRunner` refuses to
+start a command (`PhoneError.missingTool(.xcode)`) when there is none.
+
+**No `sudo xcode-select`.** The common trap after that: the command line
+tools were installed first, so `xcode-select` still points at them and
+`xcrun simctl` fails although Xcode is installed. Every Xcode command now runs
+with `DEVELOPER_DIR` set to the Xcode the locator found, and SimulatorKit
+loads from the same folder.
+
+**The setup screen** (`PhoneSetupView` over `PhoneSetupViewState`, owned by
+`PhoneSetupCoordinator` in `PhoneService.setup`) takes the screen's place
+when there is no phone to show. It lists the four steps with the done ones
+checked, explains the current one, and has one primary button:
+
+| Step (`phone list` answers it as `setup`) | Found by | The screen says | Button |
+|---|---|---|---|
+| `install-xcode` | no Xcode on disk | cmux shows iPhone simulators from Xcode, Apple's free app; about 3 GB download, 15 GB of disk, 30 min or more. With only the command line tools: they have no simulators | Open the App Store (Xcode's page), Other Ways to Get Xcode (developer.apple.com/xcode) |
+| `finish-xcode` | `simctl list` fails, or `xcodebuild -checkFirstLaunchStatus` is not 0 (license not accepted, first-launch parts missing) | Open Xcode once, click Agree, let it install its parts, then come back | Open Xcode |
+| `download-ios` | no available iOS runtime | The iPhone simulator is a separate download of about 8 GB; cmux downloads it | Download (about 8 GB): `xcodebuild -downloadPlatform iOS` with a progress bar read from its output (percent and "x GB of y GB"); Cancel interrupts it |
+| `create-iphone` | a runtime but no usable iPhone/iPad simulator | Create a simulated iPhone; it runs on your Mac | Create iPhone NN: `simctl create` of the newest plain iPhone on the newest runtime, then boot and show it |
+
+Every screen also has Check Again, and the tab checks again by itself when
+cmux becomes active (the user comes back from the App Store or Xcode), so
+nothing needs a restart. Android Studio installed while cmux runs is found on
+the next device list too (`PlatformPhoneBackend(locateAndroid:)`), and the
+screen has a small "Making an Android app?" link to Android Studio.
+
+**Errors in plain words.** `PhoneErrorText` turns every `PhoneError` and the
+known tool failures (license, disk full, runtime missing, no Xcode, network)
+into a sentence that says the next step. The raw tool text stays as the
+status line's tooltip, and agents still get `PhoneError.description` from
+the CLI and MCP.
+
+A download keeps running when the tab closes (the coordinator owns it), and
+any phone tab shows its progress.
+
+## 10a. Bugs found going through the tab (u9770)
+
+Fixed, each with a test that failed first (`PhoneTabRegressionTests`, red
+commit before the fix):
+
+1. The status line kept "Booting…" after the phone ran: the Boot button wrote
+   it and nothing cleared it. The status line is now derived from the phone's
+   state and `PhoneService.busy` each time.
+2. A simulator whose iOS runtime is not installed showed Boot, which can only
+   fail. It is now disabled in the picker and says why.
+3. Failures showed simctl's raw stderr (paths, exit codes). Now plain words
+   (`PhoneErrorText`), raw text in the tooltip.
+4. A Mac with no phones showed "no phone (none)" as an error. Now the setup
+   screen, or the no-phones hint.
+5. After a shutdown or reboot, touches went to the old simulator's closed HID
+   connection: `boot`/`shutdown` now drop it (`SimulatorHIDSending.dropConnection`).
+6. `xcrun` on a Mac without tools popped up the command line tools installer
+   (see section 10).
+7. Xcode installed after the command line tools did not work until
+   `sudo xcode-select -s` (see section 10).
+8. Xcode or Android Studio installed while cmux ran needed an app restart:
+   SimulatorKit and the Android SDK are now located again until found.
+9. No Shut Down button; picking a shut-down phone did nothing until Boot.
+   Shut Down is in the bar, and picking a shut-down phone boots it.
+10. The picker had no way to look again for new simulators: it now has
+    Refresh (and "Set Up iPhone Simulators…" while setup is not done).
+11. Two-finger scrolling over the phone did nothing: it now drags the screen
+    like a finger (`PhoneScrollGesture`; trackpad phases become one drag,
+    momentum is left to the phone, a wheel tick is a short drag).
+12. `phone open` (and New Simulator Pane) failed with "no phone (none)" on a
+    Mac with no phones, so the setup screen was unreachable from the palette
+    and CLI. It now opens the tab.
+
+## 10b. Classic parity (what cmux-classic has that cmux-next does not yet)
+
+Ported in this change: scroll-to-drag, Refresh in the device picker, the
+"install an iOS runtime" empty state (now a full setup flow).
+
+Still missing, in the order they matter to users:
+
+1. **Device chrome (bezels)** and a device picker with model icons
+   (classic `SimulatorDeviceChromeImageCache`, `SimulatorDevicePicker*`).
+2. **iOS rotation** and the **iOS accessibility tree** (classic: Purple mach
+   message; `AXPTranslator`). `phone ui` answers only for Android.
+3. **Tools panel** (classic `SimulatorToolsPanel`): location routes (not one
+   point), privacy grants (`simctl privacy`), push notifications
+   (`simctl push`), status bar overrides (`simctl status_bar`), media and
+   clipboard sync both ways, accessibility settings (Dynamic Type, Increase
+   Contrast), app list with terminate.
+4. **Web Inspector** for Safari/WKWebView in the simulator (`webinspectord_sim`).
+5. **Camera injection** (classic compiled an injector dylib at run time; do
+   not port as is: needs a signed helper).
+6. Hardware keyboard shortcuts classic mapped (Cmd-Shift-H is done; Cmd-K
+   software keyboard is done; Cmd-S screenshot, Cmd-R record are not).
+7. Mobile streaming of the simulator to the iPhone app (classic phone stream
+   v1/v2): the iOS app has DTOs (`MobileSimulator*`) but the Mac side is not
+   wired in cmux-next.
 
 ## 11. Tests
 

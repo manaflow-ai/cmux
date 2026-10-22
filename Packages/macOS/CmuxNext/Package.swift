@@ -702,7 +702,8 @@ let package = Package(
         // no UI framework beyond AppKit; the App supplies the page and the sink.
         .target(
             name: "CmuxNextPhone",
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
+            // CmuxNextDesign: the setup screen's type scale, spinner and dialog buttons.
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign"],
             resources: [.process("Localizable.xcstrings")],
             swiftSettings: daemonSwiftSettings
         ),
