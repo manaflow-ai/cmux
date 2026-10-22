@@ -325,6 +325,25 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       expect(drawn.transcriptRoom).toBeGreaterThanOrEqual(64);
     });
 
+  // Leo 2026-10-21: "WE HAVE TOO MUCH FUCKING STUPID SPACE AT THE BOTTOM COMPAREDE TO CLAUDE CODE".
+  // Claude Code leaves about 8 px under its quiet row; the row's own 10 px margin is the room under
+  // it (Leo 2026-10-20: never on the window's edge), with no composer padding added below that.
+  for (const variant of ["claude-auto", "queued"])
+    test(`${variant}: the quiet row sits about 10 px over the pane's bottom edge`, async () => {
+      const page = await browser!.newPage({ viewport: { width: 720, height: 600 } });
+      await page.goto(stageURL(variant));
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+      await page.locator(".acpmux-composer-foot .acpmux-model .acpmux-model-detail:visible").first().waitFor();
+      const under = await page.evaluate(() => {
+        const main = document.querySelector(".acpmux-main")!.getBoundingClientRect();
+        const foot = document.querySelector(".acpmux-composer-foot")!.getBoundingClientRect();
+        return Math.round(main.bottom - foot.bottom);
+      });
+      await page.close();
+      expect(under).toBeGreaterThanOrEqual(6);
+      expect(under).toBeLessThanOrEqual(12);
+    });
+
   for (const width of [420, 720, 1100])
     test(`at ${width} px Stop has Send's footprint as a solid, theme-inverted disc`, async () => {
       // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, so the idle row
