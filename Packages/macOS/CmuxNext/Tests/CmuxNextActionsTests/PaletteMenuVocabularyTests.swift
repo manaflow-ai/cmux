@@ -8,7 +8,7 @@ import Testing
 /// the menu shows as "Remove Icon" is "Remove Space Icon" in the palette, not "Clear Space Icon".
 struct PaletteMenuVocabularyTests {
     @Test func paletteTitlesUseTheMenusWords() throws {
-        let orToggle = try NSRegularExpression(pattern: #"^\w+ or \w+ "#)
+        let orToggle = try NSRegularExpression(pattern: #"(?:^|: )\w+ or \w+ "#)
         let clear = try NSRegularExpression(pattern: #"^Clear .*\b(Icon|Color)$"#)
         func matches(_ regex: NSRegularExpression, _ title: String) -> Bool {
             regex.firstMatch(in: title, range: NSRange(title.startIndex..., in: title)) != nil
@@ -23,9 +23,10 @@ struct PaletteMenuVocabularyTests {
     }
 
     /// The toggle style holds for every action, not only the palette's: a keyboard-only action's
-    /// title shows in Keyboard Shortcuts settings ("Pin or Unpin Chat" drifted there unseen).
+    /// title shows in Keyboard Shortcuts settings ("Pin or Unpin Chat" drifted there unseen), and a
+    /// prefixed title holds it after its prefix ("Palette: Show/Hide Actions").
     @Test func everyActionTitleUsesOneToggleStyle() throws {
-        let orToggle = try NSRegularExpression(pattern: #"^\w+ or \w+ "#)
+        let orToggle = try NSRegularExpression(pattern: #"(?:^|: )\w+ or \w+ "#)
         for descriptor in ActionCatalog.all {
             let title = descriptor.title
             #expect(orToggle.firstMatch(in: title, range: NSRange(title.startIndex..., in: title)) == nil,
