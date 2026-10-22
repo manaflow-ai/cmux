@@ -166,12 +166,20 @@ extension UpdaterService {
 
     /// Follows `updates.channel`: which release ring's appcast items Sparkle and the probe offer.
     /// Takes the setting's raw value (`stable`, `nightly`, `canary`, `dev`); anything else is Nightly.
+    /// The first value is the launch's; a later move is the person's pick, so the app checks the
+    /// new ring at once instead of at the next scheduled check (a faster ring's newer build
+    /// downloads and waits for one restart; a slower ring's way back is ``ringReturn(to:)``).
     public func follow(ring rawValue: String) {
         let ring = UpdateRing(rawValue: rawValue) ?? .nightly
+        let picked = ringFollowed
+        ringFollowed = true
         guard self.ring != ring else { return }
         self.ring = ring
         controller?.ring = ring
         log.append("update ring \(ring.rawValue)")
+        guard picked else { return }
+        log.append("update ring picked: checking \(ring.rawValue) now")
+        checkForUpdates()
     }
 
     /// Recomputes whether found updates download by themselves: the user's

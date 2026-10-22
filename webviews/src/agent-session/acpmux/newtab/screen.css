@@ -798,3 +798,20 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 :root[data-borders="none"] .nt-screen[data-template="cards"] .nt-card {
   box-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
 }
+/* The Minimal layout with no widgets on (pageWidgets.ts; Leo 2026-10-20, the default): a quiet
+   greeting and the composer, nothing else. The composer sits about the window's middle at a fixed
+   place (a pasted image or a long draft grows it downward, never moves it); the greeting sits a
+   little over it. */
+.nt-screen[data-minimal] {
+  padding-top: max(32px, calc(50vh - 150px));
+}
+.nt-greeting {
+  flex: none;
+  margin: 0 0 6px;
+  text-align: center;
+  font-size: var(--text-heading);
+  line-height: var(--text-heading--line-height);
+  font-weight: 500;
+  color: var(--acpmux-composer-dim, color-mix(in srgb, var(--agent-text) 55%, transparent));
+  user-select: none;
+}

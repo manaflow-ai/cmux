@@ -81,7 +81,7 @@ extension TabDragSession {
         }
         if case .window(_, .window) = drag.workspaceOutcome, highlight == nil {
             highlight = controller?.window?.frame
-        } else if case .window(_, .beside(let edge)) = drag.workspaceOutcome { highlight = controller?.besideHighlight(edge) ?? highlight }
+        } else if case .window(_, .beside(let edge)) = drag.workspaceOutcome { highlight = controller?.besideHighlight(edge, at: point) ?? highlight }
         drag.workspaceHighlight = drag.workspaceOutcome == .cancel ? nil : highlight
         present(drag)
         wake(drag)
@@ -117,7 +117,7 @@ extension TabDragSession {
             case let .intoGroup(group): controller.sidebar.accept(workspaceIDs, intoGroup: group)
             case .window: controller.sidebar.accept(workspaceIDs, at: nil)
             case let .merge(kind): ids.first.map { WorkspaceMerge.run($0, at: kind, into: controller, drag: drag, session: self) }
-            case let .beside(edge): ids.first.map { controller.placeBeside($0, edge: edge) }
+            case let .beside(edge): ids.first.map { controller.placeBeside($0, edge: edge, at: drag.point) }
             }
             services.windows.bringToFront(controller)
         }

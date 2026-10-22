@@ -393,6 +393,9 @@ public final class AgentPaneView: NSView {
         if window == nil {
             dictation.handle(.stop)
             popupHostStorage?.dismiss()
+        } else {
+            // The composer's + > Attach files or images opens without making a panel (PageOpenPanel).
+            MadeAheadOpenPanel.shared.warmWhenIdle()
         }
         applyTheme()
     }
