@@ -51,18 +51,21 @@ enum WorkspaceCreation {
     /// Creates workspace `key` (named `name`) with its first terminal
     /// (`terminal`) on `connection`, owned by `repair` while it runs: a
     /// failure closes the workspace (its terminals with it) and the repair
-    /// never fills it.
+    /// never fills it. `rule`: the `workspaces.newPlacement` the app places it by,
+    /// which the daemon places it by too (`CreateWorkspaceRequest.current`).
     @MainActor
     static func create<T>(
         _ key: WorkspaceKey,
         name: String?,
+        placedBy rule: NewWorkspaceDefaultSlot? = nil,
         on connection: DaemonConnection,
         repair: EmptyWorkspaceRepair,
         terminal: (WorkspaceKey) async throws -> T
     ) async throws -> T {
-        try await repair.populating(key) {
+        let sent = await NewWorkspacePlacements.sending(rule, key: key, on: connection)
+        return try await repair.populating(key) {
             try await withTerminal(
-                key, createWorkspace: { _ = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key) },
+                key, createWorkspace: { _ = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key, placesBySetting: sent != nil, current: sent?.current.map { WorkspaceKey(rawValue: $0) }, placement: sent?.placement.rawValue) },
                 createTerminal: terminal,
                 closeWorkspace: { try await closeHalfCreated($0, on: connection, repair: repair) }
             )
@@ -77,14 +80,16 @@ enum WorkspaceCreation {
     static func createWithFirstTab<T>(
         _ key: WorkspaceKey,
         name: String?,
+        placedBy rule: NewWorkspaceDefaultSlot? = nil,
         on connection: DaemonConnection,
         repair: EmptyWorkspaceRepair,
         firstTab: (WorkspaceMutationResult) async throws -> T
     ) async throws -> T {
-        try await repair.populating(key) {
+        let sent = await NewWorkspacePlacements.sending(rule, key: key, on: connection)
+        return try await repair.populating(key) {
             var created: WorkspaceMutationResult?
             return try await withTerminal(
-                key, createWorkspace: { created = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key) },
+                key, createWorkspace: { created = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key, placesBySetting: sent != nil, current: sent?.current.map { WorkspaceKey(rawValue: $0) }, placement: sent?.placement.rawValue) },
                 createTerminal: { _ in
                     guard let created else { throw DaemonError.notConnected }
                     return try await firstTab(created)
@@ -104,10 +109,10 @@ enum WorkspaceCreation {
     /// starting in `cwd`; nil when `spawn` gets a terminal instead (it runs a
     /// command, or `daemon` cannot host the page).
     @MainActor
-    static func newTabPage(_ spawn: WorkspaceSpawn, _ key: WorkspaceKey, cwd: String?, on daemon: DaemonService,
+    static func newTabPage(_ spawn: WorkspaceSpawn, _ key: WorkspaceKey, cwd: String?, placedBy rule: NewWorkspaceDefaultSlot? = nil, on daemon: DaemonService,
                            repair: EmptyWorkspaceRepair, tabs: AgentTabStore) async throws -> String? {
         guard opensPage(spawn, on: daemon, tabs: tabs), let connection = daemon.connection else { return nil }
-        return try await createWithFirstTab(key, name: spawn.name, on: connection, repair: repair) { created in
+        return try await createWithFirstTab(key, name: spawn.name, placedBy: rule, on: connection, repair: repair) { created in
             if let session = spawn.firstSession {
                 // A session of this Mac never opens in a workspace of another machine (cx-k21v).
                 guard daemon.isLocal else { throw AgentTabRefusal(message: RefusalStrings.agentTabMachineMismatch) }
