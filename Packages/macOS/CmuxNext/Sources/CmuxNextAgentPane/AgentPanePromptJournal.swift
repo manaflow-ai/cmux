@@ -19,8 +19,9 @@ import CmuxNextCompat
 /// - An entry older than ``maximumAge`` is dropped, never sent. The file holds at most
 ///   ``maximumEntries``; a prompt larger than ``maximumParamsBytes`` is not kept.
 ///
-/// The host sends again only what it recorded from a frame the page rules let through; the page
-/// can never set `resend` itself (``AcpmuxPaneMethods/knownParams``). Chats on another machine are
+/// The host sends again only what it recorded from a frame the page rules let through. The page
+/// sets `resend` only on its own Retry (``AcpmuxPaneMethods/knownParams``); it only makes acpmux
+/// de-duplicate more (its session log as well as its ledger). Chats on another machine are
 /// not kept (their daemon is not this Mac's). The file is read once and written in order, never
 /// on the main thread; a record is on disk before its frame is sent.
 public nonisolated final class AgentPanePromptJournal: Sendable {

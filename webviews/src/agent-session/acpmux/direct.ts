@@ -3689,7 +3689,9 @@ export class AcpmuxDirectClient {
   }
 
   /// Retry on a prompt that was not sent: its bubble goes and the same prompt goes again, under the
-  /// same prompt id with `resend`, so a copy acpmux did take answers as that one and runs no second turn.
+  /// same prompt id with `resend`, so a copy acpmux did take answers as that one and runs no second turn:
+  /// `resend` makes acpmux look the id up in its session log as well as its in-memory ledger, which
+  /// keeps only the last 64 ids. The app relays `resend` (AcpmuxPaneMethods+Params.swift, policy.json).
   /// `ticket`: the gesture a trust refusal kept for this prompt (heldPrompt.ts).
   async retryPrompt(rowId: string, ticket?: string): Promise<string | undefined> {
     const failed = this.failedPrompts.get(rowId);
