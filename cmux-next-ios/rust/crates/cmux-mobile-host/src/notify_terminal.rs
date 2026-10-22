@@ -440,4 +440,49 @@ mod tests {
         w.learn(&json!({"wants":["terminal"]}), t0 + WANTS_TTL);
         assert!(!w.allows("failed", t0 + WANTS_TTL));
     }
+
+    /// A terminal agent's AskUserQuestion (the daemon's `question`, cmux-tui
+    /// `agent_hook_question.rs`) pushes as a question with its options, so the phone gets
+    /// option buttons and the long-press rows; its tab opens on a tap.
+    #[test]
+    fn a_terminal_agent_question_pushes_as_a_question() {
+        let mut c = TerminalClassifier::default();
+        let mut hook = event(50, Some(7), "agent");
+        hook["title"] = json!("Claude asked a question");
+        hook["body"] = json!("AskUserQuestion");
+        hook["level"] = json!("warning");
+        hook["question"] = json!({"harness":"claude","tool_use_id":"toolu_1","questions":[
+            {"question":"Which branch?","header":"Branch","multiSelect":false,
+             "options":[{"label":"main","description":"the default"},{"label":"dev"},{"label":"release"}]},
+            {"question":"Which checks?","header":"Checks","multiSelect":true,"options":[{"label":"lint"},{"label":"tests"}]}]});
+        let e = c.handle_at(&hook, &places(), Instant::now()).unwrap();
+        assert_eq!(e.kind, "question");
+        assert_eq!(e.agent.as_deref(), Some("Claude"));
+        assert_eq!(e.tab_id.as_deref(), Some("s7"));
+        assert_eq!(e.notification_id.as_deref(), Some("50"));
+        assert_eq!(e.state.as_deref(), Some("waiting"));
+        // The question, not the tool name, is the title.
+        assert_eq!(e.title.as_deref(), Some("Which branch?"));
+        assert_eq!(e.body, None);
+        let questions = e.questions;
+        assert_eq!(questions.len(), 2);
+        assert_eq!(questions[0].options.len(), 3);
+        assert_eq!(questions[0].options[0].description.as_deref(), Some("the default"));
+        assert!(questions[1].multi_select);
+        assert!(questions[0].allows_other);
+        // A Codex one keeps its own Other rule.
+        let mut codex = event(51, Some(7), "agent");
+        codex["title"] = json!("Codex asked a question");
+        codex["question"] = json!({"harness":"codex","questions":[{"id":"d","question":"Deploy?","isOther":false,
+            "options":[{"label":"yes"},{"label":"no"}]}]});
+        let e = c.handle_at(&codex, &places(), Instant::now() + Duration::from_secs(20)).unwrap();
+        assert_eq!(e.kind, "question");
+        assert!(!e.questions[0].allows_other);
+        // A question from a terminal program (not an agent hook) is never taken as one.
+        let mut osc = event(52, Some(7), "terminal");
+        osc["question"] = hook["question"].clone();
+        let e = c.handle_at(&osc, &places(), Instant::now() + Duration::from_secs(40)).unwrap();
+        assert_eq!(e.kind, "terminal");
+        assert!(e.questions.is_empty());
+    }
 }
