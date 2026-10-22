@@ -471,6 +471,10 @@ impl Hub {
         short: &str,
     ) -> Result<bool, RpcError> {
         self.subsession_harness_check(pm, harness, model, folder).await?;
+        // A restricted chat's sub-session in its own untrusted folder starts restricted.
+        if self.restricted_subsession(parent, folder, harness).await {
+            return Ok(false);
+        }
         self.subsession_folder_check(pm, folder, Walk::BeforeCard).await?;
         let decided = self.ensure_folder_trusted(parent, folder, harness, short).await?;
         let rules = !Self::web_turn(parent);
