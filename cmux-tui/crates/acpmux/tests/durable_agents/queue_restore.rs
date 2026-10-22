@@ -282,19 +282,27 @@ async fn a_lost_prompt_runs_once_after_another_turn_started_first() {
     assert_eq!(answers, 1, "q-lost's answer came {answers} times");
 }
 
-/// How many prompts the long log below queues and runs.
+/// How many prompts each long log below holds.
 const LONG_LOG_PROMPTS: usize = 20_000;
-/// How long its restore may take: the per-record scans of the waiting list and the reorder list
-/// that grew by every prompt run (`queue.rs` `restore_queue`) made it quadratic.
+/// How long its restore may take: the per-record scans of the waiting list, the reorder list
+/// that grew by every prompt run and the prompts that left the queue for a turn that never
+/// started (`queue.rs` `restore_queue`, `lost_start.rs`) made it quadratic.
 const LONG_LOG_RESTORE_BOUND: Duration = Duration::from_secs(12);
 
-/// A session log that queued 20,000 prompts behind a turn and then ran each (`queued`, then
-/// `dequeued`, `user_message`, `turn_started` and `turn_result` for each: 100,000 queue records)
-/// and left one more queued is read and its queue restored in time, with that one prompt in it.
-/// The log is written straight to the store's segment, as the daemons that ran them would have.
-#[tokio::test]
-async fn a_long_queue_log_restores_in_time() {
-    let mut daemon = Daemon::new("qlong", "approve-all");
+/// A `queued` record of prompt `p-{i}` for turn `t-{i}`.
+fn queued(i: usize, text: &str) -> Value {
+    json!({"text": text, "client": "test", "position": i + 1, "promptId": format!("p-{i}"), "turnId": format!("t-{i}"),
+           "prompt": [{"type": "text", "text": text}], "control": "local", "trustGate": false})
+}
+
+/// Appends the records `write` makes to a new session's log, as the daemons that ran them
+/// would have, restarts the daemon and returns the prompt ids its restored queue holds and how
+/// long the logs took to read and the queues to restore.
+async fn restore_long_log(
+    name: &str,
+    write: impl FnOnce(&mut dyn FnMut(&str, Value)),
+) -> (Vec<String>, Duration) {
+    let mut daemon = Daemon::new(name, "approve-all");
     let session = new_session(&daemon).await;
     daemon.sigterm();
     let dir = daemon.home.join("sessions").join(&session).join("events");
@@ -306,47 +314,25 @@ async fn a_long_queue_log_restores_in_time() {
     let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
         as u64;
     let mut lines = String::new();
-    let mut record = |kind: &str, msg: Value| {
+    write(&mut |kind: &str, msg: Value| {
         seq += 1;
         lines.push_str(
             &json!({"seq": seq, "at": at, "dir": "mux", "kind": kind, "msg": msg}).to_string(),
         );
         lines.push('\n');
-    };
-    let queued = |i: usize, text: &str| {
-        json!({"text": text, "client": "test", "position": i + 1, "promptId": format!("p-{i}"), "turnId": format!("t-{i}"),
-               "prompt": [{"type": "text", "text": text}], "control": "local", "trustGate": false})
-    };
-    for i in 0..LONG_LOG_PROMPTS {
-        record("queued", queued(i, &format!("prompt {i}")));
-    }
-    for i in 0..LONG_LOG_PROMPTS {
-        let (p, t) = (format!("p-{i}"), format!("t-{i}"));
-        let left = LONG_LOG_PROMPTS - i - 1;
-        record("dequeued", json!({"promptId": p, "turnId": t, "queued": left}));
-        record(
-            "user_message",
-            json!({"text": format!("prompt {i}"), "client": "test", "promptId": p, "turnId": t}),
-        );
-        record(
-            "turn_started",
-            json!({"prompt": format!("prompt {i}"), "client": "test", "promptId": p, "turnId": t, "control": "local"}),
-        );
-        record("turn_result", json!({"promptId": p, "turnId": t, "stopReason": "end_turn"}));
-    }
-    record("queued", queued(LONG_LOG_PROMPTS, "the last one"));
+    });
     let mut file = std::fs::OpenOptions::new().append(true).open(&segment).unwrap();
     std::io::Write::write_all(&mut file, lines.as_bytes()).unwrap();
     drop(file);
 
-    // The restored prompt waits for the test (`hold_startup`).
+    // The restored prompts wait for the test (`hold_startup`).
     hold_startup(&daemon);
     let started = Instant::now();
     daemon.start();
     let mut rpc = daemon.rpc().await;
     // `_acpmux/info` answers once the logs are read and the queues restored (`wait_logs`). Its
-    // own deadline, not `Rpc::reply`'s 30 s a line: a slow restore fails on the bound below,
-    // with its time.
+    // own deadline, not `Rpc::reply`'s 30 s a line: a slow restore fails on the bound, with its
+    // time.
     let id = rpc.send("_acpmux/info", json!({"sessionId": session})).await;
     let info = tokio::time::timeout(Duration::from_secs(900), async {
         loop {
@@ -360,16 +346,75 @@ async fn a_long_queue_log_restores_in_time() {
     .await
     .expect("the logs were read within 900 s");
     let took = started.elapsed();
-    eprintln!("restored a log of {} queued prompts in {took:?}", LONG_LOG_PROMPTS + 1);
+    eprintln!("{name}: restored in {took:?}");
     assert_eq!(info["logsLoading"], false, "{info:#}");
     let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
     let queue = attached["session"]["queue"].as_array().expect("queue in the attach reply");
-    let ids: Vec<&str> = queue.iter().filter_map(|q| q["promptId"].as_str()).collect();
-    let last = format!("p-{LONG_LOG_PROMPTS}");
-    assert_eq!(ids, [last.as_str()], "the restore did not put back only the last prompt");
+    let ids = queue.iter().filter_map(|q| q["promptId"].as_str().map(str::to_owned)).collect();
+    (ids, took)
+}
+
+/// A session log that queued 20,000 prompts behind a turn and then ran each (`queued`, then
+/// `dequeued`, `user_message`, `turn_started` and `turn_result` for each: 100,000 queue records)
+/// and left one more queued is read and its queue restored in time, with that one prompt in it.
+#[tokio::test]
+async fn a_long_queue_log_restores_in_time() {
+    let (ids, took) = restore_long_log("qlong", |record| {
+        for i in 0..LONG_LOG_PROMPTS {
+            record("queued", queued(i, &format!("prompt {i}")));
+        }
+        for i in 0..LONG_LOG_PROMPTS {
+            let (p, t) = (format!("p-{i}"), format!("t-{i}"));
+            let left = LONG_LOG_PROMPTS - i - 1;
+            record("dequeued", json!({"promptId": p, "turnId": t, "queued": left}));
+            record(
+                "user_message",
+                json!({"text": format!("prompt {i}"), "client": "test", "promptId": p, "turnId": t}),
+            );
+            record(
+                "turn_started",
+                json!({"prompt": format!("prompt {i}"), "client": "test", "promptId": p, "turnId": t, "control": "local"}),
+            );
+            record("turn_result", json!({"promptId": p, "turnId": t, "stopReason": "end_turn"}));
+        }
+        record("queued", queued(LONG_LOG_PROMPTS, "the last one"));
+    })
+    .await;
+    assert_eq!(
+        ids,
+        [format!("p-{LONG_LOG_PROMPTS}")],
+        "the restore did not put back only the last prompt"
+    );
     assert!(
         took < LONG_LOG_RESTORE_BOUND,
         "restoring the queue of a log of {} queued prompts took {took:?} (bound {LONG_LOG_RESTORE_BOUND:?})",
         LONG_LOG_PROMPTS + 1
+    );
+}
+
+/// A session log in which 20,000 queued prompts each left the queue for a turn that never
+/// started (`dequeued` with no `turn_started`: daemons that stopped first, `lost_start.rs`) is
+/// read and its queue restored in time, with every one of them back at the head in the order
+/// they left it.
+#[tokio::test]
+async fn a_long_log_of_unstarted_prompts_restores_in_time() {
+    let (ids, took) = restore_long_log("qlost", |record| {
+        for i in 0..LONG_LOG_PROMPTS {
+            record("queued", queued(i, &format!("prompt {i}")));
+        }
+        for i in 0..LONG_LOG_PROMPTS {
+            let left = LONG_LOG_PROMPTS - i - 1;
+            record(
+                "dequeued",
+                json!({"promptId": format!("p-{i}"), "turnId": format!("t-{i}"), "queued": left}),
+            );
+        }
+    })
+    .await;
+    let want: Vec<String> = (0..LONG_LOG_PROMPTS).map(|i| format!("p-{i}")).collect();
+    assert!(ids == want, "the restore did not put back every unstarted prompt in order");
+    assert!(
+        took < LONG_LOG_RESTORE_BOUND,
+        "restoring the queue of a log of {LONG_LOG_PROMPTS} unstarted prompts took {took:?} (bound {LONG_LOG_RESTORE_BOUND:?})"
     );
 }
