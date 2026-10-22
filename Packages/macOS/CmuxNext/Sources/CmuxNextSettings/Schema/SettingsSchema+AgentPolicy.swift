@@ -281,6 +281,8 @@ extension SettingsSchema {
         "editor.importFrom": .userOnly,
         "browser.hostsToOpenInEmbeddedBrowser": .privacy,
         "browser.urlsToAlwaysOpenExternally": .privacy,
+        // On, the sidebar and New Tab show what other apps play: an agent must not turn on reading them.
+        "sidebar.nowPlaying.otherApps": .privacy,
         // Whether attached photos and videos send their location.
         "home.attachments.keepLocation": .privacy,
         // Where the person's direct messages and group chats go: an agent must not move them to another server.
