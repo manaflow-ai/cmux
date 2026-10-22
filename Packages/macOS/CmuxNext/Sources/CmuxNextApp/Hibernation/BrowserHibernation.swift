@@ -59,6 +59,13 @@ final class BrowserHibernation {
     private var freezeProbing: Set<String> = []
     /// When a page the probe kept awake (playing audio) is asked again.
     private var freezeKeptAt: [String: ContinuousClock.Instant] = [:]
+    /// Probes in a row each hidden page did not answer (`PageProbe.answered`).
+    private var unanswered: [String: Int] = [:]
+    /// Probes in a row a page may leave unanswered before it counts as idle. One miss can be a
+    /// load or a pause of a few seconds; three in a row (the freeze probes are `freezeSeconds`
+    /// apart) mean a page busy the whole time, the one that costs the most to keep awake. A
+    /// freeze is undone on show.
+    static let unansweredLimit = 3
     private let freezeDeadline = DemandTimer(owner: "BrowserFreeze")
     private var pressureSource: (any DispatchSourceMemoryPressure)?
     /// Pinned state of a tab (the daemon record); injected by the App.
@@ -164,6 +171,7 @@ final class BrowserHibernation {
         if frozen.contains(key) { coldShows += 1 }
         thaw(key)
         freezeKeptAt[key] = nil
+        unanswered[key] = nil
         hoveredAt[key] = nil
         hiddenAt[key] = nil
         prepared[key] = nil
@@ -195,6 +203,7 @@ final class BrowserHibernation {
         frozen.remove(key)
         freezeProbing.remove(key)
         freezeKeptAt[key] = nil
+        unanswered[key] = nil
         hoveredAt[key] = nil
         awakeNeighbors.remove(key)
         snapshots.remove(key)
@@ -349,8 +358,9 @@ final class BrowserHibernation {
     }
 
     /// Asks the page for playing media, Web Audio and capture, then freezes it
-    /// if it is still the same hidden page. A page that plays stays awake and
-    /// is asked again after `freezeSeconds`.
+    /// if it is still the same hidden page. A page that plays, or that did not
+    /// answer fewer than `unansweredLimit` times in a row, stays awake and is
+    /// asked again after `freezeSeconds`.
     private func freeze(_ key: String) {
         guard let cache, let tab = cache.browsers[key]?.tab, let page = freezer(tab),
               let generation = cache.lifecycle.record(key)?.generation, freezeProbing.insert(key).inserted else { return }
@@ -363,15 +373,32 @@ final class BrowserHibernation {
             if let used = self.agentUsedAt[key], (ContinuousClock.now - used).seconds < Self.agentGrace { return }
             // It became a neighbor (or was hovered) while the probe ran.
             if self.awakeNeighbors.contains(key) || self.hoverLeft(key, now: .now) != nil { return }
-            if probe.capturing || probe.playingMedia || probe.webAudio {
+            let doubted = self.doubts(key, probe)
+            if probe.capturing || probe.playingMedia || probe.webAudio || doubted {
                 self.freezeKeptAt[key] = .now
                 self.replan()
                 return
             }
-            page.setFrozen(true)
-            self.frozen.insert(key)
-            cache.trace(key, "frozen")
+            self.freeze(key, page)
         }
+    }
+
+    private func freeze(_ key: String, _ page: any BrowserFreezing) {
+        page.setFrozen(true)
+        frozen.insert(key)
+        cache?.trace(key, "frozen")
+    }
+
+    /// Counts a probe `key` did not answer, and clears the count on an answer. True while the
+    /// page still gets the benefit of the doubt (fewer than `unansweredLimit` in a row).
+    private func doubts(_ key: String, _ probe: PageProbe) -> Bool {
+        guard !probe.answered else {
+            unanswered[key] = nil
+            return false
+        }
+        let count = (unanswered[key] ?? 0) + 1
+        unanswered[key] = count
+        return count < Self.unansweredLimit
     }
 
     /// Thaws a frozen page (shown, driven by an agent, about to hibernate, or
@@ -421,7 +448,11 @@ final class BrowserHibernation {
         thaw(key)
         Task { @MainActor [weak self] in
             let probe = user ? PageProbe() : await PageProbe.run(tab)
-            let exemption = probe.exemption(pressure: self?.pressure ?? .normal) ?? (source.showsFormSubmission ? .formSubmission : nil)
+            let pressure = self?.pressure ?? .normal
+            // A page that keeps not answering hibernates only under memory pressure: its form edits are unknown.
+            let doubted = self?.doubts(key, probe) ?? true
+            let exemption = probe.exemption(pressure: pressure) ?? (source.showsFormSubmission ? .formSubmission : nil)
+                ?? (!probe.answered && (doubted || pressure == .normal) ? .unanswered : nil)
             // A page that stays needs no picture (each replan probes it again).
             let snapshot = exemption == nil ? await self?.snapshot(tab, key: key) : nil
             guard let self, let cache = self.cache else { return }
@@ -434,6 +465,8 @@ final class BrowserHibernation {
             }
             if let exemption {
                 self.exemptions[key] = exemption
+                // The probe thawed it; a page past its doubt freezes again at once (no replan would).
+                if exemption == .unanswered, !doubted, let page = self.freezer(tab), !self.frozen.contains(key) { self.freeze(key, page) }
                 return
             }
             // It became a neighbor or was hovered while the probe ran (the person's Hibernate Tab still applies).
@@ -497,6 +530,9 @@ struct PageProbe {
     /// A running Web Audio context. It may be silent (a chat app's notification sounds, a
     /// game), unlike a playing element, so critical memory pressure overrides it.
     var webAudio = false
+    /// False when the page did not answer (a script error, or no reply within the deadline):
+    /// only what the tab reported on its own (`BrowserTabState.media`) is known.
+    var answered = true
 
     func exemption(pressure: MemoryPressureLevel) -> HibernationPlanner.Exemption? {
         if capturing { return .capturing }
@@ -511,7 +547,7 @@ struct PageProbe {
                 (try await tab.evaluate(BrowserPageBusy.fieldProbeScript, world: .isolated), try await tab.pageBusy())
             }
             guard case .string(let json) = value, let data = json.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return PageProbe(playingMedia: true) }
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return unanswered(tab) }
             // Media the tab's mute silences still plays (cx-d0d.24): hibernating would drop the mute.
             let muted = tab.state.isAudioMuted && tab.state.media?.isPlaying == true
             // A video in Picture in Picture plays on in its floating window, paused or muted alike.
@@ -520,8 +556,19 @@ struct PageProbe {
             return PageProbe(playingMedia: muted || floating || (object["media"] ?? true), editedForm: busy.editedForm ?? object["form"] ?? true,
                              capturing: busy.capturing, webAudio: busy.audio)
         } catch {
-            return PageProbe(playingMedia: true)
+            return unanswered(tab)
         }
+    }
+
+    /// A page that did not answer. It used to count as playing, so a page too busy to answer
+    /// never froze and was asked again every `freezeSeconds` (the hottest renderer in the
+    /// 2026-10-21 audit: 25 % CPU, 586 MB). The media the tab last reported still keeps it: the
+    /// page's media script pushes that state (`BrowserMediaState+Scripts`), with no round trip.
+    /// WebKit's own camera and microphone state is the planner's `isCapturing`; Chromium reports none to the app.
+    static func unanswered(_ tab: any BrowserTab) -> PageProbe {
+        let media = tab.state.media
+        let playing = media.map { $0.isAudible || ($0.isPlaying && tab.state.isAudioMuted) || $0.isPictureInPicture } ?? false
+        return PageProbe(playingMedia: playing, answered: false)
     }
 }
 

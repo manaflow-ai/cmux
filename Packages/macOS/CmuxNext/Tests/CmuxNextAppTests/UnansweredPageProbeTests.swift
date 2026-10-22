@@ -21,6 +21,7 @@ import Testing
         let probe = await PageProbe.run(page)
         #expect(!probe.playingMedia)
         #expect(probe.exemption(pressure: .normal) != .audio)
+        #expect(!probe.answered)
     }
 
     /// The tab's own media report (the page script's push, no round trip) still keeps it awake.

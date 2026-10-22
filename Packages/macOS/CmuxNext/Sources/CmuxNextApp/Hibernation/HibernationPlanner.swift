@@ -36,6 +36,9 @@ struct HibernationPlanner {
         case agentDriving = "agent_driving"
         /// Beside a pane's shown tab, or hovered (`browser.keepNeighborTabsAwake`).
         case neighbor
+        /// The page did not answer the probe: kept for `BrowserHibernation.unansweredLimit`
+        /// probes in a row, then until memory pressure (its form edits are unknown).
+        case unanswered
     }
 
     struct Plan: Equatable {
