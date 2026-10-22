@@ -1261,7 +1261,7 @@ fn locate_by_key(daemon: &Path, key: &str) -> Option<WorkspaceRef> {
 }
 
 /// `rename-workspace` by key on the session daemon at `daemon`.
-/// Closes workspace `key` and ends its terminal (the subagent's shell); the
+/// Closes workspace `key` and ends any terminal the user opened there; the
 /// agent session is acpmux's and stays.
 fn close_by_key(daemon: &Path, key: &str) -> Result<(), String> {
     use cmux::raw::{Client, ClientConfig, CloseWorkspaceRequest, Optional};
@@ -1469,6 +1469,15 @@ pub fn adopt_owner_workspaces(owner: &Path, app: &Path) -> Result<usize, String>
             );
             continue;
         }
+        // Only a chat makes a subagent workspace worth moving: without one, the copy
+        // would be an empty workspace (its idle shell is never re-created).
+        if !tree_tabs(ws)
+            .iter()
+            .any(|tab| tab["conversation"].is_object())
+        {
+            eprintln!("optchat: workspace {key} has no chat; it stays on the Chief's session");
+            continue;
+        }
         let group = ws["group"]
             .as_str()
             .and_then(|g| group_names.get(g))
@@ -1518,6 +1527,9 @@ fn copy_workspace(
         "mutation_id": format!("optchat-adopt-ws-{key}"), "origin": MUTATION_ORIGIN}))?;
     let workspace = made["workspace"].clone();
     let mut pane: Option<Value> = None;
+    // Pages open after the chats, which make the workspace's first pane: a page
+    // listed before any chat would otherwise have no pane to open in.
+    let mut pages = Vec::new();
     for (i, tab) in tree_tabs(ws).iter().enumerate() {
         let conversation = &tab["conversation"];
         if tab["kind"] == "pty" {
@@ -1552,7 +1564,18 @@ fn copy_workspace(
                 pane = pane_of(to, key);
             }
         } else if tab["kind"] == "browser" {
-            let Some(p) = pane.clone() else { continue };
+            pages.push((i, tab.clone()));
+        }
+    }
+    if pane.is_none() {
+        pane = pane_of(to, key);
+    }
+    for (i, tab) in &pages {
+        let Some(p) = pane.clone() else {
+            eprintln!("optchat: workspace {key}: a page did not move: no pane");
+            continue;
+        };
+        {
             let mut request = json!({"cmd": "new-frontend-browser-tab", "pane": p,
                 "url": tab["url"].as_str().unwrap_or("about:blank"),
                 "engine": tab["browser_engine"].as_str().unwrap_or("cef"), "activate": false,
