@@ -2468,8 +2468,7 @@ pub(crate) fn unix_epoch_ms() -> anyhow::Result<u64> {
 mod tests;
 
 mod actors;
-mod digest_reader;
-pub(crate) mod fuzz;
+pub(crate) mod digest_reader;
 use digest_reader::DigestReader;
 #[cfg(test)]
 mod actor_tests;

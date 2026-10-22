@@ -2650,8 +2650,7 @@ use resource_connection::{
     handle_resource_connection_message, resource_stream_end, send_resource_stream_item,
 };
 
-mod connection_frame;
-pub(crate) mod fuzz;
+pub(crate) mod connection_frame;
 #[cfg(test)]
 use connection_frame::write_vt_state_command_json;
 use connection_frame::{

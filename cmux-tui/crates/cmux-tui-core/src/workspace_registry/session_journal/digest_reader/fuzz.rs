@@ -9,7 +9,7 @@ use flate2::Compression;
 use flate2::write::GzEncoder;
 use sha2::{Digest, Sha256};
 
-use super::{SessionJournalRecord, decode_journal_segment};
+use super::super::{SessionJournalRecord, decode_journal_segment};
 
 pub(crate) fn segment(data: &[u8]) {
     let (count, start, end) = match serde_json::from_slice::<Vec<SessionJournalRecord>>(data) {

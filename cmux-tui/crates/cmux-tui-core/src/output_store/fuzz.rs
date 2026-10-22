@@ -26,8 +26,8 @@ fn directory() -> Option<&'static Path> {
     static DIRECTORY: OnceLock<Option<PathBuf>> = OnceLock::new();
     DIRECTORY
         .get_or_init(|| {
-            let directory = std::env::temp_dir()
-                .join(format!("cmux-fuzz-output-store-{}", std::process::id()));
+            let directory =
+                std::env::temp_dir().join(format!("cmux-fuzz-output-store-{}", std::process::id()));
             std::fs::create_dir_all(directory.join(TERMINAL)).ok()?;
             Some(directory)
         })
@@ -116,7 +116,9 @@ pub(crate) fn self_check() -> bool {
     let Ok(terminal) = TerminalPublicId::parse(TERMINAL) else { return false };
     let segment = frames(&[0, 0, 5, b'h', b'e', b'l', b'l', b'o']);
     let mut snapshot = SNAPSHOT_MAGIC.to_vec();
-    snapshot.extend_from_slice(br#"{"generation":"fuzz-generation","stream_end":5,"cols":80,"rows":24}"#);
+    snapshot.extend_from_slice(
+        br#"{"generation":"fuzz-generation","stream_end":5,"cols":80,"rows":24}"#,
+    );
     snapshot.push(b'\n');
     snapshot.extend_from_slice(&gzip(b"hello"));
     std::fs::write(segment_path(directory, 0), segment).is_ok()

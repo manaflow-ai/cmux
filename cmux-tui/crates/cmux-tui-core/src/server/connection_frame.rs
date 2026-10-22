@@ -4,6 +4,8 @@
 
 #[cfg(unix)]
 mod machine_catalog;
+/// The socket line decode path for cmux-tui/fuzz (crate::fuzz_entry).
+pub(crate) mod fuzz;
 
 use super::*;
 

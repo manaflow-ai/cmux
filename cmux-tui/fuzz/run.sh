@@ -58,7 +58,11 @@ out=${FUZZ_OUT:-$target_dir-out}
 
 bin_args=()
 for target in "${targets[@]}"; do bin_args+=(--bin "$target"); done
-CARGO_TARGET_DIR=$target_dir cargo build --locked --release --target "$host" "${bin_args[@]}"
+# Not --locked: a fuzzed crate that gains a dependency in ../Cargo.lock would
+# otherwise break this build until someone refreshes fuzz/Cargo.lock. Without
+# --locked cargo keeps every version already pinned here and only adds the new
+# package; commit the refreshed lock when you see it change.
+CARGO_TARGET_DIR=$target_dir cargo build --release --target "$host" "${bin_args[@]}"
 [ "$build_only" = 1 ] && exit 0
 
 status=0

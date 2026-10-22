@@ -5,6 +5,10 @@ use std::io::{Read, Result as IoResult};
 
 use sha2::{Digest, Sha256};
 
+/// Sealed segment decode for cmux-tui/fuzz (crate::fuzz_entry); a child of
+/// session_journal so it reaches the private decoder.
+pub(crate) mod fuzz;
+
 pub(super) struct DigestReader<R> {
     inner: R,
     hasher: Sha256,

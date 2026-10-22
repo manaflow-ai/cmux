@@ -20,51 +20,85 @@ fn fixed() -> &'static Compat {
     COMPAT.get_or_init(|| {
         let mut schema = Schema::new("fuzz", 1);
         for kind in KINDS {
-            schema.push("rename and move", vec![
-                change(kind, Change::Rename { path: "/a/name".into(), to: "title".into() }),
-                change(kind, Change::Move { from: "/a/x".into(), path: "/b/y".into() }),
-            ]);
-            schema.push("add and remove", vec![
-                change(kind, Change::Add { path: "/c".into(), default: json!({"n": 1}) }),
-                change(kind, Change::Remove { path: "/d".into(), default: json!([1, 2]) }),
-            ]);
-            schema.push("retype", vec![
-                change(kind, Change::Retype {
-                    path: "/e".into(),
-                    up: Conversion::NumberToString,
-                    down: Conversion::StringToNumber,
-                }),
-                change(kind, Change::Retype {
-                    path: "/f".into(),
-                    up: Conversion::Wrap,
-                    down: Conversion::Unwrap,
-                }),
-                change(kind, Change::Retype {
-                    path: "/list/*/g".into(),
-                    up: Conversion::Nest { key: "v".into() },
-                    down: Conversion::Unnest { key: "v".into() },
-                }),
-                change(kind, Change::Retype {
-                    path: "/h".into(),
-                    up: Conversion::BoolToNumber,
-                    down: Conversion::NumberToBool,
-                }),
-            ]);
-            schema.push("values and fills", vec![
-                change(kind, Change::RenameValue {
-                    path: "/state".into(),
-                    from: json!("old"),
-                    to: json!("new"),
-                }),
-                change(kind, Change::Fill {
-                    path: "/i".into(),
-                    default: json!(false),
-                    direction: Direction::Both,
-                }),
-                change(kind, Change::Move { from: "/list/*/x".into(), path: "/list/*/z/x".into() }),
-            ]);
+            schema.push(
+                "rename and move",
+                vec![
+                    change(kind, Change::Rename { path: "/a/name".into(), to: "title".into() }),
+                    change(kind, Change::Move { from: "/a/x".into(), path: "/b/y".into() }),
+                ],
+            );
+            schema.push(
+                "add and remove",
+                vec![
+                    change(kind, Change::Add { path: "/c".into(), default: json!({"n": 1}) }),
+                    change(kind, Change::Remove { path: "/d".into(), default: json!([1, 2]) }),
+                ],
+            );
+            schema.push(
+                "retype",
+                vec![
+                    change(
+                        kind,
+                        Change::Retype {
+                            path: "/e".into(),
+                            up: Conversion::NumberToString,
+                            down: Conversion::StringToNumber,
+                        },
+                    ),
+                    change(
+                        kind,
+                        Change::Retype {
+                            path: "/f".into(),
+                            up: Conversion::Wrap,
+                            down: Conversion::Unwrap,
+                        },
+                    ),
+                    change(
+                        kind,
+                        Change::Retype {
+                            path: "/list/*/g".into(),
+                            up: Conversion::Nest { key: "v".into() },
+                            down: Conversion::Unnest { key: "v".into() },
+                        },
+                    ),
+                    change(
+                        kind,
+                        Change::Retype {
+                            path: "/h".into(),
+                            up: Conversion::BoolToNumber,
+                            down: Conversion::NumberToBool,
+                        },
+                    ),
+                ],
+            );
+            schema.push(
+                "values and fills",
+                vec![
+                    change(
+                        kind,
+                        Change::RenameValue {
+                            path: "/state".into(),
+                            from: json!("old"),
+                            to: json!("new"),
+                        },
+                    ),
+                    change(
+                        kind,
+                        Change::Fill {
+                            path: "/i".into(),
+                            default: json!(false),
+                            direction: Direction::Both,
+                        },
+                    ),
+                    change(
+                        kind,
+                        Change::Move { from: "/list/*/x".into(), path: "/list/*/z/x".into() },
+                    ),
+                ],
+            );
         }
-        Compat::new(schema).unwrap_or_else(|error| panic!("fixed fuzz schema is invalid: {error:?}"))
+        Compat::new(schema)
+            .unwrap_or_else(|error| panic!("fixed fuzz schema is invalid: {error:?}"))
     })
 }
 

@@ -1,8 +1,9 @@
 //! The socket line decode path for cmux-tui/fuzz:
 //! the parse steps `handle_connection_frame` runs before any dispatch.
 
-use super::api_revision_wire::NegotiatedRevision;
-use super::{Request, auth_token, pairing_request};
+use super::super::Request;
+use super::super::api_revision_wire::NegotiatedRevision;
+use super::{auth_token, pairing_request};
 
 pub(crate) fn socket_line(data: &[u8]) {
     let Some((&revision, rest)) = data.split_first() else { return };

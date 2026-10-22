@@ -10,13 +10,13 @@
 /// revision upgrade, the resource envelope and the classic request parse.
 /// The first byte is the API revision the client declares.
 pub fn socket_line(data: &[u8]) {
-    crate::server::fuzz::socket_line(data);
+    crate::server::connection_frame::fuzz::socket_line(data);
 }
 
 /// One sealed journal segment row whose JSON body is `data` (the gzip, length
 /// and digest are made to match, so the decode reaches the record parse).
 pub fn journal_segment(data: &[u8]) {
-    crate::workspace_registry::session_journal::fuzz::segment(data);
+    crate::workspace_registry::session_journal::digest_reader::fuzz::segment(data);
 }
 
 /// The output store's segment and snapshot files with contents from `data`.
