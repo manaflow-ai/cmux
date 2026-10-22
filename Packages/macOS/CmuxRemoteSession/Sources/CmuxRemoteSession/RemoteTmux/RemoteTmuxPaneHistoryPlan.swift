@@ -47,6 +47,9 @@ public struct RemoteTmuxPaneHistoryPlan: Equatable, Sendable {
     /// for a cell that changes bold, italic, underline, strikethrough and its 24-bit
     /// foreground, background and underline colors; this rounds that up.
     public static let maximumEncodedBytesPerCell = 64
+    /// The most bytes one cell takes in plain `capture-pane -J` text, which has no escape
+    /// sequences: a UTF-8 character with a few combining marks.
+    public static let plainTextBytesPerCell = 16
     /// The most rows in one chunk, however narrow the pane.
     public static let maximumChunkRows = 2_000
 
@@ -60,9 +63,13 @@ public struct RemoteTmuxPaneHistoryPlan: Equatable, Sendable {
     /// Cells per chunk for a stream whose command blocks hold at most `bytes`, so that a
     /// chunk of the densest output fills at most half a block.
     /// - Parameter bytes: The largest command block the control stream accepts.
+    /// - Parameter bytesPerCell: The most bytes one cell can take in the capture's output.
     /// - Returns: The most cells one chunk may hold, at least 1.
-    public static func maximumChunkCells(forCommandBlockBytes bytes: Int) -> Int {
-        max(1, bytes / 2 / maximumEncodedBytesPerCell)
+    public static func maximumChunkCells(
+        forCommandBlockBytes bytes: Int,
+        bytesPerCell: Int = maximumEncodedBytesPerCell
+    ) -> Int {
+        max(1, bytes / 2 / max(1, bytesPerCell))
     }
 
     /// Plans the captures for a pane.
@@ -72,16 +79,21 @@ public struct RemoteTmuxPaneHistoryPlan: Equatable, Sendable {
     /// - Parameter maximumCommandBlockBytes: The largest command block the control stream
     ///   accepts before it treats the stream as broken.
     /// - Parameter maximumRows: The most history rows to read; defaults to ``maximumRows``.
+    /// - Parameter bytesPerCell: The most bytes one cell can take in the capture's output;
+    ///   defaults to ``maximumEncodedBytesPerCell`` for `capture-pane -e`. Plain text captures
+    ///   pass ``plainTextBytesPerCell``.
     public init(
         historySize: Int,
         paneWidth: Int,
         maximumCommandBlockBytes: Int,
-        maximumRows: Int = Self.maximumRows
+        maximumRows: Int = Self.maximumRows,
+        bytesPerCell: Int = Self.maximumEncodedBytesPerCell
     ) {
         let available = max(0, historySize)
         let rows = min(available, max(0, maximumRows))
         let truncated = available > rows
-        let chunkCells = Self.maximumChunkCells(forCommandBlockBytes: maximumCommandBlockBytes)
+        let chunkCells = Self.maximumChunkCells(
+            forCommandBlockBytes: maximumCommandBlockBytes, bytesPerCell: bytesPerCell)
         // No row floor: on a very wide pane even a few rows can pass the cell bound.
         let rowsPerChunk = max(1, min(Self.maximumChunkRows, chunkCells / max(1, paneWidth)))
         var chunks: [Chunk] = []
