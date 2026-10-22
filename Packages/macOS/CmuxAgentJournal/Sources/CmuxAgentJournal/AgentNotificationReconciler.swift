@@ -40,10 +40,6 @@ public struct AgentNotificationReconciler: Sendable {
         var attentionIdentities: Set<String> = []
         var attentionRequestIDs: [String: String] = [:]
         var completionIdentity: String?
-        /// The completion "Always" accepted while this turn's background work was
-        /// still running. The turn's later settled completion is a second, distinct
-        /// notification (the work is done), not a repeat of it (#24386).
-        var pendingCompletionIdentity: String?
         /// The settled turn reopened (a continuation without a new prompt)
         /// after its completion notified. Its next Stop reuses that completion
         /// identity and is deduplicated, so its idle reminder is the only signal
@@ -478,7 +474,6 @@ public struct AgentNotificationReconciler: Sendable {
             }
         case .turnStarted:
             session.rootStopped = false
-            session.pendingCompletionIdentity = nil
             if let key = context?.eventIdentity { session.starts.insert(key) }
             if incomingTurn != nil || context?.eventIdentity != nil || session.phase != .running {
                 session.turn = incomingTurn ?? context?.eventIdentity ?? draft.eventId
@@ -558,20 +553,17 @@ public struct AgentNotificationReconciler: Sendable {
             guard session.phase == .idle || (deliversPendingCompletions && session.phase == .running) else {
                 return .init(.delayed)
             }
-            let completionBoundary = Self.key(["completion", incomingTurn ?? session.turn])
-            if session.phase == .idle,
-               let pendingIdentity = session.pendingCompletionIdentity,
-               pendingIdentity == Self.key([sessionKey, completionBoundary]) {
-                // The same turn settling after its pending completion notified. The
-                // marker stays until the next turn, so a repeated settled Stop maps here too.
-                boundary = Self.key(["completion", incomingTurn ?? session.turn, "settled"])
+            // A Stop accepted while the session still runs is keyed by the Stop
+            // itself: Claude's hooks carry no turn id, and a prompt sent while the
+            // session runs does not advance its turn, so the turn alone cannot tell
+            // its replies apart. A Stop held for subagents is released under the
+            // same key, and the settled Stop that follows gets the turn's key.
+            let ownStop = Self.key(["completion", incomingTurn ?? session.turn, "stop",
+                                    context?.eventIdentity ?? draft.eventId])
+            if session.phase == .running || session.delivered[Self.key([sessionKey, ownStop])] != nil {
+                boundary = ownStop
             } else {
-                boundary = completionBoundary
-                // Only a Stop that reported its own background work is followed by a
-                // new settled Stop. A Stop held for subagents is released as itself.
-                if session.phase == .running, draft.pendingWork {
-                    session.pendingCompletionIdentity = Self.key([sessionKey, completionBoundary])
-                }
+                boundary = Self.key(["completion", incomingTurn ?? session.turn])
             }
         case .approvalRequested, .questionRequested, .planReviewRequested:
             // A real blocking request is never gated by background work.
