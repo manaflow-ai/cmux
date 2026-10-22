@@ -12,7 +12,27 @@ struct AppSceneDecorations: ViewModifier {
     @State private var isHovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Props that need a modifier below; a node with none of them (most Text, Icon, Spacer and
+    /// shape nodes) renders bare, with no hover tracking area, context menu or animation, so a
+    /// custom sidebar's row update lays out less (plans/cmux-next/custom-sidebar-DESIGN.md).
+    static let decorationKeys: Set<String> = [
+        "padding", "paddingHorizontal", "paddingVertical", "frame", "cornerRadius", "background", "hoverBackground",
+        "borderColor", "borderWidth", "opacity", "rotation", "layoutPriority", "fixedSize", "disabled", "help", "onTap", "menu",
+    ]
+
+    static func isPlain(_ node: AppSceneNode) -> Bool {
+        node.type != .menu && node.props.keys.allSatisfy { !decorationKeys.contains($0) }
+    }
+
     func body(content: Content) -> some View {
+        if Self.isPlain(node) {
+            content
+        } else {
+            decorated(content)
+        }
+    }
+
+    private func decorated(_ content: Content) -> some View {
         let frame = node.props["frame"]?.objectValue
         let radius = CGFloat(node.number("cornerRadius") ?? 0)
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
