@@ -262,6 +262,15 @@ import Testing
         #expect(h.updater.card == nil, "a check nobody asked for showed its progress")
     }
 
+    /// The same when no probe can start (a staged update this app cannot replace): the card answers.
+    @Test func aCheckWithNothingToReplaceLeavesNoAskBehind() async throws {
+        let h = Self.make(ring: "dev", replaceable: false)
+        h.updater.checkForUpdates()
+        #expect(h.feed.fetches == 0)
+        h.updater.debugIndicatorPhase = .checking
+        #expect(h.updater.card == nil, "a check nobody asked for showed its progress")
+    }
+
     /// Turning automatic checks off ends the pending probe; a new interval counts from the change.
     @Test func aScheduleChangeReplacesThePendingProbe() async throws {
         let h = Self.make(ring: "dev")
