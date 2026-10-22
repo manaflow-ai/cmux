@@ -80,7 +80,6 @@
   .foot { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; gap: 8px; }
   .foot .btn, .foot .link { margin-left: auto; }
   .pop-title { color: var(--text-2); font-size: var(--detail); }
-  .pop-from { color: var(--text-3); font-size: var(--detail); font-variant-numeric: tabular-nums; }
   .pop-foot { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--sep); }
   .pop-foot .link { margin-left: auto; }
 
@@ -271,22 +270,22 @@ const cardFoot = (label = "See What's New") => `<div class="foot"><span class="m
 const designs = [
   { n: 1, name: "Today (compact list)", tag: "now", note: "What ships today: one line per change, cut with an ellipsis.",
     card: `<div class="card">${X}<div class="eyebrow">Updated to <span class="ver">${ver}</span></div><ul>${changes.map(c => `<li>${c.t}</li>`).join("")}</ul>${cardFoot()}</div>`,
-    pop: `<div class="pop"><div class="pop-title">What's new in <span class="ver">${ver}</span></div><div class="pop-from">Updating from ${from}</div><ol>${changes.map((c, i) => `<li><span class="n">${i + 1}</span><div>${c.t}<small>${c.s}</small></div></li>`).join("")}</ol>${popFoot}</div>` },
+    pop: `<div class="pop"><div class="pop-title">What's new in <span class="ver">${ver}</span></div><ol>${changes.map((c, i) => `<li><span class="n">${i + 1}</span><div>${c.t}<small>${c.s}</small></div></li>`).join("")}</ol>${popFoot}</div>` },
   { n: 2, name: "Readable", tag: "Recommended", note: "Titles wrap to two lines, nothing cut off; a hairline under the version; the hover card gives each change air.",
     card: `<div class="card">${X}<div class="eyebrow">Updated to <span class="ver">${ver}</span></div><ul>${changes.map(c => `<li>${c.t}</li>`).join("")}</ul>${cardFoot()}</div>`,
-    pop: `<div class="pop"><div class="pop-title">What's new in <span class="ver">${ver}</span></div><div class="pop-from">Updating from ${from}</div><ol>${changes.map((c, i) => `<li><span class="n">${i + 1}</span><div>${c.t}<small>${c.s}</small></div></li>`).join("")}</ol>${popFoot}</div>` },
+    pop: `<div class="pop"><div class="pop-title">What's new in <span class="ver">${ver}</span></div><ol>${changes.map((c, i) => `<li><span class="n">${i + 1}</span><div>${c.t}<small>${c.s}</small></div></li>`).join("")}</ol>${popFoot}</div>` },
   { n: 3, name: "Timeline", note: "A thin rail joins the changes, reading top to bottom like the changelog.",
     card: `<div class="card">${X}<div class="eyebrow">Updated to <span class="ver">${ver}</span></div><ul>${changes.map(c => `<li>${c.t}</li>`).join("")}</ul>${cardFoot()}</div>`,
-    pop: `<div class="pop"><div class="pop-title">What's new in <span class="ver">${ver}</span></div><div class="pop-from">Updating from ${from}</div><ol>${changes.map(c => `<li>${c.t}<small>${c.s}</small></li>`).join("")}</ol>${popFoot}</div>` },
+    pop: `<div class="pop"><div class="pop-title">What's new in <span class="ver">${ver}</span></div><ol>${changes.map(c => `<li>${c.t}<small>${c.s}</small></li>`).join("")}</ol>${popFoot}</div>` },
   { n: 4, name: "Kind glyphs", note: "A quiet glyph says new (✦), better (↑) or fixed (✓). Gray only, no colored chips.",
     card: `<div class="card">${X}<div class="eyebrow">Updated to <span class="ver">${ver}</span></div><ul>${changes.map(c => `<li><span class="g">${glyph[c.k]}</span><span>${c.t}</span></li>`).join("")}</ul>${cardFoot()}</div>`,
-    pop: `<div class="pop"><div class="pop-title">What's new in <span class="ver">${ver}</span></div><div class="pop-from">Updating from ${from}</div><ol>${changes.map(c => `<li><span class="g">${glyph[c.k]}</span><div>${c.t}<small>${c.s}</small></div></li>`).join("")}</ol>${popFoot}</div>` },
+    pop: `<div class="pop"><div class="pop-title">What's new in <span class="ver">${ver}</span></div><ol>${changes.map(c => `<li><span class="g">${glyph[c.k]}</span><div>${c.t}<small>${c.s}</small></div></li>`).join("")}</ol>${popFoot}</div>` },
   { n: 5, name: "Headline first", note: "The top change leads in bold with its line; the rest follow small.",
     card: `<div class="card">${X}<div class="eyebrow">Updated to <span class="ver">${ver}</span></div><div class="lead">${changes[0].t}</div><div class="lead-sub">${changes[0].s}</div><ul>${changes.slice(1).map(c => `<li>${c.t}</li>`).join("")}</ul>${cardFoot()}</div>`,
-    pop: `<div class="pop"><div class="pop-title">What's new in <span class="ver">${ver}</span></div><div class="pop-from">Updating from ${from}</div><ol>${changes.map(c => `<li>${c.t}<small>${c.s}</small></li>`).join("")}</ol>${popFoot}</div>` },
+    pop: `<div class="pop"><div class="pop-title">What's new in <span class="ver">${ver}</span></div><ol>${changes.map(c => `<li>${c.t}<small>${c.s}</small></li>`).join("")}</ol>${popFoot}</div>` },
   { n: 6, name: "Minimal", note: "The card is one line and takes no room; hover or click for the list.",
     card: `<div class="card">${X}<div class="one"><div class="txt"><div class="t">Updated to <span class="ver">${ver}</span></div><div class="s">${changes.length + more} changes · ${changes[0].t}</div></div><button class="btn" data-act="see what's new">What's New</button></div></div>`,
-    pop: `<div class="pop"><div class="pop-title">What's new in <span class="ver">${ver}</span></div><div class="pop-from">Updating from ${from}</div><ol>${changes.map(c => `<li>${c.t}<small>${c.s}</small></li>`).join("")}</ol>${popFoot}</div>` },
+    pop: `<div class="pop"><div class="pop-title">What's new in <span class="ver">${ver}</span></div><ol>${changes.map(c => `<li>${c.t}<small>${c.s}</small></li>`).join("")}</ol>${popFoot}</div>` },
 ];
 /* #7 to #12: one release, as Conductor writes it. */
 const rel = {
@@ -316,7 +315,7 @@ const theme = () => document.documentElement.dataset.theme || "dark";
 const shot = (cls = "") => `<img class="shot ${cls}" alt="" data-shot src="../changelog-variations-gallery/workspace-groups-${theme()}.jpg">`;
 const li = xs => xs.map(x => `<li>${x}</li>`).join("");
 const eyebrow = `<div class="eyebrow">Updated to <span class="ver">${rel.short}</span> · ${rel.day}</div>`;
-const popHead = `<div class="pop-title">What's new in <span class="ver">${rel.short}</span></div><div class="pop-from">Updating from ${from}</div>`;
+const popHead = `<div class="pop-title">What's new in <span class="ver">${rel.short}</span></div>`;
 const popAll = (n) => `<div class="pop-foot"><span class="muted">${n}</span><button class="link" data-act="see all">See all changes →</button></div>`;
 const cardBtn = (label, left = `${total} changes`) => `<div class="foot"><span class="muted">${left}</span><button class="btn" data-act="see what's new">${label}</button></div>`;
 const sections = (count = false) => `<h3>Improvements${count ? `<span class="c">${rel.improvements.length}</span>` : ""}</h3><ul>${li(rel.improvements)}</ul>

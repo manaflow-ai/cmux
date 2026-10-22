@@ -60,7 +60,6 @@ nonisolated enum FeedStrings {
 
     /// An update card's title: "Claude Code updated to 2.1.305" (UpdateFeedCard).
     static func updatedTo(_ name: String, _ version: String) -> String { t("update.updatedTo", "\(name) updated to \(version)") }
-    static func updatedFrom(_ version: String) -> String { t("update.from", "From \(version)") }
     static func moreChanges(_ count: Int) -> String { t("update.moreChanges", "\(count) more changes") }
 
     static var disconnected: String { t("owner.disconnected", "Feed is unreachable") }
