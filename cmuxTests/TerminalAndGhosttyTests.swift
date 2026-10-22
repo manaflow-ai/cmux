@@ -4492,17 +4492,39 @@ final class WindowTerminalHostViewTests: XCTestCase {
         return (window, host, splitDelegate)
     }
 
+    /// Asserts each x (host coordinates, mid-height) belongs to the split: the
+    /// sidebar resizer does not claim it and a mouse down passes through the portal.
+    private func assertSplitDividerBandPassesThrough(
+        _ host: WindowTerminalHostView,
+        window: NSWindow,
+        xs: [CGFloat],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        for x in xs {
+            let point = NSPoint(x: x, y: 90)
+            XCTAssertFalse(
+                host.shouldPassThroughToSidebarResizer(at: point),
+                "x=\(x) is on the split divider band and must show the split resize cursor",
+                file: file,
+                line: line
+            )
+            let event = makeMouseDownEvent(at: host.convert(point, to: nil), window: window)
+            XCTAssertNil(
+                host.performHitTest(at: point, currentEvent: event),
+                "x=\(x) must pass through the terminal portal to the split divider",
+                file: file,
+                line: line
+            )
+        }
+    }
+
     /// The terminal's right edge is the split divider, which the Dock-edge
     /// guess used to read as the trailing sidebar edge.
     func testTerminalLeftOfBrowserKeepsSplitDividerBandFromTrailingSidebarGuess() {
         guard let fixture = makeTerminalBesideBrowserFixture(hostedRange: 0...200) else { return }
         defer { fixture.window.orderOut(nil) }
-        for x: CGFloat in [197, 200.5, 203] {
-            XCTAssertFalse(
-                fixture.host.shouldPassThroughToSidebarResizer(at: NSPoint(x: x, y: 90)),
-                "x=\(x) is on the split divider band and must show the split resize cursor"
-            )
-        }
+        assertSplitDividerBandPassesThrough(fixture.host, window: fixture.window, xs: [197, 200.5, 203])
     }
 
     /// The terminal's left edge is the split divider, which the leading
@@ -4510,12 +4532,7 @@ final class WindowTerminalHostViewTests: XCTestCase {
     func testTerminalRightOfBrowserKeepsSplitDividerBandFromLeadingSidebarGuess() {
         guard let fixture = makeTerminalBesideBrowserFixture(hostedRange: 201...400) else { return }
         defer { fixture.window.orderOut(nil) }
-        for x: CGFloat in [197, 200.5, 204] {
-            XCTAssertFalse(
-                fixture.host.shouldPassThroughToSidebarResizer(at: NSPoint(x: x, y: 90)),
-                "x=\(x) is on the split divider band and must show the split resize cursor"
-            )
-        }
+        assertSplitDividerBandPassesThrough(fixture.host, window: fixture.window, xs: [197, 200.5, 204])
     }
 
     /// Control: with no split under the point, a terminal that starts away
