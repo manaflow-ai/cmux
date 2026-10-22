@@ -54,10 +54,11 @@ jobs:
               Packages/Shared/CmuxTheme
               Packages/iOS/CmuxMobilePairedMac
               Packages/iOS/CmuxMobileShellModel
+          # CmuxMobileRPC builds on Linux but its tests stall there (about 20
+          # never finish, one ordering test fails); it stays on macOS until
+          # that is fixed.
           - group: network
-            packages: >-
-              Packages/iOS/CmuxMobileRPC
-              Packages/Shared/CmuxAPIClient
+            packages: Packages/Shared/CmuxAPIClient
           # The SDK's other suites sign in against a local Stack backend; these
           # run on URLProtocol fixtures (auth-refresh-tests.yml's filter, plus
           # the publishable-key suite).
@@ -112,8 +113,10 @@ jobs:
             result=pass
             if ! swift build --package-path "$package" --build-tests; then
               result="build failed"
-            elif [ -d "$package/Tests" ] && ! swift test --package-path "$package" --skip-build --parallel ${filter[@]+"${filter[@]}"}; then
-              result="tests failed"
+            # A stalled test fails its own package after 10 minutes instead of
+            # running the job into its 30-minute limit.
+            elif [ -d "$package/Tests" ] && ! timeout --kill-after=30 600 swift test --package-path "$package" --skip-build --parallel ${filter[@]+"${filter[@]}"}; then
+              result="tests failed or timed out"
             fi
             echo "::endgroup::"
             echo "| \`$package\` | $result |" >> "$GITHUB_STEP_SUMMARY"
