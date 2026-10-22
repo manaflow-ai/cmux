@@ -31,5 +31,12 @@ struct AgentChangesTabTitleTests {
         _ = AgentChangesPane.session(session).made(changesTab.id)
         #expect(titles.title(changesTab) == AgentPaneModel.changesTabTitle)
         #expect(titles.title(chatTab) == "Home")
+
+        // Another tab leaving the chat leaves the record; the changes tab leaving it is an ordinary
+        // chat from then on, even once it shows the chat again (Codex BLOCK at 32dffdca).
+        AgentChangesPane.left(session) { tabs.resolve($0) == chatTab.id }
+        #expect(titles.title(changesTab) == AgentPaneModel.changesTabTitle)
+        AgentChangesPane.left(session) { tabs.resolve($0) == changesTab.id }
+        #expect(titles.title(changesTab) == "Home")
     }
 }

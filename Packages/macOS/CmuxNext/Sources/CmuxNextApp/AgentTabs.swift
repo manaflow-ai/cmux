@@ -385,7 +385,10 @@ final class AgentTabStore {
             views[key]?.applyTheme() // now the agent chat surface (R55)
             // The first session is the outside chat's resume; a later switch shows another chat,
             // so the tab no longer answers for the outside chat it adopted (cmux://agent links).
-            if let shown = sessions[key], shown != session { adoptions = adoptions.filter { $0.value != key } }
+            if let shown = sessions[key], shown != session {
+                adoptions = adoptions.filter { $0.value != key }
+                AgentChangesPane.left(shown) { self.resolve($0) == key } // no longer that chat's changes tab
+            }
             sessions[key] = session
             // Another machine's store keeps its own record of the session: its daemon bound it at
             // the start, so no bind goes from here (cx-k21v). Its git reads go there (``gitLink``).

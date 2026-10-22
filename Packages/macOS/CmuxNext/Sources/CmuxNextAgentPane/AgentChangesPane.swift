@@ -31,6 +31,14 @@ public final class AgentChangesPane {
     /// tab strip titles that tab for what it shows instead of its chat's title.
     public static func tab(of id: String) -> String? { sessions[id]?.tab }
 
+    /// A tab left acpmux session `id` for another chat: when it was that session's changes tab
+    /// (`isTab` matches its key), it is an ordinary chat from then on, as the page treats it, even
+    /// after it shows `id` again.
+    public static func left(_ id: String, isTab: (String) -> Bool) {
+        guard let pane = sessions[id], let tab = pane.tab, isTab(tab) else { return }
+        pane.tab = nil
+    }
+
     /// The open changes tab; `isOpen` says whether a tab key still exists.
     public func tab(isOpen: (String) -> Bool) -> String? {
         if let tab, !isOpen(tab) { self.tab = nil }
