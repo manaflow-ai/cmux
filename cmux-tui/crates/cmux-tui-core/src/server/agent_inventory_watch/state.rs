@@ -1,5 +1,6 @@
 //! Per-client watch leases and their cancellation/acknowledgement fence.
 use super::*;
+use crate::panic_free::JsonFields;
 use crate::server::{Response, send_response};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -244,7 +245,7 @@ impl Watch {
         state.revision = Some(revision);
         if state.phase == Phase::Active {
             let mut event = self.value(revision);
-            event["event"] = json!("agent-inventory-changed");
+            event.insert("event", json!("agent-inventory-changed"));
             self.writer.send_control(&event).map_err(|_| Failure::Unavailable)?;
         }
         Ok(())

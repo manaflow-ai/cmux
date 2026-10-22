@@ -685,7 +685,8 @@ def wait_turn(rec, timeout, idle_seconds):
 
 def ended(via, start, sent, **extra):
     t = time.time()
-    out = {"ended": True, "via": via, "waited_seconds": round(t - start, 2), "since_send_seconds": round(t - sent / 1000, 2)}
+    out = {"ended": True, "via": via, "waited_seconds": round(t - start, 2),
+           "since_send_seconds": round(t - sent / 1000, 2) if sent else None}
     if "signal_ms" in extra:
         out["detect_lag_seconds"] = round(t - extra.pop("signal_ms") / 1000, 2)
     out.update(extra)

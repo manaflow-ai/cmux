@@ -502,7 +502,7 @@ impl Hub {
                     let ids: Vec<String> = self
                         .remote_sessions
                         .lock()
-                        .unwrap()
+                        .unwrap_or_else(|e| e.into_inner())
                         .values()
                         .filter(|r| r.peer == peer)
                         .map(|r| r.receipt.mux_session_id.clone())
