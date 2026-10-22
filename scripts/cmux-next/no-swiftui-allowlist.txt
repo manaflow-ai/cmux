@@ -5,9 +5,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextAccounts/Views/AccountRowView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextAccounts/Views/AccountsPalette.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextAccounts/Views/AccountsSectionView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextAccounts/Views/PasteField.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Checklist/WorkspaceTodoPageService.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Checklist/WorkspaceTodoPageView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Checklist/WorkspaceTodoRow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ChiefMemoryPageService.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions/UI/AppPermissionsColors.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions/UI/AppPermissionsHostView.swift

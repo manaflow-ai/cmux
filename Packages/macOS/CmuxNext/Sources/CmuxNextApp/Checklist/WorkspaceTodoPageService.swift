@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextActions
-import SwiftUI
 
 extension InternalPageID {
     static let workspaceTodo = InternalPageID(rawValue: "workspace-todo")
@@ -46,7 +45,7 @@ final class WorkspaceTodoPageService: InternalPageProvider {
             workspace: { [weak self] in self?.services?.workspace(id: $0) },
             perform: { [weak self] id, invocation in _ = self?.services?.registry.perform(id, invocation: invocation) })
         models[key] = model
-        return NSHostingView(rootView: WorkspaceTodoPageView(model: model))
+        return WorkspaceTodoPageView(model: model)
     }
 
     func tabClosed(_ key: String) {
