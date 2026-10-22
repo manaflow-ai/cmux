@@ -3252,7 +3252,6 @@ export class AcpmuxDirectClient {
     accepted?: () => void,
     ticket?: string,
     steer = false,
-    resend = false,
   ): Promise<string | undefined> {
     // A `data:` image written into the prompt goes as an image, never as text: the bubble, the
     // agent and the chat's compaction never see base64 (inlineImages.ts, Leo 2026-10-20).
@@ -3401,7 +3400,6 @@ export class AcpmuxDirectClient {
           acpmux: {
             promptId,
             ...(steer ? { steer: true } : {}),
-            ...(resend ? { resend: true } : {}),
             ...(context ? { context } : {}),
             ...promptSurfaceMeta(),
           },
@@ -3577,7 +3575,11 @@ export class AcpmuxDirectClient {
   }
 
   /// Retry on a prompt that was not sent: its bubble goes and the same prompt goes again, under the
-  /// same prompt id with `resend`, so a copy acpmux did take answers as that one and runs no second turn.
+  /// same prompt id, so a copy the running acpmux did take answers as that one and runs no second
+  /// turn (its prompt ledger). No `resend`: the app relays no such key from the page (only its own
+  /// journal sets it, AgentPanePromptJournal.swift), and a Retry with it was refused. Without it
+  /// acpmux doesn't look the id up in its session log, so a copy taken before a daemon restart can
+  /// run again.
   /// `ticket`: the gesture a trust refusal kept for this prompt (heldPrompt.ts).
   async retryPrompt(rowId: string, ticket?: string): Promise<string | undefined> {
     const failed = this.failedPrompts.get(rowId);
@@ -3592,15 +3594,7 @@ export class AcpmuxDirectClient {
     const promptId = failed.promptId ?? crypto.randomUUID();
     this.retriedPrompts.add(promptId);
     try {
-      return await this.send(
-        failed.input,
-        failed.attachments,
-        promptId,
-        undefined,
-        ticket,
-        false,
-        failed.promptId !== undefined,
-      );
+      return await this.send(failed.input, failed.attachments, promptId, undefined, ticket, false);
     } finally {
       this.retriedPrompts.delete(promptId);
     }
