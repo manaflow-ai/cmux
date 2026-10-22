@@ -28,6 +28,8 @@ export type ComposerBoxProps = {
   /// Receives the prompt field's handle.
   fieldRef?: (handle: MarkdownFieldHandle | null) => void;
   handle?: React.Ref<ComposerBoxHandle>;
+  /// Receives the glass card's element (New Tab anchors its suggestions to it).
+  boxRef?: React.Ref<HTMLDivElement>;
   /// What the prompt holds besides its text (attachmentIntake.tsx), shown over the prompt.
   attachments: ComposerAttachment[];
   /// Files still being read: a placeholder chip each, after the staged ones (PendingAttachment).
@@ -37,7 +39,6 @@ export type ComposerBoxProps = {
   /// attached at once), so a paste right after it counts it. Unset, the box keeps its own.
   attachmentsRef?: RefObject<ComposerAttachment[]>;
   attachError?: string;
-  dropping: boolean;
   /// Codex's attachments say they go as files (AttachmentStrip).
   codex?: boolean;
   onRemoveAttachment(id: string): void;
@@ -76,12 +77,12 @@ export function ComposerBox({
   field,
   fieldRef,
   handle,
+  boxRef,
   attachments,
   pending,
   setAttachments,
   attachmentsRef,
   attachError,
-  dropping,
   codex = false,
   onRemoveAttachment,
   fieldMenu,
@@ -147,13 +148,12 @@ export function ComposerBox({
   return (
     <>
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the prompt inside is the control and takes the keyboard itself. */}
-      <div className="ui-glass acpmux-composer-box" onMouseDown={focusFromCard}>
+      <div ref={boxRef} className="ui-glass acpmux-composer-box" onMouseDown={focusFromCard}>
         {top}
         <AttachmentStrip
           attachments={attachments}
           {...(pending ? { pending } : {})}
           {...(attachError ? { error: attachError } : {})}
-          dropping={dropping}
           codex={codex}
           onRemove={onRemoveAttachment}
           onExpand={pastedChips.expand}
