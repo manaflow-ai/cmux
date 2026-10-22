@@ -1117,6 +1117,8 @@
           {
             "key" : "settings.group.openingLinks",
             "rows" : [
+              "terminal.linkOpener.default",
+              "terminal.linkOpener.rules",
               "browser.enabled",
               "browser.openLinksInCmuxBrowser",
               "browser.hostsToOpenInEmbeddedBrowser",
@@ -18031,6 +18033,130 @@
       "accepts" : [
 
       ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "cmux",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.openingLinks",
+        "text" : "Opening Links"
+      },
+      "help" : {
+        "key" : "settings.terminal.linkOpener.default.help",
+        "text" : "Where a URL goes when a program in a terminal opens a browser, such as aws login or gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, a profile after @ (chrome@Profile 1), or command:<command> to let your script decide. A BROWSER you set yourself wins."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "terminal.linkOpener.default",
+      "keywords" : [
+        "browser",
+        "open",
+        "url",
+        "link",
+        "BROWSER",
+        "xdg-open",
+        "login",
+        "oauth",
+        "default browser",
+        "chrome",
+        "safari",
+        "profile"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "terminal",
+        "linkOpener",
+        "default"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "terminal",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.terminal.linkOpener.default",
+        "text" : "Open Program Links In"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.openingLinks",
+        "text" : "Opening Links"
+      },
+      "help" : {
+        "key" : "settings.terminal.linkOpener.rules.help",
+        "text" : "Checked in order before the default; the first match wins. Write <match> -> <target>: caller:aws matches the program that opened the URL, and text, * wildcards or re: match the URL. Example: caller:gh github.com -> safari"
+      },
+      "kept_on_reset_all" : false,
+      "key" : "terminal.linkOpener.rules",
+      "keywords" : [
+        "browser",
+        "rules",
+        "url",
+        "link",
+        "caller",
+        "regex",
+        "profile",
+        "script"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "terminal",
+        "linkOpener",
+        "rules"
+      ],
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "terminal",
+      "summary" : {
+        "key" : "settings.terminal.linkOpener.rules.summary",
+        "text" : "Rules for program links"
+      },
+      "title" : {
+        "key" : "settings.terminal.linkOpener.rules",
+        "text" : "Program Link Rules"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
@@ -23801,7 +23927,7 @@
         true,
         false
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "privacy",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
