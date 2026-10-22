@@ -4996,6 +4996,21 @@ export class AcpmuxDirectClient {
     const heldCompaction = [...held.values()]
       .filter((row) => row.kind === "compaction")
       .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))[0];
+    // When that row's first record already says how it ended, it ends the latest compaction the
+    // page left open, however long after, as reading the whole record does (`compaction` above).
+    const opening = heldCompaction && this.events.find((event) => event.seq === heldCompaction.seq);
+    if (opening && compactionOf(sessionUpdate(opening))?.state !== "running") {
+      let open: AcpmuxRow | undefined;
+      for (const row of this.rows.values())
+        if (
+          row.kind === "compaction" &&
+          !held.has(row.id) &&
+          (row.compaction?.state === "running" || row.compaction?.inferred === true) &&
+          (row.seq ?? 0) > (open?.seq ?? -1)
+        )
+          open = row;
+      if (open) this.rows.delete(open.id);
+    }
     for (const row of this.rows.values())
       if (
         row.kind === "compaction" &&
