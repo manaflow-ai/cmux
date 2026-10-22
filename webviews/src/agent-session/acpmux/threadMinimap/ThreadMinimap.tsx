@@ -49,6 +49,7 @@ import {
   type MinimapTick as MinimapTickRow,
   type MinimapTurn,
   type MinimapTurns,
+  type RowsChange,
 } from "./model";
 
 /// How long a step's scroll counts as under way for the next step, so repeats keep stepping.
@@ -95,6 +96,7 @@ export function ThreadMinimap({
   scrolls,
   width,
   placed,
+  change,
 }: {
   rows: AcpmuxRow[];
   sessionId?: string;
@@ -111,6 +113,9 @@ export function ThreadMinimap({
   /// The transcript calls what the rail puts here once each commit's placement pass has set its
   /// offset (VirtualTranscript), so the band reads where the transcript put the reader.
   placed?: React.MutableRefObject<(() => void) | undefined>;
+  /// Where `rows` first differs from the last snapshot, as the transcript found it, so the rail
+  /// reads only the rows from there (model.ts minimapTurns).
+  change?: RowsChange;
 }) {
   const t = useT();
   /// The compact Codex rail below (the wave, the default), the full-height map (ScrollMap.tsx), or
@@ -122,10 +127,10 @@ export function ThreadMinimap({
   // Every streamed token is a new `rows`: `turns` then changes with the live reply (the card reads
   // it), while `ticks` stays as long as the prompts do, so the tick list below renders nothing.
   const { turns, ticks } = useMemo(() => {
-    const next = minimapTurns(rows, sessionId, lastTurns.current);
+    const next = minimapTurns(rows, sessionId, lastTurns.current, change);
     lastTurns.current = next;
     return next;
-  }, [rows, sessionId]);
+  }, [rows, sessionId, change]);
   /// The row under the pointer, or the one a scrub is on.
   const [hovered, setHovered] = useState<number | undefined>(undefined);
   /// The row keyboard focus is on.
@@ -431,16 +436,20 @@ export function ThreadMinimap({
   // its fades while the reader scrolls, and reaches its end with the chat's: at the bottom of the
   // chat the last ticks show lit (railScrollTop). It used to keep only the band's first row in view,
   // so the rows below it, the bottom of the chat among them, could stay under the bottom fade or
-  // past the rail's end.
+  // past the rail's end. It follows with a tick hovered or focused too (#24058 review round 4: it
+  // used to stop, so scrolling the chat under a hovered rail took the band out of it): railScrollTop
+  // keeps the list where it is while the whole band shows clear of the fades, so the tick under the
+  // pointer moves only once the band would leave the rail. Only a scrub, whose pointer is on the
+  // row it shows, holds the list.
   useLayoutEffect(() => {
     const node = list.current;
     // The commit that added older turns placed the list itself, around the band.
-    if (!node || !overflow || hovered !== undefined || focused !== undefined || holding.current) return;
+    if (!node || !overflow || scrubbing || holding.current) return;
     const next = railScrollTop({ first: onScreen.first, last: onScreen.last }, turns.length, height, node.scrollTop);
     if (Math.abs(next - node.scrollTop) < 0.5) return;
     node.scrollTop = next;
     setListTop(node.scrollTop);
-  }, [onScreen.first, onScreen.last, turns.length, overflow, height, hovered, focused]);
+  }, [onScreen.first, onScreen.last, turns.length, overflow, height, scrubbing]);
 
   /// The rows' actions: stable for the memoized rows, reading the latest state through `live`.
   const actions = useMemo<TickActions>(

@@ -209,19 +209,45 @@ export type MinimapTurns = {
   ticks: readonly MinimapTick[];
 };
 
+/// Where a rows snapshot first differs (by object) from the one before it, as the transcript finds
+/// it once per snapshot for everything that reads the rows (VirtualTranscript's arriving rows): the
+/// rows before `from` in `rows` are the rows of `base`.
+export type RowsChange = { base: readonly AcpmuxRow[]; rows: readonly AcpmuxRow[]; from: number };
+
 /// The transcript's turns. A turn that ends before the first row that differs from
 /// `previous.rows` (by object) is kept, and `turns` stays `previous.turns` when every turn is.
 /// `ticks` stays `previous.ticks` while the prompts are the same, so a token streaming into a reply
 /// leaves the rail's ticks alone (ThreadMinimap draws them from `ticks`). Only the turns from the
-/// first changed one on are compared: the ones before it are the previous ones.
-export function minimapTurns(rows: readonly AcpmuxRow[], sessionId = "", previous?: MinimapTurns): MinimapTurns {
+/// first changed one on are read and compared: the ones before it are the previous ones.
+///
+/// `change`, when it is the step from `previous.rows` to `rows`, gives where they first differ, so a
+/// streamed token reads only the live turn's rows, however long the chat (#24058 review round 4).
+/// Without it (another session, a first read, a step the transcript did not see) the rows are
+/// compared from the start.
+export function minimapTurns(
+  rows: readonly AcpmuxRow[],
+  sessionId = "",
+  previous?: MinimapTurns,
+  change?: RowsChange,
+): MinimapTurns {
   const reuse = previous?.sessionId === sessionId ? previous : undefined;
   let from = 0;
-  if (reuse) while (from < rows.length && from < reuse.rows.length && rows[from] === reuse.rows[from]) from += 1;
+  if (reuse && change && change.base === reuse.rows && change.rows === rows) from = change.from;
+  else if (reuse) while (from < rows.length && from < reuse.rows.length && rows[from] === reuse.rows[from]) from += 1;
   // A kept turn's rows all come before `from`: the next turn's prompt is before it (a row
-  // inserted at that prompt's index joins the turn before).
+  // inserted at that prompt's index joins the turn before). The turns are in row order: the last
+  // turn that starts before `from` is the first one read again.
   let keep = 0;
-  if (reuse) while (keep + 1 < reuse.turns.length && reuse.turns[keep + 1]!.index < from) keep += 1;
+  if (reuse) {
+    let low = 0;
+    let high = reuse.turns.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if (reuse.turns[middle]!.index < from) low = middle + 1;
+      else high = middle;
+    }
+    keep = Math.max(0, Math.min(reuse.turns.length - 1, low - 1));
+  }
   const turns: MinimapTurn[] = reuse ? reuse.turns.slice(0, keep) : [];
   let user: AcpmuxRow | undefined;
   let userIndex = 0;
@@ -229,9 +255,14 @@ export function minimapTurns(rows: readonly AcpmuxRow[], sessionId = "", previou
   const close = () => {
     if (!user) return;
     const kept = turnsByPrompt.get(user);
-    if (kept && kept.sessionId === sessionId && kept.reply === reply && kept.turn.index === userIndex)
+    const same = kept && kept.sessionId === sessionId && kept.turn.index === userIndex;
+    if (same && kept.reply === reply) turns.push(kept.turn);
+    else if (same && reply?.text && kept.reply?.text && samePreview(kept.turn.reply, replyPreview(reply.text))) {
+      // A reply streamed on past its preview (replyPreview stops once the preview is full): the
+      // turn is the same, so the list of turns can be too.
+      kept.reply = reply;
       turns.push(kept.turn);
-    else {
+    } else {
       const turn: MinimapTurn = {
         index: userIndex,
         id: user.id,
@@ -272,6 +303,19 @@ export function minimapTurns(rows: readonly AcpmuxRow[], sessionId = "", previou
     turns: sameTurns ? old! : turns,
     ticks: sameTicks ? oldTicks! : ticksOf(turns, oldTicks),
   };
+}
+
+/// Whether two reply previews are the same blocks and spans.
+function samePreview(a: readonly ReplyBlock[], b: readonly ReplyBlock[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((block, index) => {
+    const other = b[index]!;
+    return (
+      block.kind === other.kind &&
+      block.spans.length === other.spans.length &&
+      block.spans.every((span, at) => span.text === other.spans[at]!.text && !!span.bold === !!other.spans[at]!.bold)
+    );
+  });
 }
 
 /// Each turn's tick, the previous one where its prompt is the same.
