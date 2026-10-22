@@ -11,10 +11,10 @@ import Testing
         var top: Int
         var asks = 0
 
-        mutating func isTop(_ window: Int, at now: TimeInterval) -> Bool {
+        mutating func isTop(_ window: Int, cover: Int = 0, at now: TimeInterval) -> Bool {
             let answer = top
             var asked = 0
-            let result = memo.isTop(window, now: now) {
+            let result = memo.isTop(window, cover: cover, now: now) {
                 asked += 1
                 return answer
             }
@@ -53,6 +53,27 @@ import Testing
         let nine = probe.isTop(9, at: 100.01)
         #expect(!seven)
         #expect(nine)
+        #expect(probe.asks == 2)
+    }
+
+    /// Moving onto a panel of the app over the toolbar, within the lifetime, asks again.
+    @Test func anotherCoverIsAskedAgain() {
+        var probe = Probe(top: 7)
+        let uncovered = probe.isTop(7, cover: 0, at: 100)
+        probe.top = 12
+        let underPanel = probe.isTop(7, cover: 12, at: 100.01)
+        #expect(uncovered)
+        #expect(!underPanel)
+        #expect(probe.asks == 2)
+    }
+
+    /// Moves alternating between two windows ask once per window, not on every move.
+    @Test func alternatingWindowsAskOncePerWindow() {
+        var probe = Probe(top: 7)
+        for move in 0..<20 {
+            let window = move.isMultiple(of: 2) ? 7 : 9
+            _ = probe.isTop(window, at: 100 + Double(move) / 120)
+        }
         #expect(probe.asks == 2)
     }
 
