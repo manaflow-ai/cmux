@@ -110,7 +110,8 @@ struct HomeSplitKeysTests {
 
     /// Leo 2026-10-21: "JUST MAKE THE TAB THING SHOW UP ON THE MAIN PANE TOO". Home's pinned dock, as
     /// the app makes it, takes tabs (`allow_tabs`): its pane shows its tab strip by default with Home's
-    /// tab first and kept, Hide Tab Bar is offered there, and a tab moved in joins it.
+    /// tab first and kept, Hide Tab Bar is offered there, and a tab dragged in joins it and drags out
+    /// again. Only a drag: a new tab opens beside Home (HomeDockOpensTests).
     @Test func homesDockShowsItsTabStripAndTakesTabs() async throws {
         try await PasswordManagerRouteTests.withApp { services, connection in
             let (_, home) = try await Self.showHome(services, connection)
@@ -127,27 +128,31 @@ struct HomeSplitKeysTests {
             #expect(PaneTabBarHandlers.noToggleReason(controller) == nil, "Hide Tab Bar is refused in Home")
             let page = try #require(dock.tabs.first)
             #expect(page.page == HomeDock.page)
-            let created = try await connection.newTab(in: dock.handle)
-            try await PasswordManagerRouteTests.until({ dock.tabs.contains { $0.surface == created.surface } }, report: {
-                "Home's dock holds \(dock.tabs.map(\.surface))"
-            })
-            #expect(dock.tabs.first?.surface == page.surface, "Home's tab stays first")
-            #expect(Self.panes(home).count == 1, "the tab joined the dock")
-            // The drag paths: the terminal drags out to a column right of Home, then back into Home.
-            let terminal = try #require(dock.tabs.first { $0.surface == created.surface })
-            var out: Bool?
-            TabMoves.toNewColumn(terminal, anchor: dock, services: services) { out = $0 }
-            try await PasswordManagerRouteTests.until({ Self.panes(home).count == 2 && !dock.tabs.contains { $0.surface == created.surface } },
-                                                       report: { "drag out: \(String(describing: out)), \(Self.panes(home).count) panes" })
-            let right = try #require(Self.panes(home).first { $0 !== dock })
-            let moved = try #require(right.tabs.first { $0.surface == created.surface })
+            // A terminal beside Home (the chat header's Terminal), plus a second tab there so its
+            // column stays when the terminal leaves.
+            var opensTerminal = ActionInvocation(origin: .user)
+            opensTerminal.opensTerminal = true
+            #expect(services.registry.perform("splitRight", invocation: opensTerminal))
+            try await PasswordManagerRouteTests.until({ Self.panes(home).count == 2 && Self.panes(home).last?.tabs.isEmpty == false },
+                                                       report: { "\(Self.panes(home).count) panes" })
+            let right = try #require(Self.panes(home).last)
+            _ = try await connection.newTab(in: right.handle)
+            try await PasswordManagerRouteTests.until({ right.tabs.count == 2 }, report: { "right of Home: \(right.tabs.count) tab(s)" })
+            let terminal = try #require(right.tabs.first)
+            let surface = terminal.surface
+            // The drag paths: the terminal drags into Home, then back out to the pane right of Home.
             let refused = Self.refusals(services) {
-                TabMoves.move(moved, to: dock, index: 1, services: services)
+                TabMoves.move(terminal, to: dock, index: 1, services: services)
             }
             #expect(refused.isEmpty, "a terminal dragged into Home was refused: \(refused)")
-            try await PasswordManagerRouteTests.until({ dock.tabs.contains { $0.surface == created.surface } }, report: {
+            try await PasswordManagerRouteTests.until({ dock.tabs.contains { $0.surface == surface } }, report: {
                 "drag in: Home's dock holds \(dock.tabs.map(\.surface))"
             })
+            #expect(dock.tabs.first?.surface == page.surface, "Home's tab stays first")
+            let moved = try #require(dock.tabs.first { $0.surface == surface })
+            TabMoves.move(moved, to: right, index: 0, services: services)
+            try await PasswordManagerRouteTests.until({ !dock.tabs.contains { $0.surface == surface } && right.tabs.contains { $0.surface == surface } },
+                                                       report: { "drag out: Home's dock holds \(dock.tabs.map(\.surface))" })
             #expect(dock.tabs.first?.surface == page.surface, "Home's tab stays first")
         }
     }
