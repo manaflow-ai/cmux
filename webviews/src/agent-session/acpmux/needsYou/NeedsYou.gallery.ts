@@ -98,7 +98,9 @@ const sessions = [
     host: "build-box",
     hostKind: "cloud",
     indicator: "input",
-    preview: "Which tag should the notes start from?",
+    // Its ask lives on the build box: the row says the question its summary names, never this reply.
+    preview: "Drafted the notes from the merged pull requests.",
+    waitingOn: { on: "question", prompt: "Which tag should the notes start from?" },
     updatedAt: ago(32),
   }),
 ];
