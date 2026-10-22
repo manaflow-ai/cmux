@@ -65,6 +65,7 @@ import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { useRowFit } from "./composerRowFit";
 import { useComposerSettings } from "./composerSettings";
+import { useChatDisplay } from "./chatDisplay";
 import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
 import {
@@ -433,7 +434,12 @@ export function Composer({
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css), and
   // whether Esc stops a turn on a double press (escapeStop.ts).
   const { plainFooter, showContextUsage, escapeDoublePress } = useComposerSettings();
-  useRowFit(bar, plainFooter);
+  // Settings > Agent Chat > Composer Style (chatDisplay.ts `composerStyle`): minimal, the default, or codex.
+  const { composerStyle } = useChatDisplay();
+  // Codex's style (composerStyle.css) keeps the controls in the box's own row, under the prompt, so
+  // only the minimal style (the default, Claude Code's) draws the quiet row under the box. The chips keep the plain look either way.
+  const footBelow = plainFooter && composerStyle !== "codex";
+  useRowFit(bar, footBelow);
   const usage = snapshot.summary?.usage;
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
@@ -1390,6 +1396,8 @@ export function Composer({
       ref={form}
       className="acpmux-composer"
       data-shell={shell ? "" : undefined}
+      // The composer's style, a layout over the same controls (composerStyle.css); none is minimal, the default.
+      data-composer-style={composerStyle === "codex" ? "codex" : undefined}
       onSubmit={(event) => {
         if (!shell) return submit(event);
         event.preventDefault();
@@ -1561,10 +1569,10 @@ export function Composer({
         <ChromeArea className="acpmux-chrome-area" items={chrome.all}>
           {/* Claude Code's split (Leo 2026-10-19), the plain footer's default: the box keeps +, the
               prompt, the mic and Send or Stop; the mode, model and effort sit in a quiet row under
-              it (ComposerFoot below). The other look keeps them all in this row. */}
+              it (ComposerFoot below). The other look and Codex's style keep them all in this row. */}
           <div
-            ref={plainFooter ? undefined : bar}
-            className={plainFooter ? "acpmux-composer-bar acpmux-composer-inner" : "acpmux-composer-bar"}
+            ref={footBelow ? undefined : bar}
+            className={footBelow ? "acpmux-composer-bar acpmux-composer-inner" : "acpmux-composer-bar"}
             data-footer-look={plainFooter ? "plain" : undefined}
           >
             <input
@@ -1660,7 +1668,7 @@ export function Composer({
             {/* The granted-permission status gets no slot of its own in this row (hq#1957 item 15
                 compact row): grants live in the permission mode's Access menu, one lock. */}
             {/* The chips hand up Codex's speed option, the bolt before the mic (FastToggle.tsx). */}
-            {!plainFooter && (
+            {!footBelow && (
               <SpeedToggleHost.Provider value={setSpeed}>
                 <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
               </SpeedToggleHost.Provider>
@@ -1688,7 +1696,7 @@ export function Composer({
                   <ReturnIcon />
                 </button>
               )}
-              {plainFooter && stopButton}
+              {footBelow && stopButton}
               {/* Codex's bolt, just left of the mic (Leo 2026-10-21), in either footer look. */}
               {speed && <FastToggle speed={speed} />}
               {/* The mic stays at every width; the prompt shrinks instead (composerRowFit.ts). */}
@@ -1697,9 +1705,9 @@ export function Composer({
                   {accessory}
                 </span>
               )}
-              {!plainFooter && stop ? (
+              {!footBelow && stop ? (
                 stopButton
-              ) : remote.canSend && (!plainFooter || shell || (hasDraft && !(running && steerable))) ? (
+              ) : remote.canSend && (!footBelow || shell || (hasDraft && !(running && steerable))) ? (
                 // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, the mic
                 // alone on the right; Send comes in after it with the first letter. Mid-turn it
                 // queues the draft, unless the ↵ control is there to put it into the turn.
@@ -1733,7 +1741,7 @@ export function Composer({
           </div>
         </ChromeArea>
       </div>
-      {plainFooter && (
+      {footBelow && (
         <ChromeArea className="acpmux-chrome-area" items={chrome.all}>
           <ComposerFoot ref={bar}>
             <SpeedToggleHost.Provider value={setSpeed}>

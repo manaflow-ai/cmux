@@ -1,0 +1,86 @@
+/* The composer's Codex style (Settings > Agent Chat > Composer Style, cmux.json
+   `agentPane.display.composer.style`, chatDisplay.ts; Composer.tsx sets data-composer-style="codex"
+   on the form). Leo 2026-10-21:
+   "lawrence likes the codex way i think we can have as option". It is a layout over the default
+   composer's own controls, nothing drawn twice: the location strip (ComposerContext: the folder and
+   the computer) is a tray tucked under the box's top edge, and the box keeps one row under the
+   prompt, + and the permission mode on the left, then the one model and effort button (with the
+   harness's mark, where Codex shows its bolt), the mic and Send on the right. No quiet row under the
+   box. Glass as the card is (the strip keeps the card's glass fill, with a faint wash of the text
+   color: lighter in a dark theme, a step darker in a light one); Full access takes the theme's
+   accent, never Codex's orange; Send stays our plain glyph (no disc). Without the
+   attribute nothing here applies. test/composer-style-codex.test.ts measures it. */
+.acpmux-composer[data-composer-style="codex"] {
+  /* The tray starts where the box's top corner ends, so its sides meet the box's straight edge. */
+  --acpmux-tray-inset: 22px;
+  --acpmux-tray-tuck: 10px;
+}
+
+/* The tray: the strip set in from the box's sides, its bottom tucked under the box (raised over it,
+   drawing its whole rim), its top corners rounded. */
+.acpmux-composer[data-composer-style="codex"] > .acpmux-composer-strip {
+  z-index: var(--layer-base, 0);
+  height: calc(var(--acpmux-strip-height) + 2px + var(--acpmux-tray-tuck));
+  margin: 0 var(--acpmux-tray-inset) calc(-1 * var(--acpmux-tray-tuck));
+  padding: 0 8px var(--acpmux-tray-tuck);
+  border-radius: 14px 14px 0 0;
+  background-image: linear-gradient(color-mix(in srgb, var(--agent-text) 5%, transparent) 0 0);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-strip-edge);
+}
+.acpmux-composer[data-composer-style="codex"] > .acpmux-composer-strip::after {
+  content: none;
+}
+.acpmux-composer[data-composer-style="codex"] > .acpmux-composer-strip .acpmux-composer-context {
+  padding: 0;
+}
+/* The box over the tray: its own corners and whole rim, not the default's rim around strip and card. */
+.acpmux-composer[data-composer-style="codex"] > .acpmux-composer-box {
+  z-index: var(--layer-raised, 1);
+}
+:root .acpmux-composer[data-composer-style="codex"]:has(> .acpmux-composer-strip) > .acpmux-composer-box {
+  /* glass-opaque-allow: a keyword (top, bottom, both) the lens reads, not a color; the box joins nothing */
+  --glass-join: initial;
+  border-top-left-radius: var(--acpmux-composer-radius);
+  border-top-right-radius: var(--acpmux-composer-radius);
+  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
+}
+:root .acpmux-composer[data-composer-style="codex"]:has(> .acpmux-composer-strip) > .acpmux-composer-box::before {
+  content: none;
+}
+/* Nothing may show through the glass box: the tuck under it is masked off (as the tray top strip's,
+   composerStates.css). Reduce Transparency draws the box solid, so the tuck hides under it. */
+:root:not([data-reduce-transparency]) .acpmux-composer[data-composer-style="codex"] > .acpmux-composer-strip {
+  mask: linear-gradient(black calc(100% - var(--acpmux-tray-tuck)), transparent 0);
+}
+
+/* The box's row: + and the mode on the left, the model, the mic and Send on the right. The chips
+   lay out as the row's own items (as the quiet row's do), the mode first. */
+.acpmux-composer[data-composer-style="codex"] .acpmux-composer-box .acpmux-composer-bar .acpmux-chips {
+  display: contents;
+}
+.acpmux-composer[data-composer-style="codex"] .acpmux-composer-box .acpmux-composer-bar .acpmux-chips > * {
+  order: 1;
+}
+.acpmux-composer[data-composer-style="codex"] .acpmux-composer-box .acpmux-composer-bar .acpmux-chips > .acpmux-access {
+  order: 0;
+}
+.acpmux-composer[data-composer-style="codex"] .acpmux-composer-box .acpmux-composer-bar .acpmux-chips > .acpmux-model {
+  margin-inline-start: auto;
+}
+.acpmux-composer[data-composer-style="codex"] .acpmux-composer-box .acpmux-composer-bar .acpmux-composer-actions {
+  order: 2;
+  margin-left: 0;
+}
+/* With no model button (no harness yet), the mic and Send still keep the right edge. */
+.acpmux-composer[data-composer-style="codex"] .acpmux-composer-box .acpmux-composer-bar:not(:has(.acpmux-model)) .acpmux-composer-actions {
+  margin-left: auto;
+}
+/* The model button shows the harness's mark before its name, as Codex's shows its bolt (the plain
+   look hides it in the quiet row). */
+.acpmux-composer[data-composer-style="codex"] .acpmux-composer-bar[data-footer-look="plain"] .acpmux-model .acpmux-picker-button .agent-mark {
+  display: inline-block;
+}
+/* Full access names its risk in the theme's accent, where Codex's row draws orange (never orange). */
+.acpmux-composer[data-composer-style="codex"] .acpmux-composer-bar .acpmux-access.acpmux-unrestricted .acpmux-access-trigger {
+  color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
+}

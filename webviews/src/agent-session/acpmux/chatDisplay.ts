@@ -33,10 +33,19 @@ export interface ChatDisplay {
   /// over the chat, so opening, closing or updating it never reflows the chat (Leo, 2026-10-20);
   /// `push` moves the chat aside. Not a look: the Text & Width popover's Reset leaves it.
   inspector: "push" | "overlay";
+  /// How every composer lays out its controls (composerStyle.css): `minimal`, Claude Code's, the
+  /// default everywhere, the New Tab page included; or `codex`, ChatGPT's Codex desktop layout of the
+  /// same controls (Leo 2026-10-21: "we can have the alt composer like chatgpt styled but for now just
+  /// have "minimal" be the claude thing"). Not a look of the chat's text: Reset leaves it.
+  composerStyle: ComposerStyle;
 }
+
+export type ComposerStyle = "minimal" | "codex";
 
 /// Settings > Agent Chat > Inspector (Swift AgentPaneDisplaySettingsSchema has the same row).
 export const INSPECTOR_PLACEMENT_KEY = "agentPane.display.inspector.placement";
+/// Settings > Agent Chat > Composer Style (Swift AgentPaneDisplaySettingsSchema has the same row).
+export const COMPOSER_STYLE_KEY = "agentPane.display.composer.style";
 
 /// Each option: its cmux.json key, its range and default. The Swift schema has the same rows
 /// (AgentPaneDisplaySettingsSchema).
@@ -67,6 +76,7 @@ export const DEFAULT_CHAT_DISPLAY: ChatDisplay = {
   codeFamily: null,
   codeScale: null,
   inspector: "overlay",
+  composerStyle: "minimal",
 };
 
 /// The body font stacks, as the Markdown viewer's presets (pages/markdown/settings.ts).
@@ -115,6 +125,8 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
       number(values[CHAT_DISPLAY.codeScale.key], CHAT_DISPLAY.codeScale) ??
       number(values[MARKDOWN_FOLLOWED.codeScale], CHAT_DISPLAY.codeScale),
     inspector: values[INSPECTOR_PLACEMENT_KEY] === "push" ? "push" : "overlay",
+    // Anything else (an older or newer host's value) is the default, minimal.
+    composerStyle: values[COMPOSER_STYLE_KEY] === "codex" ? "codex" : "minimal",
   };
 }
 

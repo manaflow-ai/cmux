@@ -21,6 +21,7 @@ import "./needsYou/needsYou.css";
 import "./composerControls.css";
 import "./composerStates.css";
 import "./composerLocation.css";
+import "./composerStyle.css";
 import "./bottomStack.css";
 import "./composerAttachments.css";
 import "./markdownField.css";
