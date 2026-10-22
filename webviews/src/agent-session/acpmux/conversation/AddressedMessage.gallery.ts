@@ -15,7 +15,7 @@ const TYPED = "foo -> bar: rename the helper before the release branch is cut.";
 
 /// A prompt as direct.ts reads a recorded `user_message` from `client` in the chat named claude-sr2.
 function recorded(text: string, minutes: number, client: string) {
-  const incoming = incomingPrompt(text, { client }, { names: ["claude-sr2"] });
+  const incoming = incomingPrompt(text, { client }, { isThisChat: (name) => name.toLowerCase() === "claude-sr2" });
   return incoming?.kind === "message"
     ? user(incoming.message.text, minutes, { incoming, resend: text, untyped: true })
     : user(text, minutes);

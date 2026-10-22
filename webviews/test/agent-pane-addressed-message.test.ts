@@ -27,19 +27,20 @@ const record = (steps: Step[]) =>
   }));
 type Rec = ReturnType<typeof record>[number];
 
-/// A daemon whose list holds this chat and a chat on huge-blue, and whose attach page holds the
-/// whole history.
-function fakeDaemon(history: Rec[]) {
+const base = { cwd: "/home/dev/x", harness: "claude", family: "claude", status: "idle", updatedAt: START };
+const PANEL_ENTRY = { ...base, sessionId: PANEL, name: "huge-blue/summary-panel", peer: "huge-blue", turnCount: 9 };
+
+/// A daemon whose list holds this chat and `listed`, and whose attach page holds the whole history.
+/// `socket()` is the open connection, for a notification.
+function fakeDaemon(history: Rec[], listed: object[] = [PANEL_ENTRY]) {
   let socket: any;
-  const base = { cwd: "/home/dev/x", harness: "claude", family: "claude", status: "idle", updatedAt: START };
   const session = { ...base, sessionId: CHAT, name: "claude-sr2", title: "Reply with only: OK", turnCount: 2 };
-  const panel = { ...base, sessionId: PANEL, name: "huge-blue/summary-panel", peer: "huge-blue", turnCount: 9 };
   const answer = (method: string) => {
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
       case "_acpmux/watch":
-        return { sessions: [session, panel] };
+        return { sessions: [session, ...listed] };
       case "_acpmux/attach":
         return { session, lastSeq: history.at(-1)?.seq ?? 0, events: history, hasMore: false };
       case "_acpmux/events":
@@ -48,7 +49,7 @@ function fakeDaemon(history: Rec[]) {
         return null;
     }
   };
-  return () => {
+  const open = () => {
     socket = {
       readyState: 1,
       send(raw: string) {
@@ -65,15 +66,16 @@ function fakeDaemon(history: Rec[]) {
     queueMicrotask(() => socket.onopen?.());
     return socket as WebSocket;
   };
+  return Object.assign(open, { socket: () => socket });
 }
 
-async function rowsOf(history: Rec[]): Promise<AcpmuxRow[]> {
+async function rowsOf(history: Rec[], daemon = fakeDaemon(history)): Promise<AcpmuxRow[]> {
   let rows: AcpmuxRow[] = [];
   await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
     (snapshot: any) => (rows = snapshot.rows),
     undefined,
-    fakeDaemon(history),
+    daemon,
   );
   for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
   return rows;
@@ -115,4 +117,42 @@ test("another agent's addressed report, relayed from a peer as a steer, is its m
   ]);
   // Retry resends the message as the agent got it.
   expect(prompts[1]?.resend).toBe(CONFIRMED);
+});
+
+test("a sender listed after its addressed prompt was read makes that prompt its message", async () => {
+  const history = record([
+    [
+      "mux",
+      "user_message",
+      { text: "summary-panel -> coord-deputy: Also #24020.", client: "acpmux-peer#01a1", promptId: "p-1" },
+    ],
+    ["mux", "turn_started", {}],
+    ["in", "agent_message_chunk", say("Noted.")],
+    ["mux", "turn_result", { stopReason: "end_turn" }],
+  ]);
+  // Addressed to another chat, from a chat the list does not hold yet: the person's, for now.
+  const daemon = fakeDaemon(history, []);
+  let rows: AcpmuxRow[] = [];
+  await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    (snapshot: any) => (rows = snapshot.rows),
+    undefined,
+    daemon,
+  );
+  for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+  const prompt = () => rows.find((row) => row.kind === "user");
+  expect(prompt()?.incoming).toBeUndefined();
+  // The chat on huge-blue is listed: the prompt is its message.
+  daemon.socket().onmessage?.({
+    data: JSON.stringify({
+      jsonrpc: "2.0",
+      method: "_acpmux/session_changed",
+      params: { sessionId: PANEL, session: PANEL_ENTRY, kind: "created" },
+    }),
+  });
+  for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(prompt()?.incoming).toMatchObject({
+    kind: "message",
+    message: { name: "summary-panel", text: "Also #24020." },
+  });
 });

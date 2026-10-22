@@ -499,7 +499,7 @@ test("a message's closed line previews its first line of text, its spaces collap
 // 2026-10-22, showed summary-panel's report as the person's bubble.
 test("a message addressed sender first is that agent's when it names this chat or a listed sender", () => {
   const peer = { client: "acpmux-peer#01a161" };
-  const here = { names: ["claude-sr2", undefined] };
+  const here = { isThisChat: (name: string) => name.toLowerCase() === "claude-sr2" };
   const sent =
     "summary-panel -> claude-sr2: Confirmed. On feat-cmux-next today, the overlay card is **as tall** as its content.";
   expect(incomingPrompt(sent, peer, here)).toEqual({
@@ -523,7 +523,10 @@ test("a message addressed sender first is that agent's when it names this chat o
         message: { name: "summary-panel", text: "Done.", raw: text },
       });
   // To another chat, from a listed one.
-  const listed = { names: ["coordinator"], isChat: (name: string) => name === "summary-panel" };
+  const listed = {
+    isThisChat: (name: string) => name === "coordinator",
+    isChat: (name: string) => name === "summary-panel",
+  };
   expect(incomingPrompt("summary-panel -> claude-sr2: Done.", peer, listed)).toMatchObject({
     message: { name: "summary-panel", text: "Done." },
   });
@@ -535,14 +538,24 @@ test("a message addressed sender first is that agent's when it names this chat o
 });
 
 test("the person's arrow is their own words", () => {
-  const here = { names: ["claude-sr2"], isChat: (name: string) => name === "summary-panel" };
+  const here = {
+    isThisChat: (name: string) => name === "claude-sr2",
+    isChat: (name: string) => name === "summary-panel" || name === "reviewer",
+  };
   // Typed in the pane: the person's, whatever it names.
   for (const client of [undefined, "web", "cmux-pane#1", "acpmux"])
     expect(incomingPrompt("summary-panel -> claude-sr2: Done.", { client }, here)).toBeUndefined();
   // Typed at the acpmux TUI or sent from a shell, naming neither this chat nor a listed sender.
   for (const text of ["foo -> bar: rename it", "a -> b: see", "foo→bar: x"])
     expect(incomingPrompt(text, { client: "acpmux-cli#a1b2c3" }, here)).toBeUndefined();
-  // Not first, more than one word, or no colon after the receiver: prose.
+  // To this chat, from a name no agent's and no listed chat's (the person signing at the TUI).
+  for (const text of ["leo -> claude-sr2: merge it", "Leo → claude-sr2: merge it"])
+    expect(incomingPrompt(text, { client: "acpmux-cli#a1b2c3" }, here)).toBeUndefined();
+  // A listed chat's one-word name is its sender's.
+  expect(incomingPrompt("reviewer -> claude-sr2: SHIP", { client: "acpmux-cli#a1b2c3" }, here)).toMatchObject({
+    message: { name: "reviewer", text: "SHIP" },
+  });
+  // Not first, more than one word, no colon after the receiver, or a longer arrow: prose.
   for (const text of [
     "Then a -> b: see the log",
     "Then summary-panel -> claude-sr2: see the log",
@@ -550,6 +563,8 @@ test("the person's arrow is their own words", () => {
     "summary-panel -> claude-sr2 then merge",
     "summary-panel -> claude-sr2:",
     "summary-panel -> https://example.com/x",
+    "summary-panel-->claude-sr2: Done.",
+    "summary-panel -> -claude-sr2: Done.",
   ])
     expect(incomingPrompt(text, { client: "acpmux-cli#a1b2c3" }, here)).toBeUndefined();
   // No context (a caller that knows no chat): never a message.

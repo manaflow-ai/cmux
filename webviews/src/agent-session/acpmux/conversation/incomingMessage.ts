@@ -20,8 +20,8 @@
 // it, so the card opens the listed chat with that name (subsessions.ts `useSenderChat`).
 // An agent also addresses one sender first: `summary-panel -> claude-sr2: Confirmed.` (`→`, spaces
 // or none). Nothing else in the record says an agent sent it, and a person types the same at the
-// acpmux TUI, so it is a message only when it names this chat as its receiver or a listed chat as
-// its sender (`IncomingContext`). A watched chat (`client: "watch"`, hub/watch.rs) records its
+// acpmux TUI, so it is a message only when its sender is a listed chat, or its receiver is this
+// chat and its sender reads as an agent's name (`IncomingContext`). A watched chat (`client: "watch"`, hub/watch.rs) records its
 // prompts from the transcript as an adopted one does, Claude Code's envelopes in them.
 
 /// Who a family message's sender is to this chat (acpmux `fromRole`, subsession_send.rs
@@ -48,8 +48,9 @@ export type IncomingMessage = {
 };
 
 /// What the pane knows that tells an agent's addressed message (`sender -> receiver: …`) from the
-/// person's words: this chat's names, and whether a name is a listed chat's.
-export type IncomingContext = { names?: readonly (string | undefined)[]; isChat?: (name: string) => boolean };
+/// person's words: whether a name is this chat's, and whether it is a listed chat's. Each is asked
+/// only of a prompt in that form.
+export type IncomingContext = { isThisChat?: (name: string) => boolean; isChat?: (name: string) => boolean };
 
 export type IncomingPrompt =
   | { kind: "message"; message: IncomingMessage }
@@ -275,12 +276,13 @@ function fromFirst(text: string): { name: string; text: string } | undefined {
 }
 
 /// A message addressed sender first: `summary-panel -> claude-sr2: …`, its arrow `->` or `→`, with
-/// spaces around it or none, each name one word.
-const ADDRESSED = /^([\w.@/-]+?)\s*(?:->|→)\s*([\w.@/-]+):\s+(\S[\s\S]*)$/;
+/// spaces around it or none, each name one word that ends and starts with no dash (`a-->b` is none).
+const ADDRESSED = /^([\w.@/-]+?)(?<!-)\s*(?:->|→)\s*([\w.@][\w.@/-]*):\s+(\S[\s\S]*)$/;
 
 /// The sender and message of a prompt addressed sender first, when nothing but its text says an
-/// agent sent it: only when it names this chat as its receiver or a listed chat as its sender, so
-/// the person's "foo -> bar: …" stays theirs.
+/// agent sent it: only when its sender is a listed chat, or it names this chat as its receiver and
+/// its sender reads as an agent's name (`summary-panel`, not `leo`), so the person's
+/// "foo -> bar: …" stays theirs.
 function addressedFirst(
   text: string,
   context: IncomingContext | undefined,
@@ -288,8 +290,8 @@ function addressedFirst(
   const addressed = ADDRESSED.exec(text);
   if (!addressed || !context) return undefined;
   const [, from, to, body] = addressed as unknown as [string, string, string, string];
-  const toThisChat = (context.names ?? []).some((name) => name?.trim().toLowerCase() === to.toLowerCase());
-  return toThisChat || context.isChat?.(from) ? { name: from, text: body.trim() } : undefined;
+  const known = (ENVELOPE_AGENT.test(from) && context.isThisChat?.(to)) || context.isChat?.(from);
+  return known ? { name: from, text: body.trim() } : undefined;
 }
 
 /// The agent that signed a message whose envelope names its sender already: its name first in

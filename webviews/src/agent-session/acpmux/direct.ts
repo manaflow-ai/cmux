@@ -337,6 +337,15 @@ function queuedEntry(
   };
 }
 
+/// Whether listed chat `session` is the one `name` names: its name, its short name, or, for a chat
+/// on another machine (listed as `<peer>/<name>`), its bare name, which its messages sign with.
+function namesChat(session: Session, name: string): boolean {
+  const listed = session.name?.trim();
+  return (
+    listed === name || session.shortName?.trim() === name || (!!session.peer && listed === `${session.peer}/${name}`)
+  );
+}
+
 /// A `queued` record that is another agent's message, as its received line reads it once it runs
 /// (conversation/incomingMessage.ts), else as acpmux's `fromAgent` names it (`acpmux send --from`),
 /// its text without a leading "[name]" or "From name:" that only repeats the sender. Undefined for
@@ -913,6 +922,8 @@ export class AcpmuxDirectClient {
     (child) => this.childChanged(child),
   );
   private sessions: Session[] = [];
+  /// Senders of addressed prompts no listed chat named (`incomingContext`).
+  private unknownSenders = new Set<string>();
   /// The session list a page at a time: the newest page opens the chat, the rest follow (cx-2lv1k).
   private readonly sessionPages = new SessionPager<Session>((method, params) => this.request(method, params));
   private sessionReread: ReturnType<typeof setTimeout> | undefined;
@@ -1707,6 +1718,7 @@ export class AcpmuxDirectClient {
     if (first.next && !(await this.sessionPages.rest(first, () => list, add))) return false;
     // Changes that came while the pages did are newer than the pages.
     this.sessions = this.sessionPages.settle(list);
+    this.recheckSenders(this.sessions);
     const missing =
       this.selectedSessionId !== undefined &&
       !this.sessions.some((session) => session.sessionId === this.selectedSessionId);
@@ -1760,6 +1772,7 @@ export class AcpmuxDirectClient {
 
   private addSessions = (more: Session[]): void => {
     this.sessions = [...this.sessions, ...more];
+    this.recheckSenders(more);
     if (!this.opening) this.emit("session changed");
   };
 
@@ -2220,7 +2233,9 @@ export class AcpmuxDirectClient {
     if (!session?.sessionId) return;
     this.asks.session(session, typeof params?.kind === "string" ? params.kind : undefined);
     this.sessionPages.changedSession(session);
+    const added = !this.sessions.some((item) => item.sessionId === session.sessionId);
     this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), session];
+    if (added) this.recheckSenders([session]);
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
       // A change that doesn't carry the queue keeps the one already mapped.
@@ -2305,25 +2320,37 @@ export class AcpmuxDirectClient {
   }
 
   /// This chat's names and the listed chats', which tell an agent's message addressed
-  /// `sender -> receiver: …` from the person's words (conversation/incomingMessage.ts).
+  /// `sender -> receiver: …` from the person's words (conversation/incomingMessage.ts). This chat
+  /// is the summary, or its listed entry while the summary is not in yet (a kept tail's replay).
+  /// A sender no listed chat names is kept, so a list that names it later reads the rows again.
   private incomingContext(): IncomingContext {
     return {
-      names: [this.summary?.name, this.summary?.shortName],
-      // A chat on another machine is listed as `<peer>/<name>` and signs with its bare name.
-      isChat: (name) =>
-        this.sessions.some((session) => {
-          const listed = session.name?.trim();
-          return (
-            listed === name ||
-            session.shortName?.trim() === name ||
-            (!!session.peer && listed === `${session.peer}/${name}`)
-          );
-        }),
+      isThisChat: (name) => {
+        const listed = this.sessions.find((session) => session.sessionId === this.selectedSessionId);
+        const lower = name.toLowerCase();
+        return [this.summary, listed].some((chat) =>
+          [chat?.name, chat?.shortName].some((own) => typeof own === "string" && own.trim().toLowerCase() === lower),
+        );
+      },
+      isChat: (name) => {
+        const known = this.sessions.some((session) => namesChat(session, name));
+        if (!known) this.unknownSenders.add(name);
+        return known;
+      },
     };
+  }
+
+  /// The list gained chats (a later page, a new chat): when one is a sender an addressed prompt
+  /// named before it was listed, the rows are read again, so that prompt draws as its message.
+  private recheckSenders(added: readonly Session[]): void {
+    if (this.unknownSenders.size === 0 || !this.selectedSessionId || this.events.length === 0) return;
+    if (![...this.unknownSenders].some((name) => added.some((session) => namesChat(session, name)))) return;
+    this.rebuildKeepingLiveState();
   }
 
   private rebuild(): void {
     const previous = new Map(this.rows);
+    this.unknownSenders.clear();
     // A prompt still in flight keeps its optimistic row until an event settles it; a failed one stays to show it was not sent.
     const inFlight = new Set(this.optimisticPromptRows.values());
     // Those rows keep their place in the order.
