@@ -648,3 +648,33 @@ for (const second of secondEnds)
     await client.loadOlder();
     expect(compactions(rows())).toEqual(compactions(whole.rows()));
   });
+
+// Review of #24296 (Claude): a held compaction that starts with a running note on time continues
+// the one the older page left open before a later end-only record can take it.
+test("a compaction the newer page goes on with keeps its end; a later end-only record gets its own row", async () => {
+  const events = record([
+    ["mux", "user_message", { text: "a" }],
+    ["mux", "turn_started", {}],
+    ["mux", "turn_result", { status: "completed" }],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running", reason: "account_switch" })],
+    ["mux", "user_message", { text: "b" }],
+    ["mux", "turn_started", {}],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    [
+      "in",
+      "compaction",
+      update({ sessionUpdate: "compaction", state: "completed", preTokens: 58163, postTokens: 20129 }),
+    ],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "failed", error: "Prompt is too long" })],
+  ]);
+  const compactions = (rows: AcpmuxRow[]) =>
+    rows.filter((row) => row.kind === "compaction").map((row) => row.compaction);
+  const whole = await connect(fakeDaemon(events));
+  expect(compactions(whole.rows())).toEqual([
+    { state: "completed", preTokens: 58163, postTokens: 20129 },
+    { state: "failed", error: "Prompt is too long" },
+  ]);
+  const { client, rows } = await connect(fakeDaemon(events, 5));
+  await client.loadOlder();
+  expect(compactions(rows())).toEqual(compactions(whole.rows()));
+});
