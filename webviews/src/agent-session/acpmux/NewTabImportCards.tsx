@@ -1,5 +1,6 @@
-// The New Tab page's import cards, in the page's notice slot (App.tsx): the host's few cards for
-// what this Mac has that cmux can bring over. A button goes back as `importCards.act {id, action}`.
+// The New Tab page's import cards, in the page's notice slot (App.tsx): only a Chief's sign-in
+// requests (the host never pops up what a scan found; that stays in Settings > Import).
+// A button goes back as `importCards.act {id, action}`.
 import { ImportCards } from "../../ui/ImportCards";
 import { useImportCards } from "./importCards";
 
