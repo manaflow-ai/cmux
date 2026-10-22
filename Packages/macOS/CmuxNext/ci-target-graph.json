@@ -363,6 +363,8 @@
         "CmuxNextHome",
         "CmuxNextHomeEngine",
         "CmuxNextHostedChief",
+        "CmuxNextImportCards",
+        "CmuxNextImportSuggestions",
         "CmuxNextLayout",
         "CmuxNextNowPlaying",
         "CmuxNextProcessEnvironment",
@@ -1213,11 +1215,9 @@
         "CmuxNextControl",
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
-        "CmuxNextDesign",
         "CmuxNextKeepAwake",
         "CmuxNextMobile",
-        "CmuxNextSettings",
-        "CmuxNextWakeups"
+        "CmuxNextSettings"
       ],
       "packages": []
     },
@@ -1225,7 +1225,6 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPhoneAccessTests",
       "targets": [
-        "CmuxNextMobile",
         "CmuxNextPhoneAccess"
       ],
       "packages": [],
