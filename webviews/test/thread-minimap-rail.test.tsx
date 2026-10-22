@@ -40,6 +40,8 @@ const replacements: Record<string, unknown> = {
     unobserve() {}
     disconnect() {}
   },
+  WheelEvent: dom.window.WheelEvent,
+  KeyboardEvent: dom.window.KeyboardEvent,
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
@@ -428,14 +430,74 @@ test("the card draws outside the transcript scroller, whose edge mask would keep
     expect(card()!.parentElement).toBe(view.scroller.parentElement);
     // The rail keeps an anchor where the card's x and y count from.
     expect(view.scroller.querySelector(".acpmux-minimap > .acpmux-minimap__anchor")).not.toBeNull();
-    // The wheel over the card still scrolls the transcript, as it did inside it.
-    const scrolls: unknown[] = [];
-    view.scroller.scrollBy = ((options: unknown) => void scrolls.push(options)) as typeof view.scroller.scrollBy;
-    await act(async () => {
-      card()!.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: 120, bubbles: true, cancelable: true }));
-    });
-    expect(scrolls).toEqual([{ left: 0, top: 120 }]);
   } finally {
+    await view.unmount();
+  }
+});
+
+test("the wheel and the scrolling keys over the card reach the transcript's own listeners, as inside it", async () => {
+  const { followTrace } = await import("../src/agent-session/acpmux/followTrace");
+  const { animateScroll } = await import("../src/agent-session/acpmux/threadMinimap/scrollMotion");
+  const view = await mount(8);
+  const input = jest.spyOn(followTrace, "input");
+  try {
+    await act(async () => tick(3).focus());
+    expect(card()?.textContent).toContain("Question 3");
+    // jsdom has no scrollBy: a card that only called it (and skipped the listeners) would scroll here.
+    view.scroller.scrollBy = ((options: ScrollToOptions) => {
+      view.scroller.scrollTop += options.top ?? 0;
+    }) as typeof view.scroller.scrollBy;
+    const heard: string[] = [];
+    view.scroller.addEventListener("wheel", (event) => heard.push(`wheel ${(event as WheelEvent).deltaY}`));
+    view.scroller.addEventListener("keydown", (event) => heard.push(`key ${(event as KeyboardEvent).key}`));
+    // A minimap jump in flight: the reader's own wheel over the card ends it where it is.
+    view.scroller.scrollTop = 1000;
+    animateScroll(view.scroller, () => 5000, 60_000, [0, 0, 1, 1]);
+    input.mockClear();
+    await act(async () => {
+      card()!.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -3, bubbles: true, cancelable: true }));
+    });
+    // The transcript's own wheel listeners ran: the scroll is the reader's (App.tsx), so a slow
+    // scroll up from the latest row is not taken for a stray and snapped back.
+    expect(heard).toEqual(["wheel -3"]);
+    expect(input).toHaveBeenCalledTimes(1);
+    const after = view.scroller.scrollTop;
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(view.scroller.scrollTop).toBe(after);
+    // A page (deltaMode 2) is the scroller's height.
+    view.scroller.scrollTop = 1000;
+    await act(async () => {
+      card()!.dispatchEvent(
+        new dom.window.WheelEvent("wheel", { deltaY: 1, deltaMode: 2, bubbles: true, cancelable: true }),
+      );
+    });
+    expect(view.scroller.scrollTop).toBe(1000 + VIEWPORT);
+    // A pinch (ctrl) is not a scroll.
+    await act(async () => {
+      card()!.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: 40, ctrlKey: true, bubbles: true }));
+    });
+    expect(view.scroller.scrollTop).toBe(1000 + VIEWPORT);
+    // Page Down with focus on the card's bookmark pages the transcript, as it did inside it.
+    heard.length = 0;
+    input.mockClear();
+    const bookmark = card()!.querySelector<HTMLButtonElement>(".acpmux-minimap__bookmark")!;
+    await act(async () => {
+      bookmark.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { key: "PageDown", bubbles: true, cancelable: true }),
+      );
+    });
+    expect(heard).toEqual(["key PageDown"]);
+    expect(input).toHaveBeenCalledTimes(1);
+    expect(view.scroller.scrollTop).toBe(1000 + VIEWPORT + VIEWPORT * 0.875);
+    // Return on the bookmark is its own: it scrolls nothing.
+    await act(async () => {
+      bookmark.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      );
+    });
+    expect(heard).toEqual(["key PageDown"]);
+  } finally {
+    input.mockRestore();
     await view.unmount();
   }
 });

@@ -5,13 +5,39 @@
 // edges (conversation.css), and a masked ancestor is the card's backdrop root: inside it the blur
 // had nothing under it to read, so the rows showed through the tint sharp (#23782). From the
 // parent the card blurs the rows, as the chat's other glass does. An anchor left in the rail marks
-// where the card's x and y count from, so it lands where it always did, and the wheel over the card
-// still scrolls the transcript, as it did when the card was inside it.
+// where the card's x and y count from, so it lands where it always did. The wheel over the card and
+// a scrolling key on its bookmark still scroll the transcript, and reach the scroller's own
+// listeners first (wheelPassThrough.ts), as they did when the card was inside it.
 import React, { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n";
+import { forwardWheel } from "../wheelPassThrough";
 import { BookmarkIcon } from "./BookmarkIcon";
 import type { ReplyBlock } from "./model";
+
+/// How far a key scrolls the transcript while focus is in it: a line, most of a page, or to an end.
+function keyScroll(key: string, scroller: HTMLElement): number | undefined {
+  const page = scroller.clientHeight * 0.875;
+  if (key === "ArrowUp") return -40;
+  if (key === "ArrowDown") return 40;
+  if (key === "PageUp") return -page;
+  if (key === "PageDown") return page;
+  if (key === "Home") return -scroller.scrollTop;
+  if (key === "End") return scroller.scrollHeight;
+  return undefined;
+}
+
+/// A scrolling key on the card's bookmark (its one stop) scrolls the transcript, as it did when the
+/// card drew inside it. The scroller gets a copy first, so its own key listeners run as for a key in
+/// it (the scroll counts as the reader's, a jump in flight ends).
+function forwardScrollKey(scroller: HTMLElement, event: React.KeyboardEvent): void {
+  if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+  const by = keyScroll(event.key, scroller);
+  if (by === undefined) return;
+  event.preventDefault();
+  scroller.dispatchEvent(new KeyboardEvent("keydown", { key: event.key, bubbles: false }));
+  scroller.scrollTop += by;
+}
 
 export type PreviewBookmark = { marked: boolean; toggle(): void };
 
@@ -70,15 +96,7 @@ export const PreviewCard = React.forwardRef<
       className="acpmux-minimap__card"
       style={{ transform: `translate3d(${at.x + x}px, ${at.y + y}px, 0)` }}
       onPointerLeave={onPointerLeave}
-      onWheel={
-        layer
-          ? (event) => {
-              // A line (deltaMode 1) as 16 px; pixels as they come.
-              const unit = event.deltaMode === 1 ? 16 : 1;
-              scroller!.scrollBy({ left: event.deltaX * unit, top: event.deltaY * unit });
-            }
-          : undefined
-      }
+      onWheel={layer ? (event) => forwardWheel(scroller!, event.nativeEvent) : undefined}
       onFocus={onFocus}
       onBlur={onBlur}
     >
@@ -93,6 +111,7 @@ export const PreviewCard = React.forwardRef<
               aria-label={t(bookmark.marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
               title={t(bookmark.marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
               onClick={bookmark.toggle}
+              onKeyDown={layer ? (event) => forwardScrollKey(scroller!, event) : undefined}
             >
               <BookmarkIcon filled={bookmark.marked} />
             </button>
