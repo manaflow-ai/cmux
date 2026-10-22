@@ -12,17 +12,23 @@ public import AppKit
 ///
 /// One owner: `owner` is the tracker whose hand shows. Another tracker that sets its hand takes
 /// it, so an exit that AppKit delivers after the next enter leaves the next view's hand alone. A
-/// tracker clears the hand (the arrow) only while it is the owner, and only while the pointer is
-/// still over its view in the top window, so an exit a menu's tracking loop swallowed never puts
-/// the arrow over the page's own hand later.
+/// tracker clears the hand (the arrow) only while it is the owner, the hand still shows, the
+/// pointer is still in its window (the top window under it, so an exit a menu's tracking loop
+/// swallowed never puts the arrow over the page's own hand later), and no other enabled
+/// `ClickableButton` is under the pointer (its enter, still to come, keeps the hand).
 ///
 /// A still pointer: the key child window resets the cursor in its display cycle (a page reload),
 /// with no event for the tracker. `keepHand()`, called by the main run loop's cursor keeper
 /// (`ArrowCursorView`) after each pass and after each pointer move, sets the owner's hand again.
+/// A child window can also take the key while the pointer rests on a button whose own window had
+/// it (`waiting`, the rects showed the hand); the keeper's next pass gives that button the hand.
 @MainActor
 public final class ClickableCursorTracker: NSResponder {
     /// The tracker whose hand shows now; nil when none does. Tests clear it before each case.
     static weak var owner: ClickableCursorTracker?
+    /// The tracker the pointer rests on while its own window has the key and it would otherwise
+    /// show the hand; nil when none does. `keepHand()` promotes it once another window has the key.
+    static weak var waiting: ClickableCursorTracker?
 
     private weak var view: NSView?
     private let isClickable: @MainActor () -> Bool
@@ -73,8 +79,7 @@ public final class ClickableCursorTracker: NSResponder {
     }
 
     func pointerExited() {
-        inside = false
-        release()
+        leave()
     }
 
     /// The view was enabled or disabled: under a still pointer the cursor follows at once.
@@ -85,18 +90,23 @@ public final class ClickableCursorTracker: NSResponder {
 
     /// The view hides or changes window under a still pointer, with no exit event.
     public func viewWillLeave() {
-        inside = false
-        release()
+        leave()
     }
 
     /// After a run loop pass or a pointer move: the owner's hand again when the key child window
-    /// reset the cursor under a still pointer. One read while no tracker shows its hand, and one
-    /// cursor comparison while the hand still shows; it reads the pointer only when another cursor
-    /// shows, and gives up the hand (setting nothing) once the pointer is no longer over its view.
+    /// reset the cursor under a still pointer. Two reads while no tracker shows its hand or waits
+    /// for the key, and one cursor comparison while the hand still shows; it reads the pointer only
+    /// when another cursor shows, and gives up the hand (setting nothing) once the pointer is no
+    /// longer over its view. A waiting tracker whose window lost the key is updated once.
     public static func keepHand() {
+        if owner == nil, let waiting, let window = waiting.view?.window, !waiting.isKey(window) {
+            Self.waiting = nil
+            if waiting.inside { waiting.update() }
+            return
+        }
         guard let owner else { return }
         guard owner.currentCursor() !== NSCursor.pointingHand else { return }
-        guard owner.inside, owner.handAllowed(), owner.pointerOverView(visibleOnly: true) else {
+        guard owner.inside, owner.handAllowed(), owner.pointerOverView() else {
             Self.owner = nil
             return
         }
@@ -104,38 +114,66 @@ public final class ClickableCursorTracker: NSResponder {
     }
 
     private func update() {
-        let over = pointerOverView(visibleOnly: true)
+        let over = pointerOverView()
         if !over { inside = false }
+        let waits = over && handAllowed(ignoringKey: true) && !handAllowed()
+        if waits {
+            Self.waiting = self
+        } else if Self.waiting === self {
+            Self.waiting = nil
+        }
         guard over, handAllowed() else { return release() }
         Self.owner = self
         setCursor(.pointingHand)
     }
 
-    /// The hand goes only while this tracker owns it, and the arrow replaces it only while the
-    /// pointer is still over this view's frame in the top window (not over the page, where the
-    /// page set its own cursor) and another window has the key (the key window's rects decide).
+    private func leave() {
+        inside = false
+        if Self.waiting === self { Self.waiting = nil }
+        release()
+    }
+
+    /// The hand goes only while this tracker owns it. The arrow replaces it only while another
+    /// window has the key (the key window's rects decide), the hand still shows (no other view set
+    /// its cursor), the pointer is in this view's window as the top window under it (not over the
+    /// page, where the page set its own cursor), and no other enabled `ClickableButton` is under it.
     private func release() {
         guard showsHand else { return }
         Self.owner = nil
         guard let window = view?.window, !isKey(window), currentCursor() === NSCursor.pointingHand,
-              pointerOverView(visibleOnly: false) else { return }
+              let point = ClickableButton.pointer(in: window, screenPoint: mouseLocation(), topWindowNumber: topWindowNumber),
+              !Self.enabledClickableButton(at: point, in: window, excluding: view) else { return }
         setCursor(.arrow)
     }
 
-    private func handAllowed() -> Bool {
-        guard let view, let window = view.window, !isKey(window), !Self.hasHost(view) else { return false }
+    private func handAllowed(ignoringKey: Bool = false) -> Bool {
+        guard let view, let window = view.window, ignoringKey || !isKey(window), !Self.hasHost(view) else { return false }
         return isClickable() && !view.isHiddenOrHasHiddenAncestor
     }
 
-    /// The pointer is over the view (what shows of it, `ClickableButton.cursorRect(of:)`, or its
-    /// bounds for a view that just hid) in the top window under the pointer.
-    private func pointerOverView(visibleOnly: Bool) -> Bool {
+    /// An enabled `ClickableButton` other than `own` (outside a `ClickableCursorHost`) is the view
+    /// under the window point, or one of its ancestors.
+    private static func enabledClickableButton(at point: NSPoint, in window: NSWindow, excluding own: NSView?) -> Bool {
+        guard let content = window.contentView,
+              let hit = content.hitTest(content.superview?.convert(point, from: nil) ?? point) else { return false }
+        var candidate: NSView? = hit
+        while let current = candidate {
+            if let button = current as? ClickableButton {
+                return button !== own && button.isEnabled && !button.isHiddenOrHasHiddenAncestor && !hasHost(button)
+            }
+            candidate = current.superview
+        }
+        return false
+    }
+
+    /// The pointer is over what shows of the view (`ClickableButton.cursorRect(of:)`) in the top
+    /// window under the pointer.
+    private func pointerOverView() -> Bool {
         guard let view, let window = view.window,
               let point = ClickableButton.pointer(in: window, screenPoint: mouseLocation(), topWindowNumber: topWindowNumber) else {
             return false
         }
-        let rect = visibleOnly ? ClickableButton.cursorRect(of: view) ?? .zero : view.bounds
-        return rect.contains(view.convert(point, from: nil))
+        return ClickableButton.cursorRect(of: view)?.contains(view.convert(point, from: nil)) == true
     }
 
     private static func hasHost(_ view: NSView) -> Bool {
