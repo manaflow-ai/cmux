@@ -21,6 +21,7 @@ import { DENSITY_ROWS } from "../density";
 import { DensityCard } from "./DensityCard";
 import { BrowserProfiles, MachinesSection, SpacesSection } from "./HostSections";
 import { PlaceholderSection } from "./PlaceholderSection";
+import { WebUpdatesCard } from "./WebUpdatesCard";
 import { VoiceInputCard } from "./VoiceInputCard";
 import { SectionActions } from "./SectionActions";
 import { ACCENT_KEY, APP_THEME_KEY, THEME_EDITS_KEY, THEME_KEY, ThemeStudio } from "./ThemeStudio";
@@ -50,6 +51,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   density: () => <DensityCard />,
   importSuggestions: () => <ImportSuggestionsCard />,
   channels: () => <ChannelsCard />,
+  webUpdates: () => <WebUpdatesCard />,
   voiceInput: () => <VoiceInputCard />,
 };
 
