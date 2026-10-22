@@ -694,7 +694,7 @@ pub struct Mux {
     resource_creation_active: AtomicBool,
     terminal_adoptions: Mutex<HashSet<String>>,
     /// Turns of a start's first adoption attempts (mux/startup_adoption_gate.rs).
-    startup_adoption_gate: startup_adoption_gate::StartupAdoptionGate,
+    startup_adoption_gate: Arc<startup_adoption_gate::StartupAdoptionGate>,
     /// Restored tab names, by tab slot, for terminals that adopt after the
     /// start: the surface takes its tab's name when it arrives. A leaf lock.
     restored_tab_names: Mutex<HashMap<SurfaceId, String>>,
