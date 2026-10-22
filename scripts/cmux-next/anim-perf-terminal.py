@@ -124,12 +124,16 @@ def row(check, expected, observed, ok):
 
 # -- setup: a workspace A of one pane with 3 tabs, a workspace B of 4 panes, a sidebar group of 3 workspaces --
 
-def setup():
+def make_a():
     action("workspace.newAtBottom", settle=1.5)
     action("terminal.sendText", {"text": "seq 1 3000\r"})
     for _ in range(2):
         action("newTab", settle=0.8)
     state["a"] = shown_workspace()
+
+
+def setup():
+    make_a()
     action("workspace.newAtBottom", settle=1.5)
     for verb in ("splitRight", "splitDown", "focusLeft", "splitDown"):
         action(verb, settle=0.6)
@@ -138,10 +142,39 @@ def setup():
     state["group_ws"] = shown_workspace()
     for _ in range(2):
         action("workspace.newBelow", settle=1.0)
-    action("goToWorkspace", {"workspace": state["group_ws"]}, settle=0.8)
     state["chats"] = seed_home()
     action("goToWorkspace", {"workspace": state["a"]}, settle=1.0)
     time.sleep(1.5)  # test harness: launch and setup work settles
+
+
+def go(workspace):
+    return error_of(action("goToWorkspace", {"workspace": workspace}))
+
+
+def panes_of(workspace):
+    """[(pane id, tab count)] of `workspace`."""
+    for w in topology().get("workspaces") or []:
+        if w.get("id") == workspace:
+            return [(p.get("id"), len(p.get("tabs") or p.get("surfaces") or [])) for s in w.get("screens") or [] for p in s.get("panes") or []]
+    return None
+
+
+def at_a(panes=1):
+    """Shows workspace A with `panes` panes (made again when a close took it), focused on the first pane's middle tab."""
+    if panes_of(state.get("a")) is None:
+        make_a()
+    go(state["a"])
+    time.sleep(0.4)  # test harness: the switch lands
+    while len(panes_of(state["a"]) or []) > panes:
+        action("focusRight", settle=0.2)
+        action("closePane", settle=0.8)
+    while len(panes_of(state["a"]) or []) < panes:
+        action("splitRight", settle=0.8)
+    for _ in range(panes):
+        action("focusLeft", settle=0.2)
+    first = (panes_of(state["a"]) or [(None, 0)])[0]
+    for _ in range(max(0, 3 - first[1])):
+        action("newTab", settle=0.8)
 
 
 class Owner:
@@ -215,44 +248,38 @@ def seed_home(count=4):
     return made
 
 
-def go(workspace):
-    return error_of(action("goToWorkspace", {"workspace": workspace}))
-
-
 # Each animation: (prepare, perform). prepare runs untimed; perform is the timed gesture.
 def anims():
-    a = lambda: go(state["a"])  # noqa: E731
-    two_panes = lambda: (go(state["a"]), action("splitRight", settle=0.8), action("focusLeft", settle=0.3))  # noqa: E731
-    one_pane = lambda: (go(state["a"]), action("focusRight", settle=0.2), action("closePane", settle=0.8))  # noqa: E731
+    run = lambda verb: (lambda: error_of(action(verb)))  # noqa: E731
     return [
-        ("tab-new", a, lambda: error_of(action("newTab"))),
-        ("tab-close", None, lambda: error_of(action("closeTab"))),
-        ("tab-move-right", a, lambda: error_of(action("moveSurfaceRight"))),
-        ("tab-move-left", None, lambda: error_of(action("moveSurfaceLeft"))),
-        ("tab-to-pane", two_panes, lambda: error_of(action("moveSurfaceToPaneRight"))),
-        ("tab-back", None, lambda: error_of(action("moveSurfaceToPaneLeft"))),
-        ("split-right", one_pane, lambda: error_of(action("splitRight"))),
-        ("split-close", None, lambda: error_of(action("closePane"))),
-        ("split-down", a, lambda: error_of(action("splitDown"))),
-        ("split-down-close", None, lambda: error_of(action("closePane"))),
-        ("column", a, lambda: error_of(action("newColumn"))),
-        ("column-close", None, lambda: error_of(action("closePane"))),
-        ("ws-switch", a, lambda: go(state["b"])),
+        ("tab-new", lambda: at_a(1), run("newTab")),
+        ("tab-close", None, run("closeTab")),
+        ("tab-move-left", None, run("moveSurfaceLeft")),
+        ("tab-move-right", None, run("moveSurfaceRight")),
+        ("tab-to-pane", lambda: at_a(2), run("moveSurfaceToPaneRight")),
+        ("tab-back", lambda: action("focusRight", settle=0.3), run("moveSurfaceToPaneLeft")),
+        ("split-right", lambda: at_a(1), run("splitRight")),
+        ("split-close", None, run("closePane")),
+        ("split-down", lambda: at_a(1), run("splitDown")),
+        ("split-down-close", None, run("closePane")),
+        ("column", lambda: at_a(1), run("newColumn")),
+        ("column-close", None, run("closePane")),
+        ("ws-switch", lambda: at_a(1), lambda: go(state["b"])),
         ("ws-back", None, lambda: go(state["a"])),
-        ("sidebar-hide", a, lambda: error_of(action("toggleSidebar"))),
-        ("sidebar-show", None, lambda: error_of(action("toggleSidebar"))),
-        ("right-open", a, lambda: error_of(action("toggleRightSidebar"))),
-        ("right-close", None, lambda: error_of(action("toggleRightSidebar"))),
-        ("group-collapse", lambda: go(state["group_ws"]), lambda: error_of(action("toggleFocusedWorkspaceGroupCollapsed"))),
-        ("group-expand", None, lambda: error_of(action("toggleFocusedWorkspaceGroupCollapsed"))),
-        ("home-show", a, lambda: error_of(action("home.show"))),
+        ("sidebar-hide", lambda: at_a(1), run("toggleSidebar")),
+        ("sidebar-show", None, run("toggleSidebar")),
+        ("right-open", lambda: at_a(1), run("toggleRightSidebar")),
+        ("right-close", None, run("toggleRightSidebar")),
+        ("group-collapse", lambda: go(state["group_ws"]), run("toggleFocusedWorkspaceGroupCollapsed")),
+        ("group-expand", None, run("toggleFocusedWorkspaceGroupCollapsed")),
+        ("home-show", lambda: at_a(1), run("home.show")),
         ("chat-open", None, lambda: error_of(action("home.openConversation", {"conversation": state["chats"][0]}))
          if state.get("chats") else "no seeded chats"),
-        ("chat-next", None, lambda: error_of(action("home.nextConversation"))),
-        ("chat-prev", None, lambda: error_of(action("home.previousConversation"))),
+        ("chat-next", None, run("home.nextConversation")),
+        ("chat-prev", None, run("home.previousConversation")),
         ("home-leave", None, lambda: go(state["a"])),
-        ("palette-open", a, lambda: error_of(action("commandPalette"))),
-        ("palette-close", None, lambda: error_of(action("commandPalette"))),
+        ("palette-open", lambda: at_a(1), run("commandPalette")),
+        ("palette-close", None, run("commandPalette")),
     ]
 
 
@@ -360,6 +387,13 @@ def main():
                 if (rpc("debug.windows") or {}).get("windows"):
                     return True
         return False
+    if not wait(up, 120):
+        # macOS 27 minis: a first launch can stall before its socket (NSXPCSharedListener interrupted); one relaunch.
+        print("the tagged app did not come up in 120 s; relaunching once", flush=True)
+        app.kill()
+        app.wait(timeout=30)
+        app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+        print(f"relaunched pid {app.pid}", flush=True)
     if not wait(up, 120):
         log.flush()
         print("the tagged app did not come up", flush=True)
