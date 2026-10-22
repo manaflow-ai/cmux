@@ -396,6 +396,32 @@ def needs_jobs(run: Mapping[str, Any], linux_only_paths: frozenset[str], now: dt
     return True
 
 
+def run_target_branch(run: Mapping[str, Any]) -> str | None:
+    """The branch whose workflow copy a run follows: a pull request's base, or a push's branch; None when unknown."""
+    for pr in run.get("pull_requests") or ():
+        base = (pr.get("base") or {}).get("ref") if isinstance(pr, Mapping) else None
+        if base:
+            return str(base)
+    if run.get("event") == "push" and run.get("head_branch"):
+        return str(run["head_branch"])
+    return None
+
+
+def starved_scope_runs(runs: Sequence[Mapping[str, Any]], listed: Mapping[int, Any],
+                       linux_only_paths: frozenset[str], now: dt.datetime) -> list[Mapping[str, Any]]:
+    """Runs whose jobs only the starved-label alert reads: skipped as linux-only, yet on another branch's copy.
+
+    linux_only_workflow_paths() reads main's workflow files, but a run into or
+    on another branch follows that branch's copy: main's cmux-next.yml is an
+    inert registration while feat-cmux-next's runs the build-fleet compile on
+    a glaeda-* label. These runs' jobs feed starved_labels only, never the
+    cancel policy, and cost one jobs listing each.
+    """
+    return [run for run in runs
+            if run.get("id") not in listed and run.get("path") in linux_only_paths
+            and needs_jobs(run, frozenset(), now) and run_target_branch(run) not in (None, "main")]
+
+
 def owned_label(job: Mapping[str, Any]) -> str | None:
     """The owned Mac pool a job asked for (glaeda-<class>-xcode-<version>), which names no macOS."""
     return next((str(label) for label in job.get("labels") or () if owned_pool(str(label))), None)
@@ -2638,9 +2664,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         if waits:
             snapshot[WAIT_P90_KEY] = waits
         # Fleet labels no runner is taking jobs from; the workflow's alert step
-        # (starved_labels.py) annotates them and keeps one issue per label.
-        snapshot["starved"] = starved_labels.starved(runs, jobs_by_run, now=now)
-        snapshot["unserved"] = starved_labels.unserved(runs, jobs_by_run, now=now)
+        # (starved_labels.py) annotates them and keeps one issue per label. It
+        # also reads branch runs main's linux-only filter skipped
+        # (starved_scope_runs()), and counts starts in the completed runs
+        # listed as lost-assignment evidence as service.
+        fleet_jobs = dict(jobs_by_run)
+        for run in starved_scope_runs(runs, jobs_by_run, linux_only, now):
+            try:
+                fleet_jobs[run["id"]] = github.jobs(run["id"])
+            except RuntimeError as error:
+                print(f"queue-janitor: starved-label jobs of run {run['id']}: {error}", file=sys.stderr)
+        snapshot["starved"] = starved_labels.starved(runs, fleet_jobs, now=now, evidence=evidence_jobs)
+        snapshot["unserved"] = starved_labels.unserved(runs, fleet_jobs, now=now, evidence=evidence_jobs)
         # Warm affinity on: which root runner kept a build of which main
         # commits (owned_warm_state.py). A failure leaves `warm` out, and the
         # picker then routes admission by the root label as before.

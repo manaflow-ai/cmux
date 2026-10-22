@@ -11,7 +11,7 @@ been queued with no runner for STARVED_AFTER and no job on it is running or
 started in that window. A running job proves a listener is online, so a pool
 that is merely busy is not starved.
 The wait counts from when the job could first run (wait_start()): a job still
-behind a running sibling in its run, which may be its `needs`, is not counted.
+behind an unfinished sibling in its run, which may be its `needs`, is not counted.
 
 Every glaeda-* label is in scope. Nothing in the tree says which runner label
 a merge-blocking job asks for (cmux-next's build-fleet compile takes
@@ -60,16 +60,29 @@ def fleet_key(job: Mapping[str, Any]) -> str:
     return "+".join(sorted({str(label) for label in job.get("labels") or () if str(label).startswith(FLEET_PREFIX)}))
 
 
-def wait_start(job: Mapping[str, Any], run_jobs: Sequence[Mapping[str, Any]]) -> dt.datetime | None:
-    """When a queued job could first have run; None while a sibling in its run is still running.
+def _served(job: Mapping[str, Any], now: dt.datetime, after: dt.timedelta) -> bool:
+    started = parse_time(job.get("started_at"))
+    return job.get("status") == "in_progress" or bool(job.get("runner_name") and started and now - started <= after)
 
-    The jobs API can list a job before its `needs` finished and names no `needs`
-    (queue_janitor.lost_wait_start()), so any sibling may be its gate: a running
-    one means the wait may not have begun, and otherwise the wait counts from the
-    later of its `created_at` and the last sibling completion. A queued sibling
-    is no gate, so the jobs that wait on a stuck fleet job never hide it.
+
+def _stuck(job: Mapping[str, Any]) -> bool:
+    return job.get("status") == "queued" and not job.get("runner_name")
+
+
+def wait_start(job: Mapping[str, Any], run_jobs: Sequence[Mapping[str, Any]],
+               suspects: frozenset[int] = frozenset()) -> dt.datetime | None:
+    """When a queued job could first have run; None while another job of its run is unfinished.
+
+    The jobs API can list a job before its `needs` finished and names no `needs`,
+    so, as queue_janitor._gated() reads it, any unfinished sibling (queued,
+    waiting, pending or running) may be its gate and its wait has not begun.
+    A sibling in `suspects` (queued with no runner on an unserved fleet label)
+    is no gate, so two stuck fleet jobs never mask each other. Otherwise the
+    wait counts from the later of its `created_at` and the last sibling
+    completion (queue_janitor.lost_wait_start()).
     """
-    if any(other is not job and other.get("status") == "in_progress" for other in run_jobs):
+    if any(other is not job and other.get("status") != "completed" and id(other) not in suspects
+           for other in run_jobs):
         return None
     created = parse_time(job.get("created_at"))
     if created is None:
@@ -80,43 +93,52 @@ def wait_start(job: Mapping[str, Any], run_jobs: Sequence[Mapping[str, Any]]) ->
 
 
 def _unserved_queues(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]], *,
-                     now: dt.datetime, after: dt.timedelta
+                     now: dt.datetime, after: dt.timedelta,
+                     evidence: Mapping[int, Sequence[Mapping[str, Any]]] | None = None,
                      ) -> dict[str, list[tuple[Mapping[str, Any], dt.datetime | None]]]:
-    """Fleet label key -> its queued jobs with their wait_start(), for labels no job is running on or started on within `after`."""
-    waiting: dict[str, list[tuple[Mapping[str, Any], dt.datetime | None]]] = {}
+    """Fleet label key -> its queued jobs with their wait_start(), for labels no job is running on or started on within `after`.
+
+    `evidence` (run id -> jobs, completed runs the janitor listed anyway) counts only as service.
+    """
     served: set[frozenset[str]] = set()
-    for run in runs:
-        run_jobs = list(jobs_by_run.get(run.get("id"), ()))
-        for job in run_jobs:
+    for jobs in [*(jobs_by_run.get(run.get("id"), ()) for run in runs), *(evidence or {}).values()]:
+        for job in jobs:
             key = fleet_key(job)
-            if not key:
-                continue
-            status = job.get("status")
-            started = parse_time(job.get("started_at"))
-            if status == "queued" and not job.get("runner_name"):
-                waiting.setdefault(key, []).append((job, wait_start(job, run_jobs)))
-            elif status == "in_progress" or (job.get("runner_name") and started and now - started <= after):
+            if key and not _stuck(job) and _served(job, now, after):
                 served.add(frozenset(key.split("+")))
-    return {key: jobs for key, jobs in sorted(waiting.items())
-            if not any(frozenset(key.split("+")) <= runner_labels for runner_labels in served)}
+
+    def unserved_key(key: str) -> bool:
+        return not any(frozenset(key.split("+")) <= runner_labels for runner_labels in served)
+
+    run_lists = [list(jobs_by_run.get(run.get("id"), ())) for run in runs]
+    suspects = frozenset(id(job) for run_jobs in run_lists for job in run_jobs
+                         if fleet_key(job) and _stuck(job) and unserved_key(fleet_key(job)))
+    waiting: dict[str, list[tuple[Mapping[str, Any], dt.datetime | None]]] = {}
+    for run_jobs in run_lists:
+        for job in run_jobs:
+            if id(job) in suspects:
+                waiting.setdefault(fleet_key(job), []).append((job, wait_start(job, run_jobs, suspects)))
+    return dict(sorted(waiting.items()))
 
 
 def unserved(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]], *,
-             now: dt.datetime, after: dt.timedelta = STARVED_AFTER) -> list[str]:
+             now: dt.datetime, after: dt.timedelta = STARVED_AFTER,
+             evidence: Mapping[int, Sequence[Mapping[str, Any]]] | None = None) -> list[str]:
     """Fleet labels with a queued job, of any age, and no sign of service: an open alert stays open.
 
     Recovery needs positive evidence: a job on the label running or started within `after`, or no
     queued job on it at all. A stuck job cancelled and replaced on the same stopped listener leaves a
     replacement younger than the alert threshold, which is not recovery.
     """
-    return list(_unserved_queues(runs, jobs_by_run, now=now, after=after))
+    return list(_unserved_queues(runs, jobs_by_run, now=now, after=after, evidence=evidence))
 
 
 def starved(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]], *,
-            now: dt.datetime, after: dt.timedelta = STARVED_AFTER) -> list[dict[str, Any]]:
+            now: dt.datetime, after: dt.timedelta = STARVED_AFTER,
+            evidence: Mapping[int, Sequence[Mapping[str, Any]]] | None = None) -> list[dict[str, Any]]:
     """The fleet labels with a job queued past `after` and none running or started within it."""
     found = []
-    for key, entries in _unserved_queues(runs, jobs_by_run, now=now, after=after).items():
+    for key, entries in _unserved_queues(runs, jobs_by_run, now=now, after=after, evidence=evidence).items():
         ready = [(job, since) for job, since in entries if since is not None]
         if not ready:
             continue
