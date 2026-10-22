@@ -130,17 +130,23 @@ import Testing
         #expect(o.chatHistory == nil)
     }
 
-    /// The model's `sharesList`: loose rows of one section share a list; a group's members share theirs only.
-    @Test func sharesListFollowsSectionsAndGroups() {
-        let group = SidebarGroup(id: GroupID("g"), name: "g", workspaces: [SidebarWorkspace(id: Self.sub, title: "sub"),
-                                                                        SidebarWorkspace(id: Self.reviewer, title: "reviewer")])
+    /// One workspace listed twice (lane, loose and in a group) nests by each list on its own: in the group, where
+    /// its parent is absent, it is a root, so its child there is not hidden and the loose list's folds stay shut.
+    @Test func aWorkspaceListedTwiceNestsPerList() {
+        let group = SidebarGroup(id: GroupID("g"), name: "g", workspaces: [SidebarWorkspace(id: Self.lane, title: "lane"),
+                                                                        SidebarWorkspace(id: Self.sub, title: "sub")])
         let model = SidebarModel(sections: [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [
             .workspace(SidebarWorkspace(id: Self.coordinator, title: "c")), .workspace(SidebarWorkspace(id: Self.lane, title: "l")), .group(group),
         ])])
-        #expect(model.sharesList(Self.coordinator, Self.lane))
-        #expect(model.sharesList(Self.sub, Self.reviewer))
-        #expect(!model.sharesList(Self.lane, Self.sub))
-        #expect(!model.sharesList(Self.lane, WorkspaceID("unlisted")))
+        #expect(model.listsHolding(Self.lane).count == 2)
+        #expect(model.listsHolding(Self.sub).count == 1)
+        let defaults = UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard
+        let tree = SidebarSessionTree(defaults: defaults)
+        tree.state = SidebarSessionTreeState(parents: [Self.lane: Self.coordinator, Self.sub: Self.lane])
+        // In the group, sub draws under lane at depth 1, and lane is a root there (open): sub is visible.
+        #expect(tree.drawn?.hidesInFold(Self.sub, lists: model.listsHolding(Self.sub)) == false)
+        tree.reveal(Self.sub, lists: model.listsHolding(Self.sub))
+        #expect(tree.opened.isEmpty && tree.collapsed.isEmpty)
     }
 
     @Test func runsCutAtEachTopLevelEntry() {
@@ -168,11 +174,11 @@ import Testing
         let defaults = UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard
         let tree = SidebarSessionTree(defaults: defaults)
         tree.state = SidebarSessionTreeState(parents: Self.parents)
-        let oneList: (WorkspaceID, WorkspaceID) -> Bool = { _, _ in true }
-        #expect(tree.drawn?.hidesInFold(Self.reviewer, sameList: oneList) == true)
-        tree.reveal(Self.reviewer, sameList: oneList)
+        let oneList: [(WorkspaceID) -> Bool] = [{ _ in true }]
+        #expect(tree.drawn?.hidesInFold(Self.reviewer, lists: oneList) == true)
+        tree.reveal(Self.reviewer, lists: oneList)
         #expect(tree.opened == [Self.lane, Self.sub])
-        #expect(tree.drawn?.hidesInFold(Self.reviewer, sameList: oneList) == false)
+        #expect(tree.drawn?.hidesInFold(Self.reviewer, lists: oneList) == false)
     }
 
     /// A row whose parent sits in another list draws at the top level of its own list: no fold hides it, and
@@ -182,17 +188,16 @@ import Testing
         let tree = SidebarSessionTree(defaults: defaults)
         tree.state = SidebarSessionTreeState(parents: Self.parents)
         // sub is listed apart from lane (another group); lane and coordinator share a list.
-        let lists: [WorkspaceID: Int] = [Self.coordinator: 0, Self.lane: 0, Self.sub: 1, Self.reviewer: 1]
-        let sameList: (WorkspaceID, WorkspaceID) -> Bool = { lists[$0] == lists[$1] }
-        #expect(tree.drawn?.hidesInFold(Self.sub, sameList: sameList) == false)
-        tree.reveal(Self.sub, sameList: sameList)
+        let list1: [(WorkspaceID) -> Bool] = [{ $0 == Self.sub || $0 == Self.reviewer }]
+        #expect(tree.drawn?.hidesInFold(Self.sub, lists: list1) == false)
+        tree.reveal(Self.sub, lists: list1)
         #expect(tree.opened.isEmpty)
         // The reviewer draws under sub, a root of list 1: sub is open at depth 0, so nothing hides it.
-        #expect(tree.drawn?.hidesInFold(Self.reviewer, sameList: sameList) == false)
+        #expect(tree.drawn?.hidesInFold(Self.reviewer, lists: list1) == false)
         let x = WorkspaceID("x"), y = WorkspaceID("y")
         tree.state = SidebarSessionTreeState(parents: [x: y, y: x])
-        #expect(tree.drawn?.hidesInFold(x, sameList: { _, _ in true }) == false)
-        tree.reveal(x, sameList: { _, _ in true })
+        #expect(tree.drawn?.hidesInFold(x, lists: [{ _ in true }]) == false)
+        tree.reveal(x, lists: [{ _ in true }])
         #expect(tree.opened.isEmpty && tree.collapsed.isEmpty)
     }
 
