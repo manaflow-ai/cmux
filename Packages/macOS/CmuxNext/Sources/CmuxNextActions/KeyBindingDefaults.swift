@@ -113,6 +113,11 @@ public nonisolated struct KeyBindingDefaults {
                    when: .and([notTerminal, .not(.has(KeyContext.codeEditorFocusedKey))])),
         // Cmd-Shift-R on Home: Reply to Selection (free in the defaults; Cmd-R is Rename Tab and Reload).
         KeyBinding(keys: [Shortcut("r", modifiers: [.command, .shift])], command: "home.replyToSelection", when: onHome),
+        // Cmd-= / Cmd-+ / Cmd-- / Cmd-0 on Home zoom the Chief chat, as they zoom an agent chat or a page.
+        KeyBinding(keys: [Shortcut("=", modifiers: [.command])], command: "home.zoomIn", when: onHome),
+        KeyBinding(keys: [Shortcut("=", modifiers: [.command, .shift])], command: "home.zoomIn", when: onHome),
+        KeyBinding(keys: [Shortcut("-", modifiers: [.command])], command: "home.zoomOut", when: onHome),
+        KeyBinding(keys: [Shortcut("0", modifiers: [.command])], command: "home.zoomReset", when: onHome),
         // Cmd-W in the sidebar with several rows selected closes them, as Chrome's Cmd-W closes its
         // selected tabs (Leo 2026-10-20); with one row selected it still closes the shown tab.
         KeyBinding(keys: [Shortcut("w", modifiers: [.command])], command: "closeWorkspace", when: sidebarMultiSelection),

@@ -61,7 +61,10 @@ final class FieldTextView: NSTextView {
     /// it has no window (the offscreen harness and captures). AppKit sets it again on each backing
     /// change and window move, so this runs after AppKit does (and from `ComposeView.rescale`).
     func applyScale() {
-        let s = window?.backingScaleFactor ?? DisplayScale.current
+        // cmux: in a zoomed Chief chat (MessagesLabHomeView.zoom) the text draws at the window's scale times the zoom,
+        // so the magnified field text stays sharp (`convert` gives the window's length of one point here).
+        let zoom = window == nil ? 1 : max(1e-3, abs(convert(CGSize(width: 1, height: 0), to: nil).width))
+        let s = window.map { $0.backingScaleFactor * zoom } ?? DisplayScale.current
         if let l = layer, l.contentsScale != s { l.contentsScale = s }
     }
     override func viewDidChangeBackingProperties() { super.viewDidChangeBackingProperties(); applyScale() }

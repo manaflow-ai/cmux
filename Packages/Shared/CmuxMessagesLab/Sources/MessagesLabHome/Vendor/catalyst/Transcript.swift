@@ -1406,8 +1406,11 @@ final class RowCell: UICollectionViewCell {
     /// layer tree (o: the window view's origin there, k: the window's length of one view point along the axis, +1 or
     /// -1 when not scaled), rounded at `scale`. A tie (exactly half a pixel off) rounds up in the window, the same in
     /// every pass.
-    static func snap(_ v: CGFloat, _ o: CGFloat, _ k: CGFloat, scale s: CGFloat) -> CGFloat {
+    /// `scale` is the view's (device pixels per view point); cmux: a zoomed Chief chat (|k| = its zoom) rounds on the
+    /// window's pixels, `scale / |k|` per window point.
+    static func snap(_ v: CGFloat, _ o: CGFloat, _ k: CGFloat, scale: CGFloat) -> CGFloat {
         guard abs(k) > 1e-6 else { return 0 }
+        let s = scale / abs(k)
         let r = o + k * v
         let d = ((r * s + 1e-6).rounded() / s - r) / k
         return d.isFinite ? d : 0

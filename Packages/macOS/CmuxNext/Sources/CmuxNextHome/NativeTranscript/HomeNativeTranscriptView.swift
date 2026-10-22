@@ -164,6 +164,7 @@ public final class HomeNativeTranscriptView: NSView {
         transcript.onSummaryChange = { [weak self] _ in self?.updateFirstRun() }
         transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
         followTextSize()
+        followZoom()
         followBubbleStyle()
         followHeroTunable()
         followChiefPet()
@@ -323,6 +324,17 @@ public final class HomeNativeTranscriptView: NSView {
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.followTextSize() }
         }
+    }
+
+    /// Agent Chat Zoom (`agentPane.zoom`; Cmd-= / Cmd-- / Cmd-0 on Home, `home.zoomIn`): the Chief chat
+    /// is drawn at it, live, as an agent chat is.
+    private func followZoom() {
+        withObservationTracking {
+            transcript.zoom = DesignSettings.shared.agentPaneZoom
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.followZoom() }
+        }
+        needsLayout = true
     }
 
     /// Settings > Chief > Chief Chat > Bubble Style: iMessage's colours or the theme's, live.
