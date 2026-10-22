@@ -10,6 +10,7 @@ extension SidebarSectionsPreferences {
             || previous?.groupsByComputer != groupsByComputer || previous?.minimal != minimal || previous?.density != density
             || previous?.detailedStatusIcons != detailedStatusIcons || previous?.showTimestamps != showTimestamps
             || previous?.groupLineJoinsHeader != groupLineJoinsHeader
+            || previous?.showLocalMachine != showLocalMachine
             || previous?.groupHeaderMemberCount != groupHeaderMemberCount || previous?.groupHeaderUnreadCount != groupHeaderUnreadCount
     }
 }

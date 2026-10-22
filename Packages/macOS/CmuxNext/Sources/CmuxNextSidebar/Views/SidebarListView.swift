@@ -58,6 +58,8 @@ final class SidebarListView: NSView {
     /// under a held drag): rows spring from where they are on the drag's one additive spring, new rows
     /// appear in their slot with no opening, so frames the drag already shows move nothing.
     var springsRows = false
+    /// Counts the row moves `RowMotion` starts: a move's end lands the rows only when no newer move runs.
+    var rowMoves = 0
     /// Rows an adopting apply took out of `rowViews` that still fade on screen (sampled by the motion probe).
     var fadingRows: [ObjectIdentifier: SidebarRowView] = [:]
     /// Wires a new block's region as the sidebar wires its bands (activation, menus, app views).
