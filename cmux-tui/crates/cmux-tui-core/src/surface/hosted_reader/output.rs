@@ -90,9 +90,7 @@ impl HostedReader {
                 pty.broadcast_attach_output(&output);
                 journal_enabled.then_some(output)
             };
-            // A host that reports its title and directory sends them in its
-            // own frames after this Output (apply_host_metadata).
-            if self.title_changed.swap(false, Ordering::Relaxed) && !self.host_metadata {
+            if self.title_changed.swap(false, Ordering::Relaxed) {
                 // A program that rewrites the same title (a spinner's
                 // resting frame, a prompt redraw) announces nothing.
                 let title = crate::terminal_title::read(&term);
@@ -102,9 +100,7 @@ impl HostedReader {
                     title_update = Some(title);
                 }
             }
-            if !self.host_metadata {
-                pty.record_directory(term.pwd());
-            }
+            pty.record_directory(term.pwd());
             if before != after {
                 scroll_changed = Some(after);
                 broadcast_render_scroll_locked(pty, after);
@@ -212,43 +208,4 @@ fn has_printable_text(output: &[u8]) -> bool {
         }
     }
     false
-}
-
-impl HostedReader {
-    /// A Title, Pwd or Bell frame of a host that reports them (perf100 cut 1):
-    /// the same title, directory and bell the mirror would have derived from
-    /// the Output before it, without reading the mirror per chunk.
-    pub(super) fn apply_host_metadata(
-        &mut self,
-        surface: &Arc<Surface>,
-        pty: &PtySurface,
-        kind: MessageKind,
-        payload: Vec<u8>,
-    ) {
-        match kind {
-            MessageKind::Title => {
-                let title = String::from_utf8_lossy(&payload).into_owned();
-                let changed = {
-                    let mut stored = pty.title.lock().unwrap();
-                    if *stored != title {
-                        *stored = title.clone();
-                        true
-                    } else {
-                        false
-                    }
-                };
-                if changed && let Some(mux) = self.mux.upgrade() {
-                    mux.emit_terminal_title(surface.id, title.into());
-                }
-            }
-            MessageKind::Pwd => {
-                let pwd = (!payload.is_empty())
-                    .then(|| String::from_utf8_lossy(&payload).into_owned());
-                pty.record_directory(pwd);
-                surface.publish_pending_directory();
-            }
-            MessageKind::Bell => self.pending_bells.ring(),
-            _ => {}
-        }
-    }
 }
