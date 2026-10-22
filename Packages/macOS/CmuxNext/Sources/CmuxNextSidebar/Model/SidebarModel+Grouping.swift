@@ -27,13 +27,10 @@ extension SidebarModel {
         return grouping
     }
 
-    /// Whether `new` (the patched `old`) changes which rows the list draws. The active row keeps its status section
-    /// while it stays active (`SidebarGrouping.held`): a patch, not a move. A folder, Done (the Done fold) or the listed
-    /// tabs move rows as before.
+    /// Whether `new` (the patched `old`) changes which rows the list draws: the base rules (`movesRows(from:to:groupsByFolder:
+    /// listsTabs:)`: a folder, the Done fold, the row limit, the listed tabs), and with Group by Status a row whose status
+    /// section changes. The active row keeps its section while it stays active (`SidebarGrouping.held`): a patch, not a move.
     func movesRows(from old: SidebarWorkspace, to new: SidebarWorkspace) -> Bool {
-        if groupsByFolder && old.folder != new.folder { return true }
-        // The Done fold (`sidebar.doneFold`): a row marked Done, or no longer, moves behind or out of its fold.
-        if SidebarTunables.doneFold.value && (old.taskStatus == .done) != (new.taskStatus == .done) { return true }
         if groupsByStatus {
             let before = settledGrouping().section(old)
             if before != SidebarStatusSection(new) {
@@ -41,6 +38,6 @@ extension SidebarModel {
                 grouping.held = (new.id, before)
             }
         }
-        return showWorkspaceTabs && !old.tabs.elementsEqual(new.tabs) { $0.id == $1.id && $0.kind == $1.kind }
+        return Self.movesRows(from: old, to: new, groupsByFolder: groupsByFolder, listsTabs: showWorkspaceTabs)
     }
 }

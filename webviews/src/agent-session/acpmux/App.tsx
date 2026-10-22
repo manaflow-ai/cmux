@@ -294,7 +294,7 @@ import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
 import { ChatHeaderInlineStatus, ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
-import { EnvironmentLine } from "./header/EnvironmentLine";
+import { EnvironmentLine, environmentOpener } from "./header/EnvironmentLine";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
 import { PullRequestDock } from "./summary/PullRequestDock";
@@ -3031,7 +3031,9 @@ export function VirtualTranscript({
     takeRoom();
     follow(true);
     if (focused) focusComposer?.();
-    const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    // cmux's animations off (ui.animations) or the system's Reduce Motion: it lands in one frame, and
+    // with no glide in flight nothing aims one again at a moved end.
+    const reduce = isAgentMotionOff() || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     // The layout the room just taken committed (flushSync above), not the one this render closed over.
     const target = Math.max(0, latestLayout.current.layout.totalHeight - node.clientHeight);
     jumpTarget.current = reduce || target - node.scrollTop <= 0.5 ? undefined : target;
@@ -6240,14 +6242,18 @@ function AcpmuxPane() {
   // The catalog arrives through the query cache, which composerSnapshot carries.
   const header = paneHeader(composerSnapshot, t);
   // The header's Environment line (header/EnvironmentLine.tsx): machine · folder · branch, opening
-  // the Inspector at Environment while the Inspector is on.
+  // the Inspector at Environment while the Inspector is on, else the chat folder's Files tree.
+  // Called while the header draws, after `localCwd` and `runSplitAction` below are set.
   const environmentLine = (compact: boolean) => (
     <EnvironmentLine
       summary={snapshot.summary}
       machineName={machineName}
       peerKinds={snapshot.peerKinds}
       compact={compact}
-      onOpen={inspector.reveal ? () => inspector.reveal?.("environment") : undefined}
+      onOpen={environmentOpener(
+        inspector.reveal,
+        localCwd ? () => runSplitAction(HEADER_ACTIONS.files, localCwd, "toggle") : undefined,
+      )}
     />
   );
   const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness);
@@ -6772,7 +6778,7 @@ function AcpmuxPane() {
     holdsAsks: trustAsk.holdsAsks,
     trustBlocks: Boolean(trustAsk.blocked),
     isWorking: snapshot.isWorking,
-    individualPermission: Boolean(individualPermission),
+    individualPermission,
     permissionGroups: snapshot.permissionGroups?.supported ? snapshot.permissionGroups.groups : undefined,
     secret: Boolean(snapshot.secret),
     cards: toolCards,
@@ -7354,6 +7360,7 @@ function AcpmuxPane() {
                 : undefined
             }
             queueImage={readQueuedImage}
+            queueSubsessions={subsessions}
             onProject={chooseProject}
             onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
             onConnect={connectMachine}
