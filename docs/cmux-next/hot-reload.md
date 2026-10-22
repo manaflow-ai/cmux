@@ -21,7 +21,7 @@ Running apps can pick up edits to them without a Swift build or a relaunch, two 
 |---|---|---|---|
 | Debug builds (tagged `cmux DEV <tag>`) | `com.cmuxterm.app.debug.*` | yes | no |
 | cmux NIGHTLY, cmux NEXT nightly | `com.cmuxterm.app.nightly`, `….nightly.cmux-next` | yes, from #22664 on | yes, from #22777 on |
-| cmux NEXT DEV (daily) | `com.cmuxterm.app.debug.next` | not yet: a Release build that isn't nightly | no |
+| cmux NEXT DEV (daily) | `com.cmuxterm.app.debug.next` | yes, from #24046 on | no |
 | Release, RC | `com.cmuxterm.app`, `….rc` | never | never |
 
 Check which commit your app was built from with
@@ -115,18 +115,16 @@ The design and its edge cases are in [web-live-reload.md](../../plans/cmux-next/
 
 None of this has shipped yet. Each step will be its own small PR:
 
-1. **Every build reads it.** cmux NEXT DEV (`com.cmuxterm.app.debug.next`) would read `web-dev.json`
-   too, so the daily dogfood build gets the loop without a Debug build.
-2. **Under a second, every time.** Each edit would be measured end to end, from saving the file to
+1. **Under a second, every time.** Each edit would be measured end to end, from saving the file to
    the new frame in the app, and a check would fail when it goes over one second. A
    [recording](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/22664/live-reload-settings.mp4)
    on a cmux NEXT nightly measured 0.7–0.85 s for a Settings edit.
-3. **Follow a PR.** `web-overlay.sh follow <PR>` would install that PR's head web bundles from the
+2. **Follow a PR.** `web-overlay.sh follow <PR>` would install that PR's head web bundles from the
    fleet and again on every push, so a reviewer runs exactly the head they're reviewing.
-4. **Show what's live.** A small chip in Debug and NIGHTLY builds would name what each page is
+3. **Show what's live.** A small chip in Debug and NIGHTLY builds would name what each page is
    loaded from: the dev server, an overlay at a commit, a web update, or the bundle.
-5. **Reload what Swift can.** A change that only touches what a page reads from its host (strings,
+4. **Reload what Swift can.** A change that only touches what a page reads from its host (strings,
    the settings schema, theme tokens) would reload the pages that use it. Native code still needs
    a build, which would come through the per-user update channel in the plan.
-6. **No bridge skew.** An overlay or web update built for a newer page bridge than the app has would
+5. **No bridge skew.** An overlay or web update built for a newer page bridge than the app has would
    be refused, with the reason in `status`, so a page never calls a host op the app lacks.
