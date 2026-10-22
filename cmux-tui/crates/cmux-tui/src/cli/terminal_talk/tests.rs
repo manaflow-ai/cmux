@@ -24,18 +24,18 @@ fn snapshot() -> Value {
         "tabs": [{"id": "tab_claude", "pane_id": "pane_a"}, {"id": "tab_muse", "pane_id": "pane_b"},
                  {"id": "tab_shell", "pane_id": "pane_a"}, {"id": "tab_codex", "pane_id": "pane_b"}],
         "terminals": [
-            {"id": "term_claude", "tab_id": "tab_claude", "title": "Fix lag", "cwd": "/w",
+            {"id": "term_c1a0de00000000000000000000000001", "tab_id": "tab_claude", "title": "Fix lag", "cwd": "/w",
              "lifecycle": "running"},
-            {"id": "term_muse", "tab_id": "tab_muse", "title": "cmuxterm-hq", "lifecycle": "running",
+            {"id": "term_0005e000000000000000000000000002", "tab_id": "tab_muse", "title": "cmuxterm-hq", "lifecycle": "running",
              "extra": {"program_status": [{"app": "muse", "state": "working",
                                             "updated_at_ms": "500"}]}},
-            {"id": "term_shell", "tab_id": "tab_shell", "title": "zsh", "lifecycle": "running"},
-            {"id": "term_codex", "tab_id": "tab_codex", "title": "codex", "lifecycle": "running"},
+            {"id": "term_5be11000000000000000000000000003", "tab_id": "tab_shell", "title": "zsh", "lifecycle": "running"},
+            {"id": "term_c0dec000000000000000000000000004", "tab_id": "tab_codex", "title": "codex", "lifecycle": "running"},
         ],
         "agents": [
-            {"terminal_id": "term_claude", "state": "idle", "source": "hook", "updated_at_ms": "900",
+            {"terminal_id": "term_c1a0de00000000000000000000000001", "state": "idle", "source": "hook", "updated_at_ms": "900",
              "title": "Fix lag in screen recording", "extra": {"agent": "claude"}},
-            {"terminal_id": "term_codex", "state": "blocked", "source": "hook",
+            {"terminal_id": "term_c0dec000000000000000000000000004", "state": "blocked", "source": "hook",
              "updated_at_ms": "100", "extra": {"agent": "codex"}},
         ],
     })
@@ -58,9 +58,9 @@ fn agent_rows_name_harness_state_title_and_workspace_and_skip_plain_shells() {
     assert_eq!(
         summary,
         [
-            ("term_codex", "codex", "waiting-for-input", None),
-            ("term_muse", "muse", "busy", None),
-            ("term_claude", "claude", "idle", Some("sr2 costs")),
+            ("term_c0dec000000000000000000000000004", "codex", "waiting-for-input", None),
+            ("term_0005e000000000000000000000000002", "muse", "busy", None),
+            ("term_c1a0de00000000000000000000000001", "claude", "idle", Some("sr2 costs")),
         ]
     );
     assert_eq!(rows[2].title.as_deref(), Some("Fix lag in screen recording"));
@@ -266,7 +266,9 @@ impl Daemon for FakeDaemon {
             "terminal.state.read" => json!({
                 "state_base64": base64::engine::general_purpose::STANDARD.encode(b"\x1b[?2004h"),
             }),
-            "terminal.get" => json!({"id": "term_claude", "lifecycle": "running", "extra": {}}),
+            "terminal.get" => {
+                json!({"id": "term_c1a0de00000000000000000000000001", "lifecycle": "running", "extra": {}})
+            }
             "agent.list" => json!([]),
             "terminal.screen.read" => {
                 let mut screens = self.screens.borrow_mut();
@@ -286,7 +288,7 @@ fn quick(text: &str) -> SendRequest {
         enter_delay: Duration::ZERO,
         poll: Duration::from_millis(5),
         timeout: Duration::from_secs(5),
-        ..SendRequest::new("term_claude".into(), text.into())
+        ..SendRequest::new("term_c1a0de00000000000000000000000001".into(), text.into())
     }
 }
 
@@ -304,7 +306,7 @@ fn send_pastes_presses_enter_waits_and_answers_only_the_reply() {
     assert_eq!(receipt["timed_out"], false);
     assert_eq!(receipt["anchored"], true);
     assert_eq!(receipt["harness"], "claude");
-    assert_eq!(receipt["terminal"], "term_claude");
+    assert_eq!(receipt["terminal"], "term_c1a0de00000000000000000000000001");
 }
 
 #[test]
@@ -320,7 +322,8 @@ fn send_with_wait_none_answers_after_enter() {
 #[test]
 fn send_refuses_an_agent_that_waits_on_a_dialog_unless_forced() {
     let daemon = FakeDaemon::new(snapshot(), &[(1, "")]);
-    let request = SendRequest { target: "term_codex".into(), ..quick("yes") };
+    let request =
+        SendRequest { target: "term_c0dec000000000000000000000000004".into(), ..quick("yes") };
     let failure = send::run(&daemon, None, &request).expect_err("refused");
     assert_eq!(failure.failure.error["code"], "agent.waiting_for_input");
     assert!(daemon.writes().is_empty());
@@ -335,9 +338,9 @@ fn send_finds_terminals_by_tab_prefix_and_title() {
     let id = |target: &str| {
         send::find_terminal(&snapshot, target).map(|terminal| terminal["id"].clone()).ok()
     };
-    assert_eq!(id("tab_muse"), Some(json!("term_muse")));
-    assert_eq!(id("term_cl"), Some(json!("term_claude")));
-    assert_eq!(id("Fix lag"), Some(json!("term_claude")));
+    assert_eq!(id("tab_muse"), Some(json!("term_0005e000000000000000000000000002")));
+    assert_eq!(id("term_c1a"), Some(json!("term_c1a0de00000000000000000000000001")));
+    assert_eq!(id("Fix lag"), Some(json!("term_c1a0de00000000000000000000000001")));
     assert_eq!(id("term_"), None, "ambiguous");
     assert_eq!(id("nothing"), None);
 }
