@@ -229,18 +229,7 @@ final class ShellModel {
     /// has not arrived), so the shell tries again when it does.
     @discardableResult
     func open(_ route: NotificationRoute) -> Bool {
-        if route.kind == "chief" {
-            tab = .home
-            return true
-        }
-        guard let destination = live?.destination(sessionID: route.sessionID, workspaceID: route.workspaceID, tabID: route.tabID) else {
-            // The Feed lists the event meanwhile.
-            tab = .feed
-            return false
-        }
-        tab = .feed
-        feedPath = [destination]
-        return true
+        openRoute(route) // ShellModel+NotificationRoute.swift
     }
 
     /// Whether the route's chat is on screen now (its notification shows no banner).

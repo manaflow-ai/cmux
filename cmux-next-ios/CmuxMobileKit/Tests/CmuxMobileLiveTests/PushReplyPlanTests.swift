@@ -75,3 +75,16 @@ import Testing
         #expect(throws: PushReplyPlan.Refusal.self) { try PushReplyPlan.make(reply(.terminal, .text("ls", attachments: [])), pending: nil) }
     }
 }
+
+@MainActor @Suite struct PushSnapshotsTests {
+    @Test func promptsThenRepliesNewestLast() {
+        var a = AgentTurn(id: "1", prompt: "fix it", promptAt: Date())
+        a.items = [.message(id: "m1", markdown: "done"), .thought(id: "t", text: "hmm")]
+        var b = AgentTurn(id: "2", prompt: "ship", promptAt: Date())
+        b.status = .failed
+        b.errorText = "rate limited"
+        let messages = PushSnapshots.messages([a, b])
+        #expect(messages.map(\.text) == ["fix it", "done", "ship", "rate limited"])
+        #expect(messages.map(\.role) == [.user, .agent, .user, .system])
+    }
+}

@@ -42,12 +42,14 @@ extension LiveCoordinator {
             try await deliverToChief(reply, budget: budget)
             return
         }
-        guard let session = sessions[reply.mac] else {
-            log.error("push reply: no link to that Mac")
+        // The Mac's session appears once the account's team and Macs are known (a
+        // cold launch learns them first), and its chats once the link is served.
+        let mac = reply.mac
+        guard await waitUntil(within: budget, { [weak self] in self?.sessions[mac]?.acpmux.isReady == true }),
+              let hub = sessions[mac]?.acpmux else {
+            log.error("push reply: no link to that Mac within the budget")
             throw PushReplyFailure(reason: .unreachable)
         }
-        let hub = session.acpmux
-        guard await waitUntil(within: budget, { hub.isReady }) else { throw PushReplyFailure(reason: .unreachable) }
         let pending = try await pendingPrompt(reply, hub: hub)
         let plan: PushReplyPlan
         do {
@@ -134,7 +136,7 @@ extension LiveCoordinator {
 
     /// Waits until `condition` holds (re-read whenever what it reads changes),
     /// at most `budget`. No polling: Observation wakes it.
-    func waitUntil(within budget: Duration, _ condition: @escaping @MainActor () -> Bool) async -> Bool {
+    public func waitUntil(within budget: Duration, _ condition: @escaping @MainActor () -> Bool) async -> Bool {
         if condition() { return true }
         return await ObservationWait(condition, clock: clock, budget: budget).value
     }
@@ -143,20 +145,20 @@ extension LiveCoordinator {
 /// Resolves true once `condition` reads true (Observation re-arms after each
 /// change), or false when `budget` ends or the task is cancelled.
 @MainActor
-final class ObservationWait {
+public final class ObservationWait {
     private let condition: @MainActor () -> Bool
     private let clock: any Clock<Duration>
     private let budget: Duration
     private var continuation: CheckedContinuation<Bool, Never>?
     private var timer: Task<Void, Never>?
 
-    init(_ condition: @escaping @MainActor () -> Bool, clock: any Clock<Duration>, budget: Duration) {
+    public init(_ condition: @escaping @MainActor () -> Bool, clock: any Clock<Duration> = ContinuousClock(), budget: Duration) {
         self.condition = condition
         self.clock = clock
         self.budget = budget
     }
 
-    var value: Bool {
+    public var value: Bool {
         get async {
             await withTaskCancellationHandler {
                 await withCheckedContinuation { continuation in
