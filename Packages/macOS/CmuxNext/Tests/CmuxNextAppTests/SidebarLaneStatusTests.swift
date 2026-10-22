@@ -61,7 +61,7 @@ import Testing
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
         let key = SidebarTunables.laneStatus.key
-        TunableStore.shared.set(key, on ? .bool(true) : nil)
+        TunableStore.shared.set(key, .bool(on))
         defer { TunableStore.shared.set(key, nil) }
         try body()
     }

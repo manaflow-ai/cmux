@@ -293,8 +293,10 @@ pub(super) fn tool_line(
         }
         _ => {
             let mut line = json!({"tool": "stop"});
-            if let Some(name) = fields.get("name") {
-                line["name"] = name.clone();
+            for key in ["name", "all", "restart"] {
+                if let Some(value) = fields.get(key) {
+                    line[key] = value.clone();
+                }
             }
             line
         }
@@ -322,8 +324,9 @@ pub(super) fn result(
         ResourceOperation::ChiefStop => {
             let mut value =
                 json!({"stopped": answer.get("stopped").and_then(Value::as_bool).unwrap_or(false)});
-            // A named stop's subagents and note (the brain's own words).
-            for key in ["subagents", "note"] {
+            // A named or stop-all stop's subagents and note, a restart's
+            // restarted and errors (the brain's own words).
+            for key in ["subagents", "note", "restarted", "errors"] {
                 if let Some(v) = answer.get(key).filter(|v| !v.is_null()) {
                     value[key] = v.clone();
                 }

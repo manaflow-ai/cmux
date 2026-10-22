@@ -46,8 +46,7 @@ public final class MenuIdentityHeaderView: NSView, ThemedMenuItemView {
         super.viewDidMoveToWindow()
         guard let field else { return }
         if window == nil {
-            // The menu closed: a changed name is kept, as Chrome keeps it.
-            field.commit()
+            field.menuClosed(by: NSApp.currentEvent)
         } else {
             field.reset()
             // Typing renames at once, as in Chrome; the name starts selected.
@@ -95,6 +94,18 @@ public final class MenuNameField: NSTextField, NSTextFieldDelegate {
         guard !name.isEmpty, name != original else { return }
         onRename(name)
     }
+
+    /// The menu closed on `event`: a changed name is kept, as Chrome keeps it, unless Escape closed
+    /// it. The menu takes Escape before the field editor sees it, so `cancelOperation` never runs.
+    public func menuClosed(by event: NSEvent?) {
+        if let event, event.type == .keyDown, event.keyCode == Self.escapeKeyCode {
+            done = true
+            return
+        }
+        commit()
+    }
+
+    private static let escapeKeyCode: UInt16 = 53
 
     public func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch selector {

@@ -25,11 +25,7 @@ enum BrowserProfileHandlers {
             let id = record.id
             if let name = invocation["name"]?.stringValue, !name.isEmpty {
                 try profiles.rename(id, to: name)
-            } else if let window = context.activeWindow?.window {
-                RenamePrompt.run(title: BrowserProfileAppStrings.renameTitle, initial: record.name, in: window) { name in
-                    try? profiles.rename(id, to: name)
-                }
-            } else {
+            } else if !context.services.registry.ask("browserProfile.rename", invocation, ActionArgumentAsk(argument: "name", initialText: record.name)) {
                 throw ActionFailure.invalidTarget(BrowserProfileAppStrings.invalidName)
             }
         }

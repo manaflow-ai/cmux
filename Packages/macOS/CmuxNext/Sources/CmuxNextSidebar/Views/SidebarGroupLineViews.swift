@@ -69,9 +69,12 @@ final class SidebarGroupLineViews {
 
     /// Shows at once, at its frame, the line of each group in `lines` that has
     /// none (a group whose rows a drag hid: the last apply left its line out),
-    /// and leaves every other line, moving or not, as it is.
+    /// and leaves every other line, moving or not, as it is. The shown line joins `lines`: a fold keeps the lines
+    /// it does not touch from there, and without it the next fold took this line away.
     func showMissing(_ lines: [SidebarGroupLine], in list: NSView, above decorations: NSView) {
         for line in lines where views[line.group] == nil {
+            self.lines.removeAll { $0.group == line.group }
+            self.lines.insert(line, at: self.lines.firstIndex { $0.frame.minY > line.frame.minY } ?? self.lines.count) // list order
             let view = GroupLineView()
             list.addSubview(view, positioned: .above, relativeTo: decorations)
             views[line.group] = view
@@ -89,6 +92,11 @@ final class SidebarGroupLineViews {
         // A line still fading out would stay at the old offset: it goes now.
         leavingViews.forEach { $0.removeFromSuperview() }
         leavingViews.removeAll()
+    }
+
+    /// Puts each shown line exactly on its frame (`RowMotion.land`: the spring stops near it, not on it).
+    func land() {
+        for line in lines { views[line.group]?.frame = line.frame }
     }
 
     /// A line's zero-height start: its top edge, under the header bar.

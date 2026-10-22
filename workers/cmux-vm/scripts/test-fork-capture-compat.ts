@@ -8,9 +8,11 @@ import { memoryLedgerStorage, TenantLedger } from "../src/limits/ledger.ts";
 const baseline = "5768d9d8f42af15c83adfa6d1adda35a61900404";
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const git = (...args: string[]) => Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
+// Pass --depth only in an already-shallow checkout; it would make a full clone shallow.
+const shallowDepth = git("rev-parse", "--is-shallow-repository").stdout.toString().trim() === "true" ? ["--depth=1"] : [];
 let source = git("show", `${baseline}:workers/cmux-vm/src/limits/ledger.ts`);
 if (source.exitCode !== 0) {
-  assert.equal(git("fetch", "--no-tags", "--depth=1", "origin", baseline).exitCode, 0);
+  assert.equal(git("fetch", "--no-tags", ...shallowDepth, "origin", baseline).exitCode, 0);
   source = git("show", `${baseline}:workers/cmux-vm/src/limits/ledger.ts`);
 }
 assert.equal(source.exitCode, 0);

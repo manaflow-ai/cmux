@@ -79,13 +79,13 @@ describe("slider rows", () => {
   test("an opacity write changes neither the theme nor the background", async () => {
     page = await renderPage({
       path: "/settings/appearance",
-      mock: { values: { "appearance.background": "goya-saturn", "appearance.theme": "Dracula" } },
+      mock: { values: { "appearance.background": "friedrich-forest-moonlight", "appearance.theme": "Dracula" } },
     });
     await changeValue(slider(OPACITY), "0.55");
     await fire(slider(OPACITY), "pointerup");
     const rows = page.store.getSnapshot().rows;
     expect(rows.get(OPACITY)?.value).toBe(0.55);
-    expect(rows.get("appearance.background")?.value).toBe("goya-saturn");
+    expect(rows.get("appearance.background")?.value).toBe("friedrich-forest-moonlight");
     expect(rows.get("appearance.theme")?.value).toBe("Dracula");
     expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: OPACITY, value: 0.55 }]);
   });
@@ -93,7 +93,7 @@ describe("slider rows", () => {
   test("over a background picture the window opacity slider stops at 95%", async () => {
     page = await renderPage({
       path: "/settings/appearance",
-      mock: { values: { "appearance.background": "goya-saturn" } },
+      mock: { values: { "appearance.background": "friedrich-forest-moonlight" } },
     });
     expect(slider(OPACITY).max).toBe("0.95");
   });
@@ -103,7 +103,7 @@ describe("slider rows", () => {
   test("over a background picture the slider keeps its whole travel", async () => {
     page = await renderPage({
       path: "/settings/appearance",
-      mock: { values: { "appearance.background": "goya-saturn" } },
+      mock: { values: { "appearance.background": "friedrich-forest-moonlight" } },
     });
     // A host that still sends a floor (an older app) does not narrow the slider.
     const olderHost = { ...page!.provider.host, derived_min: { [OPACITY]: 0.62 } };

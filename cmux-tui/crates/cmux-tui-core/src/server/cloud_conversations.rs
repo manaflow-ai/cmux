@@ -17,6 +17,7 @@ use crate::cloud_conversations::{
 use crate::conversation_store::LOCAL_USER;
 
 pub(super) use crate::cloud_conversations::CLOUD_CONVERSATIONS_CAPABILITY as CAPABILITY;
+pub(super) use crate::cloud_conversations::CLOUD_SELFHOST_CAPABILITY as SELFHOST_CAPABILITY;
 
 /// Advertised with `cloud-conversations-v1`: only the verified cmux app
 /// connection sets or clears the human's lease and sends `origin: "user"`
@@ -87,11 +88,17 @@ fn check_origin(mux: &Mux, client: u64, origin: Option<&str>) -> anyhow::Result<
 }
 
 /// `cloud-session-set`: the app's cloud session lease. The token moves into
-/// the cloud link's zeroizing buffer and is never echoed or logged.
+/// the cloud link's zeroizing buffer and is never echoed or logged. With
+/// `auth: "tailscale"` (`cloud-selfhost-v1`) the lease names a self-hosted
+/// chat server on the tailnet and carries no token and no expiry.
 #[derive(Deserialize)]
 pub(super) struct SessionSetParams {
     api_base_url: String,
+    #[serde(default)]
+    auth: Option<String>,
+    #[serde(default)]
     access_token: String,
+    #[serde(default)]
     expires_at: u64,
     #[serde(default)]
     client_version: Option<String>,
@@ -309,8 +316,8 @@ pub(super) fn session_set(
     client: u64,
     params: SessionSetParams,
 ) -> anyhow::Result<Value> {
-    let SessionSetParams { api_base_url, access_token, expires_at, client_version } = params;
-    let lease = SessionParams { api_base_url, access_token, expires_at, client_version };
+    let SessionSetParams { api_base_url, auth, access_token, expires_at, client_version } = params;
+    let lease = SessionParams { api_base_url, auth, access_token, expires_at, client_version };
     Ok(lease_holder(mux, client)?.set_session_by(lease, is_app(mux, client))?)
 }
 
@@ -333,7 +340,18 @@ pub(super) fn session_status(mux: &Mux, client: u64) -> anyhow::Result<Value> {
     if person && let Some((account, project)) = service.lease_person() {
         status["participant"] = json!(worker_user_id(&project, &account));
     }
+    // A self-hosted server names the person itself (`cloud-selfhost-info`).
+    if person && let Some((_, Some(user))) = service.lease_selfhost() {
+        status["participant"] = json!(user);
+    }
     Ok(status)
+}
+
+/// `cloud-selfhost-info` (`cloud-selfhost-v1`): the self-hosted server's
+/// `GET /v1/selfhost/info` (`{kind, user_id, login, display_name,
+/// server_name}`); the person's user id becomes the lease's account.
+pub(super) fn selfhost_info(mux: &Mux, client: u64) -> anyhow::Result<Value> {
+    Ok(lease_user(mux, client)?.selfhost_info()?)
 }
 
 /// The Worker's user id for a Stack user of a Stack project (backend
@@ -492,6 +510,7 @@ pub(super) fn is_network(cmd: &Command) -> bool {
         cmd,
         Command::CloudInboxList(_)
             | Command::CloudRequestsList(_)
+            | Command::CloudSelfhostInfo(_)
             | Command::CloudConversationSnapshot(_)
             | Command::CloudConversationHistory(_)
             | Command::CloudConversationThread(_)
@@ -642,3 +661,7 @@ mod lease_gate_tests;
 #[cfg(test)]
 #[path = "cloud_request_tests.rs"]
 mod request_tests;
+
+#[cfg(test)]
+#[path = "cloud_selfhost_tests.rs"]
+mod selfhost_tests;

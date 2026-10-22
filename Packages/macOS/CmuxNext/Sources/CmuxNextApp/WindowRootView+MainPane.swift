@@ -35,6 +35,18 @@ final class MainPaneCardView: NSView {
         onFrameChange?()
     }
 
+    /// Places the workspaces a window shows side by side in these bounds (`WindowController.arrangeOnScreen`, Debug
+    /// Settings `sidebar.multiView`), now and after every resize; nil while one workspace fills the host by its
+    /// autoresizing mask.
+    var arrangeContent: ((CGRect) -> Void)? {
+        didSet { arrangeContent?(bounds) }
+    }
+
+    override func resizeSubviews(withOldSize oldSize: NSSize) {
+        super.resizeSubviews(withOldSize: oldSize)
+        arrangeContent?(bounds)
+    }
+
     /// Returns whether the radius changed. Square (0) does not clip, so the
     /// flat pane behaves exactly as before the curved one existed.
     @discardableResult

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -55,10 +56,7 @@ final class QuitCoordinator {
         // From a run-loop callout, not from inside the caller's main-queue
         // job (control socket, palette): terminateLater spins a nested run
         // loop, and the save Task could never get the main queue.
-        RunLoop.main.perform(inModes: [.common]) {
-            SheetDismissal.endAll()
-            NSApp.terminate(nil)
-        }
+        NSApplication.terminateFromRunLoop { SheetDismissal.endAll() }
     }
 
     /// SIGTERM, SIGINT, SIGHUP (`QuitSignal`): Quit, keep sessions, never an alert. Dev
@@ -187,7 +185,8 @@ final class QuitCoordinator {
                 await ChiefHostStop.endChiefSessions(home: services.home.chief.home,
                                                      bundledBin: Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true))
                 await services.home.chief.shutdownForEndSessions()
-                return await QuitAgents.end(QuitAgents.environment(services), waitForShutdown: attempts.isRetry())
+                let keep = ChiefHostStop.appAcpmuxEndKeep(chiefUsesAppAcpmux: services.home.chief.home.usesAppAcpmux)
+                return await QuitAgents.end(QuitAgents.environment(services), keep: keep, waitForShutdown: attempts.isRetry())
             },
             stopBrowserEngines: { [weak self, deadline = self.deadline] in
                 // CefShutdown runs on the main thread and can block it for

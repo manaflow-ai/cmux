@@ -44,8 +44,15 @@ final class WindowOverlayLayer {
     private(set) var placement: Placement = .inWindow
     /// Interactive overlay rects in window coordinates.
     private(set) var interactiveRects: [CGRect] = []
-    /// Divider hit areas in window coordinates.
+    /// The layout's divider hit areas in window coordinates (`debug.layers`
+    /// `divider_areas_in_window`: pane dividers only, which the perf gate and
+    /// live drag scripts grab).
     private(set) var dividerAreas: [LayoutMouseArea] = []
+    /// The sidebar's resize band (`setSidebarResizeBand`).
+    private(set) var sidebarResizeArea: LayoutMouseArea?
+    /// What the catcher panels cover: the divider areas, the sidebar's resize band last.
+    private(set) var catcherAreas: [LayoutMouseArea] = []
+    static let sidebarResizeAreaID = "sidebar.resize"
     let catchers: DividerMouseCatchers
     private var observers: [any NSObjectProtocol] = []
     private var isEvaluating = false
@@ -118,6 +125,7 @@ final class WindowOverlayLayer {
 
     func teardown() {
         isTornDown = true
+        sidebarResizeArea = nil
         catchers.teardown()
         observers.forEach(NotificationCenter.default.removeObserver)
         observers.removeAll()
@@ -217,6 +225,17 @@ final class WindowOverlayLayer {
         evaluate()
     }
 
+    /// The sidebar's resize band in window coordinates (nil: hidden). It
+    /// reaches over the pane beside the sidebar, so over a page it gets a
+    /// catcher panel like a divider's hit area; a page with focus holds key
+    /// and would take the mouse there (Leo 2026-10-20).
+    func setSidebarResizeBand(_ rect: CGRect?) {
+        let area = rect.map { LayoutMouseArea(id: Self.sidebarResizeAreaID, rect: $0, resizesColumns: true) }
+        guard !isTornDown, area != sidebarResizeArea else { return }
+        sidebarResizeArea = area
+        interactiveRectsDidChange()
+    }
+
     private func place(_ plane: OverlayPlane) {
         switch placement {
         case .inWindow:
@@ -241,8 +260,10 @@ final class WindowOverlayLayer {
                 return area
             }
         }
-        if areas != dividerAreas {
-            dividerAreas = areas
+        dividerAreas = areas
+        if let sidebarResizeArea { areas.append(sidebarResizeArea) }
+        if areas != catcherAreas {
+            catcherAreas = areas
             syncCatchers()
         }
         guard rects != interactiveRects else { return }
@@ -333,12 +354,16 @@ final class WindowOverlayLayer {
     private func syncCatchers() {
         if catchers.onHover == nil {
             catchers.onHover = { [weak self] id, hovered in
+                if id == Self.sidebarResizeAreaID {
+                    (self?.window.contentView as? WindowRootView)?.sidebar.refreshResizeHover()
+                    return
+                }
                 for plane in self?.planes ?? [] { (plane.home as? LayoutRootView)?.setDividerHovered(id, hovered) }
             }
         }
         // A modal or dimming overlay blocks the whole window: no divider takes the mouse under it.
         let blocked = WindowOverlayHost.existingHost(for: window)?.blocksWholeWindow == true
-        catchers.update(dividerAreas, active: placement == .overlayWindow && !blocked)
+        catchers.update(catcherAreas, active: placement == .overlayWindow && !blocked)
         // The panels pass hover through to the layout, and moving them under
         // a still pointer sends no event: the layout recomputes now (cx-ww20).
         for plane in planes {
@@ -346,6 +371,7 @@ final class WindowOverlayLayer {
             root.hoverPassThroughWindows = { [weak catchers] in catchers?.windowNumbers ?? [] }
             root.refreshDividerHover()
         }
+        (window.contentView as? WindowRootView)?.sidebar.refreshResizeHover { [weak catchers] in catchers?.windowNumbers ?? [] }
     }
 
     /// Every Chromium page of this window re-applies geometry, clip and

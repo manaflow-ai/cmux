@@ -1,4 +1,4 @@
-// Selected rows in the agent pane (New Tab's rows and chats list, the omnibar, the session list and
+// Selected rows in the agent pane (New Tab's rows and chats list, the omnibar and
 // checked question rows) tint with the theme accent when `appearance.accent` sets one. With the
 // default neutral accent the host sends the text color as `--agent-accent`, so the tint is the
 // same as before. The row text stays the text color either way.
@@ -39,7 +39,6 @@ await requireBrowserLane("selected-row-accent.test.ts", async () => {
     ["New Tab row", `<div class="nt-row is-selected">Fix the build</div>`],
     ["New Tab chats row", `<div class="nt-all-row" data-selected>Fix the build</div>`],
     ["omnibar row", `<div class="acpmux-omni-row is-selected">Fix the build</div>`],
-    ["session row", `<div class="acpmux-session-row is-selected">Fix the build</div>`],
     [
       "checked question mark",
       `<div class="acpmux-question-row" aria-checked="true"><span class="acpmux-question-mark" data-multi data-chosen></span></div>`,

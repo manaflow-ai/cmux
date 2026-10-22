@@ -145,6 +145,11 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
     }
   }
 
+  /// The chat drew its history: the PR commands' run, folded under its line with the short note
+  /// "Three PRs open." in it, as the run after the note (the merge in flight) joins it
+  /// (conversation/turns.ts mergeShortNotes, Debug toggle agentPane.debug.codexToolRuns).
+  const drawn = (page: Page) => page.locator("button.cv-tool", { hasText: "Ran commands" });
+
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
@@ -181,7 +186,7 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
       const warm = await browser.newPage();
       try {
         await warm.goto(url());
-        await warm.getByText("Three PRs open.").waitFor({ timeout: 25_000 });
+        await drawn(warm).waitFor({ timeout: 25_000 });
         await warm.close();
         break;
       } catch (error) {
@@ -258,7 +263,7 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
   async function open(height: number) {
     const page = await browser!.newPage({ viewport: { width: 900, height } });
     await page.goto(url());
-    await page.getByText("Three PRs open.").waitFor();
+    await drawn(page).waitFor();
     await page.locator(".acpmux-pr-dock").waitFor({ timeout: 10_000 });
     // Six queued prompts fold behind "4 more queued"; open it so the whole queue draws.
     await page.locator(".acpmux-queue-fold").click();

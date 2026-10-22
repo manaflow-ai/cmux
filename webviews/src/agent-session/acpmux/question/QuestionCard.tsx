@@ -515,6 +515,7 @@ function ChoiceMark({ multi, chosen }: { multi: boolean; chosen: boolean }) {
 function respondentLine(t: Translate, answer: Answer): string | undefined {
   const name = answer.respondent?.displayName;
   const device = answer.respondent?.device;
+  if (name && answer.respondent?.isSession) return t("question.answeredBySession", { name });
   if (name && device) return t("question.answeredBy", { name, device });
   if (name) return t("question.answeredByName", { name });
   if (device) return t("question.answeredOn", { device });

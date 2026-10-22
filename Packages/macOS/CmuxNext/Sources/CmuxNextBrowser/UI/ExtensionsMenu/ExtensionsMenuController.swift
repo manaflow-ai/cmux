@@ -121,7 +121,7 @@ final class ExtensionsMenuController {
         }
         anchorRect = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
         panel.adoptThemeScope(of: anchor)
-        guard popup.show(size: content.frame.size, anchor: anchorRect, in: window, preferred: .below, trailing: true,
+        guard popup.show(size: content.frame.size, anchor: anchorRect, in: window, preferred: anchor.toolbarPopupSide, trailing: true,
                          makeKey: true) != nil else { return closed() }
         panel.makeFirstResponder(card)
         reportedShown = true
@@ -188,7 +188,7 @@ final class ExtensionsMenuController {
         }, site: Self.site(of: url))
         content.layoutSubtreeIfNeeded()
         if isShown, content.frame.size != before, let window = panel.parent {
-            popup.show(size: content.frame.size, anchor: anchorRect, in: window, preferred: .below, trailing: true)
+            popup.show(size: content.frame.size, anchor: anchorRect, in: window, preferred: anchorView?.toolbarPopupSide ?? .below, trailing: true)
         }
     }
 
@@ -256,7 +256,7 @@ final class ExtensionsMenuController {
             MainActor.assumeIsolated { // main-proof: a CFRunLoopGetMain() block runs on the main thread
                 guard let self, let view, view.window != nil else { return }
                 self.presentedContextMenu = menu
-                menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: view, gap: 0), in: view)
+                menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(for: menu, in: view, gap: 0), in: view)
                 self.presentedContextMenu = nil
                 (view as? ExtensionsMenuHoverButton)?.refreshHover()
                 (view.superview as? ExtensionsMenuItemView)?.refreshHover()

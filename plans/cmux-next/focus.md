@@ -661,6 +661,10 @@ the user."):
   `focus.inactiveTabStrength` (0.6; 0.35 until 2026-10-21, when Leo could not tell which pane Cmd-W would close). Subtle text never drops below 3.5:1 (selected),
   2.5:1 and 2:1 against the page (`ThemeTokens.subtle*Floor`). Panels and hover cards
   opened from a subtle strip adopt `ThemeScope.fullStrength`, so they draw at full strength.
+- Debug Settings (Focus) `focus.flashOnMove` (off; Leo 2026-10-21, to judge live): when focus moves
+  without a click (`ColumnFocusSource.programmatic`: a link open, the pane after a close, an agent
+  handoff) and no ring already marks the pane, the ring shows on it at once at standard contrast and
+  at least 2 pt, then fades over `focusFlash` (0.5 s). Its own layer, a stroke only (glass stays clear).
 - With `appearance.borders` none the unfocused panes' dim stands in for the ring only when
   `focusIndicator` is `border`; with `tabs` or `both` the tab cue is the focus cue.
 - Chrome lane (WindowBackdrop, cc-pane-chrome) reads `DesignSettings.shared

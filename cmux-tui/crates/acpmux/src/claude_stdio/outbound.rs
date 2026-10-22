@@ -108,9 +108,10 @@ impl Translator {
                             // and echoes it; the echo answers this request.
                             self.steers.lock().await.push_back((uuid, id.to_string()));
                             // Sent now (`_meta.steerNow`): the current step stops, so it
-                            // reads the line at once; the turn runs on.
+                            // reads the line at once; the turn runs on. Not while a subagent
+                            // or a background shell runs (`interrupt_ends_work`).
                             let now = p.pointer("/_meta/steerNow").and_then(Value::as_bool);
-                            if now == Some(true) {
+                            if now == Some(true) && !self.interrupt_ends_work().await {
                                 return Outbound::Lines(vec![line, self.step_interrupt(None)]);
                             }
                             return Outbound::Lines(vec![line]);
@@ -273,10 +274,17 @@ impl Translator {
                                 asked.push(call.clone());
                             }
                         }
+                        // The hub stops waiting after `timeoutMs`, and the marks go then
+                        // (`end_background_asks`); without one, at the turn's end.
+                        let wait = p.get("timeoutMs").and_then(Value::as_u64);
+                        let deadline = wait.and_then(|ms| {
+                            std::time::Instant::now()
+                                .checked_add(std::time::Duration::from_millis(ms))
+                        });
                         self.pending
                             .lock()
                             .await
-                            .insert(id.to_string(), Pending::Background(asked));
+                            .insert(id.to_string(), Pending::Background(asked, deadline));
                         let mut request = json!({"subtype": "background_tasks"});
                         if let Some(tool) = tool {
                             request["tool_use_id"] = json!(tool);
@@ -287,10 +295,12 @@ impl Translator {
                     }
                     method::MUX_SUBAGENT_STOP => self.subagent_stop(id, &p).await,
                     // Send now on a steer Claude Code has not read: its step stops, so it
-                    // reads the steer; with none waiting nothing stops.
+                    // reads the steer; with none waiting, or while a subagent or a background
+                    // shell runs (`interrupt_ends_work`), nothing stops.
                     method::MUX_STEP_NOW => {
                         if !self.in_turn.load(Ordering::SeqCst)
                             || self.steers.lock().await.is_empty()
+                            || self.interrupt_ends_work().await
                         {
                             return Outbound::Reply(Message::ok(
                                 id.clone(),
@@ -378,6 +388,15 @@ impl Translator {
         }
     }
 
+    /// Whether Claude Code's `interrupt` would end more than the current step: it kills every
+    /// running subagent (background ones too) and every background shell, so Send now never
+    /// writes it while one runs (cosmic-gray, 2026-10-21: a Send now killed two background
+    /// subagents). The steer is then read at the next tool boundary instead.
+    async fn interrupt_ends_work(&self) -> bool {
+        !self.subagents.lock().await.is_empty()
+            || self.background_shells.lock().await.values().any(|shell| shell.background)
+    }
+
     /// The interrupt that stops Claude Code's current step for a steer sent now: unlike a Stop
     /// it leaves `cancelled` unset, so the steer Claude Code reads after the step runs on in the
     /// same turn. Its ack answers `answer` (`MUX_STEP_NOW`), when one waits for it.
@@ -391,12 +410,20 @@ impl Translator {
 }
 
 /// An ACP `resource` or `resource_link` block as prompt text, so embedded
-/// context reaches Claude instead of an empty string.
+/// context reaches Claude instead of an empty string. A `file://` URI also
+/// names its decoded path: the URI is percent-encoded (`Application%20Support`),
+/// and Claude's tools open paths.
 fn resource_text(b: &Value) -> String {
     let r = b.get("resource").unwrap_or(b);
     let uri = r.get("uri").and_then(Value::as_str).unwrap_or("");
+    let path = reqwest::Url::parse(uri)
+        .ok()
+        .filter(|url| url.scheme() == "file")
+        .and_then(|url| url.to_file_path().ok())
+        .map(|path| format!(" path=\"{}\"", path.display().to_string().replace('"', "&quot;")))
+        .unwrap_or_default();
     match r.get("text").and_then(Value::as_str) {
-        Some(text) => format!("<resource uri=\"{uri}\">\n{text}\n</resource>"),
-        None => format!("<resource uri=\"{uri}\" />"),
+        Some(text) => format!("<resource uri=\"{uri}\"{path}>\n{text}\n</resource>"),
+        None => format!("<resource uri=\"{uri}\"{path} />"),
     }
 }

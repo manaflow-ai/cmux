@@ -270,13 +270,15 @@ export function HarnessHealthNotice({
       aria-busy={busy || undefined}
     >
       <div className="acpmux-host-error-card">
+        {/* The spinner trails the text, so starting or finishing work never moves the words. */}
         <p className="acpmux-host-error-message">
-          {busy && <Spinner size={12} className="acpmux-harness-spinner" loading />}
           {text}
+          {busy && <Spinner size={12} className="acpmux-harness-spinner" loading />}
         </p>
+        {/* Not Now leads, so Restart Chat or Try Again appearing or going never moves it. */}
         <div className="acpmux-host-error-actions">
-          {buttons}
           {notNow}
+          {buttons}
         </div>
       </div>
     </output>

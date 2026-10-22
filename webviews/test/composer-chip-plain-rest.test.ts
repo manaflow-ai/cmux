@@ -1,8 +1,10 @@
 // cmux-web-test-timeout: 300
-// The composer's model and effort chips are plain text and icon at rest (Leo 2026-10-19: "✳ Opus 5.5 ⌄"
-// and "Medium ⌄" showed a filled pill all the time). A chip draws a background only under the
-// pointer, on keyboard focus or while its menu is open, and that background is the soft pill of the
-// Claude app's chips (composer-chip-press.test.ts covers the press).
+// The composer's model button is plain text and icon at rest (Leo 2026-10-19: "✳ Opus 5.5 ⌄" and
+// "Medium ⌄" showed a filled pill all the time). Since Leo 2026-10-20 it is one button that names the
+// model and its effort ("Opus 5.5  Medium"); no effort chip of its own is drawn. The button draws a
+// background only under the pointer, on keyboard focus or while its menu is open, and that
+// background is the soft pill of the Claude app's chips (composer-chip-press.test.ts covers the
+// press).
 //
 // It renders the real composer and New Tab box on the gallery stage in Chromium. CI fails the file
 // when it cannot launch (requireBrowserLane). Locally:
@@ -10,8 +12,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("composer-chip-plain-rest.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -26,7 +28,7 @@ await requireBrowserLane("composer-chip-plain-rest.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const stageURL = (entry: string, variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}&frame=component&width=760&theme=Catppuccin+Mocha`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant, frame: "component", width: 760, theme: "Catppuccin Mocha" })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -35,14 +37,24 @@ await requireBrowserLane("composer-chip-plain-rest.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, ["agent-pane.composer", "agent-pane.new-tab"], { browser });
   });
   afterAll(async () => {
     await browser?.close();
     await vite?.close();
   });
 
+  /** Resolves once nothing on the page is easing: no transition or animation left to run (a
+   *  looping one never ends). */
+  const eased = (page: Page) =>
+    page.waitForFunction(() =>
+      document
+        .getAnimations()
+        .every(
+          (animation) => animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity,
+        ),
+    );
   const open = async (entry: string, variant: string): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width: 760, height: 600 } });
     for (;;) {
@@ -60,7 +72,7 @@ await requireBrowserLane("composer-chip-plain-rest.test.ts", async () => {
     await page.evaluate(() => document.fonts.ready);
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.mouse.move(1, 1);
-    await page.waitForTimeout(250);
+    await eased(page);
     return page;
   };
   const look = (page: Page, selector: string) =>
@@ -83,7 +95,19 @@ await requireBrowserLane("composer-chip-plain-rest.test.ts", async () => {
     { entry: "agent-pane.composer", variant: "new-chat-reasoning" },
     { entry: "agent-pane.new-tab", variant: "reasoning-chip" },
   ];
-  const CHIPS = [".acpmux-model .acpmux-picker-button", ".acpmux-effort .acpmux-picker-button"];
+  const CHIPS = [".acpmux-model .acpmux-picker-button"];
+
+  for (const stage of STAGES)
+    test(`${stage.entry} ${stage.variant}: the effort is the model button's label, not a chip of its own`, async () => {
+      const page = await open(stage.entry, stage.variant);
+      const drawn = await page.evaluate(() => ({
+        chip: document.querySelectorAll(".acpmux-effort").length,
+        detail: document.querySelectorAll(".acpmux-model .acpmux-picker-button .acpmux-model-detail").length,
+      }));
+      await page.close();
+      expect(drawn.chip, "no effort chip").toBe(0);
+      expect(drawn.detail, "the model button names its effort").toBeGreaterThan(0);
+    });
 
   for (const stage of STAGES)
     for (const chip of CHIPS)
@@ -112,7 +136,8 @@ await requireBrowserLane("composer-chip-plain-rest.test.ts", async () => {
         if (fine) {
           const box = (await page.locator(chip).first().boundingBox())!;
           await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-          await page.waitForTimeout(300);
+          await page.waitForFunction((chip) => document.querySelector(chip)?.matches(":hover"), chip);
+          await eased(page);
           const hover = await look(page, chip);
           expect(hover.filled, "hover draws a background").toBe(true);
           expect(hover.radius, "the pill shape").toBeGreaterThanOrEqual(hover.height / 2 - 0.5);

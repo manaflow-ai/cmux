@@ -14,6 +14,7 @@ const MAX_BODY = 1_000_000
  * (an unauthenticated post never creates a brain), and the conversation brain checks that it is the running
  * turn's. 404 where the route is off, 401 for any other token, 413 above MAX_BODY (refused before it is read).
  * A body with `net` is the Chief's network change (net.ts): JSON back, the settings and the script, or 400.
+ * A body with `vm` is the Chief's sandbox call (sandbox.ts): JSON back.
  */
 export const handleCcNotes = async (request: Request, env: Env, agent: string, conversation: string): Promise<Response> => {
   if (!ccConfigured(env) || request.method !== "POST") return new Response("not found", { status: 404 })
@@ -22,7 +23,7 @@ export const handleCcNotes = async (request: Request, env: Env, agent: string, c
   if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY) return new Response("too large", { status: 413 })
   const text = await readCapped(request, MAX_BODY)
   if (text === null) return new Response("too large", { status: 413 })
-  let body: { run?: unknown; events?: unknown; result?: unknown; net?: unknown }
+  let body: { run?: unknown; events?: unknown; result?: unknown; net?: unknown; vm?: unknown }
   try {
     body = JSON.parse(text) as typeof body
   } catch {

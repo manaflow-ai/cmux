@@ -8,11 +8,17 @@ final class NewTabButtonView: NSView {
         didSet {
             guard oldValue != isHovered else { return }
             updateColors(animated: true)
-            if isHovered { TabStripSignals.shared.onNewTabButtonHover?() }
+            if isHovered {
+                TabStripSignals.shared.onNewTabButtonHover?()
+                if themedToolTip != nil { themedToolTipShortcut = shortcut?() }
+            }
         }
     }
     var isPressed = false { didSet { if oldValue != isPressed { updateColors(animated: false) } } }
     var onPress: (() -> Void)?
+    /// The new tab action's shortcut as the person sees it ("⌘T"), read on hover so a rebinding
+    /// shows at once; the tooltip draws it after its text.
+    var shortcut: (() -> String?)?
     /// VoiceOver moved its focus onto (true) or off (false) the plus.
     var onAccessibilityFocus: ((Bool) -> Void)?
 
@@ -36,6 +42,8 @@ final class NewTabButtonView: NSView {
         setAccessibilityRole(.button)
         setAccessibilityLabel(Strings.axNewTab)
         setAccessibilityIdentifier("cmux.tabs.newTab")
+        // The plus says what it does and that holding it opens the new tab menu (`TabNewTabHold`).
+        themedToolTip = Strings.newTabHoldHint
     }
 
     @available(*, unavailable)

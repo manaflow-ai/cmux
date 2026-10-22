@@ -43,6 +43,12 @@ fn variant_name(piece: Piece) -> Option<&'static str> {
 /// and links of one person never serve another (a sign-out and sign-in on the
 /// same daemon).
 pub(super) fn lease_identity(service: &CloudConversations) -> anyhow::Result<String> {
+    // A self-hosted server's person, once `cloud-selfhost-info` named them.
+    if let Some((origin, user)) = service.lease_selfhost() {
+        return user
+            .map(|user| format!("selfhost:{origin}:{user}"))
+            .ok_or_else(|| CloudError::SignedOut.into());
+    }
     service
         .lease_person()
         .map(|(account, audience)| format!("{audience}:{account}"))

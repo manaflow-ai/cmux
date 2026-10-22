@@ -7755,23 +7755,26 @@
       }
     },
     "request:cloud-requests-list": {},
+    "request:cloud-selfhost-info": {},
     "request:cloud-session-clear": {},
     "request:cloud-session-set": {
       "/access_token": {
-        "ty": "string",
-        "required": true
+        "ty": "string"
       },
       "/api_base_url": {
         "ty": "string",
         "required": true
+      },
+      "/auth": {
+        "ty": "string",
+        "nullable": true
       },
       "/client_version": {
         "ty": "string",
         "nullable": true
       },
       "/expires_at": {
-        "ty": "uint64",
-        "required": true
+        "ty": "uint64"
       }
     },
     "request:cloud-session-status": {},
@@ -12561,6 +12564,12 @@
       }
     },
     "response:cloud-requests-list": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:cloud-selfhost-info": {
       "/data": {
         "ty": "json",
         "required": true

@@ -289,7 +289,9 @@ async fn a_web_chat_never_starts_in_full_access_and_an_unauthenticated_one_gets_
     let daemon = hub(&dir);
     let mut web = Client::new(&daemon, Origin::Web, ConnAuth::ListenerToken);
     let (_, mode) = web.chat(&dir, "codex").await;
-    assert_eq!(mode, "agent", "a Web chat keeps the harness's own mode");
+    // A phone starts Codex in its asking mode, never in the bridge's own
+    // default `agent` (61bdd4de942, `web_modes::BRIDGE_ASKING_MODES`).
+    assert_eq!(mode, "ask", "a Web chat starts Codex in its asking mode");
     let mut none = Client::new(&daemon, Origin::Web, ConnAuth::None);
     let r = none.new_chat(&dir, "codex").await;
     assert_eq!(r["error"]["code"], json!(acpmux::server::conn_auth::UNAUTHENTICATED), "{r}");
@@ -315,14 +317,14 @@ async fn start_mode_answer_is_the_mode_a_new_chat_then_starts_in() {
     // Before any chat: full access, from config.json.
     let answer = start_mode(&mut app, &dir, "claude").await;
     assert_eq!(answer["modeId"], "bypassPermissions", "{answer}");
-    assert_eq!(answer["name"], "Full access", "{answer}");
+    assert_eq!(answer["name"], "Bypass permissions", "{answer}");
     assert_eq!(answer["level"], "fullAccess", "{answer}");
     assert_eq!(answer["source"], "config", "{answer}");
     assert_eq!(app.chat(&dir, "claude").await.1, "bypassPermissions");
     // A harness with no full-access mode keeps its own: no prediction.
     assert_eq!(start_mode(&mut app, &dir, "plain").await["modeId"], Value::Null);
 
-    // The person picks Normal in a chat: the answer follows, and so does the
+    // The person picks Manual in a chat: the answer follows, and so does the
     // next new chat.
     let (claude, _) = app.chat(&dir, "claude").await;
     let r = app.call("session/set_mode", json!({"sessionId": claude, "modeId": "default"})).await;
@@ -438,6 +440,7 @@ fn folder_profile(dir: &Path) -> (PathBuf, acpmux::config::folder_profiles::Fold
             codex_config: dir.join("records").join("config.toml"),
             record: dir.join("records").join("trust.json"),
             agent_home: None,
+            cmux_worktrees: None,
         },
     };
     (repo, gate)
@@ -498,5 +501,280 @@ async fn start_mode_answer_for_folder_pinned_and_unknown_harnesses() {
     // After one, its full-access mode.
     assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
     assert_eq!(start_mode(&mut app, &dir, "codex").await["modeId"], "agent-full-access");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+impl Client {
+    /// A new chat on `harness` with acpmux permission policy `policy`: its id and its mode.
+    async fn chat_with_policy(
+        &mut self,
+        dir: &Path,
+        harness: &str,
+        policy: &str,
+    ) -> (String, String) {
+        let params = json!({"cwd": dir.join("work"), "mcpServers": [],
+            "_meta": {"acpmux": {"harness": harness, "policy": policy}}});
+        let r = self.call("session/new", params).await;
+        let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+        (id.clone(), self.mode(&id).await)
+    }
+
+    /// The `policy_unenforced` records of chat `id`.
+    async fn unenforced(&mut self, id: &str) -> Vec<Value> {
+        let r = self
+            .call("_acpmux/events", json!({"sessionId": id, "kinds": ["policy_unenforced"]}))
+            .await;
+        r["result"]["events"].as_array().cloned().unwrap_or_else(|| panic!("{r}"))
+    }
+}
+
+/// A chat started with a policy narrower than approve-all runs in its harness's mode that asks,
+/// whatever the start level: in full access (Codex approval never + danger-full-access, Claude
+/// Code bypassPermissions) the harness never asks, so the policy would answer nothing.
+#[tokio::test]
+async fn a_chat_with_a_narrower_policy_starts_in_the_mode_that_keeps_it() {
+    let dir = home("policy", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    for (policy, codex, claude) in [
+        ("ask", "ask", "default"),
+        ("approve-reads", "ask", "default"),
+        ("approve-edits", "ask", "default"),
+        ("deny-all", "read-only", "default"),
+        ("approve-all", "agent-full-access", "bypassPermissions"),
+    ] {
+        let (id, mode) = app.chat_with_policy(&dir, "codex", policy).await;
+        assert_eq!(mode, codex, "codex, {policy}");
+        assert!(app.unenforced(&id).await.is_empty(), "codex, {policy}");
+        let (id, mode) = app.chat_with_policy(&dir, "claude", policy).await;
+        assert_eq!(mode, claude, "claude, {policy}");
+        assert!(app.unenforced(&id).await.is_empty(), "claude, {policy}");
+    }
+    // A chat with no policy of its own still starts in the start level.
+    assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
+    // A harness with no mode that asks cannot keep the policy: the chat says so.
+    let (id, mode) = app.chat_with_policy(&dir, "plain", "approve-reads").await;
+    assert_eq!(mode, "normal");
+    let notes = app.unenforced(&id).await;
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert_eq!(notes[0]["msg"]["policy"], "approve-reads", "{notes:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A narrower policy set on a live chat moves a mode that does not ask to the policy's; a mode
+/// as narrow stays, and a wider policy changes no mode.
+#[tokio::test]
+async fn a_narrower_policy_on_a_live_chat_leaves_full_access() {
+    let dir = home("policy-live", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let (codex, mode) = app.chat(&dir, "codex").await;
+    assert_eq!(mode, "agent-full-access");
+    let r = app
+        .call("_acpmux/set_policy", json!({"sessionId": codex, "policy": "approve-reads"}))
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.mode(&codex).await, "ask");
+    let r = app.call("_acpmux/set_policy", json!({"sessionId": codex, "policy": "deny-all"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.mode(&codex).await, "read-only");
+    let r =
+        app.call("_acpmux/set_policy", json!({"sessionId": codex, "policy": "approve-all"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.mode(&codex).await, "read-only");
+
+    let (claude, _) = app.chat(&dir, "claude").await;
+    let r = app.call("session/set_mode", json!({"sessionId": claude, "modeId": "plan"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = app.call("_acpmux/set_policy", json!({"sessionId": claude, "policy": "ask"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.mode(&claude).await, "plan");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A narrower policy set on a chat whose agent is not running starts no agent: the chat keeps it
+/// as its saved mode, which its next start restores.
+#[tokio::test]
+async fn a_narrower_policy_on_a_stopped_chat_starts_no_agent() {
+    let dir = home("policy-stopped", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let (codex, mode) = app.chat(&dir, "codex").await;
+    assert_eq!(mode, "agent-full-access");
+    let r = app.call("_acpmux/kill", json!({"sessionId": codex})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = app
+        .call("_acpmux/set_policy", json!({"sessionId": codex, "policy": "approve-reads"}))
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    let info = app.call("_acpmux/info", json!({"sessionId": codex})).await;
+    assert_eq!(info["result"]["status"], "closed", "{info}");
+    assert_eq!(app.mode(&codex).await, "ask");
+    // The next start keeps it: the bridge's `mode` config option, replayed after the mode,
+    // does not bring full access back.
+    let r = app
+        .call(
+            "session/prompt",
+            json!({"sessionId": codex, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.mode(&codex).await, "ask");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A chat whose agent starts outside the plain new-chat path (a preset's, a folder profile's, a
+/// handoff target that keeps the harness's mode, a resumed chat) still runs in the mode its
+/// narrower policy needs: the policy is held where every agent starts, not only on `session/new`.
+#[tokio::test]
+async fn a_preset_chat_with_a_narrower_policy_starts_in_the_mode_that_keeps_it() {
+    let dir = home(
+        "policy-preset",
+        json!({"defaultPermissionMode": "fullAccess", "presets": {"reads": {"harness": "codex", "policy": "approve-reads"}}}),
+    );
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let r = app
+        .call(
+            "session/new",
+            json!({"cwd": dir.join("work"), "mcpServers": [], "_meta": {"acpmux": {"preset": "reads"}}}),
+        )
+        .await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(app.mode(&id).await, "ask");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A policy acpmux sets itself (an aside's deny-all, a handoff target narrowed to its source)
+/// moves the chat out of full access like `_acpmux/set_policy` does: an aside forked from a
+/// full-access chat ran its question in full access under deny-all.
+#[tokio::test]
+async fn a_policy_acpmux_sets_itself_moves_the_chat_out_of_full_access() {
+    let dir = home("policy-own", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let (codex, mode) = app.chat(&dir, "codex").await;
+    assert_eq!(mode, "agent-full-access");
+    let session = daemon.resolve(&codex).unwrap();
+    daemon.set_policy(&session, acpmux::config::PermissionPolicy::DenyAll).await;
+    assert_eq!(app.mode(&codex).await, "read-only");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// deny-all as the default policy (`_acpmux/set_default_policy`) is a lockdown: every chat with
+/// no policy of its own leaves full access, live or stopped, and new chats start read-only. The
+/// start mode preview says so, and a switch back into a mode that never asks is refused while
+/// the policy holds.
+#[tokio::test]
+async fn deny_all_as_the_default_policy_holds_on_every_chat() {
+    let dir = home("policy-default", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let (live, _) = app.chat(&dir, "codex").await;
+    let (stopped, _) = app.chat(&dir, "codex").await;
+    let r = app.call("_acpmux/kill", json!({"sessionId": stopped})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = app.call("_acpmux/set_default_policy", json!({"policy": "deny-all"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.mode(&live).await, "read-only");
+    assert_eq!(app.mode(&stopped).await, "read-only");
+    let r = app
+        .call(
+            "session/prompt",
+            json!({"sessionId": stopped, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.mode(&stopped).await, "read-only");
+    let (fresh, mode) = app.chat(&dir, "codex").await;
+    assert_eq!(mode, "read-only", "{fresh}");
+    let r =
+        app.call("_acpmux/start_mode", json!({"harness": "codex", "cwd": dir.join("work")})).await;
+    assert_eq!(r["result"]["modeId"], "read-only", "{r}");
+    assert_eq!(r["result"]["source"], "policy", "{r}");
+    let r = app
+        .call("session/set_mode", json!({"sessionId": live, "modeId": "agent-full-access"}))
+        .await;
+    assert_eq!(r["error"]["data"]["reason"], "policy_mode", "{r}");
+    assert_eq!(app.mode(&live).await, "read-only");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A Claude Code profile that pins full access in its argv started in it under a narrower policy:
+/// its start returned before the policy's mode was held, so it ran every tool without asking.
+#[tokio::test]
+async fn a_pinned_claude_chat_with_a_narrower_policy_leaves_full_access() {
+    let dir = home("policy-pinned", json!({"defaultPermissionMode": "fullAccess"}));
+    let mut config: Value =
+        serde_json::from_slice(&std::fs::read(dir.join("config.json")).unwrap()).unwrap();
+    config["harnesses"]["yolo"] = json!({"argv": ["python3", FAKE_CLAUDE, "--permission-mode",
+        "bypassPermissions", "--dangerously-skip-permissions"], "kind": "claude-stdio"});
+    std::fs::write(dir.join("config.json"), serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let (id, _) = app.chat_with_policy(&dir, "yolo", "approve-reads").await;
+    let r = app
+        .call(
+            "session/prompt",
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.mode(&id).await, "default");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The mode `id` runs in once it is `want`, or after 10 s whatever it is: a follow the daemon
+/// starts on its own (startup, a move's end) lands a moment later.
+async fn mode_soon(app: &mut Client, id: &str, want: &str) -> String {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let mode = app.mode(id).await;
+        if mode == want || tokio::time::Instant::now() > deadline {
+            return mode;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// A deny-all default skips a chat that is moving; when the move was aborted, the chat kept
+/// running in full access under the lockdown.
+#[tokio::test]
+async fn a_chat_whose_move_aborts_follows_a_deny_all_default_set_meanwhile() {
+    let dir = home("policy-move", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let (id, mode) = app.chat(&dir, "codex").await;
+    assert_eq!(mode, "agent-full-access");
+    // Only the local socket moves a chat.
+    let mut mover = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    let r = mover.call("initialize", json!({"protocolVersion": 1})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let begin = mover.call("_acpmux/transfer_begin", json!({"sessionId": id})).await;
+    let transfer = begin["result"]["transferId"].clone();
+    assert!(transfer.is_string(), "{begin}");
+    let r = app.call("_acpmux/set_default_policy", json!({"policy": "deny-all"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.mode(&id).await, "agent-full-access", "a moving chat is not touched");
+    let r = mover
+        .call("_acpmux/transfer_abort", json!({"sessionId": id, "transferId": transfer}))
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(mode_soon(&mut app, &id, "read-only").await, "read-only");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `permissionPolicy: deny-all` in config.json is the same lockdown from the daemon's start: its
+/// chats follow it once startup finishes.
+#[tokio::test]
+async fn deny_all_in_config_holds_on_every_chat_from_startup() {
+    let dir = home("policy-startup", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let (id, mode) = app.chat(&dir, "codex").await;
+    assert_eq!(mode, "agent-full-access");
+    daemon.config.write().await.permission_policy = acpmux::config::PermissionPolicy::DenyAll;
+    daemon.finish_startup().await;
+    assert_eq!(mode_soon(&mut app, &id, "read-only").await, "read-only");
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -311,6 +311,17 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 cliName: "home send",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
+            // Stop all agents (coordinator 2026-10-20): the Chief's turn and every
+            // subagent (chief.stop {all}); a plain stop never stops a subagent.
+            // Option-click on the compose bar's stop button runs it too; its
+            // toast lists what stopped and offers Restart.
+            ActionDescriptor(
+                id: "home.stopAllAgents",
+                title: String(localized: "action.home.stopAllAgents", defaultValue: "Stop All Agents", bundle: .module),
+                keywords: ["chief", "home", "stop", "all", "agents", "subagents", "cancel"], category: .agents,
+                symbol: "stop.circle.fill", surfaces: [.palette, .menu], mainMenu: .file,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
             // DEV and NIGHTLY: MessagesLab's flight recorder writes the last ~10 s of the
             // Home transcript to ~/Library/Logs/<app>/blink-<time>/ (Debug menu, palette).
             ActionDescriptor(

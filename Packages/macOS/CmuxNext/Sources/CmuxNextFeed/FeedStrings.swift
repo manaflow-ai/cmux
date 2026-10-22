@@ -58,6 +58,11 @@ nonisolated enum FeedStrings {
     static func answeredOn(_ device: String) -> String { t("item.answeredOn", "Answered on \(device)") }
     static func threadCount(_ count: Int) -> String { t("item.threadCount", "\(count) items") }
 
+    /// An update card's title: "Claude Code updated to 2.1.305" (UpdateFeedCard).
+    static func updatedTo(_ name: String, _ version: String) -> String { t("update.updatedTo", "\(name) updated to \(version)") }
+    static func updatedFrom(_ version: String) -> String { t("update.from", "From \(version)") }
+    static func moreChanges(_ count: Int) -> String { t("update.moreChanges", "\(count) more changes") }
+
     static var disconnected: String { t("owner.disconnected", "Feed is unreachable") }
     static var moving: String { t("owner.moving", "Moving to the cloud. Try again.") }
     static var refused: String { t("owner.refused", "The feed refused the change") }

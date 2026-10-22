@@ -186,11 +186,14 @@ class GeneratedClientMixin:
     def cloud_requests_list(self) -> JsonValue:
         return self._invoke_command('cloud-requests-list', CloudRequestsListRequest())
 
+    def cloud_selfhost_info(self) -> JsonValue:
+        return self._invoke_command('cloud-selfhost-info', CloudSelfhostInfoRequest())
+
     def cloud_session_clear(self) -> JsonValue:
         return self._invoke_command('cloud-session-clear', CloudSessionClearRequest())
 
-    def cloud_session_set(self, access_token: str, api_base_url: str, expires_at: int, *, client_version: Union[str, None, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('cloud-session-set', CloudSessionSetRequest(access_token=access_token, api_base_url=api_base_url, expires_at=expires_at, client_version=client_version))
+    def cloud_session_set(self, api_base_url: str, *, access_token: Union[str, MissingType] = MISSING, auth: Union[str, None, MissingType] = MISSING, client_version: Union[str, None, MissingType] = MISSING, expires_at: Union[int, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('cloud-session-set', CloudSessionSetRequest(api_base_url=api_base_url, access_token=access_token, auth=auth, client_version=client_version, expires_at=expires_at))
 
     def cloud_session_status(self) -> JsonValue:
         return self._invoke_command('cloud-session-status', CloudSessionStatusRequest())
@@ -914,6 +917,7 @@ GeneratedClientMixin.cloud_mux_subscribe.__cmux_command__ = COMMANDS['cloud-mux-
 GeneratedClientMixin.cloud_mux_unsubscribe.__cmux_command__ = COMMANDS['cloud-mux-unsubscribe']
 GeneratedClientMixin.cloud_participant_avatar_get.__cmux_command__ = COMMANDS['cloud-participant-avatar-get']
 GeneratedClientMixin.cloud_requests_list.__cmux_command__ = COMMANDS['cloud-requests-list']
+GeneratedClientMixin.cloud_selfhost_info.__cmux_command__ = COMMANDS['cloud-selfhost-info']
 GeneratedClientMixin.cloud_session_clear.__cmux_command__ = COMMANDS['cloud-session-clear']
 GeneratedClientMixin.cloud_session_set.__cmux_command__ = COMMANDS['cloud-session-set']
 GeneratedClientMixin.cloud_session_status.__cmux_command__ = COMMANDS['cloud-session-status']

@@ -168,13 +168,15 @@ describe("withStartedSessions", () => {
     expect(shown.map((r) => r.kind).filter((kind) => kind !== "date")).toEqual(["user", "thinking", STARTED_SESSIONS]);
   });
 
-  test("with Codex runs, a card after the running call leaves that call in flight", () => {
-    const activity: AcpmuxRow = { ...row("act", 20, "activity"), items: [] };
+  test("with Codex runs, a card after the running call leaves that call the live line's", () => {
+    const activity: AcpmuxRow = {
+      ...row("act", 20, "activity"),
+      items: [{ kind: "tool", text: "", tool: { id: "t", title: "bun test", kind: "execute", status: "in_progress" } }],
+    };
     const rows = withStartedSessions([row("u1", 10, "user"), activity], [started("x", 30)]);
     const shown = turnView(rows, new Set(), { working: true, liveRuns: true });
-    const act = shown.find((r) => r.id === "act");
-    expect(act?.inFlight).toBe(true);
-    expect(act?.settled).toBeUndefined();
+    expect(shown.find((r) => r.id === "act")).toBeUndefined();
+    expect(shown.find((r) => r.kind === "working")?.doing).toBe("bun test");
   });
 
   test("returns the rows as they are with no started chats", () => {

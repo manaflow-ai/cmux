@@ -14,6 +14,7 @@ public struct HomeGroupInfoColors: Equatable, Sendable {
     var separator = ThemeTokens.unresolved.separator.swiftUIColor
     var danger = ThemeTokens.unresolved.danger.swiftUIColor
     var accent = ThemeTokens.unresolved.focusRing.swiftUIColor
+    var litGlyph = ThemeTokens.unresolved.litGlyph.swiftUIColor
 
     public init() {}
 
@@ -29,6 +30,7 @@ public struct HomeGroupInfoColors: Equatable, Sendable {
         colors.separator = fixed(Palette.separator)
         colors.danger = fixed(Palette.danger)
         colors.accent = fixed(Palette.focusRing)
+        colors.litGlyph = fixed(Palette.litGlyph)
         return colors
     }
 

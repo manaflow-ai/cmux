@@ -78,13 +78,14 @@ public final class LayoutRootView: NSView {
     var overlayIsStale = false
     var overlayFlushScheduled = false
 
-    /// A pane close is springing on some screen: the panes around it change size every frame, and
-    /// their terminals keep their grids (the PTY resizes once, at rest) until it lands
-    /// (plans/cmux-next/close-animation/DESIGN.md). Called with true when the first close starts
-    /// and false when the last one lands; the App holds `ResizeCoordinator` with it.
+    /// A split or a pane close is springing on some screen: the panes it resizes change size every
+    /// frame, and their terminals keep their grids (the PTY resizes once, at rest) until it lands
+    /// (plans/cmux-next/close-animation/DESIGN.md, split-spring-animation/DESIGN.md). Called with
+    /// true when the first one starts and false when the last one lands; the App holds
+    /// `ResizeCoordinator` with it.
     public var onTerminalGridHold: ((Bool) -> Void)?
-    /// Whether a pane close holds the terminals' grids now (``onTerminalGridHold``).
-    public var holdsTerminalGrids: Bool { !context.closingScreens.isEmpty }
+    /// Whether a split or a pane close holds the terminals' grids now (``onTerminalGridHold``).
+    public var holdsTerminalGrids: Bool { !context.gridHoldScreens.isEmpty }
 
     /// Everything the view reads from the model, observed as one value.
     private struct Snapshot: Equatable, Sendable {
@@ -323,12 +324,17 @@ public final class LayoutRootView: NSView {
                 // An explicit equalize (same structure, new ratios) springs whenever motion is allowed (Lawrence
                 // 2026-10-16); the sizing after a split or close, and released drags, follow `ui.paneAnimations`.
                 let reflows = chromeAnimated && !structureChanged && !snapshot.gestureActive && model.animatesReflow
-                if view.update(layout: screen.layout, zoomed: screen.zoomed, canvas: canvas, animated: animated || reflows) {
+                // A hidden screen lands at once: frames step only the screens shown (`advanceFrame`), so a
+                // spring started there (a restore, a daemon echo) froze its panes mid-motion, their
+                // content held wider than the pane and pinned to its edge (Leo 2026-10-21).
+                if view.update(layout: screen.layout, zoomed: screen.zoomed, canvas: canvas,
+                               animated: (animated || reflows) && !view.isHidden) {
                     needsFrames = true
                 }
-                // The focus ring of a split's new pane appears with the pane.
+                // The focus ring of a split's new pane appears with the pane; the focus flash still
+                // runs, so the pane after a close or a link's new pane shows where focus went.
                 view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, attention: snapshot.attention,
-                                  animated: chromeAnimated && !structureChanged)
+                                  animated: chromeAnimated && !structureChanged, flashAnimated: chromeAnimated)
             } else if chromeChanged {
                 view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, attention: snapshot.attention,
                                   animated: chromeAnimated)

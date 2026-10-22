@@ -20,8 +20,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -36,8 +36,8 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
-  const stageURL = (entry: string, variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}`;
+  const stageURL = (entry: string, variant: string, theme?: string) =>
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant, theme })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -46,20 +46,10 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
     // Warm the stage once: the first load can run Vite's dependency optimizer and reload mid-compile.
-    const warm = await browser.newPage({ viewport: { width: 720, height: 400 } });
-    await warm.goto(stageURL("agent-pane.composer-strip", "project"));
-    for (;;) {
-      try {
-        await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-        break;
-      } catch (error) {
-        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-      }
-    }
-    await warm.close();
+    await warmGalleryFrame(vite, "agent-pane.composer-strip", { browser, params: { variant: "project" } });
+    await warmGalleryFrame(vite, "agent-pane.new-tab", { browser });
   });
   afterAll(async () => {
     await browser?.close();
@@ -214,7 +204,7 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
     for (const theme of ["Catppuccin Latte", "Apple System Colors Light", "Catppuccin Mocha"])
       test(`${surface.name}, plain, ${theme}: nothing drawn in the gap above the card`, async () => {
         const page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
-        await page.goto(`${stageURL(surface.entry, surface.variant)}&theme=${encodeURIComponent(theme)}`);
+        await page.goto(stageURL(surface.entry, surface.variant, theme));
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
         await page.evaluate(async () => {
           document.documentElement.setAttribute("data-top-strip", "plain");
@@ -269,7 +259,7 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
   ];
   async function drawTray(surface: (typeof surfaces)[number], width: number, theme: string) {
     const page = await browser!.newPage({ viewport: { width, height: 560 } });
-    await page.goto(`${stageURL(surface.entry, surface.variant)}&theme=${encodeURIComponent(theme)}`);
+    await page.goto(stageURL(surface.entry, surface.variant, theme));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     await page.evaluate(async () => {
       document.documentElement.setAttribute("data-top-strip", "tray");

@@ -4,17 +4,18 @@
  * in-guest nftables table `inet chiefcc` for the agent's uid, applied as root after boot.sh (which leaves
  * the agent closed until then) and again whenever the Chief changes it with `chief-net` (run.mjs).
  *
- * Default (Lawrence, 2026-10-20: "more permissive by default"): the public Internet and DNS are open, so
- * git clone, package installs and a userspace tailscaled work; the tailnet (this VM's node), private and
- * link-local addresses and other loopback ports stay closed unless the Chief opens them. Kept per brain
- * (agent/conversation) in cb_config `cc_net`.
+ * Default (Lawrence, 2026-10-20: "more permissive by default"; 2026-10-21, msg 8200: the tailnet too): the
+ * public Internet, DNS and the tailnet (100.64.0.0/10 with its DNS 100.100.100.100, fd7a:115c:a1e0::/48; what
+ * the node may reach there is the tailnet policy of its tag, CHIEF_CC_TS_TAG) are open, so git clone, package
+ * installs, the Mac gate, the hub and the build controller work; private and link-local addresses and other
+ * loopback ports stay closed unless the Chief opens them. Kept per brain (agent/conversation) in cb_config `cc_net`.
  */
 export interface CcNet {
   /** Every public IPv4 and IPv6 address (private, link-local and multicast ranges excluded). */
   readonly internet: boolean
   /** DNS to the nameservers in /etc/resolv.conf (with `internet` off, the only lookups allowed). */
   readonly dns: boolean
-  /** The tailnet (100.64.0.0/10, fd7a:115c:a1e0::/48), as this VM's tag:agent-cloud node. */
+  /** The tailnet (100.64.0.0/10, fd7a:115c:a1e0::/48), as this VM's node (tag CHIEF_CC_TS_TAG). */
   readonly tailnet: boolean
   /** Every loopback port (off: only the model forward 4017 and the network tool 4018). */
   readonly local: boolean
@@ -24,7 +25,7 @@ export interface CcNet {
   readonly deny: ReadonlyArray<string>
 }
 
-export const CC_NET_DEFAULT: CcNet = { internet: true, dns: true, tailnet: false, local: false, allow: [], deny: [] }
+export const CC_NET_DEFAULT: CcNet = { internet: true, dns: true, tailnet: true, local: false, allow: [], deny: [] }
 const SWITCHES = ["internet", "dns", "tailnet", "local"] as const
 const LISTS = ["allow", "deny"] as const
 const MAX_ENTRIES = 64

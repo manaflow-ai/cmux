@@ -19,12 +19,43 @@ const MAX_ACCOUNT_CHARS: usize = 256;
 #[derive(Deserialize)]
 pub struct SessionParams {
     pub api_base_url: String,
-    /// Moved into a zeroizing buffer by [`CloudSession::new`].
+    /// How the daemon authenticates to `api_base_url`: absent or `"bearer"`
+    /// (a cmux Cloud Stack token), or `"tailscale"` (a self-hosted chat
+    /// server on the tailnet that identifies the caller by Tailscale: no
+    /// token, no expiry, plans/cmux-next/dm-group-chat-DESIGN.md 4.5).
+    #[serde(default)]
+    pub auth: Option<String>,
+    /// Moved into a zeroizing buffer by [`CloudSession::new`]. Required for
+    /// a bearer lease; absent (or empty) for a tailscale lease.
+    #[serde(default)]
     pub access_token: String,
-    /// Token expiry, Unix milliseconds.
+    /// Token expiry, Unix milliseconds. Required for a bearer lease; ignored
+    /// for a tailscale lease.
+    #[serde(default)]
     pub expires_at: u64,
     #[serde(default)]
     pub client_version: Option<String>,
+}
+
+/// How a lease authenticates to its origin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LeaseAuth {
+    /// `authorization: Bearer <token>` (cmux Cloud).
+    Bearer,
+    /// No header: a self-hosted server identifies the peer by Tailscale.
+    Tailscale,
+}
+
+impl SessionParams {
+    pub(crate) fn lease_auth(&self) -> Result<LeaseAuth, CloudError> {
+        match self.auth.as_deref() {
+            None | Some("bearer") => Ok(LeaseAuth::Bearer),
+            Some("tailscale") => Ok(LeaseAuth::Tailscale),
+            Some(other) => Err(CloudError::BadRequest(format!(
+                "auth must be \"bearer\" or \"tailscale\", not {other:?}"
+            ))),
+        }
+    }
 }
 
 impl fmt::Debug for SessionParams {
@@ -32,6 +63,7 @@ impl fmt::Debug for SessionParams {
         formatter
             .debug_struct("SessionParams")
             .field("api_base_url", &self.api_base_url)
+            .field("auth", &self.auth)
             .field("access_token", &"[redacted]")
             .field("expires_at", &self.expires_at)
             .field("client_version", &self.client_version)
@@ -44,6 +76,8 @@ impl fmt::Debug for SessionParams {
 #[derive(Clone)]
 pub(crate) struct CloudSession {
     origin: String,
+    pub(crate) auth: LeaseAuth,
+    /// Empty for a tailscale lease.
     token: Zeroizing<String>,
     pub(crate) expires_at: u64,
     pub(crate) client_version: Option<String>,
@@ -70,6 +104,7 @@ impl fmt::Debug for CloudSession {
         formatter
             .debug_struct("CloudSession")
             .field("origin", &self.origin)
+            .field("auth", &self.auth)
             .field("token", &"[redacted]")
             .field("expires_at", &self.expires_at)
             .field("generation", &self.generation)
@@ -88,7 +123,7 @@ fn visible_ascii(value: &str) -> bool {
 pub(crate) fn validate_api_base_url(raw: &str) -> Result<String, CloudError> {
     let bad = |detail: &str| CloudError::BadRequest(format!("api_base_url {detail}"));
     let url = url::Url::parse(raw).map_err(|_| bad("is not a URL"))?;
-    let host = url.host_str().ok_or_else(|| bad("has no host"))?;
+    url.host_str().ok_or_else(|| bad("has no host"))?;
     let loopback = match url.host() {
         Some(url::Host::Domain(domain)) => domain.eq_ignore_ascii_case("localhost"),
         Some(url::Host::Ipv4(address)) => address.is_loopback(),
@@ -100,6 +135,57 @@ pub(crate) fn validate_api_base_url(raw: &str) -> Result<String, CloudError> {
         "http" if loopback => {}
         _ => return Err(bad("must be https (http only for a loopback host)")),
     }
+    origin_of(&url)
+}
+
+/// Whether `host` is on a tailnet: a MagicDNS `*.ts.net` name, or a
+/// Tailscale address (IPv4 100.64.0.0/10, IPv6 fd7a:115c:a1e0::/48).
+fn is_tailnet_host(host: &url::Host<&str>) -> bool {
+    match host {
+        url::Host::Domain(domain) => {
+            let domain = domain.trim_end_matches('.').to_ascii_lowercase();
+            domain.strip_suffix(".ts.net").is_some_and(|name| {
+                !name.is_empty() && name.split('.').all(|label| !label.is_empty())
+            })
+        }
+        url::Host::Ipv4(address) => {
+            let [first, second, ..] = address.octets();
+            first == 100 && (second & 0xc0) == 0x40
+        }
+        url::Host::Ipv6(address) => {
+            let segments = address.segments();
+            segments[0] == 0xfd7a && segments[1] == 0x115c && segments[2] == 0xa1e0
+        }
+    }
+}
+
+/// The normalized origin of a self-hosted chat server (`auth: "tailscale"`):
+/// `http` or `https` on a tailnet host only (`is_tailnet_host`), else
+/// `unknown_api_origin`. No path, query, fragment or user info.
+pub(crate) fn validate_tailnet_origin(raw: &str) -> Result<String, CloudError> {
+    let bad = |detail: &str| CloudError::BadRequest(format!("api_base_url {detail}"));
+    let url = url::Url::parse(raw).map_err(|_| bad("is not a URL"))?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(bad("must be http or https"));
+    }
+    let host = url.host().ok_or_else(|| bad("has no host"))?;
+    let origin = origin_of(&url)?;
+    if !is_tailnet_host(&host) {
+        return Err(CloudError::Rejected {
+            code: "unknown_api_origin".into(),
+            message: format!(
+                "api_base_url {origin} is not a tailnet origin (*.ts.net, 100.64.0.0/10 or fd7a:115c:a1e0::/48)"
+            ),
+            retryable: false,
+        });
+    }
+    Ok(origin)
+}
+
+/// `scheme://host[:port]` of `url`, refusing user info, a path, a query or a fragment.
+fn origin_of(url: &url::Url) -> Result<String, CloudError> {
+    let bad = |detail: &str| CloudError::BadRequest(format!("api_base_url {detail}"));
+    let host = url.host_str().ok_or_else(|| bad("has no host"))?;
     if !url.username().is_empty() || url.password().is_some() {
         return Err(bad("must not carry user info"));
     }
@@ -195,6 +281,36 @@ pub(crate) fn token_account(token: &str) -> Option<String> {
 
 impl CloudSession {
     pub(crate) fn new(params: SessionParams, generation: u64) -> Result<Self, CloudError> {
+        let auth = params.lease_auth()?;
+        if auth == LeaseAuth::Tailscale {
+            if !params.access_token.is_empty() {
+                return Err(CloudError::BadRequest(
+                    "a tailscale lease carries no access_token".into(),
+                ));
+            }
+            if let Some(version) = &params.client_version
+                && (version.is_empty()
+                    || version.len() > MAX_VERSION_CHARS
+                    || !visible_ascii(version))
+            {
+                return Err(CloudError::BadRequest(format!(
+                    "client_version must be 1-{MAX_VERSION_CHARS} visible ASCII characters"
+                )));
+            }
+            return Ok(Self {
+                origin: validate_tailnet_origin(&params.api_base_url)?,
+                auth,
+                token: Zeroizing::new(String::new()),
+                // Never expires: is_expired and is_expiring are false for it.
+                expires_at: u64::MAX,
+                client_version: params.client_version,
+                generation,
+                // Learned from the server (`cloud-selfhost-info`).
+                account: None,
+                agent: None,
+                audience: None,
+            });
+        }
         let origin = validate_api_base_url(&params.api_base_url)?;
         let token = Zeroizing::new(params.access_token);
         if token.is_empty() || token.len() > MAX_TOKEN_CHARS || !visible_ascii(&token) {
@@ -218,6 +334,7 @@ impl CloudSession {
             .filter(|aud| !aud.is_empty() && aud.len() <= MAX_ACCOUNT_CHARS && visible_ascii(aud));
         Ok(Self {
             origin,
+            auth,
             token,
             expires_at: params.expires_at,
             client_version: params.client_version,
@@ -232,16 +349,32 @@ impl CloudSession {
         &self.origin
     }
 
-    pub(crate) fn bearer(&self) -> &str {
-        &self.token
+    /// The token for `authorization: Bearer`; none for a tailscale lease.
+    pub(crate) fn bearer(&self) -> Option<&str> {
+        (self.auth == LeaseAuth::Bearer).then_some(self.token.as_str())
+    }
+
+    /// A self-hosted server on the tailnet (`auth: "tailscale"`).
+    pub(crate) fn is_tailscale(&self) -> bool {
+        self.auth == LeaseAuth::Tailscale
     }
 
     pub(crate) fn is_expired(&self, now_ms: u64) -> bool {
-        now_ms >= self.expires_at
+        !self.is_tailscale() && now_ms >= self.expires_at
     }
 
     pub(crate) fn is_expiring(&self, now_ms: u64) -> bool {
-        now_ms.saturating_add(EXPIRING_LEAD_MS) >= self.expires_at
+        !self.is_tailscale() && now_ms.saturating_add(EXPIRING_LEAD_MS) >= self.expires_at
+    }
+
+    /// The `cloud-session-set` / `cloud-session-status` fields of an active
+    /// lease: a bearer lease names its expiry, a tailscale lease its auth.
+    pub(crate) fn status(&self, state: &str) -> serde_json::Value {
+        if self.is_tailscale() {
+            serde_json::json!({"state": state, "api_base_url": self.origin, "auth": "tailscale"})
+        } else {
+            serde_json::json!({"state": state, "api_base_url": self.origin, "expires_at": self.expires_at})
+        }
     }
 
     pub(crate) fn http_url(&self, path: &str) -> String {

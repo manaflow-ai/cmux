@@ -38,14 +38,14 @@ nonisolated enum SidebarActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.switchRightSidebarToFiles", defaultValue: "Show Files", bundle: .module),
                 keywords: ["right sidebar", "explorer"],
                 category: .sidebar, symbol: "doc.text", surfaces: [.palette, .keyboard],
-                requires: [.rightSidebarFocused], cliName: "sidebar show-files"
+                cliName: "sidebar show-files"
             ),
             ActionDescriptor(
                 id: "switchRightSidebarToFind",
                 title: String(localized: "action.switchRightSidebarToFind", defaultValue: "Show Find", bundle: .module),
                 keywords: ["right sidebar", "search"],
                 category: .sidebar, symbol: "text.magnifyingglass", surfaces: [.palette, .keyboard],
-                requires: [.rightSidebarFocused], cliName: "sidebar show-find"
+                cliName: "sidebar show-find"
             ),
             ActionDescriptor(
                 id: "switchRightSidebarToSessions",
@@ -118,8 +118,33 @@ nonisolated enum SidebarActionCatalog: ActionCatalogGroup {
                 id: "fileExplorerOpenWith",
                 title: String(localized: "action.fileExplorerOpenWith", defaultValue: "Open With…", bundle: .module),
                 keywords: ["file explorer", "open in"], category: .sidebar, symbol: "arrow.up.forward.app",
-                surfaces: [.contextMenu], requires: [.fileExplorerFocused], arguments: [CatalogArgument.appString],
+                // Without an app (the menu's Other…), the person picks one.
+                surfaces: [.contextMenu], requires: [.fileExplorerFocused], arguments: [CatalogArgument.appString.optional],
                 cliName: "sidebar open-with"
+            ),
+            ActionDescriptor(
+                id: "fileExplorerNewFile",
+                title: String(localized: "action.fileExplorerNewFile", defaultValue: "New File", bundle: .module),
+                keywords: ["file explorer", "create", "untitled"], category: .sidebar, symbol: "doc.badge.plus",
+                surfaces: [.contextMenu], requires: [.fileExplorerFocused], cliName: "sidebar new-file"
+            ),
+            ActionDescriptor(
+                id: "fileExplorerNewFolder",
+                title: String(localized: "action.fileExplorerNewFolder", defaultValue: "New Folder", bundle: .module),
+                keywords: ["file explorer", "create", "directory"], category: .sidebar, symbol: "folder.badge.plus",
+                surfaces: [.contextMenu], requires: [.fileExplorerFocused], cliName: "sidebar new-folder"
+            ),
+            ActionDescriptor(
+                id: "fileExplorerRename",
+                title: String(localized: "action.fileExplorerRename", defaultValue: "Rename", bundle: .module),
+                keywords: ["file explorer", "name"], category: .sidebar, symbol: "pencil",
+                surfaces: [.contextMenu], requires: [.fileExplorerFocused], cliName: "sidebar rename-item"
+            ),
+            ActionDescriptor(
+                id: "fileExplorerMoveToTrash",
+                title: String(localized: "action.fileExplorerMoveToTrash", defaultValue: "Move to Trash", bundle: .module),
+                keywords: ["file explorer", "delete", "remove", "trash"], category: .sidebar, symbol: "trash",
+                surfaces: [.contextMenu], requires: [.fileExplorerFocused], cliName: "sidebar move-to-trash"
             ),
             ActionDescriptor(
                 id: "vaultFocusSession",

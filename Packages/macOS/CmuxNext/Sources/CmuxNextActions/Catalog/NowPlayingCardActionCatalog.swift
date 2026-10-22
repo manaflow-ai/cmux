@@ -1,7 +1,8 @@
 // The sidebar's Now Playing card (u2437): put it away without a trip to Settings, bring it back,
 // and play or pause what it shows. The card's x runs Hide; its right-click menu is generated from
 // the `nowPlayingCard` placements below. Every action is also a palette row, a `cmux media` verb
-// and an MCP tool. Titles live in MusicActions.xcstrings.
+// and an MCP tool. Picture in Picture floats a tab's video (the named tab, else the focused or
+// playing one) and is also a tab menu row. Titles live in MusicActions.xcstrings.
 
 nonisolated enum NowPlayingCardActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
@@ -12,6 +13,15 @@ nonisolated enum NowPlayingCardActionCatalog: ActionCatalogGroup {
                 symbol: "playpause.fill", surfaces: [.palette], cliName: "media play-pause",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [
                     ContextMenuPlacement(.nowPlayingCard, .navigate, 0, label: t("menu.nowPlaying.playPause", "Play/Pause")),
+                ])
+            ),
+            ActionDescriptor(
+                id: "tab.pictureInPicture", title: t("action.tab.pictureInPicture", "Picture in Picture"),
+                keywords: ["pip", "picture in picture", "video", "float", "floating", "pop out", "always on top", "media", "tab"],
+                category: .tab, symbol: "pip", surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "media picture-in-picture",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [
+                    ContextMenuPlacement(.tab, .identity, 211, folder: .options),
+                    ContextMenuPlacement(.nowPlayingCard, .navigate, 10),
                 ])
             ),
             ActionDescriptor(

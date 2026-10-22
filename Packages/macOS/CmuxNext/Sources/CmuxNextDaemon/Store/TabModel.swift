@@ -79,7 +79,7 @@ public final class TabModel: Identifiable {
 
     /// Shows `marked` now, before the daemon's `tab.update` answers: the
     /// round trip (hundreds of ms on a busy daemon) is never on the visible
-    /// path of Toggle Tab Unread. The record's echo of `marked` settles it.
+    /// path of Mark Tab Read/Unread. The record's echo of `marked` settles it.
     public func expectMarkedUnread(_ marked: Bool) {
         pendingMarkedUnread = marked
         publishMarkedUnread()
@@ -93,9 +93,16 @@ public final class TabModel: Identifiable {
         publishMarkedUnread()
     }
 
+    /// Counts the times ``markedUnread`` turned on: each new mark is a new unread, so a ring
+    /// dismissed for an earlier mark shows again. Changes only with ``markedUnread``, which
+    /// observers already follow.
+    @ObservationIgnored public private(set) var markedUnreadGeneration: UInt64 = 0
+
     private func publishMarkedUnread() {
         let shown = pendingMarkedUnread ?? recordMarkedUnread
-        if markedUnread != shown { markedUnread = shown }
+        guard markedUnread != shown else { return }
+        if shown { markedUnreadGeneration &+= 1 }
+        markedUnread = shown
     }
     /// The tab's fit as given (`extra.emulation.fit.value`: "16:9" or "1280", browser-fit-v1), nil for none.
     public var fitValue: String? { emulation?["mode"]?.stringValue == "fit" ? emulation?["fit"]?["value"]?.stringValue ?? "16:9" : nil }

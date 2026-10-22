@@ -26,6 +26,11 @@ Host& host() {
   return h;
 }
 
+bool& stopping() {
+  static bool value = false;
+  return value;
+}
+
 void Emit(int kind, int browser_id, int request, int64_t a, int64_t b,
           const std::string& s1, const std::string& s2) {
   Host& h = host();
@@ -446,6 +451,7 @@ void cmux_shim_do_work(void) {
 }
 
 void cmux_shim_close_all(void) {
+  stopping() = true;
   // Copy: CloseBrowser can re-enter OnBeforeClose synchronously.
   auto all = browsers();
   for (auto& [id, browser] : all) {

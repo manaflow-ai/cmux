@@ -1,4 +1,4 @@
-/* The Chief editor page (ChiefPage.tsx), in Home's right side and in Settings > Agents > Chiefs.
+/* The Chief editor page (ChiefPage.tsx), in Home's right side and in Settings > Chief > Chiefs.
    Self-contained: its colors come from the shared web theme (`--cmux-*`), with system fallbacks,
    so it draws the same on both pages. No blue: hover and selection are the foreground at low alpha. */
 .chief-editor {

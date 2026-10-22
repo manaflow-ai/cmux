@@ -118,6 +118,10 @@ ForkApi& fork_api();
 void InstallForkObserver();
 Host& host();
 
+// True once quit began to stop Chromium (cmux_shim_close_all): no browser is
+// made after, as CEF aborts creating one once its shutdown began.
+bool& stopping();
+
 // Emits one event to Swift (main thread only).
 void Emit(int kind,
           int browser_id,

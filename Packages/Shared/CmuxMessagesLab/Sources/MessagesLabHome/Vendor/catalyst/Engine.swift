@@ -148,6 +148,9 @@ enum Action {
     case cmuxSetParts(ID, [Part])
     /// cmux: the host's notice changed (nil clears it); the rows are derived again.
     case cmuxNotice(String?)
+    /// cmux: the participants again (a sender's avatar changed: the host's chosen Chief avatar);
+    /// the rows are derived again.
+    case cmuxSetParticipants([Participant])
     /// Hosted rows of these messages measure again (no state change). `animated` false: an
     /// estimate correction (no motion; the first visible row keeps its place).
     case remeasureCustom([ID], animated: Bool)
@@ -339,6 +342,8 @@ enum Reducer {
             s.conversation.messages.update(at: i) { $0.parts = parts }
         case let .cmuxNotice(text):  // cmux
             s.ui.cmuxNotice = text
+        case let .cmuxSetParticipants(participants):  // cmux
+            s.conversation.participants = participants
         case let .streamBegin(id, sender, format):
             guard !s.ui.streams.contains(where: { $0.id == id }) else { break }
             s.ui.streams.append(StreamBubble(id: id, sender: sender, format: format, updatedAt: stamp))

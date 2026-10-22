@@ -421,7 +421,12 @@ with `never`), focus N1 to N3, `debug.rows`, `--height` and `--cwd` on `pane new
    scrollbar (V5).
 4. Docked rows: decided later, not in `rows-v1`.
 5. Legacy `apply-layout` (blueprints) on a screen with rows is refused
-   (`rows-layout-replace-unsupported`) until blueprints carry rows.
+   (`rows-layout-replace-unsupported`) until blueprints carry rows. Resource layout
+   documents (2026-10-21): a columns document applies to a screen with rows and each column
+   keeps its rows and heights, so `screen.layout.export` round-trips; a split-tree document is
+   still refused. Since 2026-10-21 the column carries `rows: [{row_id, height}]` (row 2..n's id is
+   its chain split), so a document sets row heights, makes rows from a vertical split chain, and
+   `rows: []` returns a column to one row.
 
 ## Agent review (2026-10-01)
 

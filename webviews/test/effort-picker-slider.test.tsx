@@ -68,7 +68,7 @@ const levels = [
   { id: "high", name: "High", recommended: true },
   { id: "max", name: "Max" },
 ];
-const settle = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 20))));
+const settle = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
 
 async function openMenu(props: Partial<Parameters<typeof EffortPicker>[0]> & { picks?: string[] }) {
   const picks = props.picks ?? [];

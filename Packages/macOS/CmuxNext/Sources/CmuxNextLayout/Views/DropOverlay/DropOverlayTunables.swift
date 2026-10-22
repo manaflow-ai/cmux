@@ -132,8 +132,14 @@ public nonisolated enum LayoutTunables {
     /// Opt-in motion prototypes; this changes presentation only and requires pane animations to be enabled.
     public static let paneMotionVariant = Tunable<PaneMotionVariant>.choice(
         "motion.pane.variant", .springs, "Pane close and expand",
-        help: "Compare current pane close/expand movement with a faster crisp preset or a small soft landing bump. Enable Pane Animations first. Content keeps its final size; Reduce Motion still snaps.",
+        help: "Compare current pane close/expand movement with a faster crisp preset or a small soft landing bump. Enable Pane Animations first. Content keeps the larger of its starting and final size until the spring lands (Hold content size in pane motion); Reduce Motion still snaps.",
         default: .standard, code: "LayoutTunables.paneMotionVariant")
+    // @intent no reflow per frame (Leo 2026-10-20): a panel opening beside a chat lagged while the chat
+    // laid out again on every frame of the split spring. On by default; off restores live resizing.
+    public static let holdsContentInMotion = Tunable<Bool>.toggle(
+        "motion.pane.holdContent", .springs, "Hold content size in pane motion",
+        help: "While a split, close or zoom springs, each pane's page or terminal keeps the larger of its starting and final size, clipped, and lays out once when the spring lands. Off: content resizes on every frame.",
+        default: true, code: "LayoutTunables.holdsContentInMotion")
     public static let prototypeDockEdge = Tunable<LayoutPrototypeDockEdge>.choice(
         "layout.prototype.dockEdge", .panes, "Prototype dock edge", help: "Frame prototype: the edge the right docked column sits on.",
         default: .bottom, code: "LayoutTunables.prototypeDockEdge")
@@ -150,7 +156,7 @@ public nonisolated enum LayoutTunables {
 
     public static var all: [TunableDescriptor] {
         [prototypeModel.descriptor, prototypeDockEdge.descriptor, prototypeOrientation.descriptor, prototypeDockMode.descriptor,
-         paneMotionVariant.descriptor] + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, dropZoneHysteresis, newColumnDropWidth, inactivePaneDimming,
+         paneMotionVariant.descriptor, holdsContentInMotion.descriptor] + MainPaneLayout.all + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, dropZoneHysteresis, newColumnDropWidth, inactivePaneDimming,
                                    minimumContentWidth, minimumContentHeight, focusRingAlpha, focusGlowAlpha, focusGlowRadiusFactor].map(\.descriptor)
     }
 }

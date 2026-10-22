@@ -26,6 +26,7 @@ public nonisolated enum SidebarSectionsSetting {
     public static let tipsPath = ["sidebar", "cards", "tips"]
     public static let detailedStatusIconsPath = ["sidebar", "detailedStatusIcons"]
     public static let showTimestampsPath = ["sidebar", "showTimestamps"]
+    public static let showLocalMachinePath = ["sidebar", "showLocalMachine"]
     public static let groupHeaderMemberCountPath = ["sidebar", "groupHeader", "memberCount"]
     public static let groupHeaderUnreadCountPath = ["sidebar", "groupHeader", "unreadCount"]
 
@@ -56,6 +57,15 @@ public nonisolated enum SidebarSectionsSetting {
                                                    "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.detailedStatusIcons),
                           keywords: ["sidebar", "status", "icons", "badge", "working", "waiting", "input", "error", "done", "agent", "osc 7501"])
+    }
+
+    static func showLocalMachineDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(showLocalMachinePath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.showLocalMachine", "Mark This Mac's Workspaces"),
+                          help: SettingsText.keyed("settings.sidebar.showLocalMachine.help",
+                                                   "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showLocalMachine),
+                          keywords: ["sidebar", "machine", "computer", "this mac", "local", "icon", "color", "remote", "identity"])
     }
 
     static func showTimestampsDescriptor(group: SettingText) -> SettingDescriptor {
@@ -125,8 +135,8 @@ public nonisolated enum SidebarSectionsSetting {
                           keywords: ["sidebar", "workspace", "tabs"])
     }
 
-    /// Projects, which its header's menu hides (Leo 2026-10-06). Chats has
-    /// Show Chats (`showChatsDescriptor`).
+    /// Projects, which its header's menu hides (Leo 2026-10-06). All chats has
+    /// Show All Chats on New Tab (`showChatsDescriptor`).
     static func sectionDescriptors(group: SettingText) -> [SettingDescriptor] {
         [
             SettingDescriptor(showProjectsPath, section: .appearance, group: group,
@@ -171,11 +181,11 @@ public nonisolated enum SidebarSectionsSetting {
 
     static func showChatsDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(showChatsPath, section: .appearance, group: group,
-                          title: SettingsText.keyed("settings.sidebar.showChats", "Show All Chats"),
+                          title: SettingsText.keyed("settings.sidebar.showChats", "Show All Chats on New Tab"),
                           help: SettingsText.keyed("settings.sidebar.showChats.help",
-                                                   "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar."),
+                                                   "On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showChats),
-                          keywords: ["sidebar", "chats", "all chats", "agents", "conversations", "history"])
+                          keywords: ["new tab", "chats", "all chats", "agents", "conversations", "history", "threads", "console"])
     }
 
     /// The looks the setting accepts (CmuxNextSidebar.SectionsLookVariant).
@@ -242,6 +252,7 @@ public nonisolated enum SidebarSectionsSetting {
         result.minimal = flag(root, minimalPath, fallback: result.minimal, &diagnostics)
         result.detailedStatusIcons = flag(root, detailedStatusIconsPath, fallback: result.detailedStatusIcons, &diagnostics)
         result.showTimestamps = flag(root, showTimestampsPath, fallback: result.showTimestamps, &diagnostics)
+        result.showLocalMachine = flag(root, showLocalMachinePath, fallback: result.showLocalMachine, &diagnostics)
         result.groupHeaderMemberCount = flag(root, groupHeaderMemberCountPath, fallback: result.groupHeaderMemberCount, &diagnostics)
         result.groupHeaderUnreadCount = flag(root, groupHeaderUnreadCountPath, fallback: result.groupHeaderUnreadCount, &diagnostics)
         result.priorityViewEnabled = flag(root, SidebarPriorityViewSetting.enabledPath, fallback: result.priorityViewEnabled, &diagnostics)

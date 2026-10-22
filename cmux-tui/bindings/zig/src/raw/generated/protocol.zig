@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "96e61acfae440a8a09afd96f3fcebb5b2aa189cff1cdcb74d026be328dd4ea67";
+pub const ir_sha256 = "22526ef27362464ad1798ceadf7ab3b0225cd784acc1dcc13419362378a066bc";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -4515,6 +4515,23 @@ pub fn cloudRequestsList(client: anytype, request: CloudRequestsListRequest) !wi
     );
 }
 
+pub const CloudSelfhostInfoRequest = struct {};
+
+pub const CloudSelfhostInfoResult = JsonValue;
+
+pub fn cloudSelfhostInfo(client: anytype, request: CloudSelfhostInfoRequest) !wire.Decoded(CloudSelfhostInfoResult) {
+    return client.callTyped(
+        CloudSelfhostInfoResult,
+        .{
+            .name = "cloud-selfhost-info",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "cloud-selfhost-v1",
+        },
+        request,
+    );
+}
+
 pub const CloudSessionClearRequest = struct {};
 
 pub const CloudSessionClearResult = JsonValue;
@@ -4533,10 +4550,16 @@ pub fn cloudSessionClear(client: anytype, request: CloudSessionClearRequest) !wi
 }
 
 pub const CloudSessionSetRequest = struct {
-    access_token: []const u8,
+    access_token: ?[]const u8 = null,
     api_base_url: []const u8,
+    auth: wire.Field([]const u8) = .absent,
     client_version: wire.Field([]const u8) = .absent,
-    expires_at: u64,
+    expires_at: ?u64 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "access_token",
+        "expires_at",
+    };
 };
 
 pub const CloudSessionSetResult = JsonValue;
@@ -11374,7 +11397,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 281;
+pub const command_count: usize = 282;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -11434,6 +11457,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "cloud-mux-unsubscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-participant-avatar-get", .authority = "local-admin", .since = 12, .capability = "participant-avatars-v1", .stream = null },
     .{ .name = "cloud-requests-list", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
+    .{ .name = "cloud-selfhost-info", .authority = "local-admin", .since = 12, .capability = "cloud-selfhost-v1", .stream = null },
     .{ .name = "cloud-session-clear", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-session-set", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-session-status", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },

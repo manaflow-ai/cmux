@@ -39,6 +39,10 @@ public nonisolated enum HomeEngineStrings {
     static var nextTurn: String { String(localized: "home.engine.nextTurn", defaultValue: "Changes apply from the next turn.", table: "Home", bundle: .module) }
     static var openTraces: String { String(localized: "home.engine.openTraces", defaultValue: "Show Traces", table: "Home", bundle: .module) }
     static var showMemory: String { String(localized: "home.engine.showMemory", defaultValue: "Show Memory", table: "Home", bundle: .module) }
+    /// The popover's link to Settings > Chief, the page with every Chief setting.
+    static var allChiefSettings: String {
+        String(localized: "home.engine.allChiefSettings", defaultValue: "All Chief Settings…", table: "Home", bundle: .module)
+    }
     static var brainFormat: String {
         String(localized: "home.engine.brain", defaultValue: "Runs on this Mac (%@). Tools: zoom, date, spawn, tell and the harness's own.", table: "Home", bundle: .module)
     }
@@ -177,6 +181,27 @@ public nonisolated enum HomeEngineStrings {
     static var renameRefused: String {
         String(localized: "home.engine.renameRefused", defaultValue: "The Chief's name could not be changed. Try again in a moment.",
                table: "Home", bundle: .module)
+    }
+    /// Why a rename did not take (``HomeChiefRenameFailure``), shown under the name.
+    static func renameFailed(_ failure: HomeChiefRenameFailure) -> String {
+        switch failure {
+        case .noConnection: renameRefused
+        case .signedOut:
+            String(localized: "home.engine.renameSignedOut",
+                   defaultValue: "Sign in to cmux to rename this Chief. It runs in the cloud on your account.", table: "Home", bundle: .module)
+        case .changedElsewhere:
+            String(localized: "home.engine.renameChangedElsewhere",
+                   defaultValue: "This Chief was changed on another device at the same time. Enter the new name again.", table: "Home", bundle: .module)
+        case .invalidName:
+            String(localized: "home.engine.renameInvalidName", defaultValue: "That name can’t be used. Use 1 to 100 characters.",
+                   table: "Home", bundle: .module)
+        case .notFound:
+            String(localized: "home.engine.renameNotFound", defaultValue: "This Chief is no longer on your account, so its name can’t be changed.",
+                   table: "Home", bundle: .module)
+        case .refused(let reason):
+            String(format: String(localized: "home.engine.renameRefusedReason", defaultValue: "The Chief’s name could not be changed (%@).",
+                                  table: "Home", bundle: .module), reason)
+        }
     }
     static var pictureUnreadable: String {
         String(localized: "home.engine.pictureUnreadable", defaultValue: "That picture could not be used. Choose a PNG, JPEG, HEIC, WebP, or a GIF up to 1 MB.",

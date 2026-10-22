@@ -139,16 +139,27 @@ function fakeDaemon(
 
 async function connect(daemon: ReturnType<typeof fakeDaemon>) {
   let snapshot: any;
+  let snapshots = 0;
   const client = await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
-    (next: any) => (snapshot = next),
+    (next: any) => {
+      snapshot = next;
+      snapshots += 1;
+    },
     undefined,
     daemon.open,
   );
-  await settle();
-  return { client, snapshot: () => snapshot };
+  await until(() => snapshot?.connection === "connected", "the attach");
+  return { client, snapshot: () => snapshot, snapshots: () => snapshots };
 }
-const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+/// Yields until `ready()` holds; fails after 2 s with what it waited for.
+async function until(ready: () => boolean, what: string) {
+  const deadline = performance.now() + 2_000;
+  while (!ready()) {
+    if (performance.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+}
 const prompt = (text: string): Step => ["mux", "user_message", { text }];
 const started: Step = ["mux", "turn_started", {}];
 
@@ -162,20 +173,21 @@ test("a Claude turn's tokens are the sum of its model calls since it started, li
       call(43_800),
     ]),
   );
-  const { client, snapshot } = await connect(daemon);
+  const { client, snapshot, snapshots } = await connect(daemon);
   try {
     expect(snapshot().isWorking).toBe(true);
     expect(snapshot().turnTokens).toBe(85_000);
     daemon.push(record([call(46_000)], 5));
-    await settle();
+    await until(() => snapshot().turnTokens === 131_000, "the third call");
     expect(snapshot().turnTokens).toBe(131_000);
     // The turn ends: no running line, nothing to count.
+    const seen = snapshots();
     daemon.push(record([held(46_000), ["mux", "turn_result", { status: "completed" }]], 6));
-    await settle();
+    await until(() => snapshots() > seen, "the turn's end to land");
     expect(snapshot().turnTokens).toBeUndefined();
     // The next turn counts from zero.
     daemon.push(record([prompt("again"), started, call(50_000)], 8));
-    await settle();
+    await until(() => snapshot().turnTokens !== undefined, "the next turn's call");
     expect(snapshot().turnTokens).toBe(50_000);
   } finally {
     client.close();
@@ -251,26 +263,28 @@ test("once older pages bring a mid-turn attach's start, every rebuild keeps its 
     expect(snapshot().isWorking).toBe(true);
     expect(snapshot().turnTokens).toBeUndefined();
     await client.loadOlder();
-    await settle();
+    await until(() => snapshot().rows.some((row: AcpmuxRow) => row.kind === "user"), "the older page");
     expect(snapshot().rows.some((row: AcpmuxRow) => row.kind === "user")).toBe(true);
     expect(snapshot().turnTokens).toBeUndefined();
 
     daemon.notify("_acpmux/lagged", { dropped: 1 });
-    await settle();
+    expect(snapshot().connection).toBe("resyncing");
+    await until(() => snapshot().connection === "resynced", "the resync");
     expect(snapshot().turnTokens).toBeUndefined();
 
+    // The rebuild and its snapshot are synchronous.
     client.suggestedTasksChanged();
-    await settle();
     expect(snapshot().turnTokens).toBeUndefined();
 
     daemon.drop();
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    expect(snapshot().connection).toBe("disconnected");
+    await until(() => snapshot().connection === "connected", "the reconnect");
     expect(snapshot().isWorking).toBe(true);
     expect(snapshot().turnTokens).toBeUndefined();
 
     // A turn that starts while the client watches counts from its start.
     daemon.push(record([["mux", "turn_result", { status: "completed" }], prompt("again"), started, call(7_000)], 7));
-    await settle();
+    await until(() => snapshot().turnTokens !== undefined, "the new turn's call");
     expect(snapshot().turnTokens).toBe(7_000);
   } finally {
     client.close();
@@ -290,11 +304,12 @@ test("a reconnect whose page starts after the turn began keeps the count it held
   try {
     expect(snapshot().turnTokens).toBe(85_000);
     daemon.push(record([call(46_000)], 5));
-    await settle();
+    await until(() => snapshot().turnTokens === 131_000, "the third call");
     expect(snapshot().turnTokens).toBe(131_000);
     daemon.pageFrom(4);
     daemon.drop();
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    expect(snapshot().connection).toBe("disconnected");
+    await until(() => snapshot().connection === "connected", "the reconnect");
     expect(snapshot().isWorking).toBe(true);
     expect(snapshot().turnTokens).toBe(131_000);
   } finally {
@@ -315,7 +330,7 @@ test("a live call that lands before a mid-turn attach's reply does not make it a
     expect(snapshot().isWorking).toBe(true);
     expect(snapshot().turnTokens).toBeUndefined();
     await client.loadOlder();
-    await settle();
+    await until(() => snapshot().rows.some((row: AcpmuxRow) => row.kind === "user"), "the older page");
     expect(snapshot().rows.some((row: AcpmuxRow) => row.kind === "user")).toBe(true);
     expect(snapshot().turnTokens).toBeUndefined();
   } finally {
@@ -339,7 +354,7 @@ test("a reconnect whose gap read fails hides the count it can no longer add up",
     daemon.pageFrom(7);
     daemon.failGap(true);
     daemon.drop();
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    await until(() => snapshot().turnTokens === undefined, "the gap read to fail");
     expect(snapshot().isWorking).toBe(true);
     expect(snapshot().turnTokens).toBeUndefined();
   } finally {

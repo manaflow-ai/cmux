@@ -155,7 +155,7 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.globalSearch", defaultValue: "Search All Windows…", bundle: .module),
                 keywords: ["find", "global"], defaultShortcut: Shortcut("f", modifiers: [.option, .command]),
                 category: .window, symbol: "magnifyingglass", surfaces: [.palette, .keyboard, .menu],
-                arguments: [CatalogArgument.textString],
+                arguments: [CatalogArgument.textString.optional],
                 cliName: "app search-all-windows", mainMenu: .window
             ),
             // Opens one palette scope (plans/cmux-next/palette-scopes.md):

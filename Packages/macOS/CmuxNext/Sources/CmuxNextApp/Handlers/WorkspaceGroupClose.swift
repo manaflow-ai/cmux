@@ -7,7 +7,7 @@ import CmuxNextSidebar
 import CmuxNextWakeups
 import Foundation
 
-/// Close All Workspaces in Group (RECOVERABLE-BY-DEFAULT, Lawrence
+/// Close Workspaces in Group (RECOVERABLE-BY-DEFAULT, Lawrence
 /// 2026-10-07: closes run at once, no question of their own): the
 /// workspaces close, and a person's gesture gets "Closed the workspaces in
 /// “X”" with Undo in its window. Undo (and Cmd-Z, TOAST-UNDO-KEY) reopens

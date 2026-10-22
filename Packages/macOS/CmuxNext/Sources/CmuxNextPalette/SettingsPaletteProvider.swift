@@ -26,7 +26,38 @@ public final class SettingsPaletteProvider: PaletteProvider {
     public func items() async -> [PaletteItem] { makeItems() }
 
     func makeItems() -> [PaletteItem] {
-        source.rows.map(item)
+        let rows = source.rows
+        let fontRows = rows.filter(Self.isFontRow)
+        return (fontRows.isEmpty ? [] : [changeFontItem(fontRows)]) + rows.map(item)
+    }
+
+    /// The rows Change Font… lists: every font family setting and every setting whose key names a
+    /// font (sizes, line heights, the chat's and the Markdown viewer's font), so a new one joins
+    /// with no edit here.
+    static func isFontRow(_ row: PaletteSettingRow) -> Bool {
+        row.isFontFamily || row.id.localizedCaseInsensitiveContains("font")
+    }
+
+    /// Change Font…: one page of the font settings (terminal, chat, code, editor, Markdown), each
+    /// opening its value list, where the fonts draw in their own face, recent ones first.
+    private func changeFontItem(_ rows: [PaletteSettingRow]) -> PaletteItem {
+        let section = PaletteSection(id: "fonts", title: PaletteStrings.changeFont, order: 0)
+        let items = rows.map { row in
+            var item = item(row)
+            item.section = section
+            item.isDemoted = false
+            return item
+        }
+        let page = PalettePageSpec(
+            id: "settings:fonts", title: PaletteStrings.changeFont, placeholder: PaletteStrings.changeFont, symbol: "textformat",
+            providers: [StaticPaletteProvider(id: "font-settings", items: items)], keepsSectionOrder: true
+        )
+        return PaletteItem(
+            id: "settings:changeFont", title: PaletteStrings.changeFont, symbol: "textformat", section: Self.section,
+            keywords: ["font", "fonts", "typeface", "family", "terminal", "chat", "code", "editor", "markdown", "size", "line height"],
+            primary: PaletteCommand(id: "choose", title: PaletteStrings.choose, symbol: "return", effect: .push(page)),
+            frecencyKey: "settings:changeFont"
+        )
     }
 
     private func item(_ row: PaletteSettingRow) -> PaletteItem {
@@ -72,13 +103,15 @@ public final class SettingsPaletteProvider: PaletteProvider {
         let section = PaletteSection(id: "setting-values", title: row.title, order: 0)
         var items = options.map { option in
             var item = PaletteItem(
-                id: "option:\(option.id)", title: option.title, accessory: option.isCurrent ? PaletteStrings.current : nil,
+                id: "option:\(option.id)", title: option.title,
+                accessory: option.isCurrent ? PaletteStrings.current : option.isRecent ? PaletteStrings.sectionRecent : nil,
                 symbol: option.isCurrent ? "checkmark" : "circle", section: section,
                 primary: PaletteCommand(id: "choose", title: PaletteStrings.choose, symbol: "return",
                                         effect: .perform { source.commit(row: id, option: option.id) }),
                 frecencyKey: nil
             )
             item.swatches = option.swatches
+            item.fontFamily = option.fontFamily
             return item
         }
         if let custom {

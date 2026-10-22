@@ -64,6 +64,30 @@ public nonisolated struct KeyBindingDefaults {
         }
     }
 
+    /// Workspaces as tabs (`sidebar.workspacesAsTabs`, a Debug tunable, off; Leo, relayed
+    /// 2026-10-21): Cmd-Shift-] / [ step the sidebar's workspaces (`nextSidebarTab` with `scope`
+    /// `workspaces`: sidebar order, across groups, a collapsed group one stop, wrapping, never Home
+    /// or another top item). They go after the Chrome tab keys, so they win over `nextSurface`.
+    /// The table holds them only while the tunable is on (`ActionRegistry.includesWorkspaceTabKeys`),
+    /// so off, the keymap, the shortcut list and its conflicts are the shipped ones. Home keeps its own keys.
+    public static let workspacesAsTabs: [KeyBinding] = {
+        let when = WhenClause.and([.has(KeyContext.workspacesAsTabs), .not(onHome)])
+        let scope: [String: ActionValue] = ["scope": .string("workspaces")]
+        return [
+            KeyBinding(keys: [Shortcut("]", modifiers: [.command, .shift])], command: "nextSidebarTab", arguments: scope, when: when),
+            KeyBinding(keys: [Shortcut("[", modifiers: [.command, .shift])], command: "prevSidebarTab", arguments: scope, when: when),
+        ]
+    }()
+
+    /// The workspaces-as-tabs keys while the tunable is on, whose action is on and not removed or rebound in cmux.json.
+    @MainActor static func workspacesAsTabs(registry: ActionRegistry) -> [KeyBinding] {
+        guard registry.includesWorkspaceTabKeys() else { return [] }
+        return workspacesAsTabs.filter { binding in
+            registry.disabledFeature(for: binding.command) == nil && registry.effectiveShortcut(for: binding.command) != nil
+                && !registry.shortcutOverrides.keys.contains(binding.command) && registry.chordOverrides[binding.command] == nil
+        }
+    }
+
     /// Scoped defaults that replace a global default key in their context:
     /// placed after the catalog's defaults, so in their context they win and
     /// elsewhere the global key runs. Any page adds its own keys here with a
@@ -89,7 +113,13 @@ public nonisolated struct KeyBindingDefaults {
                    when: .and([notTerminal, .not(.has(KeyContext.codeEditorFocusedKey))])),
         // Cmd-Shift-R on Home: Reply to Selection (free in the defaults; Cmd-R is Rename Tab and Reload).
         KeyBinding(keys: [Shortcut("r", modifiers: [.command, .shift])], command: "home.replyToSelection", when: onHome),
+        // Cmd-W in the sidebar with several rows selected closes them, as Chrome's Cmd-W closes its
+        // selected tabs (Leo 2026-10-20); with one row selected it still closes the shown tab.
+        KeyBinding(keys: [Shortcut("w", modifiers: [.command])], command: "closeWorkspace", when: sidebarMultiSelection),
     ]
+
+    /// The sidebar list has the keyboard with two or more rows selected.
+    public static let sidebarMultiSelection = WhenClause.has(KeyContext.sidebarMultiSelection)
 
     /// Home has the keyboard: its top page, its conversation view, or the docked Home's page.
     public static let onHome = WhenClause.or([

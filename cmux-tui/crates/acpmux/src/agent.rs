@@ -15,6 +15,8 @@ use tokio::process::Child;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 mod command;
+#[cfg(unix)]
+pub(crate) mod session_tmp;
 pub(crate) use command::{
     REMOTE_ENV_POLICY_ID, REMOTE_ENV_POLICY_KEY, command_env, command_env_cleared, harness_command,
     host_environment,
@@ -780,6 +782,17 @@ impl ChildAgent {
             return h.link().query_within(budget).await.is_ok();
         }
         self.is_alive().await
+    }
+
+    /// Whether Claude Code's translator runs this agent: here, or in its host
+    /// (only that translator answers the host's query with modes). None: the
+    /// host did not answer in time.
+    pub async fn runs_claude(&self) -> Option<bool> {
+        if self.translator.is_some() {
+            return Some(true);
+        }
+        let Some(h) = &self.hosted else { return Some(false) };
+        h.link().query().await.ok().map(|reply| reply.modes.is_some())
     }
 
     /// The Claude translator's state, wherever the translator runs.

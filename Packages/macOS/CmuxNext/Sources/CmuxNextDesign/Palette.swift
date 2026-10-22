@@ -147,6 +147,11 @@ public struct Palette {
     /// accent stays in the theme's grays.
     public static var accent: NSColor { focusRing }
 
+    /// A lit (on, chosen, done) control's glyph or label (``ThemeTokens/litGlyph``): the accent,
+    /// lifted to contrast at least as much as the rest ink. Never the raw `accent`, `accentFill` or
+    /// `focusRing` for a lit glyph (`no-raw-accent-lit-glyph`).
+    public static var litGlyph: NSColor { color(\.litGlyph, dynamic: PaletteDynamic.litGlyph) }
+
     /// Text on top of `textPrimary` fills (inverted badges).
     public static var textOnPrimary: NSColor { color(\.contentBackground, opaque: true, dynamic: PaletteDynamic.textOnPrimary) }
 

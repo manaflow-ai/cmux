@@ -83,8 +83,9 @@ public final class HomeChiefSettingsView: NSView {
     /// Runs harness `id`'s backend check on this Mac's acpmux (`_acpmux/harness/doctor`, one real
     /// hello turn); true when it passed. The app sets it; unset, every harness passes.
     public var checkHarness: @MainActor (String) async -> Bool = { _ in true }
-    /// Renames the Chief conversation (the daemon's set-title op); false when it did not take.
-    public var onRename: @MainActor (String) async -> Bool = { _ in true }
+    /// Renames the Chief: the daemon's set-title op for a Chief of this Mac, the account's
+    /// `chief.update` for a cloud Chief. Nil when the name was saved, else why it was not.
+    public var onRename: @MainActor (String) async -> HomeChiefRenameFailure? = { _ in nil }
     /// Where Choose Picture… and Use Default Picture write, and for which Chief: the daemon's
     /// registry for a Chief of this Mac (set by the header view); nil writes this panel's
     /// mux home's files (a cloud Chief).
@@ -93,6 +94,8 @@ public final class HomeChiefSettingsView: NSView {
     public var onAvatar: () -> Void = {}
     /// Show Memory: runs "Chief: Open Memory Inspector".
     public var onShowMemory: () -> Void = {}
+    /// All Chief Settings…: the app opens Settings > Chief (this card is the quick version).
+    public var onAllSettings: () -> Void = {}
     /// "Switch to …" under where the Chief runs: the app moves the Chief tab to the other host.
     public var onSwitchHost: () -> Void = {}
     /// The brain took a pick (harness, model or effort): the Home list reads the Chiefs' engines again.
@@ -178,6 +181,11 @@ public final class HomeChiefSettingsView: NSView {
         stack.setCustomSpacing(Metrics.space4, after: appearanceRows)
         appearanceHeader.isHidden = true
         appearanceRows.isHidden = true
+        // The rest of the Chief's settings (the pet, the chat's look, every Chief) live in Settings.
+        let allSettings = HomeChiefLinkButton(title: HomeEngineStrings.allChiefSettings, target: self, action: #selector(openAllSettings))
+        allSettings.setAccessibilityIdentifier("cmux.home.chief.allSettings")
+        stack.addArrangedSubview(allSettings)
+        stack.setCustomSpacing(Metrics.space4, after: allSettings)
         addFullWidth(diagnosticsRow())
         buildDiagnostics()
         addFullWidth(diagnostics)
@@ -277,13 +285,20 @@ public final class HomeChiefSettingsView: NSView {
         guard !name.isEmpty, name != shownName else { return nil }
         let kept = shownName
         shownName = name
-        // task-owner: one rename; ends with the daemon's answer
+        // task-owner: one rename; ends with the owner's answer
         return Task { [weak self] in
-            guard let self, !(await onRename(name)), shownName == name || shownName == kept else { return }
+            guard let self else { return }
+            let failure = await onRename(name)
+            guard shownName == name || shownName == kept else { return }
+            guard let failure else {
+                // A saved name: an earlier rename's note no longer applies.
+                if changeFailed, !self.failure.isHidden { hideNote() }
+                return
+            }
             shownName = kept
             // Still in the field after Return: it shows the kept name too, unless the person typed on.
             if nameField.currentEditor() == nil || nameField.stringValue == name { nameField.stringValue = kept }
-            note(HomeEngineStrings.renameRefused, kept: true)
+            note(HomeEngineStrings.renameFailed(failure), kept: true)
         }
     }
 
@@ -339,8 +354,7 @@ public final class HomeChiefSettingsView: NSView {
             }
             guard let self else { return }
             if written {
-                failure.isHidden = true
-                onResize()
+                hideNote()
                 onAvatar()
             } else {
                 NSSound.beep()
@@ -351,6 +365,10 @@ public final class HomeChiefSettingsView: NSView {
 
     @objc func showMemory() {
         onShowMemory()
+    }
+
+    @objc func openAllSettings() {
+        onAllSettings()
     }
 
     @objc func openTraces() {

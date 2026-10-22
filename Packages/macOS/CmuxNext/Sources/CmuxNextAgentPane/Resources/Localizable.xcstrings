@@ -5390,131 +5390,131 @@
     "extractionState": "manual",
     "localizations": {
       "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue In…"
+          }
+        },
       "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "…で続行"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "…で続行"
+          }
+        },
       "ar": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "المتابعة في…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "المتابعة في…"
+          }
+        },
       "bs": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Nastavi: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nastavi u…"
+          }
+        },
       "da": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Fortsæt: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsæt i…"
+          }
+        },
       "de": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Weiter in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weiter in…"
+          }
+        },
       "es": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Continuar en…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar en…"
+          }
+        },
       "fr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Continuer dans…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuer dans…"
+          }
+        },
       "it": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Continua: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continua in…"
+          }
+        },
       "km": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "បន្ត៖ Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្តក្នុង…"
+          }
+        },
       "ko": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "다음에서 계속…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음에서 계속…"
+          }
+        },
       "nb": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Fortsett: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsett i…"
+          }
+        },
       "pl": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Kontynuuj: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontynuuj w…"
+          }
+        },
       "pt-BR": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Continuar: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar em…"
+          }
+        },
       "ru": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Продолжить: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продолжить в…"
+          }
+        },
       "th": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "ดำเนินการต่อ: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดำเนินการต่อใน…"
+          }
+        },
       "tr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Devam: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şurada devam et…"
+          }
+        },
       "uk": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Продовжити: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продовжити в…"
+          }
+        },
       "vi": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Tiếp tục: Continue in…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiếp tục trong…"
+          }
+        },
       "zh-Hans": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "继续使用…"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "继续使用…"
+          }
+        },
       "zh-Hant": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "繼續使用…"
+          "stringUnit": {
+            "state": "translated",
+            "value": "繼續使用…"
+          }
         }
-      }
     }
   },
     "agentPane.handoff.review": {

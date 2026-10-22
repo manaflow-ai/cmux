@@ -140,16 +140,19 @@ public final class BrowserToolbarButtonsView: NSStackView {
 
     /// Pops `menu` up under `button` (under More when the button is
     /// collapsed, at the top of the view when the toolbar is hidden) on the
-    /// next run-loop turn, so a CLI or palette caller returns first.
-    public func present(_ menu: NSMenu, from button: BrowserToolbarButton) {
+    /// next run-loop turn, so a CLI or palette caller returns first. `themed` draws its rows in the
+    /// cmux NEXT menu look in the toolbar's theme (`NSMenu.themeRows(in:)`; the downloads and device
+    /// menus). A chosen themed row runs once the menu has closed, after `popUp` returns.
+    public func present(_ menu: NSMenu, from button: BrowserToolbarButton, themed: Bool = false) {
         refresh()
+        if themed { menu.themeRows(in: themeScope.fullStrength) }
         CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak self] in
             MainActor.assumeIsolated { // main-proof: a CFRunLoopGetMain() block runs on the main thread
                 guard let self, let anchor = self.anchor(for: button) else { return }
                 // Pressed while the menu is open, normal again when it closes (Chrome).
                 let pressed = anchor as? ChromeIconButton
                 pressed?.isMenuOpen = true
-                self.popUpMenu(menu, CmuxPopoverAnchor.menuPoint(in: anchor, gap: 4), anchor)
+                self.popUpMenu(menu, CmuxPopoverAnchor.menuPoint(for: menu, in: anchor, gap: 4), anchor)
                 pressed?.isMenuOpen = false
             }
         }

@@ -98,6 +98,95 @@ import Testing
         #expect(seen == 1, "the outcome step saw \(String(describing: seen)) runs of the chosen row")
     }
 
+    /// Return, keypad Enter and Space on the highlighted row run it, as on a native menu (a real
+    /// menu on cmux-macmini, 2026-10-21: Return and Enter did nothing on any themed row). A menu's
+    /// window sends a key to its first responder and keeps it for itself when it has none, and the
+    /// menu runs no action for a row drawn by a view. So the key goes the way a tracking menu sends it
+    /// here: the menu's delegate hears the highlight, then the row's window gets the key.
+    @Test(arguments: [(UInt16(36), "\r"), (UInt16(76), "\u{3}"), (UInt16(49), " ")])
+    func anActivationKeyThroughTheMenusWindowRunsTheHighlightedRow(_ keyCode: UInt16, _ characters: String) throws {
+        let counter = Counter()
+        let menu = Self.menu(counter)
+        menu.themeRows(in: try Self.accentedScope())
+        let row = try #require(menu.items[0].view as? ThemedMenuRowView)
+        let window = Self.menuWindow(holding: row)
+        row.highlightOverride = true
+        // The pointer or an arrow key highlighted the first row.
+        menu.delegate?.menu?(menu, willHighlight: menu.items[0])
+
+        window.sendEvent(try Self.key(keyCode, characters, in: window))
+        Self.drainRunLoop { counter.count > 0 }
+        #expect(counter.count == 1, "key \(keyCode) on the highlighted row ran it \(counter.count) times; first responder \(String(describing: window.firstResponder))")
+        #expect(counter.sender === menu.items[0])
+    }
+
+    /// A key chosen while the menu is open runs the row only once the menu has closed (a real menu on
+    /// cmux-macmini, 2026-10-21: Return ran Mute Tab but Split Right and New Browser Tab did nothing,
+    /// while a click on them worked). Until its root's `menuDidClose` the menu's window has the keys,
+    /// so an action that acts on the focused window or pane would act on the menu. Code after
+    /// `popUp` that settles the menu's outcome (`afterThemedRowRuns`) still runs after the row.
+    @Test func aKeyRunsTheRowOnlyAfterTheMenuHasClosed() throws {
+        let counter = Counter()
+        let menu = Self.menu(counter)
+        menu.themeRows(in: try Self.accentedScope())
+        let row = try #require(menu.items[0].view as? ThemedMenuRowView)
+        let window = Self.menuWindow(holding: row)
+        row.highlightOverride = true
+        menu.delegate?.menuWillOpen?(menu)
+        menu.delegate?.menu?(menu, willHighlight: menu.items[0])
+
+        window.sendEvent(try Self.key(36, "\r", in: window))
+        var settled: Int?
+        menu.afterThemedRowRuns { settled = counter.count }
+        Self.drainRunLoop { counter.count > 0 }
+        #expect(counter.count == 0, "the row ran while its menu was still open")
+        #expect(settled == nil, "the outcome step ran before the chosen row")
+
+        menu.delegate?.menuDidClose?(menu)
+        Self.drainRunLoop { counter.count > 0 && settled != nil }
+        #expect(counter.count == 1)
+        #expect(counter.sender === menu.items[0], "the action gets its own item, which carries its target")
+        #expect(settled == 1, "the outcome step saw \(String(describing: settled)) runs of the chosen row")
+    }
+
+    /// Any other key on the highlighted row is the menu's (arrows, Right into a submenu,
+    /// type-select, Escape): the row runs nothing and gives up the keys, so the menu's window
+    /// handles the key as its own.
+    @Test func anotherKeyOnTheHighlightedRowGoesBackToTheMenu() throws {
+        let counter = Counter()
+        let menu = Self.menu(counter)
+        menu.themeRows(in: try Self.accentedScope())
+        let row = try #require(menu.items[0].view as? ThemedMenuRowView)
+        let window = Self.menuWindow(holding: row)
+        row.highlightOverride = true
+        menu.delegate?.menu?(menu, willHighlight: menu.items[0])
+        #expect(window.firstResponder === row, "the highlighted row has the menu's keys")
+
+        for (code, characters) in [(UInt16(125), "\u{F701}"), (UInt16(124), "\u{F703}"), (UInt16(15), "r")] {
+            menu.delegate?.menu?(menu, willHighlight: menu.items[0])
+            window.sendEvent(try Self.key(code, characters, in: window))
+            #expect(window.firstResponder !== row, "key \(code) stayed with the row")
+        }
+        Self.drainRunLoop { counter.count > 0 }
+        #expect(counter.count == 0)
+    }
+
+    /// A field in the menu that has the keys (the identity header's name) keeps them while the
+    /// pointer passes over the rows.
+    @Test func aFieldWithTheKeysKeepsThemWhileRowsHighlight() throws {
+        let counter = Counter()
+        let menu = Self.menu(counter)
+        menu.themeRows(in: try Self.accentedScope())
+        let row = try #require(menu.items[0].view as? ThemedMenuRowView)
+        let window = Self.menuWindow(holding: row)
+        let field = NSTextField(string: "Name")
+        window.contentView?.addSubview(field)
+        #expect(window.makeFirstResponder(field))
+        let editor = window.firstResponder
+        menu.delegate?.menu?(menu, willHighlight: menu.items[0])
+        #expect(window.firstResponder === editor, "a highlighted row took the keys from the name field")
+    }
+
     /// Return on a highlighted submenu row is AppKit's (it opens the submenu): the row passes it on.
     @Test func returnOnASubmenuRowIsNotSwallowed() throws {
         let counter = Counter()
@@ -188,6 +277,21 @@ import Testing
         while !done(), Date() < deadline {
             RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
         }
+    }
+
+    /// A window that holds `row` as a menu's window holds its rows (never shown).
+    private static func menuWindow(holding row: NSView) -> NSWindow {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 60), styleMask: [.borderless], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(row)
+        return window
+    }
+
+    private static func key(_ keyCode: UInt16, _ characters: String, in window: NSWindow) throws -> NSEvent {
+        let flags: NSEvent.ModifierFlags = keyCode == 76 ? [.numericPad] : []
+        return try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: window.windowNumber,
+                                             context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false,
+                                             keyCode: keyCode))
     }
 
     private static func returnKey() throws -> NSEvent {

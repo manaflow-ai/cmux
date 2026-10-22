@@ -40,6 +40,7 @@ extension SidebarUpdateCardView {
     /// The highlights' card left the window (closed and faded out, or a workspace card took it):
     /// the page goes back to wait in the card.
     private func notesEnded() {
+        notesPinned = false
         cancelNotesClose()
         // A close under the pointer (the app resigning active) does not reopen on the next move.
         if isHovered { notesDismissedWhileHovered = true }
@@ -52,6 +53,9 @@ extension SidebarUpdateCardView {
     /// The popup is at most this share of its window's height; the page scrolls inside it.
     static var popoverMaxHeightFraction: CGFloat { 0.6 }
 
+    /// A pinned popup (a click on the card) may grow to this share of its window's height.
+    static var pinnedMaxHeightFraction: CGFloat { 0.85 }
+
     /// How long the popup waits after the pointer left the card or the popup before it closes.
     static var notesCloseDelay: Duration { .milliseconds(250) }
 
@@ -62,7 +66,28 @@ extension SidebarUpdateCardView {
     /// ``popoverMaxHeightFraction`` of the window (the page scrolls past it).
     func notesHeight(for contentHeight: CGFloat) -> CGFloat {
         guard let window else { return contentHeight }
-        return min(contentHeight, max(120, floor(window.frame.height * Self.popoverMaxHeightFraction)))
+        let fraction = notesPinned ? Self.pinnedMaxHeightFraction : Self.popoverMaxHeightFraction
+        return min(contentHeight, max(120, floor(window.frame.height * fraction)))
+    }
+
+    /// A click on the card: pins the preview open and taller, or closes a pinned one.
+    func toggleNotesPinned() {
+        guard card != nil else { return }
+        if notesPinned {
+            hideNotes()
+            return
+        }
+        notesPinned = true
+        notesDismissedWhileHovered = false
+        if notesAreShown, let highlights, highlights.contentHeight > 0 {
+            cancelNotesClose()
+            notesHost.fit(height: notesHeight(for: highlights.contentHeight))
+            hoverCards()?.refitOwned(Self.notesID)
+        } else {
+            showNotes()
+            // Nothing to show yet (no page height, no window): a later hover opens an unpinned one.
+            if !notesAreShown { notesPinned = false }
+        }
     }
 
     /// The popup shows (or is opening).
@@ -77,6 +102,7 @@ extension SidebarUpdateCardView {
     /// Closes the popup (Hide, an action, the card going away). A close under the pointer is
     /// noted as it starts, so a move during its fade does not reopen it.
     func hideNotes() {
+        notesPinned = false
         cancelNotesClose()
         guard notesAreShown else { return }
         if isHovered { notesDismissedWhileHovered = true }
@@ -130,7 +156,7 @@ extension SidebarUpdateCardView {
     /// between them, or in the small margin around either, the close waits
     /// again, up to ``notesCorridorLimit`` in all.
     func scheduleNotesClose() {
-        guard notesAreShown else { return }
+        guard notesAreShown, !notesPinned else { return }
         notesCloseWaited = .zero
         armNotesClose()
     }
@@ -147,6 +173,7 @@ extension SidebarUpdateCardView {
         // DemandTimer can still run a check that was cancelled after it claimed its fire: harmless,
         // it re-reads the pointer; it only counts one more wait toward the limit.
         notesCloseChecks &+= 1
+        if notesPinned { return }
         notesCloseWaited += Self.notesCloseDelay
         if isHovered && !isHiddenOrHasHiddenAncestor { return }
         if let notes = notesFrame, notes.contains(screenPointer()) { return }

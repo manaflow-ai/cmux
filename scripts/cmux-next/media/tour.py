@@ -695,7 +695,7 @@ def display_capture(app: App, screen: Screen, path: Path) -> str | None:
     if app.session.app_window:
         return "no screen capture route for a display shot"
     display = Screen(app.session, screen.scratch)
-    display.use_display()
+    display.use_display(app.pid())
     display.follow(app.main_window_frame())
     return display.capture(path)
 

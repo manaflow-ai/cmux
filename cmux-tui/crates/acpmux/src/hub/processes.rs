@@ -26,8 +26,8 @@ use serde::{Deserialize, Serialize};
 pub(super) const HARNESS_EXIT: &str = "harness_exit";
 
 /// How long a kill waits for Claude Code's `stop_task` or Codex's terminate,
-/// and Ctrl-B for Claude Code's `background_tasks`.
-const STOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// and Ctrl-B for Claude Code's `background_tasks` (`Hub::set_background_timeout`).
+pub(super) const STOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// What a tail without `maxBytes` reads: the last 64 KiB.
 const TAIL_DEFAULT: u64 = 64 << 10;
@@ -530,6 +530,12 @@ impl Hub {
         Err(refused)
     }
 
+    /// How long Ctrl-B waits for Claude Code's `background_tasks` answer
+    /// (`STOP_TIMEOUT` until set; tests shorten it).
+    pub fn set_background_timeout(&self, timeout: std::time::Duration) {
+        *self.background_timeout.lock().unwrap_or_else(|e| e.into_inner()) = timeout;
+    }
+
     /// `_acpmux/process/background` (Ctrl-B): asks Claude Code to move the
     /// chat's running work to the background (`background_tasks`): the task
     /// tool call `tool` started, or every foreground task. What moved
@@ -539,14 +545,7 @@ impl Hub {
     /// foreground: `backgrounded: false`, and Claude Code is not asked.
     pub async fn background_work(&self, key: &str, tool: Option<&str>) -> Result<Value, RpcError> {
         let session = self.resolve(key)?;
-        let harness = session.meta().harness;
-        let claude = self
-            .config
-            .read()
-            .await
-            .profile(&harness)
-            .is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio);
-        if !claude {
+        if !session.backgrounds_work.load(Ordering::SeqCst) {
             return Err(RpcError::invalid_params(
                 "only Claude Code can move running work to the background",
             ));
@@ -561,9 +560,15 @@ impl Hub {
             None => false,
         };
         let Some(child) = child.filter(|_| alive) else { return Ok(nothing) };
-        let params = json!({"sessionId": session.meta().agent_session_id, "toolCallId": tool});
+        let timeout = *self.background_timeout.lock().unwrap_or_else(|e| e.into_inner());
+        // The translator drops the request's marks when this wait ends (`timeoutMs`).
+        let params = json!({
+            "sessionId": session.meta().agent_session_id,
+            "toolCallId": tool,
+            "timeoutMs": u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
+        });
         let ask = child.request(crate::claude_stdio::BACKGROUND_TASKS, params);
-        match tokio::time::timeout(STOP_TIMEOUT, ask).await {
+        match tokio::time::timeout(timeout, ask).await {
             Ok(Ok(answer)) => {
                 let moved = answer.get("backgrounded").and_then(Value::as_bool).unwrap_or(true);
                 Ok(json!({"backgrounded": moved}))
@@ -574,6 +579,16 @@ impl Hub {
             }
         }
     }
+}
+
+/// Whether `_acpmux/process/background` moves the foreground work of a
+/// chat whose harness started as `kind`: Claude Code (claude-stdio), whatever
+/// its profile's name (the `cmux` model router's too). Decided at each start
+/// (`Session::backgrounds_work`), so a config write or reload never flips it;
+/// every session summary says it (`backgroundsWork`), so a client offers
+/// Ctrl-B exactly where this takes it.
+pub(super) fn backgrounds_work(kind: crate::config::HarnessKind) -> bool {
+    kind == crate::config::HarnessKind::ClaudeStdio
 }
 
 /// No process has the id.

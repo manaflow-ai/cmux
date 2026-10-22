@@ -16,7 +16,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     let layout: ChatLayout
     /// Non-scrolling container: clips the transcript at the field top.
     let clip = UIView()
-    let clipMask = CALayer()
+    /// cmux: a gradient, so the rows can fade out at the window's top (`topFade`); solid black otherwise.
+    let clipMask = CAGradientLayer()
     /// The transcript list: UICollectionView (default) or the row recycler
     /// (`--transcript recycler`), both over `ChatLayout`.
     let collection: TranscriptList
@@ -433,14 +434,25 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
 
     // MARK: Window activity
 
-    /// Inactive-window appearance (Messages lightens the window and greys its
-    /// lights when it is not key). One palette switch: cached bitmaps are
-    /// dropped and visible rows redraw.
+    /// This view's inactive-window state (cx-3cb inactive-per-view): true while its own window is not key (or the
+    /// app is not active). Each view has its own, as each Messages window: a non-key window draws inactive while
+    /// another one is key. It sets the typing indicator's colours (RowCell.inactive -> Fixture.typingColors) and
+    /// the drawn traffic lights (ChromeView.inactive). No process-wide value: a view's change touches no other view.
+    private(set) var inactive = false
+
+    /// Inactive-window appearance (Messages greys its lights and the typing indicator when the window is not key),
+    /// for this view only. The host calls it from this view's own window: didBecomeKey -> false, didResignKey ->
+    /// true, and `!window.isKeyWindow` when the view joins a window (appkit-native Host.swift; an app that is not
+    /// active has no key window, and its key window resigns key when it deactivates; cmux Home: per PaneHost,
+    /// observing that pane's window only). The catalyst app sets it from its own scene's activation instead (a key
+    /// change between two scenes of the active app is not seen there). Its visible rows repaint (decorate hands the state to
+    /// each cell); no cached bitmap depends on it (the row bitmaps are the same in both states on macOS 27), so the
+    /// shared bitmap cache stays. Not part of a display change (a scale or colour space move does not call it).
     func setInactive(_ inactive: Bool) {
-        guard Fixture.inactive != inactive else { return }
-        Fixture.inactive = inactive
+        guard self.inactive != inactive else { return }
+        self.inactive = inactive
+        chrome.inactive = inactive
         backgroundColor = Fixture.background
-        RowBitmaps.shared.removeAll()
         chrome.setNeedsDisplay()
         chrome.subviews.forEach { $0.setNeedsDisplay() }
         refreshVisibleCells()
@@ -481,7 +493,15 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     }
     var pinnedOffset: CGFloat { layout.contentHeight - cvHeight }
     /// Lowest allowed offset: the oldest loaded row just under the header.
-    var minOffset: CGFloat { min(layout.rowsTop - (Fixture.headerHeight + 8 - MessagesWindowView.cvTop), pinnedOffset) }
+    var minOffset: CGFloat { min(layout.rowsTop - (rowsTopInset - MessagesWindowView.cvTop), pinnedOffset) }
+    /// cmux: the oldest row's top at rest, from the window's top. Messages: 8 pt under its 80 pt
+    /// header. A Home pane with no header puts the rows near the top (HeaderGlass.swift `useBareTop`).
+    var rowsTopInset: CGFloat = Fixture.headerHeight + 8
+    /// cmux: the top of the transcript's visible area (Messages: its header's bottom, 80 pt).
+    var visibleTop: CGFloat { rowsTopInset - 8 }
+    /// cmux: the rows fade out over this many points at the window's top, as they scroll away
+    /// (a Home pane with no header); 0, Messages: none, its header blurs them.
+    var topFade: CGFloat = 0 { didSet { if topFade != oldValue { placeMask(animated: false, element: nil, begin: 0, oldTop: fieldTop) } } }
 
     private var laidOutSize = CGSize.zero
     private func layoutFrames() {
@@ -839,6 +859,17 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         CATransaction.begin(); CATransaction.setDisableActions(true)
         clipMask.bounds = CGRect(x: 0, y: 0, width: bounds.width, height: top - 4 + 200)
         clipMask.position = CGPoint(x: bounds.width / 2, y: -200)
+        // cmux: with a top fade, nothing above the window's top and a ramp to full strength over
+        // `topFade` points under it (the mask starts 200 pt above the window; y runs down).
+        if topFade > 0 {
+            let h = max(1, clipMask.bounds.height)
+            clipMask.backgroundColor = nil
+            clipMask.colors = [UIColor.clear.cgColor, UIColor.clear.cgColor, UIColor.black.cgColor, UIColor.black.cgColor]
+            clipMask.locations = [0, NSNumber(value: Double(200 / h)), NSNumber(value: Double(min(h, 200 + topFade) / h)), 1]
+        } else {
+            clipMask.colors = nil
+            clipMask.backgroundColor = UIColor.black.cgColor
+        }
         CATransaction.commit()
     }
 
@@ -1080,7 +1111,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 newOffset = pinnedOffset
             } else if target < state.conversation.messages.count, let id = state.conversation.messages[checked: target]?.id { // checked
                 if let i = model.rows.firstIndex(where: { RowBuilder.key($0.spec.key, belongsTo: id) }) {
-                    newOffset = layout.contentTop(i) - (Fixture.headerHeight + 8 - MessagesWindowView.cvTop) - 8
+                    newOffset = layout.contentTop(i) - (rowsTopInset - MessagesWindowView.cvTop) - 8
                 }
             }
         }
@@ -1907,6 +1938,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         defer { step(2) }
         cell.fillSpan = fillSpan
         cell.renderScale = renderScale
+        cell.inactive = inactive
         cell.crispEdge = crispSends[r.spec.key] != nil
         cell.configure(r.spec)
         step(0)
@@ -2029,12 +2061,12 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     struct WindowGeometry { var viewport: CGFloat; var distanceToTop: CGFloat; var distanceToBottom: CGFloat }
     var windowGeometry: WindowGeometry {
         let y = collection.contentOffset.y
-        return WindowGeometry(viewport: anchorY - Fixture.headerHeight, distanceToTop: y - minOffset, distanceToBottom: pinnedOffset - y)
+        return WindowGeometry(viewport: anchorY - visibleTop, distanceToTop: y - minOffset, distanceToBottom: pinnedOffset - y)
     }
 
     var firstVisibleRow: Int {
         guard model.count > 0 else { return 0 }
-        let top = collection.contentOffset.y + Fixture.headerHeight + 8 - MessagesWindowView.cvTop - layout.rowsTop
+        let top = collection.contentOffset.y + rowsTopInset - MessagesWindowView.cvTop - layout.rowsTop
         let r = model.range(top, top + 1)
         return min(model.count - 1, r.first { model.contentTop($0) + (model.rows[checked: $0]?.spec.height ?? 0) > top } ?? r.lowerBound) // checked
     }
@@ -2089,7 +2121,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         let msgs = store.state.conversation.messages
         guard index >= 0, index < msgs.count, let id = msgs[checked: index]?.id else { return } // checked
         guard let i = model.rows.firstIndex(where: { RowBuilder.key($0.spec.key, belongsTo: id) }) else { return }
-        setOffset(max(minOffset, layout.contentTop(i) - (Fixture.headerHeight + 8 - MessagesWindowView.cvTop) - 8))
+        setOffset(max(minOffset, layout.contentTop(i) - (rowsTopInset - MessagesWindowView.cvTop) - 8))
         collection.setNeedsLayout(); collection.layoutIfNeeded()
         userScrolled()
     }
@@ -2771,7 +2803,7 @@ extension MessagesWindowView {
         let textTop = Fixture.bubblePadY
         if case let .part(p) = spec0.kind, case let .text(t, _) = p.part, p.text == nil {
             let l = LongTextStore.shared.layout(t, width: spec0.width, message: p.ref.messageId, markdown: p.markdownFormat)
-            let y = oldOffset + Fixture.headerHeight + 8 - MessagesWindowView.cvTop - oldTop - textTop
+            let y = oldOffset + rowsTopInset - MessagesWindowView.cvTop - oldTop - textTop
             inner = (l, l.anchor(atTextY: y), y)
         }
         apply()

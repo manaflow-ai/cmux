@@ -15,6 +15,12 @@ What runs, per area touched by the change:
 * web/: ESLint, errors only, on the changed files, with a cache. web/ as a whole
   is not lint-clean, so only the files a change touches are held to it.
 
+A push, or --head SHA, is linted as that commit: when the checkout is not exactly
+that commit (another branch is checked out, or it has uncommitted or untracked
+files), the checks run in a temporary worktree of it, reusing the checkout's
+node_modules where the commit's bun.lock is the same. Linting the working tree
+let a commit with an error through when its fix sat uncommitted (0b115ab).
+
 Usage:
     scripts/web-lint.sh                 # lint what differs from origin/feat-cmux-next
     scripts/web-lint.sh --fix           # autofix (Oxfmt, Oxlint --fix, ESLint --fix), then re-check
@@ -28,11 +34,13 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import contextlib
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -167,10 +175,21 @@ def executed_changes(package: ScriptPackage, files: list[str]) -> list[str]:
     return hits
 
 
-def make_plan(repo: Path, files: list[str], guard_executed: bool) -> Plan:
+def snapshot(repo: Path, sha: str | None):
+    """(exists, read) for repository paths in commit `sha`, from git objects, so a plan needs no checkout;
+    the working tree for None."""
+    if sha is None:
+        return (lambda rel: (repo / rel).is_file()), (lambda rel: (repo / rel).read_text(encoding="utf-8"))
+    directories = [p.directory for p in SCRIPT_PACKAGES] + [p.directory for p in ESLINT_PACKAGES]
+    names = set(git(repo, "ls-tree", "-r", "--name-only", sha, "--", *directories).splitlines())
+    return names.__contains__, (lambda rel: git(repo, "show", f"{sha}:{rel}"))
+
+
+def make_plan(repo: Path, files: list[str], guard_executed: bool, exists=None) -> Plan:
+    exists = exists or (lambda rel: (repo / rel).is_file())
     plan = Plan()
     for package in SCRIPT_PACKAGES:
-        if not (repo / package.directory / "package.json").is_file():
+        if not exists(f"{package.directory}/package.json"):
             continue
         if not any(under(f, package.triggers) for f in files):
             continue
@@ -180,10 +199,10 @@ def make_plan(repo: Path, files: list[str], guard_executed: bool) -> Plan:
         else:
             plan.script_packages.append(package)
     for package in ESLINT_PACKAGES:
-        if not (repo / package.directory / "package.json").is_file():
+        if not exists(f"{package.directory}/package.json"):
             continue
         targets = [f for f in files if f.startswith(f"{package.directory}/") and f.endswith(ESLINT_EXTENSIONS)
-                   and (repo / f).is_file()]
+                   and exists(f)]
         if not targets:
             continue
         risky = [f for f in files if f in package.executed] if guard_executed else []
@@ -194,8 +213,9 @@ def make_plan(repo: Path, files: list[str], guard_executed: bool) -> Plan:
     return plan
 
 
-def check_pieces(repo: Path, package: ScriptPackage, script: str) -> list[str]:
-    scripts = json.loads((repo / package.directory / "package.json").read_text(encoding="utf-8")).get("scripts", {})
+def check_pieces(repo: Path, package: ScriptPackage, script: str, read=None) -> list[str]:
+    read = read or (lambda rel: (repo / rel).read_text(encoding="utf-8"))
+    scripts = json.loads(read(f"{package.directory}/package.json")).get("scripts", {})
     body = scripts.get(script)
     if not body:
         return []
@@ -203,24 +223,27 @@ def check_pieces(repo: Path, package: ScriptPackage, script: str) -> list[str]:
 
 
 def package_env(repo: Path, directory: str) -> dict[str, str]:
-    env = dict(os.environ)
+    # A hook's GIT_DIR names the checkout's repository; a check run in a lint tree must see that tree.
+    env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE")}
     env["PATH"] = f"{repo / directory / 'node_modules' / '.bin'}{os.pathsep}{env.get('PATH', '')}"
     return env
 
 
 def ensure_deps(repo: Path, directory: str) -> Result | None:
-    """Install the package's pinned dependencies (fast when they are current)."""
-    if not (repo / directory / "bun.lock").is_file():
+    """Install the package's pinned dependencies (fast when they are current). A package with no lockfile
+    keeps the node_modules it has, else gets a plain install."""
+    locked = (repo / directory / "bun.lock").is_file()
+    if not locked and (repo / directory / "node_modules").is_dir():
         return None
     bun = shutil.which("bun")
     if bun is None:
         return Result(directory, "bun install", 127, "bun is not on PATH; install bun 1.4 to run the web lint.", 0)
     started = time.monotonic()
-    result = subprocess.run([bun, "install", "--frozen-lockfile", "--silent"], cwd=repo / directory,
-                            text=True, capture_output=True)
+    command = ["install", "--frozen-lockfile", "--silent"] if locked else ["install", "--silent"]
+    result = subprocess.run([bun, *command], cwd=repo / directory, text=True, capture_output=True)
     if result.returncode == 0:
         return None
-    return Result(directory, "bun install --frozen-lockfile", result.returncode,
+    return Result(directory, f"bun {' '.join(command[:-1])}", result.returncode,
                   result.stdout + result.stderr, time.monotonic() - started)
 
 
@@ -232,16 +255,17 @@ def run(label: str, command: list[str] | str, cwd: Path, env: dict[str, str]) ->
     return Result(label, shown, result.returncode, result.stdout + result.stderr, time.monotonic() - started)
 
 
-def eslint_command(repo: Path, directory: str, files: list[str], fix: bool) -> list[str]:
+def eslint_command(repo: Path, directory: str, files: list[str], fix: bool, cache: bool = True) -> list[str]:
     relative = [f[len(directory) + 1:] for f in files]
-    command = [str(repo / directory / "node_modules" / ".bin" / "eslint"), "--quiet", "--no-warn-ignored",
-               "--cache", "--cache-location", "node_modules/.cache/eslint-web-lint/"]
+    command = [str(repo / directory / "node_modules" / ".bin" / "eslint"), "--quiet", "--no-warn-ignored"]
+    if cache:  # keyed by absolute path: a lint tree's random path would only miss and prune the checkout's
+        command += ["--cache", "--cache-location", "node_modules/.cache/eslint-web-lint/"]
     if fix:
         command.append("--fix")
     return command + relative
 
 
-def run_plan(repo: Path, plan: Plan, fix: bool) -> list[Result]:
+def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True) -> list[Result]:
     directories = [p.directory for p in plan.script_packages] + list(plan.eslint_files)
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(directories))) as pool:
         installs = [r for r in pool.map(lambda d: ensure_deps(repo, d), directories) if r]
@@ -252,17 +276,69 @@ def run_plan(repo: Path, plan: Plan, fix: bool) -> list[Result]:
             for piece in check_pieces(repo, package, "check:fix"):
                 run(package.directory, piece, repo / package.directory, package_env(repo, package.directory))
         for directory, files in plan.eslint_files.items():
-            run(directory, eslint_command(repo, directory, files, True), repo / directory,
+            run(directory, eslint_command(repo, directory, files, True, cache), repo / directory,
                 package_env(repo, directory))
     jobs = []
     for package in plan.script_packages:
         for piece in check_pieces(repo, package, "check"):
             jobs.append((package.directory, piece, repo / package.directory, package_env(repo, package.directory)))
     for directory, files in plan.eslint_files.items():
-        jobs.append((directory, eslint_command(repo, directory, files, False), repo / directory,
+        jobs.append((directory, eslint_command(repo, directory, files, False, cache), repo / directory,
                      package_env(repo, directory)))
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(8, len(jobs)))) as pool:
         return list(pool.map(lambda job: run(*job), jobs))
+
+
+def is_checked_out(repo: Path, sha: str) -> bool:
+    """The checkout is exactly `sha`: HEAD is it and nothing is modified or untracked."""
+    return (git(repo, "rev-parse", "HEAD").strip() == git(repo, "rev-parse", f"{sha}^{{commit}}").strip()
+            and not git(repo, "status", "--porcelain", "--untracked-files=normal").strip())
+
+
+@contextlib.contextmanager
+def tree_of(repo: Path, sha: str | None, directories: list[str]):
+    """A directory holding exactly commit `sha` (the checkout when it already is), or the checkout for None.
+    Full, not sparse: the webviews checks read the whole repository (check-dialog-key-hints.py ..)."""
+    if sha is None or is_checked_out(repo, sha):
+        yield repo
+        return
+    holder = Path(tempfile.mkdtemp(prefix="cmux-web-lint-"))
+    tree = holder / "tree"
+    try:
+        # No hooks: a checkout hook must not run for a lint tree.
+        git(repo, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--quiet", "--detach", str(tree), sha)
+        for directory in directories:
+            if (tree / directory).is_dir() and shares_deps(repo, sha, directory):
+                (tree / directory / "node_modules").symlink_to(repo / directory / "node_modules")
+        yield tree  # a package that can't share gets its own install (ensure_deps)
+    finally:
+        if tree.exists():
+            git(repo, "worktree", "remove", "--force", str(tree), check=False)
+        shutil.rmtree(holder, ignore_errors=True)
+
+
+def shares_deps(repo: Path, sha: str, directory: str) -> bool:
+    """The checkout's node_modules for `directory` holds what commit `sha` would install: the same
+    package.json and bun.lock (or neither), and each file: dependency's folder as the commit has it."""
+    if not (repo / directory / "node_modules").is_dir():
+        return False
+    for name in ("package.json", "bun.lock"):
+        mine = repo / directory / name
+        theirs = subprocess.run(["git", "-C", str(repo), "show", f"{sha}:{directory}/{name}"], capture_output=True)
+        if (theirs.returncode == 0) != mine.is_file() or (mine.is_file() and mine.read_bytes() != theirs.stdout):
+            return False
+    try:
+        manifest = json.loads((repo / directory / "package.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    for group in ("dependencies", "devDependencies", "optionalDependencies"):
+        for spec in (manifest.get(group) or {}).values():
+            if isinstance(spec, str) and spec.startswith(("file:", "link:")):
+                target = os.path.relpath((repo / directory / spec.split(":", 1)[1]).resolve(), repo.resolve())
+                if target.startswith("..") or subprocess.run(
+                        ["git", "-C", str(repo), "diff", "--quiet", sha, "--", target]).returncode != 0:
+                    return False
+    return True
 
 
 def report(results: list[Result], seconds: float, mode: str, timings: bool = False) -> int:
@@ -315,39 +391,43 @@ def main(argv: list[str] | None = None) -> int:
     repo = (args.repo or Path(git(Path.cwd(), "rev-parse", "--show-toplevel").strip())).resolve()
     if args.pre_push:
         ranges = pushed_ranges(repo, sys.stdin.read().splitlines())
-        files = sorted({f for base, head in ranges for f in changed_files(repo, base, head)})
-        heads = {head for _base, head in ranges}
     else:
-        head = args.head
-        base = args.base or default_base(repo, head or "HEAD")
-        files = changed_files(repo, base, head)
-        heads = {head} if head else set()
+        base = args.base or default_base(repo, args.head or "HEAD")
+        ranges = [(base, args.head)]
+    # One lint per pushed commit, in a tree holding exactly that commit. --fix edits the working tree itself.
+    heads: dict[str | None, list[str]] = {}
+    for base, head in ranges:
+        heads.setdefault(None if args.fix else head, []).extend(changed_files(repo, base, head))
 
-    if args.all:
-        files = [f"{package.directory}/package.json" for package in SCRIPT_PACKAGES]
-    plan = make_plan(repo, files, guard_executed=args.pre_push)
-    for directory, risky in plan.untrusted:
-        print(f"{mode}: {directory}: not linted here: this push changes code the lint runs "
-              f"({', '.join(risky[:5])}{' …' if len(risky) > 5 else ''}). The `web lint` CI job checks it; "
-              f"run `{FIX_COMMAND}` yourself if you trust this branch.", file=sys.stderr)
-    if not plan.script_packages and not plan.eslint_files:
-        if args.dry_run:
-            print("nothing to lint")
-        return 0
-    if args.dry_run:
-        for package in plan.script_packages:
-            print(f"{package.directory}: {' && '.join(check_pieces(repo, package, 'check'))}")
-        for directory, targets in plan.eslint_files.items():
-            print(f"{directory}: eslint {' '.join(targets)}")
-        return 0
-
-    head_sha = git(repo, "rev-parse", "HEAD").strip()
-    if args.pre_push and any(git(repo, "rev-parse", h).strip() != head_sha for h in heads):
-        print(f"{mode}: warning: the pushed commit is not HEAD; the lint reads the working tree.", file=sys.stderr)
     started = time.monotonic()
-    results = run_plan(repo, plan, args.fix)
+    results: list[Result] = []
+    for head, changed in heads.items():
+        files = sorted(set(changed))
+        if args.all:
+            files = [f"{package.directory}/package.json" for package in SCRIPT_PACKAGES]
+        # Planned from the commit's objects: a full lint tree is written only when something needs linting.
+        exists, read = snapshot(repo, head)
+        plan = make_plan(repo, files, guard_executed=args.pre_push, exists=exists)
+        for directory, risky in plan.untrusted:
+            print(f"{mode}: {directory}: not linted here: this push changes code the lint runs "
+                  f"({', '.join(risky[:5])}{' …' if len(risky) > 5 else ''}). The `web lint` CI job checks it; "
+                  f"run `{FIX_COMMAND}` yourself if you trust this branch.", file=sys.stderr)
+        if not plan.script_packages and not plan.eslint_files:
+            if args.dry_run:
+                print("nothing to lint")
+            continue
+        if args.dry_run:
+            for package in plan.script_packages:
+                print(f"{package.directory}: {' && '.join(check_pieces(repo, package, 'check', read))}")
+            for directory, targets in plan.eslint_files.items():
+                print(f"{directory}: eslint {' '.join(targets)}")
+            continue
+        directories = [p.directory for p in plan.script_packages] + list(plan.eslint_files)
+        with tree_of(repo, head, directories) as tree:
+            results += run_plan(tree, plan, args.fix, cache=tree == repo)
+    if not results:
+        return 0
     return report(results, time.monotonic() - started, mode, args.timings)
-
 
 if __name__ == "__main__":
     sys.exit(main())

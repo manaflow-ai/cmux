@@ -45,7 +45,9 @@ final class FilePageOpener: FileOpening {
     /// is writable all the same; another document is writable only inside a root the user chose.
     /// `placed` (``LinkOpener``): a new tab opens unselected and reports its surface there, to be
     /// moved beside `pane`; a tab that already shows the file is selected and focused where it is.
-    func open(_ file: URL, in pane: PaneController?, userChose: Bool, placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String? {
+    /// `position` (a Find result): the code editor puts the cursor there; other pages ignore it.
+    func open(_ file: URL, in pane: PaneController?, userChose: Bool, at position: FilePosition? = nil,
+              placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String? {
         guard let url = AgentPaneFileOpen.resolve(file.path) else { return FilePageStrings.notAFile }
         guard let pane = pane ?? services.windows.active?.focusedPane else { return FilePageStrings.noPane }
         if userChose, FileOpenKind(fileName: url.lastPathComponent, isDirectory: false, isPackage: false) == .web {
@@ -56,7 +58,7 @@ final class FilePageOpener: FileOpening {
         case .markdown?:
             services.viewers.markdownPages.open(url, in: pane, focus: placed == nil, userChose: userChose, placed: placed)
         case .editor?:
-            services.viewers.editorPages.open(url, in: pane, focus: placed == nil, userChose: userChose, placed: placed)
+            services.viewers.editorPages.open(url, in: pane, focus: placed == nil, userChose: userChose, at: position, placed: placed)
         case nil:
             guard AgentPaneFileOpen.showsInTab(url) else { return FilePageStrings.notAFile }
             pane.newBrowserTab(url: url, engine: Self.tabEngine(for: url), background: placed != nil, then: placed)

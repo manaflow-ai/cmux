@@ -77,9 +77,9 @@ pub(super) struct Reopened {
     pub(super) screens: Vec<String>,
     pub(super) tabs: Vec<String>,
     /// (closed workspace key, reopened workspace key) per reopened workspace.
-    placements: Vec<(String, String)>,
+    pub(super) placements: Vec<(String, String)>,
     /// A closed tab's id to the id it reopened as.
-    reopened_as: std::collections::HashMap<String, String>,
+    pub(super) reopened_as: std::collections::HashMap<String, String>,
     /// A closed pane's id to the pane split off its neighbor again; the
     /// group's kept tabs of that pane follow it there.
     panes: std::collections::HashMap<String, super::closed_pane_split::SplitPane>,
@@ -276,7 +276,7 @@ fn commit_reopen(
 /// Give the reopened workspace the closed one's personal row: its group,
 /// its place in the personal sidebar order and its theme
 /// (LAST-TAB-CLOSES-WORKSPACE rule 3). Nothing when that row is gone.
-fn restore_placement(
+pub(super) fn restore_placement(
     transaction: &rusqlite::Transaction<'_>,
     closed_key: &str,
     reopened_key: &str,
@@ -453,7 +453,7 @@ impl Mux {
     /// tabs this reopen brought back, which are already in `reopened`. A
     /// live group of that id (an earlier partial reopen formed it) takes
     /// them in.
-    fn reopen_tab_group(
+    pub(super) fn reopen_tab_group(
         self: &Arc<Self>,
         actor: &Actor,
         archive: &Value,
@@ -994,7 +994,7 @@ impl Mux {
         Ok(())
     }
 
-    fn reopen_closed_workspace(
+    pub(super) fn reopen_closed_workspace(
         self: &Arc<Self>,
         actor: &Actor,
         record: &Value,

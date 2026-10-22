@@ -349,11 +349,11 @@ public final class AgentCLIUpdateActions {
         (error as? ActionFailure)?.message ?? (error as? DaemonError)?.description ?? error.localizedDescription
     }
 
-    /// The owner prepares only npm and native installations (acpmux `fixed_argv`),
+    /// The owner prepares only npm, Bun and native installations (acpmux `fixed_argv`),
     /// and refuses a family when any of its rows is another channel or current.
     static func ownerCanRun(_ family: AgentCLIFamily, in rows: [AcpmuxHarnessInventory.Harness]) -> Bool {
         let members = rows.filter { $0.family == family }
-        return !members.isEmpty && members.allSatisfy { $0.outdated && ($0.channel == .npm || $0.channel == .native) }
+        return !members.isEmpty && members.allSatisfy { $0.outdated && [.npm, .bun, .native].contains($0.channel) }
     }
 
     /// The owner answers `agent_cli_job.*` before it journals a creation, so no
