@@ -843,6 +843,20 @@ both. The app's levels: Only when I'm needed = `question`, `permission`;
 Needed and finished = those and `completed`, `chief`; Everything = all six
 plus `failed` and `terminal`.
 
+### Terminal agents' questions
+
+A terminal-hosted agent's question (Claude Code AskUserQuestion, Codex
+`request_user_input`) reaches the phone from its hook: the daemon's
+`notification` event and that `list-notifications` row carry `question`
+`{harness, tool_use_id?, questions: [{id?, question, header?, multiSelect,
+isOther?, options: [{label, description?}]}]}` while the agent waits on it
+(memory only; cmux-tui `agent_hook_question.rs`, `session.journal.append`
+`live_question`). The Mac host pushes it as kind `question` with `questions`,
+`tabId` (`s<surface>`), `notificationId` and no `permissionId`. The phone
+answers it on that Mac by typing into the terminal (`send`) while
+`read-screen` shows the question; see SECURITY.md "Answering a terminal
+agent's question from the phone".
+
 ### Phone actions
 
 | Identifier | Kind | Options | Delivery |
