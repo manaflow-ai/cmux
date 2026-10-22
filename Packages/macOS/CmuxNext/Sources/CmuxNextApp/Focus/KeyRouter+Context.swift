@@ -60,6 +60,7 @@ extension KeyRouter {
         if facts.listFocus || omnibarList || Self.isNativeList(resolved) { context[KeyContext.listFocus] = .bool(true) }
         if facts.sidebarMultiSelection, case .sidebar = resolved { context[KeyContext.sidebarMultiSelection] = .bool(true) }
         if facts.workspacesAsTabs { context[KeyContext.workspacesAsTabs] = .bool(true) }
+        if let mode = facts.keyMode { context[KeyContext.keyMode] = .string(mode) }
         return context
     }
 
@@ -133,7 +134,8 @@ extension KeyRouter {
                      textBoxFocused: window.firstResponder is TextBoxTextView,
                      sidebarMultiSelection: controller.sidebar.model.selection.count > 1,
                      fileExplorerFocused: FileExplorerService.hasKeyboard(window),
-                     workspacesAsTabs: SidebarTunables.workspacesAsTabs.value)
+                     workspacesAsTabs: SidebarTunables.workspacesAsTabs.value,
+                     keyMode: services?.scriptConfig.modes.active)
     }
 
     /// The page id of the focused internal page tab.

@@ -68,6 +68,9 @@ public nonisolated enum SurfaceExemption: String, CaseIterable, Sendable, Hashab
     case credentials
     /// Quits the app the user works in (MCP).
     case endsApp
+    /// A function a config script bound to a key (`cmux.keys.bind(key, fn)`,
+    /// `user.key.<n>`): it has no name of its own, so only its key runs it.
+    case scriptKeyFunction
     /// Changes preferences, the system or the running app outside the
     /// user's work (MCP).
     case systemChange

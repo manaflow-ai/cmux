@@ -97,6 +97,12 @@ public struct KeyBindingLoader {
             guard first.isBare else { return .failure(.firstKeyNeedsCommandOrControl) }
             guard entry.when?.allowsBareKeys == true else { return .failure(.bareKeyNeedsBareKeyContext) }
         }
+        return validatedCommand(entry)
+    }
+
+    /// `entry` with its canonical command id and converted arguments; its
+    /// keys are not checked (a script key mode's own keys, `ScriptKeyModes`).
+    public func validatedCommand(_ entry: KeyBinding) -> Result<KeyBinding, KeyBindingIssue.Kind> {
         let id = registry.canonicalID(for: entry.command)
         var binding = entry
         binding.command = id

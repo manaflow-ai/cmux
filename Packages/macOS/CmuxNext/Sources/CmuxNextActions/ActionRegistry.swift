@@ -381,7 +381,8 @@ public final class ActionRegistry {
             title: action.title,
             keywords: action.keywords,
             defaultShortcut: action.shortcut,
-            category: .other
+            category: .other,
+            surfacePlan: ActionSurfacePlan(palette: action.paletteExemption.map(SurfaceDecision.exempt) ?? .offered)
         )
     }
 }

@@ -98,6 +98,8 @@ public struct Action: Identifiable {
     /// menu (Remove Icon on an object without an icon). The palette, the
     /// CLI and MCP still offer the action.
     public var targetHidden: (@MainActor (ActionInvocation) -> Bool)?
+    /// Why the palette leaves this ad hoc action out, or nil to list it.
+    public var paletteExemption: SurfaceExemption?
 
     public init(
         id: ActionID,
@@ -135,7 +137,7 @@ public struct Action: Identifiable {
     /// A copy of this action under another ID (used to fold legacy IDs into
     /// their canonical catalog ID).
     func withID(_ newID: ActionID) -> Action {
-        Action(
+        var copy = Action(
             id: newID,
             title: title,
             keywords: keywords,
@@ -146,5 +148,7 @@ public struct Action: Identifiable {
             unavailableReason: unavailableReason,
             handler: handler
         )
+        copy.paletteExemption = paletteExemption
+        return copy
     }
 }

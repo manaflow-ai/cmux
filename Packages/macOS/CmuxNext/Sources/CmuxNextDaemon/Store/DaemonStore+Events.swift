@@ -299,7 +299,7 @@ extension DaemonStore {
             return .none
 
         case .sessionState(let item): session.apply(item, in: self); return .none
-        case .terminalRegistryChanged, .bookmarksChanged, .historyChanged, .keybindingsChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,
+        case .terminalRegistryChanged, .bookmarksChanged, .historyChanged, .keybindingsChanged, .scriptConfigChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,
              .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown: // .unknown: the `apps-*` events of apps-v1
             sideEvents.deliver(event, envelope: envelope)
             return .none

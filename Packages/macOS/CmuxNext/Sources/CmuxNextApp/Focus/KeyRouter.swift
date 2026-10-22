@@ -203,6 +203,8 @@ final class KeyRouter: BrowserKeyRouting {
             cancelChord()
             return true
         }
+        // A config script's key mode: its keys, Escape to end it.
+        if routesScriptKeyMode(event, in: window) { return true }
         // Browser focus mode: Esc Esc leaves it (the first Escape still reaches the page).
         if routesFocusModeEscape(event, in: window) { return true }
         let isChord = Self.isChord(event.modifierFlags)
