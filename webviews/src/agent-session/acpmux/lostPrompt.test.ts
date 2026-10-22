@@ -263,3 +263,53 @@ test("a connection waiting for a resend says no once the pane shows another chat
     client.close();
   }
 });
+
+test("a lost prompt the host sent again after the wait gave up is done: the next identical prompt is new", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const slot = lostPromptSlot();
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    () => undefined,
+    undefined,
+    () => new MockAcpmuxSocket(() => Promise.resolve()) as unknown as WebSocket,
+  );
+  try {
+    const sessionId = client.selectedSession!;
+    // The wait gave up: "continue" is kept under its id for the person's resend.
+    slot.keep(sessionId, "p-late", "continue", []);
+    client.promptShown = (promptId) => slot.forget(promptId);
+    // The host's journal sends it again later, and acpmux runs it (here: sent on this connection).
+    await client.send("continue", [], "p-late");
+    // The sender's own catch keeps it again after it landed: the id stays retired.
+    slot.keep(sessionId, "p-late", "continue", []);
+    // The next "continue" is a new instruction, not that prompt's duplicate.
+    expect(slot.take(sessionId, "continue", [])).toBeUndefined();
+  } finally {
+    client.close();
+  }
+});
+
+test("a connection whose history already shows a kept lost prompt retires its id", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    () => undefined,
+    undefined,
+    () => new MockAcpmuxSocket(() => Promise.resolve()) as unknown as WebSocket,
+  );
+  try {
+    await client.send("continue", [], "p-read");
+    const sessionId = client.selectedSession!;
+    const slot = lostPromptSlot();
+    slot.keep(sessionId, "p-read", "continue", []);
+    slot.keep(sessionId, "p-other", "and test it", []);
+    slot.forgetShown((chat, promptId) => client.showsPrompt(chat, promptId));
+    expect(slot.take(sessionId, "continue", [])).toBeUndefined();
+    slot.keep(sessionId, "p-other", "and test it", []);
+    expect(slot.take(sessionId, "and test it", [])).toBe("p-other");
+  } finally {
+    client.close();
+  }
+});

@@ -987,6 +987,18 @@ export class AcpmuxDirectClient {
   private readonly sentPrompts = new Set<string>();
   /// Replies in place waiting for acpmux to take them (`_acpmux/prompt_accepted`), by prompt id.
   private replyAccepts = new Map<string, () => void>();
+  /// Told each prompt id acpmux took in the shown chat (`_acpmux/prompt_accepted`, or a live or
+  /// read `user_message` or `queued` record): the pane retires a lost prompt's id the host sent
+  /// again after its sender gave up waiting (lostPrompt.ts).
+  promptShown?: (promptId: string) => void;
+  private sawPrompt(event: EventRecord): void {
+    if (!this.promptShown || (event.kind !== "user_message" && event.kind !== "queued")) return;
+    const promptId = event.msg?.promptId;
+    if (typeof promptId === "string") this.promptShown(promptId);
+  }
+  private sawPrompts(events: readonly EventRecord[]): void {
+    if (this.promptShown) for (const event of events) this.sawPrompt(event);
+  }
   /// A prompt that was not sent, by its row: what Retry sends again.
   private failedPrompts = new Map<string, { input: string; attachments: ComposerAttachment[]; promptId?: string }>();
   /// The promptIds a Retry is sending: a refusal of one says "Still not sent".
@@ -1596,7 +1608,10 @@ export class AcpmuxDirectClient {
     // acpmux took a prompt this connection sent (a reply too); it comes even when the event stream lags.
     else if (notification.method === "_acpmux/prompt_accepted") {
       const promptId = notification.params?.promptId;
-      if (typeof promptId === "string") (this.promptAccepts.get(promptId) ?? this.replyAccepts.get(promptId))?.();
+      if (typeof promptId === "string") {
+        (this.promptAccepts.get(promptId) ?? this.replyAccepts.get(promptId))?.();
+        this.promptShown?.(promptId);
+      }
     }
     // A profile change may pin or free a harness's mode, which changes a new chat's start mode too.
     else if (notification.method === "_acpmux/harnesses_changed") {
@@ -1656,6 +1671,7 @@ export class AcpmuxDirectClient {
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
       const missed = records(result?.events);
       this.events = mergeEventRecords(this.events, missed);
+      this.sawPrompts(missed);
       this.rebuildKeepingLiveState(replayLiveState ? cursor : undefined);
       if (result?.hasMore !== true || missed.length === 0) break;
       cursor = Math.max(cursor, ...missed.map((event) => event.seq));
@@ -2124,6 +2140,7 @@ export class AcpmuxDirectClient {
     this.turnOpener = opener;
     // Merged after the reads: live events that landed meanwhile are kept.
     this.events = mergeEventRecords(page, this.events);
+    this.sawPrompts(page);
     this.rebuild();
     // acpmux's list is the order; the replayed `queued` records give each prompt its whole text.
     this.queue = mergeQueue(this.queue, detail.queue ?? []);
@@ -2235,6 +2252,7 @@ export class AcpmuxDirectClient {
   private apply(event: EventRecord): void {
     if (!event?.seq || event.sessionId !== this.selectedSessionId || event.seq <= this.lastSeq) return;
     this.events.push(event);
+    this.sawPrompt(event);
     this.lastSeq = event.seq;
     this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
     this.reduce(event);
@@ -4466,6 +4484,16 @@ export class AcpmuxDirectClient {
   get isClosed(): boolean {
     return this.closed;
   }
+  /// The shown chat `sessionId` has prompt `promptId`: its record or its queue row.
+  showsPrompt(sessionId: string, promptId: string): boolean {
+    if (this.selectedSessionId !== sessionId) return false;
+    return (
+      this.queue.some((entry) => entry.id === promptId) ||
+      this.events.some(
+        (event) => (event.kind === "user_message" || event.kind === "queued") && event.msg?.promptId === promptId,
+      )
+    );
+  }
   /// The `awaitResent` waits, with their chat: each settles false once this connection closes or
   /// the pane shows another chat.
   private resendWaits = new Map<() => void, string>();
@@ -4475,11 +4503,7 @@ export class AcpmuxDirectClient {
   /// chat, or this connection closes.
   awaitResent(sessionId: string, promptId: string, timeoutMs: number): Promise<boolean> {
     if (this.closed || this.selectedSessionId !== sessionId) return Promise.resolve(false);
-    const shown = () =>
-      this.queue.some((entry) => entry.id === promptId) ||
-      this.events.some(
-        (event) => (event.kind === "user_message" || event.kind === "queued") && event.msg?.promptId === promptId,
-      );
+    const shown = () => this.showsPrompt(sessionId, promptId);
     if (shown()) return Promise.resolve(true);
     return new Promise((resolve) => {
       const done = (landed: boolean) => {
@@ -4763,6 +4787,7 @@ export class AcpmuxDirectClient {
     if (start > 0) older = older.slice(start);
     const foldsAbove = start >= 0 && (this.events.length === 0 || startsTurn(this.events[0]!));
     this.events = mergeEventRecords(older, this.events);
+    this.sawPrompts(older);
     // Held events that start mid-turn (or a read with no turn start) fold everything once.
     if (foldsAbove) this.foldOlder(older);
     else this.rebuildKeepingLiveState();

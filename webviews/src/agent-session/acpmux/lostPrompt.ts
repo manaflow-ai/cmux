@@ -87,13 +87,23 @@ export function lostPromptSlot() {
   const keyOf = (sessionId: string, text: string, attachmentIds: readonly string[]) =>
     JSON.stringify([sessionId, text, attachmentIds]);
   const kept = new Map<string, string>();
+  /// Ids the host sent again after all, even after the wait gave up: never kept again, since
+  /// acpmux would answer a new prompt under one as that prompt's duplicate.
+  const retired = new Set<string>();
   return {
     keep(sessionId: string, promptId: string, text: string, attachmentIds: readonly string[]): void {
+      if (retired.has(promptId)) return;
       kept.set(keyOf(sessionId, text, attachmentIds), promptId);
     },
     /// The host sent `promptId` again after all: a later identical prompt is a new one.
     forget(promptId: string): void {
+      retired.add(promptId);
       for (const [key, id] of kept) if (id === promptId) kept.delete(key);
+    },
+    /// Forgets each kept prompt `shows` finds in its chat (a connection's history, read before
+    /// the pane heard of the connection).
+    forgetShown(shows: (sessionId: string, promptId: string) => boolean): void {
+      for (const [key, id] of kept) if (shows(JSON.parse(key)[0], id)) this.forget(id);
     },
     /// The lost prompt's id when this send is that prompt. Only the next send may take one: a
     /// later "continue" is a new prompt, not the lost one.

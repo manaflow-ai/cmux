@@ -5703,6 +5703,10 @@ function AcpmuxPane() {
           return;
         }
         directClient.current = client;
+        // A lost prompt the host sent again after its sender gave up is that prompt, done: its id
+        // goes, so the next identical prompt runs as a new one (lostPrompt.ts).
+        client.promptShown = (promptId) => lostPrompts.forget(promptId);
+        lostPrompts.forgetShown((sessionId, promptId) => client.showsPrompt(sessionId, promptId));
         connectedClients.connected(client);
         setClientEpoch((epoch) => epoch + 1);
         // The minimap's prompt bookmarks live in acpmux's session (threadMinimap/bookmarks.ts).
