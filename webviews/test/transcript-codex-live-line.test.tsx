@@ -361,7 +361,12 @@ test("an ended turn draws no row for a call that never got its input", () => {
 });
 
 test("a call that takes no input keeps its row in an ended turn", () => {
-  const noArgs = call("mcp", "pending", { title: "cmux: list_workspaces", kind: "other", command: undefined, inputSummary: "{}" });
+  const noArgs = call("mcp", "pending", {
+    title: "cmux: list_workspaces",
+    kind: "other",
+    command: undefined,
+    inputSummary: "{}",
+  });
   const ended = turnView([row("u", "user"), row("run", "activity", { items: [noArgs, draft("b1")] })], new Set(), {
     liveRuns: true,
     lineBelow: true,
