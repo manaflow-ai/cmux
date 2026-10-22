@@ -93,9 +93,9 @@ public final class WebUpdater {
     /// The launch check of the kept update; every check and channel change waits for it, so none
     /// sees the empty state before `state.json` is read.
     @ObservationIgnored private var launch: Task<URL?, Never>?
-    /// The last state write queued (a roll back, a channel's return to the bundled web): each
-    /// waits for the one before and a check waits for it, so none saves over another.
-    @ObservationIgnored private var writing: Task<Void, any Error>?
+    /// The last state write queued (a check keeping its update, a roll back, a channel's return to
+    /// the bundled web): each waits for the one before, so none saves over another.
+    @ObservationIgnored private var writing: Task<Void, Never>?
     /// Whether `updates.web` was read yet (before it, `channel` is only the off default).
     @ObservationIgnored private var followed = false
 
@@ -178,7 +178,7 @@ public final class WebUpdater {
 
     /// Reads the channel's pointer and takes a new update.
     public func check() async {
-        if let writing { _ = try? await writing.value }
+        await writing?.value
         guard channel != .off, phase != .checking, phase != .downloading else { return }
         phase = .checking
         _ = await launchTree()
@@ -224,29 +224,32 @@ public final class WebUpdater {
                 if let refusal = error as? WebUpdateRefusal, Self.isLasting(refusal), self.channel == channel { etag = tag }
                 throw error
             }
-            guard self.channel == channel else {
-                // The channel changed during the download: drop the tree.
-                try? await Self.save(state, store: store, served: served())
+            // Kept after the state writes queued during the download (a channel change).
+            try await enqueue { [self] in
+                guard self.channel == channel else {
+                    // The channel changed during the download: drop the tree.
+                    try? await Self.save(state, store: store, served: served())
+                    phase = .idle
+                    return
+                }
+                var next = state
+                next.previous = state.active
+                next.active = pointer
+                next.floor = max(next.floor, pointer.committedAt)
+                try await Self.save(next, store: store, served: served())
+                guard self.channel == channel else {
+                    // The channel changed during the save: put the state back (and drop the
+                    // tree); the next check serves the right channel.
+                    try? await Self.save(state, store: store, served: served())
+                    phase = .idle
+                    return
+                }
+                state = next
+                etag = tag
+                lastRefusal = nil
                 phase = .idle
-                return
-            }
-            var next = state
-            next.previous = state.active
-            next.active = pointer
-            next.floor = max(next.floor, pointer.committedAt)
-            try await Self.save(next, store: store, served: served())
-            guard self.channel == channel else {
-                // The channel changed during the save: put the state back (and drop the tree);
-                // the next check serves the right channel.
-                try? await Self.save(state, store: store, served: served())
-                phase = .idle
-                return
-            }
-            state = next
-            etag = tag
-            lastRefusal = nil
-            phase = .idle
-            onReady(tree, pointer)
+                onReady(tree, pointer)
+            }.value
         } catch let refusal as WebUpdateRefusal {
             lastRefusal = refusal
             phase = refusal == .notNewer || Self.isAppTooOld(refusal) ? .idle : .failed(String(describing: refusal))
@@ -305,10 +308,11 @@ public final class WebUpdater {
         let before = writing
         // task-owner: one state write; it ends by itself
         let task = Task { @MainActor in
-            _ = try? await before?.value
+            await before?.value
             try await body()
         }
-        writing = task
+        // task-owner: the queue's handle on that write; it ends with it
+        writing = Task { _ = try? await task.value }
         return task
     }
 

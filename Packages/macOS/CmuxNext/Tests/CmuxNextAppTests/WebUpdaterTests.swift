@@ -265,6 +265,41 @@ import Testing
         #expect(ready.last == .some(nil))
     }
 
+    @Test func turningUpdatesOffDuringADownloadKeepsTheBundledWeb() async throws {
+        let root = try WebUpdateStoreTests.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (archive, first) = try await WebUpdateStoreTests.makeArchive(in: root)
+        var second = first
+        second.key = String(repeating: "e", count: 64)
+        second.committedAt = first.committedAt + 100
+        let server = Server()
+        server.archive = archive
+        let store = WebUpdateStore(base: root.appending(path: "store", directoryHint: .isDirectory))
+        let updater = Self.updater(server, store: store)
+        var ready: [WebUpdatePointer?] = []
+        updater.onReady = { _, pointer in ready.append(pointer) }
+        server.pointer = try Self.pointerData(first)
+        await updater.check()
+        // The second check stops in its download; updates turn off meanwhile.
+        let (started, didStart) = AsyncStream<Void>.makeStream()
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        server.hold = {
+            didStart.yield()
+            for await _ in gate {}
+        }
+        server.pointer = try Self.pointerData(second)
+        server.etag = "\"2\""
+        let check = Task { await updater.check() }
+        for await _ in started { break }
+        updater.follow(.off)
+        open.finish()
+        await check.value
+        // The check kept its result after the channel's write: the bundled web, on disk too.
+        #expect(updater.state.active == nil)
+        #expect(store.readState().active == nil)
+        #expect(ready.last == .some(nil))
+    }
+
     @Test func theServedTreeIsKeptUntilTheSafePointSwapsItOut() async throws {
         let root = try WebUpdateStoreTests.scratch()
         defer { try? FileManager.default.removeItem(at: root) }

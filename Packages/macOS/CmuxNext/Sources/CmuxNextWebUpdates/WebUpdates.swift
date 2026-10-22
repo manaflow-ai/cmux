@@ -29,6 +29,8 @@ public final class WebUpdates {
     @ObservationIgnored private var pendingVersion: WebUpdatePointer?
     /// Pages waited for the launch check, so they serve its update until the first swap.
     @ObservationIgnored private var launchServed = false
+    /// Whether the updater handed an update over; a late launch result never replaces it.
+    @ObservationIgnored private var handedOver = false
     /// The wait in the background before an update swaps in.
     @ObservationIgnored private let safePoint = DemandTimer(owner: "web-updates.safe-point")
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
@@ -61,7 +63,10 @@ public final class WebUpdates {
             overlay.register(bundled: PageDescriptor.diffRoot(inAppResources: resources), output: WebUpdateTree.outputs[4])
         }
         let updater = WebUpdater(store: store, app: app)
-        updater.onReady = { [weak self] tree, pointer in self?.ready(tree, version: pointer) }
+        updater.onReady = { [weak self] tree, pointer in
+            self?.handedOver = true
+            self?.ready(tree, version: pointer)
+        }
         updater.served = { WebBundleOverlay.shared.activeTree }
         self.updater = updater
         if WebBundleServedViews.shared.isEmpty {
@@ -72,7 +77,8 @@ public final class WebUpdates {
             // task-owner: one launch check; it ends by itself
             Task { [weak self] in
                 let tree = await updater.launchTree()
-                if tree != nil { self?.ready(tree, version: updater.launchVersion) }
+                guard let self, tree != nil, !handedOver else { return }
+                ready(tree, version: updater.launchVersion)
             }
         }
         // task-owner: the app's activation events, for the life of the app
