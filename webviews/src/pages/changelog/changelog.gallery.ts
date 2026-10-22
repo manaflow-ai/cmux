@@ -3,6 +3,7 @@ import { changelogPageEntry } from "../../gallery/format";
 import { sampleNotes } from "./mockProvider";
 import { realNightlies } from "./realNightlyFixtures";
 import nightly3913596493801 from "./fixtures/nightly-3913596493801-span.json";
+import realChanges from "./fixtures/real-pr-changes.json";
 import type { ReleaseNotes } from "./types";
 import { journalNotes } from "./whatsNewFixtures";
 
@@ -20,7 +21,9 @@ const manyNotes = Array.from({ length: 18 }, (_, index) => ({
           },
         ]
       : [],
-  changes: Array.from({ length: (index % 5) + 1 }, (_, change) => `sample change ${index + 1}.${change + 1}`),
+  // Real landed pull requests, so each change shows its linked title and number.
+  items: realChanges.slice(index * 3, index * 3 + (index % 5) + 1),
+  changes: realChanges.slice(index * 3, index * 3 + (index % 5) + 1).map((c) => `${c.title} (#${c.pr})`),
 }));
 
 export default changelogPageEntry({
