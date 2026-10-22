@@ -1,5 +1,6 @@
 @testable import CmuxNextAgentPane
 import CmuxNextSettings
+import Darwin
 import Foundation
 import Testing
 
@@ -138,7 +139,13 @@ struct AgentPaneReplyTextPreviewTests {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let missing = rig.project.appendingPathComponent("gone.txt")
 
-        for url in [binary, notUTF8, folder, missing] {
+        // A file this user can't read: refused, never an error that says more.
+        let locked = rig.project.appendingPathComponent("locked.log")
+        try "secret\n".write(to: locked, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: locked.path) }
+
+        for url in [binary, notUTF8, folder, missing, locked] {
             let reply = await rig.preview(url.path)
             #expect(Self.errorCode(reply) == AgentPaneReplyError.pathInvalid.rawValue, "\(url.lastPathComponent): \(reply)")
             #expect(Self.lines(reply) == nil)
@@ -191,6 +198,13 @@ struct AgentPaneReplyTextPreviewTests {
             let rig = try Self.rig()
             defer { try? FileManager.default.removeItem(at: rig.folder) }
             rig.model.replyLinks.settings = { AgentPaneReplySetting(outsideRoots: .open, remoteImages: .click) }
+            // Every path lookup reads the folders first; a remote chat's preview must not.
+            var lookups = 0
+            let project = rig.project.path
+            rig.model.workspaceRoots = {
+                lookups += 1
+                return [project]
+            }
             let inside = rig.project.appendingPathComponent("notes.log")
             try "local secret\n".write(to: inside, atomically: true, encoding: .utf8)
             let outside = rig.outside.appendingPathComponent("notes.log")
@@ -209,6 +223,7 @@ struct AgentPaneReplyTextPreviewTests {
                 #expect(Self.lines(reply) == nil, "\(wireOnly) \(url.lastPathComponent)")
                 #expect((reply["value"] as? [String: Any])?["remote"] as? Bool == true, "\(wireOnly) \(url.lastPathComponent)")
             }
+            #expect(lookups == 0, "\(wireOnly): the host looked up a remote chat's path here")
             if let connection { rig.model.transport.close(connection: connection) }
         }
     }
