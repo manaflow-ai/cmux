@@ -185,6 +185,11 @@ final class PaneContentView: NSView, PaneContentChrome {
                 content.layoutSubtreeIfNeeded()
             }
         }
+        // A chat shown at the frame it was parked at (`install`) follows the host again.
+        if hostsContent, let content, content.autoresizingMask.isEmpty, content is PaneParkableContent {
+            content.autoresizingMask = [.width, .height]
+        }
+        layoutParked()
         layoutAgentTag()
         if hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: tools, in: self) }
         if hostChanged { onResize?() }

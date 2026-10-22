@@ -132,7 +132,7 @@ A wrong tier is a bug in `scripts/ci/risk_tier.py`. To change one:
    `test_audit_sample_of_real_pull_requests`.
 3. Update the tables above with the evidence.
 
-The pull request is high (it changes the gate), so a person looks before it lands.
+The pull request is high (it changes the gate): an independent SHIP at the exact head plus a green compile clears it.
 
 ## Rollout
 
