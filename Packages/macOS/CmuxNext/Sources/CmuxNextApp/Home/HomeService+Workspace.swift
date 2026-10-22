@@ -98,6 +98,7 @@ extension HomeService {
     /// service runs Cloud Chief brains, and the placed one), or none: signed
     /// out, or the read failed (logged; the last read stays).
     func readCloudChiefs() async -> HomeCloudChiefs? {
+        if let cloudChiefsRead { return await cloudChiefsRead() }
         guard services.cloud.auth.isSignedIn, case let feed = services.feed else { return HomeCloudChiefs() }
         do {
             // An unknown probe keeps the last read: a Hosted Chief never drops out of the tab on one failed request.
@@ -122,7 +123,7 @@ extension HomeService {
         let local = services.machines.local
         guard local.supports(DaemonCapabilities.shared.conversationTabs) else {
             homeWorkspaceStep = "no chief tab: the daemon lacks conversation tabs"
-            noteCloudChiefsChecked()
+            await settleCloudChiefsWithoutTab()
             return
         }
         // A cloud Chief answers in its cloud main conversation: the Hosted
@@ -132,6 +133,7 @@ extension HomeService {
         // Chief has no history to hide (G6, one history).
         // The same sign-in also reads the Home list's Chiefs: the list hides an archived Chief's rows by them
         // (the page's own read can come before sign-in, and a docked Home never makes the page).
+        let account = currentCloudAccount
         let read = await readCloudChiefs()
         if let read { setCloudChiefs(read); await directory.refreshChiefs() }
         guard !Task.isCancelled else { return }
@@ -141,7 +143,7 @@ extension HomeService {
         // copy above runs once: after it the two Chiefs' histories grow apart and a switch never merges them.
         await refreshLocalChiefRunning()
         // A failed read leaves the Hosted Chief unknown: an ask that waits for it waits for the next check.
-        if read != nil { noteCloudChiefsChecked() }
+        if read != nil { noteCloudChiefsChecked(for: account) }
         let cloud = tabChiefs
         let shown = cloudChief
         // Local conversations live in the Chief home's owner, not this build's

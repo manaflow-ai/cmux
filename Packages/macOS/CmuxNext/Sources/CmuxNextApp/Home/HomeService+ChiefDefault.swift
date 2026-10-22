@@ -24,7 +24,7 @@ extension HomeService {
     ///
     /// Signed in, before the first Chief tab check read the cloud Chiefs, Home shows this Mac's Chief only
     /// because the Hosted Chief is not known yet: no host starts then, and the check asks again once it knows
-    /// (``noteCloudChiefsChecked()``). While this Mac's history is still being copied into the Hosted Chief the
+    /// (``noteCloudChiefsChecked(for:)``). While this Mac's history is still being copied into the Hosted Chief the
     /// tab shows this Mac's Chief (``tabChiefs``), but the Hosted Chief takes it when the copy settles, so the
     /// cloud Chiefs decide here, not the tab.
     func startsLocalBrain(for conversation: String?) -> Bool {
@@ -33,14 +33,22 @@ extension HomeService {
         return !cloudChiefsUnknown && cloudChiefs.shown(choice: hostedChief.choice) == nil
     }
 
-    /// Signed in and the cloud Chiefs not read yet this launch (a failed read counts as not read): the
-    /// Hosted Chief may still take Home.
+    /// Signed in and the cloud Chiefs not read yet for this account (a failed read counts as not read; a
+    /// sign-in or account change makes them unknown again): the Hosted Chief may still take Home.
     var cloudChiefsUnknown: Bool {
-        !cloudChiefsChecked && (signedInToCloud?() ?? services.cloud.auth.isSignedIn)
+        guard let account = currentCloudAccount else { return false }
+        return cloudChiefsCheckedAccount != account
+    }
+
+    /// The signed-in account's id, or nil when signed out.
+    var currentCloudAccount: String? {
+        if let cloudAccount { return cloudAccount() }
+        let auth = services.cloud.auth
+        return auth.isSignedIn ? auth.user?.id : nil
     }
 
     /// Home opened showing `conversation`: starts this Mac's host when ``startsLocalBrain(for:)`` says so,
-    /// else, while the cloud Chiefs are unknown, keeps the ask for ``noteCloudChiefsChecked()``.
+    /// else, while the cloud Chiefs are unknown, keeps the ask for ``noteCloudChiefsChecked(for:)``.
     func ensureLocalBrain(asked: Bool, for conversation: String?) {
         if startsLocalBrain(for: conversation) {
             startLocalBrain(asked: asked)
@@ -49,22 +57,31 @@ extension HomeService {
         }
     }
 
-    /// The first Chief tab check knows the cloud Chiefs: an ask that waited for it starts this Mac's host
-    /// only if Home itself now shows this Mac's Chief.
-    func noteCloudChiefsChecked() {
-        guard !cloudChiefsChecked else { return }
-        cloudChiefsChecked = true
+    /// A Chief tab check read `account`'s cloud Chiefs (nil: signed out, so there are none): an ask that
+    /// waited for them starts this Mac's host only if Home itself now shows this Mac's Chief. A read for an
+    /// account that is no longer signed in settles nothing.
+    func noteCloudChiefsChecked(for account: String?) {
+        guard account == currentCloudAccount else { return }
+        if let account {
+            guard cloudChiefsCheckedAccount != account else { return }
+            cloudChiefsCheckedAccount = account
+        }
         guard let asked = waitingHomeAsk else { return }
         waitingHomeAsk = nil
         if startsLocalBrain(for: nil) { startLocalBrain(asked: asked) }
     }
 
-    /// `ensure_home` failed before the Chief tab check read the cloud Chiefs: reads them anyway, so an
-    /// ask that waits for them settles. A failed read keeps it waiting for the next check.
+    /// The Chief tab check could not run (`ensure_home` failed, or the daemon has no conversation tabs):
+    /// reads whether this Mac's optchat-chief runs and the cloud Chiefs anyway, so the default Chief is
+    /// right and an ask that waits for the cloud Chiefs settles. A failed read keeps it waiting for the next check.
     func settleCloudChiefsWithoutTab() async {
-        guard !cloudChiefsChecked, let read = await readCloudChiefs() else { return }
+        await refreshLocalChiefRunning()
+        let account = currentCloudAccount
+        // Known already (or signed out since the ask): only a waiting ask settles.
+        guard cloudChiefsUnknown else { noteCloudChiefsChecked(for: account); return }
+        guard let read = await readCloudChiefs() else { return }
         setCloudChiefs(read)
-        noteCloudChiefsChecked()
+        noteCloudChiefsChecked(for: account)
     }
 
     private func startLocalBrain(asked: Bool) {
