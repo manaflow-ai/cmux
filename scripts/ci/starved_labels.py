@@ -10,8 +10,9 @@ jobs the queue janitor already listed: a label is starved when a job on it has
 been queued with no runner for STARVED_AFTER and no job on it is running or
 started in that window. A running job proves a listener is online, so a pool
 that is merely busy is not starved.
-The wait counts from when the job could first run (wait_start()): a job still
-behind an unfinished sibling in its run, which may be its `needs`, is not counted.
+The wait counts from when the job could first run (wait_start()): a job behind
+a running sibling in its run, which may be its `needs`, is not counted, and one
+beside a queued sibling alerts only after STARVED_GATED_AFTER.
 
 Every glaeda-* label is in scope. Nothing in the tree says which runner label
 a merge-blocking job asks for (cmux-next's build-fleet compile takes
@@ -43,6 +44,10 @@ from pathlib import Path
 from typing import Any
 
 STARVED_AFTER = dt.timedelta(minutes=10)
+# A queued fleet job beside another queued job of its run (not itself stuck on an
+# unserved fleet label) may be waiting on that job as its `needs`, or that job on
+# it: the jobs API names no `needs`. Its alert waits this longer bound instead.
+STARVED_GATED_AFTER = dt.timedelta(minutes=60)
 FLEET_PREFIX = "glaeda-"
 ISSUE_PREFIX = "Runner label starved: "
 ISSUE_LABEL = "ci-runner-starved"
@@ -70,62 +75,53 @@ def stuck(job: Mapping[str, Any]) -> bool:
     return job.get("status") == "queued" and not job.get("runner_name")
 
 
-def pool_key(job: Mapping[str, Any]) -> frozenset[str]:
-    """Every label a job asked for, lowercased (GitHub matches labels without case)."""
-    return frozenset(str(label).lower() for label in job.get("labels") or ())
-
-
 def _covered(labels: frozenset[str], served: Iterable[frozenset[str]]) -> bool:
     """A runner that took a job asking for a superset of `labels` could take this one."""
     return any(labels <= runner_labels for runner_labels in served)
 
 
 def wait_start(job: Mapping[str, Any], run_jobs: Sequence[Mapping[str, Any]],
-               suspects: frozenset[int] = frozenset(),
-               serving: frozenset[frozenset[str]] = frozenset()) -> dt.datetime | None:
-    """When a queued job could first have run; None while a sibling in its run may still be its gate.
+               suspects: frozenset[int] = frozenset()) -> tuple[dt.datetime, bool] | None:
+    """When a queued job could first have run, and whether a queued sibling may still gate it.
 
     The jobs API can list a job before its `needs` finished and names no
-    `needs`, so a sibling may be its gate (queue_janitor._gated()): one
-    running, waiting or pending, or queued on a pool that started nothing in
-    the window (stuck itself, perhaps upstream). A sibling queued on a pool in
-    `serving` (one that did start a job in the window) is waiting on its own
-    `needs`, so it is downstream and no gate; nor is one in `suspects` (stuck
-    on an unserved fleet label), so two stuck fleet jobs never mask each
-    other. Otherwise the wait counts from the later of its `created_at` and
-    the last sibling completion (queue_janitor.lost_wait_start()).
+    `needs`, so any unfinished sibling may be its gate (queue_janitor._gated()).
+    A running, waiting or pending one means its wait has not begun: None. A
+    queued one may be upstream or downstream, and the API cannot tell, so the
+    wait counts but is flagged gated (starved() then waits STARVED_GATED_AFTER):
+    a stuck fleet job with queued dependents still alerts. A sibling in
+    `suspects` (stuck on an unserved fleet label) is no gate, so two stuck fleet
+    jobs never mask each other. The wait counts from the later of its
+    `created_at` and the last sibling completion (queue_janitor.lost_wait_start()).
     """
+    gated = False
     for other in run_jobs:
         if other is job or other.get("status") == "completed" or id(other) in suspects:
             continue
-        if stuck(other) and _covered(pool_key(other), serving):
-            continue
-        return None
+        if not stuck(other):
+            return None
+        gated = True
     created = parse_time(job.get("created_at"))
     if created is None:
         return None
     finished = [parse_time(other.get("completed_at")) for other in run_jobs
                 if other is not job and other.get("status") == "completed"]
-    return max([created, *(moment for moment in finished if moment is not None)])
+    return max([created, *(moment for moment in finished if moment is not None)]), gated
 
 
 def _unserved_queues(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]], *,
                      now: dt.datetime, after: dt.timedelta,
                      evidence: Mapping[int, Sequence[Mapping[str, Any]]] | None = None,
-                     ) -> dict[str, list[tuple[Mapping[str, Any], dt.datetime | None]]]:
+                     ) -> dict[str, list[tuple[Mapping[str, Any], tuple[dt.datetime, bool] | None]]]:
     """Fleet label key -> its queued jobs with their wait_start(), for labels no job is running on or started on within `after`.
 
     `evidence` (run id -> jobs, completed runs the janitor listed anyway) counts only as service.
     """
     served: set[frozenset[str]] = set()
-    serving: set[frozenset[str]] = set()
     for jobs in [*(jobs_by_run.get(run.get("id"), ()) for run in runs), *(evidence or {}).values()]:
         for job in jobs:
-            if stuck(job) or not _served(job, now, after):
-                continue
-            serving.add(pool_key(job))
             key = fleet_key(job)
-            if key:
+            if key and not stuck(job) and _served(job, now, after):
                 served.add(frozenset(key.split("+")))
 
     def unserved_key(key: str) -> bool:
@@ -134,13 +130,11 @@ def _unserved_queues(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int
     run_lists = [list(jobs_by_run.get(run.get("id"), ())) for run in runs]
     suspects = frozenset(id(job) for run_jobs in run_lists for job in run_jobs
                          if fleet_key(job) and stuck(job) and unserved_key(fleet_key(job)))
-    frozen_serving = frozenset(serving)
-    waiting: dict[str, list[tuple[Mapping[str, Any], dt.datetime | None]]] = {}
+    waiting: dict[str, list[tuple[Mapping[str, Any], tuple[dt.datetime, bool] | None]]] = {}
     for run_jobs in run_lists:
         for job in run_jobs:
             if id(job) in suspects:
-                waiting.setdefault(fleet_key(job), []).append(
-                    (job, wait_start(job, run_jobs, suspects, frozen_serving)))
+                waiting.setdefault(fleet_key(job), []).append((job, wait_start(job, run_jobs, suspects)))
     return dict(sorted(waiting.items()))
 
 
@@ -162,13 +156,12 @@ def starved(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequenc
     """The fleet labels with a job queued past `after` and none running or started within it."""
     found = []
     for key, entries in _unserved_queues(runs, jobs_by_run, now=now, after=after, evidence=evidence).items():
-        ready = [(job, since) for job, since in entries if since is not None]
+        bound = {False: after, True: max(after, STARVED_GATED_AFTER)}
+        ready = [(job, wait[0]) for job, wait in entries if wait is not None and now - wait[0] >= bound[wait[1]]]
         if not ready:
             continue
         oldest, since = min(ready, key=lambda entry: entry[1])
         age = now - since
-        if age < after:
-            continue
         found.append({"label": key, "oldest_queued_minutes": int(age.total_seconds() // 60), "queued": len(entries),
                       "job": str(oldest.get("name") or ""), "job_url": str(oldest.get("html_url") or "")})
     return found

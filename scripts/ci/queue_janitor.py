@@ -236,6 +236,8 @@ LOST_EVENTS = frozenset({"push", "pull_request"})
 # LOST_EVIDENCE_RUNS_PER_WORKFLOW of them.
 LOST_EVIDENCE_WORKFLOWS = 3
 LOST_EVIDENCE_LISTING = 20
+# How far back the starved-label alert's completed-run listing reaches (starved_result()).
+STARVED_EVIDENCE_LOOKBACK = dt.timedelta(hours=6)
 LOST_EVIDENCE_RUNS_PER_WORKFLOW = 2
 # The snapshot key that carries a cancelled run to the sweep that re-runs it.
 LOST_RERUNS_KEY = "lost_reruns"
@@ -431,8 +433,9 @@ def starved_result(github: "GitHub", runs: Sequence[Mapping[str, Any]],
     Reads the sweep's jobs plus starved_scope_runs()'s. Starts in completed runs
     count as service: the lost-assignment evidence already listed and, only for
     a label about to alert, up to LOST_EVIDENCE_RUNS_PER_WORKFLOW completed runs
-    of each of its stuck jobs' workflows (at most LOST_EVIDENCE_WORKFLOWS)
-    created since its wait began. A failed listing marks the result incomplete,
+    of each of its stuck jobs' workflows (at most LOST_EVIDENCE_WORKFLOWS) that
+    finished inside the starved window, among one listing page created within
+    STARVED_EVIDENCE_LOOKBACK. A failed listing marks the result incomplete,
     and the alert step then closes no issue as recovered.
     """
     fleet_jobs: dict[int, Sequence[Mapping[str, Any]]] = dict(jobs_by_run)
@@ -445,18 +448,23 @@ def starved_result(github: "GitHub", runs: Sequence[Mapping[str, Any]],
             incomplete = True
             print(f"queue-janitor: starved-label jobs of run {run['id']}: {error}", file=sys.stderr)
     found = starved_labels.starved(runs, fleet_jobs, now=now, evidence=evidence)
+    alerting = {entry["label"] for entry in found}
     earliest: dict[str, dt.datetime] = {}
-    for entry in found:
-        since = now - dt.timedelta(minutes=int(entry["oldest_queued_minutes"]) + 1)
-        for run in runs:
-            workflow = str(run.get("path") or "").rsplit("/", 1)[-1]
-            if workflow and any(starved_labels.stuck(job) and starved_labels.fleet_key(job) == entry["label"]
-                                for job in fleet_jobs.get(run.get("id"), ())):
-                earliest[workflow] = min(since, earliest.get(workflow, since))
-    for workflow, since in sorted(earliest.items(), key=lambda item: (item[1], item[0]))[:LOST_EVIDENCE_WORKFLOWS]:
+    for run in runs:
+        workflow = str(run.get("path") or "").rsplit("/", 1)[-1]
+        if workflow and any(starved_labels.stuck(job) and starved_labels.fleet_key(job) in alerting
+                            for job in fleet_jobs.get(run.get("id"), ())):
+            created = parse_time(run.get("created_at")) or now
+            earliest[workflow] = min(created, earliest.get(workflow, created))
+    window = now - starved_labels.STARVED_AFTER
+    for workflow, _ in sorted(earliest.items(), key=lambda item: (item[1], item[0]))[:LOST_EVIDENCE_WORKFLOWS]:
         try:
-            listed = github.completed_runs(workflow, since.strftime("%Y-%m-%dT%H:%M:%SZ"))
-            for run in evidence_runs(listed, known=set(fleet_jobs) | set(evidence), cap=LOST_EVIDENCE_RUNS_PER_WORKFLOW):
+            # Service is a job start inside the window, so a run holding one finished (was updated)
+            # inside it, whenever it was created: list the newest runs and keep those.
+            listed = github.completed_runs(workflow, (now - STARVED_EVIDENCE_LOOKBACK).strftime("%Y-%m-%dT%H:%M:%SZ"))
+            recent = sorted((run for run in listed if (parse_time(run.get("updated_at")) or dt.datetime.min.replace(
+                tzinfo=dt.timezone.utc)) >= window), key=lambda run: str(run.get("updated_at") or ""), reverse=True)
+            for run in evidence_runs(recent, known=set(fleet_jobs) | set(evidence), cap=LOST_EVIDENCE_RUNS_PER_WORKFLOW):
                 evidence[run["id"]] = github.jobs(run["id"])
         except RuntimeError as error:
             incomplete = True
