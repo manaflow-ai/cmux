@@ -109,17 +109,14 @@ nonisolated struct RustRowKey: Codable {
 nonisolated struct RustRow: Codable {
     /// The rows the drop resolver reads: Group by Folder's headers, "Done (N)"
     /// and "Show N more" rows are labels only (no drop target), so they stay out.
-    /// A group's last drawn member before such a row ending the group is its last row here: a drop past it
-    /// leaves the group, as it does with no fold (a drag keeps the "Done (N)" rows folded).
+    /// A drag keeps the "Done (N)" rows folded, so a group can end in such a row: the resolver then reads the group as
+    /// it would with no fold (`endingGroup`), and a drop below it can still leave the group.
     static func resolvable(_ rows: [SidebarRow]) -> [RustRow] {
         var resolvable: [RustRow] = []
         for row in rows {
             switch row.key {
             case .doneFold, .showMore:
-                if row.isLastInGroup, let group = row.group?.rawValue,
-                   let last = resolvable.lastIndex(where: { $0.group == group && $0.key.kind == "workspace" }) {
-                    resolvable[last].isLastInGroup = true
-                }
+                if row.isLastInGroup, let group = row.group { endingGroup(group.rawValue, in: &resolvable) }
                 continue
             case .folder, .status, .item, .emptyGroup:
                 continue
@@ -129,6 +126,21 @@ nonisolated struct RustRow: Codable {
             }
         }
         return resolvable
+    }
+
+    /// `group`'s rows, which a fold row ends, read as a group with no fold: its last drawn member is its last row and
+    /// takes in its tab rows (the resolver's tab rows never leave a group), so the bottom of it leaves the group; a
+    /// group that draws no member reads as folded, so the bottom of its header leaves the group.
+    static func endingGroup(_ group: String, in rows: inout [RustRow]) {
+        guard let header = rows.lastIndex(where: { $0.key.kind == "group" && $0.key.id == group }) else { return }
+        guard let last = rows[(header + 1)...].lastIndex(where: { $0.group == group && $0.key.kind == "workspace" }) else {
+            rows[header].isCollapsed = true
+            return
+        }
+        let tabs = rows[(last + 1)...].prefix { $0.key.kind == "tab" && $0.key.workspace == rows[last].key.id }
+        if let bottom = tabs.map({ $0.y + $0.height }).max() { rows[last].height = max(rows[last].height, bottom - rows[last].y) }
+        rows.removeSubrange((last + 1)..<(last + 1 + tabs.count))
+        rows[last].isLastInGroup = true
     }
 
     var key: RustRowKey
