@@ -29,6 +29,18 @@ interface CmuxScriptEvents {
   }
   /** The terminal's program exited; `exit_code` when it exited with a code. */
   "terminal.exited": CmuxTerminalEventFields & { outcome?: { kind: string; code?: number; signal?: number }; exit_code?: number }
+  /** A notification was posted (`cmux notify`, OSC 9/777, an agent); `terminal` and `tab` when a terminal posted it. */
+  "notification.created": {
+    stream: "notification.created"
+    title: string
+    subtitle: string | null
+    body: string
+    level: "info" | "warning" | "error"
+    source: "cli" | "terminal" | "agent" | "daemon"
+    workspace: string | null
+    terminal: string | null
+    tab: string | null
+  }
 }
 
 type CmuxEventOf<S extends string> = S extends keyof CmuxScriptEvents ? CmuxScriptEvents[S] : { stream: string; [field: string]: unknown }
