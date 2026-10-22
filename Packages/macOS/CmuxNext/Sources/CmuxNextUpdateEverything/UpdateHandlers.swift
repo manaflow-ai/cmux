@@ -29,7 +29,9 @@ public struct UpdateHandlers {
                 do { try updater.installAvailableUpdate() } catch { registry?.refuse(String(describing: error)) }
             })
         }
-        updater.pulledWatch.stateDirectories = stateDirectories // the pulled-build banner's Roll Back
+        // The pulled-build banner's Roll Back: the same stores, and the same question as updates.rollback.
+        updater.pulledWatch.stateDirectories = stateDirectories
+        updater.pulledWatch.confirmRollBack = { [weak registry] proceed in registry?.confirmationPresenter?("updates.rollback", ActionInvocation(), proceed) }
         // Drop back (destructive: every entrypoint confirms; the CLI passes --confirm).
         registry.bind("updates.rollback", invoke: { [weak registry] _ in
             guard let registry else { return }

@@ -34,10 +34,14 @@ extension SidebarViewComponents {
         var cards: SidebarBottomCards
         /// The session tree (`sidebar.sessionTree`): nesting, pull requests, keycaps.
         var tree: SidebarSessionTreeState?
+        /// Every row's pull request badge, tree or not.
+        var pullRequests: [WorkspaceID: SidebarPullRequestBadge]
         /// The session tree's chat history: Pinned and Earlier.
         var history: SidebarChatHistoryState?
         /// Workspaces as tabs (`SidebarTunables.workspacesAsTabs`): one-line rows.
         var workspacesAsTabs: Bool
+        /// The "Done (N)" fold (`SidebarTunables.doneFold`): turning it on or off lays the list out again.
+        var foldsDone: Bool
         init(_ model: SidebarModel, _ design: DesignSettings) {
             sectionsRevision = model.observedStructureRevision
             selection = model.selection
@@ -59,8 +63,10 @@ extension SidebarViewComponents {
             titlebarHeight = Metrics.titlebarHeight
             cards = SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
             tree = SidebarSessionTree.shared.state
+            pullRequests = SidebarSessionTree.shared.pullRequests
             history = SidebarChatHistory.shared.state
             workspacesAsTabs = SidebarTunables.workspacesAsTabs.value
+            foldsDone = SidebarTunables.doneFold.value
         }
     }
     func observe() {
@@ -93,8 +99,9 @@ extension SidebarViewComponents {
         let selectionChanged = lastState?.selection != state.selection || lastState?.selected != state.selected
         let rowsChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.filter != state.filter || chromeChanged || profileChanged
             || state.preferences.changesList(from: lastState?.preferences) || lastState?.tree != state.tree
+            || lastState?.pullRequests != state.pullRequests
             || lastState?.history != state.history
-            || lastState?.workspacesAsTabs != state.workspacesAsTabs
+            || lastState?.workspacesAsTabs != state.workspacesAsTabs || lastState?.foldsDone != state.foldsDone
         let listChanged = rowsChanged || selectionChanged
         let previous = lastState == nil ? nil : lastSections
         model.applyListPreferences(state.preferences)

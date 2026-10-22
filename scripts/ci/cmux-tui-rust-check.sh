@@ -577,6 +577,10 @@ workspace_tests() {
   env "$run_marker" cargo "${args[@]}" 2>&1 | tee "$test_log"
   rc="${PIPESTATUS[0]}"
   pty_watch_stop "$pty_start"
+  # The custom test groups (nextest.toml [test-groups]) and their tests, so a
+  # step shows which tests ran alone. The run above built every binary.
+  echo "=== nextest test groups (profile ci)"
+  cargo nextest show-config test-groups "${test_scope[@]}" --locked --profile ci 2>&1 || echo "test groups: show-config failed"
   reap_leaked "after the full run, before reruns"
   [[ ! -f "$junit" ]] || cp "$junit" "$junit_full"
   [[ "$rc" -ne 0 ]] || return 0

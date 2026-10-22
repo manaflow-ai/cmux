@@ -26764,6 +26764,34 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "devOnly",
+      "cli_name" : "action appearance-glass-lens-toggle",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "appearance.glass.lens.toggle",
+      "main_menu" : "debug",
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Toggle Liquid Glass Lens",
+      "title_key" : "action.appearance.glass.lens.toggle",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "settings customize-appearance",
       "context_menu" : "noObject",

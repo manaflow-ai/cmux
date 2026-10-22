@@ -3989,9 +3989,10 @@
       "type" : "string"
     },
     "tabs.newTabTemplate" : {
-      "default" : "cards",
+      "default" : "minimal",
       "description" : "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it.",
       "enum" : [
+        "minimal",
         "cards",
         "default",
         "composer",
@@ -4002,6 +4003,36 @@
       ],
       "title" : "New Tab Template",
       "type" : "string"
+    },
+    "tabs.newTabWidgets.actions" : {
+      "default" : false,
+      "description" : "Chats that need you, and New Terminal, New Browser Tab and New Chat.",
+      "title" : "Show Quick Actions on New Tab",
+      "type" : "boolean"
+    },
+    "tabs.newTabWidgets.chats" : {
+      "default" : false,
+      "description" : "Your recent chats under the composer. The palette finds any chat.",
+      "title" : "Show Recent Chats on New Tab",
+      "type" : "boolean"
+    },
+    "tabs.newTabWidgets.greeting" : {
+      "default" : true,
+      "description" : "A short greeting over the composer.",
+      "title" : "Show Greeting on New Tab",
+      "type" : "boolean"
+    },
+    "tabs.newTabWidgets.projects" : {
+      "default" : false,
+      "description" : "A card of this Mac and its recent projects over the composer.",
+      "title" : "Show Projects on New Tab",
+      "type" : "boolean"
+    },
+    "tabs.newTabWidgets.styleDots" : {
+      "default" : false,
+      "description" : "Dots under the page that switch its template.",
+      "title" : "Show Template Dots on New Tab",
+      "type" : "boolean"
     },
     "tabs.overflow" : {
       "default" : "shrink",
@@ -4234,6 +4265,22 @@
       "title" : "Download Updates Automatically",
       "type" : "boolean"
     },
+    "updates.idleInstallMaxWaitSeconds" : {
+      "default" : 900,
+      "description" : "A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart.",
+      "maximum" : 7200,
+      "minimum" : 60,
+      "title" : "Install Within",
+      "type" : "number"
+    },
+    "updates.idleInstallQuietSeconds" : {
+      "default" : 60,
+      "description" : "How long the keyboard and mouse must be idle before a downloaded nightly installs by itself.",
+      "maximum" : 600,
+      "minimum" : 5,
+      "title" : "Quiet Time Before Installing",
+      "type" : "number"
+    },
     "updates.installOnQuit" : {
       "default" : true,
       "description" : "A downloaded update installs as cmux quits. Terminals keep running.",
@@ -4275,11 +4322,16 @@
       "title" : "Show What's New After Updates",
       "type" : "boolean"
     },
-    "updates.updateEverythingServers" : {
-      "default" : false,
-      "description" : "Update Everything also updates the agent CLIs on your paired servers and restarts their chats. A server's cmux is never reinstalled; its own installer updates it.",
-      "title" : "Include Paired Servers in Update Everything",
-      "type" : "boolean"
+    "updates.web" : {
+      "default" : "every-merge",
+      "description" : "Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with.",
+      "enum" : [
+        "every-merge",
+        "nightly",
+        "off"
+      ],
+      "title" : "Web UI Updates",
+      "type" : "string"
     },
     "window.titlebar" : {
       "default" : "minimal",

@@ -1,8 +1,8 @@
 // An OpenCode free model that stalled left the chat on "Thinking" with no end and no sign why.
 // acpmux logs `turn_silent` when a turn's agent has said nothing since its prompt past
 // `silentTurnMs` (hub/silent_turn.rs); the pane's snapshot carries it (direct.ts `silentTurn`), so
-// the turn's line says "No response from the model yet" (waitingOn.ts) until the agent's next word
-// or the turn's end.
+// the turn's line says "No response from the model yet" (waitingOn.ts) until acpmux hears the
+// model (`turn_heard`) or the turn ends. The agent's own bookkeeping (usage, commands) is no answer.
 import { expect, test } from "bun:test";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 
@@ -83,6 +83,12 @@ async function until(ready: () => boolean, what: string) {
 
 const started: Step = ["mux", "turn_started", { turnId: "t1" }];
 const silent: Step = ["mux", "turn_silent", { turnId: "t1", silentMs: 90_000 }];
+const heard: Step = ["mux", "turn_heard", { turnId: "t1" }];
+const usage: Step = [
+  "in",
+  "usage_update",
+  { method: "session/update", params: { update: { sessionUpdate: "usage_update", used: 12, size: 200_000 } } },
+];
 const word: Step = [
   "in",
   "agent_message_chunk",
@@ -92,7 +98,7 @@ const word: Step = [
   },
 ];
 
-test("a turn whose model said nothing says so until the model's first word", async () => {
+test("a turn whose model said nothing says so until acpmux hears the model", async () => {
   const daemon = fakeDaemon(record([["mux", "user_message", { text: "fix the build" }], started]));
   let snapshot: any;
   const client = await AcpmuxDirectClient.connect(
@@ -107,13 +113,17 @@ test("a turn whose model said nothing says so until the model's first word", asy
     expect(snapshot.silentTurn).toBeUndefined();
     daemon.push(record([silent], 3));
     await until(() => snapshot.silentTurn === true, "the silent turn");
-    // The model's first word ends it.
-    daemon.push(record([word], 4));
+    // The agent's bookkeeping is no answer.
+    daemon.push(record([usage], 4));
+    await until(() => snapshot.summary?.usage?.used === 12, "the usage");
+    expect(snapshot.silentTurn).toBe(true);
+    // acpmux hearing the model ends it.
+    daemon.push(record([heard, word], 5));
     await until(() => snapshot.silentTurn === undefined, "the model's word");
     // So does the turn's end.
-    daemon.push(record([silent], 5));
+    daemon.push(record([silent], 7));
     await until(() => snapshot.silentTurn === true, "the second silence");
-    daemon.push(record([["mux", "turn_result", { status: "cancelled" }]], 6));
+    daemon.push(record([["mux", "turn_result", { status: "cancelled" }]], 8));
     await until(() => snapshot.silentTurn === undefined, "the turn's end");
   } finally {
     client.close();
