@@ -123,7 +123,11 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
             | "--speed"
             | "--compactor-speed"
             | "--compactor-harness"
-            | "--compactor-model" => {
+            | "--compactor-model"
+            | "--reactions-can-wake"
+            | "--classifier-harness"
+            | "--classifier-model"
+            | "--classifier-prompt" => {
                 let key = flag.trim_start_matches("--").replace('-', "_");
                 let value = value()?;
                 match &mut parsed.control {
