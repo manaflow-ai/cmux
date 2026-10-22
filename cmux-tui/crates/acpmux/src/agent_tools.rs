@@ -91,6 +91,16 @@ pub const MCP_TOOLS_ENV: &str = "CMUX_MCP_TOOLS";
 /// agent sees two tools for everything cmux gives it.
 pub const UPSTREAMS_ENV: &str = "CMUX_MCP_UPSTREAMS";
 
+/// The folded servers whose list this binary fixes (`folded`): not computer
+/// use, which forwards its helper's list, nor memory, whose list follows the
+/// config.
+const KEPT_LISTS: [&str; 4] = [
+    crate::secret_mcp::SERVER_NAME,
+    crate::offer_mcp::SERVER_NAME,
+    crate::subsession_mcp::SERVER_NAME,
+    crate::forum_mcp::SERVER_NAME,
+];
+
 /// A spawn env key (`hub/spawn.rs`) with the comma-separated agent tool
 /// servers this chat turned off (`hub/tools.rs`): a folded server has no
 /// `mcp__<server>` tools for `--disallowedTools` to name, so it leaves the
@@ -756,6 +766,12 @@ impl AgentTools {
                 // The secret card waits for the person, not for a timer.
                 if s.name == crate::secret_mcp::SERVER_NAME {
                     spec["callTimeoutSecs"] = json!(3600);
+                }
+                // This binary fixes these servers' tools and instructions,
+                // so the cmux server lists them from its kept list and
+                // starts each on its first call (ask-a3c16b28b7).
+                if KEPT_LISTS.contains(&s.name.as_str()) {
+                    spec["keepList"] = json!(true);
                 }
                 spec
             })

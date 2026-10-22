@@ -52,19 +52,35 @@ fn upstream_server(name: &str) -> upstream::Upstream {
     upstream::Upstream::new(specs.into_iter().next().unwrap())
 }
 
-/// A server whose starts are logged to `log`, its last list kept in `cache`.
-fn logged_server(name: &str, log: &std::path::Path, cache: &std::path::Path) -> upstream::Upstream {
-    let script = std::env::temp_dir()
-        .join(format!("cmux-mcp-upstream-{}", std::process::id()))
-        .join("server.py");
-    std::fs::create_dir_all(script.parent().unwrap()).unwrap();
-    std::fs::write(&script, UPSTREAM_SERVER).unwrap();
+/// A server run from `script` whose starts are logged to `log`, its last
+/// list kept in `cache` when `keep_list`.
+fn logged_server(
+    script: &str,
+    log: &std::path::Path,
+    cache: &std::path::Path,
+    keep_list: bool,
+) -> upstream::Upstream {
+    let file = log.with_file_name("server.py");
+    std::fs::write(&file, script).unwrap();
     let specs = upstream::specs(Some(
-        json!([{"name": name, "command": "python3", "args": [script], "env": {"START_LOG": log}}])
-            .to_string()
-            .into(),
+        json!([{"name": "cmux-cua", "command": "python3", "args": [file],
+                "env": {"START_LOG": log}, "keepList": keep_list}])
+        .to_string()
+        .into(),
     ));
     upstream::Upstream::new(specs.into_iter().next().unwrap()).with_listing_cache(cache.to_owned())
+}
+
+/// A test's own folder: its start log and its cache.
+fn lazy_dir(test: &str) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
+    let dir = std::env::temp_dir().join(format!("cmux-mcp-{test}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    (dir.clone(), dir.join("starts.log"), dir.join("cache"))
+}
+
+fn starts(log: &std::path::Path) -> usize {
+    std::fs::read_to_string(log).unwrap_or_default().lines().count()
 }
 
 /// The chat's other servers start on first use, not when a harness lists
@@ -74,35 +90,83 @@ fn logged_server(name: &str, log: &std::path::Path, cache: &std::path::Path) -> 
 /// from that and start a server only when a tool of its is called.
 #[test]
 fn listing_the_tools_starts_no_server_once_its_list_is_known() {
-    let dir = std::env::temp_dir().join(format!("cmux-mcp-lazy-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    let (log, cache) = (dir.join("starts.log"), dir.join("cache"));
-    let starts = || std::fs::read_to_string(&log).unwrap_or_default().lines().count();
+    let (dir, log, cache) = lazy_dir("lazy");
 
     // The first chat: nothing known yet, so listing starts the server.
     let mut first = code_mode_server(Fake::with_actions());
-    first.upstreams = vec![upstream::Proxied::new(logged_server("cmux-cua", &log, &cache))];
+    let server = logged_server(UPSTREAM_SERVER, &log, &cache, true);
+    first.upstreams = vec![upstream::Proxied::new(server)];
     assert!(first.list().iter().any(|t| t["name"] == "cua_look"));
-    assert_eq!(starts(), 1);
+    assert_eq!(starts(&log), 1);
     drop(first);
 
     // A later chat lists the same tools, with the server's rules, and
     // starts nothing.
     let mut later = code_mode_server(Fake::with_actions());
-    later.upstreams = vec![upstream::Proxied::new(logged_server("cmux-cua", &log, &cache))];
+    let server = logged_server(UPSTREAM_SERVER, &log, &cache, true);
+    later.upstreams = vec![upstream::Proxied::new(server)];
     let all = later.list();
     let look = all.iter().find(|t| t["name"] == "cua_look").expect("cua_look is listed");
     assert!(look["description"].as_str().unwrap().contains("Ask before you click."), "{look}");
     let index = call(&mut later, "cmux_docs", json!({}));
     assert_eq!(index["structuredContent"]["servers"]["cmux-cua"], "Ask before you click.");
-    assert_eq!(starts(), 1, "listing started the server");
+    assert_eq!(starts(&log), 1, "listing started the server");
 
     // Its first call starts it and gets the server's own answer.
     let ran =
         call(&mut later, "cmux_exec", json!({"script": "return await cmux.cua_look({x: 2});"}));
     assert_eq!(ran["structuredContent"]["result"]["content"][0]["text"], "saw {\"x\": 2}", "{ran}");
-    assert_eq!(starts(), 2);
+    assert_eq!(starts(&log), 2);
+
+    // A server whose spec does not say keepList (computer use forwards its
+    // helper's list) starts to list, kept list or not.
+    let mut unkept = logged_server(UPSTREAM_SERVER, &log, &cache, false);
+    assert!(!unkept.descriptors(&BTreeSet::new()).is_empty());
+    assert_eq!(starts(&log), 3);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A tool only the kept list names (the server dropped it since) does not
+/// run: the start that would run it gets the server's own list, which
+/// replaces the kept one and tells the client to list again.
+#[test]
+fn a_kept_tool_the_server_dropped_does_not_run() {
+    let (dir, log, cache) = lazy_dir("dropped");
+    logged_server(UPSTREAM_SERVER, &log, &cache, true).descriptors(&BTreeSet::new());
+    let kept = std::fs::read_dir(&cache).unwrap().next().unwrap().unwrap().path();
+    let mut listing: Value =
+        serde_json::from_str(&std::fs::read_to_string(&kept).unwrap()).unwrap();
+    listing["tools"].as_array_mut().unwrap().push(json!({"name": "gone", "inputSchema": {}}));
+    std::fs::write(&kept, listing.to_string()).unwrap();
+
+    let mut server = logged_server(UPSTREAM_SERVER, &log, &cache, true);
+    let listed = server.descriptors(&BTreeSet::new());
+    assert!(listed.iter().any(|t| t["name"] == "cua_gone"), "{listed:?}");
+    let (message, state) = server.call("gone", json!({}), None).unwrap_err();
+    assert!(message.contains("no longer lists gone"), "{message}");
+    assert_eq!(state, "not_run");
+    assert!(server.take_changed(), "the client lists again");
+    assert!(!server.descriptors(&BTreeSet::new()).iter().any(|t| t["name"] == "cua_gone"));
+    assert!(!std::fs::read_to_string(&kept).unwrap().contains("gone"), "the kept list is replaced");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A kept server that does not start is not started again on every call:
+/// the same backoff as a list.
+#[test]
+fn a_kept_server_that_cannot_start_waits_before_starting_again() {
+    let (dir, log, cache) = lazy_dir("broken");
+    logged_server(UPSTREAM_SERVER, &log, &cache, true).descriptors(&BTreeSet::new());
+    assert_eq!(starts(&log), 1);
+    // The same server, broken since: it exits at once.
+    let broken = "import os\nopen(os.environ['START_LOG'], 'a').write('started\\n')\n";
+    let mut server = logged_server(broken, &log, &cache, true);
+    assert!(!server.descriptors(&BTreeSet::new()).is_empty(), "listed from the kept list");
+    for _ in 0..2 {
+        let (_, state) = server.call("look", json!({}), None).unwrap_err();
+        assert_eq!(state, "not_run");
+    }
+    assert_eq!(starts(&log), 2, "one start in the backoff");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

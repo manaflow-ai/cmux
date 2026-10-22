@@ -189,6 +189,12 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         "{upstreams}"
     );
     assert_eq!(upstreams[0]["command"], json!(cua), "{upstreams}");
+    // acpmux's own servers list from the cmux server's kept list; computer
+    // use forwards its helper's list, so it starts to list.
+    assert_eq!(upstreams[0]["keepList"], Value::Null, "{upstreams}");
+    for own in &upstreams.as_array().unwrap()[1..] {
+        assert_eq!(own["keepList"], json!(true), "{upstreams}");
+    }
     assert_eq!(upstreams[1]["args"], json!(["secret-mcp"]), "{upstreams}");
     assert_eq!(upstreams[1]["env"]["ACPMUX_SECRET_SESSION"], json!(id), "{upstreams}");
     assert_eq!(upstreams[2]["args"], json!(["offer-mcp"]), "{upstreams}");

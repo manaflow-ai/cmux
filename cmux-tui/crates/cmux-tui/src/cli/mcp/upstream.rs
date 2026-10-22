@@ -8,11 +8,14 @@
 //! `cmux_exec` script calls them through `Server::call`, under the same
 //! allowlist as every other tool.
 //!
-//! A server's list is kept in [`listing_cache_dir`], keyed by its command,
-//! args and the command file's size and time: a chat lists the tools from
-//! there and starts the server only when a tool of its is called
-//! (ask-a3c16b28b7: every chat ran all of them from launch). The list a
-//! start gets replaces the kept one.
+//! The list of a server whose spec says `keepList` (acpmux's own servers,
+//! whose tools and instructions its binary fixes) is kept in
+//! [`listing_cache_dir`], keyed by its command, args and the command file's
+//! size and time: a chat lists the tools from there and starts the server
+//! only when a tool of its is called (ask-a3c16b28b7: every chat ran all of
+//! them from launch). The list a start gets replaces the kept one. Other
+//! servers (computer use forwards its helper's list, memory's depends on the
+//! config) start to list, as before.
 
 use std::collections::BTreeSet;
 use std::io::{BufRead, BufReader, Write};
@@ -46,6 +49,8 @@ pub(super) struct Spec {
     pub args: Vec<String>,
     pub env: Vec<(String, String)>,
     pub call_timeout: Duration,
+    /// Its list depends only on its command file and args (`keepList`).
+    pub keep_list: bool,
 }
 
 /// The servers in `value` (the env's JSON). A bad entry is left out and
@@ -77,7 +82,8 @@ pub(super) fn specs(value: Option<std::ffi::OsString>) -> Vec<Spec> {
             let call_timeout = item["callTimeoutSecs"]
                 .as_u64()
                 .map_or(CALL_TIMEOUT, |secs| Duration::from_secs(secs.clamp(1, 24 * 3600)));
-            Some(Spec { name, command, args, env, call_timeout })
+            let keep_list = item["keepList"].as_bool().unwrap_or(false);
+            Some(Spec { name, command, args, env, call_timeout, keep_list })
         })
         .collect()
 }
@@ -136,6 +142,8 @@ pub(super) struct Upstream {
     failed: Option<(String, Instant)>,
     /// Its kept list's file (`listing_file`), when there is a cache.
     cache: Option<PathBuf>,
+    /// A start got a list other than the kept one the client was given.
+    changed: bool,
 }
 
 /// Why a request has no result.
@@ -180,20 +188,27 @@ impl Upstream {
             instructions: None,
             failed: None,
             cache: None,
+            changed: false,
         }
     }
 
-    /// Keeps the server's last list in `dir`, and lists from it before a start.
+    /// Keeps the server's last list in `dir`, and lists from it before a
+    /// start, when its spec says `keepList`.
     pub(super) fn with_listing_cache(mut self, dir: PathBuf) -> Self {
-        self.cache = Some(listing_file(&dir, &self.spec));
+        if self.spec.keep_list {
+            self.cache = Some(listing_file(&dir, &self.spec));
+        }
         self
     }
 
     /// The kept list, when there is one: tools and instructions.
     fn load_listing(&mut self) -> bool {
-        let Some(text) = self.cache.as_ref().and_then(|f| std::fs::read_to_string(f).ok()) else {
+        let Some(file) = &self.cache else { return false };
+        // A list is a few KiB; a bigger file is not one this server wrote.
+        if std::fs::metadata(file).map_or(true, |meta| meta.len() > 1 << 20) {
             return false;
-        };
+        }
+        let Ok(text) = std::fs::read_to_string(file) else { return false };
         let Ok(kept) = serde_json::from_str::<Value>(&text) else { return false };
         let Some(tools) = kept["tools"].as_array() else { return false };
         self.tools = Some(tools.clone());
@@ -216,7 +231,12 @@ impl Upstream {
         let (Some(dir), Some(name)) = (file.parent(), file.file_name()) else { return };
         // Each chat's own temp file, then one rename: a reader sees a whole list.
         let tmp = dir.join(format!(".{}.{}.tmp", name.to_string_lossy(), std::process::id()));
-        let written = std::fs::create_dir_all(dir)
+        let mut private = std::fs::DirBuilder::new();
+        private.recursive(true);
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut private, 0o700);
+        let written = private
+            .create(dir)
             .and_then(|()| std::fs::write(&tmp, kept.to_string()))
             .and_then(|()| std::fs::rename(&tmp, file));
         if written.is_err() {
@@ -275,7 +295,17 @@ impl Upstream {
     /// The server's own name of cmux tool `name`, when it is one of its.
     pub(super) fn owns(&self, name: &str) -> Option<String> {
         let tool = name.strip_prefix(&self.prefix)?.strip_prefix('_')?;
-        self.tools.iter().flatten().any(|known| known["name"] == tool).then(|| tool.to_owned())
+        self.lists(tool).then(|| tool.to_owned())
+    }
+
+    /// Whether its list has its own tool `tool`.
+    fn lists(&self, tool: &str) -> bool {
+        self.tools.iter().flatten().any(|known| known["name"] == tool)
+    }
+
+    /// Whether a start got a list other than the kept one; asking clears it.
+    pub(super) fn take_changed(&mut self) -> bool {
+        std::mem::take(&mut self.changed)
     }
 
     /// `tools/call` of `tool`: the server's result unchanged, or why there
@@ -288,7 +318,21 @@ impl Upstream {
         cap: Option<Duration>,
     ) -> Result<Value, (String, &'static str)> {
         if self.conn.is_none() {
-            self.start().map_err(|error| (error, "not_run"))?;
+            // A kept list lists the tools of a server that may not start:
+            // the same backoff as a list.
+            if let Some((error, at)) = &self.failed
+                && at.elapsed() < START_BACKOFF
+            {
+                return Err((error.clone(), "not_run"));
+            }
+            if let Err(error) = self.start() {
+                self.failed = Some((error.clone(), Instant::now()));
+                return Err((error, "not_run"));
+            }
+            // The kept list named it; the server's own may not.
+            if !self.lists(tool) {
+                return Err((format!("the server no longer lists {tool}"), "not_run"));
+            }
         }
         let params = json!({"name": tool, "arguments": arguments});
         let timeout = cap.map_or(self.spec.call_timeout, |cap| cap.min(self.spec.call_timeout));
@@ -351,7 +395,7 @@ impl Upstream {
                 START_TIMEOUT,
             )
             .map_err(Failure::message)?;
-        self.instructions = init["instructions"].as_str().map(str::to_owned);
+        let instructions = init["instructions"].as_str().map(str::to_owned);
         self.notify("notifications/initialized")?;
         let mut tools = Vec::new();
         let mut cursor = None::<String>;
@@ -365,7 +409,11 @@ impl Upstream {
                 _ => break,
             }
         }
-        self.tools = Some(tools);
+        let tools = Some(tools);
+        self.changed |=
+            self.tools.is_some() && (self.tools != tools || self.instructions != instructions);
+        self.tools = tools;
+        self.instructions = instructions;
         self.failed = None;
         self.keep_listing();
         Ok(())
@@ -467,6 +515,8 @@ pub(super) struct ProxiedCall {
     pub inner: std::sync::Arc<std::sync::Mutex<Upstream>>,
     pub name: String,
     pub arguments: Value,
+    /// Told when the call's start changed the server's list.
+    pub notes: Option<super::watch::Output>,
 }
 
 impl ProxiedCall {
@@ -479,7 +529,13 @@ impl ProxiedCall {
                 "details": {}, "retryable": true});
             return super::tool_error(super::envelope(error, "not_run", None));
         };
-        match upstream.call(&tool, self.arguments, cap) {
+        let called = upstream.call(&tool, self.arguments, cap);
+        if upstream.take_changed()
+            && let Some(notes) = &self.notes
+        {
+            let _ = notes.tools_changed();
+        }
+        match called {
             Ok(result) => result,
             Err((message, state)) => {
                 let error = json!({
@@ -558,6 +614,7 @@ impl<B: super::Backend> super::Server<B> {
             inner: proxied.inner.clone(),
             name: name.to_owned(),
             arguments: Value::Object(arguments.clone()),
+            notes: self.notes.clone(),
         })
     }
 }
