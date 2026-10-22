@@ -1,16 +1,10 @@
-// A path chip's hover card (Leo 2026-10-21: "all these I hope can be previewed"): the file's
-// name and path, Open, and a quick look at it: an image's thumbnail (`image.load`) or a text file's
-// first lines (`link.preview`, a bounded read on the host). A locked chip (outside the session's
-// folders) has the card too: the lock means outside, not "can't open". What the host sends from
-// outside the folders follows `agentPane.links.outsideRoots`: images as #23879 shows them inline,
-// text only under `open` (the default), never a deny-listed path. A folder shows only its name and
-// Open (or, in a chat on another machine, the note and no Open). Open is the chip's own open (`link.openPath`), so the host decides where the file shows
-// ("Open new tabs and links"), never the chat pane's own navigation.
-// When the host has no preview (an image it refuses, such as one outside the folders before
-// #23879, or a file it won't read) the card is the plain file card: name, path and Open, never an
-// empty thumbnail. In a chat on another machine the host reads nothing here (`{remote: true}`),
-// and the card says the file is on that machine, with no Open of a same-named file or folder on
-// this Mac; the host refuses that chat's `image.load` and `link.openPath` before any lookup too.
+// A path chip's hover card (Leo 2026-10-21: "all these I hope can be previewed"): the file's name
+// and path, Open, and a quick look: an image's thumbnail (`image.load`) or a text file's first lines
+// (`link.preview`). A locked chip (outside the session's folders) has the card too: the lock means
+// outside, not "can't open"; what the host sends from outside follows `agentPane.links.outsideRoots`.
+// Open is the chip's own `link.openPath`, so the host decides where the file shows ("Open new tabs
+// and links"). With no preview the card is the plain file card, never an empty thumbnail. In a chat
+// on another machine the host reads nothing here (`{remote: true}`): the card says so, with no Open.
 import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { AnchoredCard } from "../../../ui/Tooltip";
 import { Lock } from "../conversation/icons";
@@ -29,51 +23,53 @@ export type PathPreview =
 /// PDF's first page.
 const IMAGE_PREVIEW = /\.(?:png|jpe?g|gif|webp|heic|tiff?|bmp|svg|pdf)$/i;
 
-/// How long a card waits for the host before it settles on the plain file card (name, path and
-/// Open). A hover never waits on a host that doesn't answer.
+/// How long a card waits for the host before it settles on the plain file card; tests shorten it.
 const PREVIEW_TIMEOUT_MS = 4000;
 let previewTimeout = PREVIEW_TIMEOUT_MS;
-
-/// Tests shorten the wait; undefined restores it.
 export function setPathPreviewTimeout(ms: number | undefined): void {
   previewTimeout = ms ?? PREVIEW_TIMEOUT_MS;
 }
 
-/// `askChipHost`, or a refusal with no code once `previewTimeout` passes. The native request
-/// itself can't be withdrawn; the card just stops waiting for it.
-function ask(method: string, params: Record<string, unknown>): Promise<ChipHostAnswer> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
+/// `askChipHost`, or a refusal with no code once the wait passes or the card closes (`signal`),
+/// whichever is first; the wait's timer goes with it. The native request itself can't be
+/// withdrawn: the card just stops waiting for it.
+function ask(method: string, params: Record<string, unknown>, signal: AbortSignal): Promise<ChipHostAnswer> {
+  let stop = () => {};
   const late = new Promise<ChipHostAnswer>((resolve) => {
-    timer = setTimeout(() => resolve({ ok: false }), previewTimeout);
+    const timer = setTimeout(() => resolve({ ok: false }), previewTimeout);
+    stop = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", stop);
+      resolve({ ok: false });
+    };
+    signal.addEventListener("abort", stop);
+    if (signal.aborted) stop();
   });
-  return Promise.race([askChipHost(method, params), late]).finally(() => clearTimeout(timer));
+  return Promise.race([askChipHost(method, params), late]).finally(stop);
 }
 
 /// The host's preview of `path`, asked each time the card opens (a log grows, a screenshot is taken
-/// again at the same path); null when it has none. `link.preview` goes first, for folders and
-/// images too: in a chat on another machine it answers `{remote: true}` and the card asks nothing
-/// more (no thumbnail of a same-named file on this Mac). A folder gets nothing else.
-///
-/// A `link.*` refusal is the host's answer about this path (an image isn't text, an outside file
-/// isn't read): an image still asks for its thumbnail. Any other refusal (a host without
-/// `link.preview`, a lost or timed-out call) can't say whether the chat is on this Mac, so the card
-/// is the plain file card and asks nothing more. `cancelled` stops follow-ups once the card closes.
+/// again); null when it has none. `link.preview` goes first, for folders and images too: in a chat
+/// on another machine it answers `{remote: true}` and the card asks nothing more. A `link.*`
+/// refusal is the host's answer about the path (an image isn't text), so an image still asks for
+/// its thumbnail; any other refusal (a host without `link.preview`, a lost or timed-out call) can't
+/// say where the chat runs, so the card is the plain file card.
 export async function loadPathPreview(
   path: string,
   folder: boolean,
-  cancelled: () => boolean = () => false,
+  signal: AbortSignal = new AbortController().signal,
 ): Promise<PathPreview | null> {
-  const answer = await ask("link.preview", { path });
+  const answer = await ask("link.preview", { path }, signal);
   if (!answer.ok && !answer.code?.startsWith("link.")) return null;
   const reply = (answer.ok ? answer.value : undefined) as
     | { lines?: unknown; truncated?: unknown; remote?: unknown }
     | null
     | undefined;
   if (reply?.remote === true) return { kind: "remote" };
-  if (folder || cancelled()) return null;
+  if (folder || signal.aborted) return null;
   if (IMAGE_PREVIEW.test(path)) {
     // An image the host would not draw is never shown as text: the card stays the plain file card.
-    const image = await ask("image.load", { src: path });
+    const image = await ask("image.load", { src: path }, signal);
     const src = image.ok ? (image.value as { src?: unknown } | null | undefined)?.src : undefined;
     return typeof src === "string" && src.startsWith("data:image/") ? { kind: "image", src } : null;
   }
@@ -83,22 +79,18 @@ export async function loadPathPreview(
     : null;
 }
 
-/// This hover's preview: undefined until this hover's answer arrives, so a card opened again never
-/// shows the last hover's image or Open while a new answer (perhaps `remote`) is out.
+/// This hover's preview: undefined until this hover's answer arrives (a card opened again never
+/// shows the last hover's image or Open), and closing the card ends its wait.
 function usePathPreview(path: string, open: boolean, folder: boolean): PathPreview | null | undefined {
-  // A new token each time the card opens (or its path changes): answers carry the token they were
-  // asked under, and only the current one shows.
   const hover = useMemo(() => ({ open, path, folder }), [open, path, folder]);
   const [preview, setPreview] = useState<{ hover: object; value: PathPreview | null } | undefined>(undefined);
   useEffect(() => {
     if (!hover.open) return;
-    let live = true;
-    void loadPathPreview(hover.path, hover.folder, () => !live).then((value) => {
-      if (live) setPreview({ hover, value });
+    const closed = new AbortController();
+    void loadPathPreview(hover.path, hover.folder, closed.signal).then((value) => {
+      if (!closed.signal.aborted) setPreview({ hover, value });
     });
-    return () => {
-      live = false;
-    };
+    return () => closed.abort();
   }, [hover]);
   return preview?.hover === hover ? preview.value : undefined;
 }

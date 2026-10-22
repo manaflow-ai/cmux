@@ -3,41 +3,26 @@ import { JSDOM } from "jsdom";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", { url: "http://localhost/", pretendToBeVisual: true });
 const scope = globalThis as Record<string, unknown>;
-const keys = [
-  "window",
-  "document",
-  "navigator",
-  "HTMLElement",
-  "Element",
-  "Node",
-  "MutationObserver",
-  "ResizeObserver",
-  "getComputedStyle",
-  "requestAnimationFrame",
-  "cancelAnimationFrame",
-  "IS_REACT_ACT_ENVIRONMENT",
-] as const;
-const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
-beforeAll(() => {
-  Object.assign(scope, {
-    window: dom.window,
-    document: dom.window.document,
-    navigator: dom.window.navigator,
-    HTMLElement: dom.window.HTMLElement,
-    Element: dom.window.Element,
-    Node: dom.window.Node,
-    MutationObserver: dom.window.MutationObserver,
-    ResizeObserver: class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    },
-    getComputedStyle: dom.window.getComputedStyle,
-    requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0) as unknown as number,
-    cancelAnimationFrame: (handle: number) => clearTimeout(handle),
-    IS_REACT_ACT_ENVIRONMENT: true,
-  });
-});
+const globals: Record<string, unknown> = {
+  window: dom.window,
+  document: dom.window.document,
+  navigator: dom.window.navigator,
+  HTMLElement: dom.window.HTMLElement,
+  Element: dom.window.Element,
+  Node: dom.window.Node,
+  MutationObserver: dom.window.MutationObserver,
+  ResizeObserver: class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
+  getComputedStyle: dom.window.getComputedStyle,
+  requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0) as unknown as number,
+  cancelAnimationFrame: (handle: number) => clearTimeout(handle),
+  IS_REACT_ACT_ENVIRONMENT: true,
+};
+const saved = Object.keys(globals).map((key) => [key, key in scope, scope[key]] as const);
+beforeAll(() => Object.assign(scope, globals));
 afterAll(() => {
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
