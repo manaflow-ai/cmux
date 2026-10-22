@@ -47,17 +47,6 @@ class RemoteDaemonNoticesTest(unittest.TestCase):
         self.assertIn("Anmol Sethi", text)
         self.assertIn("Keith Rarick", text)
 
-    def test_every_module_go_mod_requires_is_reviewed(self) -> None:
-        # A module new to daemon/remote/go.mod needs a review entry. A version
-        # bump does not (see the next tests): the texts are what is reviewed.
-        go_mod = (ROOT / "daemon/remote/go.mod").read_text()
-        block = go_mod.split("require (", 1)[1].split(")", 1)[0]
-        required = [line.split()[0] for line in block.splitlines() if line.strip() and not line.strip().startswith("//")]
-        self.assertTrue(required)
-        reviewed = {key.rsplit("@", 1)[0] for key in self.review["modules"]}
-        for path in required:
-            self.assertIn(path, reviewed)
-
     def bumped(self, path: str, version: str) -> list:
         return [dataclasses.replace(m, version=version) if m.path == path else m for m in self.modules]
 
@@ -120,12 +109,17 @@ class RemoteDaemonNoticesTest(unittest.TestCase):
             rdn.compose(self.modules, "go1.27.0", self.review)
         self.assertIn("go1.27.0", str(raised.exception))
 
-    def test_a_go_minor_bump_with_an_added_license_file_fails(self) -> None:
+    def test_a_go_minor_bump_with_an_added_notice_ships_it(self) -> None:
         root = self.go_root()
-        (root / "NOTICE").write_text("an unreviewed notice\n")
+        (root / "NOTICE").write_text("an added Go notice\n")
+        text = rdn.compose(self.modules, "go1.27.3", self.review, go_root=root)
+        self.assertIn("an added Go notice", text)
+
+    def test_a_go_minor_bump_under_a_disallowed_license_fails(self) -> None:
         with self.assertRaises(rdn.NoticeError) as raised:
-            rdn.compose(self.modules, "go1.27.3", self.review, go_root=root)
+            rdn.compose(self.modules, "go1.27.3", self.review, go_root=self.go_root(LICENSE=GPL.encode()))
         self.assertIn("go1.27.3", str(raised.exception))
+        self.assertIn("GPL-3.0", str(raised.exception))
 
     def test_a_failed_review_write_leaves_the_review_whole(self) -> None:
         review = self.tmp / "review.json"
@@ -145,10 +139,64 @@ class RemoteDaemonNoticesTest(unittest.TestCase):
         rdn.write_atomically(review, "rewritten\n")
         self.assertEqual(review.read_text(), "rewritten\n")
 
+    def module(self, path: str, **files: str) -> "rdn.Module":
+        directory = self.tmp / path.replace("/", "_")
+        directory.mkdir()
+        for name, text in files.items():
+            (directory / name).write_text(text)
+        return rdn.Module(path, "v1.0.0", directory)
+
+    def test_a_new_module_under_an_allowed_license_is_approved_and_recorded(self) -> None:
+        # Leo: "why would you just fail "without a review" instead of fixing it". A module
+        # whose license is on the allowlist needs no person: the check approves it, says so,
+        # and --update-review writes its entry.
+        new = self.module("example.com/mit", LICENSE=MIT)
+        notes: list = []
+        text = rdn.compose([*self.modules, new], "go1.26.8", self.review, notes=notes)
+        self.assertIn("== example.com/mit v1.0.0 ==\nLicense: MIT.", text)
+        self.assertTrue(any("example.com/mit@v1.0.0" in note and "MIT" in note for note in notes), notes)
+        entry = rdn.updated_review([*self.modules, new], self.review)["modules"]["example.com/mit@v1.0.0"]
+        self.assertEqual(entry, {"license": "MIT", "files": {"LICENSE": hashlib.sha256(MIT.encode()).hexdigest()}})
+
+    def test_a_new_module_under_a_disallowed_license_fails_naming_it(self) -> None:
+        with self.assertRaises(rdn.NoticeError) as raised:
+            rdn.compose([*self.modules, self.module("example.com/gpl", LICENSE=GPL)], "go1.26.8", self.review)
+        self.assertIn("example.com/gpl@v1.0.0", str(raised.exception))
+        self.assertIn("GPL-3.0", str(raised.exception))
+
+    def test_a_new_module_with_an_unknown_license_fails_naming_it(self) -> None:
+        with self.assertRaises(rdn.NoticeError) as raised:
+            rdn.compose([*self.modules, self.module("example.com/odd", LICENSE="All rights reserved.\n")], "go1.26.8", self.review)
+        self.assertIn("example.com/odd@v1.0.0", str(raised.exception))
+        self.assertIn("LICENSE", str(raised.exception))
+
+    def test_a_bump_to_another_allowed_license_is_approved_and_recorded(self) -> None:
+        modules = self.bumped("golang.org/x/sys", "v0.99.0")
+        sys_module = next(m for m in modules if m.path == "golang.org/x/sys")
+        (sys_module.directory / "LICENSE").write_text(MIT)
+        (sys_module.directory / "PATENTS").unlink()
+        text = rdn.compose(modules, "go1.26.8", self.review)
+        self.assertIn("== golang.org/x/sys v0.99.0 ==\nLicense: MIT.", text)
+        updated = rdn.updated_review(modules, self.review)["modules"]
+        self.assertEqual(updated["golang.org/x/sys@v0.99.0"]["license"], "MIT")
+        self.assertFalse([key for key in updated if key.startswith("golang.org/x/sys@") and key != "golang.org/x/sys@v0.99.0"])
+
+    def test_a_module_the_build_no_longer_links_is_a_note_and_dropped(self) -> None:
+        dropped = self.modules[0]
+        notes: list = []
+        rdn.compose(self.modules[1:], "go1.26.8", self.review, notes=notes)
+        self.assertTrue(any(f"{dropped.path}@{dropped.version}" in note for note in notes), notes)
+        self.assertNotIn(f"{dropped.path}@{dropped.version}", rdn.updated_review(self.modules[1:], self.review)["modules"])
+
     def test_compose_is_deterministic(self) -> None:
         self.assertEqual(rdn.compose(self.modules, "go1.26.8", self.review),
                          rdn.compose(list(reversed(self.modules)), "go1.26.8", self.review))
 
+
+MIT = ("MIT License\n\nCopyright (c) 2026 Example\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\n"
+       "of this software, to deal in the Software without restriction.\n\n"
+       "The above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n")
+GPL = "GNU GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007\n"
 
 # The reviewed texts, keyed by sha256, from the module cache (go mod download).
 FIXTURE_TEXTS: dict[str, bytes] = {}
