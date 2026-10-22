@@ -28,6 +28,11 @@ extension SidebarListViewComponents {
             hidden = [.group(group)]
             for ws in groups[group]?.workspaces ?? [] { hidden.insert(.workspace(ws.id)) }
             for member in groups[group]?.items ?? [] { hidden.insert(.item(member.item.id)) }
+            // Its subgroups and their rows lift with it (nested groups): every row under the header deeper than it.
+            if let start = displayed.rows.firstIndex(where: { $0.key == press.key }) {
+                let depth = displayed.rows[start].depth
+                for row in displayed.rows[(start + 1)...].prefix(while: { $0.depth > depth }) { hidden.insert(row.key) }
+            }
             origin = .position(DropPosition(section: model.sections[s].id, index: n))
         case let .item(item):
             // A listed document item drags only on the document.
@@ -162,7 +167,10 @@ extension SidebarListViewComponents {
             drag.blockBases = blockBases()
             let base = SidebarLayout.make(sections: listSections, metrics: metrics, options: options(includeGap: false))
             drag.docGeometry = doc.geometry(base, width: bounds.width, acceptance: drag.docAcceptance, blocks: drag.blockBases)
-            if drag.groupHeadHeight != nil { drag.groupBlocks = SidebarGroupReorder.blocks(of: base.rows) }
+            if drag.groupHeadHeight != nil {
+                drag.groupBlocks = SidebarGroupReorder.blocks(of: base.rows)
+                drag.groupAnchors = SidebarGroupReorder.anchors(of: base.rows)
+            }
         }
         guard let (geometry, rows) = drag.docGeometry else { return }
         // The rest shape's centre under the pointer: it does not move when the card morphs (no hit oscillation at a block edge).
@@ -182,7 +190,10 @@ extension SidebarListViewComponents {
             if current < min(shown.count, drag.groupBlocks.count) { reorder.shift = shown[current].lowerBound - drag.groupBlocks[current].lowerBound }
             let card = drag.lift.frame
             let index = reorder.index(top: card.minY, bottom: card.maxY, current: current)
-            if let probe = reorder.probeY(for: index) { y = probe }
+            // The drop goes beside a whole top-level block, never into a group or among its members (u9772: since
+            // nested groups the acceptance table takes those, and a probe at a group's last member nested the
+            // dragged group into it).
+            return showGroupReorder(drag, index: index, geometry: geometry, displayY: displayY, point: point)
         } else if drag.groupHeadHeight == nil, drag.blockTarget == nil {
             // A row moves by its edges too (Lawrence 2026-10-20): its top past the middle of the row above moves it up,
             // its bottom past the middle of the row below moves it down (`SidebarDragGeometry.edgeY`). The rest shape's

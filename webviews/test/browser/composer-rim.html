@@ -33,7 +33,8 @@
       </div>
       <div class="acpmux-composer">
         <ul class="ui-glass acpmux-composer-queue" id="queue">
-          <li class="acpmux-queued">queued</li>
+          <li class="acpmux-queue-header"><span class="acpmux-queued-kind" id="queue-kind">Queued</span></li>
+          <li class="acpmux-queued" id="queued">queued</li>
         </ul>
         <div class="ui-glass acpmux-composer-box" id="queue-composer">
           <div class="acpmux-md" contenteditable="true" id="queue-composer-field"></div>
@@ -45,6 +46,24 @@
         </div>
       </div>
       <div class="nt-box" id="newtab"><input class="nt-field" id="newtab-field" /></div>
+      <!-- A long queue as ComposerQueue.tsx draws it: the band with a prompt's actions, its fold bar,
+           then the card (queued-glass.test.ts). -->
+      <div class="acpmux-composer">
+        <ul class="ui-glass acpmux-composer-queue" id="long-queue">
+          <li class="acpmux-queued" id="long-queued">
+            <span class="acpmux-queued-text">queued</span>
+            <span class="acpmux-queued-actions"
+              ><button type="button" class="acpmux-queued-action" id="long-queued-action">Send now</button></span
+            >
+          </li>
+        </ul>
+        <div class="ui-glass acpmux-queue-foldbar" id="long-queue-fold">
+          <button type="button" class="acpmux-queue-fold" id="long-queue-fold-button">2 more</button>
+        </div>
+        <div class="ui-glass acpmux-composer-box" id="long-queue-composer">
+          <div class="acpmux-md" contenteditable="true"></div>
+        </div>
+      </div>
     </section>
     <div class="ui-positioner"><div class="ui-popup ui-glass nt-popover" id="popover"></div></div>
     <script type="module" src="./composer-rim.harness.ts"></script>
