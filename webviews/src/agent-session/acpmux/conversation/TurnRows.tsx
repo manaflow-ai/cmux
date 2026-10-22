@@ -16,7 +16,7 @@ import { ThoughtRow } from "./ThoughtRow";
 import { toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
-import { workedLabel } from "./turns";
+import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
 import { TimedLabel, TurnTokens } from "./TurnTokens";
 import { ChevronRight, Retry } from "./icons";
 import { ForkButton, MessageCopy, MessageTime, PinButton, ReadAloudButton, ROW_ICON } from "./MessageActions";
@@ -45,7 +45,6 @@ export function WorkedFor({
   controls?: string;
   onToggle: () => void;
 }) {
-  const t = useT();
   return (
     <button
       type="button"
@@ -184,6 +183,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const kind = failed ? failureKind(row.error, route) : undefined;
   // Only the CLI's own login (or an unexplained 401 on a direct route) asks to sign in (cx-w10a).
   const authenticationFailed = kind === "subscription-login" || kind === "auth";
+  const label = footerLabel(t, row);
   // A failure reads as the turn's answer does: its own block above the footer row, never squeezed
   // into it (Codex, Claude desktop). The row is one quiet line under the answer's left edge; it
   // shows on hover or keyboard focus, and always for a failed turn (VirtualTranscript marks the
@@ -191,10 +191,18 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   return (
     <>
       {failed && <TurnFailure message={row.error} route={route} switchModel={switchModel} />}
-      <div className={failed ? "cv-turn-actions cv-turn-actions--failed" : "cv-turn-actions"}>
-        {!row.folded && (
+      <div
+        className={
+          failed
+            ? "cv-turn-actions cv-turn-actions--failed"
+            : isEmptyFooter(row)
+              ? "cv-turn-actions cv-turn-actions--empty"
+              : "cv-turn-actions"
+        }
+      >
+        {label && (
           <span className="cv-turn-summary">
-            {workedLabel(t, row)}
+            {label}
             {row.tokens && (
               <>
                 <span className="cv-worked__sep" aria-hidden="true">

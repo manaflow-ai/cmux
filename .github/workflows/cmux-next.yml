@@ -153,9 +153,13 @@ on:
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/check-single-omnibar.py
+      - scripts/cmux-next/check-no-swiftui.py
+      - scripts/cmux-next/no-swiftui-allowlist.txt
       - scripts/cmux-next/check-perf-source-guard.py
       - scripts/cmux-next/check-overlay-glass.py
       - tests/test_cmux_next_perf_source_guard.py
+      - scripts/cmux-next/check-fixture-host-names.py
+      - tests/test_cmux_next_fixture_host_names.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
@@ -375,9 +379,13 @@ on:
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/check-single-omnibar.py
+      - scripts/cmux-next/check-no-swiftui.py
+      - scripts/cmux-next/no-swiftui-allowlist.txt
       - scripts/cmux-next/check-perf-source-guard.py
       - scripts/cmux-next/check-overlay-glass.py
       - tests/test_cmux_next_perf_source_guard.py
+      - scripts/cmux-next/check-fixture-host-names.py
+      - tests/test_cmux_next_fixture_host_names.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
@@ -668,16 +676,23 @@ jobs:
           TIP_SWIFT_SUITE: ${{ inputs.tip_swift_suite || false }}
           SAME_TREE_SHA: ${{ inputs.same_tree_sha }}
           GH_TOKEN: ${{ github.token }}
+          # The labels at the push. A re-run keeps that event, so it reads them
+          # live: adding full-ci or dev-build and re-running routes on them.
+          EVENT_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
         run: |
           set -euo pipefail
           changed="$RUNNER_TEMP/changed-files.txt"
           labels=""
           if [[ "$EVENT_NAME" == pull_request ]]; then
             git diff --no-renames --name-only HEAD^1 HEAD > "$changed"
-            labels="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" --jq '[.[].name] | join(",")' 2>/dev/null)" || {
-              echo "::warning::could not read the pull request labels; routing on its paths only"
-              labels=""
-            }
+            if [[ "$GITHUB_RUN_ATTEMPT" == 1 ]]; then
+              labels="$EVENT_LABELS"
+            else
+              labels="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" --jq '[.[].name] | join(",")' 2>/dev/null)" || {
+                echo "::warning::could not read the pull request labels; routing on its paths only"
+                labels=""
+              }
+            fi
           else
             : > "$changed"
           fi
@@ -1216,6 +1231,25 @@ jobs:
         continue-on-error: true
         run: python3 -I scripts/cmux-next/check-single-omnibar.py "$GITHUB_WORKSPACE"
 
+      # Blocking (not a warn-only style check): the allowlist only shrinks, so a
+      # pull request compares with its merge commit's first parent and a push
+      # with the commit before it (plans/cmux-next/no-swiftui-DESIGN.md).
+      - name: No new SwiftUI (macOS UI is AppKit)
+        id: no-swiftui
+        continue-on-error: true
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          base=()
+          [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
+          if [[ "$EVENT_NAME" == push && -n "$BEFORE" && "$BEFORE" != 0000000000000000000000000000000000000000 ]]; then
+            git cat-file -e "$BEFORE^{commit}" 2>/dev/null \
+              || git fetch --no-tags --quiet --depth=1 origin "$BEFORE" || true
+            git cat-file -e "$BEFORE^{commit}" 2>/dev/null && base=(--base "$BEFORE")
+          fi
+          python3 -I scripts/cmux-next/check-no-swiftui.py ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE"
+
       - name: No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
         id: no-process-scan
         continue-on-error: true
@@ -1450,6 +1484,7 @@ jobs:
             bash scripts/cmux-next/tests/check-overlay-glass.test.sh
             bash scripts/cmux-next/tests/check-no-process-scan.test.sh
           bash scripts/cmux-next/tests/check-single-omnibar.test.sh
+            bash scripts/cmux-next/tests/check-no-swiftui.test.sh
             bash scripts/cmux-next/tests/check-state-roots.test.sh
             bash scripts/cmux-next/tests/check-dialog-key-hints.test.sh
             bash scripts/cmux-next/tests/check-switch-fetches.test.sh
@@ -1549,6 +1584,16 @@ jobs:
           python3 tests/test_cmux_next_perf_source_guard.py
           python3 -I scripts/cmux-next/check-perf-source-guard.py
 
+      # Gallery fixtures are public sample data the gallery and PR captures render: they name
+      # machines "studio-mac" or "build-box", never a fleet host (the capture privacy check
+      # refuses a still that shows one, and WorkspaceHoverCardGallery's "air-blue" did).
+      - name: No fleet host names in gallery fixtures
+        id: fixture-host-names
+        continue-on-error: true
+        run: |
+          python3 tests/test_cmux_next_fixture_host_names.py
+          python3 -I scripts/cmux-next/check-fixture-host-names.py
+
       - name: Checks job structure
         id: checks-structure
         continue-on-error: true
@@ -1615,6 +1660,8 @@ jobs:
           python3 tests/test_next_batch_groups.py
           python3 tests/test_cmux_next_base_autofix_finishes.py
           python3 tests/test_cmux_next_pr_autofix_settings.py
+          python3 tests/test_cmux_next_pr_changed_paths.py
+          python3 tests/test_pr_capture_check_paths.py
           python3 tests/test_car_guards.py
 
       # The cmux NEXT DEV update script (an unchanged build is left alone; an
@@ -1740,6 +1787,7 @@ jobs:
             ${{ steps.no-swift-cli.outcome }}|No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
             ${{ steps.no-swift-closed-history.outcome }}|No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)
             ${{ steps.single-omnibar.outcome }}|One omnibar (popups, New Tab and tabs share AddressBarView)
+            ${{ steps.no-swiftui.outcome }}|No new SwiftUI (macOS UI is AppKit)
             ${{ steps.no-process-scan.outcome }}|No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
             ${{ steps.state-roots.outcome }}|No literal state roots (per-build isolation S7, cx-is1kf.8)
             ${{ steps.dialog-key-hints.outcome }}|Dialog buttons show their keys (u2647)
@@ -1767,6 +1815,7 @@ jobs:
             ${{ steps.capability-text.outcome }}|Capability texts never say update the app
             ${{ steps.app-store-rules.outcome }}|App Store review rules (cmux-next-ios intents, Info.plist)
             ${{ steps.perf-source-guard.outcome }}|Perf source guard (no window capture or CATransaction.flush)
+            ${{ steps.fixture-host-names.outcome }}|No fleet host names in gallery fixtures
             ${{ steps.checks-structure.outcome }}|Checks job structure
             ${{ steps.tier-routing.outcome }}|Tier routing
             ${{ steps.package-dependency-lists.outcome }}|Package dependency lists sorted
@@ -4295,6 +4344,8 @@ jobs:
       contents: read
       pull-requests: write
     uses: ./.github/workflows/pr-red-checks-comment.yml
+    with:
+      own_checks_green: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
 
   push-attribution:
     needs: [checks, generated-files, swift-canary, swift-test, daemon-test, release-compile, cmux-scheme-compile, perf-gate]
