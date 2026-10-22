@@ -52,11 +52,15 @@ export function ToolGroupRow({
   items,
   disclosureKey,
   folded = false,
+  thoughtId = (n) => `${disclosureKey}:thought:${n}`,
 }: {
   kind: ToolGroupKind;
   items: readonly AcpmuxActivity[];
   disclosureKey: string;
   folded?: boolean;
+  /// The id of the group's n-th thought (TurnRows.tsx `thoughtIds`): the same one the thought had
+  /// drawn on its own before a call joined it to this group.
+  thoughtId?: (n: number) => string;
 }) {
   const t = useT();
   const [open, setOpen] = useTranscriptDisclosure(disclosureKey, kind !== "edits" && !folded);
@@ -72,13 +76,15 @@ export function ToolGroupRow({
     useMemo(() => items.slice(0, cut), [items, cut]),
     () => setAll(true),
   );
-  const shown = cut ? items.slice(cut) : items;
-  // A thought between calls is named by its place in the whole group, which a call appended after
-  // it or "+K more" never moves, so its open state stays with it (ThoughtRow keeps it by `id`).
-  const thoughtRow = (item: AcpmuxActivity) => {
-    const at = items.indexOf(item);
-    return <ThoughtRow key={`thought:${at}`} id={`${disclosureKey}:thought:${at}`} item={item} />;
-  };
+  // Each entry with its place in the whole group: a thought is named by how many thoughts come
+  // before it, which a call appended after it or "+K more" never moves, so its open state stays
+  // with it (ThoughtRow keeps it by `id`), even when one activity shows twice.
+  const shown = useMemo(() => {
+    let thoughts = 0;
+    return items.map((item, at) => ({ item, at, thought: item.tool ? -1 : thoughts++ })).slice(cut);
+  }, [items, cut]);
+  const entryRow = ({ item, thought }: (typeof shown)[number], call: (item: AcpmuxActivity) => ReactNode) =>
+    item.tool ? call(item) : <ThoughtRow key={`thought:${thought}`} id={thoughtId(thought)} item={item} />;
   const detailsId = useId();
   const tools = useMemo(() => groupCalls(items).map((item) => item.tool!), [items]);
   const files = useMemo(() => (kind === "edits" ? toolFiles(tools) : []), [kind, tools]);
@@ -142,17 +148,15 @@ export function ToolGroupRow({
               </button>
             )}
             {kind === "commands"
-              ? shown.map((item, index) =>
-                  item.tool ? <CommandRow key={item.tool.id || index} item={item} /> : thoughtRow(item),
+              ? shown.map((entry) =>
+                  entryRow(entry, (item) => <CommandRow key={item.tool!.id || entry.at} item={item} />),
                 )
               : [
                   ...files.map((file) => <EditDiff key={file.path} file={file} />),
                   // Reads and searches, and edits that carried no diff (a delete, a move), as rows.
                   ...shown
-                    .filter((item) => !files.length || !item.tool?.diffs?.length)
-                    .map((item, index) =>
-                      item.tool ? <ToolRow key={item.tool.id || index} item={item} /> : thoughtRow(item),
-                    ),
+                    .filter(({ item }) => !files.length || !item.tool?.diffs?.length)
+                    .map((entry) => entryRow(entry, (item) => <ToolRow key={item.tool!.id || entry.at} item={item} />)),
                 ]}
           </div>
         </div>

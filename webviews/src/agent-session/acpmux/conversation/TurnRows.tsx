@@ -57,8 +57,17 @@ export function WorkedFor({
 
 /// One entry of a run: a group, a message or sub-session card, a lone call or a thought. `live`: the entry is the
 /// last of the live turn's latest row, so a thought there may still stream. `folded`: the run is
-/// finished and draws no summary line of its own, so a group starts closed.
-function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean, folded = false): ReactNode {
+/// finished and draws no summary line of its own, so a group starts closed. `thoughts`: how many
+/// thoughts the row's earlier entries hold, so a thought is `${rowId}:thought:<n>` wherever it
+/// draws, on its own or inside a group a later call joined it to.
+function groupNode(
+  group: ToolGroup,
+  index: number,
+  rowId: string,
+  live: boolean,
+  folded = false,
+  thoughts = 0,
+): ReactNode {
   switch (group.type) {
     case "group":
       return (
@@ -68,6 +77,7 @@ function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean
           items={group.items}
           folded={folded}
           disclosureKey={`group:${group.kind}:${group.items[0]!.tool!.id || `${rowId}:${index}`}`}
+          thoughtId={(n) => `${rowId}:thought:${thoughts + n}`}
         />
       );
     case "mcp":
@@ -93,7 +103,7 @@ function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean
       return group.item.tool ? (
         <ToolRow key={group.item.tool.id || index} item={group.item} />
       ) : (
-        <ThoughtRow key={index} id={`${rowId}:${index}`} item={group.item} streaming={live} />
+        <ThoughtRow key={index} id={`${rowId}:thought:${thoughts}`} item={group.item} streaming={live} />
       );
   }
 }
@@ -141,6 +151,19 @@ export function runStretches(row: AcpmuxRow, groups: readonly ToolGroup[]): RunS
   return stretches;
 }
 
+/// How many thoughts come before each entry of a run. A thought keeps its number as calls arrive
+/// (a run only grows at its end, and grouping keeps the order), so its open state stays with it when
+/// a call that finished joins it to a group (Codex review of #24075).
+export function thoughtIds(groups: readonly ToolGroup[]): number[] {
+  let thoughts = 0;
+  return groups.map((group) => {
+    const before = thoughts;
+    const items = "items" in group ? group.items : [group.item];
+    thoughts += items.filter((item) => !item.tool && item.kind !== "note").length;
+    return before;
+  });
+}
+
 /// An entry a folded run keeps in sight beside its summary lines: a coordination card or an edit.
 function staysInSight(group: ToolGroup): boolean {
   if (group.type === "message" || group.type === "subsession") return true;
@@ -153,6 +176,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
   const items = row.items;
   const groups = useMemo(() => toolGroups(items ?? []), [items]);
   const stretches = useMemo(() => runStretches(row, groups), [row, groups]);
+  const thoughts = useMemo(() => thoughtIds(groups), [groups]);
   const nodes = stretches.map((stretch) => {
     const drawn = stretch.groups.map((group, offset) => {
       const at = stretch.from + offset;
@@ -162,6 +186,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
         row.id,
         row.live === true && at === groups.length - 1,
         row.foldRun === true && !stretch.fold,
+        thoughts[at],
       );
     });
     if (!stretch.fold) return drawn;

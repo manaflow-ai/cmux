@@ -64,6 +64,12 @@ const row = (list: AcpmuxActivity[]): AcpmuxRow => ({
   items: list,
 });
 
+const command: AcpmuxActivity = {
+  kind: "tool",
+  text: "Ran ls",
+  tool: { id: "cmd", title: "ls", kind: "execute", command: "ls", status: "completed" },
+};
+
 async function draw(list: AcpmuxActivity[]) {
   const { createRoot } = await import("react-dom/client");
   const { ToolRows } = await import("../src/agent-session/acpmux/conversation/TurnRows");
@@ -71,19 +77,21 @@ async function draw(list: AcpmuxActivity[]) {
   await act(async () => root!.render(<ToolRows row={row(list)} sessionId="thought-state" />));
 }
 
+const toggles = () => [...host.querySelectorAll<HTMLButtonElement>("button.cv-thought")];
+const opened = () =>
+  toggles()
+    .filter((node) => node.getAttribute("aria-expanded") === "true")
+    .map((node) => node.nextElementSibling?.textContent ?? "");
+const click = (node: Element) => act(async () => node.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
+
 test("an opened thought inside a group stays open as calls join and as +K more opens", async () => {
   const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
   resetTranscriptDisclosure();
   await draw(items(6));
   // Six reads: the first is behind "+1 more"; thoughts 1 to 4 show, each closed.
-  const toggles = () => [...host.querySelectorAll<HTMLButtonElement>("button.cv-thought")];
   expect(toggles().length).toBe(4);
   const second = toggles()[1]!;
   await act(async () => second.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
-  const opened = () =>
-    toggles()
-      .filter((node) => node.getAttribute("aria-expanded") === "true")
-      .map((node) => node.nextElementSibling?.textContent ?? "");
   expect(opened()).toHaveLength(1);
   expect(opened()[0]).toContain("Thought number 2:");
   // A seventh read joins: the tail moves on, the same thought stays the open one.
@@ -96,4 +104,35 @@ test("an opened thought inside a group stays open as calls join and as +K more o
   expect(toggles().length).toBe(6);
   expect(opened()).toHaveLength(1);
   expect(opened()[0]).toContain("Thought number 2:");
+});
+
+test("an opened thought stays open when the call after it finishes and joins it to a group", async () => {
+  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  resetTranscriptDisclosure();
+  // A live run leaves out the read still running (turns.ts codexRuns): the thought draws on its own.
+  await draw([command, read(0), read(1), thought(0)]);
+  expect(toggles().length).toBe(1);
+  await click(toggles()[0]!);
+  expect(opened()).toHaveLength(1);
+  // The read finishes: the thought now sits inside "Read 3 files", still open.
+  await draw([command, read(0), read(1), thought(0), read(2)]);
+  expect(host.querySelector(".cv-tool-group")).not.toBeNull();
+  expect(opened()).toHaveLength(1);
+  expect(opened()[0]).toContain("Thought number 0:");
+});
+
+test("one activity shown twice in a group keeps two thoughts' states apart", async () => {
+  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  resetTranscriptDisclosure();
+  const same = thought(9);
+  const list = [read(0), same, read(1), same, read(2)];
+  await draw(list);
+  expect(toggles().length).toBe(2);
+  await click(toggles()[0]!);
+  expect(toggles().map((node) => node.getAttribute("aria-expanded"))).toEqual(["true", "false"]);
+  // Drawn again from scratch, each thought reads its own saved choice.
+  act(() => root?.unmount());
+  root = undefined;
+  await draw(list);
+  expect(toggles().map((node) => node.getAttribute("aria-expanded"))).toEqual(["true", "false"]);
 });
