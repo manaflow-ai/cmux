@@ -1034,7 +1034,10 @@
    row's badge is, so the names line up with the repository's. The count at the end of the row opens
    them: "⑂ 4 ›", quiet until the row is hovered or highlighted; its chevron turns down while open. */
 .acpmux-location-row[data-worktree] { padding-inline-start: 28px; }
-.acpmux-location-branch-icon { display: inline-flex; flex: none; color: var(--agent-muted); }
+.acpmux-location-branch-icon { display: inline-flex; flex: none; justify-content: center; width: 20px; color: var(--agent-muted); }
+/* One column for every name (Leo 2026-10-21, "aligned columns"): the actions after the folders start
+   where a repository's name does, past the 20 px badge and its 8 px gap. */
+.acpmux-folder-popover .acpmux-location-action { padding-inline-start: 28px; }
 .acpmux-location-worktrees {
   display: inline-flex;
   flex: none;
