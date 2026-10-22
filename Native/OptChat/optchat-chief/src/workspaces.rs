@@ -1159,8 +1159,276 @@ fn rename_by_key(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
     result
 }
 
+/// The capabilities a reader of conversation tabs declares, so the daemon lists a chat tab as
+/// itself (`conversation.agent_session`), not as the blank page it downgrades to.
+const TAB_CAPABILITIES: [&str; 4] = [
+    "conversation-tabs-v1",
+    "agent-session-tabs-v1",
+    "page-tabs-v1",
+    "frontend-browser-tabs-v1",
+];
+
+/// One JSON-line connection to a session daemon that reads conversation tabs canonically.
+struct LineClient {
+    reader: BufReader<UnixStream>,
+    writer: UnixStream,
+    next: u64,
+}
+
+impl LineClient {
+    fn connect(socket: &Path) -> Result<LineClient, String> {
+        let stream = UnixStream::connect(socket)
+            .map_err(|e| format!("the session daemon {}: {e}", socket.display()))?;
+        stream
+            .set_read_timeout(Some(Duration::from_secs(60)))
+            .map_err(|e| e.to_string())?;
+        let writer = stream.try_clone().map_err(|e| e.to_string())?;
+        let mut client = LineClient {
+            reader: BufReader::new(stream),
+            writer,
+            next: 0,
+        };
+        client.call(json!({"cmd": "set-client-info", "kind": "automation",
+            "name": "optchat-chief", "capabilities": TAB_CAPABILITIES}))?;
+        Ok(client)
+    }
+
+    /// One request; Ok carries its `data`.
+    fn call(&mut self, mut request: Value) -> Result<Value, String> {
+        self.next += 1;
+        request["id"] = json!(self.next);
+        let what = request["cmd"].as_str().unwrap_or("request").to_owned();
+        let mut line = request.to_string().into_bytes();
+        line.push(b'\n');
+        self.writer.write_all(&line).map_err(|e| e.to_string())?;
+        loop {
+            let mut answer = String::new();
+            if self
+                .reader
+                .read_line(&mut answer)
+                .map_err(|e| e.to_string())?
+                == 0
+            {
+                return Err(format!("{what}: the session daemon closed the connection"));
+            }
+            let Ok(value) = serde_json::from_str::<Value>(&answer) else {
+                continue;
+            };
+            if value["id"] != json!(self.next) {
+                continue;
+            }
+            return match value["ok"].as_bool() {
+                Some(true) => Ok(value["data"].clone()),
+                _ => Err(format!(
+                    "{what}: {}",
+                    value["error"]["message"]
+                        .as_str()
+                        .map_or_else(|| value["error"].to_string(), str::to_owned)
+                )),
+            };
+        }
+    }
+
+    fn workspaces(&mut self) -> Result<Value, String> {
+        self.call(json!({"cmd": "list-workspaces"}))
+    }
+}
+
+/// Every tab of tree workspace `ws`, pane by pane.
+fn tree_tabs(ws: &Value) -> Vec<Value> {
+    let mut tabs = Vec::new();
+    for screen in ws["screens"].as_array().into_iter().flatten() {
+        for pane in screen["panes"].as_array().into_iter().flatten() {
+            tabs.extend(pane["tabs"].as_array().into_iter().flatten().cloned());
+        }
+    }
+    tabs
+}
+
+/// What a live terminal of `ws` runs, when it is not an idle shell (an idle shell titles
+/// itself `user@host:dir`): such a workspace stays where it is until its command ends.
+fn busy_terminal(ws: &Value) -> Option<String> {
+    tree_tabs(ws).into_iter().find_map(|t| {
+        let live = t["kind"] == "pty" && t["dead"] != json!(true);
+        let title = t["title"].as_str().unwrap_or("").to_owned();
+        let idle = title
+            .split_once(':')
+            .is_some_and(|(who, _)| who.contains('@'));
+        (live && !idle).then_some(if title.is_empty() {
+            "a terminal".to_owned()
+        } else {
+            title
+        })
+    })
+}
+
+/// `name` without the `aN · ` the Chief once put before every subagent workspace's name (the
+/// app hid it in the Chief's own section, so this is the name the user saw).
+fn shown_name(name: &str) -> String {
+    let rest = name.strip_prefix('a').and_then(|r| {
+        let digits = r.bytes().take_while(u8::is_ascii_digit).count();
+        (1..=6).contains(&digits).then(|| &r[digits..])
+    });
+    match rest.and_then(|r| r.strip_prefix(" · ")) {
+        Some(task) if !task.trim().is_empty() => task.to_owned(),
+        _ => name.to_owned(),
+    }
+}
+
 /// Moves every workspace on the Chief's owner daemon `owner` into the user's session, the
-/// app's daemon `app`; answers how many moved. Not yet implemented.
-pub fn adopt_owner_workspaces(_owner: &Path, _app: &Path) -> Result<usize, String> {
-    Ok(0)
+/// app's daemon `app` (a423, Lawrence 2026-10-21: "all workspaces must be the same"); answers
+/// how many moved. Each becomes an ordinary workspace there with the same key (a running
+/// subagent's CMUX_WORKSPACE_ID still names it), the name the user saw, its tabs (each agent
+/// chat on the same acpmux session, each terminal as a new shell in the same directory, each
+/// page) and the user's personal group of the same name. The old one closes (to the owner's
+/// closed history) only after every chat tab is in the new one; a copy that could not take
+/// every chat is closed instead, for the next start to try again. A workspace whose terminal
+/// runs a command stays. One that the user's session already holds by key is not copied twice.
+///
+/// - Returns: the number of workspaces moved.
+/// - Throws: when either daemon cannot be read.
+pub fn adopt_owner_workspaces(owner: &Path, app: &Path) -> Result<usize, String> {
+    let mut from = LineClient::connect(owner)?;
+    let mut to = LineClient::connect(app)?;
+    let tree = from.workspaces()?;
+    let group_names: std::collections::HashMap<String, String> = tree["groups"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|g| Some((g["id"].as_str()?.to_owned(), g["name"].as_str()?.to_owned())))
+        .collect();
+    let held: std::collections::HashSet<String> = to.workspaces()?["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|w| w["key"].as_str().map(str::to_owned))
+        .collect();
+    let mut moved = 0;
+    // Bottom first: the user's session lists each new workspace first, so the order holds.
+    let workspaces: Vec<Value> = tree["workspaces"].as_array().cloned().unwrap_or_default();
+    for ws in workspaces.iter().rev() {
+        let Some(key) = ws["key"].as_str() else {
+            continue;
+        };
+        if ws["kind"] != "normal" {
+            continue;
+        }
+        if let Some(command) = busy_terminal(ws) {
+            eprintln!(
+                "optchat: workspace {key} stays on the Chief's session while it runs {command}"
+            );
+            continue;
+        }
+        let group = ws["group"]
+            .as_str()
+            .and_then(|g| group_names.get(g))
+            .cloned()
+            .unwrap_or_else(|| AGENTS_GROUP_NAME.to_owned());
+        if held.contains(key) {
+            eprintln!(
+                "optchat: workspace {key} is already in the user's session; left on the Chief's"
+            );
+            continue;
+        }
+        match copy_workspace(&mut to, app, ws, key, &group) {
+            Ok(()) => {
+                let closed = from.call(json!({"cmd": "close-workspace", "key": key,
+                    "end_terminals": true, "mutation_id": format!("optchat-adopt-close-{key}"),
+                    "origin": MUTATION_ORIGIN}));
+                match closed {
+                    Ok(_) => moved += 1,
+                    Err(e) => {
+                        eprintln!("optchat: workspace {key} moved, but its old copy stays: {e}")
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("optchat: workspace {key} stays on the Chief's session: {e}");
+                let _ = to.call(
+                    json!({"cmd": "close-workspace", "key": key, "end_terminals": true,
+                    "mutation_id": format!("optchat-adopt-undo-{key}"), "origin": MUTATION_ORIGIN}),
+                );
+            }
+        }
+    }
+    Ok(moved)
+}
+
+/// Makes tree workspace `ws` (key `key`) in the user's session at `app` (connection `to`) with
+/// its tabs, in personal group `group`. Err when any chat tab could not be made.
+fn copy_workspace(
+    to: &mut LineClient,
+    app: &Path,
+    ws: &Value,
+    key: &str,
+    group: &str,
+) -> Result<(), String> {
+    let name = shown_name(ws["name"].as_str().unwrap_or(""));
+    let made = to.call(json!({"cmd": "create-workspace", "key": key, "name": name,
+        "mutation_id": format!("optchat-adopt-ws-{key}"), "origin": MUTATION_ORIGIN}))?;
+    let workspace = made["workspace"].clone();
+    let mut pane: Option<Value> = None;
+    for (i, tab) in tree_tabs(ws).iter().enumerate() {
+        let conversation = &tab["conversation"];
+        if tab["kind"] == "pty" {
+            let cwd = tab["cwd"].as_str().unwrap_or("/");
+            let placed = to.call(json!({"cmd": "create-terminal", "workspace": workspace,
+                "cwd": cwd, "mutation_id": format!("optchat-adopt-term-{key}-{i}"),
+                "origin": MUTATION_ORIGIN}))?;
+            pane = pane.or_else(|| placed.get("pane").cloned().filter(|p| !p.is_null()));
+        } else if conversation.is_object() {
+            let mut request = json!({"cmd": "new-conversation-tab",
+                "mutation_id": format!("optchat-adopt-tab-{key}-{i}"), "origin": MUTATION_ORIGIN});
+            match &pane {
+                Some(p) => request["pane"] = p.clone(),
+                None => request["workspace"] = workspace.clone(),
+            }
+            if let Some(session) = conversation["agent_session"].as_object() {
+                let session: serde_json::Map<String, Value> = session
+                    .iter()
+                    .filter(|(_, v)| !v.is_null())
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                request["agent_session"] = Value::Object(session);
+            } else {
+                for field in ["page", "route", "conversation"] {
+                    if !conversation[field].is_null() {
+                        request[field] = conversation[field].clone();
+                    }
+                }
+            }
+            to.call(request)?;
+            if pane.is_none() {
+                pane = pane_of(to, key);
+            }
+        } else if tab["kind"] == "browser" {
+            let Some(p) = pane.clone() else { continue };
+            let mut request = json!({"cmd": "new-frontend-browser-tab", "pane": p,
+                "url": tab["url"].as_str().unwrap_or("about:blank"),
+                "engine": tab["browser_engine"].as_str().unwrap_or("cef"), "activate": false,
+                "idempotency_key": format!("optchat-adopt-page-{key}-{i}")});
+            if let Some(profile) = tab["browser_profile_id"].as_str() {
+                request["profile_id"] = json!(profile);
+            }
+            // Best effort: a page is not a chat.
+            if let Err(e) = to.call(request) {
+                eprintln!("optchat: workspace {key}: a page did not move: {e}");
+            }
+        }
+    }
+    if let Err(e) = place_in_personal_group(app, key, group) {
+        eprintln!("optchat: workspace {key} stays ungrouped: {e}");
+    }
+    Ok(())
+}
+
+/// The first pane of workspace `key` in the session `to` reads.
+fn pane_of(to: &mut LineClient, key: &str) -> Option<Value> {
+    let tree = to.workspaces().ok()?;
+    let ws = tree["workspaces"]
+        .as_array()?
+        .iter()
+        .find(|w| w["key"] == key)?
+        .clone();
+    ws["screens"][0]["panes"][0].get("id").cloned()
 }

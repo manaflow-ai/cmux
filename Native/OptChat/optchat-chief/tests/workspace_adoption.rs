@@ -95,6 +95,10 @@ fn app_answer(chat_ok: bool) -> impl Fn(&Value, &Log) -> Option<Value> + Send + 
             .any(|r| r["cmd"] == "create-workspace");
         match (req["cmd"].as_str(), req["operation"].as_str()) {
             (Some("set-client-info"), _) => Some(json!({})),
+            (Some("identify"), _) => Some(json!({"app": "cmux", "version": "test", "protocol": 12,
+                "capabilities": ["workspace-groups-v1", "agent-session-tabs-v1"], "daemon_handoff": 1,
+                "generation": "g", "pid": 1, "registry_id": "r", "session": "cmux-app",
+                "terminal_revision": 1, "workspace_revision": 1})),
             (Some("list-workspaces"), _) => Some(json!({"groups": [], "workspaces": if created {
                 json!([{"id": 70, "key": "k-1", "kind": "normal", "name": "Panes performance", "resource_id": "ws_new1", "screens": []}])
             } else { json!([]) }})),
