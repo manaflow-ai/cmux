@@ -125,9 +125,7 @@ enum AgentPaneContextMenu {
 
     /// A row's SF Symbol as a template image, as the action registry's menus draw theirs.
     static func icon(_ symbol: String) -> NSImage? {
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-        image?.isTemplate = true
-        return image
+        NSImage.menuSymbol(symbol)
     }
 
     /// WebKit's own item (Cut, Copy, Look Up...): its target forgets the menu once WebKit's popUp
