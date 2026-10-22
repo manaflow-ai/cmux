@@ -23,8 +23,18 @@ public struct MacName: Sendable {
     /// name are told apart by the name their owner gave them.
     public func displayName() async -> String {
         let computer = await computerName()
-        let host = kernelHostName()
-        return Self.isDefaultName(computer) && !host.isEmpty && !Self.isDefaultName(host) ? host : computer
+        return Self.displayName(computer: computer, localHost: nil, kernel: kernelHostName())
+    }
+
+    /// `displayName()`'s pick from the names already read.
+    nonisolated static func displayName(computer: String, localHost: String?, kernel: String) -> String {
+        let host = hostName(localHost: localHost, kernel: kernel)
+        return isDefaultName(computer) && !host.isEmpty && !isDefaultName(host) ? host : computer
+    }
+
+    /// The host name to show from the names already read.
+    nonisolated static func hostName(localHost: String?, kernel: String) -> String {
+        kernel
     }
 
     /// Whether `name` looks like a name macOS made up: one that names the
