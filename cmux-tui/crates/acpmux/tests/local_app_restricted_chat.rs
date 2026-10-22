@@ -28,6 +28,7 @@ use tokio::sync::mpsc;
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+const TITLER: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_titler.py");
 
 fn dir(tag: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("arc-{tag}-{}", std::process::id()));
@@ -77,6 +78,8 @@ fn hub(d: &Path) -> Arc<Hub> {
         "defaultHarness": "fclaude",
         // A restricted chat asks whatever the default says.
         "permissionPolicy": "approve-all",
+        // Records each title request: a restricted chat's would start its profile unrestricted.
+        "titles": {"command": ["python3", TITLER, d.join("titled")]},
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
@@ -235,6 +238,9 @@ async fn not_now_opens_a_restricted_claude_chat_only_with_the_setting_on() {
     let path: Value = serde_json::from_str(&app.ask(&s, "envs: PATH").await).unwrap();
     let path = path["PATH"].as_str().unwrap_or_else(|| panic!("{path}"));
     assert!(!path.is_empty() && !path.contains(work.to_str().unwrap()), "{path}");
+    // Its finished turns ask for no generated title.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert!(!d.join("titled").exists(), "a restricted chat was titled");
 
     // A chat that turned a tool off keeps it off, restricted: acpmux's own `--disallowedTools`
     // is not the profile shaping the command line.
