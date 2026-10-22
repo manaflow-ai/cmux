@@ -266,11 +266,17 @@ export class SubagentFold {
   /// Records why a subagent that just stopped stopped (``stopReasonOf``), or forgets the reason
   /// of one that runs again.
   private settleReason(agent: Subagent): void {
-    const reason = stopReasonOf(agent, this.stops, this.cause);
+    // The turn's stop is a reason only for the subagents that turn started and its stop ends.
+    const cause = this.turn.has(agent.id) ? this.cause : undefined;
+    const reason = stopReasonOf(agent, this.stops, cause);
     if (reason) {
       agent.stopReason = reason;
-      if (agent.state === "cancelled") this.stops.reasons.set(agent.id, reason);
-    } else delete agent.stopReason;
+      this.stops.reasons.set(agent.id, reason);
+    } else {
+      delete agent.stopReason;
+      // One that runs again starts a new life: an old stop's reason is not its next one's.
+      if (agent.state === "running") this.stops.reasons.delete(agent.id);
+    }
     if (agent.state !== "running") this.stops.requested.delete(agent.id);
   }
 
@@ -322,10 +328,10 @@ export function subagentsLeft(kind: string, msg: any): SubagentsLeft | undefined
   return HARNESS_GONE.has(kind) ? { state: "disconnected", turn: false } : undefined;
 }
 /// Why `agent` stopped, when the pane knows: only a `cancelled` one has a reason. One this pane
-/// asked to stop (the subagent's own Stop) the person stopped; a foreground one stopped while
-/// the pane's Stop or a Send now (`cause`) was ending its turn stopped for that (a background
-/// one outlives its turn's stop, so a turn's stop says nothing about it); else the reason
-/// recorded before a rebuild. Anything else (Claude's own TaskStop, another client's cancel, a
+/// asked to stop (the subagent's own Stop) the person stopped; a foreground one its own turn
+/// started, stopped while the pane's Stop or a Send now (`cause`, given only for those) was
+/// ending that turn, stopped for that (a background one outlives its turn's stop, so a turn's
+/// stop says nothing about it); else the reason recorded before a rebuild. Anything else (Claude's own TaskStop, another client's cancel, a
 /// Codex interrupt) has none: the line shows no reason rather than a guess.
 export function stopReasonOf(
   agent: Pick<Subagent, "id" | "state" | "background">,

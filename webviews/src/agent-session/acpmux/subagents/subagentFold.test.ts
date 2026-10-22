@@ -130,6 +130,34 @@ describe("why a subagent stopped", () => {
     expect(reasons(again)).toEqual([["a", "running", undefined]]);
   });
 
+  test("a subagent an earlier turn started takes no reason from this turn's stop", () => {
+    const fold = new SubagentFold();
+    fold.startTurn();
+    spawn(fold, "old");
+    fold.startTurn();
+    spawn(fold, "new");
+    fold.cause = "sendNow";
+    end(fold, "old", "cancelled");
+    end(fold, "new", "cancelled");
+    expect(reasons(fold)).toEqual([
+      ["old", "cancelled", undefined],
+      ["new", "cancelled", "sendNow"],
+    ]);
+  });
+
+  test("one that runs again forgets its old reason: a later stop with no known cause has none", () => {
+    const stops = subagentStops();
+    const fold = new SubagentFold(stops);
+    spawn(fold, "a");
+    fold.cause = "user";
+    end(fold, "a", "cancelled");
+    fold.cause = undefined;
+    end(fold, "a", "running");
+    end(fold, "a", "cancelled");
+    expect(reasons(fold)).toEqual([["a", "cancelled", undefined]]);
+    expect(stops.reasons.has("a")).toBe(false);
+  });
+
   test("the prompt it was given is kept for Restart", () => {
     const fold = new SubagentFold();
     spawn(fold, "a", { prompt: "Review src/app.ts", kind: "Explore" });

@@ -4631,12 +4631,19 @@ function AcpmuxPane() {
               attachments: (await directClient.current?.promptAttachments(rowId)) ?? [],
             }))().catch(() => undefined),
       }),
-      ...(connected && {
-        restartSubagent: (agent: Subagent) => {
-          const text = restartPrompt(agent, translate);
-          if (text) void callNative("chat.send", { text }).catch(() => undefined);
-        },
-      }),
+      // Restart sends a prompt as the composer would: never to a View Only chat (the composer takes
+      // it over first), never from a subagent's read-only pane, and only to the chat whose row was
+      // clicked (a row left over from a chat switch sends nothing).
+      ...(connected &&
+        snapshot.sessionId &&
+        !snapshot.summary?.watching &&
+        !readOnlySubagent && {
+          restartSubagent: ((owner: string) => (agent: Subagent) => {
+            if (sessionIdRef.current !== owner) return;
+            const text = restartPrompt(agent, translate);
+            if (text) void callNative("chat.send", { text }).catch(() => undefined);
+          })(snapshot.sessionId),
+        }),
       ...(connected &&
         retryModels.length > 1 && {
           retryWith: {
@@ -4684,6 +4691,9 @@ function AcpmuxPane() {
       retryHarnessName,
       retryTop,
       catalog,
+      snapshot.sessionId,
+      snapshot.summary?.watching,
+      readOnlySubagent,
     ],
   );
   // Streaming text changes rows on every chunk; only the turn's tool calls change its files.
