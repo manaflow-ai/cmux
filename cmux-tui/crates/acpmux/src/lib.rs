@@ -54,6 +54,7 @@ pub mod local_stream;
 pub mod login_env;
 pub mod mailbox;
 pub mod native;
+pub mod no_panic;
 pub mod offer_mcp;
 pub(crate) mod opencode_ask;
 #[cfg(windows)]
@@ -87,6 +88,7 @@ pub mod session_identity;
 pub mod session_name;
 mod session_scope;
 pub mod sha256;
+pub mod sr2_cost_labels;
 pub mod stats;
 pub mod store;
 pub mod subagents;
