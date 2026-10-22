@@ -21,6 +21,22 @@ struct SpaceSwitchCostTests {
 
     static func p50(_ samples: [SpaceSwitchBench.Sample]) -> Double { SpaceSwitchBench.percentile(samples.map(\.cpuMs), 0.5) }
 
+    /// "Switching spaces is still laggy" (space-switch-100x, user msg 9582): a switch shows the new space in its
+    /// own turn, like a workspace switch (`WindowManager.show`, I6): the content area holds the new space's
+    /// workspace and the sidebar lists its rows when `switchProfile` returns, with no observation hop between
+    /// (each hop is at least a frame late, and the halves drew a frame apart).
+    @Test func aSpaceSwitchShowsTheNewSpaceInItsOwnTurn() async throws {
+        let bench = try await SpaceSwitchBench(total: 20)
+        defer { bench.close() }
+        for room in [bench.rooms[1], bench.rooms[0], bench.rooms[1]] {
+            bench.services.windows.switchProfile(room, in: bench.state)
+            let shown = bench.controller.content?.workspace.id
+            #expect(shown != nil && shown == bench.state.workspaceID, "the content still showed \(shown ?? "nothing") for \(bench.state.workspaceID ?? "none") after switchProfile returned")
+            #expect(bench.shows(room), "the sidebar still listed the old space after switchProfile to \(room.rawValue) returned")
+            bench.drain()
+        }
+    }
+
     /// Not a check: where a switch spends its main-thread time (BASELINE.md), with 120 parked
     /// workspaces of a terminal and a browser tab each, and with 500 plain ones.
     @Test func profileOfASpaceSwitch() async throws {
