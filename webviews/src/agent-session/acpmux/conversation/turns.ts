@@ -470,7 +470,9 @@ function shapeTurn(
             id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
             settled: true,
             // A folded run draws otherwise, so its version moves (memos compare versions).
-            ...(liveRuns && row.kind === "activity" && !isEdit(row) && { foldRun: true, version: row.version * 4 + 3 }),
+            ...(liveRuns &&
+              row.kind === "activity" &&
+              !isEdit(row) && { foldRun: true, version: row.version * RUN_STATES + 3 }),
           })),
         );
     }
@@ -678,8 +680,10 @@ function liveTurn(
     }
     const status: AcpmuxRow = { id: LIVE_THINKING, version: 2, at, kind: WORKING, below: true };
     const doing = last && inFlightCall(last);
-    // A running command's ⌃B hint is the line's, never its row's (WorkingFor.tsx).
+    // A running command's ⌃B hint is the line's, never its row's (WorkingFor.tsx); none while the
+    // agent still writes the command (`doingDraft`).
     if (doing?.command) status.doingCommand = true;
+    if (doing?.draft) status.doingDraft = true;
     // One running call reads once: not here while its own row names it (`ownRow`).
     if (doing && doing.row !== true) {
       status.doing = doing.title;
@@ -703,6 +707,7 @@ function liveTurn(
   else {
     const doing = inFlightCall(last);
     if (doing?.command) status.doingCommand = true;
+    if (doing?.draft) status.doingDraft = true;
     if (doing && (liveRuns || doing.row !== true)) {
       status.doing = doing.title;
       if (doing.row && doing.row !== true && !liveRuns)
@@ -837,9 +842,19 @@ function activityLine(user: AcpmuxRow, work: AcpmuxRow[], plan: AcpmuxRow, clock
   const label = running?.tool
     ? runningLabel(running.tool, running.text)
     : (plan.plan?.find((entry) => entry.status === "in_progress")?.content ?? "");
+  // A started command offers ⌃B here, as on the turn's other live lines (ActivityLine.tsx).
+  const command = running?.tool?.kind === "execute" && !isDraftCall(running.tool);
   let version = 1;
   for (let index = 0; index < label.length; index += 1) version = (version * 31 + label.charCodeAt(index)) % 1_000_003;
-  return { id: `${ACTIVITY_LINE}-${user.id}`, version, at: user.at + clockOffset, kind: ACTIVITY_LINE, text: label };
+  const line: AcpmuxRow = {
+    id: `${ACTIVITY_LINE}-${user.id}`,
+    version: version * 2 + (command ? 1 : 0),
+    at: user.at + clockOffset,
+    kind: ACTIVITY_LINE,
+    text: label,
+  };
+  if (command) line.doingCommand = true;
+  return line;
 }
 
 /// A running call in one short line: a command as itself ("Ran …" would say it has finished), a
@@ -853,7 +868,7 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
 
 /// The newest call still running in a live turn's latest row, by its title, and where the
 /// transcript draws its own row (`ownRow`).
-function inFlightCall(row: AcpmuxRow): { title: string; command: boolean; row: OwnRow } | undefined {
+function inFlightCall(row: AcpmuxRow): { title: string; command: boolean; draft: boolean; row: OwnRow } | undefined {
   if (row.kind !== "activity") return undefined;
   const items = row.items ?? [];
   for (let index = items.length - 1; index >= 0; index--) {
@@ -861,7 +876,8 @@ function inFlightCall(row: AcpmuxRow): { title: string; command: boolean; row: O
     if (!tool || !isRunning(tool)) continue;
     // The row's own label, never the call's raw JSON input; a command reads as itself.
     const title = toolLabel(tool, "", (command) => command).trim();
-    return title ? { title, command: tool.kind === "execute", row: ownRow(row, items[index]!) } : undefined;
+    const draft = isDraftCall(tool);
+    return title ? { title, command: tool.kind === "execute", draft, row: ownRow(row, items[index]!) } : undefined;
   }
   return undefined;
 }
@@ -893,6 +909,11 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
   return { key, open: kind !== "mcp" && kind !== "edits" };
 }
 
+/// The drawn states of one Codex-style run, each its own version offset so a memoized row redraws
+/// on every change between them (App.tsx compares versions): 1 the live latest run, 2 an earlier
+/// run, 3 an ended turn's open fold, 4 an earlier run whose running command the live line holds.
+const RUN_STATES = 5;
+
 /// A running turn's runs as the Codex desktop app draws them (cx-ncc.108): each run folds into its
 /// summary line between the paragraphs ("Read files, ran commands", or one group's "Ran 3
 /// commands"), the latest one too as its calls finish, and opens on a click. The call in flight and
@@ -912,9 +933,12 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
         const items = kept.items ?? [];
         const shown = named === undefined ? items : items.filter((item) => item.tool?.id !== named);
         if (!shown.length) return [];
-        // Its version says whether the line holds its command, which moves without the row's.
+        // Its version says whether the line holds its command, which moves without the row's, and
+        // differs from every other state of the run (`RUN_STATES`).
         const lined = shown.length !== items.length;
-        return [{ ...kept, items: shown, settled: true, foldRun: true, version: row.version * 4 + (lined ? 3 : 2) }];
+        return [
+          { ...kept, items: shown, settled: true, foldRun: true, version: row.version * RUN_STATES + (lined ? 4 : 2) },
+        ];
       });
     // The latest run: what is happening now leaves it for the live line, so the run holds only
     // finished steps and never grows a stack of live rows (Leo 2026-10-20: "rows pile up instead
@@ -924,7 +948,7 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
       (item, at) => !(item.tool ? isRunning(item.tool) : at === all.length - 1 && item.kind !== "tool"),
     );
     if (!items.length) return [];
-    return [{ ...row, items, settled: true, foldRun: true, version: row.version * 4 + 1 }];
+    return [{ ...row, items, settled: true, foldRun: true, version: row.version * RUN_STATES + 1 }];
   });
 }
 

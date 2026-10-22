@@ -1520,13 +1520,13 @@ pre.cv-math-source {
 .cv-worked.is-below .cv-worked__time {
   color: var(--cv-text-dim);
 }
-/* Its "⌃B to run in background" shows only while the pointer is on the line. */
-.cv-worked.is-below .cv-command__bg {
+/* Its "⌃B to run in background" shows only while the pointer is on the line, on every live line. */
+:is(.cv-worked, .cv-activity) .cv-command__bg {
   animation: none;
   opacity: 0;
   transition: opacity var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out);
 }
-.cv-worked.is-below:hover .cv-command__bg {
+:is(.cv-worked, .cv-activity):hover .cv-command__bg {
   opacity: 1;
 }
 /* Its row drops the transcript row's 34px floor and bottom padding (.acpmux-row), so it is the

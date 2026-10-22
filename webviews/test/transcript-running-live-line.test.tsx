@@ -107,3 +107,68 @@ test("the older live line (Working for) carries the hint too, even while the com
   );
   expect(html).toContain("cv-command__bg");
 });
+
+// Review on #24305 (Codex xhigh): the run that gave its command to the line has its own version,
+// never one another drawn state of that run shares, or the memoized row keeps the shorter list
+// when the turn ends with its fold open (App.tsx compares ids and versions).
+test("a run whose command is on the line never shares a version with its ended, open fold", () => {
+  const user = row("u", "user");
+  const run = row("r1", "activity", { items: [call("git log"), call("cp a b", "in_progress")] });
+  const note = row("a", "assistant", { text: LONG_NOTE });
+  const step = row("r2", "activity", { items: [call("git diff")] });
+  const live = turnView([user, run, note, step], new Set(["worked-u"]), {
+    working: true,
+    liveRuns: true,
+    lineBelow: true,
+  });
+  const lined = live.find((entry) => entry.id === "r1")!;
+  expect(lined.items?.map((item) => item.tool?.id)).toEqual(["git log"]);
+  // The turn ends with no new version for the earlier run (turn_result moves no tool row).
+  const ended = turnView(
+    [
+      user,
+      run,
+      note,
+      step,
+      row("ans", "assistant", { text: "Done." }),
+      row("s", "turnSummary", { status: "completed" }),
+    ],
+    new Set(["worked-u"]),
+    { liveRuns: true, lineBelow: true },
+  );
+  const folded = ended.find((entry) => entry.id === "r1")!;
+  expect(folded.items?.map((item) => item.tool?.id)).toEqual(["git log", "cp a b"]);
+  expect(folded.version).not.toBe(lined.version);
+});
+
+test("with a todo list the activity line offers ⌃B for a running command", async () => {
+  const { ActivityLine } = await import("../src/agent-session/acpmux/conversation/ActivityLine");
+  const plan = row("p", "plan", { plan: [{ content: "Copy the logs", status: "in_progress" }] });
+  for (const liveRuns of [false, true]) {
+    const shaped = turnView(
+      [row("u", "user"), plan, row("run", "activity", { items: [call("git log"), call("cp a b", "in_progress")] })],
+      new Set(),
+      { working: true, liveRuns, lineBelow: true, sessionStatus: true },
+    );
+    const line = shaped.at(-1)!;
+    expect(line).toMatchObject({ kind: "activityLine", doingCommand: true });
+    expect(withCtrlB(<ActivityLine row={line} />)).toContain("cv-command__bg");
+  }
+});
+
+test("the older layout offers no ⌃B while the agent still writes the command", () => {
+  const draft = call("Bash", "pending", { title: "Bash", command: undefined });
+  for (const lineBelow of [false, true]) {
+    const shaped = turnView(
+      [row("u", "user"), row("run", "activity", { items: [call("git log"), draft] })],
+      new Set(),
+      {
+        working: true,
+        lineBelow,
+      },
+    );
+    const line = shaped.find((entry) => entry.kind === "working")!;
+    expect(line.doingDraft).toBe(true);
+    expect(withCtrlB(<WorkingFor row={line} now={() => line.at + 5_000} />)).not.toContain("cv-command__bg");
+  }
+});

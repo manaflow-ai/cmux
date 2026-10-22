@@ -143,7 +143,7 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
       ))}
       {/* A running command's ⌃B hint (BackgroundHint.tsx): on the line, never on its row. Keyed by
           the call, so each command's hint waits its moment again. */}
-      {!waiting && row.doingCommand && <BackgroundHint key={row.doing} />}
+      {!waiting && row.doingCommand && !row.doingDraft && <BackgroundHint key={row.doing} />}
     </div>
   );
 }

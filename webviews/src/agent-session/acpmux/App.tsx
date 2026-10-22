@@ -958,6 +958,7 @@ const WorkingRow = memo(
     a.row.thinkingNow === b.row.thinkingNow &&
     a.row.below === b.row.below &&
     a.row.doingCommand === b.row.doingCommand &&
+    a.row.doingDraft === b.row.doingDraft &&
     a.row.doingGroup === b.row.doingGroup &&
     a.row.doingGroupOpen === b.row.doingGroupOpen &&
     a.sessionId === b.sessionId,
