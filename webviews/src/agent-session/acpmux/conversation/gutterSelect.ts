@@ -9,10 +9,11 @@
 // So a press there is taken over: it starts nothing until the pointer moves, then selects from the
 // caret beside the press to the caret under the pointer, both read with x clamped into the column.
 //
-// Stop conditions: the window listeners are added on a gutter press and removed on mouseup, on
-// window blur, and when the transcript unmounts; the frame request is cancelled with them. One
-// caret hit test per animation frame while the drag lasts, nothing per row. Edge scrolling repeats
-// only while the pointer stays above or below the view during the drag.
+// Stop conditions: the window and scroll listeners are added on a gutter press and removed on
+// mouseup, on a move with the button up (released outside the page), on window blur, and when the
+// transcript unmounts; the frame request is cancelled with them. One caret hit test per animation
+// frame while the drag lasts, nothing per row. Edge scrolling repeats only while the pointer stays
+// above or below the view during the drag, and stops at the view's end.
 
 /// The column's left and right edges, and the view's box, in client coordinates.
 export type GutterGeometry = {
@@ -131,11 +132,16 @@ export function installGutterSelect(scroller: HTMLElement, thread: HTMLElement):
     const current = drag;
     if (!current?.selecting) return;
     const step = edgeScrollStep(current.y, current.geometry.view);
-    if (step !== 0) scroller.scrollTop += step;
+    const before = scroller.scrollTop;
+    if (step !== 0) scroller.scrollTop = before + step;
     extend(current);
     // The pointer still past an edge keeps the view moving, one step a frame, until it comes back,
-    // the button lifts or the window lets go.
-    if (step !== 0) frame = win.requestAnimationFrame(tick);
+    // the view reaches its end, the button lifts or the window lets go.
+    if (step !== 0 && scroller.scrollTop !== before) frame = win.requestAnimationFrame(tick);
+  };
+  /// The view scrolled under a still pointer (the wheel, or the edge scroll): the caret under it moved.
+  const onScroll = () => {
+    if (drag?.selecting && !frame) frame = win.requestAnimationFrame(tick);
   };
   const stop = () => {
     drag = undefined;
@@ -144,6 +150,7 @@ export function installGutterSelect(scroller: HTMLElement, thread: HTMLElement):
     win.removeEventListener("mousemove", onMove, true);
     win.removeEventListener("mouseup", onUp, true);
     win.removeEventListener("blur", stop);
+    scroller.removeEventListener("scroll", onScroll);
   };
   function onMove(event: MouseEvent) {
     const current = drag;
@@ -172,6 +179,11 @@ export function installGutterSelect(scroller: HTMLElement, thread: HTMLElement):
       current.x = event.clientX;
       current.y = event.clientY;
       extend(current);
+    } else if (current) {
+      // A plain click in the margin selects nothing, and lets go of a selection in the transcript as
+      // a click in a document's margin does. A field's caret (the composer's) stays.
+      const selection = doc.getSelection();
+      if (selection?.anchorNode && thread.contains(selection.anchorNode)) selection.removeAllRanges();
     }
     stop();
   }
@@ -201,6 +213,7 @@ export function installGutterSelect(scroller: HTMLElement, thread: HTMLElement):
     win.addEventListener("mousemove", onMove, true);
     win.addEventListener("mouseup", onUp, true);
     win.addEventListener("blur", stop);
+    scroller.addEventListener("scroll", onScroll, { passive: true });
   };
   scroller.addEventListener("mousedown", onDown);
   return () => {

@@ -20,14 +20,11 @@ const rows = [
   ),
   summary(19.6, { status: "completed" }),
   user("What does the gull do?", 10),
-  assistant(
-    "Charlie: a gull settles on the rail and watches the light sweep across the water until morning.",
-    9.8,
-  ),
+  assistant("Charlie: a gull settles on the rail and watches the light sweep across the water until morning.", 9.8),
   summary(9.6, { status: "completed" }),
 ];
 
-/// The middle of the text line `id`'s answer starts on, and the column's edges.
+/// The first and last text lines of the answer that starts with `text`, and the column's edges.
 function answerLine(doc: Document, text: string) {
   for (const node of doc.querySelectorAll<HTMLElement>(".acpmux-row .cv-md")) {
     if (!node.textContent?.startsWith(text)) continue;
@@ -38,12 +35,12 @@ function answerLine(doc: Document, text: string) {
   return undefined;
 }
 
-/// Presses at (x, y0) in the margin, drags to (x, y1) in steps a frame apart, and lifts.
-async function drag(ctx: PlayContext, x: number, y0: number, y1: number) {
+/// Presses at `from` in the margin, drags to `to` in steps a frame apart, and lifts.
+async function drag(ctx: PlayContext, from: { x: number; y: number }, to: { x: number; y: number }) {
   const doc = ctx.document;
   const view = doc.defaultView!;
   const scroller = doc.querySelector<HTMLElement>(".acpmux-scroll")!;
-  const init = (y: number, buttons: number): MouseEventInit => ({
+  const init = (x: number, y: number, buttons: number): MouseEventInit => ({
     bubbles: true,
     cancelable: true,
     clientX: x,
@@ -51,12 +48,13 @@ async function drag(ctx: PlayContext, x: number, y0: number, y1: number) {
     button: 0,
     buttons,
   });
-  scroller.dispatchEvent(new MouseEvent("mousedown", init(y0, 1)));
+  scroller.dispatchEvent(new MouseEvent("mousedown", init(from.x, from.y, 1)));
   for (let step = 1; step <= 6; step += 1) {
-    view.dispatchEvent(new MouseEvent("mousemove", init(y0 + ((y1 - y0) * step) / 6, 1)));
+    const at = (a: number, b: number) => a + ((b - a) * step) / 6;
+    view.dispatchEvent(new MouseEvent("mousemove", init(at(from.x, to.x), at(from.y, to.y), 1)));
     await new Promise((resolve) => view.requestAnimationFrame(resolve));
   }
-  view.dispatchEvent(new MouseEvent("mouseup", init(y1, 0)));
+  view.dispatchEvent(new MouseEvent("mouseup", init(to.x, to.y, 0)));
   await ctx.waitFor(() => !(view.getSelection()?.isCollapsed ?? true), { capMs: 1500 }).catch(() => undefined);
 }
 
@@ -67,28 +65,28 @@ export default agentPaneEntry({
   height: 560,
   widths: { narrow: 900, normal: 1100, wide: 1280 },
   anchors: [{ selector: ".acpmux-scroll" }],
-  covers: ["agent-session/acpmux/conversation/gutterSelect.ts#installGutterSelect"],
+  covers: ["agent-session/acpmux/App.tsx#VirtualTranscript"],
   variants: {
     "from-left-margin": {
-      note: "Pressed in the left margin beside the first answer and dragged down beside the third: the selection runs from the line beside the press through all three answers, as a document's margin selects.",
+      note: "Pressed in the left margin beside the first answer and dragged down into the third: the selection runs from the start of the line beside the press through all three answers, as a document's margin selects.",
       snapshot: chat(rows, { title: "Drag-select from the margin" }),
       play: async (ctx) => {
         const first = answerLine(ctx.document, "Alpha");
         const third = answerLine(ctx.document, "Charlie");
         if (!first || !third || first.left < 40) return;
-        await drag(ctx, first.left / 2, first.top, third.bottom);
+        await drag(ctx, { x: first.left / 2, y: first.top }, { x: third.left + 300, y: third.bottom });
       },
     },
     "from-right-margin": {
-      note: "Pressed in the right margin beside the second answer and dragged up beside the first: the selection runs back from the line beside the press.",
+      note: "Pressed in the right margin beside the third answer and dragged up into the first: the selection runs back from the end of the line beside the press.",
       snapshot: chat(rows, { title: "Drag-select from the margin" }),
       play: async (ctx) => {
         const first = answerLine(ctx.document, "Alpha");
-        const second = answerLine(ctx.document, "Bravo");
-        if (!first || !second) return;
+        const third = answerLine(ctx.document, "Charlie");
+        if (!first || !third) return;
         const width = ctx.document.documentElement.clientWidth;
-        if (width - second.right < 60) return;
-        await drag(ctx, (second.right + width - 16) / 2, second.bottom, first.top);
+        if (width - third.right < 60) return;
+        await drag(ctx, { x: (third.right + width - 16) / 2, y: third.bottom }, { x: first.left + 300, y: first.top });
       },
     },
   },
