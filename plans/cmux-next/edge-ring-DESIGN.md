@@ -53,13 +53,20 @@ prompt. If it does not, Edge falls back to notarizing in parallel (below).
 **Build and publish.**
 - **Trigger and coalescing.** The same trigger as the nightly: `promote-nightly-next` moves
   `nightly-next` on every green Release compile of `feat-cmux-next`. No clock, no new queue.
-- **Publish while notarizing.** `build-sign-notarize-nightly` already uploads the signed,
-  unnotarized app (`cmux-nightly-signed-unnotarized-<variant>`). It also starts the signed-app checks
-  while notarization runs ("Start the signed-app checks (they run during notarization)"). A new
-  `publish-edge` job publishes that artifact to the Edge feed as soon as those checks pass, about
-  25 min after the push instead of 43. The run then goes on exactly as today: notarize, verify,
-  publish to the Dev feed, canary, promote to Nightly. So Edge adds no build: it publishes the same
-  build earlier.
+- **Split signing from notarization (E2).** Today one job, `build-sign-notarize-nightly`, signs,
+  submits to Apple and waits up to 20 min for the notary. Only then does it upload the signed,
+  unnotarized zip (`cmux-nightly-signed-unnotarized-<variant>`). The launch check, `Verify signed
+  nightly app`, `needs:` that whole job. The checks it runs during notarization
+  (`signed-app-checks.sh`) are read-only: Mach-O load on the macOS 14 floor, notices, load commands,
+  packaging. They run no code from the bundle.
+- E2 therefore splits the job:
+  - `sign-nightly` signs and uploads the zip. It ends about 25 min after the push.
+  - `notarize-nightly` (secrets) and a secret-free `verify-signed-for-edge` (the launch smoke) both
+    `need` it and run in parallel.
+  - `publish-edge` needs `verify-signed-for-edge` with its canary step in enforce mode, not report.
+    It publishes about 28–30 min after the push instead of 43.
+  - The rest goes on as today: notarize, staple, the DMG round, publish to the Dev feed, canary,
+    promote to Nightly. So Edge adds no build; it publishes the same build earlier.
 - **A separate feed, not a new channel tag.** The Edge feed is `nightly-next/edge/appcast-arm64.xml`.
   An Edge Mac reads it through the updater's existing feed override (`UpdateController.feedOverride`,
   today used for test feeds). Every other Mac never fetches it, so no older app can see an
@@ -69,10 +76,11 @@ prompt. If it does not, Edge falls back to notarizing in parallel (below).
   too (the same `pulled.json`).
 
 **The verification gate stays in front.** No build reaches a teammate unchecked:
-- **Before Edge (new gate on an existing check):** the signed-app checks that already run during
-  notarization (`Verify signed nightly app`: socket, window, New Tab, an agent prompt, 60 s with no
-  crash) must pass before `publish-edge` runs. They are the canary's own checks. On the same hosted
-  image they passed with the socket up in about 5–7 s (run 39680012953).
+- **Before Edge (new):** the launch smoke must pass, in enforce mode, before `publish-edge` runs:
+  socket, window, New Tab, an agent prompt, 60 s with no crash. It is the canary's own check run on
+  the signed, unnotarized app (E2's `verify-signed-for-edge`). On the same hosted image it brought
+  the socket up in about 5–7 s (run 39680012953). The read-only checks that run during notarization
+  are not enough on their own, since they never launch the app.
 - **Before Nightly (unchanged):** the scheduled canary on the notarized DMG, and promotion by its
   verdict.
 - **Pulls (unchanged):** a fail pulls the build from every feed, and the pulled-build banner offers
@@ -80,11 +88,13 @@ prompt. If it does not, Edge falls back to notarizing in parallel (below).
 
 **Who can pick Edge.** Edge is a team ring. The row shows it only when the app is a team build
 (the Debug Settings toggle `updates.edgeRing`, default off), so a public user never sees an
-unnotarized option. This is the risk:high default-off rule.
+unnotarized option in the app. This is the risk:high default-off rule. The Edge feed and its
+archives sit at a public R2 path, so anyone can fetch them. A browser download is quarantined, and
+Gatekeeper then refuses the unnotarized app, so that exposes a file, not a way to run it.
 
-**If E0 fails (a prompt or a refusal).** Notarize in parallel: publish to Edge when `notarytool
-submit --wait` returns, skipping the stapling and the DMG round. That would be about 30 min after the
-push, not 43. The rest of this design is unchanged.
+**If E0 fails (a prompt or a refusal).** Publish to Edge when `notarytool submit --wait` returns,
+skipping the stapling and the DMG round. The launch smoke already ran in parallel after E2's split,
+so that is about 35 min after the push, not 43. The rest of this design is unchanged.
 
 ## Part 2: sharing builds between team Macs (seeding)
 
@@ -98,8 +108,9 @@ EdDSA signature, the archive's BLAKE3 hash (`cmux:blake3`, an extra attribute Sp
 fetches by hash and checks the hash. Sparkle then checks the EdDSA signature as always, so a
 peer cannot hand over a different build: the worst a bad peer does is waste a download.
 
-**Transport: iroh.** cmux already links iroh (`cmux-tui`, `cmux-app-ffi`, the managed relay
-catalog). The daemon gets an `iroh-blobs` store for update archives:
+**Transport: iroh.** The daemon already links iroh (`cmux-tui`, with `cmux-remote` and
+`cmux-terminal-client`). The app's FFI (`cmux-app-ffi`) does not, so the store lives in the daemon.
+The daemon gets an `iroh-blobs` store for update archives:
 - **Serving.** After an update is staged, the daemon adds the archive to the store and announces
   the hash. It serves only hashes listed in the current Edge or Dev feed, and only to this Mac's
   team peers (P1 decides the list: the tailnet's team devices, or the cmux account's team), never to
@@ -122,7 +133,7 @@ Edge or `updates.seedBuilds` (team, default on for team builds) is on.
 | --- | --- | --- |
 | E0 | Fleet probe: install an unnotarized Developer ID build by Sparkle over a notarized one on two macOS versions; launch, socket, no prompt | the assumption Part 1 rests on |
 | E1 | `scripts/ci/edge_feed.py`: compose the Edge appcast from a signed build (newest 10, EdDSA signature and version required, pulled builds dropped), with tests | the feed shape (first code PR) |
-| E2 | `nightly.yml`: `publish-edge`, gated on the signed-app checks, publishing the signed unnotarized artifact (behind `NIGHTLY_NEXT_EDGE_RING`, default off) | Edge builds ~25 min after a push |
+| E2 | `nightly.yml`: split `sign-nightly` from `notarize-nightly`; a secret-free `verify-signed-for-edge` (launch smoke, enforce) in parallel with notarization; `publish-edge` of the signed zip after it (behind `NIGHTLY_NEXT_EDGE_RING`, default off) | Edge builds ~28–30 min after a push |
 | E3 | App: the Edge ring value (Debug toggle `updates.edgeRing`), feed override to the Edge feed, Go Back to the kept Dev/Nightly build | teammates roll to Edge in place |
 | P1 | Edge feed carries `cmux:blake3`; the daemon's update-archive store serves staged archives to team peers | seeding |
 | P2 | The updater fetches through the daemon (peers first, 30 s deadline, R2 fallback); cmux22 seeds | peer downloads |
