@@ -210,7 +210,7 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 defaultShortcut: Shortcut("1", modifiers: [.control]), shortcutFamily: .digits,
                 category: .window, symbol: "number.square", surfaces: [.keyboard],
                 arguments: [CatalogArgument.indexNumber],
-                surfacePlan: ActionSurfacePlan(palette: .exempt(.focusMove), cli: .exempt(.focusMove), contextMenuExemption: .focusMove)
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.focusMove), contextMenuExemption: .focusMove)
             ),
             ActionDescriptor(
                 id: "home.openConversation", title: t("action.home.openConversation", "Open Conversation"),
