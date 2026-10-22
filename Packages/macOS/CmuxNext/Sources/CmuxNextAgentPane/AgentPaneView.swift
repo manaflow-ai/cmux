@@ -123,8 +123,10 @@ public final class AgentPaneView: NSView {
     ///     do on a loaded machine (#16471).
     ///   - pageHost: Host the page on the shared page host (``PageWebView``) instead of this
     ///     view's own WebKit host. Only a bundled page can move; a dev-server page stays.
+    ///   - chromium: Makes the page host's Chromium view when the chat shows in Chromium (the app's
+    ///     ``PageWebView/chromiumHosting`` by default; tests pass a fake).
     public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
-                 pageHost: Bool = false) {
+                 pageHost: Bool = false, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         self.model = model
         self.source = source
@@ -135,7 +137,8 @@ public final class AgentPaneView: NSView {
             let provider = AgentPageProvider { [weak model] _ in model }
             // Needs you reads the pane's own acpmux (a Chief chat's is the Chief home's), never another.
             provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
-            guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), provider: provider, renderRate: renderRate)
+            guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), provider: provider, renderRate: renderRate,
+                                                                 chromium: chromium)
             else { return nil }
             self.page = page
             pageEvents = provider
@@ -390,6 +393,9 @@ public final class AgentPaneView: NSView {
         if window == nil {
             dictation.handle(.stop)
             popupHostStorage?.dismiss()
+        } else {
+            // The composer's + > Attach files or images opens without making a panel (PageOpenPanel).
+            MadeAheadOpenPanel.shared.warmWhenIdle()
         }
         applyTheme()
     }
@@ -417,8 +423,14 @@ public final class AgentPaneView: NSView {
     /// Pushes this view's scope tokens to the page (and to the area WebKit
     /// shows before the page paints); again when `surfaceKind` changes. The page gets a push
     /// only when its theme differs from the last one it got; `force` pushes it anyway (a page
-    /// that just loaded has none).
+    /// that just loaded has none). It runs in this view's scope (`performWithTheme`): whether the
+    /// window is see-through here comes from that scope's picture and tint, not the app's (a
+    /// workspace's picture at background-opacity 1 painted the chat opaque over it).
     public func applyTheme(force: Bool = false) {
+        performWithTheme { applyThemeInScope(force: force) }
+    }
+
+    private func applyThemeInScope(force: Bool) {
         themeFollower.rebind()
         let tokens = themeTokens
         let surface = surfaceKind

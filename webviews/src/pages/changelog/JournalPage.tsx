@@ -17,6 +17,7 @@ import type { Strings } from "../shared/i18n";
 import { dayLabel, groupByDay, mergedView, releaseTitle } from "./model";
 import { cardVersion } from "./UpdateSurfaces";
 import { BuildNumbers, ChangesFold, Groups, Hero, Maintenance, ReelPlayer, type PartsContext } from "./ReleaseParts";
+import { SpanNews } from "./SpanNews";
 import type { ChangelogSnapshot, ChangelogStore } from "./store";
 import type { IndexEntry, ReleaseNotes } from "./types";
 
@@ -97,7 +98,7 @@ function SpanSection({
         </span>
       </div>
       <ReelPlayer builds={fresh} reels={s.reels} strings={ctx.strings} />
-      <SectionBody view={view} pending={pending} ctx={ctx} unpublished={fresh.length === 0} open />
+      <SectionBody view={view} pending={pending} ctx={ctx} unpublished={fresh.length === 0} news />
     </section>
   );
 }
@@ -186,25 +187,33 @@ function SectionBody({
   ctx,
   unpublished = false,
   heroTitled = true,
-  open = false,
+  news = false,
 }: {
   view: ReturnType<typeof mergedView>;
   pending: boolean;
   ctx: PartsContext;
   unpublished?: boolean;
   heroTitled?: boolean;
-  /** The update's own section lists its changes open; a day folds them. */
-  open?: boolean;
+  /** The update's own section reads as happy news (SpanNews.tsx); a day keeps its hero and lists. */
+  news?: boolean;
 }) {
-  if (pending && view.count === 0 && view.changes.length === 0)
+  // The update waits for every build of its span (they load at once): drawn early, its fold would
+  // open on the first build's bare changes and close again when a later build's notes arrive.
+  if (pending && (news || (view.count === 0 && view.changes.length === 0)))
     return <div className="clj-placeholder" aria-busy="true" />;
   return (
     <>
-      {view.hero && <Hero item={view.hero} ctx={ctx} titled={heroTitled} />}
+      {!news && view.hero && <Hero item={view.hero} ctx={ctx} titled={heroTitled} />}
       {view.count === 0 && view.changes.length === 0 && !unpublished && <Maintenance strings={ctx.strings} />}
       {unpublished && <p className="cl-muted">{ctx.strings.t("changelog.page.unavailable")}</p>}
-      <Groups view={view} ctx={ctx} />
-      <ChangesFold changes={view.changes} hidden={view.underTheHood} strings={ctx.strings} open={open} />
+      {news ? <SpanNews view={view} ctx={ctx} /> : <Groups view={view} ctx={ctx} />}
+      {/* With no curated notes the changes are the news, so the update opens them. */}
+      <ChangesFold
+        changes={view.changes}
+        hidden={view.underTheHood}
+        strings={ctx.strings}
+        open={news && view.count === 0}
+      />
     </>
   );
 }

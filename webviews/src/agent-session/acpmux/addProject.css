@@ -1,6 +1,8 @@
 .acpmux-add-project-dialog {
   width: min(440px, calc(100vw - 32px));
-  border: 1px solid var(--agent-border);
+  /* The width stays so the dialog's size never changes, but the line is clear: the glass rim
+     draws its one edge (as .ui-card.ui-glass, desktop.css). */
+  border: 1px solid transparent;
   border-radius: 12px;
   /* Glass (.ui-glass): the shipped pane's page color is transparent, and the frost keeps the
      composer under the dialog from reading through its search field (cx-ax9os). */

@@ -57,7 +57,7 @@ Test: `python3 -I deploy/cloud-vm/tests/mac_app_relay_test.py`.
 
 # The user's own tailnet: `cmux-chief-tailnet`
 
-`tailnet/` is a small Go program (tsnet, tailscale.com v1.104.1) that puts the
+`tailnet/` is a small Go program (tsnet, tailscale.com v1.104.2, Go 1.27.3) that puts the
 Chief VM on **the user's** tailnet as its own device, next to the VM's system
 tailscaled (cmux's infra tailnet). Like Rex's built-in Tailscale it embeds
 Tailscale, so the node answers only what it serves: Tailscale SSH as `chief`.

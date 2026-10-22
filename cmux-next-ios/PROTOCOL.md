@@ -92,8 +92,8 @@ echoes the token),
 | `POST /v1/devices` | `{deviceId, kind, name, teamId, wgPublicKey?}` → `{device:{deviceId,ownerUserId,teamId,kind,name,wgPublicKey,createdAt,updatedAt,lastSeenAt}}` (upsert; caller must be a team member; a deviceId owned by another user is `403 not_owner`) |
 | `GET /v1/teams/:teamId/macs` | → `{macs:[{deviceId,name,online,lastSeenAt,ownerUserId}]}`: the caller's own Macs registered in `teamId` (caller must be a member). Changed in 0.10.0: a teammate's Macs are never listed (before, every Mac of the team was), so `ownerUserId` is always the caller |
 | `GET /v1/me/macs` | → `{macs:[{deviceId,name,teamId,online,lastSeenAt,ownerUserId}]}`: the caller's own Macs (registered by the caller, the only Macs v1 lets it dial) in every team the caller still belongs to and in its personal space, with presence from the caller's hub. Added in 0.5.0 so a phone finds its Mac whichever team either side has selected; the app polls it (every 4 s while its active team has no online Mac, else every 30 s) and moves to the team of an online Mac. `502 membership_unavailable` when Stack cannot list the caller's teams |
-| `GET /v1/teams/:teamId/prefs` | → `{color, emoji}` for the caller (per user per team) |
-| `PUT /v1/teams/:teamId/prefs` | `{color?: "#RRGGBB", emoji?: string\|null}`. `emoji` is the avatar glyph: `null` = automatic (team initial), `""` = none (color only), otherwise exactly one grapheme (letter, digit, symbol or emoji; not whitespace) |
+| `GET /v1/teams/:teamId/prefs` | → `{color, emoji, transparent}` for the caller (per user per team; `transparent` added in 0.12.0, always `false` without an icon) |
+| `PUT /v1/teams/:teamId/prefs` | `{color?: "#RRGGBB", emoji?: string\|null, transparent?: boolean}`. `emoji` is the avatar glyph: `null` = automatic (team initial), `""` = none (color only), otherwise exactly one grapheme (letter, digit, symbol or emoji; not whitespace). `transparent` (0.12.0) draws that grapheme with no background; `true` needs one (`400` otherwise; `false` is always accepted), `color` stays stored as the fallback for clients that predate it, an `emoji` change to `null` or `""` turns it off, and a PUT that sets `color` without `transparent` (any older build) turns it off. Answers the stored `{color, emoji, transparent}` |
 | `POST /v1/teams` | `{name}` (1 to 64 characters, trimmed, no control characters; 3 a minute per user) → `{team:{id,name}}`: creates a Stack team with the caller as creator and first member, using the project's server key (Stack refuses client-side team creation). `503 team_creation_unavailable` when the Worker has no server key for the caller's project; `403`/`502 team_create_failed` when Stack refuses. |
 | `POST /v1/teams/:teamId/invites` | `{email}` → `{url, sent:true}`: Stack emails a team invitation whose link opens `url` (the configured callback) with the code. Changed from a bare link: without a Stack server key the API can only send the invitation email, not mint a shareable link. Needs the caller's `$invite_members` team permission. |
 | `GET /v1/ice` | → `{iceServers:[{urls:[...],username?,credential?}], ttl, turn}` from the Cloudflare TURN key (generate-ice-servers), STUN `stun:stun.cloudflare.com:3478` always included (STUN only if TURN is unavailable). `turn` (0.7.0) is `false` when no TURN server could be included: clients must say so (off-LAN WebRTC may then fail) instead of failing silently. `ttl` is 1 h (was 4 h) |
@@ -679,6 +679,34 @@ Nothing here changes the wire; it is how a phone keeps a dial short.
   failure only after the second consecutive failure.
 - `cmux-mobile-host` reconnects a socket that was up for 20 s or more 150 ms after
   it drops (a Worker deploy resets every socket), instead of 1 s.
+
+## One link per Mac (phone)
+
+Nothing here changes the wire. A phone holds one link per Mac at once, so the
+workspaces, terminals, chats and Feed of two Macs on the account work side by
+side (2026-10-21; before, one link served the account and choosing a second
+Mac closed the first Mac's link).
+
+- Every link rides the phone's one signaling socket (the link device's, in
+  the team the phone registered in): the hub keeps one socket per device and
+  routes each signal by `to` and `sessionId`, so links to several Macs never
+  share a session. A dial that opens a new socket moves every live session of
+  the device onto it at once (`bye`, `wg-endpoints`).
+- Each link has its own state: its dial, retry and backoff, heartbeat, path
+  (direct or TURN, its own TURN allocation and WireGuard keys), transport and
+  pairing (`auth`). A refusal, a drop or a redial of one Mac's link does not
+  touch another's. Each Mac's channels (`daemon`, `acpmux`, `file`, `upload`,
+  the input lane) open only on that Mac's link; terminal tab ids (`s<surface>`)
+  repeat across Macs, so a tab is always named with its Mac.
+- Bounded: the phone targets the focused Mac (the one chosen last, else the
+  first online one) and each other Mac whose data is on screen (the
+  Workspaces list and the Feed show every Mac; a workspace page shows its
+  Mac), or was within the last 5 minutes. A Mac nothing showed is not dialed
+  (lazy); one left alone is closed after 5 minutes (its list stays, marked
+  last-known). At most 4 Macs at once: the focused Mac, then those on screen,
+  then the most recently used. A Mac presence calls offline is not dialed.
+- Chief and the connection banner follow the focused Mac; each other Mac's
+  link state shows in its own section header.
 
 ## Transport switch
 

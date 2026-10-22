@@ -18,6 +18,7 @@ import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
 import { showsLocationRow } from "./locationRow";
 import { ComposerQueue } from "./ComposerQueue";
+import type { Subsessions } from "./subagents/subsessions";
 import {
   ArrowUpIcon,
   AtIcon,
@@ -34,6 +35,7 @@ import {
   type ComposerPermissionAccess,
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
+import { FastToggle, SpeedToggleHost, type SpeedTiers } from "./FastToggle";
 import { ComposerFoot } from "./ComposerFoot";
 import { Icon } from "./icons/Icon";
 import { MentionMenu, mentionQuery, mentionResults, useMentionSearch } from "./MentionMenu";
@@ -59,6 +61,7 @@ import { type StringKey, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
 import { ChromeArea } from "../../ui/HideableChrome";
 import { useComposerChrome } from "./composerChrome";
+import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { useRowFit } from "./composerRowFit";
 import { useComposerSettings } from "./composerSettings";
@@ -69,12 +72,15 @@ import {
   AttachmentStrip,
   attachmentErrorText,
   useAttachmentIntake,
+  useSendWhenAttached,
 } from "./composer/attachmentIntake";
 import { type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
+import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
 import { useHeaderState } from "./header/headerState";
+import { queuePauseReason } from "./queuePause";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -109,7 +115,6 @@ export const COMPOSER_LABELS = {
   send: "composer.send",
   stop: "composer.stop",
   escapeAgainToStop: "composer.escapeAgainToStop",
-  escapeKey: "composer.escapeKey",
   commands: "composer.commands",
   noCommands: "composer.noCommands",
   noMatchingCommands: "composer.noMatchingCommands",
@@ -182,6 +187,11 @@ type Props = {
   /// Reads an image a queued prompt sends by its acpmux id, as a data URL (`_acpmux/attachment`).
   /// Stable: each queued thumbnail reads once.
   queueImage?(id: string): Promise<string | undefined>;
+  /// The listed chats, among which a queued agent's message finds its sender's (ComposerQueue.tsx).
+  queueSubsessions?: Subsessions;
+  /// Asks a queued prompt in a new side chat and withdraws it (the queued row's Open in side chat);
+  /// absent where the chat opens no side chat.
+  onQueueSideChat?(promptId: string, prompt: string): Promise<boolean>;
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
   draft?: string;
@@ -289,7 +299,9 @@ export function Composer({
   onQueueRemove,
   onQueueChange,
   onQueueLost,
+  onQueueSideChat,
   queueImage,
+  queueSubsessions,
   draft,
   leading,
   permissionAccess,
@@ -331,6 +343,8 @@ export function Composer({
 }: Props) {
   const t = useT();
   const chrome = useComposerChrome();
+  // Off (a queued row's ⋯ menu, queueing.ts), what is sent mid-turn steers on every key.
+  const queueing = useQueueing();
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
   useMenuPressGuard();
   // The native action map is replaced on reconnect while the session stays the same. Subscribe
@@ -413,6 +427,9 @@ export function Composer({
   const sendButton = useRef<HTMLButtonElement>(null);
   // The controls row swaps whole units as it narrows (composerRowFit.ts).
   const bar = useRef<HTMLDivElement>(null);
+  // Codex's speed option, which the chips hand up: the bolt left of the mic (FastToggle.tsx). Claude
+  // Code's Fast mode stays a row of the model button's menu, so its chips hand up none.
+  const [speed, setSpeed] = useState<SpeedTiers | undefined>(undefined);
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css), and
   // whether Esc stops a turn on a double press (escapeStop.ts).
   const { plainFooter, showContextUsage, escapeDoublePress } = useComposerSettings();
@@ -421,10 +438,13 @@ export function Composer({
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
-  const submitNow = useRef<(force: boolean) => boolean>(() => false);
+  const submitNow = useRef<(force: boolean, steer?: boolean) => boolean>(() => false);
+  /// The newest `onOpenInWindow`, for a ⌘Return held until a screenshot's chip is ready.
+  const openInWindow = useRef(onOpenInWindow);
+  openInWindow.current = onOpenInWindow;
   const allowImages = snapshot.summary?.promptCapabilities?.image !== false;
   // A paste on the prompt or the shell field, and a file drop anywhere (composer/attachmentIntake.tsx).
-  const { attachments, setAttachments, attachError, setAttachError, dropping, attach } = useAttachmentIntake({
+  const { attachments, setAttachments, pending, attachError, setAttachError, dropping, attach } = useAttachmentIntake({
     allowImages,
     // A file pasted in shell mode is kept for the next prompt and uploads nothing; the mode stays.
     pasteTarget: (target) =>
@@ -435,11 +455,41 @@ export function Composer({
           : undefined,
     ...(upload ? { upload } : {}),
     ...(localPaths ? { localPaths } : {}),
+    // A screenshot still being read when the composer moves to another chat stays the chat's it was
+    // pasted in: its chip joins that chat's kept chips (keptAttachments.ts), unless a switch carries
+    // the prompt to its new session.
+    scope: sessionId,
+    elsewhere: (chat, chips) => {
+      if (!keptAttachments) return;
+      void keptAttachments
+        .read(chat)
+        .catch(() => [])
+        .then((kept) => keptAttachments.write(chat, appendAttachments(kept, chips).slice(0, MAX_ATTACHMENTS)))
+        .catch(() => {});
+    },
+    carries: () => carryPrompt.current || Boolean(switching),
   });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
+  // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
+  const holdForAttachments = useSendWhenAttached(pending.length, sessionId);
   // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
   const pastedChips = usePastedChips(attachmentsRef, setAttachments, field);
+  // A paste anywhere in the pane outside a text field goes into the prompt, after what is already
+  // there (composer/pasteAnywhere.ts).
+  usePasteAnywhere(() => {
+    const shellInput = shellRef.current.shell ? shellField.current : null;
+    if (shellInput) {
+      shellInput.focus();
+      shellInput.setSelectionRange(shellInput.value.length, shellInput.value.length);
+      return true;
+    }
+    const prompt = field.current;
+    if (!prompt?.element()) return false;
+    prompt.focus();
+    prompt.setCaret(Number.MAX_SAFE_INTEGER);
+    return true;
+  });
   // + then Attach files clicks this input: the system file chooser (an open panel in the app).
   const chooser = useRef<HTMLInputElement>(null);
   useLayoutEffect(() => {
@@ -702,7 +752,7 @@ export function Composer({
   /// Sends the draft; false when there was nothing to send or the host refused it.
   const submit = (event: { preventDefault(): void }): boolean => {
     event.preventDefault();
-    return send(false);
+    return send(false, steersAlways);
   };
   const send = (force: boolean, steer = false): boolean => {
     // acpmux refuses this chat on this connection (remoteEditing.ts): keep the draft.
@@ -715,6 +765,8 @@ export function Composer({
       setAttachError(t("composer.stillSending"));
       return false;
     }
+    // A file pasted or dropped a moment ago is still being read: the prompt waits for its chip.
+    if (holdForAttachments(() => submitNow.current(force, steer))) return false;
     // The field holds markdown with its typed text escaped; the agent gets the text as typed.
     const draftText = unwrapped();
     const prompt = (field.current?.agentText(draftText) ?? draftText).trim();
@@ -948,7 +1000,7 @@ export function Composer({
       event.key === "Enter" && event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey && !quick;
     if (commandReturn && queues && (text.trim() || attachments.length > 0)) {
       event.preventDefault();
-      send(false);
+      send(false, steersAlways);
       return;
     }
     // ⌘Return on an empty prompt after a turn answers the recap card's question (RecapCard.tsx).
@@ -1028,7 +1080,8 @@ export function Composer({
       }
     }
     // Esc on an empty prompt stops the turn, as Stop does: by default the second of two presses
-    // does (escapeStop.ts), and the first turns Stop into an Esc hint. Menus, pickers and the
+    // does (escapeStop.ts), and the first arms Stop: it keeps its glyph, takes the accent and is named
+    // "Press Esc again to stop". Menus, pickers and the
     // @ list take their Esc above, so one press still closes them.
     if (event.key === "Escape" && plain && !open && stop && !quick) {
       event.preventDefault();
@@ -1052,11 +1105,17 @@ export function Composer({
       !event.altKey &&
       !event.ctrlKey
     ) {
+      event.preventDefault();
       const typed = unwrapped().trim() !== "";
-      const sent = submit(event);
-      // A prompt the host refused stays in the composer, and the chat stays here.
-      if (typed && !sent) return;
-      onOpenInWindow(sent);
+      const sendAndOpen = () => {
+        const sent = submitNow.current(false, steersAlways);
+        // A prompt the host refused stays in the composer, and the chat stays here.
+        if (typed && !sent) return;
+        openInWindow.current?.(sent);
+      };
+      // A screenshot still being read: the prompt and the window wait for its chip, as Return does.
+      if (holdForAttachments(sendAndOpen)) return;
+      sendAndOpen();
       return;
     }
     if (event.key === "Enter" && plain && returnSends()) {
@@ -1092,7 +1151,7 @@ export function Composer({
   const stop = !shell && snapshot.isWorking && !text.trim();
   // Stop shows for the whole turn, a typed prompt or not; Esc stops only from an empty prompt.
   const running = !shell && snapshot.isWorking;
-  const hasDraft = Boolean(text.trim() || attachments.length);
+  const hasDraft = Boolean(text.trim() || attachments.length || pending.length);
   // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
   // its panel, so only the pane counts an Esc that reaches the page.
   const escapeStop = useEscapeStop({
@@ -1110,8 +1169,11 @@ export function Composer({
   // that cannot steer queues on both keys.
   const steers = queues && snapshot.summary?.steering === true;
   const returnSteers = steers && (Boolean(text.trim()) || attachments.length > 0);
-  // The steer control shows once a prompt is typed.
-  const steerable = steers && Boolean(text.trim());
+  // Queueing off (ChatGPT's and Codex's "Turn off queueing", queueing.ts): ⌘Return and Send steer
+  // too, so nothing new waits. An agent that cannot steer still runs it after the turn.
+  const steersAlways = steers && !queueing;
+  // The steer control shows once a prompt is typed; with queueing off Send itself steers.
+  const steerable = steers && !steersAlways && Boolean(text.trim());
   // Mid-turn it teaches both keys, as Claude's composer does: Return steers and ⌘Return queues.
   // The Quick Composer's ⌘Return opens the window, so there it names Return alone; an agent that
   // cannot steer says it queues.
@@ -1122,7 +1184,7 @@ export function Composer({
       ? COMPOSER_LABELS.placeholder
       : !steers
         ? COMPOSER_LABELS.placeholderQueued
-        : onOpenInWindow
+        : onOpenInWindow || steersAlways
           ? COMPOSER_LABELS.placeholderSteerQuick
           : COMPOSER_LABELS.placeholderSteer;
   // A side session's idle prompt reads "Reply in this session…" (the `placeholder` prop); the
@@ -1351,14 +1413,16 @@ export function Composer({
       className="acpmux-send acpmux-cancel"
       data-escape-armed={escapeStop.armed ? "" : undefined}
       aria-label={t(escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop)}
-      // tooltip-allow: names the icon-only Stop, and once armed says to press the Esc it shows again.
+      // tooltip-allow: names the icon-only Stop, and once armed says to press Esc again.
       title={t(escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop)}
       onClick={stopTurn}
     >
-      {/* The first Esc of the double press: Stop says which key stops the turn. */}
-      {escapeStop.armed ? <span className="acpmux-escape-key">{t(COMPOSER_LABELS.escapeKey)}</span> : <StopIcon />}
+      {/* The first Esc of the double press keeps the glyph; its color and name say Esc again stops. */}
+      <StopIcon />
     </button>
   ) : null;
+  // Why a failed turn paused the queue: the paused note names it (queuePause.ts).
+  const pauseReason = snapshot.summary?.queuePaused === true ? queuePauseReason(snapshot.rows) : undefined;
   return (
     <form
       ref={form}
@@ -1406,11 +1470,14 @@ export function Composer({
         chat={snapshot.summary?.sessionId || sessionId}
         queue={snapshot.queue}
         paused={snapshot.summary?.queuePaused === true}
+        {...(pauseReason ? { pauseReason } : {})}
         t={t}
         onRemove={onQueueRemove}
         onChange={onQueueChange}
         onLost={onQueueLost}
+        onSideChat={onQueueSideChat}
         readImage={queueImage}
+        subsessions={queueSubsessions}
         onLeave={() => field.current?.focus()}
       />
       {context}
@@ -1451,6 +1518,7 @@ export function Composer({
         )}
         <AttachmentStrip
           attachments={attachments}
+          pending={pending}
           {...(attachError ? { error: attachError } : {})}
           dropping={dropping}
           codex={snapshot.summary?.family === "codex" || snapshot.summary?.harness === "codex"}
@@ -1629,8 +1697,12 @@ export function Composer({
             )}
             {/* The granted-permission status gets no slot of its own in this row (hq#1957 item 15
                 compact row): grants live in the permission mode's Access menu, one lock. */}
-            {/* Fast mode is a row of the model button's menu (Leo 2026-10-20: one button, no bolt). */}
-            {!plainFooter && <Chips snapshot={snapshot} permissionAccess={permissionAccess} />}
+            {/* The chips hand up Codex's speed option, the bolt before the mic (FastToggle.tsx). */}
+            {!plainFooter && (
+              <SpeedToggleHost.Provider value={setSpeed}>
+                <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
+              </SpeedToggleHost.Provider>
+            )}
             <span className="acpmux-composer-actions">
               {/* While a turn runs, a typed prompt gets one icon control, not a word (Leo
                   2026-10-20): ↵ puts it into the turn now, as Return does; ⌘Return queues it. It
@@ -1655,6 +1727,8 @@ export function Composer({
                 </button>
               )}
               {plainFooter && stopButton}
+              {/* Codex's bolt, just left of the mic (Leo 2026-10-21), in either footer look. */}
+              {speed && <FastToggle speed={speed} />}
               {/* The mic stays at every width; the prompt shrinks instead (composerRowFit.ts). */}
               {accessory && (
                 <span className="acpmux-fit-mic" data-fit-part="mic" data-fit-forms="full">
@@ -1682,9 +1756,11 @@ export function Composer({
                         : t(
                             !snapshot.isWorking
                               ? "composer.sendTooltip"
-                              : returnSteers
-                                ? "composer.queueLaterTooltip"
-                                : "composer.queueTooltip",
+                              : steersAlways
+                                ? "composer.steerTooltip"
+                                : returnSteers
+                                  ? "composer.queueLaterTooltip"
+                                  : "composer.queueTooltip",
                           )
                   }
                 >
@@ -1698,7 +1774,9 @@ export function Composer({
       {plainFooter && (
         <ChromeArea className="acpmux-chrome-area" items={chrome.all}>
           <ComposerFoot ref={bar}>
-            <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
+            <SpeedToggleHost.Provider value={setSpeed}>
+              <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
+            </SpeedToggleHost.Provider>
             {/* Claude Code ends the row on the context ring. It keeps its place before the chat
                 reports usage (inert, ContextRing), so the first report moves nothing in the row
                 (hq#1957: the composer holds still while a turn runs); the context-usage setting
