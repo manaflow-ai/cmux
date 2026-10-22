@@ -139,6 +139,20 @@ fn cloud_subagents_start_on_the_peer_and_take_no_local_slot() {
 }
 
 #[test]
+fn a_cloud_subagent_is_told_how_its_commits_land_without_a_git_credential() {
+    // The VM holds no GitHub credential: the subagent marks its worktree with
+    // `git config cmux.land BRANCH`, and the Chief host's pool tool (cmuxterm-hq
+    // tools/cloud-subagents deploy.sh land-requests) rebases and pushes it through
+    // the Mac when the VM pauses at the final report.
+    let text = cloud().task("a7", Some("~/fun/cmux"), "do it");
+    assert!(
+        text.contains("git -C /home/agent/work/a7 config cmux.land <branch>"),
+        "{text}"
+    );
+    assert!(text.contains("never a token"), "{text}");
+}
+
+#[test]
 fn the_cloud_folder_names_the_repo_of_a_mac_path() {
     use optchat_chief::subagents::cloud_repo;
     assert_eq!(cloud_repo(Some("~/fun/cmux")), Some("cmux".into()));
@@ -995,4 +1009,79 @@ fn a_finished_subagents_vm_is_deleted_after_its_work_is_pushed() {
     let told = run(&mut h, move || a.tell("a1", "one more thing"));
     let told = format!("{told:?}");
     assert!(told.contains("deleted"), "{told}");
+}
+
+/// Records the folder each workspace's terminal is opened in.
+#[derive(Default)]
+struct CwdRecorder {
+    opened: std::sync::Mutex<Vec<PathBuf>>,
+}
+
+impl optchat_chief::workspaces::Workspaces for CwdRecorder {
+    fn open(
+        &self,
+        key: &str,
+        _session: &str,
+        _name: &str,
+        _group: &str,
+        cwd: &std::path::Path,
+    ) -> Result<String, String> {
+        self.opened.lock().unwrap().push(cwd.to_path_buf());
+        // The daemon spawns the terminal's shell in `cwd` (create-terminal):
+        // a folder missing on this Mac fails the PTY spawn (a511, Oct 21:
+        // "failed to spawn PTY command: No such file or directory").
+        if !cwd.is_dir() {
+            return Err("create-terminal: terminal launch failed: failed to spawn PTY command: No such file or directory (os error 2)".into());
+        }
+        Ok(key.to_owned())
+    }
+    fn rename(&self, _key: &str, _name: &str) -> Result<(), String> {
+        Ok(())
+    }
+    fn place(&self) -> String {
+        "the test".into()
+    }
+}
+
+/// a511 (Oct 21): a cloud subagent got no cmux workspace, because its
+/// workspace terminal was opened in the VM's folder (/home/agent/work),
+/// which does not exist on the Mac. The session runs on the peer; the
+/// terminal beside its chat runs here, so it opens in a local folder.
+#[test]
+fn a_cloud_subagents_workspace_terminal_opens_in_a_folder_on_this_mac() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    std::fs::create_dir_all(h.dir.path().join("subagent")).unwrap();
+    let recorder = Arc::new(CwdRecorder::default());
+    let ws: Arc<dyn optchat_chief::workspaces::Workspaces> = recorder.clone();
+    h.brain.set_workspaces(Some(ws.clone()));
+    let sp = Arc::new(
+        Arc::try_unwrap(spawner(&h, Some(cloud())))
+            .ok()
+            .unwrap()
+            .with_workspaces(Some(ws)),
+    );
+    let a = sp.clone();
+    let spawned = run(&mut h, move || {
+        a.spawn(vec!["Title: Cloud thing\nbuild it".into()], None)
+    })
+    .unwrap();
+    assert!(spawned.contains("Started a1"), "{spawned}");
+    assert!(
+        !spawned.contains("no cmux workspace"),
+        "a cloud subagent gets its workspace: {spawned}"
+    );
+    let (spec, _) = subs(&h).into_iter().next().unwrap();
+    assert_eq!(
+        spec.cwd,
+        PathBuf::from("/home/agent/work"),
+        "the session still runs in the VM's folder"
+    );
+    let opened = recorder.opened.lock().unwrap().clone();
+    assert_eq!(opened.len(), 1, "{opened:?}");
+    assert!(
+        opened[0].is_dir(),
+        "the terminal opens in a folder on this Mac: {:?}",
+        opened[0]
+    );
 }
