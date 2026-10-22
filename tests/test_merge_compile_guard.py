@@ -62,6 +62,23 @@ class Verdict(unittest.TestCase):
                 self.assertTrue(why)
                 self.assertNotIsInstance(why, guard.Hold)
 
+    def test_a_red_fleet_compile_refuses_even_with_a_release_compile_queued(self):
+        """Codex review of #24265: the red check read only Release attempts, so a failed build-fleet compile next to
+        a queued Release compile read as a wait and became a warning, and a fleet pass on the head could silence it."""
+        fleet = guard.FLEET_COMPILE
+        for runs in ([check(fleet, conclusion="failure"), check(COMPILE, "queued")],
+                     [check(fleet, conclusion="failure"), check(COMPILE, "in_progress")],
+                     [check(fleet, conclusion="timed_out"), check("cmux-next path routing", "in_progress")]):
+            with self.subTest(runs=runs):
+                self.assertFalse(guard.compile_wait(runs))
+                for fleet_passed in (False, True):
+                    why = guard.verdict(pr(), SWIFT, runs, fleet_passed=fleet_passed)
+                    self.assertIn(f"{fleet} finished", why)
+                    self.assertNotIsInstance(why, guard.Hold)
+        # A passing rerun of either compile clears it.
+        self.assertEqual(guard.verdict(pr(), SWIFT, [check(fleet, conclusion="failure"), check(fleet)]), "")
+        self.assertEqual(guard.verdict(pr(), SWIFT, [check(fleet, conclusion="failure"), check(COMPILE)]), "")
+
     def test_a_compile_not_created_yet_waits_while_cmux_next_routes_and_places(self):
         for job in guard.ROUTING:
             with self.subTest(job=job):

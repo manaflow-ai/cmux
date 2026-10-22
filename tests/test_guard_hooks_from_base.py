@@ -25,6 +25,12 @@ GUARD = """import json, sys
 json.dump({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
            "permissionDecisionReason": "merge guard %s"}}, sys.stdout)
 """
+# A stand-in guard that lets the merge through with a warning, as the real guard does for a pending compile.
+HOLD = """import json, sys
+text = "merge guard %s holds nothing; merging anyway"
+json.dump({"systemMessage": text, "hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": text}},
+          sys.stdout)
+"""
 WARNING = """import json, sys
 print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "base merge warning %s"}}))
 """
@@ -153,6 +159,49 @@ class GuardsRunFromTheBase(unittest.TestCase):
         self.assertNotIn("permissionDecision", out["hookSpecificOutput"])
         self.assertIn("cannot read the guards", out["systemMessage"])
         self.assertEqual(out["systemMessage"], out["hookSpecificOutput"]["additionalContext"])
+
+    def land_on_base(self, path: str, text: str) -> None:
+        (self.seed / path).write_text(text)
+        git(self.seed, "commit", "-qam", f"the base changes {path}")
+        git(self.seed, "push", "-q", "origin", "feat-cmux-next")
+
+    def test_a_guard_that_crashes_never_blocks_a_merge(self):
+        """Codex review of #24265: a hook that exits 2 (a bash syntax error does) blocks the tool call in Claude
+        Code, though no compile finished red. Every failure of a guard is a warning."""
+        for broken in ("if then fi\n", "exit 2\n", "exit 3\n"):
+            with self.subTest(hook=broken):
+                self.land_on_base("scripts/ci/merge-compile-guard-hook.sh", broken)
+                code, out, err = self.hook("gh pr merge 5 --squash")
+                self.assertNotEqual(code, 2, err)
+                if out is not None:
+                    self.assertNotIn("permissionDecision", out["hookSpecificOutput"])
+                    self.assertIn("merging anyway", out["systemMessage"])
+        self.land_on_base("scripts/ci/base-merge-warning-hook.sh", "exit 2\n")
+        code, out, err = self.hook("gh api -X PUT repos/manaflow-ai/cmux/pulls/5/update-branch")
+        self.assertNotEqual(code, 2, err)
+
+    def test_the_settings_hook_never_exits_2_when_the_launcher_itself_breaks(self):
+        self.land_on_base("scripts/ci/guards-from-base.sh", "exit 2\n")
+        code, out, err = self.hook("gh pr merge 5 --squash")
+        self.assertNotEqual(code, 2, err)
+
+    def test_a_merge_warning_does_not_hide_the_update_branch_warning(self):
+        """Codex review of #24265: `gh pr merge ...; gh api .../update-branch` used to be refused whole; now the merge
+        may go ahead with a warning, and the update-branch warning must still be said."""
+        self.land_on_base("scripts/ci/merge_compile_guard.py", HOLD % "base v1")
+        code, out, err = self.hook("gh pr merge 5 --squash; gh api -X PUT repos/manaflow-ai/cmux/pulls/5/update-branch")
+        self.assertEqual(code, 0, err)
+        context = out["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("merge guard base v1 holds nothing", context)
+        self.assertIn("base merge warning base v1", context)
+        self.assertNotIn("permissionDecision", out["hookSpecificOutput"])
+        self.assertIn("merge guard base v1 holds nothing", out["systemMessage"])
+
+    def test_a_refusal_still_wins_over_a_warning(self):
+        code, out, err = self.hook("gh pr merge 5 --squash; gh api -X PUT repos/manaflow-ai/cmux/pulls/5/update-branch")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecisionReason"], "merge guard base v1")
 
     def old_base(self) -> str:
         """A commit on the base from before the launcher existed."""
