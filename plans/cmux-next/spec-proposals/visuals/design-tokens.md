@@ -24,7 +24,7 @@ Every source line below is in `ThemeTokens.derive` (`ThemeTokens.swift`) unless 
 | chromeBackground | mix(bg, fg, 0.05 / 0.035) | :184 |
 | elevatedBackground | mix(bg, fg, 0.07 / 0.02) | :185 |
 | stripBackground | = windowBackground: every tab strip is the window ground (appearance.tabBarBackground is retired) | :186 |
-| textPrimary | fg pushed toward white or black in 0.02 steps until 4.5:1 over the worse of pressedFill-on-bg and selectionFill-on-bg | :153-155, :224-234 (`readable`) |
+| textPrimary | fg when it reads 4.5:1 on both bg and the worse of pressedFill-on-bg and selectionFill-on-bg; else fg pushed toward white and toward black in 0.02 steps until it reads on both, keeping the candidate whose primary and secondary have the higher least contrast (capped at 4.5) | :156-161, :240-273 (`inks`) |
 | textSecondary | textPrimary mixed toward bg, up to 0.38, keeping 4.5:1 | :156, :239-247 (`muted`) |
 | textTertiary | textPrimary mixed toward bg, up to 0.55, keeping 3:1 | :157 |
 | hoverFill | fg @ 0.06 / 0.05 | :148 |
@@ -202,7 +202,7 @@ Hairlines are one device pixel (1/scale pt). Strip offsets snap to device pixels
 
 | surface | macOS 26+ | older macOS | Reduce Transparency | source |
 |---|---|---|---|---|
-| Floating overlays: palette, palette actions menu and shortcut recorder, hover cards, browser find bar, prompt bar, notices and page info, tab group editor, restart notice, drop overlay, drop highlight, pinned column backdrop, refusal HUD | NSGlassEffectView .regular, tint glassTint, radius panelCornerRadius | NSVisualEffectView .popover, withinWindow, glassTint layer, 1/scale separator border | opaque: mix(window, textPrimary, 0.14), 1/scale opaque separator border | OverlayMaterial.swift (OverlayMaterial.select, ReduceTransparency, ThemeTokens.opaqueOverlayFill); OverlaySurface.swift (OverlaySurfaceView.applyTheme); Glass.swift (Glass.makeOverlayPanel) |
+| Floating overlays: palette, palette actions menu and shortcut recorder, hover cards, browser find bar, prompt bar, notices and page info, tab group editor, restart notice, drop overlay, drop highlight, pinned column backdrop, refusal HUD | NSGlassEffectView .regular, tint glassTint, radius panelCornerRadius | NSVisualEffectView .popover, withinWindow, glassTint layer, 1/scale separator border | opaque: mix(window, textPrimary, up to 0.14) on a dark theme with light text, else mix(window, white, 0.14); 1/scale opaque separator border | OverlayMaterial.swift (OverlayMaterial.select, ReduceTransparency, ThemeTokens.opaqueOverlayFill); OverlaySurface.swift (OverlaySurfaceView.applyTheme); Glass.swift (Glass.makeOverlayPanel) |
 | Sidebar | nothing: the window backdrop shows through (ChromeStepView retired) | same | same | SidebarContainerView.swift |
 | Tab strip | nothing: stripBackground = windowBackground (appearance.tabBarBackground retired) | same | same | ThemeTokens.swift:186 |
 | Window | one backdrop: opaque, translucent, frosted or Liquid Glass (see Theme scopes and translucency) | frosted instead of glass | opaque | WindowBackdrop.swift (WindowBackdrop); WindowMaterialView.swift (WindowMaterialView) |
