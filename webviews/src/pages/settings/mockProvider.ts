@@ -20,6 +20,7 @@ import {
   type AccountsRun,
   type AgentsRun,
   type AgentsState,
+  type ChannelsState,
   type AccountsState,
   type HarnessesRun,
   type HarnessesState,
@@ -39,6 +40,7 @@ import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
 import { validate } from "./validate";
 import { MockAgents } from "./mockAgents";
+import { mockChannels } from "./mockChannels";
 import { mockThemeColors } from "./mockThemes";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 
@@ -210,6 +212,10 @@ export class MockSettingsProvider {
           });
         return {};
       },
+      "cmux.settings.channels.state": () => {
+        if (!this.channels) throw new ProtocolError("cmux.page.unavailable", "no updater");
+        return this.channels;
+      },
       "cmux.settings.agents.state": () => this.agents.state,
       "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
       // Agents > Chiefs (ChiefsCard): the host's page relay to the Chief owner and harness center.
@@ -258,7 +264,18 @@ export class MockSettingsProvider {
           defaultHarness: "claude",
           harnesses: { claude: { displayName: "Claude Code" }, codex: { displayName: "Codex" } },
         },
-        models: { harnesses: [] },
+        // Codex's probed models, named as acpmux names them; Claude's are not probed (read off the id).
+        models: {
+          harnesses: [
+            {
+              harness: "codex",
+              models: [
+                { id: "gpt-6-astra", name: "GPT-6 Astra", efforts: ["low", "medium", "high"] },
+                { id: "gpt-6-astra-mini", name: "GPT-6 Astra Mini", efforts: ["low", "medium"] },
+              ],
+            },
+          ],
+        },
       }),
       "cmux.chief.backend.doctor": () => ({ ok: true, steps: [{ name: "prompt", ok: true }] }),
       "cmux.settings.theme.set": (params) => {
@@ -414,6 +431,7 @@ export class MockSettingsProvider {
       "cmux.settings.host.lists",
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
+      "cmux.settings.channels.state",
       "cmux.settings.agents.state",
       "cmux.settings.agents.run",
       "cmux.chief.profile.list",
@@ -477,6 +495,8 @@ export class MockSettingsProvider {
     provide("cmux.settings.harnesses.changed", (ctx) => this.track(this.harnessesChanged, ctx));
   }
 
+  /** Settings > Updates' channels; null: the host has no updater. */
+  channels: ChannelsState | null = mockChannels;
   /** Custom Chief pictures by Chief id (`chief.profile.avatar.get`); a Chief without one reads null. */
   chiefAvatars = new Map<string, Params>();
 

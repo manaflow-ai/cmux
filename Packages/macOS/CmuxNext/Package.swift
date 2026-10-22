@@ -262,6 +262,7 @@ let package = Package(
                 "CmuxNextMobile",
                 "CmuxNextMobileHost",
                 "CmuxNextUpdater",
+                "CmuxNextWebUpdates",
                 "CmuxNextResources",
                 "CmuxNextBrowserImport",
                 "CmuxNextOnboarding",
@@ -568,8 +569,9 @@ let package = Package(
         .target(
             name: "CmuxNextDaemonService",
             dependencies: [
-                "CmuxNextActions", "CmuxNextAgentPane", "CmuxNextApps", "CmuxNextCompat", "CmuxNextControl",
+                "CmuxNextActions", "CmuxNextAgentPane", "CmuxNextApps", "CmuxNextBridge", "CmuxNextCompat", "CmuxNextControl",
                 "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextWakeups",
+                .product(name: "CmuxUpdater", package: "CmuxUpdater"),
             ],
             resources: [
                 .process("Resources"),
@@ -1054,7 +1056,16 @@ let package = Package(
             resources: [
                 .process("Resources/Localizable.xcstrings"),
                 .copy("Resources/WhatsNew"),
+                // The keys a web update pointer may be signed with (plans/cmux-next/web-ota.md).
+                .copy("Resources/web-update-keys.json"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Web updates in the app (plans/cmux-next/web-ota.md): serves a signed web update from
+        // a safe point and answers `updates.web.*`.
+        .target(
+            name: "CmuxNextWebUpdates",
+            dependencies: ["CmuxNextAgentPane", "CmuxNextControl", "CmuxNextPages", "CmuxNextSettings", "CmuxNextUpdater", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Cloud machines: auth, REST client, tunnel and link processes. The
