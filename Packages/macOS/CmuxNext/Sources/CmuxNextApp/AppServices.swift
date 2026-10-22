@@ -75,7 +75,7 @@ final class AppServices {
     /// Add Machine and Check Machine (plans/cmux-next/add-machine-DESIGN.md); each machine's last check.
     private(set) lazy var addMachine = AddMachineCard(services: .app(self))
     let machineHealth = MachineHealthStore()
-    let mobile = MobileHostService(displayName: { await MacName().computerName() })  // phone access; the account layer starts it
+    let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
     let iphone = IPhoneHostService()
     let registry = ActionRegistry.standard()
@@ -178,6 +178,11 @@ final class AppServices {
     private(set) lazy var viewers = ViewerService(services: self)
     /// Where a link or path the person opens lands: a tab in its page's pane, a Cmd-click by `layout.linkPlacement`.
     private(set) lazy var linkOpener = LinkOpener(services: self)
+    /// A person's quick Cmd-W presses after one that emptied its pane (``TabCloseGuard/swallowsCmdW(_:at:)``).
+    var emptiedPaneCloseRun = EmptiedPaneCloseRun()
+    /// How close such a press must follow the one before it: the double-click interval, or a held key's
+    /// first repeat when that comes later. A test lengthens it so its waits on a loaded host still fit.
+    var quickPressWindow: () -> TimeInterval = { max(NSEvent.doubleClickInterval, NSEvent.keyRepeatDelay + NSEvent.keyRepeatInterval) }
     /// A link dragged out of a chat into a pane drop zone (``LinkDragSession``).
     private(set) lazy var linkDrags = LinkDragSession(services: self)
     /// The Chief dragged out of Home's list into a sidebar (``ChiefDragSession``).
