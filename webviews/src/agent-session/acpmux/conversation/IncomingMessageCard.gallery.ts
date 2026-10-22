@@ -4,8 +4,10 @@
 // opens it whole), and a Claude Code task notification as one quiet line
 // (IncomingMessageCard.tsx, incomingMessage.ts). A message from a chat here also has Reply at the line's end, which
 // answers in place in the sender's chat and thread.
-import { agentPaneEntry } from "../../../gallery/format";
+import { agentPaneEntry, type ChipHostFixture } from "../../../gallery/format";
+import type { Play } from "../../../gallery/play";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
+import { sampleChart, sampleDiagram, sampleGradient } from "../mockFixture";
 
 const message = (
   name: string,
@@ -19,6 +21,35 @@ const message = (
 });
 
 const gridFix = "The grid fix is on cmux/grid-fix; tests pass.";
+
+// A lane's report as Leo got it (2026-10-21): signed with its name, a pull request written two
+// ways, a commit, and its screenshots in /tmp, the first by its full path and the rest by name.
+const SHOTS = "/tmp/agent-message-style";
+const merged = [
+  "[agent-message-style] MERGED #23825 (4c656ea8) manaflow-ai/cmux#23825 — a queued message from another agent now draws as the agent row. Review SHIP at e34ce27; 51/51 tests pass.",
+  "",
+  `Screenshots: ${SHOTS}/before-queued.png, after-queued-line.png, after-queued-open.png.`,
+].join("\n");
+const adopted = "Merged: hq#2563 (db0677c6, adopted from a dead owner).";
+const svg = (markup: string) => `data:image/svg+xml;base64,${btoa(markup)}`;
+const FILES_HOST: ChipHostFixture = {
+  paths: {
+    [`${SHOTS}/before-queued.png`]: { place: "outside", folder: false },
+    [`${SHOTS}/after-queued-line.png`]: { place: "outside", folder: false },
+    [`${SHOTS}/after-queued-open.png`]: { place: "outside", folder: false },
+  },
+  images: {
+    [`${SHOTS}/before-queued.png`]: svg(sampleChart()),
+    [`${SHOTS}/after-queued-line.png`]: svg(sampleGradient()),
+    [`${SHOTS}/after-queued-open.png`]: svg(sampleDiagram()),
+  },
+  policy: { outsideRoots: "open", remoteImages: "click" },
+};
+const openAll: Play = async (ctx) => {
+  for (const toggle of ctx.document.querySelectorAll<HTMLButtonElement>(".cv-received__toggle")) toggle.click();
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__body").length >= 2);
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__body .cv-chip").length > 0);
+};
 const openedText =
   "The grid fix is on cmux/grid-fix; tests pass.\n\nOpened manaflow-ai/cmux#23727 at 3b01de6; the follow-up is hq#2505. The grid now reserves its height before the images load, so nothing below it moves.";
 const report = [
@@ -215,6 +246,36 @@ export default agentPaneEntry({
           untyped: true,
         }),
       ]),
+    },
+    files: {
+      note: 'A lane\'s report, opened: its "[name]" signature is out, #23825 written twice is one chip, and the SHAs are quiet monospace.',
+      chipHost: FILES_HOST,
+      snapshot: chat([
+        user("Ask the lanes for their reports", 9),
+        assistant("Asked them.", 8.5),
+        summary(8.5, { status: "completed" }),
+        user(merged, 6, { incoming: message("agent-message-style", merged, undefined, "lane-1"), untyped: true }),
+        user(adopted, 5, { incoming: message("coord-deputy", adopted, undefined, "deputy-1"), untyped: true }),
+      ]),
+      play: openAll,
+    },
+    "files-elsewhere": {
+      note: "The same report relayed from another machine: its files are that machine's, so each is a chip with a lock that names it, never this Mac's file of the same path.",
+      chipHost: FILES_HOST,
+      snapshot: chat([
+        user("Ask the lanes for their reports", 9),
+        assistant("Asked them.", 8.5),
+        summary(8.5, { status: "completed" }),
+        user(merged, 6, {
+          incoming: {
+            kind: "message",
+            message: { name: "agent-message-style", remote: true, text: merged, raw: merged },
+          },
+          untyped: true,
+        }),
+        user(adopted, 5, { incoming: message("coord-deputy", adopted, undefined, "deputy-1"), untyped: true }),
+      ]),
+      play: openAll,
     },
     notice: {
       note: "A background task's end in an adopted Claude session's history: one quiet line, no raw XML.",
