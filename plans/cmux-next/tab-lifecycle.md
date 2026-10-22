@@ -84,7 +84,7 @@ cmux.json:
 
 ```jsonc
 "browser": {
-  "hibernation": "moderate",          // "off" | "moderate" (60 min) | "aggressive" (10 min) | minutes
+  "hibernation": "aggressive",        // "off" | "moderate" (60 min) | "aggressive" (10 min, default) | minutes
   "hibernationExclusions": ["mail.google.com", "*.example.com"],
   "hibernatePinnedTabs": false,
   "freezeHiddenTabs": 30,             // "off" | seconds: hidden Chromium pages freeze (power, msg 2654)

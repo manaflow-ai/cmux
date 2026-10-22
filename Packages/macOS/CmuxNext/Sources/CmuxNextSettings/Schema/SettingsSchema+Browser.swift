@@ -93,7 +93,7 @@ nonisolated enum BrowserSettingsSchema {
                     SettingChoice("aggressive", SettingsText.keyed("settings.choice.aggressive", "After 10 Minutes")),
                     SettingChoice("off", SettingsText.keyed("settings.choice.never", "Never")),
                 ], SettingNumber(1...1_440, step: 5, unit: .minutes, placeholder: 30)),
-                default: .string("moderate"), keywords: ["memory saver", "sleep", "discard"]
+                default: BrowserHibernationSetting.fallback.configValue, keywords: ["memory saver", "sleep", "discard"]
             ),
             SettingDescriptor(
                 ["browser", "hibernationExclusions"], section: .browser, group: memory,
