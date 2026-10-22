@@ -705,8 +705,6 @@
     "setting.tabs.swapCmdTAndCmdN": false,
     "setting.tabs.terminalFirst": false,
     "setting.tabs.toolbarButtons": [],
-    "setting.tabs.verticalTabs": false,
-    "setting.tabs.verticalTabsExpandOnHover": true,
     "setting.tasks.layout": "inbox",
     "setting.terminal.fontFamily": null,
     "setting.terminal.fontSize": null,
@@ -743,7 +741,7 @@
     "setting.window.titlebarButtons": "hover",
     "setting.window.trafficLightClearance": 72,
     "setting.workspaces.autoName": true,
-    "setting.workspaces.newPlacement": "afterCurrent",
+    "setting.workspaces.newPlacement": "top",
     "steps-aside.yieldsToCodeEditor": ["all common vscode shortcuts", "focusDown", "focusLocation", "focusUp", "globalSearch", "groupSelectedWorkspaces", "moveSurfaceToPaneDown", "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "openBrowser", "palette.newAgentChat", "space.next", "space.previous", "splitRight", "toggleChecklistItemComplete", "toggleSplitZoom"],
     "steps-aside.yieldsToTerminal": ["decreaseWorkspaceTerminalFontSize", "focusHistoryBack", "focusHistoryForward", "groupSelectedWorkspaces", "increaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize", "toggleChecklistItemComplete"],
     "steps-aside.yieldsToWebContent": ["toggleChecklistItemComplete"]
