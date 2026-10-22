@@ -178,3 +178,11 @@ test("picking Hosted writes home.chiefEngine", async () => {
   expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: "home.chiefEngine", value: "hosted" }]);
   page.unmount();
 });
+
+test("a search result for the Engine row lands on it", async () => {
+  const page = await renderPage({ path: "/settings/chief?focus=home.chiefEngine" });
+  await settle();
+  const row = engine(card(page.container))!;
+  expect(row.contains(document.activeElement)).toBe(true);
+  page.unmount();
+});

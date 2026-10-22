@@ -1,3 +1,5 @@
+import CmuxNextCompat
+import CmuxNextDaemon
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
@@ -17,6 +19,20 @@ extension HomeService {
         let local = HomeChiefName.select(from: conversations)
         return tabChiefs.chiefTab(local: local?.id, localHasHistory: (local?.lastSeq ?? 0) > 0, choice: hostedChief.choice,
                                   prefersLocal: prefersLocalChief)
+    }
+
+    /// A change of the Engine row re-runs the Chief tab check. The stream emits only the engine id
+    /// (a `String`, so repeats drop), not every cmux.json change that replaces the snapshot.
+    func observeChiefEngine() {
+        let local = services.machines.local
+        // task-owner: lives as long as the service; event-driven (Observation)
+        chiefEngineObservation = Task { [weak self] in
+            for await _ in ObservationStream({ [weak self] in self?.services.settings?.snapshot.homeChiefEngine }).dropFirst() {
+                guard let self, let connection = local.connection,
+                      local.supports(DaemonCapabilities.shared.workspaceKind) else { continue }
+                ensureHomeWorkspace(connection)
+            }
+        }
     }
 
     /// Reads again, off the main actor, whether this Mac's optchat-chief runs (it holds the Chief

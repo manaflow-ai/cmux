@@ -40,7 +40,7 @@ function backendLine(chief: HomeChief): string {
   return [chiefBackendLabel(t, engine?.harness), engine?.model, engine?.effort].filter(Boolean).join(" · ");
 }
 
-export function ChiefsCard() {
+export function ChiefsCard({ focus = null }: { focus?: string | null }) {
   const store = useStore();
   const host = useMemo(() => new ChiefHost(store.chiefCalls), [store]);
   const strings = useMemo(settingsStrings, []);
@@ -126,7 +126,7 @@ export function ChiefsCard() {
       <p className="row-help" data-intro="">
         {t(unavailable ? "chief.settings.unavailable" : "chief.settings.intro")}
       </p>
-      <EngineRow />
+      <EngineRow focused={focus === CHIEF_ENGINE} />
       {chiefs && chiefs.length === 0 && !unavailable && <p className="row-help">{t("chief.settings.empty")}</p>}
       {chiefs && chiefs.length > 0 && (
         <div className="rows" data-chiefs="">
@@ -164,12 +164,12 @@ export function ChiefsCard() {
   );
 }
 
-/** The Engine row, as the page's group list would draw it. */
-function EngineRow() {
+/** The Engine row, as the page's group list would draw it (a search result's `?focus=` reveals it). */
+function EngineRow({ focused }: { focused: boolean }) {
   const row = rowsByKey.get(CHIEF_ENGINE);
   return row ? (
     <div className="rows" data-engine="">
-      <SettingRow row={row} />
+      <SettingRow row={row} focused={focused} />
     </div>
   ) : null;
 }

@@ -84,6 +84,8 @@ final class HomeService {
     /// The one-time copy of this Mac's Chief into the Hosted Chief and its brain check (HomeService+HostedChief).
     @ObservationIgnored let hostedChief = HostedChiefMigration()
     @ObservationIgnored private var homeObservation: Task<Void, Never>?
+    /// Re-runs the Chief tab check when Settings > Chief's Engine changes (HomeService+ChiefDefault).
+    @ObservationIgnored var chiefEngineObservation: Task<Void, Never>?
     /// The shared Home core over the local owner (home-mac.md): the native
     /// transcript of every conversation tab reads this one store.
     /// Mermaid fences in Home chat draw as diagrams with the bundled Ondine
@@ -166,11 +168,9 @@ final class HomeService {
         let chief = chief
         // task-owner: lives as long as the service; event-driven (Observation)
         homeObservation = Task { [weak self] in
-            // A sign-in or account change re-reads the placed chief (G6), so the Chief tab follows it; so does a
-            // change of Settings > Chief's Engine (`home.chiefEngine`, HomeService+ChiefDefault).
-            for await (connection, _, _) in ObservationStream({ [weak self] in
-                (local.supports(DaemonCapabilities.shared.workspaceKind) ? local.connection : nil, auth.isSignedIn ? auth.user?.id : nil,
-                 self?.services.settings?.snapshot.homeChiefEngine)
+            // A sign-in or account change re-reads the placed chief (G6), so the Chief tab follows it.
+            for await (connection, _) in ObservationStream({
+                (local.supports(DaemonCapabilities.shared.workspaceKind) ? local.connection : nil, auth.isSignedIn ? auth.user?.id : nil)
             }) {
                 guard let self, let connection else { continue }
                 ensureHomeWorkspace(connection)
@@ -178,6 +178,7 @@ final class HomeService {
                 if homeWasOpened { publishAppLinks() }
             }
         }
+        observeChiefEngine()
         startCloud()
         // task-owner: lives as long as the service; event-driven (Observation)
         homeStore.start()
