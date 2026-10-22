@@ -158,6 +158,12 @@ impl AppIdentity {
     /// among them), so each build reaches its own daemon.
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(crate) fn daemon_session(&self) -> Option<String> {
+        let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).map(PathBuf::from);
+        self.daemon_session_in(home.as_deref())
+    }
+
+    /// [`Self::daemon_session`] for the user home `user_home`.
+    fn daemon_session_in(&self, _user_home: Option<&Path>) -> Option<String> {
         self.build().app_session()
     }
 }
@@ -365,6 +371,34 @@ mod tests {
             identity(Some("com.cmuxterm.app.debug.nx9"), None).daemon_session().as_deref(),
             Some("cmux-app-nx9")
         );
+    }
+
+    #[test]
+    fn daemon_session_follows_an_adopted_legacy_session() {
+        let home = tempfile::tempdir().unwrap();
+        let home = home.path();
+        let nightly = identity(Some("com.cmuxterm.app.nightly"), None);
+        assert_eq!(nightly.daemon_session_in(Some(home)).as_deref(), Some("cmux-app-nightly"));
+        // The app recorded the adopt beside its state directory
+        // (CmuxNext `LegacyChannelSession`): its daemon runs `cmux-app`.
+        let marker = nightly.build().legacy_session_marker(home).unwrap();
+        assert!(marker.ends_with("tags/nightly/legacy-session-adopted"), "{marker:?}");
+        std::fs::create_dir_all(marker.parent().unwrap()).unwrap();
+        std::fs::write(&marker, "{}").unwrap();
+        assert_eq!(nightly.daemon_session_in(Some(home)).as_deref(), Some("cmux-app"));
+        assert_eq!(nightly.daemon_session_in(None).as_deref(), Some("cmux-app-nightly"));
+        // Only that channel's own marker counts; release and tagged builds have none.
+        let rc = identity(Some("com.cmuxterm.app.rc"), None);
+        assert_eq!(rc.daemon_session_in(Some(home)).as_deref(), Some("cmux-app-rc"));
+        for other in
+            ["com.cmuxterm.app", "com.cmuxterm.app.nightly.try2", "com.cmuxterm.app.debug.nx9"]
+        {
+            assert_eq!(
+                identity(Some(other), None).build().legacy_session_marker(home),
+                None,
+                "{other}"
+            );
+        }
     }
 
     #[test]
