@@ -72,7 +72,7 @@ import Testing
 
     @Test func automaticUpdatesIsAThemedSwitchAtTheEndOfItsRow() throws {
         #expect(SidebarTunables.updateCardAutomaticControl.defaultValue == .switchControl)
-        let control = SidebarUpdateCheckbox(frame: NSRect(x: 0, y: 0, width: 180, height: SidebarUpdateCheckbox.height))
+        let control = SidebarUpdateToggle(frame: NSRect(x: 0, y: 0, width: 180, height: SidebarUpdateToggle.height))
         control.configure(title: "Automatic Updates", isOn: true)
         control.layoutSubtreeIfNeeded()
         control.updateLayer()
@@ -82,6 +82,9 @@ import Testing
         #expect(track.backgroundColor == control.performWithTheme { Palette.accentFill.cgColor })
         #expect(knob.frame.midX > track.frame.midX, "an on switch has its knob at the leading end")
         #expect(control.accessibilitySubrole() == .switch)
+        // The switch's centre is on the label's cap-height midline (2026-10-22), not the row box's centre.
+        let capMid = control.label.frame.minY + control.label.firstBaselineOffsetFromTop - SidebarUpdateToggle.font.capHeight / 2
+        #expect(abs(track.frame.midY - capMid) <= 0.5, "the switch sits off its label's centre line")
         control.configure(title: "Automatic Updates", isOn: false)
         control.layoutSubtreeIfNeeded()
         #expect(knob.frame.midX < track.frame.midX, "an off switch has its knob at the trailing end")
@@ -99,7 +102,13 @@ import Testing
         button.fixedStyle = .primary
         button.configure(title: "Restart to Update", enabled: true, help: nil)
         button.updateLayer()
-        #expect(button.layer?.backgroundColor == button.performWithTheme { Palette.accentFill.cgColor })
+        // The theme's accent when one is chosen; with none, the prominent neutral, never the
+        // primary text as a white slab (2026-10-22: "just make it look better").
+        let (chosen, accent, neutral, slab) = button.performWithTheme {
+            (Palette.hasChosenAccent, Palette.accentFill.cgColor, Palette.selectionFill.cgColor, Palette.textPrimary.cgColor)
+        }
+        #expect(button.layer?.backgroundColor == (chosen ? accent : neutral))
+        if !chosen { #expect(button.layer?.backgroundColor != slab, "Restart to Update is the white slab again") }
         #expect(button.layer?.borderWidth == 0, "the primary button draws the bordered button's hairline")
     }
 

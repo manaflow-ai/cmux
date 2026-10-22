@@ -28,7 +28,7 @@ final class SidebarUpdateCardView: NSView {
     private let titleLabel = ChromeLabel(labelWithString: "")
     /// The short version and build date.
     let detailLabel = ChromeLabel(labelWithString: "")
-    let checkbox = SidebarUpdateCheckbox()
+    let checkbox = SidebarUpdateToggle()
     let button = SidebarUpdateButton()
     /// "Hide": one click hides this version's card (``SidebarUpdateCard/closeAction``).
     let closeButton = SidebarCardTextButton()
@@ -192,7 +192,7 @@ final class SidebarUpdateCardView: NSView {
         let title = ceil(titleFont.boundingRectForFont.height)
         let detail = card.detail == nil ? 0 : Metrics.space1 / 2 + captionHeight
         return ceil(padding + title + detail + Metrics.space2
-            + SidebarUpdateCheckbox.height + Metrics.space2 + SidebarUpdateButton.height + padding)
+            + SidebarUpdateToggle.height + Metrics.space2 + SidebarUpdateButton.height + padding)
     }
 
     override func layout() {
@@ -215,7 +215,7 @@ final class SidebarUpdateCardView: NSView {
             detailLabel.frame = NSRect(x: pad, y: y, width: width, height: caption)
             y += caption
         }
-        checkbox.frame = NSRect(x: pad, y: y + Metrics.space2, width: width, height: SidebarUpdateCheckbox.height)
+        checkbox.frame = NSRect(x: pad, y: y + Metrics.space2, width: width, height: SidebarUpdateToggle.height)
         button.frame = NSRect(x: pad, y: checkbox.frame.maxY + Metrics.space2, width: width, height: SidebarUpdateButton.height)
         presence.didLayout()
     }
@@ -223,7 +223,8 @@ final class SidebarUpdateCardView: NSView {
     override func updateLayer() {
         performWithTheme {
             titleLabel.textColor = Palette.textPrimary
-            detailLabel.textColor = Palette.textSecondary
+            // The version line is quiet: the card's title and its action carry it.
+            detailLabel.textColor = Palette.textTertiary
         }
     }
 

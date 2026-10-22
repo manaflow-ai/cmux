@@ -33,7 +33,7 @@ struct SidebarKeyFocusTests {
     /// The update card's button and checkbox (Full Keyboard Access) ring in the theme's focus color.
     @Test func updateCardControlsRingInTheThemeColor() {
         let button = SidebarUpdateButton(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
-        let checkbox = SidebarUpdateCheckbox(frame: NSRect(x: 0, y: 0, width: 120, height: 18))
+        let checkbox = SidebarUpdateToggle(frame: NSRect(x: 0, y: 0, width: 120, height: 18))
         for view in [button, checkbox] as [NSView] {
             #expect(view.focusRingType == .none)
             _ = view.becomeFirstResponder()

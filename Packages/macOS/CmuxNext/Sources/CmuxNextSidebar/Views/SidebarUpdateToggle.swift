@@ -9,8 +9,11 @@ import QuartzCore
 /// setting changes. By default a compact switch at the end of the row with
 /// the label at the card's text edge (``SidebarUpdateToggleLook``, Leo
 /// 2026-10-20: the filled box read as an unstyled native checkbox); Debug
-/// Settings brings the checkbox back.
-final class SidebarUpdateCheckbox: NSView {
+/// Settings brings the checkbox back. The switch's centre sits on the
+/// label's cap-height midline, and the knob slides and the track fills on
+/// the sidebar's motion gate (Leo 2026-10-22: "a toggle is nicer than a
+/// checkbox, just make it look better").
+final class SidebarUpdateToggle: NSView {
     var onToggle: ((Bool) -> Void)?
     private(set) var isOn = false
     /// The checkbox's box, or the switch's track (the first sublayer either way: it carries the focus ring).
@@ -18,7 +21,8 @@ final class SidebarUpdateCheckbox: NSView {
     /// The switch's knob (hidden for the checkbox).
     private let knob = CALayer()
     private let mark = DecorativeImageView() // the checkbox's AXValue says it
-    private let label = ChromeLabel(labelWithString: "")
+    /// The label (internal for the alignment test).
+    let label = ChromeLabel(labelWithString: "")
     /// The look this control draws (tests set it; nil follows `sidebar.updateCard.automaticControl`).
     var fixedLook: SidebarUpdateToggleLook? { didSet { if fixedLook != oldValue { needsLayout = true; needsDisplay = true } } }
     var look: SidebarUpdateToggleLook { fixedLook ?? SidebarTunables.updateCardAutomaticControl.value }
@@ -36,8 +40,9 @@ final class SidebarUpdateCheckbox: NSView {
         box.borderWidth = 1
         box.actions = ["borderColor": NSNull(), "borderWidth": NSNull()]
         layer?.addSublayer(box)
-        // The knob moves in one frame: no implicit animation, so Reduce Motion and the motion switches need nothing.
-        knob.actions = ["position": NSNull(), "bounds": NSNull(), "backgroundColor": NSNull(), "hidden": NSNull()]
+        // The knob and track change only through `slideSwitch()`'s motion transaction (or with actions
+        // disabled in layout and updateLayer), so the motion switches and Reduce Motion snap them.
+        knob.actions = ["hidden": NSNull()]
         layer?.addSublayer(knob)
         mark.imageScaling = .scaleProportionallyDown
         label.lineBreakMode = .byTruncatingTail
@@ -63,7 +68,9 @@ final class SidebarUpdateCheckbox: NSView {
 
     func configure(title: String, isOn: Bool) {
         label.stringValue = title
+        let changed = isOn != self.isOn
         self.isOn = isOn
+        if changed, window != nil, look == .switchControl { slideSwitch() }
         setAccessibilityLabel(title)
         setAccessibilityValue(isOn ? 1 : 0)
         setAccessibilitySubrole(look == .switchControl ? .switch : nil)
@@ -73,6 +80,28 @@ final class SidebarUpdateCheckbox: NSView {
 
     /// The label as drawn.
     var title: String { label.stringValue }
+
+    /// The switch follows a new state: the knob slides and the track fills on the sidebar's
+    /// selection spring (`Motion.sidebar`); with animation off it lands in one frame. Layout and
+    /// `updateLayer` set the same values with actions disabled, which leaves the slide running.
+    private func slideSwitch() {
+        Motion.sidebar.transaction(spring: .selection) {
+            knob.frame = Self.knobFrame(in: box.frame, isOn: isOn)
+            performWithTheme {
+                let colors = Self.switchColors(isOn: isOn)
+                box.backgroundColor = colors.track.cgColor
+                if !showsKeyFocus { box.borderColor = colors.edge.cgColor }
+                knob.backgroundColor = colors.knob.cgColor
+            }
+        }
+    }
+
+    /// Where the switch's centre goes in a row whose label sits at `labelTop`: the label's
+    /// cap-height midline (its first baseline less half the cap height), so the switch and the
+    /// label's letters share one centre line rather than two boxes' centres.
+    static func switchMidY(labelTop: CGFloat, baseline: CGFloat, font: NSFont) -> CGFloat {
+        labelTop + baseline - font.capHeight / 2
+    }
 
     override func layout() {
         super.layout()
@@ -85,15 +114,18 @@ final class SidebarUpdateCheckbox: NSView {
         case .switchControl:
             // The label at the card's text edge, the switch at the end of the row (the button's right edge).
             let track = Self.switchSize
-            let trackFrame = CGRect(x: max(0, b.width - track.width), y: (b.height - track.height) / 2,
-                                    width: track.width, height: track.height)
+            let labelTop = (b.height - th) / 2
+            let midY = Self.switchMidY(labelTop: labelTop, baseline: label.firstBaselineOffsetFromTop, font: Self.font)
+            let trackY = (window?.backingScaleFactor).map { scale in ((midY - track.height / 2) * scale).rounded() / scale }
+                ?? (midY - track.height / 2).rounded()
+            let trackFrame = CGRect(x: max(0, b.width - track.width), y: trackY, width: track.width, height: track.height)
             box.frame = trackFrame
             box.cornerRadius = track.height / 2
             knob.frame = Self.knobFrame(in: trackFrame, isOn: isOn)
             knob.cornerRadius = knob.frame.height / 2
             knob.isHidden = false
             mark.isHidden = true
-            label.frame = NSRect(x: 0, y: (b.height - th) / 2, width: max(0, trackFrame.minX - Metrics.space2), height: th)
+            label.frame = NSRect(x: 0, y: labelTop, width: max(0, trackFrame.minX - Metrics.space2), height: th)
         case .checkbox:
             let boxFrame = CGRect(x: 0, y: (b.height - side) / 2, width: side, height: side)
             box.frame = boxFrame
@@ -116,13 +148,18 @@ final class SidebarUpdateCheckbox: NSView {
     }
 
     /// The switch's track and knob colors (theme-scoped: call inside `performWithTheme`): the
-    /// theme's accent pair when on (the primary button's), a quiet fill with a hairline when off.
+    /// theme's accent pair when on, a quiet fill with a hairline and a muted knob when off.
     static func switchColors(isOn: Bool) -> (track: NSColor, knob: NSColor, edge: NSColor) {
         isOn ? (Palette.accentFill, Palette.onAccent, Palette.accentFill)
-            : (Palette.hoverFill, Palette.textSecondary, Palette.separator)
+            : (Palette.hoverFill, Palette.textTertiary, Palette.separator)
     }
 
     override func updateLayer() {
+        // Sublayers have no view delegate: without this every color here would take Core
+        // Animation's default implicit fade, outside the motion gate.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
         performWithTheme {
             switch look {
             case .switchControl:
@@ -131,6 +168,11 @@ final class SidebarUpdateCheckbox: NSView {
                 box.borderColor = (showsKeyFocus ? Palette.focusRing : colors.edge).cgColor
                 box.borderWidth = showsKeyFocus ? Metrics.lineWidth(1.5) : Metrics.lineWidth(1)
                 knob.backgroundColor = colors.knob.cgColor
+                // A small lift so the knob reads as a part that slides (the tooltip's elevation).
+                knob.shadowColor = Palette.shadow.cgColor
+                knob.shadowOpacity = Float(PopupStyle.elevation1.alpha)
+                knob.shadowRadius = PopupStyle.elevation1.layerRadius
+                knob.shadowOffset = PopupStyle.elevation1.layerOffset(flipped: isFlipped)
                 mark.isHidden = true
             case .checkbox:
                 box.backgroundColor = (isOn ? Palette.textPrimary : NSColor.clear).cgColor
