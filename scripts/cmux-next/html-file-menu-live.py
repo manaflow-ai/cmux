@@ -18,7 +18,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--tag", default=os.environ.get("NX_APP_TAG"))
 ap.add_argument("--app", default=os.environ.get("NX_APP"))
 ap.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", tempfile.mkdtemp(prefix="html-file-menu-")))
-ap.add_argument("--only", default="send,text")
+ap.add_argument("--only", default="menu,text")
 ap.add_argument("--classic", action="store_true", help="CMUX_NEXT_CLASSIC_HOME=1 (Home as a top page, not the dock)")
 opts = ap.parse_args()
 if not opts.tag or not opts.app:
@@ -154,26 +154,95 @@ def open_index():
     return wait(lambda: tab_showing("index.html"), 20)
 
 
-def run_send():
-    t = open_index()
-    row("index.html opens in a tab", t is not None, t)
-    if not t:
+CUA = os.path.expanduser("~/.local/bin/cua-driver")
+
+
+def cua(tool, args):
+    r = subprocess.run([CUA, "call", tool, json.dumps(args)], capture_output=True, text=True, timeout=60)
+    try:
+        return json.loads(r.stdout)
+    except ValueError:
+        return {"raw": r.stdout[-400:], "err": r.stderr[-400:]}
+
+
+def cua_window(pid):
+    windows = cua("list_windows", {"pid": pid}).get("windows", [])
+    size = lambda w: (w.get("bounds") or {}).get("width", 0) * (w.get("bounds") or {}).get("height", 0)
+    return max(windows, key=size)["window_id"] if windows else None
+
+
+def menu_items(state):
+    """The open context menu's item titles (the first AXMenu outside the menu bar)."""
+    import re
+    lines = state.get("tree_markdown", "").split("\n")
+    for i, line in enumerate(lines):
+        if "] AXMenu " in line and "AXMenuBar" not in lines[max(0, i - 1)]:
+            depth = len(line) - len(line.lstrip())
+            items = []
+            for r in lines[i + 1:]:
+                indent = len(r) - len(r.lstrip())
+                if indent <= depth:
+                    break
+                match = re.match(r'- (?:\[\d+\] )?AXMenuItem "([^"]*)"', r.strip())
+                if indent == depth + 2 and match:
+                    items.append(match.group(1))
+            return items
+    return []
+
+
+def drive(action, **extra):
+    return rpc("debug.home.drive", {"action": action, **extra}) or {}
+
+
+def attachment_row():
+    rows = drive("rows")
+    found = [r for r in rows.get("rows", []) if r.get("outgoing") and r.get("kind") not in ("text", "status", "time")]
+    return (found[-1] if found else None), rows
+
+
+def run_menu():
+    """u9489: right-click my index.html attachment in the Home chat, close the menu, send a message."""
+    say("fixture:", json.dumps(rpc("debug.home_native_fixture.open", {"new": True}))[:300])
+    wait(lambda: drive("geometry").get("ok"), 30)
+    time.sleep(1)  # test harness: the transcript paints
+    say("attach:", json.dumps(rpc("debug.home.attach", {"path": INDEX, "via": "drop"})))
+    time.sleep(0.8)  # test harness: the tile lands in the field
+    say("send attachment:", json.dumps(drive("send")))
+    row_, rows = wait(lambda: (lambda r: r if r[0] else None)(attachment_row()), 20) or (None, drive("rows"))
+    say("rows:", json.dumps(rows)[:1500])
+    row("index.html attachment shows in the transcript", row_ is not None, row_)
+    if not row_:
         return
-    time.sleep(1.5)  # test harness: the page paints
-    snapshot("send-0-before")
-    menu = rpc("debug.tab_menu", {"tab": tab_id(t)})
-    say("tab menu:", json.dumps(menu)[:800])
-    reply = rpc("action.run", {"action": "home.messageAbout", "target": f"tab:{tab_id(t)}", "focus": True, "origin": "user"})
-    say("Send Message…:", json.dumps(reply)[:300])
+    pid = launched[0].pid
+    win = cua_window(pid)
+    state = cua("get_window_state", {"pid": pid, "window_id": win, "include_accessibility_tree": False})
+    scale = state.get("screenshot_scale") or 1
+    b = row_["balloon"]
+    # rows: window points, bottom-left origin; cua: window pixels, top-left origin.
+    x = (b["x"] + b["width"] / 2) * scale
+    y = (rows["windowHeight"] - (b["y"] + b["height"] / 2)) * scale
+    snapshot("menu-0-before")
+    say("right_click:", json.dumps(cua("right_click", {"pid": pid, "window_id": win, "x": round(x), "y": round(y), "delivery_mode": "background"}))[:300])
+    time.sleep(1.0)  # test harness: the menu opens and the highlight fades in
+    cua("get_desktop_state", {"screenshot_out_file": os.path.join(opts.out, "menu-1-open-desktop.png")})
+    items = menu_items(cua("get_window_state", {"pid": pid, "window_id": win, "max_elements": 5000}))
+    say("menu items:", items)
+    row("the attachment's menu opens", bool(items), items)
+    cua("press_key", {"pid": pid, "window_id": win, "key": "escape", "delivery_mode": "background"})
+    time.sleep(0.8)  # test harness: the menu and its highlight close
+    snapshot("menu-2-closed")
+    say("highlights after close:", json.dumps(drive("highlights")))
+    drive("focus")
+    drive("type", text="Sending a message after the right-click.")
+    say("send:", json.dumps(drive("send")))
     start = time.time()
-    for ms in (0, 120, 300, 700, 1500, 3000):
+    for ms in (100, 400, 1500):
         delay = start + ms / 1000 - time.time()
         if delay > 0:
             time.sleep(delay)  # test harness: timed captures
-        snapshot(f"send-{ms:04d}ms")
-    home = rpc("debug.home") or {}
-    say("debug.home:", json.dumps(home)[:2500])
-    row("Send Message… ran", "error" not in (reply or {}), reply)
+        snapshot(f"menu-3-sent-{ms:04d}ms")
+    say("rows after send:", json.dumps(drive("rows"))[:1500])
+    say("highlights after send:", json.dumps(drive("highlights")))
 
 
 def run_text():
@@ -204,8 +273,8 @@ def finish(code):
 
 make_fixture()
 launch()
-if "send" in ONLY:
-    run_send()
+if "menu" in ONLY:
+    run_menu()
 if "text" in ONLY:
     run_text()
 finish(0 if all(r["ok"] for r in ROWS) else 1)
