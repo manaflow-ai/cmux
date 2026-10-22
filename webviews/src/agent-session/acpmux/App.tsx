@@ -105,7 +105,7 @@ import {
   type DroppedKind,
   recordingLeftOutNotice,
 } from "./attachments";
-import type { KeptAttachments } from "./composer/keptAttachments";
+import { keptChips, type KeptAttachments } from "./composer/keptAttachments";
 import { ComposerPickers, PICKER_LABELS, type ComposerPermissionAccess } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
 import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
@@ -4049,17 +4049,30 @@ function AcpmuxPane() {
     refusedForTrust: isTrustRefusal,
   });
   /// Puts every prompt the folder's trust held back where it was typed, for a page about to let go:
-  /// the shown chat's (and a new chat's) into the composer, another chat's into that chat's draft.
-  /// True when there were any.
-  const releaseTrustHeld = useRef(() => false);
-  releaseTrustHeld.current = () => {
+  /// the shown chat's (and a new chat's) into the composer, another chat's into that chat's draft
+  /// and kept chips. True when there were any.
+  const releaseTrustHeld = useRef(async () => false);
+  releaseTrustHeld.current = async () => {
     const all = trustHeld.release();
+    const elsewhere = new Map<string, TrustHeldPrompt[]>();
     // `restore` puts what comes back first: the last one goes in first, so they read in order.
     for (const entry of [...all].reverse()) {
       if (entry.chat && entry.chat !== snapshot.sessionId)
-        writePersistedDraft(entry.chat, [entry.text, readPersistedDraft(entry.chat)].filter(Boolean).join("\n\n"));
+        elsewhere.set(entry.chat, [entry, ...(elsewhere.get(entry.chat) ?? [])]);
       else composerHandle.current?.restore(entry.text, entry.attachments);
     }
+    await Promise.all(
+      [...elsewhere].map(async ([chat, entries]) => {
+        const text = entries.map((entry) => entry.text).filter((part) => part.trim());
+        writePersistedDraft(chat, [...text, readPersistedDraft(chat)].filter(Boolean).join("\n\n"));
+        const chips = keptChips(entries.flatMap((entry) => entry.attachments));
+        if (!chips.length) return;
+        const kept = await keptAttachments.read(chat);
+        await keptAttachments
+          .write(chat, [...chips, ...kept.filter((chip) => !chips.some((back) => back.id === chip.id))])
+          .catch(() => undefined);
+      }),
+    );
     return all.length > 0;
   };
   const individualPermission =
@@ -5670,6 +5683,9 @@ function AcpmuxPane() {
     const heldPrompt = heldPrompts((intent) =>
       postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
     );
+    /// The tickets of prompts the folder's trust held (trustHeld.ts) that a harness switch holds now,
+    /// by prompt id, for the switch's send.
+    const trustTickets = new Map<string, string>();
     holdPrompt.current = () => void heldPrompt.hold();
     /// The gesture a failed prompt row kept for its Trust re-send, apart from `heldPrompt`, which
     /// the next ordinary send takes: a prompt typed before Trust never goes under the row's id.
@@ -5969,7 +5985,15 @@ function AcpmuxPane() {
           };
           // A harness switch holds the prompt in its own row until its session is ready, and
           // hands it back to the composer when the switch fails.
-          const held = harnessSwitch.send(text, attachments, () => promptLanded.current(), promptId);
+          // A prompt the folder's trust held keeps its id and its send's ticket there too.
+          if (fromTrust?.ticket) trustTickets.set(fromTrust.promptId, fromTrust.ticket);
+          const held = harnessSwitch.send(
+            text,
+            attachments,
+            () => promptLanded.current(),
+            promptId ?? fromTrust?.promptId,
+          );
+          if (!held && fromTrust) trustTickets.delete(fromTrust.promptId);
           if (held) {
             accepted?.();
             return held.catch((error: unknown) =>
@@ -6353,7 +6377,7 @@ function AcpmuxPane() {
             // the page, and the composer's draft and chips are what a woken page gets back.
             // The composer saves its draft once the text settles (UNSENT_DRAFT_SETTLE_MS for a new
             // chat), within the host's wait.
-            if (releaseTrustHeld.current()) await new Promise((settled) => setTimeout(settled, 400));
+            if (await releaseTrustHeld.current()) await new Promise((settled) => setTimeout(settled, 400));
             const anchor = transcriptAnchor.current?.();
             return {
               ...composerHandle.current?.wakeState(),
@@ -6387,12 +6411,15 @@ function AcpmuxPane() {
           // A prompt held behind the trust question goes with the gesture its send kept.
           send: (text, attachments, promptId) => {
             const kept = heldPrompt.take();
+            // One the folder's trust held (trustHeld.ts) goes with its own send's ticket.
+            const own = trustTickets.get(promptId);
+            trustTickets.delete(promptId);
             return client.send(
               text,
               attachments,
               promptId,
               undefined,
-              kept?.promptId === promptId ? kept.ticket : undefined,
+              own ?? (kept?.promptId === promptId ? kept.ticket : undefined),
             );
           },
           setModel: (modelId) => client.setModel(modelId),
@@ -7636,8 +7663,9 @@ function AcpmuxPane() {
               // Shell mode's chips carry their commands' output as it is now.
               const attachments = shellContextAttachments(chips ?? [], (id) => shellRuns.get(id));
               // The folder's trust holds prompts: this one waits in the pane and goes after Trust.
-              // Trust's own re-send of a prompt acpmux refused goes now (resendAfterTrust).
-              if (trustHolds && !trustResend.current) {
+              // One sent while earlier held prompts still go waits behind them, so none overtakes
+              // another. Trust's own re-send of a prompt acpmux refused goes now (resendAfterTrust).
+              if ((trustHolds || trustHeld.pending()) && !trustResend.current) {
                 trustHeld.hold(text, attachments);
                 return true;
               }

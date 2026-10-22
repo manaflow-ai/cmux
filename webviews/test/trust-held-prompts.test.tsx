@@ -59,12 +59,13 @@ let shown: Held | undefined;
 function Probe({
   acpmux,
   holds,
-  chat = "chat-1",
+  chat,
   cwd = "/Users/you/src/app",
 }: {
   acpmux: ReturnType<typeof standIn>;
   holds: boolean;
-  chat?: string;
+  /// Required: undefined is a new chat (no session yet), never a default chat.
+  chat: string | undefined;
   cwd?: string;
 }) {
   shown = useTrustHeldPrompts({
@@ -82,7 +83,7 @@ const settle = () => act(async () => await new Promise((resolve) => setTimeout(r
 
 test("every prompt sent under the question waits, and they go in order after Trust", async () => {
   const acpmux = standIn();
-  await act(async () => root.render(<Probe key="a" acpmux={acpmux} holds />));
+  await act(async () => root.render(<Probe key="a" acpmux={acpmux} holds chat="chat-1" />));
   await act(async () => shown!.hold("first", []));
   await act(async () => shown!.hold("second", []));
   await act(async () => shown!.hold("third", []));
@@ -100,10 +101,12 @@ test("every prompt sent under the question waits, and they go in order after Tru
   await act(async () => shown!.edit(second, { op: "update", text: "second, edited" }));
 
   // Trust: one at a time, each once acpmux took the one before, with its own ticket.
-  await act(async () => root.render(<Probe key="a" acpmux={acpmux} holds={false} />));
+  await act(async () => root.render(<Probe key="a" acpmux={acpmux} holds={false} chat="chat-1" />));
   await settle();
   expect(acpmux.sent.map((sent) => sent.entry.text)).toEqual(["first"]);
   expect(await acpmux.sent[0]!.entry.ticket).toBe(`ticket-${acpmux.sent[0]!.entry.id}`);
+  // A prompt sent now waits behind the ones still going (the pane holds it too).
+  expect(shown!.pending()).toBe(true);
   acpmux.sent[0]!.take();
   await settle();
   expect(acpmux.sent.map((sent) => sent.entry.text)).toEqual(["first", "second, edited"]);
@@ -111,6 +114,7 @@ test("every prompt sent under the question waits, and they go in order after Tru
   await settle();
   expect(acpmux.sent).toHaveLength(2);
   expect(shown!.rows).toEqual([]);
+  expect(shown!.pending()).toBe(false);
 });
 
 test("a refused prompt goes back into the composer; after a trust refusal the rest wait", async () => {
@@ -184,4 +188,40 @@ test("another chat's held prompts neither show nor go there", async () => {
   await settle();
   expect(shown!.rows).toEqual([]);
   expect(acpmux.sent).toEqual([]);
+});
+
+test("a new chat's held prompts neither show nor go in a new chat in another folder", async () => {
+  const acpmux = standIn();
+  await act(async () =>
+    root.render(<Probe key="f" acpmux={acpmux} holds chat={undefined} cwd="/Users/you/untrusted" />),
+  );
+  await act(async () => shown!.hold("for the untrusted folder", []));
+  // The person picks a trusted folder for the new chat instead.
+  await act(async () =>
+    root.render(<Probe key="f" acpmux={acpmux} holds={false} chat={undefined} cwd="/Users/you/trusted" />),
+  );
+  await settle();
+  expect(shown!.rows).toEqual([]);
+  expect(acpmux.sent).toEqual([]);
+  expect(shown!.pending()).toBe(false);
+  // Back to the first folder, now trusted: its prompt goes there.
+  await act(async () =>
+    root.render(<Probe key="f" acpmux={acpmux} holds={false} chat={undefined} cwd="/Users/you/untrusted" />),
+  );
+  await settle();
+  expect(acpmux.sent.map((sent) => [sent.entry.text, sent.entry.cwd])).toEqual([
+    ["for the untrusted folder", "/Users/you/untrusted"],
+  ]);
+});
+
+test("a prompt a harness switch handed back to the composer is not put back twice", async () => {
+  const acpmux = standIn();
+  await act(async () => root.render(<Probe key="g" acpmux={acpmux} holds chat="chat-7" />));
+  await act(async () => shown!.hold("switching", []));
+  await act(async () => root.render(<Probe key="g" acpmux={acpmux} holds={false} chat="chat-7" />));
+  await settle();
+  acpmux.sent[0]!.refuse(Object.assign(new Error("switch failed"), { handedBack: true }));
+  await settle();
+  expect(acpmux.putBack).toEqual([]);
+  expect(shown!.rows).toEqual([]);
 });

@@ -30,10 +30,20 @@ export type TrustHeldPrompt = {
   ticket: Promise<string | undefined>;
 };
 
-/// The held prompts of `chat`, as the composer's queue rows.
-export function heldQueueRows(held: readonly TrustHeldPrompt[], chat: string | undefined): QueuedPrompt[] {
+/// Whether `entry` was sent in the chat shown: its session, or for a new chat (no session yet) its
+/// folder, so a new chat's prompts never go to another new chat picked meanwhile.
+function sentIn(entry: TrustHeldPrompt, chat: string | undefined, cwd: string | undefined): boolean {
+  return entry.chat === chat && (chat !== undefined || entry.cwd === cwd);
+}
+
+/// The held prompts of the chat shown (`chat`, and `cwd` for a new chat), as the composer's queue rows.
+export function heldQueueRows(
+  held: readonly TrustHeldPrompt[],
+  chat: string | undefined,
+  cwd: string | undefined,
+): QueuedPrompt[] {
   return held
-    .filter((entry) => entry.chat === chat)
+    .filter((entry) => sentIn(entry, chat, cwd))
     .map((entry) => {
       const images = attachedImages(entry.attachments);
       return { id: entry.id, prompt: entry.text, held: true, ...(images.length ? { images } : {}) };
@@ -82,31 +92,29 @@ export function useTrustHeldPrompts({
   latest.current = { send, putBack, refusedForTrust };
   // What a flush reads before each prompt: a prompt removed or edited meanwhile, another chat
   // shown, or the folder held again counts.
-  const now = useRef({ held, chat, holds });
-  now.current = { held, chat, holds };
+  const now = useRef({ held, chat, cwd, holds });
+  now.current = { held, chat, cwd, holds };
   const flushing = useRef(false);
   // Bumped when a flush ends, so prompts that came due meanwhile (a new chat's session started) go.
   const [rounds, setRounds] = useState(0);
 
   // A new chat's held prompts follow it into the session its first one started, whatever folder
-  // the host filled in. Only a start this hook sent moves them: a new chat left for another one
-  // keeps its prompts.
-  const starting = useRef(false);
+  // the host filled in: the prompts of the folder that first one was sent in. Only a start this hook
+  // sent moves them (`starting`: that folder): a new chat left for another one keeps its prompts.
+  const starting = useRef<{ cwd: string | undefined } | undefined>(undefined);
   const lastChat = useRef(chat);
   useEffect(() => {
     const was = lastChat.current;
     lastChat.current = chat;
-    if (was !== undefined || chat === undefined || !starting.current) return;
-    starting.current = false;
-    setHeld((list) =>
-      list.some((entry) => entry.chat === undefined)
-        ? list.map((entry) => (entry.chat === undefined ? { ...entry, chat, cwd: entry.cwd ?? cwd } : entry))
-        : list,
-    );
-  }, [chat, cwd]);
+    const started = starting.current;
+    if (was !== undefined || chat === undefined || !started) return;
+    starting.current = undefined;
+    const ours = (entry: TrustHeldPrompt) => entry.chat === undefined && entry.cwd === started.cwd;
+    setHeld((list) => (list.some(ours) ? list.map((entry) => (ours(entry) ? { ...entry, chat } : entry)) : list));
+  }, [chat]);
 
   useEffect(() => {
-    if (holds || flushing.current || !held.some((entry) => entry.chat === chat)) return;
+    if (holds || flushing.current || !held.some((entry) => sentIn(entry, chat, cwd))) return;
     // A new chat's first prompt is starting it: the rest wait for its session.
     if (chat === undefined && starting.current) return;
     flushing.current = true;
@@ -115,26 +123,27 @@ export function useTrustHeldPrompts({
       // the rest go once its session shows.
       for (let sent = 0; chat !== undefined || sent === 0; sent++) {
         const shown = now.current;
-        const entry = shown.held.find((item) => item.chat === chat);
-        if (!entry || shown.holds || shown.chat !== chat) break;
+        const entry = shown.held.find((item) => sentIn(item, chat, cwd));
+        if (!entry || shown.holds || shown.chat !== chat || shown.cwd !== cwd) break;
         now.current = { ...shown, held: shown.held.filter((item) => item.id !== entry.id) };
         setHeld((list) => list.filter((item) => item.id !== entry.id));
-        if (chat === undefined) starting.current = true;
+        if (chat === undefined) starting.current = { cwd: entry.cwd };
         try {
           await latest.current.send(entry);
         } catch (error) {
           // A start that came to nothing moves no prompts later.
-          if (chat === undefined) starting.current = false;
-          // Refused: its ticket is spent, so it goes back into the composer. A trust refusal
-          // (acpmux holds the folder again) leaves the rest waiting for the next answer.
-          latest.current.putBack(entry);
+          if (chat === undefined) starting.current = undefined;
+          // Refused: its ticket is spent, so it goes back into the composer, unless a harness
+          // switch already handed it back there (harnessSwitch.ts). A trust refusal (acpmux holds
+          // the folder again) leaves the rest waiting for the next answer.
+          if ((error as { handedBack?: unknown } | null)?.handedBack !== true) latest.current.putBack(entry);
           if (latest.current.refusedForTrust(error)) break;
         }
       }
       flushing.current = false;
       setRounds((count) => count + 1);
     })();
-  }, [holds, chat, held, rounds]);
+  }, [holds, chat, cwd, held, rounds]);
 
   /// Holds a prompt sent now, with its send's gesture.
   const hold = useCallback(
@@ -147,13 +156,17 @@ export function useTrustHeldPrompts({
   );
 
   // The same rows until a held prompt comes, goes or changes (the composer's snapshot keeps them).
-  const rows = useMemo(() => heldQueueRows(held, chat), [held, chat]);
+  const rows = useMemo(() => heldQueueRows(held, chat, cwd), [held, chat, cwd]);
   return {
     /// The shown chat's held prompts, for the composer's queue.
     rows,
     hold,
     /// Whether `id` is a held prompt (its queue row's actions are the pane's).
     has: (id: string) => held.some((entry) => entry.id === id),
+    /// Whether the chat shown still has prompts held or going: a prompt sent now waits behind them,
+    /// so it never goes before one sent earlier.
+    pending: () =>
+      flushing.current || now.current.held.some((entry) => sentIn(entry, now.current.chat, now.current.cwd)),
     /// Takes every held prompt out, for a page about to let go (`pane.wakeState`): their tickets
     /// end with the page, so they go back into the composer.
     release: () => {

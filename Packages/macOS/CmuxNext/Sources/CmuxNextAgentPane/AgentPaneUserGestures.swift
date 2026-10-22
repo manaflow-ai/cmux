@@ -119,6 +119,11 @@ import CmuxNextCompat
     /// A seeded prompt's ticket stays: it belongs to the pane's one seed, not to a connection.
     public func clearTickets() { tickets.removeAll() }
 
+    /// Drops every ticket but the prompts': a prompt that went out ends a harness switch's picks,
+    /// not the other prompts held for the folder trust answer, each with its own send's gesture
+    /// (webviews trustHeld.ts). A prompt's ticket allows only that one promptId within its lifetime.
+    public func clearPickTickets() { tickets = tickets.filter { $0.value.intent.method == "session/prompt" } }
+
     // MARK: A seeded prompt's ticket (cx-k21v gap 4)
 
     /// The ticket of a prompt a person's own action seeded (``AgentPaneSeed/PromptBy``): issued

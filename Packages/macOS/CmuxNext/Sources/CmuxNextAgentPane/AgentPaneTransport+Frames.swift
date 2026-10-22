@@ -383,10 +383,11 @@ extension AgentPaneTransport {
             localAppToken = nil
         } else {
             noteSent(facts, relayID: relayID)
-            // The switch's queued prompt goes out: the switch has ended, its tickets with it.
+            // The switch's queued prompt goes out: the switch has ended, its pick tickets with it.
+            // Other prompts held for the folder trust answer keep theirs (clearPickTickets).
             // A prompt went out: a seed ticket it did not redeem and the start's credit end too.
             if facts.method == "session/prompt" {
-                gestures.clearTickets(); gestures.dropSeedTicket(); startCredit.clear(); pickCredit.clear()
+                gestures.clearPickTickets(); gestures.dropSeedTicket(); startCredit.clear(); pickCredit.clear()
             }
         }
         if let error = await Self.encodeAndSend(box, relayID: relayID, socket: socket) {
