@@ -10,8 +10,8 @@
 //! and masked before its cut for the sub-session tools (`subsession_row`), so
 //! a secret across the cut leaves no head there.
 
-use crate::no_panic::JsonExt;
 use super::*;
+use crate::no_panic::JsonExt;
 
 /// Longest activity or plan step kept, in characters.
 const ACTIVITY_CHARS: usize = 160;

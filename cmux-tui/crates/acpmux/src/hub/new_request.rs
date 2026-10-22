@@ -5,7 +5,8 @@ use super::*;
 
 /// The agent name, or `agent-N` for the first N not taken in `sessions`.
 pub(super) fn unique_name_among(sessions: &HashMap<String, Arc<Session>>, agent: &str) -> String {
-    let taken: std::collections::HashSet<String> = sessions.values().map(|s| s.meta().name).collect();
+    let taken: std::collections::HashSet<String> =
+        sessions.values().map(|s| s.meta().name).collect();
     if !taken.contains(agent) {
         return agent.to_owned();
     }

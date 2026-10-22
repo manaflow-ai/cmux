@@ -10,9 +10,9 @@
 //! prompt. The fork is idle: its copy of the running turn ends there as
 //! cancelled, a tool call still running shown failed. The chat is not touched.
 
+use super::*;
 use crate::no_panic::JsonExt;
 use crate::no_panic::LockExt;
-use super::*;
 use std::sync::atomic::Ordering;
 
 /// Why a chat with no turn cannot fork: its agent holds no conversation to copy yet.

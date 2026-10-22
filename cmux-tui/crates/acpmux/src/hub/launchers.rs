@@ -2,8 +2,8 @@
 //! resolved to the package's installed bin, once per package, so no
 //! session spawn or model probe waits on npx.
 
-use crate::no_panic::LockExt;
 use super::*;
+use crate::no_panic::LockExt;
 
 impl Hub {
     /// Resolve `argv`'s `npx -y PACKAGE` launch when it has one and it is

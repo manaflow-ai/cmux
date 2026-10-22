@@ -1,8 +1,8 @@
 //! Part of `Hub`; see `hub/mod.rs`. The `_acpmux/harnesses` reply.
 
+use super::*;
 use crate::no_panic::JsonExt;
 use crate::no_panic::LockExt;
-use super::*;
 
 use crate::config::folder_profiles::{self, FolderProfile};
 

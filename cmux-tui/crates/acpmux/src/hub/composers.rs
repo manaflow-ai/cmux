@@ -21,8 +21,8 @@
 //! queue's labels live in memory, so a restarted or moved chat shows its queue unlabelled; the
 //! durable shared draft stays `_acpmux/draft_set`.
 
-use crate::no_panic::JsonExt;
 use super::*;
+use crate::no_panic::JsonExt;
 use std::collections::{BTreeMap, VecDeque};
 
 /// Longest surface id or name, in characters.

@@ -14,8 +14,8 @@
 //! path, like Grok's (xai.rs). Cursor's notifications (`cursor/update_todos`,
 //! `cursor/task`, `cursor/generate_image`) need no reply.
 
-use crate::no_panic::JsonExt;
 use super::*;
+use crate::no_panic::JsonExt;
 use std::collections::HashSet;
 
 /// Which `cursor/` request a method is.
@@ -56,7 +56,8 @@ struct Asked {
 /// both an id and a label (Cursor's answer holds option ids only, so a free
 /// answer would be lost).
 fn asked(params: &Value) -> Result<Vec<Asked>, &'static str> {
-    let questions = params.at("questions")
+    let questions = params
+        .at("questions")
         .as_array()
         .filter(|q| !q.is_empty())
         .ok_or("questions must be a non-empty array")?;
@@ -65,7 +66,8 @@ fn asked(params: &Value) -> Result<Vec<Asked>, &'static str> {
     for q in questions {
         let id = q.get("id").and_then(Value::as_str).ok_or("every question needs an id")?;
         let key = id.trim();
-        let prompt = q.get("prompt").and_then(Value::as_str).map(str::trim).filter(|p| !p.is_empty());
+        let prompt =
+            q.get("prompt").and_then(Value::as_str).map(str::trim).filter(|p| !p.is_empty());
         let prompt = prompt.ok_or("every question needs a prompt")?;
         if key.is_empty() {
             return Err("every question needs an id");
@@ -118,8 +120,12 @@ fn question_request(params: &Value, questions: &[Asked]) -> Value {
         })
         .collect();
     let items = super::questions::items_by_id(&raw);
-    let title =
-        params.get("title").and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()).unwrap_or("Question");
+    let title = params
+        .get("title")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .unwrap_or("Question");
     json!({
         "toolCall": {
             "toolCallId": params.get("toolCallId").and_then(Value::as_str).unwrap_or("cursor/ask_question"),
@@ -194,7 +200,10 @@ fn plan_request(params: &Value) -> Value {
         "rawInput": {"plan": plan, "todos": params.at("todos")},
     });
     if !plan.is_empty() {
-        tool.set("content", json!([{"type": "content", "content": {"type": "text", "text": plan}}]));
+        tool.set(
+            "content",
+            json!([{"type": "content", "content": {"type": "text", "text": plan}}]),
+        );
     }
     json!({
         "toolCall": tool,

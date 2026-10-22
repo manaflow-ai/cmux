@@ -3,7 +3,6 @@
 //! harness's own login, profile env and bound route, the way the live-model
 //! probe runs it (`hub/live_models.rs`), never a chat session.
 
-use crate::no_panic::JsonExt;
 use super::*;
 use crate::complete::{
     self, CompleteError, Request,
@@ -13,6 +12,7 @@ use crate::complete::{
     recipes::{self, Recipe},
     run::{self, RunDir, RunError},
 };
+use crate::no_panic::JsonExt;
 use std::collections::BTreeMap;
 
 /// Completions running at once; more wait for a slot within their deadline.
@@ -24,8 +24,10 @@ static RUNNING: std::sync::LazyLock<tokio::sync::Semaphore> =
 /// The model ids `_acpmux/models` offers harness `name` (with aliases);
 /// `refused`: only those its backend refused, else only those it did not.
 fn offered_ids(models: &Value, name: &str, refused: bool) -> Vec<String> {
-    let Some(entry) =
-        models.get("harnesses").and_then(serde_json::Value::as_array).and_then(|list| list.iter().find(|h| h.at("harness") == name))
+    let Some(entry) = models
+        .get("harnesses")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|list| list.iter().find(|h| h.at("harness") == name))
     else {
         return Vec::new();
     };
@@ -36,7 +38,9 @@ fn offered_ids(models: &Value, name: &str, refused: bool) -> Vec<String> {
             continue;
         }
         ids.extend(model.get("id").and_then(serde_json::Value::as_str).map(str::to_owned));
-        for alias in model.get("aliases").and_then(serde_json::Value::as_array).into_iter().flatten() {
+        for alias in
+            model.get("aliases").and_then(serde_json::Value::as_array).into_iter().flatten()
+        {
             ids.extend(alias.as_str().map(str::to_owned));
         }
     }

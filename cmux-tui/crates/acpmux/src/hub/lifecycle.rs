@@ -1,7 +1,7 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
-use crate::no_panic::LockExt;
 use super::*;
+use crate::no_panic::LockExt;
 
 use super::adoption::{Adoption, adopted_in, start_folder};
 use super::new_request::{claude_resume_refusal, unique_name_among};

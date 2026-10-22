@@ -13,8 +13,8 @@
 //! CPU. Activity only moves deadlines later, so the task wakes at most once
 //! per idle period per live child.
 
-use crate::no_panic::LockExt;
 use super::*;
+use crate::no_panic::LockExt;
 
 impl Hub {
     /// The hub clock's time, as stored in `Session::last_active`.

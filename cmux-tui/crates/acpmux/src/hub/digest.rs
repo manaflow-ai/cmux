@@ -44,9 +44,9 @@
 //! `_meta.acpmux.fromAgent` (`acpmux send --from`). Naming yourself an agent only puts you
 //! later, so it needs no proof. Every other prompt is the person's, as before.
 
-use crate::no_panic::JsonExt;
 use super::queue::{Answer, PromptRun, QueuedPrompt};
 use super::*;
+use crate::no_panic::JsonExt;
 use std::sync::atomic::Ordering;
 
 /// Text one turn of agent messages takes at most (the first message always goes in whole).

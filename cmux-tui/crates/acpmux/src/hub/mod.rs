@@ -627,7 +627,10 @@ impl Hub {
         // Debug builds only: a test makes the load fail as a corrupt log could
         // (`durable_agents.rs`). Release builds have no seam.
         #[cfg(debug_assertions)]
-        #[allow(clippy::panic, reason = "debug-build test seam: the test asks for this panic, like a corrupt log")]
+        #[allow(
+            clippy::panic,
+            reason = "debug-build test seam: the test asks for this panic, like a corrupt log"
+        )]
         if std::env::var_os("ACPMUX_TEST_PANIC_IN_LOAD_LOGS").is_some() {
             // crash-allow: debug-build test seam; the test asks for this panic, like a corrupt log
             panic!("ACPMUX_TEST_PANIC_IN_LOAD_LOGS");

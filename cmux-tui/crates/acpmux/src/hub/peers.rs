@@ -1,8 +1,8 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
+use super::*;
 use crate::no_panic::JsonExt;
 use crate::no_panic::LockExt;
-use super::*;
 use crate::session_identity::SessionReceipt;
 
 pub(super) fn session_receipt(summary: &Value) -> Option<SessionReceipt> {
@@ -301,7 +301,10 @@ impl Hub {
         summary.set("peer", Value::String(peer.to_owned()));
         // A peer from before `indicator`, `lane` or the lane's masked `step` and `title`
         // sends none: decide them here.
-        let old_lane = summary.get("lane").and_then(Value::as_object).is_some_and(|lane| !lane.contains_key("title"));
+        let old_lane = summary
+            .get("lane")
+            .and_then(Value::as_object)
+            .is_some_and(|lane| !lane.contains_key("title"));
         if summary.get("indicator").is_none() || summary.get("lane").is_none() || old_lane {
             super::views::decide(&mut summary);
         }

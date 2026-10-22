@@ -452,7 +452,9 @@ fn neutralize_close(text: &str) -> String {
         let Some(after_slash) = after_open.strip_prefix('/') else { continue };
         let name = after_slash.trim_start();
         if name.get(..NAME.len()).is_some_and(|n| n.eq_ignore_ascii_case(NAME)) {
-            out.push_str(rest.get(..rest.len().saturating_sub(after_open.len())).unwrap_or_default());
+            out.push_str(
+                rest.get(..rest.len().saturating_sub(after_open.len())).unwrap_or_default(),
+            );
             out.push_str("\\/");
             rest = after_slash;
         }

@@ -8,9 +8,9 @@
 //! (in memory with the memory store) and are loaded on daemon start, so
 //! get, draft and a start retry work across a restart.
 
+use super::*;
 use crate::no_panic::JsonExt;
 use crate::no_panic::LockExt;
-use super::*;
 use serde::{Deserialize, Serialize};
 
 mod capsule;

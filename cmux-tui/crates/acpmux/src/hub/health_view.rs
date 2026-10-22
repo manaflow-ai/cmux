@@ -1,8 +1,8 @@
 //! Part of `Hub`; see `hub/mod.rs`. Agent CLI health (`harness_health`):
 //! `_acpmux/harness/health` and the daemon's periodic check.
 
-use crate::no_panic::JsonExt;
 use super::*;
+use crate::no_panic::JsonExt;
 
 use crate::harness_health::{REFRESH_EVERY, Subject};
 

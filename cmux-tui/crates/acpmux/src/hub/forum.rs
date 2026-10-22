@@ -29,9 +29,9 @@
 //! - Sessions that get no cmux tools (remote origin, `ACPMUX_AGENT_TOOLS=0`
 //!   such as a compactor, Claude Code with `--strict-mcp-config`) get no rules.
 
-use crate::no_panic::JsonExt;
 use super::*;
 use crate::forum::{Author, Forum, Kind, MAX_BODY_BYTES, MAX_KEY_BYTES, Post, RULES_TOPIC};
+use crate::no_panic::JsonExt;
 
 /// Provenance kind of a pushed rule (`prompt_provenance.rs`).
 pub const PROVENANCE_KIND: &str = "announcement";

@@ -1,8 +1,8 @@
 //! Part of `Hub`; see `hub/mod.rs`. The "did you mean" hint for a `-m`
 //! head that names a model, not a harness.
 
-use crate::no_panic::LockExt;
 use super::*;
+use crate::no_panic::LockExt;
 
 impl Hub {
     /// "did you mean codex/gpt-5.5": a `-m` head that is no harness may be a

@@ -4,11 +4,11 @@
 //! replayed entries are in the log, then rebuild the turn and permission
 //! state that died with the previous daemon from that complete log.
 
-use crate::no_panic::JsonExt;
-use crate::no_panic::LockExt;
 use super::*;
 use crate::agent::Attached;
 use crate::agent_host::{self, Liveness};
+use crate::no_panic::JsonExt;
+use crate::no_panic::LockExt;
 
 /// How long adoption waits for the next replayed entry of one host to be
 /// logged before it recovers from the log as it is.

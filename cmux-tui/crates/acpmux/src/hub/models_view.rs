@@ -16,10 +16,10 @@
 //!
 //! Without a catalog entry the harness keeps today's lists.
 
-use crate::no_panic::JsonExt;
 use super::*;
 use crate::catalog::{Catalog, CatalogHarness, CatalogService, HarnessModel};
 use crate::config::HarnessKind;
+use crate::no_panic::JsonExt;
 use std::sync::PoisonError;
 
 /// The curated catalog entry for a profile (by its name, else its family).

@@ -3,8 +3,8 @@
 //! Called by `_acpmux/reload_config`, `cmux harness reload` and the profile
 //! watcher (`harness_watch.rs`).
 
-use crate::no_panic::LockExt;
 use super::*;
+use crate::no_panic::LockExt;
 
 impl Hub {
     /// Refresh the configured catalog while keeping all session processes alive.

@@ -6,10 +6,10 @@
 //! another process is refused (`adopt.live`) unless `ifLive` forks it or
 //! opens it anyway (`adopt_live.rs`).
 
-use crate::no_panic::JsonExt;
-use crate::no_panic::LockExt;
 use super::*;
 use crate::adopt::{AdoptRequest, IfLive};
+use crate::no_panic::JsonExt;
+use crate::no_panic::LockExt;
 use std::collections::BTreeMap;
 
 /// What adopting resolved to before a session is created.
@@ -448,7 +448,8 @@ impl Hub {
         {
             let mut m = session.meta.lock_or_recover();
             if m.title.is_none()
-                && let Some(first) = turns.first().and_then(|t| t.prompt.lines().find(|l| !l.trim().is_empty()))
+                && let Some(first) =
+                    turns.first().and_then(|t| t.prompt.lines().find(|l| !l.trim().is_empty()))
             {
                 m.title = Some(short_text(first.trim(), 80));
             }

@@ -27,8 +27,8 @@
 //! - Title, prompt and folder are the agent's text: the chip shows them as
 //!   plain text, and nothing runs before the person accepts.
 
-use crate::no_panic::JsonExt;
 use super::{Hub, Session};
+use crate::no_panic::JsonExt;
 use crate::rpc::RpcError;
 use crate::store::EventRecord;
 use serde_json::{Value, json};
