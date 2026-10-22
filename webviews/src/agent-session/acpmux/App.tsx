@@ -149,7 +149,7 @@ import {
   useProcessRegistry,
 } from "./inspector/processes";
 import { useInspectorOpen } from "./inspector/inspectorState";
-import { openProcessTerminal } from "./processTerminal";
+import { openCommand, opensProcessTerminal } from "./processTerminal";
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
 import { AgentsPill } from "./subagents/AgentsPill";
 import { SubagentTray } from "./subagents/SubagentTray";
@@ -1226,9 +1226,12 @@ type ReportDrawn = (id: string, version: number, height: number) => void;
 
 type TranscriptRange = { anchorId: string; focusId: string };
 
-/// Assistant and summary rows already expose the turn's copy action in TurnFooter. Keep the
-/// floating action for prompts and tool rows; it shows only for keyboard focus and a selected
-/// range (a prompt's hover shows the Copy under its bubble). The child view's "Subagent of" pill
+/// Assistant and summary rows already expose the turn's copy action in TurnFooter, and a prompt
+/// drawn as the person's bubble has its Copy in the row under the bubble. Keep the floating action
+/// for tool rows and the user rows drawn as a line (another agent's message, a task's result); it
+/// shows only for keyboard focus and a selected range. A prompt's floating Copy sat alone at the
+/// row's top left, far from the bubble (Leo, 2026-10-21: "top left??? just remove it"); a selected
+/// range and Cmd-C still copy the prompt. The child view's "Subagent of" pill
 /// is navigation, with nothing to copy. The Edited files card keeps its own controls in that
 /// corner, where the floating Copy covered View changes once focus was in the card (cx-ncc.106);
 /// a selected range still copies it.
@@ -1236,11 +1239,16 @@ type TranscriptRange = { anchorId: string; focusId: string };
 /// panel copies the page.
 const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
   row.kind !== "assistant" &&
+  !isPromptBubbleRow(row) &&
   row.kind !== RENDER &&
   row.kind !== "turnSummary" &&
   row.kind !== SUBAGENT_OF &&
   rowKind(row) !== "editedFiles" &&
   hasTranscriptCopyText(row);
+
+/// A user row MessageRow draws as the person's bubble (`.cv-user`): not a task's result nor another
+/// agent's message or notice.
+const isPromptBubbleRow = (row: AcpmuxRow) => row.kind === "user" && !row.received && !row.incoming;
 
 /// The longest a chat opened cold takes to fade in (Leo 2026-10-21: "a fast fade in").
 const CHAT_OPEN_FADE_MS = 150;
@@ -4967,6 +4975,10 @@ function AcpmuxPane() {
     !(inspectorSummary.host && inspectorSummary.hostKind !== "local");
   // Save in its Environment keeps the machine and folder as a New Tab environment.
   const environmentDraft = quick ? undefined : environmentToSave(inspectorSummary, snapshot.peerKinds);
+  // A background command's Bash call in the transcript (`showToolRow` below, which needs what the
+  // Inspector draws): what its task row opens where its terminal cannot (a peer's or Cloud chat).
+  const showCallRef = useRef<(toolCallId: string) => boolean>(() => false);
+  const showCall = useCallback((toolCallId: string) => showCallRef.current(toolCallId), []);
   const inspector = useChatInspector({
     snapshot,
     machineName,
@@ -4990,6 +5002,7 @@ function AcpmuxPane() {
     onSaveEnvironment: environmentDraft ? () => savedEnvironmentHost(callNative).save(environmentDraft) : undefined,
     // Quick Chat's panel has no room beside it for the side panel.
     onOpenDocument: quick ? undefined : openArtifact,
+    onShowCall: quick ? undefined : showCall,
   });
   // The running line's counts (conversation/WorkingFor.tsx), with the tray off (Debug Settings):
   // the subagents still running, the background commands that have not ended and the started chats
@@ -5030,6 +5043,7 @@ function AcpmuxPane() {
   // The turn's tokens so far, said after its time (direct.ts `turnTokens`).
   const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
   const counted = useRef({
+    summary: snapshot.summary,
     runningAgents,
     runningCommands,
     runningSessions,
@@ -5041,6 +5055,7 @@ function AcpmuxPane() {
     processes: processRegistry.processes,
   });
   counted.current = {
+    summary: snapshot.summary,
     runningAgents,
     runningCommands,
     runningSessions,
@@ -5068,11 +5083,11 @@ function AcpmuxPane() {
     setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
     return target.rowId;
   };
-  const workingCounts = useMemo<WorkingCounts>(() => {
-    // A shell's Bash row, opening its turn's "Worked for" when that is closed and the run that
-    // holds the call. The reveal lets go after a moment, so the run closes again like any other.
-    // False when no loaded row holds the call (a command only the registry knows).
-    const showToolRow = (toolId: string | undefined) => {
+  // A shell's Bash row, opening its turn's "Worked for" when that is closed and the run that
+  // holds the call. The reveal lets go after a moment, so the run closes again like any other.
+  // False when no loaded row holds the call (a command only the registry knows).
+  const showToolRow = useCallback(
+    (toolId: string | undefined) => {
       const { sourceRows: rows, transcriptRows: shown } = counted.current;
       const index = toolId ? rows.findIndex((row) => row.items?.some((item) => item.tool?.id === toolId)) : -1;
       const row = rows[index];
@@ -5085,7 +5100,11 @@ function AcpmuxPane() {
       setRevealRow({ rowId: row.id, key, toolId });
       setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
       return true;
-    };
+    },
+    [openFold],
+  );
+  showCallRef.current = showToolRow;
+  const workingCounts = useMemo<WorkingCounts>(() => {
     return {
       agents: runningAgents.length,
       commands: runningCommands.length,
@@ -5117,22 +5136,24 @@ function AcpmuxPane() {
         else card.show();
       },
     };
-  }, [runningAgents.length, runningCommands.length, runningSessions.length, turnTokens, showSubagent, openFold]);
-  // A tray command opens its terminal beside the chat; where none opens (a peer's chat, or a
-  // command only the transcript knows), the summary card, which lists it, or, while the Inspector
-  // takes the card's place, its section that lists it (Background tasks, or Servers for a dev server).
-  const openTrayCommand = useCallback((command: BackgroundCommand) => {
-    const showCard = () => {
-      const { processes, summaryCard: card, inspector: panel } = counted.current;
-      // The section that lists it, by the Inspector's own split (processes.ts `backgroundSection`).
-      if (panel.reveal) panel.reveal(backgroundSection(processes, [command]));
-      else card.show();
-    };
-    if (!command.toolCallId) return showCard();
-    void openProcessTerminal(command.toolCallId).then((opened) => {
-      if (!opened) showCard();
-    });
-  }, []);
+  }, [runningAgents.length, runningCommands.length, runningSessions.length, turnTokens, showSubagent, showToolRow]);
+  // A tray command opens its terminal beside the chat; where none opens (a peer's or Cloud chat, or
+  // a command only the transcript knows), the Bash call that started it in the transcript; with no
+  // call loaded either, the summary card, which lists it, or, while the Inspector takes the card's
+  // place, its section that lists it (Background tasks, or Servers for a dev server).
+  const openTrayCommand = useCallback(
+    (command: BackgroundCommand) => {
+      const local = opensProcessTerminal(counted.current.summary);
+      void openCommand(command.toolCallId, { local, showCall: showToolRow }).then((opened) => {
+        if (opened !== "none") return;
+        const { processes, summaryCard: card, inspector: panel } = counted.current;
+        // The section that lists it, by the Inspector's own split (processes.ts `backgroundSection`).
+        if (panel.reveal) panel.reveal(backgroundSection(processes, [command]));
+        else card.show();
+      });
+    },
+    [showToolRow],
+  );
   // The Quick Composer cannot show the Harnesses page: it registers no opener, so its + hides.
   useEffect(() => (quick ? undefined : registerHarnessesPage(() => setHarnessesOpen(true))), [quick]);
   // `/btw` opens a side session beside the chat, behind its gate; the Quick Composer has none.
@@ -5999,6 +6020,12 @@ function AcpmuxPane() {
               )
             )
               await client.setConfig(String(configId), String(value));
+          },
+          // A switch that is likely next (a hover over a chat's row in the host's lists): its newest
+          // page is read now, so the switch draws it from memory (direct.ts `prefetch`).
+          "chat.prefetch": async ({ sessionId, sessionIds }) => {
+            const ids = Array.isArray(sessionIds) ? sessionIds : [sessionId];
+            for (const id of ids) if (id) client.prefetch(String(id));
           },
           "chat.select": async ({ sessionId }) => {
             harnessSwitch.cancel();

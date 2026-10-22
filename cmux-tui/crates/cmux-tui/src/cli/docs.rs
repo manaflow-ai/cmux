@@ -151,9 +151,13 @@ pub(super) const GUIDES: &[Guide] = &[
         the undo removes the folders the run added); with \
         --cookies it imports its sign-ins once the person allows it on the panel cmux shows, \
         and that has no undo. History and passwords come in only from Import from Browser... \
-        in cmux. `cmux setup status` lists every peer with connected and outdated, every \
-        harness, the MCP wiring, Computer Use, the Cloud machine, notifications and the \
-        imported browsers. Every `cmux setup` command prints one JSON object: state is ok, \
+        in cmux. `cmux setup tailnet [--owner LOGIN]` serves this machine to the person's \
+        other machines over Tailscale (what `cmux host enable` does; undo `cmux host disable \
+        --json`); until Tailscale runs it names the person's one step (kind install, start, \
+        sign_in, approve or wait), and a tagged node with no owner is kind owner. \
+        `cmux setup status` lists every peer with connected and outdated, every \
+        harness, the MCP wiring, Computer Use, the Cloud machine, notifications, the \
+        imported browsers and the tailnet. Every `cmux setup` command prints one JSON object: state is ok, \
         changed, planned, needs_user, failed or not_applicable.",
     },
 ];

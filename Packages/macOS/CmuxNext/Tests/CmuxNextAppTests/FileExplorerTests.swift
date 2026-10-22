@@ -26,6 +26,7 @@ struct FileExplorerTests {
             openedInCmuxAt.append(position)
             return true
         }
+        func openAsText(_ file: URL) -> Bool { true }
         func openInDefaultApp(_ item: URL) { openedInDefaultApp.append(item) }
         func revealInFinder(_ item: URL) { revealed.append(item) }
         func copy(_ text: String) { copied.append(text) }

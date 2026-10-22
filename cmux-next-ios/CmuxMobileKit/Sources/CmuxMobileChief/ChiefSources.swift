@@ -38,7 +38,7 @@ public final class ChiefSources {
         case turnOn(CloudChief)
     }
 
-    public private(set) var cloudState: CloudState = .off
+    public internal(set) var cloudState: CloudState = .off
     /// The account's active Cloud Chiefs (`chief.list`), in the service's order.
     public private(set) var cloudChiefs: [CloudChief] = []
     /// A create or turn-on request is running.

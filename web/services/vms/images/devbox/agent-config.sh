@@ -187,7 +187,8 @@ with open(codex / "config.toml.cmux-lock", "a") as lock:
             os.fsync(out.fileno())
         if before is not None:
             os.chmod(tmp, os.stat(target).st_mode & 0o7777)
-        # A writer that does not take this lock (the hook installer) may have
+        # A writer that does not take this lock (codex itself; the hook
+        # installer takes it but goes ahead without it after 15 s) may have
         # changed the file since the snapshot: keep its write, the next shell
         # start merges again.
         if snapshot() != before:

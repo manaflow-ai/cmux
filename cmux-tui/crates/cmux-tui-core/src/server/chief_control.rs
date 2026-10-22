@@ -287,6 +287,11 @@ pub(super) fn tool_line(
                 "compactor_speed",
                 "compactor_harness",
                 "compactor_model",
+                // The reaction classifier (optchat-chief brain/reaction_wake.rs).
+                "classifier_harness",
+                "classifier_model",
+                "classifier_prompt",
+                "reactions_can_wake",
             ] {
                 if let Some(value) = fields.get(key) {
                     line.insert(key, value.clone());

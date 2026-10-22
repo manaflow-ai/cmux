@@ -113,6 +113,8 @@ extension SidebarListView {
         let shownCard = hoverCard.shownID
         let shownGroupCard = hoverCard.shownGroupID
         for ws in patched {
+            // The hover cards show no "Now:" step: a working agent's new step (many a second) rebuilds no card.
+            let cardChanged = workspaces[ws.id].map { var old = $0; old.agentStep = ws.agentStep; return old != ws } ?? true
             workspaces[ws.id] = ws
             // A tab switch changes the workspace row, not its tabs: only a tab whose own content changed is drawn again.
             var changedTabs: [TabID] = []
@@ -129,12 +131,12 @@ extension SidebarListView {
                     groups[group.id] = group
                     reconfigure(.group(group.id))
                     // The shown card is this group's or an ancestor's: a parent's card counts its subgroups.
-                    if let shownGroupCard, groupSubtrees[shownGroupCard]?.contains(group.id) ?? (shownGroupCard == group.id) {
+                    if cardChanged, let shownGroupCard, groupSubtrees[shownGroupCard]?.contains(group.id) ?? (shownGroupCard == group.id) {
                         hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shownGroupCard))
                     }
                 }
             }
-            if shownCard == ws.id { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(ws.id)) }
+            if cardChanged, shownCard == ws.id { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(ws.id)) }
             guard let row = displayed.row(for: .workspace(ws.id)), let section = sections[row.section] else {
                 // A session a folded parent hides: the parent's roll-up counts it, so the list lays out again.
                 if SidebarSessionTree.shared.drawn?.hidesInFold(ws.id) == true { heightChanged = true }
