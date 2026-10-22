@@ -46,6 +46,24 @@ import Testing
         #expect(ScriptConfigController.origin(cli) == "cli")
     }
 
+    @Test func aScriptActionTakesTheArgumentsItsBindingPasses() {
+        let registry = ActionRegistry.standard()
+        var action = Action(id: "user.go", title: "Go", handler: {})
+        action.takesAnyArguments = true
+        registry.register(action)
+        registry.register(Action(id: "plain.adhoc", title: "Plain", handler: {}))
+        let loader = KeyBindingLoader(registry)
+        let keys = [Shortcut("g", modifiers: [.command])]
+        guard case .success = loader.validated(KeyBinding(keys: keys, command: "user.go", arguments: ["n": .int(2)], source: .app)) else {
+            Issue.record("a script action's arguments were refused")
+            return
+        }
+        guard case .failure = loader.validated(KeyBinding(keys: keys, command: "plain.adhoc", arguments: ["n": .int(2)], source: .app)) else {
+            Issue.record("an ad hoc action without arguments took some")
+            return
+        }
+    }
+
     @Test func aKeyFunctionStaysOutOfThePalette() {
         let registry = ActionRegistry.standard()
         var hidden = Action(id: "user.key.1", title: "cmd+k h", handler: {})
