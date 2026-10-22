@@ -2,9 +2,11 @@ import CoreGraphics
 @testable import CmuxNextDesign
 import Testing
 
-/// Leo 2026-10-20: dismissing a sidebar row's hover card took too much travel. The card now
-/// leaves an empty escape slot beside the row (`HoverCardEscapeGeometry`): the slot dismisses,
-/// the straight path from the row into the card keeps it, and anywhere off both dismisses.
+/// Leo 2026-10-20: dismissing a sidebar row's hover card took too much travel. The escape-slot
+/// layout (`HoverCardEscapeGeometry.RowAlignment.middle`, a Debug Settings switch since the card
+/// lines up with its row's top by default) leaves an empty slot beside the row: the slot
+/// dismisses, the straight path from the row into the card keeps it, and anywhere off both
+/// dismisses. The default, top-aligned layout: `HoverCardRowAlignmentTests`.
 @Suite struct HoverCardEscapeGeometryTests {
     /// A 32 pt sidebar row on a 1440 x 900 screen (y up), and a 280 x 160 card.
     private let row = CGRect(x: 8, y: 600, width: 224, height: 32)
@@ -13,7 +15,7 @@ import Testing
     private let gap = HoverCardEscapeGeometry.rowGap
 
     @Test func theCardSitsRightOfTheRowWithItsTopOnTheRowsMiddle() {
-        let g = HoverCardEscapeGeometry(anchor: row, cardSize: size, visible: screen)
+        let g = HoverCardEscapeGeometry(anchor: row, cardSize: size, visible: screen, alignment: .middle)
         #expect(g.card.minX == row.maxX + gap)
         #expect(g.card.maxY == row.midY)
         #expect(!g.isLeading)
@@ -24,7 +26,7 @@ import Testing
     /// Leo 2026-10-20: the card stands off its row, so the row's right end (its x) never touches
     /// it; the gap alone keeps no card.
     @Test func theGapBetweenTheRowAndTheCardKeepsNoCardByItself() {
-        let g = HoverCardEscapeGeometry(anchor: row, cardSize: size, visible: screen)
+        let g = HoverCardEscapeGeometry(anchor: row, cardSize: size, visible: screen, alignment: .middle)
         #expect(gap >= 8 && gap <= 12)
         let below = CGPoint(x: row.maxX + 3, y: row.minY - 14)
         #expect(g.zone(at: below) == .gap)
@@ -32,7 +34,7 @@ import Testing
     }
 
     @Test func theEscapeSlotDismisses() {
-        let g = HoverCardEscapeGeometry(anchor: row, cardSize: size, visible: screen)
+        let g = HoverCardEscapeGeometry(anchor: row, cardSize: size, visible: screen, alignment: .middle)
         // Just right of the row's upper half, and at the slot's far end.
         for point in [CGPoint(x: row.maxX + 1, y: row.maxY - 2), CGPoint(x: row.maxX + size.width - 1, y: row.midY + 1)] {
             #expect(g.zone(at: point) == .escape, "\(point)")
@@ -42,7 +44,7 @@ import Testing
     }
 
     @Test func theStraightPathFromTheRowIntoTheCardKeepsIt() {
-        let g = HoverCardEscapeGeometry(anchor: row, cardSize: size, visible: screen)
+        let g = HoverCardEscapeGeometry(anchor: row, cardSize: size, visible: screen, alignment: .middle)
         // Right from the row's lower half: row, gap (kept by the pointer's aim), then card, never
         // the escape slot or outside.
         let y = row.minY + 4
@@ -59,7 +61,7 @@ import Testing
     }
 
     @Test func leavingBothTheRowAndTheCardDismisses() {
-        let g = HoverCardEscapeGeometry(anchor: row, cardSize: size, visible: screen)
+        let g = HoverCardEscapeGeometry(anchor: row, cardSize: size, visible: screen, alignment: .middle)
         let off = [
             CGPoint(x: g.card.maxX + 10, y: g.card.midY), // past the card's far edge
             CGPoint(x: g.card.midX, y: g.card.minY - 10), // below the card
@@ -76,7 +78,7 @@ import Testing
     /// it: the screen clamp never pushes the card over the slot.
     @Test func nearTheScreensBottomTheCardFlipsAndKeepsTheSlot() {
         let low = CGRect(x: 8, y: 40, width: 224, height: 32)
-        let g = HoverCardEscapeGeometry(anchor: low, cardSize: size, visible: screen)
+        let g = HoverCardEscapeGeometry(anchor: low, cardSize: size, visible: screen, alignment: .middle)
         #expect(g.card.minY == low.midY)
         #expect(g.escapeSlot == CGRect(x: low.maxX, y: low.minY, width: size.width + gap, height: low.height / 2))
         #expect(g.zone(at: CGPoint(x: low.maxX + 4, y: low.minY + 2)) == .escape)
@@ -87,7 +89,7 @@ import Testing
     /// A sidebar at the screen's right edge: the card goes left of the row, the slot with it.
     @Test func atTheScreensRightEdgeTheCardGoesLeftAndKeepsTheSlot() {
         let right = CGRect(x: 1200, y: 600, width: 232, height: 32)
-        let g = HoverCardEscapeGeometry(anchor: right, cardSize: size, visible: screen)
+        let g = HoverCardEscapeGeometry(anchor: right, cardSize: size, visible: screen, alignment: .middle)
         #expect(g.isLeading)
         #expect(g.card.maxX == right.minX - gap)
         #expect(g.zone(at: CGPoint(x: right.minX - 4, y: right.maxY - 2)) == .escape)
