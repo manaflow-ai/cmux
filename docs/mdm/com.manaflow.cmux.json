@@ -1639,6 +1639,12 @@
       "title" : "Expand Unchanged Lines",
       "type" : "boolean"
     },
+    "diff.groupByKind" : {
+      "default" : false,
+      "description" : "diff.groupByKind",
+      "title" : "Group Files by Kind",
+      "type" : "boolean"
+    },
     "diff.layout" : {
       "default" : "unified",
       "description" : "diff.layout",
@@ -2348,7 +2354,7 @@
     },
     "layout.linkPlacement" : {
       "default" : "split-right",
-      "description" : "Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from an agent chat, Home or another page opens as a tab in its own pane.",
+      "description" : "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one.",
       "enum" : [
         "split-right",
         "new-column",
