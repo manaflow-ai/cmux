@@ -34,6 +34,7 @@ import { focusAfterEscape } from "../../../ui/escapeFocus";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
 import { HEADER_GLYPH } from "../header/ChatHeaderTools";
+import { PanelToggle } from "../header/PanelToggle";
 import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
 import { useT } from "../i18n";
@@ -199,17 +200,13 @@ export function useChatInspector({
     on: true,
     reveal,
     button: (
-      <button
+      <PanelToggle
         ref={toggleButton}
-        type="button"
-        className="acpmux-header-tool acpmux-chat-inspector-toggle"
-        aria-label={label}
-        aria-pressed={shown}
-        title={label}
-        onClick={toggle}
-      >
-        <Icon name="pane.split.right" size={HEADER_GLYPH} />
-      </button>
+        className="acpmux-chat-inspector-toggle"
+        label={label}
+        shown={shown}
+        onToggle={toggle}
+      />
     ),
     panel: (
       <InspectorPresence
@@ -427,7 +424,7 @@ export function InspectorPanel({
             title={t("chatInspector.close")}
             onClick={() => onClose("button")}
           >
-            <Icon name="action.close" size={15} />
+            <Icon name="action.close" size={HEADER_GLYPH} />
           </button>
         </div>
       )}
