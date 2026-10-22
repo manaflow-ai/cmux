@@ -148,6 +148,11 @@ export type PromptImage = { id: string; mimeType: string; name?: string; width?:
 /// acpmux names it, so an edit cannot keep or drop it by id yet.
 export type QueuedPromptImage = PromptImage & { src?: string; local?: boolean };
 
+/// A turn's tokens as Anthropic counts them: what the model wrote (`output`) apart from what it read,
+/// which is the fresh input, the prompt cache's reads and its writes. The running line adds up each
+/// model call's (direct.ts `turnTokenSplit`); a finished turn's comes from its `turn_result`.
+export type TurnTokenSplit = { output: number; input: number; cacheRead: number; cacheWrite: number };
+
 export type AcpmuxRow = {
   id: string;
   version: number;
@@ -194,6 +199,9 @@ export type AcpmuxRow = {
   started?: StartedSession[];
   toolCount?: number;
   durationMs?: number;
+  /// A turn summary's tokens, when its harness reported them on the `turn_result` (Claude Code:
+  /// its main loop's, acpmux hub/turn_usage.rs).
+  tokens?: TurnTokenSplit;
   /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
   checkpoint?: SummaryCheckpoint;
   /// A sent prompt's images, as acpmux names them in its user_message (hub/prompt_images.rs).
@@ -547,6 +555,9 @@ export type AcpmuxSnapshot = {
   /// `turnTokens`); unset when the harness does not report each call or the client missed the
   /// turn's start.
   turnTokens?: number;
+  /// `turnTokens` split into output and what the calls read, when every call this turn carried
+  /// acpmux's split (`_meta.acpmux.tokens`, claude_stdio/inbound.rs); unset otherwise.
+  turnTokenSplit?: TurnTokenSplit;
   /// The running turn's agent has said nothing since its prompt, past acpmux's `silentTurnMs`
   /// (direct.ts `silentTurn`): the turn's line says the model has not answered.
   silentTurn?: true;

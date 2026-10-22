@@ -22,9 +22,10 @@
 // has no rule under it and its clock never stops while the turn runs, and before any output
 // (`row.thinkingNow`) it reads "Thinking" beside the time.
 import { createContext, useContext, useEffect, useState } from "react";
-import { type PaneLanguage, type Translate, usePaneLanguage, useT } from "../i18n";
-import type { AcpmuxRow } from "../model";
+import { type Translate, useT } from "../i18n";
+import type { AcpmuxRow, TurnTokenSplit } from "../model";
 import { TerminalSquare } from "./icons";
+import { TimedLabel, TurnTokens } from "./TurnTokens";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { formatDuration } from "./turns";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
@@ -43,7 +44,11 @@ export type WorkingCounts = {
   openSessions: () => void;
   /// The turn's tokens so far (snapshot `turnTokens`), when the harness reports them.
   tokens?: number;
+  /// Those tokens split into output and what the calls read (snapshot `turnTokenSplit`), when known.
+  split?: TurnTokenSplit;
 };
+
+export { workingTokens } from "./TurnTokens";
 
 /// The running line's counts, each opening what it counts: the subagents and the chats the agent
 /// started are one count, "3 subagents" (the tray's word, subagents/SubagentTray.tsx), then the
@@ -65,13 +70,6 @@ export function workingParts(t: Translate, counts: WorkingCounts): { key: string
   return parts.filter((part) => part !== false);
 }
 
-/// "2.1M tokens": the running turn's tokens, compact in the pane's language.
-export const workingTokens = (t: Translate, language: PaneLanguage, tokens: number) =>
-  t("turn.working.tokens", {
-    n: tokens,
-    tokens: new Intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 }).format(tokens),
-  });
-
 export const WorkingCountsContext = createContext<WorkingCounts | undefined>(undefined);
 
 /// `now()`, again each second while `running`.
@@ -88,7 +86,6 @@ export function useTicking(running: boolean, now: () => number = Date.now): numb
 
 export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () => number }) {
   const t = useT();
-  const language = usePaneLanguage();
   const counts = useContext(WorkingCountsContext);
   const waiting = useContext(WaitingOnContext);
   const held = !row.below && row.durationMs !== undefined;
@@ -120,14 +117,16 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
           <span className="cv-worked__time">{formatDuration(Math.max(0, until - row.at))}</span>
         </>
       ) : (
-        <span className="cv-worked__label">{workingLabel(t, row.at, until)}</span>
+        <span className="cv-worked__label">
+          <TimedLabel text={(time) => t("turn.working", { time })} time={Math.max(0, until - row.at)} />
+        </span>
       )}
       {counts?.tokens ? (
         <span className="cv-worked__count">
           <span className="cv-worked__sep" aria-hidden="true">
             ·
           </span>
-          <span className="cv-worked__tokens">{workingTokens(t, language, counts.tokens)}</span>
+          <TurnTokens total={counts.tokens} split={counts.split} />
         </span>
       ) : null}
       {parts.map((part) => (
