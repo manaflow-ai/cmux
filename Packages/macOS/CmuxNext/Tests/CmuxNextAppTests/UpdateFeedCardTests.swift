@@ -39,7 +39,9 @@ import Testing
         let card = UpdateFeedCard(subject: .harness(id: "codex", name: "Codex"), from: "0.40.0", to: "0.42.0", changes: changes,
                                   unlisted: 2, notes: URL(string: "https://example.com/CHANGELOG.md"), at: at)
         let lines = card.body.components(separatedBy: "\n")
-        #expect(lines.first == "From 0.40.0")
+        // No "From 0.40.0" line (Lawrence 2026-10-22: "updating from is too much info"): the card starts with the changes.
+        #expect(lines.first == "- Change 1")
+        #expect(!card.body.contains("0.40.0"), "the card still says which version it updated from")
         #expect(lines.filter { $0.hasPrefix("- ") } == (1...5).map { "- Change \($0)" })
         #expect(lines.last == "6 more changes", "the rest's count left out the listed changes or the unlisted ones")
         #expect(!card.body.contains("https://"), "the plain-text body shows the notes link as raw Markdown")
