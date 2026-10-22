@@ -94,6 +94,88 @@ fn import_groups(fields: &Map<String, Value>) -> Result<Vec<ImportGroup>, Resour
         .collect()
 }
 
+/// `stash.create {tabs}` or `{workspace}` (`stash-v1`).
+fn create_source(fields: &Map<String, Value>) -> Result<StashSource, ResourceError> {
+    let source = match string(fields, "workspace") {
+        Some(workspace) if !fields.contains_key("tabs") => StashSource::Workspace(workspace),
+        Some(_) => {
+            return Err(ResourceError::validation_invalid(
+                Some("workspace"),
+                "name either tabs or a workspace",
+            ));
+        }
+        None => {
+            let tabs = fields
+                .get("tabs")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|tab| tab.as_str().map(str::to_string))
+                .collect::<Vec<_>>();
+            if tabs.is_empty() {
+                return Err(ResourceError::validation_invalid(
+                    Some("tabs"),
+                    "name the tabs or a workspace to stash",
+                ));
+            }
+            StashSource::Tabs(tabs)
+        }
+    };
+    Ok(source)
+}
+
+/// `stash.create {workspaces, name?}` (`stash-workspaces-v1`), or None
+/// when the request names no `workspaces`. It names neither `tabs` nor
+/// `workspace`, and at least one workspace.
+fn create_workspaces(fields: &Map<String, Value>) -> Result<Option<StashSource>, ResourceError> {
+    let Some(values) = fields.get("workspaces") else {
+        if fields.contains_key("name") {
+            return Err(ResourceError::validation_invalid(
+                Some("name"),
+                "name goes with workspaces",
+            ));
+        }
+        return Ok(None);
+    };
+    if fields.contains_key("tabs") || fields.contains_key("workspace") {
+        return Err(ResourceError::validation_invalid(
+            Some("workspaces"),
+            "name exactly one of tabs, workspace or workspaces",
+        ));
+    }
+    let workspaces = values
+        .as_array()
+        .and_then(|values| {
+            values
+                .iter()
+                .map(|value| value.as_str().map(str::to_string))
+                .collect::<Option<Vec<_>>>()
+        })
+        .filter(|workspaces| !workspaces.is_empty())
+        .ok_or_else(|| {
+            ResourceError::validation_invalid(
+                Some("workspaces"),
+                "workspaces must be one or more workspace ids",
+            )
+        })?;
+    let name = match fields.get("name") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(name)) => {
+            Some(crate::state::stash_workspaces::clean_name(name).map_err(|error| {
+                let reason = error.to_string();
+                ResourceError::validation_invalid(
+                    Some("name"),
+                    reason.strip_prefix("bad request: ").unwrap_or(&reason),
+                )
+            })?)
+        }
+        Some(_) => {
+            return Err(ResourceError::validation_invalid(Some("name"), "name must be a string"));
+        }
+    };
+    Ok(Some(StashSource::Workspaces { workspaces, name }))
+}
+
 fn result(mux: &Mux, commit: StateCommit) -> Result<Value, ResourceError> {
     mutation_result(mux, commit.result, commit.revision, commit.replayed)
 }
@@ -113,32 +195,9 @@ pub(crate) fn dispatch(
     let stash = string(fields, "stash").unwrap_or_default();
     let commit = match request.envelope.operation {
         Op::StashCreate => {
-            let source = match string(fields, "workspace") {
-                Some(workspace) if !fields.contains_key("tabs") => {
-                    StashSource::Workspace(workspace)
-                }
-                Some(_) => {
-                    return Err(ResourceError::validation_invalid(
-                        Some("workspace"),
-                        "name either tabs or a workspace",
-                    ));
-                }
-                None => {
-                    let tabs = fields
-                        .get("tabs")
-                        .and_then(Value::as_array)
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|tab| tab.as_str().map(str::to_string))
-                        .collect::<Vec<_>>();
-                    if tabs.is_empty() {
-                        return Err(ResourceError::validation_invalid(
-                            Some("tabs"),
-                            "name the tabs or a workspace to stash",
-                        ));
-                    }
-                    StashSource::Tabs(tabs)
-                }
+            let source = match create_workspaces(fields)? {
+                Some(source) => source,
+                None => create_source(fields)?,
             };
             mux.state_stash_create(&mutation, &source)
         }

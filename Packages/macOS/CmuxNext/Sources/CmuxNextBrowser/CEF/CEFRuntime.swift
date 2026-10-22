@@ -45,6 +45,10 @@ final class CEFRuntime {
     var placements = CEFPlacementQueue()
     /// Window requests: decisions, their log and link clicks.
     private(set) lazy var windowRequests = CEFWindowRequests(runtime: self)
+    /// Page accessibility while an assistive client asks for it (`CEFAccessibility`).
+    private(set) lazy var accessibility = CEFAccessibility(
+        apply: { [weak self] browser, enabled in self?.shim?.setAccessibility(browser, enabled ? 1 : 0) },
+        browsers: { [weak self] in self.map { Array($0.tabsByBrowser.keys) } ?? [] })
     /// Two-finger Back and Forward swipes over pages (`CEFSwipeNavigation`).
     private(set) lazy var swipeNavigation = CEFSwipeNavigation(runtime: self)
     /// Opens `url` in a new cmux tab when no Chromium window of its profile
@@ -123,6 +127,22 @@ final class CEFRuntime {
         // them.
         OffTheRecordProfiles.shared.observeEnd { [weak self] profile in self?.releaseOffTheRecordContexts(of: profile) }
     }
+
+    /// A runtime over `shim` that never loads or starts Chromium, its profiles under `storage`
+    /// (tests drive panes against a spy shim).
+    init(shim: CEFShimLibrary, storage: CEFProfileStorage) {
+        self.shim = shim
+        self.storage = storage
+        state = .ready
+    }
+
+    /// `cef_log_severity_t` LOGSEVERITY_WARNING for cef.log and every helper.
+    /// At Chromium's default (INFO), each console call of a page or an
+    /// extension that no handler takes became an `INFO:CONSOLE` line in
+    /// cef.log (an idle 1Password extension wrote 32 lines a minute, all
+    /// day). DevTools and the automation console read the inspector
+    /// protocol, not this log; warnings, errors and FATAL lines stay.
+    nonisolated static let logSeverity: Int32 = 3
 
     /// Process start, from the kernel (`kinfo_proc.p_starttime`).
     nonisolated static let launchUptime: Double = {
@@ -231,7 +251,9 @@ final class CEFRuntime {
             let started = clock.now
             try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, environment: environment) }
             state = .ready
-            CEFStartSteps.shared.timed("ready_hooks") { startChildMonitor(); windowGuard.start(); onReady?() }
+            CEFStartSteps.shared.timed("ready_hooks") {
+                startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install(); onReady?()
+            }
             self.trigger = trigger
             loadDuration = library.loadDuration
             initializeDuration = clock.now - started
@@ -367,8 +389,12 @@ final class CEFRuntime {
         // chrome://newtab without an extension override (BrowserNewTabPage).
         shim.setNewTabPageURL(BrowserNewTabPage.blankURL)
         // cmux-page:// first-party pages from their bundled roots (CEFPageSchemes).
-        for (id, entry) in CEFPageSchemes.firstParty where shim.pageSchemeAddFirstParty(id, entry.root.path, entry.csp) != 1 {
-            logger.error("cmux-page \(id, privacy: .public) refused by the shim")
+        for (id, entry) in CEFPageSchemes.firstParty {
+            let added = entry.dynamicPrefixes.isEmpty && entry.entry == "index.html"
+                ? shim.pageSchemeAddFirstParty(id, entry.root.path, entry.csp)
+                : shim.pageSchemeAddFirstPartyDynamic(id, entry.root.path, entry.csp, entry.dynamicPrefixes.joined(separator: "\n"),
+                                                      entry.entry)
+            if added != 1 { logger.error("cmux-page \(id, privacy: .public) refused by the shim") }
         }
         // Google Chrome's native messaging hosts after cmux's own.
         for folder in CEFNativeMessaging.googleChromeFolders(home: FileManager.default.homeDirectoryForCurrentUser) {
@@ -386,7 +412,7 @@ final class CEFRuntime {
             buffer.baseAddress?.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in
                 CEFStartSteps.shared.timed("cef_initialize") { shim.initialize(
                     layout.frameworkDirectory.path, layout.mainBundle.path, layout.helperExecutable.path,
-                    storage.root.path, storage.logFile.path, 0, locale.locale, locale.acceptLanguages, list, context,
+                    storage.root.path, storage.logFile.path, Self.logSeverity, locale.locale, locale.acceptLanguages, list, context,
                     cefScheduleCallback, cefEventCallback, cefKeyCallback
                 ) }
             } ?? 0

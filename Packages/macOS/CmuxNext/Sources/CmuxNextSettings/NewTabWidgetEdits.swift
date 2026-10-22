@@ -9,7 +9,7 @@ import os
 ///
 /// A widget's place does not turn it on; its own key does. Widgets left out follow in Settings'
 /// order, and a bad or repeated item is dropped with a diagnostic. The greeting stays over the
-/// composer, and the Search | Ask switch and the template dots stay where they are.
+/// composer, and the template dots stay where they are.
 nonisolated extension NewTabWidgetSettings {
     public static let orderPath = ["tabs", "newTabWidgets", "order"]
     /// The widgets the edit mode moves, in Settings' order: the default order.

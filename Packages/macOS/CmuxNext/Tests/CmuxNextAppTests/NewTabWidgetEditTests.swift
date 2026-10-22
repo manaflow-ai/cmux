@@ -32,12 +32,12 @@ import Testing
     }
 
     @Test func thePageGetsTheMovableWidgetsInTheSavedOrder() {
-        let on: [String: JSONValue] = ["projects": .bool(true), "chats": .bool(true), "modeSwitch": .bool(true)]
-        #expect(Self.snapshot(on).newTabWidgets.ids == ["greeting", "projects", "chats", "modeSwitch"])
+        let on: [String: JSONValue] = ["projects": .bool(true), "chats": .bool(true), "styleDots": .bool(true)]
+        #expect(Self.snapshot(on).newTabWidgets.ids == ["greeting", "projects", "chats", "styleDots"])
         var reordered = on
         reordered["order"] = .array([.string("chats"), .string("projects")])
         let snapshot = Self.snapshot(reordered)
-        #expect(snapshot.newTabWidgets.ids == ["greeting", "chats", "projects", "modeSwitch"], "a place does not turn a widget on")
+        #expect(snapshot.newTabWidgets.ids == ["greeting", "chats", "projects", "styleDots"], "a place does not turn a widget on")
         #expect(snapshot.newTabWidgets.order == ["chats", "projects", "actions"], "left out follows in Settings' order")
         #expect(snapshot.diagnostics.isEmpty, "\(snapshot.diagnostics)")
     }

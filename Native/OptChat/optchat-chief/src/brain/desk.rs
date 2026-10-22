@@ -13,7 +13,6 @@
 use std::time::{Duration, Instant};
 
 use super::{Brain, Phase, reply_entry};
-use crate::state::SubStatus;
 
 /// How long a message waits on a running turn before the desk answers
 /// (the host's default; `OPTCHAT_DESK_GRACE_SECONDS`, 0 turns it off).
@@ -130,7 +129,7 @@ impl Brain {
             .spawns
             .values()
             .flat_map(|r| r.subs.iter())
-            .filter(|s| matches!(s.status, SubStatus::Starting | SubStatus::Running))
+            .filter(|s| s.at_work())
             .map(|s| (s.id.clone(), s.title.clone()))
             .collect()
     }

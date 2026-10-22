@@ -7,6 +7,7 @@ import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { copyText } from "./clipboard";
 import { MessageCard } from "./MessageCard";
 import { McpCallRows } from "./McpCallRows";
+import { SubsessionCallCard } from "./SubsessionCallCard";
 import { mcpNames, McpNamesContext } from "./mcpCalls";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
@@ -16,9 +17,9 @@ import { toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { workedLabel } from "./turns";
-import { ChevronDown, ChevronRight, Copy, Retry, TurnFork } from "./icons";
-import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../../ui/Menu";
-import type { TurnActions } from "./turnActions";
+import { ChevronRight, Retry } from "./icons";
+import { ForkButton, MessageCopy, MessageTime, PinButton, ReadAloudButton, ROW_ICON } from "./MessageActions";
+import { RetryModelMenu } from "./RetryModelMenu";
 import { useT } from "../i18n";
 import { failureCopy, failureKind, type FailureRoute } from "../failureCopy";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
@@ -54,9 +55,10 @@ export function WorkedFor({
   );
 }
 
-/// One entry of a run: a group, a message card, a lone call or a thought. `live`: the entry is the
-/// last of the live turn's latest row, so a thought there may still stream.
-function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean): ReactNode {
+/// One entry of a run: a group, a message or sub-session card, a lone call or a thought. `live`: the entry is the
+/// last of the live turn's latest row, so a thought there may still stream. `folded`: the run is
+/// finished and draws no summary line of its own, so a group starts closed.
+function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean, folded = false): ReactNode {
   switch (group.type) {
     case "group":
       return (
@@ -64,6 +66,7 @@ function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean
           key={group.items[0]!.tool!.id || index}
           kind={group.kind}
           items={group.items}
+          folded={folded}
           disclosureKey={`group:${group.kind}:${group.items[0]!.tool!.id || `${rowId}:${index}`}`}
         />
       );
@@ -77,7 +80,16 @@ function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean
       );
     case "message":
       return <MessageCard key={group.item.tool!.id || index} item={group.item} message={group.message} />;
+    case "subsession":
+      return <SubsessionCallCard key={group.item.tool!.id || index} call={group.call} />;
     case "item":
+      // A short interim note folded into the run (turns.ts mergeShortNotes).
+      if (group.item.kind === "note")
+        return (
+          <p key={index} className="cv-tool-note">
+            {group.item.text}
+          </p>
+        );
       return group.item.tool ? (
         <ToolRow key={group.item.tool.id || index} item={group.item} />
       ) : (
@@ -86,30 +98,34 @@ function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean
   }
 }
 
-/// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). Each
-/// group and call keeps its own line, in a live turn and in an ended turn's open "Worked for"
-/// alike, so the work stays readable without a click. Only the Codex-style runs (Debug toggle)
-/// fold a run of two or more entries under one summary line (`foldRun`, toolRunSummary.ts) or
-/// show its newest entry alone (`inFlight`); a run that is one group already has its line.
+/// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). The
+/// Codex-style runs (Debug toggle `agentPane.debug.codexToolRuns`, on by default) fold a finished
+/// run (`foldRun`) of two or more entries under one summary line (toolRunSummary.ts: "Read files,
+/// ran commands"), and a run that is one group under that group's closed line ("Ran 3 commands"),
+/// so finished work is one click away between the paragraphs. Off, each group and call keeps its
+/// own line.
 export function shouldFoldToolRun(
   row: AcpmuxRow,
   groups: readonly ToolGroup[],
   items: readonly AcpmuxActivity[],
 ): boolean {
-  // Coordination cards stay visible beside tool calls so a settled run never hides the
-  // agent-to-agent receipt inside the generic tool summary.
+  // Coordination cards (a message, a sub-session started, messaged or waited on) stay visible
+  // beside tool calls so a settled run never hides the agent-to-agent receipt inside the generic
+  // tool summary.
   return (
-    row.foldRun === true && groups.length > 1 && !groups.some((group) => group.type === "message") && isFoldedRun(items)
+    row.foldRun === true &&
+    groups.length > 1 &&
+    !groups.some((group) => group.type === "message" || group.type === "subsession") &&
+    isFoldedRun(items)
   );
 }
 export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {
   const items = row.items;
   const groups = useMemo(() => toolGroups(items ?? []), [items]);
-  // A run in flight (Debug toggle) shows its newest entry alone: one line that replaces itself.
-  const first = row.inFlight ? Math.max(0, groups.length - 1) : 0;
-  const nodes = groups
-    .slice(first)
-    .map((group, at) => groupNode(group, first + at, row.id, row.live === true && first + at === groups.length - 1));
+  const run = shouldFoldToolRun(row, groups, items ?? []);
+  const nodes = groups.map((group, at) =>
+    groupNode(group, at, row.id, row.live === true && at === groups.length - 1, row.foldRun === true && !run),
+  );
   // Find opens what holds its current match in this row only (chatFind.ts).
   const reveal = useContext(FindReveal);
   // Ids an MCP call names, to the titles the run's other calls give them ("Read Coordination hub").
@@ -119,7 +135,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
       <McpNamesContext.Provider value={names}>
         <FindReveal.Provider value={reveal && isRevealRow(row, reveal) ? reveal : undefined}>
           <div className="cv-tools">
-            {shouldFoldToolRun(row, groups, items ?? []) ? (
+            {run ? (
               <ToolRun disclosureKey={`run:${row.id}`} items={items ?? []}>
                 {nodes}
               </ToolRun>
@@ -133,15 +149,13 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
   );
 }
 
-const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
-
-/// The quiet row under an answer: copy, retry (the last turn, while acpmux is reachable), fork
-/// from here (when acpmux serves forks), the time, and why the turn ended when it did not
-/// complete. A turn without a "Worked for" line (history paged in mid-turn) says its time and
-/// count here instead.
+/// The quiet row under an answer, as Claude Code desktop's: Copy, Fork from here (when acpmux
+/// serves forks), Pin, Read aloud, then the answer's age, and why the turn ended when it did not
+/// complete. Retry is the prompt's (UserBubble.tsx), and also here when the turn failed, whose row
+/// always shows. A turn without a "Worked for" line (history paged in mid-turn) says its time and
+/// count here first.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
-  const [copied, setCopied] = useState(false);
   const { fork, forkSeq, forkAny, retry, retryWith, reauthenticate, route, switchModel } =
     useContext(TurnActionsContext);
   const text = row.text;
@@ -152,35 +166,17 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // Only the CLI's own login (or an unexplained 401 on a direct route) asks to sign in (cx-w10a).
   const authenticationFailed = kind === "subscription-login" || kind === "auth";
   // A failure reads as the turn's answer does: its own block above the footer row, never squeezed
-  // between Worked for and the time (Codex, Claude desktop). The row is one quiet line at the
-  // column's right edge, where a prompt's Copy and Edit sit under its bubble: Worked for and the
-  // time as muted text, then the actions (Leo 2026-10-13). It shows for the last turn, a failed
-  // one, or while the reader points at its turn (VirtualTranscript marks it).
+  // into it (Codex, Claude desktop). The row is one quiet line under the answer's left edge; it
+  // shows on hover or keyboard focus, and always for a failed turn (VirtualTranscript marks the
+  // turn the reader points at, from its answer to its footer).
   return (
     <>
       {failed && <TurnFailure message={row.error} route={route} switchModel={switchModel} />}
       <div className={failed ? "cv-turn-actions cv-turn-actions--failed" : "cv-turn-actions"}>
         {!row.folded && <span className="cv-turn-summary">{workedLabel(t, row)}</span>}
-        <time className="cv-turn-time" dateTime={new Date(row.at).toISOString()}>
-          {clock.format(row.at)}
-        </time>
         <span className="cv-turn-action-group">
-          {text && (
-            <button
-              type="button"
-              className="cv-iconbtn cv-iconbtn--compact"
-              aria-label={copied ? t("turn.copied") : t("turn.copy")}
-              onClick={() =>
-                void copyText(text).then(
-                  () => setCopied(true),
-                  () => setCopied(false),
-                )
-              }
-            >
-              <Copy size={14} />
-            </button>
-          )}
-          {retry && prompt && (
+          {text && <MessageCopy text={text} />}
+          {failed && retry && prompt && (
             <button
               type="button"
               className="cv-iconbtn cv-iconbtn--compact"
@@ -188,65 +184,27 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               title={t("turn.retryLabel")}
               onClick={() => retry(row.retryRowId ?? "", prompt)}
             >
-              <Retry size={14} />
+              <Retry size={ROW_ICON} />
             </button>
           )}
-          {retry && prompt && retryWith && retryWith.models.length > 1 && (
+          {failed && retry && prompt && retryWith && retryWith.models.length > 1 && (
             <RetryModelMenu
               retryWith={retryWith}
               onPick={(model) => retryWith.retry(row.retryRowId ?? "", prompt, model)}
             />
           )}
+          {fork && seq !== undefined && (forkAny || seq === forkSeq) && <ForkButton onFork={() => fork(seq)} />}
+          <PinButton rowId={row.id} />
+          {text && <ReadAloudButton id={row.id} text={text} />}
           {authenticationFailed && reauthenticate && (
             <button type="button" className="cv-turn-auth-action" onClick={reauthenticate}>
               {t("turn.signInAgain")}
             </button>
           )}
-          {fork && seq !== undefined && (forkAny || seq === forkSeq) && (
-            <button
-              type="button"
-              className="cv-iconbtn cv-iconbtn--compact"
-              aria-label={t("turn.fork")}
-              title={t("turn.fork")}
-              onClick={() => fork(seq)}
-            >
-              <TurnFork size={14} />
-            </button>
-          )}
         </span>
+        <MessageTime at={row.at} className="cv-turn-time" />
       </div>
     </>
-  );
-}
-
-/// Retry with another model (cx-ncc.62): the chat harness's models, the current one checked.
-function RetryModelMenu({
-  retryWith,
-  onPick,
-}: {
-  retryWith: NonNullable<TurnActions["retryWith"]>;
-  onPick(model: string): void;
-}) {
-  const t = useT();
-  return (
-    <Menu>
-      <MenuButton
-        className="cv-iconbtn cv-iconbtn--compact cv-turn-retry-menu"
-        label={t("turn.retryWith")}
-        title={t("turn.retryWith")}
-      >
-        <ChevronDown size={12} />
-      </MenuButton>
-      <MenuPopup label={t("turn.retryWith")} align="start">
-        <MenuRadioGroup value={retryWith.current ?? ""} onValueChange={onPick}>
-          {retryWith.models.map((model) => (
-            <MenuRadioItem key={model.id} value={model.id} closeOnClick>
-              {model.name}
-            </MenuRadioItem>
-          ))}
-        </MenuRadioGroup>
-      </MenuPopup>
-    </Menu>
   );
 }
 

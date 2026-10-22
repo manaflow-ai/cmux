@@ -15,6 +15,11 @@ public import Foundation
 /// - `browser.list {}`: the installed browsers, by opaque id. Passive.
 /// - `browser.openIn {url, browserId}`: open a validated http(s) URL in one of them. Spends a
 ///   user gesture.
+/// - `image.reveal {src, name, path?}`: show an image the viewer holds in Finder: the file `path`
+///   names when it is one inside the roots of a local chat, else a copy of the `data:` image `src`
+///   (``AgentPaneImageCopies``). Spends one user gesture.
+/// - `image.openInPane {src, name}`: open a copy of a `data:` image in a cmux browser pane. Spends
+///   a user gesture.
 /// - `pr.inspect {url}`: what the user's GitHub CLI says about a GitHub pull request a reply or
 ///   the pull request bars link to (its hover card). Only a plain
 ///   `https://github.com/<owner>/<repo>/pull/<n>` is taken (``pullRequestURL(_:)``). Passive.
@@ -25,10 +30,15 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case loadMedia(String)
     case listBrowsers
     case openIn(url: URL, browserId: String)
+    case revealImage(src: String, name: String, path: String?)
+    case openImageInPane(src: String, name: String)
     case inspectPullRequest(URL)
 
     /// The methods, for ``AgentPageOps`` and ``AgentPaneRequest``.
-    public static let methods: Set<String> = ["link.inspect", "link.openPath", "image.load", "media.load", "browser.list", "browser.openIn", "pr.inspect"]
+    public static let methods: Set<String> = [
+        "link.inspect", "link.openPath", "image.load", "media.load", "browser.list", "browser.openIn", "image.reveal",
+        "image.openInPane", "pr.inspect",
+    ]
 
     /// Each method's exact param keys (all required; `link.inspect` takes either list).
     static let knownParams: [String: Set<String>] = [
@@ -38,19 +48,42 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         "media.load": ["src"],
         "browser.list": [],
         "browser.openIn": ["url", "browserId"],
+        "image.reveal": ["src", "name", "path"],
+        "image.openInPane": ["src", "name"],
         "pr.inspect": ["url"],
     ]
 
-    /// Most paths or URLs in one `link.inspect` (one reply's chips).
+    /// Most paths or URLs in one `link.inspect`. The page gathers its chips' links across every
+    /// reply on the page and asks for them in one call, so this is a bound per request.
     static let maximumInspect = 64
     /// Longest URL any method takes (the same cap as a link a browser opens from a click).
     static let maximumURL = 2048
+    /// Longest `data:` image the viewer actions take (base64 of ``AgentPaneImageCopies/maximumBytes``).
+    static let maximumImageSource = AgentPaneImageCopies.maximumBytes / 3 * 4 + 64
+    /// Longest image name (its alt text) the viewer actions keep: a longer one is cut to it, not
+    /// refused, since alt text has no length limit (``AgentPaneImageCopies/fileName(_:data:type:)``
+    /// cuts it again to fit a file name).
+    static let maximumImageName = 512
+
+    /// `name` cut to at most ``maximumImageName`` UTF-8 bytes, on a character boundary.
+    static func imageName(_ name: String) -> String {
+        guard name.utf8.count > maximumImageName else { return name }
+        var bytes = 0
+        var end = name.startIndex
+        for index in name.indices {
+            let next = name.index(after: index)
+            bytes += name[index..<next].utf8.count
+            guard bytes <= maximumImageName else { break }
+            end = next
+        }
+        return String(name[..<end])
+    }
 
     /// Whether the request only reads (it does not count as the page being touched).
     var isPassive: Bool {
         switch self {
         case .inspect, .listBrowsers, .loadImage, .loadMedia, .inspectPullRequest: true
-        case .openPath, .openIn: false
+        case .openPath, .openIn, .revealImage, .openImageInPane: false
         }
     }
 
@@ -92,6 +125,21 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
             guard let raw = text("url", Self.maximumURL), let url = Self.webURL(raw),
                   let id = text("browserId", 64) else { return nil }
             self = .openIn(url: url, browserId: id)
+        case "image.reveal", "image.openInPane":
+            // `src` is the image itself; the name may be empty (an image without alt text).
+            guard let src = text("src", Self.maximumImageSource), src.hasPrefix("data:"),
+                  let raw = params["name"] as? String, !raw.utf8.contains(0) else { return nil }
+            let name = Self.imageName(raw)
+            guard method == "image.reveal" else {
+                self = .openImageInPane(src: src, name: name)
+                return
+            }
+            if params["path"] != nil {
+                guard let path = text("path", AgentPaneReplyPaths.maximumLength) else { return nil }
+                self = .revealImage(src: src, name: name, path: path)
+            } else {
+                self = .revealImage(src: src, name: name, path: nil)
+            }
         case "pr.inspect":
             guard let raw = text("url", Self.maximumURL), let url = Self.pullRequestURL(raw) else { return nil }
             self = .inspectPullRequest(url)

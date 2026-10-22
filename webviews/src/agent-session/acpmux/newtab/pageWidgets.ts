@@ -5,12 +5,12 @@
 // drew: they are there to compare against.
 
 /// Every widget, in Settings' order.
-export const PAGE_WIDGETS = ["greeting", "projects", "actions", "chats", "modeSwitch", "styleDots"] as const;
+export const PAGE_WIDGETS = ["greeting", "projects", "actions", "chats", "styleDots"] as const;
 export type PageWidget = (typeof PAGE_WIDGETS)[number];
 export type PageWidgets = ReadonlySet<PageWidget>;
 
 /// The widgets the page's edit mode moves (`tabs.newTabWidgets.order`, NewTabWidgetEdits.swift),
-/// in Settings' order. The greeting stays over the composer; the Search | Ask switch and the dots stay put.
+/// in Settings' order. The greeting stays over the composer; the dots stay put.
 export const MOVABLE_WIDGETS = ["projects", "actions", "chats"] as const;
 export type MovableWidget = (typeof MOVABLE_WIDGETS)[number];
 

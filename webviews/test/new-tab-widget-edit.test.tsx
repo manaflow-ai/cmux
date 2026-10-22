@@ -142,8 +142,8 @@ test("the host's order places the movable widgets; the others keep their places"
     "chats",
   ]);
   expect(
-    editedPageWidgets(["greeting", "projects", "chats", "modeSwitch"], { edit: "order", order: ["chats", "projects"] }),
-  ).toEqual(["greeting", "chats", "projects", "modeSwitch"]);
+    editedPageWidgets(["greeting", "projects", "chats", "styleDots"], { edit: "order", order: ["chats", "projects"] }),
+  ).toEqual(["greeting", "chats", "projects", "styleDots"]);
   expect(editedPageWidgets(undefined, { edit: "remove", widget: "greeting" })).toEqual([]);
   expect(movedWidget(["projects", "actions", "chats"], "chats", -1)).toEqual(["projects", "chats", "actions"]);
   expect(movedWidget(["projects", "actions"], "projects", -1)).toEqual(["projects", "actions"]);

@@ -13,6 +13,8 @@ extension SidebarViewComponents {
         var sectionsRevision: UInt64
         var selection: Set<WorkspaceID>
         var selected: SidebarItem?
+        /// `SidebarModel.onScreen` while `sidebar.multiView` is on: a change repaints the rows' fills only.
+        var onScreen: Set<WorkspaceID>
         var profiles: [SidebarProfile]
         var activeProfile: ProfileKey?
         var filter: String
@@ -30,10 +32,23 @@ extension SidebarViewComponents {
         var fontSize: CGFloat
         var titlebarHeight: CGFloat
         var cards: SidebarBottomCards
+        /// The session tree (`sidebar.sessionTree`): nesting, pull requests, keycaps.
+        var tree: SidebarSessionTreeState?
+        /// Every row's pull request badge, tree or not.
+        var pullRequests: [WorkspaceID: SidebarPullRequestBadge]
+        /// The session tree's chat history: Pinned and Earlier.
+        var history: SidebarChatHistoryState?
+        /// Workspaces as tabs (`SidebarTunables.workspacesAsTabs`): one-line rows.
+        var workspacesAsTabs: Bool
+        /// The "Done (N)" fold (`SidebarTunables.doneFold`): turning it on or off lays the list out again.
+        var foldsDone: Bool
+        /// The row limit (`SidebarTunables.groupRowLimit`): changing it lays the list out again.
+        var rowLimit: Int
         init(_ model: SidebarModel, _ design: DesignSettings) {
             sectionsRevision = model.observedStructureRevision
             selection = model.selection
             selected = model.selectedItem
+            onScreen = SidebarTunables.multiView.value ? model.onScreen : []
             profiles = model.profiles
             activeProfile = model.activeProfileID
             filter = model.filterText
@@ -49,6 +64,12 @@ extension SidebarViewComponents {
             fontSize = Typography.body.pointSize
             titlebarHeight = Metrics.titlebarHeight
             cards = SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
+            tree = SidebarSessionTree.shared.state
+            pullRequests = SidebarSessionTree.shared.pullRequests
+            history = SidebarChatHistory.shared.state
+            workspacesAsTabs = SidebarTunables.workspacesAsTabs.value
+            foldsDone = SidebarTunables.doneFold.value
+            rowLimit = SidebarTunables.rowLimit
         }
     }
     func observe() {
@@ -80,7 +101,11 @@ extension SidebarViewComponents {
             || lastState?.drawsLines != state.drawsLines || lastState?.preferences != state.preferences || lastState?.suppressedApps != state.suppressedApps
         let selectionChanged = lastState?.selection != state.selection || lastState?.selected != state.selected
         let rowsChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.filter != state.filter || chromeChanged || profileChanged
-            || state.preferences.changesList(from: lastState?.preferences)
+            || state.preferences.changesList(from: lastState?.preferences) || lastState?.tree != state.tree
+            || lastState?.pullRequests != state.pullRequests
+            || lastState?.history != state.history
+            || lastState?.workspacesAsTabs != state.workspacesAsTabs || lastState?.foldsDone != state.foldsDone
+            || lastState?.rowLimit != state.rowLimit
         let listChanged = rowsChanged || selectionChanged
         let previous = lastState == nil ? nil : lastSections
         model.applyListPreferences(state.preferences)
@@ -98,6 +123,11 @@ extension SidebarViewComponents {
         if listChanged {
             if profileChanged {
                 switchSpace(from: lastState?.activeProfile, to: state.activeProfile, profiles: state.profiles, oldSections: previous ?? [])
+            } else if selectionChanged, rowsChanged, !model.followsUserIntent, list.showsSelectionRow,
+                      list.patchSelection(from: lastState?.selected, oldSelection: lastState?.selection ?? []) {
+                // A click moves no row (Leo 2026-10-20): it draws its selection, and rows that changed with it
+                // wait under the pointer like any change nobody asked for.
+                if list.showModelChange(animates: false) { SidebarNewRowTimer.shared.drew(model.sections, in: window) }
             } else if selectionChanged, rowsChanged || !list.patchSelection(from: lastState?.selected, oldSelection: lastState?.selection ?? []) {
                 // A new selection shows now, wherever the pointer is (it is the user's, or asks to be seen).
                 list.reload(animated: Self.animatesReload(from: previous, to: model.sections) && model.followsUserIntent, fromModel: true)
@@ -110,6 +140,7 @@ extension SidebarViewComponents {
             }
             lastSections = model.sections
         }
+        if lastState?.onScreen != state.onScreen { list.syncRowStates() }
         if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }
         if chromeChanged || profilesChanged { bandsDirty = true; needsLayout = true }
         lastState = state

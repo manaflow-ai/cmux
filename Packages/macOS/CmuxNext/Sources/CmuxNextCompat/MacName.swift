@@ -17,6 +17,24 @@ public struct MacName: Sendable {
         }
     }
 
+    /// The name cmux shows for this Mac: the computer name, unless it is
+    /// macOS's default ("Leo's MacBook Pro (3)") and the host name is not,
+    /// then the host name ("cosmic-gray"), so machines that kept the default
+    /// name are told apart by the name their owner gave them.
+    public func displayName() async -> String {
+        let computer = await computerName()
+        let host = kernelHostName()
+        return Self.isDefaultName(computer) && !host.isEmpty && !Self.isDefaultName(host) ? host : computer
+    }
+
+    /// Whether `name` looks like a name macOS made up: one that names the
+    /// hardware ("Leo's MacBook Pro (3)", "Leos-Mac-mini-2", "iMac").
+    nonisolated static func isDefaultName(_ name: String) -> Bool {
+        let model = #"\b(?:MacBook|Mac[ -]?mini|Mac[ -]?Studio|Mac[ -]?Pro|iMac)\b"#
+        let owned = #"['’]s Mac(?: \(\d+\))?$"#
+        return [model, owned].contains { name.range(of: $0, options: [.regularExpression, .caseInsensitive]) != nil }
+    }
+
     /// Runs `read` off the main actor (it may do IPC) and applies the fallbacks.
     @concurrent private static func resolve(_ read: @Sendable () -> String?) async -> String {
         if let name = read()?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return name }

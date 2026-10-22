@@ -385,10 +385,33 @@ std::optional<LayoutColumnDock> parse_layout_column_dock(
     return LayoutColumnDock{std::move(edge), std::move(mode)};
 }
 
+/// One row of a column (rows-v1); only row 1 may omit `row_id`.
+LayoutRow parse_layout_row(const Json& value) {
+    const auto& object = exact_object(
+        value, {"row_id", "height"}, {"height"}, "layout row");
+    const auto height =
+        uint_value(field(object, "height", "layout row"), 1000, "layout row height");
+    if (height < 100) {
+        fail("layout row height must be from 100 to 1000");
+    }
+    return LayoutRow{
+        optional_id_value<SplitId>(object, "row_id", "layout row_id"),
+        static_cast<std::uint16_t>(height),
+    };
+}
+
+std::vector<LayoutRow> parse_layout_column_rows(const Json::Object& column) {
+    const auto found = column.find("rows");
+    if (found == column.end()) {
+        return {};
+    }
+    return array_value<LayoutRow>(found->second, "layout column rows", parse_layout_row);
+}
+
 LayoutColumn parse_layout_column(const Json& value) {
     const auto& object = exact_object(
         value,
-        {"column_id", "width", "root", "dock", "sticky"},
+        {"column_id", "width", "root", "dock", "sticky", "rows"},
         {"column_id", "width", "root"},
         "layout column");
     auto width = field(object, "width", "layout column").as_double();
@@ -404,6 +427,7 @@ LayoutColumn parse_layout_column(const Json& value) {
         std::make_shared<LayoutNode>(
             parse_layout_node(field(object, "root", "layout column"))),
         parse_layout_column_dock(object),
+        parse_layout_column_rows(object),
     };
 }
 

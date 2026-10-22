@@ -64,13 +64,16 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// ``AgentPaneTunables/newTabWidgets``); nil shows none.
     public var widgets: Bool?
     /// The Minimal layout's widgets the user turned on (`tabs.newTabWidgets.*`: "greeting",
-    /// "projects", "actions", "chats", "modeSwitch", "styleDots"); Minimal draws the composer and
+    /// "projects", "actions", "chats", "styleDots"); Minimal draws the composer and
     /// only these besides. nil is Settings' defaults (the greeting). The other layouts ignore it.
     /// The page validates it.
     public var pageWidgets: [String]?
     /// true: the page lists only its own connection's chats, not the store every page shares
     /// (Debug Settings `newTab.privateChatLists`, ``AgentPaneTunables/newTabPrivateChatLists``).
     public var privateChatLists: Bool?
+    /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the page lists the recent
+    /// chats only, never All chats; nil lists All chats where the template does.
+    public var allChats: Bool?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],

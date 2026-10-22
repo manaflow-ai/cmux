@@ -14,9 +14,6 @@ extension NewTabWidgetSettings {
     /// `tabs.newTabWidgets.chats`: Off by default. On: the recent chats as rows under the composer. The palette (Cmd-P) finds a chat either way.
     public nonisolated static let chatsPath = ["tabs", "newTabWidgets", "chats"]
     public nonisolated static let chatsDefault = false
-    /// `tabs.newTabWidgets.modeSwitch`: Off by default. Tab still switches between asking the agent and searching the web; the field's placeholder says which.
-    public nonisolated static let modeSwitchPath = ["tabs", "newTabWidgets", "modeSwitch"]
-    public nonisolated static let modeSwitchDefault = false
     /// `tabs.newTabWidgets.styleDots`: Off by default. On: the dots under the page that switch its template (tabs.newTabTemplate).
     public nonisolated static let styleDotsPath = ["tabs", "newTabWidgets", "styleDots"]
     public nonisolated static let styleDotsDefault = false
@@ -67,16 +64,6 @@ nonisolated enum NewTabWidgetSettingsSchema {
                 kind: .toggle,
                 default: .bool(NewTabWidgetSettings.chatsDefault),
                 keywords: ["new tab", "widget", "chats", "recent", "history", "all chats"]
-            ),
-            SettingDescriptor(
-                NewTabWidgetSettings.modeSwitchPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.tabs.newTabWidgets.modeSwitch", "Show Search and Ask Switch on New Tab"),
-                help: SettingsText.keyed("settings.tabs.newTabWidgets.modeSwitch.help", "Tab switches between asking the agent and searching the web either way."),
-                kind: .toggle,
-                default: .bool(NewTabWidgetSettings.modeSwitchDefault),
-                keywords: ["new tab", "widget", "search", "ask", "mode", "tab to switch"]
             ),
             SettingDescriptor(
                 NewTabWidgetSettings.styleDotsPath,

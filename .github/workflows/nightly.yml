@@ -1894,7 +1894,7 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "24.11.1"
+          node-version: "24.22.1"
 
       - name: Build the web bundles (cmux-next)
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
@@ -3204,7 +3204,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "20"
+          node-version: "22.23.4"
 
 
       - name: Install build deps
@@ -3825,9 +3825,12 @@ jobs:
           SHARED_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track != 'nightly-next' && secrets.SPARKLE_PRIVATE_KEY || '' }}
           NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track != 'nightly-next' && secrets.NIGHTLY_SPARKLE_PRIVATE_KEY || '' }}
           NEXT_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track == 'nightly-next' && secrets.SPARKLE_NEXT_PRIVATE_KEY || '' }}
-          # cmux-next items carry sparkle:channel cmux-next, which only the
-          # cmux-next build allows; every other build ignores them.
-          SPARKLE_CHANNEL: ${{ needs.decide.outputs.track == 'nightly-next' && 'cmux-next' || '' }}
+          # cmux-next items carry a release-ring sparkle:channel, which only
+          # cmux-next builds allow; every other build ignores them. With
+          # NIGHTLY_NEXT_DEV_RING=on a new build starts on Dev (cmux-next-dev)
+          # and moves to Nightly (cmux-next) on a canary pass
+          # (scripts/ci/nightly_next_ring.py, nightly-next-verdict.yml).
+          SPARKLE_CHANNEL: ${{ needs.decide.outputs.track == 'nightly-next' && (vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'cmux-next-dev' || 'cmux-next') || '' }}
         run: |
           set -euo pipefail
           SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
@@ -4495,7 +4498,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "20"
+          node-version: "22.23.4"
 
       - name: Install create-dmg
         run: |
@@ -4630,7 +4633,8 @@ jobs:
         if: steps.continue.outputs.accepted == 'true'
         env:
           NEXT_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}
-          SPARKLE_CHANNEL: cmux-next
+          # A recovered build is new to the feed: Dev first, as in build-sign-notarize-nightly.
+          SPARKLE_CHANNEL: ${{ vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'cmux-next-dev' || 'cmux-next' }}
         run: |
           set -euo pipefail
           SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
@@ -5504,10 +5508,36 @@ jobs:
           # unset means no requirement, and then the kill switch
           # NIGHTLY_NEXT_LEGACY_IDENTITY is the only protection.
           REQUIRED: ${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}
+          DEV_RING: ${{ vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'on' || 'off' }}
         run: |
           set -euo pipefail
-          curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o next.xml "${NIGHTLY_NEXT_FEED_BASE}/${LEGACY_APPCAST}"
-          curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o old.xml "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"
+          curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o next-all.xml "${NIGHTLY_NEXT_FEED_BASE}/${LEGACY_APPCAST}"
+          curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o old-all.xml "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"
+          # The old feed's installs run the same updater as cmux NEXT's and
+          # follow updates.channel (an install from before rings allows only
+          # cmux-next). Nightly comes first, as before rings: while cmux NEXT
+          # has a Nightly build newer than every Nightly item of the old feed,
+          # that build is the candidate (scripts/ci/nightly_next_ring.py select
+          # on both feeds). Only once the old feed's Nightly is current, and
+          # with NIGHTLY_NEXT_DEV_RING on, is the newest build of any ring the
+          # candidate, so a Mac on Dev gets Dev builds in the cmux NIGHTLY
+          # identity too. publish-nightly-identity-legacy keeps the Nightly
+          # item beside it (nightly_next_ring.py legacy).
+          python3 scripts/ci/nightly_next_ring.py select --feed next-all.xml --out next.xml --channel cmux-next
+          python3 scripts/ci/nightly_next_ring.py select --feed old-all.xml --out old.xml --channel cmux-next
+          newest() { sed -n 's#.*<sparkle:version>\([0-9][0-9]*\)</sparkle:version>.*#\1#p' "$1" | sort -n | tail -1; }
+          next_nightly="$(newest next.xml)" old_nightly="$(newest old.xml)"
+          echo "Nightly: cmux NEXT ${next_nightly:-none}, old feed ${old_nightly:-none}; Dev ring $DEV_RING"
+          if [ -n "$next_nightly" ] && [ "$next_nightly" -gt "${old_nightly:-0}" ]; then
+            echo "### cmux NIGHTLY-identity: Nightly build $next_nightly is the candidate (cx-x7hwx)" >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$DEV_RING" = on ]; then
+            cp next-all.xml next.xml
+            cp old-all.xml old.xml
+          elif [ -z "$next_nightly" ]; then
+            echo "### cmux NIGHTLY-identity: no cmux NEXT build is on Nightly yet; the old feed waits (cx-x7hwx)" >> "$GITHUB_STEP_SUMMARY"
+            { echo "action=none"; echo "pending_run="; echo "bundle_run="; echo "build="; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # A cmux NIGHTLY-identity submission still in Apple's queue is kept by
           # publish-nightly-identity-legacy as the artifacts
           # cmux-nightly-identity-pending-meta/-bundle of its run: the newest
@@ -5537,6 +5567,14 @@ jobs:
                  && [ "$bundles" = 0 ]; then
                 echo "::warning::skipping pending artifact $meta_id of run $meta_run: the bundle of run $bundle_run is gone"
                 continue
+              fi
+              # The target compares a pending build with the old feed's Nightly
+              # only, so a Dev build the old feed already lists would look
+              # continuable again; it is stale.
+              pending_build="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["build"])' pending/pending.json || true)"
+              if [ -n "$pending_build" ] && grep -q "<sparkle:version>${pending_build}</sparkle:version>" old-all.xml; then
+                echo "pending build $pending_build of run $meta_run is already in the old feed; not continued"
+                break
               fi
               pending_args=(--pending-meta pending/pending.json --pending-run "$meta_run" --now "$(date +%s)")
               break
@@ -5709,16 +5747,21 @@ jobs:
           persist-credentials: false
 
       # Checked again here: another run may have moved the old feed meanwhile.
-      - name: Skip a build older than the old feed's
+      - name: Skip a build the old feed already has
         id: order
         run: |
           set -euo pipefail
           [[ "$NIGHTLY_BUILD" =~ ^[0-9]+$ ]] || { echo "invalid build '$NIGHTLY_BUILD'" >&2; exit 1; }
-          current="$(curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}" \
-            | sed -n 's#.*<sparkle:version>\([0-9][0-9]*\)</sparkle:version>.*#\1#p' | sort -n | tail -1)"
-          echo "old feed build: ${current:-none}; requested: $NIGHTLY_BUILD"
+          # The same rule as the publish job's: skipped is a build the feed
+          # already lists, or one no newer than its newest Nightly item. A Dev
+          # item above it does not hold back an older Nightly build.
+          curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o "$RUNNER_TEMP/old-feed.xml" "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"
+          python3 scripts/ci/nightly_next_ring.py select --feed "$RUNNER_TEMP/old-feed.xml" --out "$RUNNER_TEMP/old-nightly.xml" --channel cmux-next >/dev/null
+          current="$(sed -n 's#.*<sparkle:version>\([0-9][0-9]*\)</sparkle:version>.*#\1#p' "$RUNNER_TEMP/old-nightly.xml" | sort -n | tail -1)"
+          echo "old feed Nightly build: ${current:-none}; requested: $NIGHTLY_BUILD"
           echo "### cmux NIGHTLY-identity requirement in use: required: ${REQUIRED:-none}" >> "$GITHUB_STEP_SUMMARY"
-          if [ -n "$current" ] && [ "$NIGHTLY_BUILD" -le "$current" ]; then
+          if grep -q "<sparkle:version>${NIGHTLY_BUILD}</sparkle:version>" "$RUNNER_TEMP/old-feed.xml" \
+             || { [ -n "$current" ] && [ "$NIGHTLY_BUILD" -le "$current" ]; }; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "### Old feed already at $current; build $NIGHTLY_BUILD skipped" >> "$GITHUB_STEP_SUMMARY"
           else
@@ -5748,7 +5791,7 @@ jobs:
         if: steps.order.outputs.skip != 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "20"
+          node-version: "22.23.4"
 
       # The same create-dmg as nightly.yml's build-sign-notarize-nightly.
       - name: Install create-dmg
@@ -6168,11 +6211,17 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$NIGHTLY_BUILD" =~ ^[0-9]+$ ]] || { echo "invalid build '$NIGHTLY_BUILD'" >&2; exit 1; }
-          current="$(curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}" \
-            | sed -n 's#.*<sparkle:version>\([0-9][0-9]*\)</sparkle:version>.*#\1#p' | sort -n | tail -1)"
-          if [ -n "$current" ] && [ "$NIGHTLY_BUILD" -le "$current" ]; then
+          # The old feed may list a Dev build above its Nightly one, and a
+          # Nightly build older than that Dev build is still published. Skipped:
+          # a build the feed already lists, or one no newer than its newest
+          # Nightly item.
+          curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o "$RUNNER_TEMP/old-feed.xml" "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"
+          python3 scripts/ci/nightly_next_ring.py select --feed "$RUNNER_TEMP/old-feed.xml" --out "$RUNNER_TEMP/old-nightly.xml" --channel cmux-next >/dev/null
+          current="$(sed -n 's#.*<sparkle:version>\([0-9][0-9]*\)</sparkle:version>.*#\1#p' "$RUNNER_TEMP/old-nightly.xml" | sort -n | tail -1)"
+          if grep -q "<sparkle:version>${NIGHTLY_BUILD}</sparkle:version>" "$RUNNER_TEMP/old-feed.xml" \
+             || { [ -n "$current" ] && [ "$NIGHTLY_BUILD" -le "$current" ]; }; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "### Old feed already at $current; build $NIGHTLY_BUILD not published again" >> "$GITHUB_STEP_SUMMARY"
+            echo "### Old feed already has build $NIGHTLY_BUILD or a newer Nightly ($current); not published again" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
@@ -6201,7 +6250,9 @@ jobs:
         env:
           TRACK: nightly-next
           NEXT_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}
+          # Rewritten from the verdicts below (nightly_next_ring.py legacy).
           SPARKLE_CHANNEL: cmux-next
+          DEV_RING: ${{ vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'on' || 'off' }}
           SPARKLE_MINIMUM_SYSTEM_VERSION: ${{ needs.sign-nightly-identity-legacy.outputs.minimum_system_version }}
         run: |
           set -euo pipefail
@@ -6232,6 +6283,12 @@ jobs:
                       open(out_path, "w", encoding="utf-8").write(xml)
                   break
           PY
+          # The old feed keeps its newest Nightly item and the Dev items above
+          # it, each tagged from its canary verdict (as cmux NEXT's feed), so a
+          # Mac on Nightly always has a Nightly build while Dev is ahead.
+          curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o "$RUNNER_TEMP/old-feed.xml" "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"
+          python3 scripts/ci/nightly_next_ring.py legacy --new "legacy-out/$LEGACY_APPCAST" --current "$RUNNER_TEMP/old-feed.xml" \
+            --out "legacy-out/$LEGACY_APPCAST" --mode "$DEV_RING" --verdicts-base "$NIGHTLY_NEXT_FEED_BASE"
           python3 scripts/ci/nightly-next-guard.py appcast "legacy-out/$LEGACY_APPCAST"
           grep -q "<sparkle:version>${NIGHTLY_BUILD}</sparkle:version>" "legacy-out/$LEGACY_APPCAST"
           cat "legacy-out/$LEGACY_APPCAST"
@@ -6278,9 +6335,9 @@ jobs:
           }
           copy_notes || echo "::warning::release notes of build $NIGHTLY_BUILD were not copied next to the old feed; the feed is still published"
           upload "legacy-out/$LEGACY_APPCAST" "$prefix/$LEGACY_APPCAST" application/xml "no-cache, no-store, must-revalidate"
-          # Keep the three newest cmux NIGHTLY-identity DMGs, never the one the feed names.
+          # Keep the three newest cmux NIGHTLY-identity DMGs, never one the feed names.
           gh release view "$CHANNEL_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' \
-            | python3 -I -c 'import re, sys; p = re.compile("^" + re.escape(sys.argv[1]) + r"(\d+)\.dmg$"); keep = int(sys.argv[2]); names = sorted((int(m.group(1)), n) for n in sys.stdin.read().split() if (m := p.match(n))); [print(n) for b, n in names[:-3] if b != keep]' "$LEGACY_DMG_PREFIX" "$NIGHTLY_BUILD" \
+            | python3 -I -c 'import re, sys; p = re.compile("^" + re.escape(sys.argv[1]) + r"(\d+)\.dmg$"); keep = {int(b) for b in re.findall(r"<sparkle:version>(\d+)</sparkle:version>", open(sys.argv[2], encoding="utf-8").read())}; names = sorted((int(m.group(1)), n) for n in sys.stdin.read().split() if (m := p.match(n))); [print(n) for b, n in names[:-3] if b not in keep]' "$LEGACY_DMG_PREFIX" "legacy-out/$LEGACY_APPCAST" \
             | while IFS= read -r old; do
                 gh release delete-asset "$CHANNEL_RELEASE_TAG" "$old" --repo "$GITHUB_REPOSITORY" --yes || true
               done
@@ -6450,7 +6507,9 @@ jobs:
       SHARED_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track != 'nightly-next' && secrets.SPARKLE_PRIVATE_KEY || '' }}
       NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track != 'nightly-next' && secrets.NIGHTLY_SPARKLE_PRIVATE_KEY || '' }}
       NEXT_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track == 'nightly-next' && secrets.SPARKLE_NEXT_PRIVATE_KEY || '' }}
-      SPARKLE_CHANNEL: ${{ needs.decide.outputs.track == 'nightly-next' && 'cmux-next' || '' }}
+      # Every item starts on the new build's ring; republish-nightly-deltas
+      # moves the ones whose canary passed back to Nightly.
+      SPARKLE_CHANNEL: ${{ needs.decide.outputs.track == 'nightly-next' && (vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'cmux-next-dev' || 'cmux-next') || '' }}
     steps:
       - name: Checkout build ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -6467,74 +6526,18 @@ jobs:
           name: cmux-nightly-variant-${{ matrix.variant }}
           path: nightly-delta/input
 
-      - name: Fetch one previous track archive
+      - name: Generate deltas and revised appcast
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          python3 scripts/ci/fetch-previous-nightly-dmgs.py \
-            --repo manaflow-ai/cmux \
-            --release-tag "$CHANNEL_RELEASE_TAG" \
-            --name-prefix "${CHANNEL_DMG_PREFIX}-" \
-            --variant "$NIGHTLY_VARIANT" \
-            --exclude-build "$NIGHTLY_BUILD" \
-            --count 1 \
-            --out nightly-delta/previous
-
-      - name: Generate one from-version delta and revised appcast
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          mkdir -p nightly-delta/output
-          dmg="nightly-delta/input/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg"
           feed="appcast.xml"
           if [ "$NIGHTLY_VARIANT" != "universal" ]; then
             feed="appcast-${NIGHTLY_VARIANT}.xml"
           fi
-          test -s "$dmg"
-          if ! compgen -G 'nightly-delta/previous/*.dmg' >/dev/null; then
-            echo "No previous $NIGHTLY_VARIANT archive; retaining the full-only appcast"
-            cp "nightly-delta/input/$feed" "nightly-delta/output/$feed"
-            exit 0
-          fi
-          SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
-          export SPARKLE_PRIVATE_KEY
-          SPARKLE_PUBLIC_KEY="$(
-            printf '%s' "$SPARKLE_PRIVATE_KEY" |
-              env -u SPARKLE_PRIVATE_KEY \
-                -u SHARED_SPARKLE_PRIVATE_KEY \
-                -u NIGHTLY_SPARKLE_PRIVATE_KEY \
-                -u NEXT_SPARKLE_PRIVATE_KEY \
-                swift scripts/derive_sparkle_public_key.swift --stdin
-          )"
-          export SPARKLE_PUBLIC_KEY
-          ./scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh \
-            nightly-delta/previous "$SPARKLE_PUBLIC_KEY"
-          # The full feed's item for this DMG already carries the bundle's
-          # macOS floor (appcast_minimum_system_version.py floor); keep it.
-          SPARKLE_MINIMUM_SYSTEM_VERSION="$(python3 - "nightly-delta/input/$feed" "$(basename "$dmg")" <<'PY'
-          import re, sys
-          feed, archive = sys.argv[1], sys.argv[2]
-          for item in re.findall(r"<item>.*?</item>", open(feed, encoding="utf-8").read(), re.S):
-              if archive in item:
-                  m = re.search(r"<sparkle:minimumSystemVersion>\s*([^<]*?)\s*</sparkle:minimumSystemVersion>", item)
-                  if m:
-                      print(m.group(1))
-                      sys.exit(0)
-          sys.exit(f"no sparkle:minimumSystemVersion for {archive} in {feed}")
-          PY
-          )"
-          export SPARKLE_MINIMUM_SYSTEM_VERSION
-          SPARKLE_PREVIOUS_ARCHIVES_DIR=nightly-delta/previous \
-          SPARKLE_MAXIMUM_DELTAS=1 \
-          SPARKLE_DELTA_NAME_PREFIX="${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-" \
-            ./scripts/sparkle_generate_appcast.sh \
-              "$dmg" "$CHANNEL_RELEASE_TAG" "nightly-delta/output/$feed"
-          # generate_appcast rewrites the items; keep the full feed's changelog
-          # <description> for this build (cx-lntk).
-          python3 scripts/ci/appcast_carry_description.py \
-            "nightly-delta/input/$feed" "nightly-delta/output/$feed" "$NIGHTLY_BUILD"
+          ./scripts/ci/generate-nightly-deltas.sh \
+            "nightly-delta/input/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg" \
+            "nightly-delta/input/$feed" nightly-delta/output
           ls -l nightly-delta/output
 
       - name: Upload delta result
@@ -6570,6 +6573,20 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
 
+      # The ring script and the guard come from the workflow commit: the build
+      # ref can predate them (publish-nightly does the same).
+      - name: Checkout publication tooling at the workflow commit
+        if: needs.decide.outputs.track == 'nightly-next'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .publish-tooling
+          sparse-checkout: |
+            scripts/ci/nightly_next_ring.py
+            scripts/ci/nightly-next-guard.py
+          sparse-checkout-cone-mode: false
+
       - name: Download delta results
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -6581,6 +6598,8 @@ jobs:
         id: republish
         env:
           GH_TOKEN: ${{ github.token }}
+          TRACK: ${{ needs.decide.outputs.track }}
+          DEV_RING: ${{ vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'on' || 'off' }}
         run: |
           set -euo pipefail
           # The tag itself: `commits/<name>` resolves the nightly-next branch,
@@ -6618,6 +6637,15 @@ jobs:
             echo "No Sparkle deltas were generated; full appcasts remain current"
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
+          fi
+          # The revised feed lists earlier builds again, all on the new build's
+          # ring: each goes back to Nightly when its canary verdict is a pass.
+          if [ "$TRACK" = nightly-next ]; then
+            for feed in nightly-deltas/appcast*.xml; do
+              [ -f "$feed" ] || continue
+              python3 .publish-tooling/scripts/ci/nightly_next_ring.py retag --feed "$feed" --out "$feed" \
+                --mode "$DEV_RING" --verdicts-base "$NIGHTLY_NEXT_FEED_BASE"
+            done
           fi
           feeds=()
           for feed in nightly-deltas/appcast*.xml; do
@@ -6666,8 +6694,8 @@ jobs:
             [ -f "$feed" ] || continue
             name="$(basename "$feed")"
             key="${NIGHTLY_NEXT_R2_PREFIX}${name}"
-            python3 scripts/ci/nightly-next-guard.py appcast "$feed"
-            python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
+            python3 .publish-tooling/scripts/ci/nightly-next-guard.py appcast "$feed"
+            python3 .publish-tooling/scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
             python3 scripts/ci/upload-r2-object.py \
               --file "$feed" \
               --endpoint-url "$R2_ENDPOINT" \
@@ -6736,6 +6764,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      # Read only: --pr-media reads the body of each highlight's pull request.
+      pull-requests: read
     env:
       NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
       NIGHTLY_VERSION: ${{ needs.build-nightly-app.outputs.daemon_version }}
@@ -6775,6 +6805,8 @@ jobs:
         env:
           CONTENT_SIGNING_ED25519_PEM: ${{ secrets.CONTENT_SIGNING_ED25519_PEM }}
           SPAN_SINCE: ${{ steps.span.outputs.since }}
+          # --pr-media: each highlight's picture from its pull request's body (read only).
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           # The previous published commit. publish-nightly has already moved the
@@ -6788,7 +6820,7 @@ jobs:
           if [ "$since" = "$HEAD_SHA" ]; then since=""; fi
           python3 scripts/cmux-next/release-notes.py build --build "$NIGHTLY_BUILD" \
             --short "$NIGHTLY_VERSION" --date "$(date -u +%Y-%m-%d)" \
-            --head "$HEAD_SHA" --since "$since" --out notes
+            --head "$HEAD_SHA" --since "$since" --out notes --pr-media
           # Extend the published index only when its signature verifies.
           previous=""
           # The first cmux NEXT build carries the history over from the old feed.
@@ -6938,7 +6970,13 @@ jobs:
     continue-on-error: true
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    # contents: write reaches the pr-media branch through scripts/pr-media.py.
+    # The private-terms secret lives only in this environment, which admits only
+    # the protected branches (main, feat-cmux-next, nightly-next).
+    environment: pr-media
+    # contents: write reaches the pr-media branch only through
+    # .github/actions/pr-media-publish: its privacy check (pr_media_privacy.py,
+    # with tesseract OCR for the reel's frames) refuses any private name in this
+    # bot's folder before the first upload.
     permissions:
       contents: write
     steps:
@@ -6946,7 +6984,9 @@ jobs:
         with:
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           persist-credentials: false
-          sparse-checkout: scripts
+          sparse-checkout: |
+            scripts
+            .github/actions/pr-media-publish
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: release-notes
@@ -6961,30 +7001,34 @@ jobs:
             sudo apt-get install -y -qq --no-install-recommends ffmpeg fontconfig fonts-dejavu-core >/dev/null
           fi
       - name: Build and publish the reel
+        uses: ./.github/actions/pr-media-publish
         env:
-          GH_TOKEN: ${{ github.token }}
           NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
-        run: |
-          set -euo pipefail
-          # The notes this run signed and published, checked against the content key.
-          python3 scripts/cmux-next/media/reel.py --build "$NIGHTLY_BUILD" --notes "notes/$NIGHTLY_BUILD.json" \
-            --out "$RUNNER_TEMP/reel" --publish | tee "$RUNNER_TEMP/reel.log"
-          # The page the reel lists its clips on: raw.githubusercontent.com shows
-          # index.html as text, so the summary carries the list itself.
-          python3 - "$RUNNER_TEMP/reel/reel.json" "$RUNNER_TEMP/reel.log" >> "$GITHUB_STEP_SUMMARY" <<'PY'
-          import json, sys
-          report = json.load(open(sys.argv[1]))
-          urls = [line.strip() for line in open(sys.argv[2]) if line.startswith("https://")]
-          reel = next((url for url in urls if url.endswith("/reel.mp4")), None)
-          print(f"### cmux NEXT nightly reel, build {report['build']}\n")
-          print(f"[Reel (mp4)]({reel})\n" if reel else "No pull request in this build has a tour clip.\n")
-          print("| PR | Title | Clip |\n| --- | --- | --- |")
-          for pr in report["prs"]:
-              title = str(pr.get("title", "")).replace("|", "\\|").replace("\n", " ")
-              clip = pr.get("clip", "")
-              cell = f"[{pr.get('tour') or 'clip'}]({clip})" if clip.startswith("https://") else "no clip"
-              print(f"| #{pr['pr']} | {title} | {cell} |")
-          PY
+        with:
+          private-terms: ${{ secrets.PR_MEDIA_PRIVATE_TERMS }}
+          agent-authors: ${{ vars.PR_MEDIA_AGENT_AUTHORS }}
+          github-token: ${{ github.token }}
+          command: |
+            set -euo pipefail
+            # The notes this run signed and published, checked against the content key.
+            python3 scripts/cmux-next/media/reel.py --build "$NIGHTLY_BUILD" --notes "notes/$NIGHTLY_BUILD.json" \
+              --out "$RUNNER_TEMP/reel" --publish | tee "$RUNNER_TEMP/reel.log"
+            # The page the reel lists its clips on: raw.githubusercontent.com shows
+            # index.html as text, so the summary carries the list itself.
+            python3 - "$RUNNER_TEMP/reel/reel.json" "$RUNNER_TEMP/reel.log" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+            import json, sys
+            report = json.load(open(sys.argv[1]))
+            urls = [line.strip() for line in open(sys.argv[2]) if line.startswith("https://")]
+            reel = next((url for url in urls if url.endswith("/reel.mp4")), None)
+            print(f"### cmux NEXT nightly reel, build {report['build']}\n")
+            print(f"[Reel (mp4)]({reel})\n" if reel else "No pull request in this build has a tour clip.\n")
+            print("| PR | Title | Clip |\n| --- | --- | --- |")
+            for pr in report["prs"]:
+                title = str(pr.get("title", "")).replace("|", "\\|").replace("\n", " ")
+                clip = pr.get("clip", "")
+                cell = f"[{pr.get('tour') or 'clip'}]({clip})" if clip.startswith("https://") else "no clip"
+                print(f"| #{pr['pr']} | {title} | {cell} |")
+            PY
 
   # Post-publication compatibility check: the published NEXT DMG on macOS 15
   # (Sequoia), the oldest major a hosted

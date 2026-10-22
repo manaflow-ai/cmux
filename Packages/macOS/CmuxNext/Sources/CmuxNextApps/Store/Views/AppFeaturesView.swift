@@ -13,10 +13,8 @@ struct AppFeaturesView: View {
         VStack(spacing: 0) {
             chips
             ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: Metrics.space4)], spacing: Metrics.space4) {
-                    ForEach(model.featureListings) { AppFeatureCard(model: model, feature: $0) }
-                }
-                .appStoreColumn()
+                AppStoreCardGrid { ForEach(model.featureListings) { AppFeatureCard(model: model, feature: $0) } }
+                    .appStoreWideColumn()
                 .padding(.vertical, Metrics.space4)
                 .thinScrollers()
             }
@@ -42,7 +40,7 @@ struct AppFeaturesView: View {
             .padding(.vertical, Metrics.space3)
             .thinScrollers()
         }
-        .appStoreColumn()
+        .appStoreWideColumn()
     }
 
     private func chip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
@@ -62,6 +60,7 @@ struct AppFeaturesView: View {
 struct AppFeatureCard: View {
     let model: AppStoreModel
     let feature: AppFeature
+    @State private var hovered = false
     @Environment(\.appSceneColors) private var colors
 
     var body: some View {
@@ -70,21 +69,36 @@ struct AppFeatureCard: View {
             AppFeaturePreviewView(preview: feature.preview)
             VStack(alignment: .leading, spacing: 2) {
                 Text(feature.name).font(Font(Typography.bodyEmphasized)).foregroundStyle(colors.primary).lineLimit(1)
+                // Two lines reserved, so every card's footer sits on the same line.
                 Text(feature.summary)
-                    .font(Font(Typography.caption)).foregroundStyle(colors.secondary).lineLimit(2)
-                    .frame(maxWidth: .infinity, minHeight: 30, alignment: .topLeading)
+                    .font(Font(Typography.caption)).foregroundStyle(colors.secondary).lineLimit(2, reservesSpace: true)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             HStack(spacing: Metrics.space2) {
                 if on { AppStoreBadge(text: AppsStrings.featureOn, emphasized: true) }
+                if model.hasSettings(feature) { settingsLink }
                 Spacer(minLength: 0)
                 AppFeatureButton(model: model, feature: feature, on: on)
             }
+            .frame(height: AppStoreColumn.actionHeight)
         }
         .padding(Metrics.space4)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(colors.hover))
+        .appStoreCard(hovered: hovered)
+        .onHover { hovered = $0 }
         .themedHelp(AppsStrings.featureSetting(feature.setting))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("appStore.feature.\(feature.id)")
+    }
+
+    /// Settings…: Settings on the feature's own options (the Chief Pet card: Settings > Chief Pet).
+    private var settingsLink: some View {
+        Button { model.openSettings(feature) } label: {
+            Text(AppsStrings.featureSettingsLink).font(Font(Typography.caption)).foregroundStyle(colors.secondary).lineLimit(1)
+                .frame(height: AppStoreColumn.actionHeight).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .themedHelp(AppsStrings.featureSettingsHelp(feature.name))
+        .accessibilityIdentifier("appStore.feature.settings.\(feature.id)")
     }
 }
 
@@ -106,13 +120,21 @@ struct AppFeatureButton: View {
                 .themedHelp(failure)
         }
         Button { set(!on) } label: {
-            Text(on ? AppsStrings.remove : AppsStrings.get)
-                .font(Font(on ? Typography.body : Typography.bodyEmphasized))
-                .foregroundStyle(on ? colors.danger : colors.primary)
-                .padding(.horizontal, Metrics.space3)
-                .frame(height: AppStoreColumn.actionHeight)
-                .background(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous).fill(on ? .clear : colors.selection))
-                .contentShape(Rectangle())
+            ZStack {
+                // Reserve both localized labels so toggling keeps the same button bounds.
+                Text(AppsStrings.get).hidden().accessibilityHidden(true)
+                Text(AppsStrings.remove).hidden().accessibilityHidden(true)
+                Text(on ? AppsStrings.remove : AppsStrings.get)
+            }
+            .font(Font(Typography.bodyEmphasized))
+            .foregroundStyle(on ? colors.secondary : colors.primary)
+            .lineLimit(1)
+            .padding(.horizontal, Metrics.space3)
+            .frame(height: AppStoreColumn.actionHeight)
+            .background(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous).fill(on ? colors.hover : colors.selection))
+            .overlay(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous)
+                .strokeBorder(colors.separator, lineWidth: on ? Borders.width(1) : 0))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(busy || managed)
@@ -131,7 +153,8 @@ struct AppFeatureButton: View {
     }
 }
 
-/// The card's preview: a bundled painting, or the feature's icon on a quiet tile.
+/// The card's preview: a bundled painting, sidebar rows at a density, or a small cmux window with
+/// the part the feature changes lit.
 struct AppFeaturePreviewView: View {
     let preview: AppFeature.Preview
     @Environment(\.appSceneColors) private var colors
@@ -145,10 +168,12 @@ struct AppFeaturePreviewView: View {
                 if let image = AppFeaturePreviewImages.shared.painting() {
                     Image(nsImage: image).resizable().scaledToFill()
                 } else {
-                    Icon(.sitePermissionImages, size: 28).foregroundStyle(colors.secondary)
+                    AppFeatureWindowPreview(area: .background, icon: .sitePermissionImages)
                 }
-            case .icon(let name):
-                Icon(name, size: 28).foregroundStyle(colors.secondary)
+            case .window(let area, let icon):
+                AppFeatureWindowPreview(area: area, icon: icon)
+            case .sidebarRows(let density):
+                AppFeatureSidebarRows(density: density)
             }
         }
         .frame(maxWidth: .infinity)
@@ -156,6 +181,56 @@ struct AppFeaturePreviewView: View {
         .clipShape(shape)
         .overlay(shape.strokeBorder(colors.separator, lineWidth: Borders.drawsLines ? 0.5 : 0))
         .accessibilityHidden(true)
+    }
+}
+
+/// A sidebar in placeholder rows at one density, the first one selected: one line per row,
+/// taller rows with more room when comfortable, and a dim detail line and an age when expanded.
+struct AppFeatureSidebarRows: View {
+    let density: SidebarDensity
+    @Environment(\.appSceneColors) private var colors
+
+    private var titleWidths: [CGFloat] {
+        switch density {
+        case .compact: [0.62, 0.48, 0.7, 0.4]
+        case .comfortable: [0.62, 0.48, 0.7]
+        case .expanded: [0.62, 0.48]
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: density == .comfortable ? Metrics.space2 : Metrics.space1) {
+            ForEach(Array(titleWidths.enumerated()), id: \.offset) { index, width in
+                row(title: width, selected: index == 0)
+            }
+        }
+        .padding(Metrics.space3)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(colors.background)
+    }
+
+    private func row(title: CGFloat, selected: Bool) -> some View {
+        HStack(alignment: .top, spacing: Metrics.space2) {
+            Circle().fill(colors.secondary).frame(width: 6, height: 6).padding(.top, 2)
+            GeometryReader { proxy in
+                VStack(alignment: .leading, spacing: Metrics.space1) {
+                    HStack(spacing: 0) {
+                        bar(colors.secondary, width: proxy.size.width * title)
+                        Spacer(minLength: 0)
+                        if density == .expanded { bar(colors.tertiary, width: 12) }
+                    }
+                    if density == .expanded { bar(colors.tertiary, width: proxy.size.width * 0.8) }
+                }
+            }
+        }
+        .padding(.horizontal, Metrics.space2)
+        .padding(.vertical, density == .comfortable ? Metrics.space2 : Metrics.space1)
+        .frame(height: density == .expanded ? 26 : density == .comfortable ? 18 : 14)
+        .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(selected ? colors.selection : .clear))
+    }
+
+    private func bar(_ color: Color, width: CGFloat) -> some View {
+        Capsule().fill(color).frame(width: max(width, 0), height: 4)
     }
 }
 
