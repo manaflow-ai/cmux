@@ -160,11 +160,13 @@ enum AgentSessionWorkspace {
         return nil
     }
 
-    /// The row named `name` in a group named `group`: the workspace a lane of that name already has there.
+    /// The row of this Mac titled `name` in a group named `group`: the workspace a lane of that name already
+    /// has there (the launcher titles it with the lane's name; a row renamed since gets a new row, as before).
+    /// Only this Mac's rows: the chat opens on this Mac's daemon, so another machine's row is never reused.
     static func predecessor(named name: String, inGroup group: String, in sections: [CmuxNextSidebar.SidebarSection]) -> SidebarWorkspaceID? {
         for section in sections {
             for case let .group(listed) in section.nodes where listed.name == group {
-                if let row = listed.workspaces.first(where: { $0.title == name }) { return row.id }
+                if let row = listed.workspaces.first(where: { $0.title == name && $0.machineID == .local }) { return row.id }
             }
         }
         return nil

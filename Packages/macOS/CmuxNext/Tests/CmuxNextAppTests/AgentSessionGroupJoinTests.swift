@@ -66,4 +66,14 @@ import Testing
         #expect(AgentSessionWorkspace.predecessor(named: "deeplink-message", inGroup: Self.lanes, in: sections) == nil)
         #expect(AgentSessionWorkspace.predecessor(named: "prompt-queue-edit", inGroup: Self.lanes, in: sections) == nil)
     }
+
+    @Test func anotherMachinesRowIsNeverAPredecessor() {
+        // A custom section's group may hold any machine's rows; the chat opens on this Mac's daemon.
+        let custom = SidebarCustomSection(id: "c", title: "Custom")
+        let sections = [SidebarSection(kind: .custom(custom), nodes: [
+            .group(SidebarGroup(id: GroupID("g1"), name: Self.lanes,
+                                workspaces: [Self.row("r", title: "pane-motion", on: MachineID("big-red"))])),
+        ])]
+        #expect(AgentSessionWorkspace.predecessor(named: "pane-motion", inGroup: Self.lanes, in: sections) == nil)
+    }
 }
