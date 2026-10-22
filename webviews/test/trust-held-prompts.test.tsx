@@ -26,7 +26,7 @@ Object.assign(globals, replacements);
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { useTrustHeldPrompts } = await import("../src/agent-session/acpmux/trustHeld");
+const { movedOn, useTrustHeldPrompts, whereHeldGoes } = await import("../src/agent-session/acpmux/trustHeld");
 type Held = ReturnType<typeof useTrustHeldPrompts>;
 type Entry = Parameters<Parameters<typeof useTrustHeldPrompts>[0]["send"]>[0];
 
@@ -278,4 +278,47 @@ test("a prompt a harness switch handed back to the composer is not put back twic
   await settle();
   expect(acpmux.putBack).toEqual([]);
   expect(shown!.rows).toEqual([]);
+});
+
+test("a prompt whose chat stopped showing before it went waits again, first, in its own chat", async () => {
+  const acpmux = standIn();
+  await act(async () => root.render(<Probe key="k" acpmux={acpmux} holds chat="chat-a" />));
+  await act(async () => shown!.hold("first for a", []));
+  await act(async () => shown!.hold("then for a", []));
+  await act(async () => root.render(<Probe key="k" acpmux={acpmux} holds={false} chat="chat-a" />));
+  await settle();
+  expect(acpmux.sent.map((sent) => sent.entry.text)).toEqual(["first for a"]);
+  // Chat B showed while its ticket came: the send says so (App.tsx `sendTrustHeldNow`) and nothing went.
+  await act(async () => root.render(<Probe key="k" acpmux={acpmux} holds={false} chat="chat-b" />));
+  acpmux.sent[0]!.refuse(movedOn());
+  await settle();
+  expect(acpmux.putBack).toEqual([]);
+  expect(shown!.rows).toEqual([]);
+  expect(acpmux.sent).toHaveLength(1);
+  // Back in chat A, they go in their order, the first under its own id (its ticket was not spent).
+  await act(async () => root.render(<Probe key="k" acpmux={acpmux} holds={false} chat="chat-a" />));
+  await settle();
+  expect(acpmux.sent[1]!.entry.id).toBe(acpmux.sent[0]!.entry.id);
+  acpmux.sent[1]!.take("chat-a");
+  await settle();
+  expect(acpmux.sent.map((sent) => sent.entry.text)).toEqual(["first for a", "first for a", "then for a"]);
+});
+
+test("prompts the hold gives back go where they were typed, never into another chat's composer", () => {
+  const entry = (text: string, chat: string | undefined, cwd = "/Users/you/a") =>
+    ({ id: text, chat, cwd, text, attachments: [], ticket: Promise.resolve(undefined) }) as Entry;
+  const held = [entry("a1", "chat-a"), entry("b1", "chat-b"), entry("new1", undefined), entry("a2", "chat-a")];
+  const texts = (list: Entry[]) => list.map((item) => item.text);
+  // Chat B shows: A's go into A's draft, B's and the new chat's into the composer.
+  const showingB = whereHeldGoes(held, "chat-b", true);
+  expect(texts(showingB.composer)).toEqual(["b1", "new1"]);
+  expect(texts(showingB.drafts.get("chat-a")!)).toEqual(["a1", "a2"]);
+  expect(showingB.later).toEqual([]);
+  // No composer shows (a hand-off review in its place): every chat's go into its draft; the new
+  // chat's wait for the next composer.
+  const noComposer = whereHeldGoes(held, "chat-b", false);
+  expect(noComposer.composer).toEqual([]);
+  expect(texts(noComposer.drafts.get("chat-b")!)).toEqual(["b1"]);
+  expect(texts(noComposer.drafts.get("chat-a")!)).toEqual(["a1", "a2"]);
+  expect(texts(noComposer.later)).toEqual(["new1"]);
 });

@@ -131,7 +131,7 @@ import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
 import { type Translate, translate, useT } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
-import { useTrustHeldPrompts, type TrustHeldPrompt } from "./trustHeld";
+import { movedOn, sentIn, useTrustHeldPrompts, whereHeldGoes, type TrustHeldPrompt } from "./trustHeld";
 import { heldPrompts } from "./heldPrompt";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import type { DiffFindHandle } from "./changes/diffFind";
@@ -4044,6 +4044,9 @@ function AcpmuxPane() {
   const sendTrustHeld = useRef<(entry: TrustHeldPrompt) => Promise<string | undefined>>(() =>
     Promise.resolve(undefined),
   );
+  const sendTrustHeldNow = useRef<(entry: TrustHeldPrompt, ticket: string | undefined) => Promise<string | undefined>>(
+    () => Promise.resolve(undefined),
+  );
   // A prompt sent while the folder's trust holds prompts waits in the pane and goes after Trust
   // (trustHeld.ts): Send and steer never wait on the question.
   const trustHeldCwd = snapshot.summary?.cwd ?? (snapshot.sessionId ? undefined : projectDraft);
@@ -4053,7 +4056,7 @@ function AcpmuxPane() {
     holds: trustHolds,
     send: (entry) => sendTrustHeld.current(entry),
     reserve: reserveHeldPrompt,
-    putBack: (entry) => composerHandle.current?.restore(entry.text, entry.attachments),
+    putBack: (entry) => void giveBackTrustHeld.current([entry]),
     refusedForTrust: isTrustRefusal,
   });
   holdRefused.current = (text, attachments, error, sentFrom) => {
@@ -4061,22 +4064,21 @@ function AcpmuxPane() {
     if (error && typeof error === "object") heldRefusals.add(error);
   };
   shownFrom.current = () => ({ chat: snapshot.sessionId, cwd: trustHeldCwd });
-  /// Puts every prompt the folder's trust held back where it was typed, for a page that quits: the
-  /// shown chat's into the composer, another chat's into its draft and kept chips. A new chat's
-  /// prompts in a folder no longer shown go into the composer too: it is the only draft such a chat
-  /// has, and they show there rather than be lost. True when there were any.
-  const releaseTrustHeld = useRef(async () => false);
-  releaseTrustHeld.current = async () => {
-    const all = trustHeld.release();
-    const elsewhere = new Map<string, TrustHeldPrompt[]>();
+  /// Puts prompts the hold gives back where they were typed (trustHeld.ts `whereHeldGoes`): a
+  /// refused one, or every one when the page quits.
+  const giveBackTrustHeld = useRef(async (_entries: readonly TrustHeldPrompt[]) => {});
+  giveBackTrustHeld.current = async (entries) => {
+    const composer = composerHandle.current;
+    const where = whereHeldGoes(entries, snapshot.sessionId, Boolean(composer));
     // `restore` puts what comes back first: the last one goes in first, so they read in order.
-    for (const entry of [...all].reverse()) {
-      if (entry.chat && entry.chat !== snapshot.sessionId)
-        elsewhere.set(entry.chat, [entry, ...(elsewhere.get(entry.chat) ?? [])]);
-      else composerHandle.current?.restore(entry.text, entry.attachments);
-    }
+    for (const entry of [...where.composer].reverse()) composer?.restore(entry.text, entry.attachments);
+    if (where.later.length)
+      heldBack.current = [
+        ...(heldBack.current ?? []),
+        ...where.later.map((entry) => ({ text: entry.text, attachments: entry.attachments })),
+      ];
     await Promise.all(
-      [...elsewhere].map(async ([chat, entries]) => {
+      [...where.drafts].map(async ([chat, entries]) => {
         const text = entries.map((entry) => entry.text).filter((part) => part.trim());
         writePersistedDraft(chat, [...text, readPersistedDraft(chat)].filter(Boolean).join("\n\n"));
         const chips = keptChips(entries.flatMap((entry) => entry.attachments));
@@ -4087,6 +4089,13 @@ function AcpmuxPane() {
           .catch(() => undefined);
       }),
     );
+  };
+  /// Puts every prompt the folder's trust held back where it was typed, for a page that quits. True
+  /// when there were any.
+  const releaseTrustHeld = useRef(async () => false);
+  releaseTrustHeld.current = async () => {
+    const all = trustHeld.release();
+    await giveBackTrustHeld.current(all);
     return all.length > 0;
   };
   const individualPermission =
@@ -7458,6 +7467,13 @@ function AcpmuxPane() {
   };
   sendTrustHeld.current = async (entry) => {
     const ticket = await entry.ticket;
+    // This render's send, as the chat shown now has it: the ticket may have come after another
+    // chat showed.
+    return sendTrustHeldNow.current(entry, ticket);
+  };
+  sendTrustHeldNow.current = async (entry, ticket) => {
+    // A prompt goes only in the chat it was sent in: with another one shown it waits again.
+    if (!sentIn(entry, snapshot.sessionId, trustHeldCwd)) throw movedOn();
     // Not connected: the prompt goes back into the composer (the hold puts back what fails).
     // l10n-allow: never shown; the hold reads only that it failed.
     if (!window.cmuxAcpmuxActions?.["chat.send"]) throw new Error("not connected");

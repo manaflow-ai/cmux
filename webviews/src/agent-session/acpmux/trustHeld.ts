@@ -37,8 +37,35 @@ export type TrustHeldPrompt = {
 
 /// Whether `entry` was sent in the chat shown: its session, or for a new chat (no session yet) its
 /// folder, so a new chat's prompts never go to another new chat picked meanwhile.
-function sentIn(entry: TrustHeldPrompt, chat: string | undefined, cwd: string | undefined): boolean {
+export function sentIn(entry: TrustHeldPrompt, chat: string | undefined, cwd: string | undefined): boolean {
   return entry.chat === chat && (chat !== undefined || entry.cwd === cwd);
+}
+
+/// Where prompts the hold gives back go (a refusal, or a page that quits), each list in order: the
+/// shown chat's into its composer; another chat's into that chat's draft, as the shown chat's when
+/// no composer shows (a hand-off review in its place); a new chat's into the composer, the only
+/// draft such a chat has, or with none shown into what the next composer gets (`later`).
+export function whereHeldGoes(
+  entries: readonly TrustHeldPrompt[],
+  shownChat: string | undefined,
+  composerShows: boolean,
+): { composer: TrustHeldPrompt[]; drafts: Map<string, TrustHeldPrompt[]>; later: TrustHeldPrompt[] } {
+  const composer: TrustHeldPrompt[] = [];
+  const drafts = new Map<string, TrustHeldPrompt[]>();
+  const later: TrustHeldPrompt[] = [];
+  for (const entry of entries) {
+    if (entry.chat !== undefined && (entry.chat !== shownChat || !composerShows))
+      drafts.set(entry.chat, [...(drafts.get(entry.chat) ?? []), entry]);
+    else if (composerShows) composer.push(entry);
+    else later.push(entry);
+  }
+  return { composer, drafts, later };
+}
+
+/// A held prompt's send found another chat shown than its own once its ticket came: it did not go.
+export function movedOn(): Error {
+  // l10n-allow: never shown; the hold reads only `moved`.
+  return Object.assign(new Error("the chat shown changed"), { moved: true });
 }
 
 /// The held prompts of the chat shown (`chat`, and `cwd` for a new chat), as the composer's queue rows.
@@ -150,6 +177,13 @@ export function useTrustHeldPrompts({
           going.current = undefined;
           // Released by a quitting page: it is in a draft already.
           if (released.current.has(entry.id)) break;
+          // Another chat showed before it went (`movedOn`): unsent, its ticket unspent, it waits
+          // again first in its own chat.
+          if ((error as { moved?: unknown } | null)?.moved === true) {
+            now.current = { ...now.current, held: [entry, ...now.current.held] };
+            setHeld((list) => [entry, ...list]);
+            break;
+          }
           // Refused: its ticket is spent, so it goes back into the composer, unless a harness
           // switch already handed it back there (harnessSwitch.ts). A trust refusal (acpmux holds
           // the folder again) leaves the rest waiting for the next answer.
