@@ -16,9 +16,11 @@ extension SidebarListViewComponents {
         switch press.key {
         case let .workspace(id):
             guard !model.isPlaceholder(id) else { return }
+            // A plain press's drag moves the row and leaves the shown workspace (and the selection) as it was
+            // before the press: the press switched on mouse-down, so the drag switches back.
+            restorePressSwitch(press)
             let ids = model.selection.contains(id) ? model.orderedSelection : [id]
-            // A plain press's drag moves the row and leaves the shown workspace (and the selection) as it is.
-            if !model.selection.contains(id), press.clickOnRelease != id { model.click(id) }
+            if !model.selection.contains(id), press.clickOnRelease != id, press.switchedOnPress == nil { model.click(id) }
             payload = .workspaces(ids)
             hidden = Set(ids.map(SidebarRowKey.workspace))
             origin = ids.first.flatMap { SidebarEdits.position(of: $0, in: model.sections) }.map(DropTarget.position)

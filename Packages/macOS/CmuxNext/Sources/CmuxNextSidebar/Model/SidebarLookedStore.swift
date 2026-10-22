@@ -1,5 +1,6 @@
 public import Foundation
 public import Observation
+import CmuxNextWakeups
 
 /// When the person last looked at each workspace (`sidebar.sinceLooked`): stamped when the
 /// selection leaves it, kept on this Mac. The hover card counts what its agents did since then.
@@ -32,7 +33,22 @@ public final class SidebarLookedStore {
         stamps = next
     }
 
+    /// The coalesced write: one deadline after the last stamp (`DemandTimer`, plans/cmux-next/idle-wakeups.md).
+    @ObservationIgnored private let saveTimer = DemandTimer(owner: "sidebar.lookedStore.save")
+
+    /// Coalesced: a workspace switch stamps the workspace it leaves, and the encode and the defaults write run once,
+    /// half a second later, never inside the switch (Lawrence 2026-10-21, workspace switch speed of light: every
+    /// switch encoded up to 256 stamps and wrote them on the main thread before the new workspace drew; main-actor
+    /// jobs run before the run loop's Core Animation commit, so a yield alone would still write before the frame).
+    /// A crash inside the delay loses a hover card's "since you looked" stamp, nothing more.
     private func save() {
+        guard defaults != nil else { return }
+        saveTimer.scheduleIfIdle(after: .milliseconds(500)) { @MainActor [weak self] in self?.flush() }
+    }
+
+    /// Writes the stamps now (a pending coalesced write, or a test that reads the defaults back).
+    public func flush() {
+        saveTimer.cancel()
         guard let defaults, let data = try? JSONEncoder().encode(stamps) else { return }
         defaults.set(data, forKey: Self.key)
     }
