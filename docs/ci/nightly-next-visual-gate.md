@@ -83,9 +83,9 @@ spell checker's word list differs from Mac to Mac.
 
 ## How it runs
 
-Three jobs in `.github/workflows/nightly.yml` run beside the signed build.
+Four jobs in `.github/workflows/nightly.yml` run beside the signed build.
 They run only for the `nightly-next` track. `publish-nightly` waits for the
-gate. Usually the signed build and notarization take longer, so the gate adds
+gate's verdict. Usually the signed build and notarization take longer, so the gate adds
 no time. When the gate takes longer (a cold DEV build took 35 min), it delays
 publication by the difference.
 
@@ -101,10 +101,10 @@ publication by the difference.
      (`tests/test_ci_self_hosted_guard.sh`).
    - When no such runner is idle, or the runners can't be read, the gate is
      skipped with the verdict `unavailable`, and the job summary says why. A
-     self-hosted job that queues can wait up to a day, and publication waits
-     for the gate, so the gate never queues for a busy runner. A runner taken
-     in the seconds between the pick and the job's start still makes the gate
-     wait for that one job.
+     self-hosted job that queues can wait up to a day, so the gate never
+     queues for a busy runner. A runner taken (or gone) between the pick and
+     the job's start still leaves the gate queued; step 3 stops publication
+     from waiting for it.
    - The owned-pool rescue (`scripts/ci/owned_pool_rescue.py`) watches only
      `build-nightly-app` in a nightly run. The gate waiting for a runner never
      gets the run cancelled, which would kill its notarization.
@@ -125,18 +125,38 @@ publication by the difference.
    5. Uploads the stills and the report as `nightly-next-visual-gate-<sha>`
       (14 days).
 
-   The findings go in the job summary.
-3. `report-visual-gate-nightly` (Linux) records each judged build in the
+   The findings go in the job summary. When the verdict holds the build
+   (enforce mode, `fail`), its `Hold publication` step runs.
+3. `visual-gate-nightly-verdict` (Linux, `actions: read` only) is what
+   `publish-nightly` waits on. GitHub can neither cancel one job nor bound
+   its queue time, so this job reads the gate's job in the run attempt
+   (`nightly_next_canary_mode.py await-gate`) once a minute:
+   - Still waiting for a runner after 15 minutes (the queue budget): the
+     verdict is `unavailable`, a warning and the job summary say this
+     nightly publishes unchecked, and publication goes ahead. Nothing is
+     cancelled; the gate still runs if a runner frees up, and its verdict is
+     still recorded.
+   - Started: it waits for the gate to finish, at most its 75-minute
+     timeout. `blocks` is `true` only when the gate's `Hold publication` step
+     succeeded.
+   - Missing, never finishing, or the API unreadable after 5 tries:
+     `unavailable`, and publication goes ahead.
+
+   It has the gate's `needs` and `if`, so it is skipped exactly when the
+   gate is.
+4. `report-visual-gate-nightly` (Linux) records each judged build in the
    `nightly-next visual gate` issue. It opens the issue if none is open. Each
    build gets one comment whose first line is
    `cmux NEXT visual gate passed|failed <build sha>: <run>`. This issue is the
    gate's record: the recovery path and the auto flip read it.
 
-`publish-nightly` needs `visual-gate-nightly`. It doesn't publish this run's
-own build when the gate's `blocks` output is `true`, which means enforce mode
+`publish-nightly` needs `visual-gate-nightly-verdict`, never the Mac job
+itself. It doesn't publish this run's own build when that job's `blocks`
+output is `true`, which means enforce mode
 and a failing verdict. Publication goes ahead as before in every other case:
-report mode, a skipped gate (no owned session runner idle, mode `off`), or a
-gate that couldn't capture or judge (`unavailable`, reported as a warning).
+report mode, a skipped gate (no owned session runner idle, mode `off`), a
+gate that couldn't capture or judge, or one that queued past its budget
+(`unavailable`, reported as a warning).
 
 A build whose notarization was still pending can be published later by
 another run, through `find-nightly-next-recovery` →
@@ -228,6 +248,8 @@ covers:
 - the mode resolver under the gate's variable, with the 3-pass minimum, and
   each build's verdict as recovery reads it;
 - the idle-runner pick;
+- the queue escape: a gate left queued after its runner was taken, a gate
+  that starts in time, a missing gate and an unreadable API;
 - `capture_states.py` against a fake app and an unreadable bundle;
 - the `nightly.yml` wiring.
 

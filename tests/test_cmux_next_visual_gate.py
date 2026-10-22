@@ -583,6 +583,139 @@ class ModeResolverTests(unittest.TestCase):
 
 # A fake app for capture_states.py: serves CMUX_NEXT_SOCKET_PATH, logs its launch
 # (argv and the knobs the gate cares about) and every request.
+def gate_job(status="queued", conclusion=None, runner="", marker=None, name="visual-gate-nightly", job_id=7):
+    steps = [{"name": "Run the visual gate", "status": "completed", "conclusion": "success"}]
+    if marker:
+        steps.append({"name": "Hold publication", "status": "completed", "conclusion": marker})
+    return {"id": job_id, "name": name, "status": status, "conclusion": conclusion, "runner_name": runner,
+            "steps": steps if status == "completed" else []}
+
+
+class AwaitGateTests(unittest.TestCase):
+    """visual-gate-nightly-verdict: publication waits for the Mac gate only for a bounded time."""
+    mode = ModeResolverTests.mode
+    QUEUE, RUN = 15 * 60, (15 + 75) * 60 + 300
+    OTHERS = [{"id": 1, "name": "build-nightly-app", "status": "in_progress", "runner_name": "r"}]
+
+    def act(self, jobs, elapsed):
+        return self.mode.gate_action(self.OTHERS + jobs, "visual-gate-nightly", elapsed, self.QUEUE, self.RUN)
+
+    def test_queued_past_the_budget_is_unavailable_and_blocks_nothing(self):
+        action, verdict, blocks, why = self.act([gate_job("queued")], self.QUEUE)
+        self.assertEqual((action, verdict, blocks), ("done", "unavailable", False))
+        self.assertIn("queue budget", why)
+
+    def test_queued_within_the_budget_and_running_wait(self):
+        self.assertEqual(self.act([gate_job("queued")], self.QUEUE - 60)[0], "wait")
+        self.assertEqual(self.act([gate_job("waiting")], 60)[0], "wait")
+        self.assertEqual(self.act([gate_job("in_progress", runner="mac")], self.QUEUE + 3600)[0], "wait")
+        # A runner took it but the status still says queued: started, so the queue budget is over.
+        self.assertEqual(self.act([gate_job("queued", runner="mac")], self.QUEUE + 60)[0], "wait")
+
+    def test_a_gate_that_never_finishes_is_unavailable(self):
+        self.assertEqual(self.act([gate_job("in_progress", runner="mac")], self.RUN)[1:3], ("unavailable", False))
+
+    def test_only_the_hold_step_blocks(self):
+        self.assertEqual(self.act([gate_job("completed", "failure", "mac", marker="success")], 600)[:3],
+                         ("done", "fail", True))
+        for conclusion, marker in (("success", None), ("failure", "skipped"), ("failure", None),
+                                   ("cancelled", None), ("skipped", None)):
+            with self.subTest(conclusion=conclusion, marker=marker):
+                self.assertEqual(self.act([gate_job("completed", conclusion, "mac", marker=marker)], 600)[:3],
+                                 ("done", conclusion, False))
+
+    def test_a_missing_gate_waits_briefly_then_blocks_nothing(self):
+        self.assertEqual(self.act([], 60)[0], "wait")
+        self.assertEqual(self.act([], self.mode.MISSING_GRACE_S)[:3], ("done", "unavailable", False))
+        # Another job's hold step never counts.
+        other = gate_job("completed", "failure", "mac", marker="success", name="visual-gate-nightly-x")
+        self.assertEqual(self.act([other], self.QUEUE)[2], False)
+
+    def poll(self, responses):
+        """await_gate on a fake clock: each look advances it by the interval."""
+        now = [0.0]
+        looks = []
+
+        def fetch():
+            looks.append(now[0])
+            response = responses(now[0])
+            if isinstance(response, Exception):
+                raise response
+            return self.OTHERS + response
+
+        result = self.mode.await_gate(fetch, "visual-gate-nightly", self.QUEUE, self.RUN,
+                                      clock=lambda: now[0], sleep=lambda s: now.__setitem__(0, now[0] + s))
+        return result, looks
+
+    def test_the_race_a_runner_taken_after_the_pick_no_longer_holds_publication(self):
+        # route-visual-gate-nightly saw the runner idle, then another job took it: the gate stays
+        # queued for a day. The verdict job gives up after the queue budget, cancels nothing, and
+        # publication goes ahead.
+        (verdict, blocks, why), looks = self.poll(lambda now: [gate_job("queued")])
+        self.assertEqual((verdict, blocks), ("unavailable", False))
+        self.assertIn("queue budget", why)
+        self.assertEqual(looks[-1], self.QUEUE)
+        self.assertEqual(len(looks), 16)
+
+    def test_a_gate_that_starts_in_time_is_waited_for_and_its_hold_counts(self):
+        def responses(now):
+            if now < 10 * 60:
+                return [gate_job("queued")]
+            if now < 50 * 60:
+                return [gate_job("in_progress", runner="mac")]
+            return [gate_job("completed", "failure", "mac", marker="success")]
+        (verdict, blocks, _), looks = self.poll(responses)
+        self.assertEqual((verdict, blocks), ("fail", True))
+        self.assertEqual(looks[-1], 50 * 60)
+
+    def test_an_unreadable_api_blocks_nothing_and_a_blip_is_retried(self):
+        (verdict, blocks, why), looks = self.poll(lambda now: RuntimeError("HTTP 502"))
+        self.assertEqual((verdict, blocks), ("unavailable", False))
+        self.assertIn("HTTP 502", why)
+        self.assertEqual(len(looks), 5)
+        (verdict, blocks, _), _ = self.poll(
+            lambda now: RuntimeError("blip") if now < 120 else [gate_job("completed", "failure", "mac",
+                                                                          marker="success")])
+        self.assertEqual((verdict, blocks), ("fail", True))
+
+    def test_the_loop_is_bounded_even_when_the_clock_stands_still(self):
+        looks = []
+
+        def fetch():
+            looks.append(1)
+            return [gate_job("in_progress", runner="mac")]
+        verdict, blocks, _ = self.mode.await_gate(fetch, "visual-gate-nightly", self.QUEUE, self.RUN,
+                                                  clock=lambda: 0.0, sleep=lambda s: None)
+        self.assertEqual((verdict, blocks), ("unavailable", False))
+        self.assertLessEqual(len(looks), self.RUN // 60 + 10)
+
+    def test_the_jobs_are_read_from_this_attempt_page_by_page(self):
+        urls = []
+
+        def get(url):
+            urls.append(url)
+            page = int(url.rsplit("page=", 1)[1])
+            return {"jobs": [{"id": i, "name": f"j{i}"} for i in range(100 if page == 1 else 3)]}
+        jobs = self.mode.github_jobs("o/r", "token", "42", "2", get=get)()
+        self.assertEqual(len(jobs), 103)
+        self.assertEqual(urls[0], "https://api.github.com/repos/o/r/actions/runs/42/attempts/2/jobs?per_page=100&page=1")
+        with self.assertRaises(RuntimeError):
+            self.mode.github_jobs("o/r", "", "42", "2", get=get)()
+        with self.assertRaises(RuntimeError):
+            self.mode.github_jobs("o/r", "token", "42", "2", get=lambda url: {"message": "Not Found"})()
+
+    def test_the_cli_without_a_token_blocks_nothing_and_says_so(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = Path(tmp) / "summary"
+            done = subprocess.run([sys.executable, str(SCRIPT), "await-gate", "--run-id", "1",
+                                   "--summary", str(summary)],
+                                  capture_output=True, text=True, timeout=60, env={"PATH": "/usr/bin:/bin"})
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertEqual(done.stdout.split(), ["verdict=unavailable", "blocks=false"])
+            self.assertIn("::warning title=nightly-next visual gate::", done.stderr)
+            self.assertIn("publishes unchecked", summary.read_text())
+
+
 FAKE_APP = r'''#!/usr/bin/env python3
 import json, os, socket, sys, threading
 path, log = os.environ["CMUX_NEXT_SOCKET_PATH"], os.environ["FAKE_LOG"]
@@ -779,17 +912,56 @@ class WiringTests(unittest.TestCase):
         following = re.search(r"\n  [a-z0-9-]+:\n", rest[len(name) + 3:])
         return rest[:following.start() + len(name) + 3] if following else rest
 
-    def test_publish_nightly_needs_the_gate(self):
+    def test_publish_nightly_needs_the_gates_verdict_not_the_mac_job(self):
         publish = self.job("publish-nightly")
-        needs = publish[publish.index("needs:"):].splitlines()[0]
-        self.assertIn("visual-gate-nightly", needs)
+        needs = [name.strip() for name in
+                 publish[publish.index("needs: [") + len("needs: ["):].split("]", 1)[0].split(",")]
+        # A gate queued for a runner taken after the pick could hold publication for a day: publish
+        # waits on the Linux job that stops waiting after the queue budget, never on the Mac job.
+        self.assertIn("visual-gate-nightly-verdict", needs)
+        self.assertNotIn("visual-gate-nightly", needs)
+        self.assertNotIn("needs.visual-gate-nightly.", publish)
         # In report mode (and when the gate is skipped) publication goes ahead; enforce blocks this
         # run's own build only, never a recovered one (judged by its own verdict).
         condition = next(line for line in publish.splitlines() if line.strip().startswith("if: \"!cancelled()"))
         own, recovered = condition.split(" || (needs.recover-nightly-next-notarization")
-        self.assertIn("needs.visual-gate-nightly.outputs.blocks != 'true'", own.split("((", 1)[1])
+        self.assertIn("needs.visual-gate-nightly-verdict.outputs.blocks != 'true'", own.split("((", 1)[1])
         self.assertNotIn("visual-gate-nightly", recovered)
+        self.assertIn("OWN_GATE_BLOCKS: ${{ needs.visual-gate-nightly-verdict.outputs.blocks }}", publish)
         self.assertIn('[ "$OWN_GATE_BLOCKS" != true ]', publish)
+
+    def test_the_verdict_job_is_skipped_with_the_gate_and_reads_only_actions(self):
+        verdict = self.job("visual-gate-nightly-verdict")
+        gate = self.job("visual-gate-nightly")
+
+        def line(job, key):
+            return next(l.strip() for l in job.splitlines() if l.startswith(f"    {key}:"))
+
+        self.assertEqual(line(verdict, "if"), line(gate, "if"))
+        self.assertEqual(line(verdict, "needs"), line(gate, "needs"))
+        self.assertEqual(line(verdict, "runs-on"), "runs-on: ubuntu-24.04")
+        perms = verdict[verdict.index("    permissions:\n"):verdict.index("    outputs:\n")]
+        self.assertEqual(re.findall(r"^      ([a-z-]+): ", perms, re.MULTILINE), ["contents", "actions"])
+        self.assertIn("contents: read", perms)
+        self.assertIn("actions: read", perms)
+        self.assertNotIn("environment:", verdict)
+        self.assertNotIn("secrets.", verdict)
+        # Bounded: the queue budget plus the gate's own timeout plus a margin.
+        self.assertIn("--queue-budget-minutes 15 --gate-timeout-minutes 75", verdict)
+        self.assertIn("timeout-minutes: 75", gate)
+        self.assertEqual(int(re.search(r"timeout-minutes: (\d+)", verdict).group(1)), 100)
+        self.assertIn("persist-credentials: false", verdict)
+        self.assertIn("sparse-checkout: |\n            scripts/ci/nightly_next_canary_mode.py\n", verdict)
+        self.assertIn("blocks: ${{ steps.await.outputs.blocks }}", verdict)
+
+    def test_the_gate_marks_the_build_it_holds_in_a_step_the_verdict_job_reads(self):
+        gate = self.job("visual-gate-nightly")
+        step = gate[gate.index(f"- name: {ModeResolverTests.mode.GATE_MARKER}\n"):]
+        self.assertIn("if: always() && steps.verdict.outputs.blocks == 'true'", step.splitlines()[1])
+        # The gate's own outputs stay for the report job.
+        self.assertIn("blocks: ${{ steps.verdict.outputs.blocks }}", gate)
+        report = self.job("report-visual-gate-nightly")
+        self.assertIn("HELD: ${{ needs.visual-gate-nightly-verdict.outputs.blocks }}", report)
 
     def test_a_recovered_build_is_judged_by_its_own_verdict(self):
         find = self.job("find-nightly-next-recovery")

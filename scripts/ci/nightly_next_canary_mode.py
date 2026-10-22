@@ -51,6 +51,19 @@ is that gate's record of each build's verdict:
       exit 0 to publish the build, 1 to refuse it: only `enforce` with a
       `fail` verdict refuses. A build with no verdict is published (with a
       warning in enforce): a gate that could not judge never blocks.
+
+The visual gate runs on an owned Mac, and a self-hosted job that queues can
+wait a day. publish-nightly therefore waits on a Linux job that waits on the
+gate for a bounded time:
+
+  await-gate --repo R --run-id ID --attempt N --job visual-gate-nightly
+             [--queue-budget-minutes 15] [--gate-timeout-minutes 75]
+      reads the run attempt's jobs every minute. A gate still queued when the
+      queue budget is spent, a gate that never finishes, a missing gate or an
+      unreadable API all give `verdict=unavailable` and `blocks=false`; it
+      cancels nothing. A finished gate blocks only when its `Hold publication`
+      step succeeded (enforce mode, failing verdict). Prints `verdict=` and
+      `blocks=` lines for $GITHUB_OUTPUT.
 """
 
 from __future__ import annotations
@@ -60,9 +73,10 @@ import datetime as dt
 import json
 import os
 import sys
+import time
 import urllib.parse
 import urllib.request
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable, Mapping
 
 # One week after the canary went live in report mode on main (#21900,
 # 2026-10-19) and the train design (leo-workspace#624, 2026-10-20).
@@ -220,6 +234,109 @@ def github_entries(repo: str, token: str, issue_title: str = ISSUE_TITLE, author
     return read
 
 
+# The step of visual-gate-nightly that runs only when the gate holds this run's
+# build (enforce mode, failing verdict); its conclusion is what await-gate reads.
+GATE_MARKER = "Hold publication"
+# A job not listed yet right after both jobs were queued is given this long to appear.
+MISSING_GRACE_S = 300
+
+
+def gate_action(jobs: Iterable[Mapping[str, Any]], job_name: str, elapsed_s: float, queue_budget_s: float,
+                run_budget_s: float, marker: str = GATE_MARKER,
+                missing_grace_s: float = MISSING_GRACE_S) -> tuple[str, str, bool, str]:
+    """(action, verdict, blocks, why) for the gate job in a run attempt's `jobs`.
+
+    action is `wait` (look again later) or `done`. Only a finished gate whose
+    marker step succeeded blocks; a gate still waiting for a runner past the
+    queue budget, one still running past the run budget, or one that is
+    missing is `unavailable` and blocks nothing.
+    """
+    found = [job for job in jobs if job.get("name") == job_name]
+    job = max(found, key=lambda j: j.get("id") or 0) if found else None
+    if job is None:
+        if elapsed_s < min(missing_grace_s, queue_budget_s):
+            return "wait", "", False, f"{job_name} is not listed yet"
+        return "done", "unavailable", False, f"{job_name} is not in this run attempt"
+    status = job.get("status")
+    if status == "completed":
+        conclusion = str(job.get("conclusion") or "unknown")
+        held = any(step.get("name") == marker and step.get("conclusion") == "success"
+                   for step in job.get("steps") or [] if isinstance(step, Mapping))
+        if held:
+            return "done", "fail", True, f"{job_name} failed the build in enforce mode ({marker!r} ran)"
+        return "done", conclusion, False, f"{job_name} finished ({conclusion}) without holding publication"
+    minutes = int(elapsed_s // 60)
+    if status != "in_progress" and not job.get("runner_name"):
+        if elapsed_s >= queue_budget_s:
+            return "done", "unavailable", False, (
+                f"{job_name} waited {minutes} min for a runner, past the {int(queue_budget_s // 60)} min "
+                "queue budget (the runner picked as idle was taken or went away)")
+        return "wait", "", False, f"{job_name} is waiting for a runner ({minutes} min)"
+    if elapsed_s >= run_budget_s:
+        return "done", "unavailable", False, (
+            f"{job_name} did not finish within {int(run_budget_s // 60)} min")
+    return "wait", "", False, f"{job_name} is running ({minutes} min)"
+
+
+def await_gate(fetch: Callable[[], list[Mapping[str, Any]]], job_name: str, queue_budget_s: float,
+               run_budget_s: float, *, clock: Callable[[], float] = time.monotonic,
+               sleep: Callable[[float], None] = time.sleep, interval_s: float = 60,
+               max_errors: int = 5) -> tuple[str, bool, str]:
+    """(verdict, blocks, why): polls `fetch` (the attempt's jobs) at most run_budget/interval times."""
+    start = clock()
+    errors = 0
+    polls = int(run_budget_s // interval_s) + max_errors + 2
+    why = "never looked"
+    for _ in range(polls):
+        elapsed = clock() - start
+        try:
+            jobs = fetch()
+        except Exception as err:  # noqa: BLE001 - an unreadable API never holds publication
+            errors += 1
+            why = f"could not read the run's jobs ({err})"
+            if errors >= max_errors or elapsed >= run_budget_s:
+                return "unavailable", False, why
+            sleep(interval_s)
+            continue
+        errors = 0
+        action, verdict, blocks, why = gate_action(jobs, job_name, elapsed, queue_budget_s, run_budget_s)
+        if action == "done":
+            return verdict, blocks, why
+        sleep(interval_s)
+    return "unavailable", False, f"gave up after {polls} looks: {why}"
+
+
+def github_jobs(repo: str, token: str, run_id: str, attempt: str,
+                get: Callable[[str], object] | None = None) -> Callable[[], list[Mapping[str, Any]]]:
+    """The jobs of one run attempt (GET .../actions/runs/ID/attempts/N/jobs), up to 500."""
+    def read(url: str) -> object:
+        req = urllib.request.Request(url, headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "User-Agent": "cmux-nightly-next-canary-mode/1",
+            "X-GitHub-Api-Version": "2022-11-28",
+        })
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            return json.load(resp)
+
+    def jobs() -> list[Mapping[str, Any]]:
+        if not token:
+            raise RuntimeError("no GH_TOKEN")
+        found: list[Mapping[str, Any]] = []
+        for page in range(1, 6):
+            data = (get or read)(f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/attempts/{attempt}"
+                                 f"/jobs?per_page=100&page={page}")
+            batch = data.get("jobs") if isinstance(data, dict) else None
+            if not isinstance(batch, list):
+                raise RuntimeError("the jobs response has no `jobs` list")
+            found.extend(job for job in batch if isinstance(job, dict))
+            if len(batch) < 100:
+                break
+        return found
+
+    return jobs
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -246,7 +363,34 @@ def main(argv: list[str]) -> int:
     a.add_argument("--build-sha", required=True)
     a.add_argument("--verdicts", default="{}")
     a.add_argument("--gate", default="visual gate")
+    w = sub.add_parser("await-gate")
+    w.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", "manaflow-ai/cmux"))
+    w.add_argument("--run-id", required=True)
+    w.add_argument("--attempt", default="1")
+    w.add_argument("--job", default="visual-gate-nightly")
+    w.add_argument("--queue-budget-minutes", type=float, default=15.0)
+    w.add_argument("--gate-timeout-minutes", type=float, default=75.0)
+    w.add_argument("--summary", default=os.environ.get("GITHUB_STEP_SUMMARY", ""))
     args = parser.parse_args(argv)
+    if args.command == "await-gate":
+        queue_s = args.queue_budget_minutes * 60
+        token = os.environ.get("GH_TOKEN", "")
+        if token:
+            verdict, blocks, why = await_gate(github_jobs(args.repo, token, args.run_id, args.attempt), args.job,
+                                              queue_s, queue_s + args.gate_timeout_minutes * 60 + 300)
+        else:
+            verdict, blocks, why = "unavailable", False, f"no GH_TOKEN to read {args.job}"
+        print(f"verdict={verdict}")
+        print(f"blocks={'true' if blocks else 'false'}")
+        level = "error" if blocks else ("warning" if verdict == "unavailable" else "notice")
+        said = ("this run's build is not published" if blocks else
+                "this nightly publishes unchecked" if verdict == "unavailable" else "publication goes ahead")
+        print(f"::{level} title=nightly-next visual gate::{why}; {said}", file=sys.stderr)
+        if verdict == "unavailable" and args.summary:
+            with open(args.summary, "a", encoding="utf-8") as out:
+                out.write(f"## Nightly visual gate\n\nVerdict `unavailable`: {why}. {said[0].upper() + said[1:]}. "
+                          "Nothing was cancelled.\n")
+        return 0
     if args.command == "verdicts":
         since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=args.days)
         try:
