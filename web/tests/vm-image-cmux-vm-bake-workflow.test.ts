@@ -26,8 +26,8 @@ const step = (name: string) => {
   return found;
 };
 
-type Inputs = { mode: string; clones: string; keep_snapshot: boolean; probes: boolean; agent_tools: boolean; team_vm: boolean };
-const BASE: Inputs = { mode: "bake", clones: "2", keep_snapshot: true, probes: false, agent_tools: true, team_vm: false };
+type Inputs = { mode: string; clones: string; keep_snapshot: boolean; probes: boolean; agent_tools: boolean; team_vm: boolean; dev_tree: boolean };
+const BASE: Inputs = { mode: "bake", clones: "2", keep_snapshot: true, probes: false, agent_tools: true, team_vm: false, dev_tree: false };
 
 /** Evaluates the expression forms this workflow uses in env values. */
 function evaluate(value: string, ctx: { inputs: Inputs; out: string; snapshot: string }): string {
@@ -79,6 +79,30 @@ afterAll(() => {
 describe("cloud-vm-image-bake.yml", () => {
   test("team_vm is a boolean input that defaults to off", () => {
     expect(workflow.on.workflow_dispatch.inputs.team_vm).toMatchObject({ type: "boolean", default: false });
+  });
+
+  test("dev_tree is a boolean input that defaults to off; bake.ts --dev-tree is dev only", () => {
+    expect(workflow.on.workflow_dispatch.inputs.dev_tree).toMatchObject({ type: "boolean", default: false });
+    expect(bakeOptionsFromArgv(["bun", "bake.ts", "--tag", "t"]).devTree).toBe(false);
+    expect(bakeOptionsFromArgv(["bun", "bake.ts", "--tag", "t", "--dev-tree"]).devTree).toBe(true);
+    expect(() => bakeOptionsFromArgv(["bun", "bake.ts", "--tag", "t", "--dev-tree", "--promotion"])).toThrow(/dev snapshots only/);
+  });
+
+  test("dev_tree=true: bake.ts gets --dev-tree, the after measurement runs on the baked snapshot, the candidate records it", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "cmux-bake-workflow-"));
+    dirs.push(dir);
+    const inputs = { ...BASE, dev_tree: true };
+    const bake = await runStep("Bake", inputs, dir);
+    expect(bake.result.status).toBe(0);
+    expect(bake.argv.at(-1)).toBe(`../images/cmux-vm/bake.ts --tag ci-4242-1 --out-dir ${bake.out} --agent-tools --dev-tree`);
+    const after = await runStep("First build after", inputs, dir);
+    expect(after.result.status).toBe(0);
+    expect(after.argv.at(-1)).toBe(`../images/cmux-vm/first-build.ts --mode after --snapshot sh-test --tag ci-4242-1 --out-dir ${after.out}`);
+    writeFileSync(path.join(bake.out, "bake-cmuxnp-dev-vmimg-ci-4242-1.json"), JSON.stringify({ name: "cmuxnp-dev-vmimg-ci-4242-1", lockSha256: "f".repeat(64) }));
+    writeFileSync(path.join(bake.out, "smoke-ci-4242-1.json"), JSON.stringify({ passed: true, checks: { a: { ok: true } } }));
+    const candidate = await runStep("Dev channel candidate", inputs, dir);
+    expect(candidate.result.status).toBe(0);
+    expect(JSON.parse(readFileSync(path.join(bake.out, "channel-dev.json"), "utf8")).bake).toBe("images/cmux-vm/bake.ts --agent-tools --dev-tree (CI run 4242)");
   });
 
   test("no run script interpolates an expression (inputs reach scripts through env only)", () => {
