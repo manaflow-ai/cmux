@@ -93,7 +93,11 @@ final class RightSidebarView: NSView {
             addSubview(made, positioned: .below, relativeTo: resizeHandle)
         }
         for (other, shown) in views { shown.isHidden = other != mode }
-        for (other, button) in buttons { button.alphaValue = other == mode ? 1 : Self.idleButtonAlpha }
+        for (other, button) in buttons {
+            button.alphaValue = other == mode ? 1 : Self.idleButtonAlpha
+            // No pressed-in state to read, so VoiceOver hears the shown section as selected.
+            button.setAccessibilitySelected(other == mode)
+        }
         shownMode = mode
         view.frame = contentFrame
         return true
