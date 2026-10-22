@@ -109,14 +109,29 @@ struct OmnibarPointerButtonTests {
         withExtendedLifetime(host) {}
     }
 
-    /// The star's own cursor rect (the key window) covers what shows of it, and none while hidden.
-    @Test func theStarsCursorRectIsItsVisibleRect() {
+    /// The star registers its own pointing-hand cursor rect (the key window) over what shows of
+    /// it, and none while hidden.
+    @Test func theStarRegistersAPointingHandRectOverItsVisibleRect() {
         let star = BookmarkStarButton(frame: .zero)
         let host = row(with: star)
-        #expect(ClickableButton.cursorRect(of: star) == star.visibleRect)
+        star.recordedCursorRects = []
+        star.resetCursorRects()
+        #expect(star.recordedCursorRects?.map(\.rect) == [star.visibleRect])
+        #expect(star.recordedCursorRects?.map(\.cursor) == [NSCursor.pointingHand])
         #expect(!star.visibleRect.isEmpty)
         star.isHidden = true
-        #expect(ClickableButton.cursorRect(of: star) == nil)
+        star.recordedCursorRects = []
+        star.resetCursorRects()
+        #expect(star.recordedCursorRects?.isEmpty == true)
+        withExtendedLifetime(host) {}
+    }
+
+    /// The row reads the real pointer through the shared conversion and topmost-window gate.
+    @Test func theRowsPointerReadUsesTheSharedWindowGate() {
+        let button = ChromeIconButton(icon: .navPreviousMatch, label: "Back", action: nil, target: nil, toolbar: true)
+        let host = row(with: button)
+        // The window is never ordered in, so it is never the top window under any point.
+        #expect(host.row.currentPointer(host.row) == nil)
         withExtendedLifetime(host) {}
     }
 
