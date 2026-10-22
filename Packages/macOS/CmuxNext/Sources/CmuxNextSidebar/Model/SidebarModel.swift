@@ -212,8 +212,8 @@ public final class SidebarModel {
     /// (`sidebar.groupHeader.*`, all off by default; `sidebar.detailedStatusIcons`
     /// adds its members' other states).
     public var groupHeaderDetails = GroupHeaderDetails()
-    /// Group by Folder (`sidebar.groupBy`): loose rows sit under folder headers.
-    public var groupsByFolder = false
+    /// `sidebar.groupBy` and Group by Status's folds and held row (`SidebarModel+Grouping`).
+    public var grouping = SidebarGrouping()
     /// `sidebar.groupByComputer`: a header per computer; off, one list.
     public var groupsByComputer = SidebarSectionsPreferences.defaults.groupsByComputer
     /// Machine sections list loose workspaces before groups (a daemon-backed
@@ -275,7 +275,7 @@ public final class SidebarModel {
     /// model's: filtering, or grouping by folder. On the sidebar document a
     /// drag moves next to the row it is dropped by (an anchor), so it also
     /// works while filtering.
-    public var locksReorder: Bool { (isFiltering && docDrag == nil) || groupsByFolder }
+    public var locksReorder: Bool { (isFiltering && docDrag == nil) || grouping.isGrouped }
     /// The sidebar document's drag half (sidebar-v2 S5), set by the App
     /// while the document is active.
     @ObservationIgnored public var docDrag: SidebarDocDrag?
@@ -399,7 +399,7 @@ public final class SidebarModel {
             row.rowState = old.rowState
             row.machineID = old.machineID
             guard row != old else { continue }
-            guard !Self.movesRows(from: old, to: row, groupsByFolder: groupsByFolder, listsTabs: showWorkspaceTabs) else { return false }
+            guard !movesRows(from: old, to: row) else { return false }
             for path in paths {
                 // Each listed copy keeps its own row state (a saved stale row beside the live one).
                 var copy = row
@@ -411,12 +411,6 @@ public final class SidebarModel {
         for (path, row) in writes { SidebarRowIndex.set(row, at: path, in: &storedSections) }
         if !patched.isEmpty { onRowsPatched?(patched) }
         return true
-    }
-
-    /// A content change that changes which rows the list draws: a folder, Done (the Done fold) or the listed tabs.
-    private static func movesRows(from old: SidebarWorkspace, to new: SidebarWorkspace, groupsByFolder: Bool, listsTabs: Bool) -> Bool {
-        if groupsByFolder && old.folder != new.folder || SidebarTunables.doneFold.value && (old.taskStatus == .done) != (new.taskStatus == .done) { return true }
-        return listsTabs && !old.tabs.elementsEqual(new.tabs) { $0.id == $1.id && $0.kind == $1.kind }
     }
 
     /// Whether these sections list workspace `id`: O(1) through `rowIndex`
@@ -508,7 +502,7 @@ public final class SidebarModel {
         groupHeaderDetails = GroupHeaderDetails(memberCount: preferences.groupHeaderMemberCount,
                                                 unreadCount: preferences.groupHeaderUnreadCount)
         hidesWorkspaces = !preferences.showProjects
-        groupsByFolder = preferences.groupBy == .folder
+        grouping.by = preferences.groupBy
         groupsByComputer = preferences.groupsByComputer
     }
 
@@ -522,7 +516,7 @@ public final class SidebarModel {
         var o = SidebarLayoutOptions()
         o.filterMatches = filterMatches
         // Workspaces as tabs lists no tab rows under a workspace, as minimal mode.
-        (o.workspacesAsTabs, o.foldsDone) = (SidebarTunables.workspacesAsTabs.value, SidebarTunables.doneFold.value)
+        (o.workspacesAsTabs, o.foldsDone, o.rowLimit) = (SidebarTunables.workspacesAsTabs.value, SidebarTunables.doneFold.value, SidebarTunables.rowLimit)
         o.showWorkspaceTabs = showWorkspaceTabs && !o.workspacesAsTabs
         o.collapsedWorkspaces = collapsedWorkspaces
         o.activeWorkspaceID = activeWorkspaceID
@@ -549,7 +543,7 @@ public final class SidebarModel {
         }
         o.now = Calendar.current.startOfDay(for: Date())
         o.hidesWorkspaces = hidesWorkspaces
-        o.groupsByFolder = groupsByFolder
+        o.grouping = settledGrouping()
         return o
     }
 

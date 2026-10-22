@@ -24,7 +24,6 @@
 mod approvals;
 mod children;
 mod control;
-mod desk;
 mod drafts;
 mod engine_control;
 pub mod files;
@@ -44,8 +43,8 @@ mod spawns;
 mod steer;
 mod turns;
 mod wakes;
-pub use desk::DESK_GRACE;
 pub use replies::{REACTIONS, reaction, tapback};
+pub use steer::STEER_DEADLINE;
 pub use turns::stuck_notice;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -164,6 +163,20 @@ pub enum Input {
     SubagentFailed {
         id: String,
         error: String,
+    },
+    /// A cloud subagent holds this sandbox key (agent_keys.rs): revoked once
+    /// it has been done for `agent_keys::REVOKE_AFTER_DONE`.
+    SubagentAgentKey {
+        id: String,
+        key_id: String,
+    },
+    /// The sandbox key of subagent `id` is revoked (its VMs go with it).
+    AgentKeyRevoked {
+        id: String,
+    },
+    /// Revoking subagent `id`'s sandbox key failed; the next tick retries.
+    AgentKeyRevokeFailed {
+        id: String,
     },
     /// The answer of a prompt the host sent a subagent (token use, cost).
     SubagentAnswer {
@@ -662,6 +675,13 @@ pub struct Brain {
     cloud_idle: std::time::Duration,
     cloud_paused: std::collections::BTreeSet<String>,
     cloud_idle_since: std::collections::BTreeMap<String, u64>,
+    /// Revokes cloud subagents' sandbox keys (agent_keys.rs); since when each
+    /// keyed subagent is done, and the revokes in flight.
+    agent_keys: Option<std::sync::Arc<dyn crate::agent_keys::AgentKeys>>,
+    agent_key_done_since: std::collections::BTreeMap<String, u64>,
+    agent_key_revoking: std::collections::BTreeSet<String>,
+    /// How long a keyed subagent stays done before its key is revoked.
+    agent_key_grace: std::time::Duration,
     /// Most subagents at work at once (`subagents::live_limit`); None: no cap.
     max_live: Option<usize>,
     /// The wall clock (ms since the epoch) the subagent watch reads; tests
@@ -768,15 +788,12 @@ pub struct Brain {
     /// the latest at this deadline.
     handoff_at: Option<Instant>,
     handoff_wait: std::time::Duration,
-    /// How long a message waits on a running turn before the front desk's
-    /// receipt (`desk.rs`); None: no receipts.
-    desk_grace: Option<Duration>,
-    /// The receipt waiting for its grace.
-    desk: Option<desk::DeskPending>,
-    /// The turn the last receipt was for: one receipt per turn.
-    desk_told: Option<String>,
-    /// The running turn's latest activity line, by turn key.
-    turn_activity: Option<(String, String)>,
+    /// How long a person's message steered into the running turn may stay
+    /// unread before the turn is interrupted (`steer.rs`); None: it waits
+    /// for the turn's next tool boundary.
+    steer_deadline: Option<Duration>,
+    /// When that deadline passes, and for which turn.
+    steer_due: Option<(Instant, String)>,
 }
 
 impl Brain {
@@ -854,6 +871,10 @@ impl Brain {
             cloud_idle: std::time::Duration::from_secs(chief.cloud_auto_pause_idle_secs),
             cloud_paused: Default::default(),
             cloud_idle_since: Default::default(),
+            agent_keys: None,
+            agent_key_done_since: Default::default(),
+            agent_key_revoking: Default::default(),
+            agent_key_grace: crate::agent_keys::REVOKE_AFTER_DONE,
             max_live: None,
             clock: Arc::new(now_ms),
             watches: HashMap::new(),
@@ -893,10 +914,8 @@ impl Brain {
             upstream_backoff: turns::UPSTREAM_RESUME_BACKOFF.to_vec(),
             handoff_at: None,
             handoff_wait: HANDOFF_DEADLINE,
-            desk_grace: None,
-            desk: None,
-            desk_told: None,
-            turn_activity: None,
+            steer_deadline: None,
+            steer_due: None,
         };
         // Each cut turn runs again first, on the reference client's note;
         // its messages are in the log already and are not logged again.
@@ -997,6 +1016,21 @@ impl Brain {
         self.cloud_idle = idle;
     }
 
+    /// Revokes cloud subagents' sandbox keys once they are done for a while.
+    /// `grace`: how long a subagent stays done before its key is revoked
+    /// (`agent_keys::REVOKE_AFTER_DONE` on a host).
+    pub fn set_agent_keys(
+        &mut self,
+        keys: Option<std::sync::Arc<dyn crate::agent_keys::AgentKeys>>,
+        grace: std::time::Duration,
+    ) {
+        if keys.is_some() && self.agent_keys.is_none() && self.cloud_vms.is_none() {
+            control::start_cloud_ticker(self.tx.clone());
+        }
+        self.agent_keys = keys;
+        self.agent_key_grace = grace;
+    }
+
     /// `cloud.autoPauseIdleSeconds`: how long a cloud VM idles before it
     /// pauses.
     pub fn cloud_auto_pause_idle(&self) -> std::time::Duration {
@@ -1054,7 +1088,7 @@ impl Brain {
             self.resume_at,
             self.orphan_wait,
             self.handoff_at,
-            self.desk_due(),
+            self.steer_due.as_ref().map(|(at, _)| *at),
         ]
         .into_iter()
         .flatten()
@@ -1155,6 +1189,9 @@ impl Brain {
             Input::SubagentTurnStarted { id, prompt_id } => self.sub_turn_started(&id, &prompt_id),
             Input::SubagentWorkspace { id, key, name } => self.sub_workspace(&id, key, name),
             Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
+            Input::SubagentAgentKey { id, key_id } => self.sub_agent_key(&id, key_id),
+            Input::AgentKeyRevoked { id } => self.agent_key_revoked(&id),
+            Input::AgentKeyRevokeFailed { id } => self.agent_key_revoke_failed(&id),
             Input::SubagentAnswer { id, answer } => self.sub_answer(&id, &answer),
             Input::AutoResume {
                 id,
@@ -1231,7 +1268,10 @@ impl Brain {
                 let answer = self.control(&request);
                 let _ = reply.send(answer);
             }
-            Input::CloudTick => self.cloud_tick(),
+            Input::CloudTick => {
+                self.cloud_tick();
+                self.agent_key_tick();
+            }
             Input::CloudPauseFailed { peer } => self.cloud_pause_failed(&peer),
             Input::SubTick => {
                 self.sub_tick();
@@ -1380,7 +1420,7 @@ impl Brain {
             self.flush_outbox();
         }
         self.on_resume_timer();
-        self.on_desk_timer(now);
+        self.on_steer_deadline(now);
         if self.orphan_wait.is_some_and(|at| at <= now) {
             (self.log)("an adopted turn session ran past its wait; folding and ending it");
             self.adopt_orphans(true);
@@ -1502,14 +1542,6 @@ impl Brain {
         // the next turn and never stops it (decision 2026-10-09).
         let human = matches!(source, Source::Message { .. } | Source::Spawn(_));
         let same = self.phase == Phase::Running && self.turn_side() == conversation;
-        // A person's message to the main conversation's running turn: the
-        // front desk answers if the turn is still at it after the grace.
-        if let Source::Message { seq, .. } = &source
-            && same
-            && conversation.is_none()
-        {
-            self.desk_arm(*seq);
-        }
         let item = Queued {
             logged: false,
             text,

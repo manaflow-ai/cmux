@@ -9,7 +9,8 @@ import Foundation
 /// the page keeps (webviews/src/viewer-prefs.ts `sanitizeViewerPrefs`).
 public nonisolated enum DiffPrefKey {
     public static let section = "diff"
-    static let booleans: Set<String> = ["wordWrap", "wordDiffs", "lineNumbers", "showBackgrounds", "expandUnchanged"]
+    static let booleans: Set<String> = ["wordWrap", "wordDiffs", "lineNumbers", "showBackgrounds", "expandUnchanged",
+                                       "groupByKind"]
     static let choices: [String: Set<String>] = [
         "layout": ["split", "unified"],
         "diffIndicators": ["bars", "classic", "none"],
