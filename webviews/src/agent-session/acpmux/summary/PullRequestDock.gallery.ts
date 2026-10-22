@@ -34,6 +34,15 @@ export default agentPaneEntry({
         summary(2, { status: "completed", durationMs: 21_000, toolCount: 1 }),
       ]),
     },
+    "just-merged": {
+      note: "The newest pull request merged in this turn: it leaves the dock; the open one stays.",
+      snapshot: chat([
+        user("Open the docs PR and merge it", 4),
+        activity([create("Add retry to the uploader", 128), create("Document retry", 129), merge(129)], 3),
+        assistant("#129 is merged; #128 stays open.", 2),
+        summary(2, { status: "completed", durationMs: 33_000, toolCount: 3 }),
+      ]),
+    },
     several: {
       note: "Four pull requests, the first merged: it keeps no bar; the newest two show, one more behind Show more.",
       snapshot: chat([
