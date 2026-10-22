@@ -12,8 +12,10 @@
 //! there (when a profile is named, of a source key the app's
 //! `bookmark.importSources` gives for it; titles are localized) is `ok`
 //! and nothing runs; otherwise setup imports, reads
-//! the list again, and the undo removes each folder the run added
-//! (`cmux bookmark remove --target bookmark:<id>`). A folder of the same
+//! the list again, and the undo removes each folder the run added of the
+//! source keys it read (`cmux bookmark remove --target bookmark:<id>`); a
+//! new folder of another profile came from another import running at the
+//! same time and is named in `after.other`. A folder of the same
 //! source the app refreshes in place instead is named in `after.refreshed`
 //! with no undo (the app's toast Undo is its only one). The app may stop
 //! waiting for the import while it still runs; setup then reads the list
@@ -56,7 +58,7 @@ const PERSON: &str = "History and passwords come in only when the person runs Im
 const DEFAULT_REASON: &str = "cmux setup browser-import: use your sign-ins in cmux's browser";
 
 /// How long `bookmark.list` may say it is still loading: reads and the pause between them.
-const LOAD_READS: usize = 20;
+const LOAD_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 const LOAD_PAUSE: std::time::Duration = std::time::Duration::from_millis(100);
 
 const COOKIES_UNDO_NOTE: &str = "Imported cookies have no undo: clearing the browser profile's \
@@ -210,16 +212,18 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
     // The profile the app chose for this run; every later call names it, so
     // a tab focused in between cannot move the import elsewhere.
     let profile = listed["profile"].as_str().unwrap_or("default").to_owned();
-    // A named profile is the folders of the source keys the app's import
-    // would use: the app matches the name, and folder titles are localized.
-    let keys = match source.map(|source| import_sources(global, &id, source)).transpose() {
-        Ok(Some(keys)) if keys.is_empty() => {
+    // The source keys of the profiles the app's import would read: a named
+    // profile is the folders of those keys (the app matches the name, and
+    // folder titles are localized), and only folders of those keys can be
+    // this run's.
+    let keys = match import_sources(global, &id, source) {
+        Ok(keys) if keys.is_empty() => {
             return needs_user(report, no_bookmarks(browser, "no browser profile matches."));
         }
         Ok(keys) => keys,
         Err(action) => return needs_user(report, action),
     };
-    let before = imported(&listed, Some(&id), keys.as_deref());
+    let before = imported(&listed, Some(&id), source.map(|_| keys.as_slice()));
     report["before"] = json!({"profile": profile, "folders": before});
     if !before.is_empty() {
         report["after"] = report["before"].clone();
@@ -256,18 +260,25 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
         Ok(after) => after,
         Err(action) => return needs_user(report, action),
     };
-    let (added, refreshed): (Vec<_>, Vec<_>) = imported(&after, Some(&id), None)
+    let (new, refreshed): (Vec<_>, Vec<_>) = imported(&after, Some(&id), None)
         .into_iter()
         .filter(|folder| {
             !known.contains(&folder["id"])
                 || contents(&listed, &folder["id"]) != contents(&after, &folder["id"])
         })
         .partition(|folder| !known.contains(&folder["id"]));
+    // A new folder of a profile this run did not read came from another
+    // import running at the same time: the undo leaves it.
+    let (added, other): (Vec<_>, Vec<_>) =
+        new.into_iter().partition(|folder| keys.iter().any(|key| folder["source_key"] == **key));
     report["after"] = json!({"profile": profile, "folders": added, "refreshed": refreshed});
+    if !other.is_empty() {
+        report["after"]["other"] = json!(other);
+    }
     // The app answered that the import ran: with no new folder it refreshed
     // one already there (the app replaces a folder of the same source in place).
     let ran = failure.is_none() && !running;
-    if added.is_empty() && refreshed.is_empty() && !ran {
+    if added.is_empty() && refreshed.is_empty() && other.is_empty() && !ran {
         let action = if running {
             json!({
                 "kind": "wait",
@@ -293,10 +304,17 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
         report["undo"] = json!(undo);
     }
     let mut notes = Vec::new();
-    if added.is_empty() || !refreshed.is_empty() {
+    if (added.is_empty() && other.is_empty()) || !refreshed.is_empty() {
         notes.push(
             "cmux refreshed the existing \"Imported from\" folder in place (`after.refreshed`); \
              the undo does not cover it, and the Undo on cmux's toast is its only undo"
+                .to_owned(),
+        );
+    }
+    if !other.is_empty() {
+        notes.push(
+            "Another import from this browser ran at the same time and added the folders in \
+             `after.other`; the undo leaves them"
                 .to_owned(),
         );
     }
@@ -454,33 +472,54 @@ fn registry_id(browser: &str) -> String {
 /// The app's `bookmark.list` of `profile` (None: the profile the app picks).
 /// Until the app has its stored bookmarks it answers an empty list with
 /// `loaded` false, which would put folders already there in the undo: read
-/// again for a moment, then say to run it again.
+/// again for up to `LOAD_WAIT`, then say to run it again.
 fn list(global: &GlobalArgs, profile: Option<&str>) -> Result<Value, Value> {
     let params = match profile {
         Some(profile) => json!({"profile": profile}),
         None => json!({}),
     };
-    for _ in 0..LOAD_READS {
-        let listed = app_call(global, "bookmark.list", params.clone(), READ_TIMEOUT)
-            .map_err(|error| app_problem(&error))?;
-        if listed["loaded"] != false {
-            return Ok(listed);
+    let still_loading = || {
+        json!({
+            "kind": "wait",
+            "text": "cmux is still loading its bookmarks; run `cmux setup browser-import` again \
+                     in a few seconds",
+            "command": Value::Null,
+            "url": Value::Null,
+        })
+    };
+    let mut listed = app_call(global, "bookmark.list", params.clone(), READ_TIMEOUT)
+        .map_err(|error| app_problem(&error))?;
+    let deadline = std::time::Instant::now() + LOAD_WAIT;
+    while listed["loaded"] == false {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if left <= LOAD_PAUSE {
+            return Err(still_loading());
         }
         std::thread::sleep(LOAD_PAUSE);
+        listed = match app_call(global, "bookmark.list", params.clone(), left - LOAD_PAUSE) {
+            Ok(listed) => listed,
+            // The reread's time ran out: the app is still slow to answer.
+            Err(error) if matches!(error["code"].as_str(), Some("timeout" | "app.transport")) => {
+                return Err(still_loading());
+            }
+            Err(error) => return Err(app_problem(&error)),
+        };
     }
-    Err(json!({
-        "kind": "wait",
-        "text": "cmux is still loading its bookmarks; run `cmux setup browser-import` again in a \
-                 few seconds",
-        "command": Value::Null,
-        "url": Value::Null,
-    }))
+    Ok(listed)
 }
 
 /// The source keys (`<browser id>/<profile folder>`) of the profiles
-/// `bookmark.importFromBrowser` would import for `browser` and `source`.
-fn import_sources(global: &GlobalArgs, browser: &str, source: &str) -> Result<Vec<String>, Value> {
-    let params = json!({"browser": browser, "source": source});
+/// `bookmark.importFromBrowser` would import for `browser` and `source`
+/// (None: every profile of the browser).
+fn import_sources(
+    global: &GlobalArgs,
+    browser: &str,
+    source: Option<&str>,
+) -> Result<Vec<String>, Value> {
+    let mut params = json!({"browser": browser});
+    if let Some(source) = source {
+        params["source"] = json!(source);
+    }
     let found = app_call(global, "bookmark.importSources", params, READ_TIMEOUT)
         .map_err(|error| app_problem(&error))?;
     Ok(found["sources"]

@@ -314,21 +314,27 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    browser any profile of which was imported counts as done (`ok`, nothing
    runs); import another profile with `--browser ID:PROFILE`, which is
    `ok` only when that profile's folder is there: setup asks the app's
-   `bookmark.importSources {browser, source}` for the source keys the
-   import would use (the app matches the profile's folder or name) and
-   looks for those, never at the title, which is localized and the person
-   may rename; a profile the app does not find is `needs_user` (`kind`
-   `browser`). `bookmark.list` answers `loaded` false with an empty list
-   until the app has the stored bookmarks; setup reads again for up to 2
-   seconds, then is `needs_user` (`kind` `wait`), so folders already there
-   never count as new. A dry run is `planned` with the `undo`
+   `bookmark.importSources {browser, source?}` for the source keys the
+   import would use (the app matches the profile's folder or name; with no
+   profile, every profile of the browser) and looks for those, never at
+   the title, which is localized and the person may rename; a browser or
+   profile the app does not find is `needs_user` (`kind` `browser`).
+   `bookmark.list` answers `loaded` false with an empty list until the app
+   has the stored bookmarks; setup reads again until 2 seconds after the
+   first answer (each reread gets only the time left), then is
+   `needs_user` (`kind` `wait`), so folders already there never count as
+   new. A dry run is `planned` with the `undo`
    `cmux bookmark remove --target bookmark:FOLDER_ID`. Otherwise setup runs
    `bookmark.importFromBrowser {browser, source?, profile}` (`profile` is
    the cmux browser profile `bookmark.list` answered for) and reads the
-   list again: `changed`, with `after.folders` the folders of that browser
-   that were not there before and the `undo` `cmux bookmark remove --target
-   bookmark:<id>` for each; the person's own folders and other imports
-   never enter it. The app replaces a folder of the same `source_key` in
+   list again: `changed`, with `after.folders` the folders of those source
+   keys that were not there before and the `undo` `cmux bookmark remove
+   --target bookmark:<id>` for each; the person's own folders and other
+   imports never enter it. A new folder of another profile of the browser
+   came from an import running at the same time (`chrome:Work` next to
+   `chrome:Default`): it is in `after.other`, with a `note`, and the undo
+   leaves it. Two runs of the same profile at once both name its folder;
+   the app's import returns no ids, so setup cannot tell them apart. The app replaces a folder of the same `source_key` in
    place (same id, new title and children), as when the browser's
    profiles changed between `bookmark.importSources` and the import: such
    folders, whose title or
