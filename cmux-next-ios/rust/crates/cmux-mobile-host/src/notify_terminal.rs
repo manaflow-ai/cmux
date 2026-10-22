@@ -557,7 +557,10 @@ mod tests {
         // An ask right after another push on the same tab is not held back by the tab limit.
         let mut again = hook.clone();
         again["notification"] = json!(53);
-        assert_eq!(c.handle_at(&again, &places(), Instant::now() + Duration::from_secs(21)).unwrap().kind, "question");
+        assert_eq!(
+            c.handle_at(&again, &places(), Instant::now() + Duration::from_secs(21)).unwrap().kind,
+            "question"
+        );
         // A question from a terminal program (not an agent hook) is never taken as one.
         let mut osc = event(52, Some(7), "terminal");
         osc["question"] = hook["question"].clone();

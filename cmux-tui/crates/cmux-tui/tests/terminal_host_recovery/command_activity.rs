@@ -605,6 +605,7 @@ fn an_agent_question_reaches_the_notification_and_its_row_in_memory_only() {
         .any(|row| row["title"] == "Claude asked a question" && !row["question"].is_null());
     let _ = fs::remove_dir_all(&payload_dir);
     assert!(!still, "an answered question is forgotten: {rows}");
+}
 
 fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis().try_into().unwrap()
