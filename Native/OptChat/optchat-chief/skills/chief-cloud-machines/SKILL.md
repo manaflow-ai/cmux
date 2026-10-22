@@ -35,9 +35,10 @@ cannot work yet: tell the user to sign in to cmux.
   "declined" means the user said no: stop.
 - Cloud machines come with cmux Pro. When a create fails with a reason that
   names cmux Pro, the app shows the user an Upgrade to cmux Pro dialog when a
-  cmux window is open. Say once, in one line, what the reason said and that
-  the dialog (or `cmux settings upgrade-to-pro`) opens the plans; do not retry,
-  and do not mention Pro when Cloud works.
+  cmux window is open. Say once, in one line, what the reason said; do not
+  retry, and do not mention Pro when Cloud works. Start a checkout yourself
+  (the `paid-plans` skill) only when the user asks for it or no dialog could
+  show (no cmux window), never on top of the dialog.
 
 ## 2. Run commands
 
