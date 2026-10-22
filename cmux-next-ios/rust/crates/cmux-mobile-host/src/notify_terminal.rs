@@ -22,6 +22,10 @@
 //! the terminal's screen: until payloads are sealed (PR B) the screen, which
 //! shows the prompt's folder and whatever a command printed, stays on the Mac
 //! (review M2).
+//!
+//! A terminal agent's question (an agent hook's notification carrying the daemon's
+//! `question`: Claude Code AskUserQuestion, Codex `request_user_input`) pushes as kind
+//! `question` with its options, as an acpmux question does.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
@@ -97,6 +101,15 @@ impl TerminalClassifier {
         if !self.first_time(id) {
             return None;
         }
+        // A terminal agent's question (an agent hook only; a program's output never makes
+        // one): the same questions the acpmux path sends, so the phone answers it alike. An
+        // ask is never held back by the limits below, which are for programs that loop OSC 9.
+        let questions = (source == "agent")
+            .then(|| event.get("question"))
+            .flatten()
+            .map(terminal_questions)
+            .unwrap_or_default();
+        let ask = !questions.is_empty();
         if let Some(surface) = surface {
             // An agent hook's and the terminal's own notification for one event.
             let echo = self.last.get(&surface).is_some_and(|(last, at)| {
@@ -107,10 +120,11 @@ impl TerminalClassifier {
             if echo {
                 return None;
             }
-            if self
-                .last
-                .get(&surface)
-                .is_some_and(|(_, at)| now.saturating_duration_since(*at) < TERMINAL_SURFACE_GAP)
+            if !ask
+                && self
+                    .last
+                    .get(&surface)
+                    .is_some_and(|(_, at)| now.saturating_duration_since(*at) < TERMINAL_SURFACE_GAP)
             {
                 return None;
             }
@@ -122,10 +136,12 @@ impl TerminalClassifier {
         {
             self.sent.pop_front();
         }
-        if self.sent.len() >= TERMINAL_PER_MINUTE {
-            return None;
+        if !ask {
+            if self.sent.len() >= TERMINAL_PER_MINUTE {
+                return None;
+            }
+            self.sent.push_back(now);
         }
-        self.sent.push_back(now);
         if let Some(surface) = surface {
             self.last.insert(surface, (source.to_owned(), now));
             if self.last.len() > SEEN_LIMIT {
@@ -157,6 +173,22 @@ impl TerminalClassifier {
             .as_ref()
             .and_then(|p| valid_id(&p.workspace_id, 128))
             .or_else(|| text("workspace_id").and_then(|w| valid_id(w, 128)));
+        if ask {
+            return Some(NotifyEvent {
+                event_id: format!("n-{id}"),
+                kind: "question".into(),
+                agent: Some(agent.into()),
+                place: place.as_ref().map(|p| p.workspace.clone()),
+                workspace: place.as_ref().map(|p| p.workspace.clone()),
+                workspace_id,
+                tab_id: place.map(|p| p.tab_id),
+                notification_id: Some(id.to_string()),
+                title: Some(questions[0].question.clone()),
+                questions,
+                state: Some("waiting".into()),
+                ..NotifyEvent::default()
+            });
+        }
         Some(NotifyEvent {
             event_id: format!("n-{id}"),
             kind: "terminal".into(),
@@ -173,6 +205,18 @@ impl TerminalClassifier {
             ..NotifyEvent::default()
         })
     }
+}
+
+/// The questions of the daemon's `question` (`{harness, questions}`, the tool's input), read
+/// by the parser the acpmux path uses: as a Claude AskUserQuestion or a Codex request.
+fn terminal_questions(question: &Value) -> Vec<cmux_mobile_link::api::NotifyQuestion> {
+    let meta = match question.get("harness").and_then(Value::as_str) {
+        Some("codex") => serde_json::json!({"codex": {}}),
+        _ => serde_json::json!({"claude": {"tool": "AskUserQuestion"}}),
+    };
+    let request = serde_json::json!({"toolCall": {"_meta": meta, "rawInput": {
+        "questions": question.get("questions").cloned().unwrap_or(Value::Null)}}});
+    crate::notify_content::questions(&request)
 }
 
 /// The agent an agent hook names first in its title ("Codex needs approval").
@@ -471,5 +515,57 @@ mod tests {
         assert!(w.allows("terminal", t0 + WANTS_TTL));
         w.learn(&json!({"wants":["terminal"]}), t0 + WANTS_TTL);
         assert!(!w.allows("failed", t0 + WANTS_TTL));
+    }
+
+    /// A terminal agent's AskUserQuestion (the daemon's `question`, cmux-tui
+    /// `agent_hook_question.rs`) pushes as a question with its options, so the phone gets
+    /// option buttons and the long-press rows; its tab opens on a tap.
+    #[test]
+    fn a_terminal_agent_question_pushes_as_a_question() {
+        let mut c = TerminalClassifier::default();
+        let mut hook = event(50, Some(7), "agent");
+        hook["title"] = json!("Claude asked a question");
+        hook["body"] = json!("AskUserQuestion");
+        hook["level"] = json!("warning");
+        hook["question"] = json!({"harness":"claude","tool_use_id":"toolu_1","questions":[
+            {"question":"Which branch?","header":"Branch","multiSelect":false,
+             "options":[{"label":"main","description":"the default"},{"label":"dev"},{"label":"release"}]},
+            {"question":"Which checks?","header":"Checks","multiSelect":true,"options":[{"label":"lint"},{"label":"tests"}]}]});
+        let e = c.handle_at(&hook, &places(), Instant::now()).unwrap();
+        assert_eq!(e.kind, "question");
+        assert_eq!(e.agent.as_deref(), Some("Claude"));
+        assert_eq!(e.tab_id.as_deref(), Some("s7"));
+        assert_eq!(e.notification_id.as_deref(), Some("50"));
+        assert_eq!(e.state.as_deref(), Some("waiting"));
+        // The question, not the tool name, is the title.
+        assert_eq!(e.title.as_deref(), Some("Which branch?"));
+        assert_eq!(e.body, None);
+        let questions = e.questions;
+        assert_eq!(questions.len(), 2);
+        assert_eq!(questions[0].options.len(), 3);
+        assert_eq!(questions[0].options[0].description.as_deref(), Some("the default"));
+        assert!(questions[1].multi_select);
+        assert!(questions[0].allows_other);
+        // A Codex one keeps its own Other rule.
+        let mut codex = event(51, Some(7), "agent");
+        codex["title"] = json!("Codex asked a question");
+        codex["question"] = json!({"harness":"codex","questions":[{"id":"d","question":"Deploy?","isOther":false,
+            "options":[{"label":"yes"},{"label":"no"}]}]});
+        let e = c.handle_at(&codex, &places(), Instant::now() + Duration::from_secs(20)).unwrap();
+        assert_eq!(e.kind, "question");
+        assert!(!e.questions[0].allows_other);
+        // An ask right after another push on the same tab is not held back by the tab limit.
+        let mut again = hook.clone();
+        again["notification"] = json!(53);
+        assert_eq!(
+            c.handle_at(&again, &places(), Instant::now() + Duration::from_secs(21)).unwrap().kind,
+            "question"
+        );
+        // A question from a terminal program (not an agent hook) is never taken as one.
+        let mut osc = event(52, Some(7), "terminal");
+        osc["question"] = hook["question"].clone();
+        let e = c.handle_at(&osc, &places(), Instant::now() + Duration::from_secs(40)).unwrap();
+        assert_eq!(e.kind, "terminal");
+        assert!(e.questions.is_empty());
     }
 }
