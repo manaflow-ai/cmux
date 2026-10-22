@@ -109,34 +109,29 @@ public class ArrowCursorView: NSView {
     /// Whether `window` is the top window at `location` (screen coordinates). The window server
     /// answers synchronously (`SLSCopyWindowRoutingRecordsForScreenLocation`), which blocked the
     /// main thread for about half of every pointer move over a browser toolbar on a loaded Mac
-    /// (sample of the live app, 2026-10-21); the answer is kept for a moment per window and per
-    /// set of the app's other windows under the pointer (``coverUnder(_:excluding:)``), so a move
-    /// onto or off a panel over the toolbar asks again.
+    /// (sample of the live app, 2026-10-21); the answer is kept for a moment per window, but only
+    /// while none of the app's other windows is under the pointer (``isCovered(_:excluding:)``).
     fileprivate static func isTopWindow(_ window: NSWindow, at location: NSPoint) -> Bool {
-        topWindow.isTop(window.windowNumber, cover: coverUnder(location, excluding: window),
+        topWindow.isTop(window.windowNumber, covered: isCovered(location, excluding: window),
                         now: ProcessInfo.processInfo.systemUptime) {
             NSWindow.windowNumber(at: location, belowWindowWithWindowNumber: 0)
         }
     }
 
-    /// The app's other visible windows whose frame holds `location`, as one number: it changes
-    /// when the pointer moves onto or off one of them. Reads the app's own window list only
-    /// (no window-server query).
-    private static func coverUnder(_ location: NSPoint, excluding window: NSWindow) -> Int {
-        var cover = Hasher()
-        for other in NSApp.windows where other !== window && other.isVisible && other.frame.contains(location) {
-            cover.combine(other.windowNumber)
-        }
-        return cover.finalize()
+    /// Whether another visible window of the app has `location` in its frame: a panel over the
+    /// toolbar, or another cmux window. Reads the app's own window list only (no window-server
+    /// query).
+    private static func isCovered(_ location: NSPoint, excluding window: NSWindow) -> Bool {
+        NSApp.windows.contains { $0 !== window && $0.isVisible && $0.frame.contains(location) }
     }
 }
 
 /// The window server's answer to "is this window the top one under the pointer", kept for
 /// ``lifetime`` per window: a stream of pointer moves over a browser toolbar asks once, not on
-/// every move. An answer holds only while the app's other windows under the pointer (`cover`)
-/// stay the same, so moving onto or off a panel over the toolbar asks again. Another app's
-/// window ordered over the toolbar within that moment can leave the row's cursor showing over
-/// it until the next answer; nothing else depends on the answer.
+/// every move. While another window of the app is under the pointer (`covered`) it asks every
+/// time, since that window's order can change with no pointer move. Another app's window ordered
+/// over the toolbar within that moment can leave the row's cursor showing over it until the
+/// next answer; nothing else depends on the answer.
 nonisolated struct WindowUnderPointerMemo: Equatable, Sendable {
     /// How long one answer is reused (seconds of system uptime).
     static let lifetime: TimeInterval = 0.25
@@ -145,7 +140,6 @@ nonisolated struct WindowUnderPointerMemo: Equatable, Sendable {
 
     private struct Answer: Equatable, Sendable {
         var windowNumber: Int
-        var cover: Int
         var top: Bool
         var askedAt: TimeInterval
     }
@@ -153,16 +147,18 @@ nonisolated struct WindowUnderPointerMemo: Equatable, Sendable {
     private var answers: [Answer] = []
 
     /// Whether the window numbered `windowNumber` is on top: the kept answer for that window while
-    /// it is younger than ``lifetime`` and `cover` is unchanged, else `ask()` (the window number on top).
-    mutating func isTop(_ windowNumber: Int, cover: Int, now: TimeInterval, ask: () -> Int) -> Bool {
+    /// it is younger than ``lifetime`` and nothing of the app covers the pointer, else `ask()`
+    /// (the window number on top). A covered answer is never kept.
+    mutating func isTop(_ windowNumber: Int, covered: Bool, now: TimeInterval, ask: () -> Int) -> Bool {
         if let index = answers.firstIndex(where: { $0.windowNumber == windowNumber }) {
             let kept = answers[index]
-            if kept.cover == cover, now >= kept.askedAt, now - kept.askedAt < Self.lifetime { return kept.top }
+            if !covered, now >= kept.askedAt, now - kept.askedAt < Self.lifetime { return kept.top }
             answers.remove(at: index)
         }
         let top = ask() == windowNumber
+        guard !covered else { return top }
         if answers.count >= Self.capacity { answers.removeFirst() }
-        answers.append(Answer(windowNumber: windowNumber, cover: cover, top: top, askedAt: now))
+        answers.append(Answer(windowNumber: windowNumber, top: top, askedAt: now))
         return top
     }
 }

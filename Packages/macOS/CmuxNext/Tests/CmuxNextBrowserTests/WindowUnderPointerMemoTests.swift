@@ -11,10 +11,10 @@ import Testing
         var top: Int
         var asks = 0
 
-        mutating func isTop(_ window: Int, cover: Int = 0, at now: TimeInterval) -> Bool {
+        mutating func isTop(_ window: Int, covered: Bool = false, at now: TimeInterval) -> Bool {
             let answer = top
             var asked = 0
-            let result = memo.isTop(window, cover: cover, now: now) {
+            let result = memo.isTop(window, covered: covered, now: now) {
                 asked += 1
                 return answer
             }
@@ -57,14 +57,29 @@ import Testing
     }
 
     /// Moving onto a panel of the app over the toolbar, within the lifetime, asks again.
-    @Test func anotherCoverIsAskedAgain() {
+    @Test func aCoveredPointerIsAskedAgain() {
         var probe = Probe(top: 7)
-        let uncovered = probe.isTop(7, cover: 0, at: 100)
+        let uncovered = probe.isTop(7, at: 100)
         probe.top = 12
-        let underPanel = probe.isTop(7, cover: 12, at: 100.01)
+        let underPanel = probe.isTop(7, covered: true, at: 100.01)
         #expect(uncovered)
         #expect(!underPanel)
         #expect(probe.asks == 2)
+    }
+
+    /// While another window of the app is under the pointer its order can change with no move:
+    /// every answer is asked, and none is kept for the uncovered moves after it.
+    @Test func coveredAnswersAreNeverKept() {
+        var probe = Probe(top: 12)
+        let behind = probe.isTop(7, covered: true, at: 100)
+        probe.top = 7
+        let reordered = probe.isTop(7, covered: true, at: 100.01)
+        probe.top = 9
+        let uncovered = probe.isTop(7, at: 100.02)
+        #expect(!behind)
+        #expect(reordered)
+        #expect(!uncovered)
+        #expect(probe.asks == 3)
     }
 
     /// Moves alternating between two windows ask once per window, not on every move.
