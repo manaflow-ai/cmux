@@ -382,7 +382,8 @@ class MacJobInputs(unittest.TestCase):
 
     def edit(self, name: str) -> None:
         path = self.repo.root / name
-        self.repo.write(name, (path.read_text() if path.exists() else "") + "// changed\n")
+        # JSON stays JSON: the graph must still parse after the edit.
+        self.repo.write(name, (path.read_text() if path.exists() else "") + ("\n" if name.endswith(".json") else "// changed\n"))
         self.repo.commit()
 
     def test_a_base_move_outside_the_inputs_keeps_the_key(self):
@@ -414,7 +415,7 @@ class MacJobInputs(unittest.TestCase):
                 with self.subTest(job=job, submodule=submodule):
                     before = self.key(job)
                     git(self.repo.root, "update-index", "--add", "--cacheinfo",
-                        f"160000,{(str(index + 1) + job[0]) * 20},{submodule}")
+                        f"160000,{(str(index + 1) + format(MAC_JOBS.index(job) + 10, 'x')) * 20},{submodule}")
                     git(self.repo.root, "commit", "-q", "-m", "bump")
                     self.assertNotEqual(before, self.key(job))
 

@@ -1017,6 +1017,10 @@ path = "tests/test_job_input_fingerprint.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_job_reuse.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_merge_compile_guard.py"
 lane = "linux-guard"
 
