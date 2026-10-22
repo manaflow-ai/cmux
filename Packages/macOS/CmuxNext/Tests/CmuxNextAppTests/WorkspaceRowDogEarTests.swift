@@ -118,6 +118,15 @@ struct WorkspaceRowDogEarTests {
         ear.mouseDragged(with: try event(.leftMouseDragged, onFold))
         ear.mouseUp(with: try event(.leftMouseUp, onFold))
         #expect(closes == 1, "a click on the fold did not close the workspace")
+
+        ear.mouseDown(with: try event(.leftMouseDown, onFold))
+        ear.isEnabled = false
+        ear.mouseUp(with: try event(.leftMouseUp, onFold))
+        ear.isEnabled = true
+        #expect(closes == 1, "a dog-ear disabled while pressed closed the workspace on release")
+        ear.mouseDown(with: try event(.leftMouseDown, onFold))
+        ear.mouseUp(with: try event(.leftMouseUp, onFold))
+        #expect(closes == 2, "a press disabled mid-click stuck: the next click on the fold did not close")
     }
 
     /// A control the row shows under the dog-ear's square (on a 24 pt row the tabs chevron, the

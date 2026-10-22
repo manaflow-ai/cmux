@@ -172,7 +172,8 @@ final class SidebarDogEarButton: NSButton {
     /// fires on a release anywhere in its bounds, so a press on the fold dragged below the crease
     /// still closed the workspace. Here a release fires only on the fold after a press on it, and
     /// the fold unlights while the pointer is off it. AppKit sends the drag and the release to the
-    /// view that took the press.
+    /// view that took the press; with no press of its own (a disabled dog-ear's press ran NSButton's
+    /// tracking loop, which took them) the dog-ear ignores them.
     override func mouseDown(with event: NSEvent) {
         guard isEnabled else { return super.mouseDown(with: event) }
         pressBegan = foldContains(convert(event.locationInWindow, from: nil))
@@ -180,15 +181,16 @@ final class SidebarDogEarButton: NSButton {
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard pressBegan else { return super.mouseDragged(with: event) }
+        guard pressBegan else { return }
         let onFold = foldContains(convert(event.locationInWindow, from: nil))
         isPointerOnFold = onFold
         isPressed = onFold
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard pressBegan else { return super.mouseUp(with: event) }
-        let fires = foldContains(convert(event.locationInWindow, from: nil))
+        guard pressBegan else { return }
+        // A dog-ear disabled while the press was held does nothing on release.
+        let fires = isEnabled && foldContains(convert(event.locationInWindow, from: nil))
         pressBegan = false
         isPressed = false
         if fires { pressed() }
