@@ -30,13 +30,13 @@ struct SidebarMultiViewHomeTests {
         return tree
     }
 
-    /// Drags `k1`'s row to `edge` of Home (`inset` of the layout in from it), checks what the hover resolves to, and
-    /// releases it there.
-    static func drop(_ f: Fixture, on edge: TabDropEdge, inset: CGFloat = 0.15) throws {
-        try f.dragRow("k1", to: edge, inset: inset, release: false)
+    /// Drags `k1`'s row to `edge` of Home (`inset` of the layout, or `points`, in from it), checks what the hover
+    /// resolves to, and releases it there.
+    static func drop(_ f: Fixture, on edge: TabDropEdge, inset: CGFloat = 0.15, points: CGFloat? = nil) throws {
+        try f.dragRow("k1", to: edge, inset: inset, points: points, release: false)
         let hover = f.services.dragSession.drag?.workspaceOutcome
         #expect(hover == .window(id: f.state.id, target: .beside(edge)),
-                "k1 over Home's \(edge) edge (\(inset) in) resolves to \(String(describing: hover)): \(f.geometry)")
+                "k1 over Home's \(edge) edge (\(points.map { "\($0) pt" } ?? "\(inset)") in) resolves to \(String(describing: hover)): \(f.geometry)")
         f.services.dragSession.finish(commit: true)
         f.services.dragSession.finishLanding()
         f.frame()
@@ -73,16 +73,17 @@ struct SidebarMultiViewHomeTests {
         }
     }
 
-    /// The bottom edge, in the pane's split zone (15% in) and in the screen's bottom dock band (4% in).
-    @Test(arguments: [0.15, 0.04])
-    func aRowDroppedOnHomesBottomEdgeStacksItUnderHome(inset: Double) async throws {
+    /// The bottom edge, in the pane's split zone (15% in, `nil`) and in the screen's bottom dock band (8 pt in: the
+    /// band is `LayoutStyle.dockDropBand`, 24 pt, where the layout offers a new bottom dock of Home).
+    @Test(arguments: [nil, 8.0] as [Double?])
+    func aRowDroppedOnHomesBottomEdgeStacksItUnderHome(points: Double?) async throws {
         try await SidebarMultiViewWindowTests.withMultiView {
             let f = try await Fixture(keys: ["home", "k1", "k2"], tree: Self.tree())
             defer { f.close() }
             try #require(f.shown == ["home"], "the window shows \(f.shown)")
             let k1Tabs = f.tabs("k1")
 
-            try Self.drop(f, on: .bottom, inset: CGFloat(inset))
+            try Self.drop(f, on: .bottom, points: points.map { CGFloat($0) })
             #expect(f.shown == ["home", "k1"], "the bottom-edge drop on Home did not stack k1 under it: \(f.shown) \(f.geometry)")
             #expect(f.tabs("k1") == k1Tabs, "the drop moved k1's tabs: it merged into Home instead of placing beside")
             #expect(f.services.workspace(id: "k1") != nil, "k1 closed: its tabs merged into Home")
