@@ -788,4 +788,25 @@ impl App {
             "idempotency_key": unique("key"),
         }))
     }
+
+    /// A `cmux.protocol/2` mutation under `key`, as the holder of `credential` (the app sending
+    /// for an ACP session it minted one for).
+    pub fn mutate_as(
+        &mut self,
+        operation: &str,
+        mut params: Value,
+        credential: &str,
+        key: &str,
+    ) -> Value {
+        params["machine"] = json!("current");
+        params["session"] = json!("current");
+        self.request(json!({
+            "protocol": "cmux.protocol/2",
+            "type": "request",
+            "operation": operation,
+            "params": params,
+            "credential": credential,
+            "idempotency_key": key,
+        }))
+    }
 }

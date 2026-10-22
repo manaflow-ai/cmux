@@ -1005,6 +1005,7 @@ fn mux_meta(params: &Value) -> Option<&Value> {
 }
 
 mod agent_messages;
+mod app_reply;
 mod clock_text;
 pub(crate) use clock_text::iso;
 mod change_kind;
