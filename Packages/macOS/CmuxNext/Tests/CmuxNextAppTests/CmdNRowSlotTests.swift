@@ -118,23 +118,36 @@ struct CmdNInGroupRowSlotTests {
         #expect(services.registry.perform("workspace.moveToNewGroup",
                                           invocation: ActionInvocation(target: ActionTargetRef(kind: .workspace, id: members[0]),
                                                                        arguments: ["name": .string("grp")], origin: .user)))
+        // A member of a group: the slot below it resolves inside that group (as `NewWorkspaceDefaultSlot` reads it).
+        func group(of id: String) -> GroupID? {
+            let sections = SidebarRowSection.withoutPlaceholders(controller.sidebar.model.sections)
+            guard let section = sections.first(where: { $0.workspaces.contains { $0.id.rawValue == id } })?.id else { return nil }
+            return WorkspaceSlot.below(id).position(moving: ["probe"], section: section, in: sections)?.group
+        }
         func grouped(_ ids: [String]) -> Bool {
-            controller.sidebar.model.sections.contains { section in
-                section.nodes.contains { node in
-                    guard case let .group(group) = node else { return false }
-                    return ids.allSatisfy { id in group.workspaces.contains { $0.id.rawValue == id } }
-                }
-            }
+            guard let first = group(of: ids[0]) else { return false }
+            return ids.allSatisfy { group(of: $0) == first }
+        }
+        func describeSections() -> String {
+            controller.sidebar.model.sections.map { section in
+                section.nodes.map { node -> String in
+                    switch node {
+                    case let .workspace(workspace): workspace.id.rawValue.prefix(6).description
+                    case let .group(group): "[\(group.name): \(group.workspaces.map { $0.id.rawValue.prefix(6) }.joined(separator: ","))]"
+                    case .item: "item"
+                    }
+                }.joined(separator: " ")
+            }.joined(separator: " | ")
         }
         // Into the same group: a drop on the first member's slot.
         await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { grouped([members[0]]) }
-        try #require(grouped([members[0]]), "the group was made: \(controller.sidebar.model.sections)")
+        try #require(grouped([members[0]]), "the group was made: \(describeSections()); members \(members.map { $0.prefix(6) })")
         let sections = SidebarRowSection.withoutPlaceholders(controller.sidebar.model.sections)
         let section = try #require(sections.first { $0.workspaces.contains { $0.id.rawValue == members[0] } }?.id)
         let into = try #require(WorkspaceSlot.below(members[0]).position(moving: [members[1]], section: section, in: sections))
         controller.sidebar.place([SidebarWorkspaceID(members[1])], at: into, in: sections)
         await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { grouped(members) }
-        try #require(grouped(members), "both members in the group: \(controller.sidebar.model.sections)")
+        try #require(grouped(members), "both members in the group: \(describeSections())")
         let anchor = members[0]
         services.windows.select(anchor, in: state)
         controller.showWorkspace(requested: state.workspaceID)
