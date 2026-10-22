@@ -99,9 +99,25 @@ final class CEFHostView: NSView {
     }
 
     /// The pane's rounded clip, the column strip's clip and the window's corners, in this view.
+    /// The shape's path operations run once per geometry: the fork reads this twice per update
+    /// (here and through `allOcclusionRects`), and most updates at rest change nothing.
     var pageClip: CGPath? {
-        CEFClipShape.path(bounds: bounds, clips: CEFClipShape.clips(around: self), cutouts: CEFClipShape.cutouts(around: self))
+        let geometry = ClipGeometry(bounds: bounds, clips: CEFClipShape.clips(around: self), cutouts: CEFClipShape.cutouts(around: self))
+        if let clipCache, clipCache.geometry == geometry { return clipCache.path }
+        let path = CEFClipShape.path(bounds: geometry.bounds, clips: geometry.clips, cutouts: geometry.cutouts)
+        clipCache = (geometry, path)
+        return path
     }
+
+    /// What `pageClip` is made from.
+    private struct ClipGeometry: Equatable {
+        var bounds: CGRect
+        var clips: [CEFClipShape.RoundedRect]
+        var cutouts: [CGRect]
+    }
+
+    /// The last `pageClip` and the geometry it was made from.
+    private var clipCache: (geometry: ClipGeometry, path: CGPath?)?
 
     /// The chrome's rects plus the window's interactive overlays over this
     /// view, in this view's coordinates.
