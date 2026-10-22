@@ -1159,7 +1159,14 @@
 }
 /* With a mode beside it, the mode holds the row's free space after the left pair. */
 .acpmux-composer-foot .acpmux-harness:has(~ .acpmux-access) { margin-inline-end: 0; }
-.acpmux-composer-foot .acpmux-harness .acpmux-picker-button { color: var(--agent-muted); cursor: default; }
+/* The row's control text: its size and the composer's family, as the mode's and the model's (a
+   button here would otherwise draw in the engine's control font). */
+.acpmux-composer-foot .acpmux-harness .acpmux-picker-button {
+  color: var(--agent-muted);
+  font-family: inherit;
+  font-size: var(--text-control);
+  cursor: default;
+}
 .acpmux-composer-foot .acpmux-harness .acpmux-picker-button .agent-mark { flex: none; }
 .acpmux-composer-foot .acpmux-harness[data-inert] .acpmux-picker-button,
 .acpmux-composer-foot .acpmux-harness[data-inert] .acpmux-picker-button:hover {
