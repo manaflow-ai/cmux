@@ -159,10 +159,11 @@ export function ChatHeaderTools({
   onApplyWorktree?: (key: string) => Promise<unknown>;
   /// Remove on the worktree pill (cx-lyqio.5): `git.worktree.remove` for the chat's session.
   onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
-  /// The Inspector's toggle (Debug Settings `agent.inspector`, inspector/ChatInspector.tsx): the first
-  /// of the top-right tools, as Claude Code desktop's and ChatGPT's panel toggles are (Leo 2026-10-21).
+  /// The Inspector's toggle (Debug Settings `agent.inspector`, inspector/ChatInspector.tsx): with it,
+  /// the right-side panel's toggle in the summary's place, the first of the icons.
   inspector?: ReactNode;
-  /// The Needs you inbox (needsYou/NeedsYou.tsx), right after the Inspector's toggle.
+  /// The Needs you inbox (needsYou/NeedsYou.tsx), right after the panel toggle, so the toggle stays
+  /// the first of the top-right icons.
   inbox?: ReactNode;
 }) {
   const t = useT();
@@ -405,12 +406,14 @@ export function ChatHeaderTools({
   );
   return (
     <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
-      {inspector}
-      {inbox}
       {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
       {pullRequest && pullRequestChip !== false && (
         <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
       )}
+      {/* The panel toggle leads the icons, as in Claude and ChatGPT desktop. */}
+      {inspector}
+      {summary}
+      {inbox}
       {buttons ? (
         <div className="acpmux-header-tool-group acpmux-header-tool-group-actions">
           {onCustomize ? (
@@ -438,16 +441,13 @@ export function ChatHeaderTools({
           )}
         </div>
       ) : null}
-      <div className="acpmux-header-tool-group acpmux-header-tool-group-meta">
-        {summary}
-        <ChatMenu
-          items={rows}
-          disabled={rows().length === 0}
-          onOpen={onMenuOpen}
-          expand={expand}
-          onExpanded={onExpanded}
-        />
-      </div>
+      <ChatMenu
+        items={rows}
+        disabled={rows().length === 0}
+        onOpen={onMenuOpen}
+        expand={expand}
+        onExpanded={onExpanded}
+      />
     </div>
   );
 }
@@ -593,7 +593,7 @@ function ChatMenu({
   return (
     <Menu open={open} onOpenChange={onOpenChange}>
       <MenuButton className="acpmux-header-tool" label={label} disabled={disabled}>
-        <Icon name="action.more" size={HEADER_GLYPH} />
+        <Icon name="action.more.vertical" size={HEADER_GLYPH} />
       </MenuButton>
       <MenuPopup className="acpmux-chat-menu-popover" align="end">
         {children

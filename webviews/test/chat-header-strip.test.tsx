@@ -77,6 +77,9 @@ test("the header strip has no separators and every icon button draws the same gl
   expect(host.querySelector("hr, [role=separator], .acpmux-header-separator")).toBeNull();
   const buttons = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-header button")];
   expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
+    // The right-side panel's toggle leads the top-right icons, as in Claude and ChatGPT desktop, even
+    // ahead of the Needs you inbox.
+    "Chat summary",
     "Needs you",
     "Changes",
     "Preview",
@@ -85,7 +88,6 @@ test("the header strip has no separators and every icon button draws the same gl
     "Split Down",
     "Browser",
     "New tab",
-    "Chat summary",
     "Chat actions",
   ]);
   for (const button of buttons) {

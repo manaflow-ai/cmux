@@ -1,8 +1,8 @@
 // l10n-allow-file: test fixture chat titles and paths, not shipped UI.
 // No dead clicks in the chat header (Leo 2026-10-21): every item in the header row does something when
-// clicked. The row as App.tsx draws it: the Environment line (machine · folder · branch), the Needs
-// you inbox, every quick action, the summary button (Inspector off) or the Inspector toggle (on), and
-// the "..." menu. Each one is clicked on its own fresh render and must call its action, open its
+// clicked. The row as App.tsx draws it: the Environment line (machine · folder · branch), the panel
+// toggle (the summary's with the Inspector off, the Inspector's with it on), the Needs you inbox,
+// every quick action and the "..." menu. Each one is clicked on its own fresh render and must call its action, open its
 // popup, flip its toggle or light what it opened. The Environment line opens the Inspector at
 // Environment, and when that is already in view the section lights up, so the click still answers;
 // with the Inspector off it opens the chat folder's Files tree.
@@ -234,6 +234,7 @@ test("with the Inspector off, every header item acts; the Environment line opens
   const labels = await everyItemActs(false);
   expect(labels).toEqual([
     "Environment",
+    "Chat summary",
     "Needs you",
     "Changes",
     "Preview",
@@ -242,7 +243,6 @@ test("with the Inspector off, every header item acts; the Environment line opens
     "Split Down",
     "Browser",
     "New tab",
-    "Chat summary",
     "Chat actions",
   ]);
 });

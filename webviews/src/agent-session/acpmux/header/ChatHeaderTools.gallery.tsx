@@ -3,8 +3,8 @@ import { createElement } from "react";
 import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
-import { Icon } from "../icons/Icon";
-import { HEADER_GLYPH, type ChatMenuItem } from "./ChatHeaderTools";
+import type { ChatMenuItem } from "./ChatHeaderTools";
+import { PanelToggle } from "./PanelToggle";
 import type { QuickAction } from "./quickActions";
 
 type HeaderToolsProps = {
@@ -30,7 +30,6 @@ type HeaderToolsProps = {
   readStatus?: () => Promise<unknown>;
   onApplyWorktree?: (key: string) => Promise<unknown>;
   onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
-  inspector?: ReactNode;
 };
 
 const menuRows = (): ChatMenuItem[] => [
@@ -75,16 +74,15 @@ const menuRows = (): ChatMenuItem[] => [
   { key: "close", label: "Close", icon: "tab.close", shortcutAction: "closeTab", onSelect: () => undefined },
 ];
 
-const summary = createElement(
-  "button",
-  { type: "button", className: "acpmux-header-tool acpmux-summary-button", "aria-label": "Turn summary" },
-  // A list glyph at the header's glyph size (HEADER_GLYPH), as SummaryButton draws view.list.
-  createElement(
-    "svg",
-    { width: 16, height: 16, viewBox: "0 0 24 24", "aria-hidden": true },
-    createElement("path", { d: "M5 7h14M5 12h14M5 17h14", stroke: "currentColor", strokeWidth: 1.5, fill: "none" }),
-  ),
-);
+// The summary's panel toggle as the App passes it (summary/SummaryButton.tsx).
+const panelToggle = (shown: boolean) =>
+  createElement(PanelToggle, {
+    className: "acpmux-summary-button",
+    label: "Chat summary",
+    shown,
+    onToggle: () => undefined,
+  });
+const summary = panelToggle(false);
 
 const openMenu: Play = async (ctx) => {
   await ctx.focus({ role: "button", name: "Chat actions" });
@@ -100,15 +98,12 @@ const panelsOpen: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-header-tool[aria-pressed="true"]'));
 };
 
-// Action controls and session metadata stay separate in the compact top-right cluster while every
-// existing control keeps its 26px hit target.
-// Claude Code desktop's top strip (Leo 2026-10-21): no separators, every button a 24px square on one
-// 26px pitch, every glyph the same size.
+// Claude Code desktop's top strip (Leo 2026-10-21): no separators, the right-side panel's toggle
+// first, every button a 24px square on one 26px pitch, every glyph the same size.
 const groupedControls: Play = async (ctx) => {
-  const actions = ctx.find({ selector: ".acpmux-header-tool-group-actions" });
-  const meta = ctx.find({ selector: ".acpmux-header-tool-group-meta" });
-  if (actions.getBoundingClientRect().width <= 0 || meta.getBoundingClientRect().width <= 0)
-    throw new Error("header control groups must remain visible");
+  const first = ctx.document.querySelector(".acpmux-header-tools button");
+  if (!first?.classList.contains("acpmux-summary-button"))
+    throw new Error("the panel toggle must be the first of the header's icons");
   if (ctx.document.querySelector(".acpmux-header-tools hr, .acpmux-header-separator"))
     throw new Error("the header tools draw a separator");
   const tools = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools button")];
@@ -334,12 +329,16 @@ export default componentEntry<HeaderToolsProps>({
       },
       play: panelsOpen,
     },
+    "panel-open": {
+      note: "The right-side panel is open: its toggle, first of the icons, is pressed and its glyph's column filled.",
+      props: { ...base, summary: panelToggle(true) },
+    },
     "browser-preview": {
       note: "The chat's last turn named a local page: Browser opens it beside the chat and its tooltip names it; there is no separate Preview button.",
       props: { ...base, previewUrl: "http://localhost:5173/", onPreview: () => undefined },
     },
     "grouped-controls": {
-      note: "Claude Code desktop's strip: no separators, 24px square buttons on one 26px pitch, one glyph size.",
+      note: "Claude Code desktop's strip: the panel toggle first, no separators, 24px square buttons on one 26px pitch, one glyph size.",
       props: base,
       play: groupedControls,
     },
@@ -447,23 +446,6 @@ export default componentEntry<HeaderToolsProps>({
       note: "Continue in opens with ArrowRight; Escape closes the submenu and then the parent menu.",
       props: base,
       play: keyboardSubmenu,
-    },
-    inspector: {
-      note: "The Inspector's toggle, open, leads the top-right tools with Claude's panel glyph, as Claude Code desktop's and ChatGPT's panel toggles do (Leo 2026-10-21).",
-      props: {
-        ...base,
-        summary: null,
-        inspector: (
-          <button
-            type="button"
-            className="acpmux-header-tool acpmux-chat-inspector-toggle"
-            aria-label="Inspector"
-            aria-pressed
-          >
-            <Icon name="view.inspector" size={HEADER_GLYPH} />
-          </button>
-        ),
-      },
     },
     "quick-chat": {
       note: "Quick Chat has no tab to split, so only the summary and chat actions remain.",

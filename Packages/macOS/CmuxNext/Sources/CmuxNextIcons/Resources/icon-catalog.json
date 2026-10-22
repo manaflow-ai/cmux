@@ -1285,6 +1285,12 @@
    "family": "pane.split"
   },
   {
+   "name": "panel.right",
+   "meaning": "Show or hide the chat's right-side panel (the summary, the Inspector)",
+   "sf": "questionmark.square.dashed",
+   "family": "panel"
+  },
+  {
    "name": "permission.consent",
    "meaning": "Agent consent request / decision (activity rows).",
    "sf": "person.badge.shield.checkmark",
@@ -1992,12 +1998,6 @@
    "name": "view.grid",
    "meaning": "Grid / apps / templates",
    "sf": "square.grid.2x2",
-   "family": "view"
-  },
-  {
-   "name": "view.inspector",
-   "meaning": "The chat Inspector's toggle: the session panel beside the chat (Claude Code desktop's panel button)",
-   "sf": "questionmark.square.dashed",
    "family": "view"
   },
   {

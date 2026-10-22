@@ -32,7 +32,7 @@ import {
 } from "react";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
-import { HEADER_GLYPH } from "../header/ChatHeaderTools";
+import { PanelToggle } from "../header/PanelToggle";
 import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
 import { useT } from "../i18n";
@@ -190,18 +190,7 @@ export function useChatInspector({
   return {
     on: true,
     reveal,
-    button: (
-      <button
-        type="button"
-        className="acpmux-header-tool acpmux-chat-inspector-toggle"
-        aria-label={label}
-        aria-pressed={shown}
-        title={label}
-        onClick={toggle}
-      >
-        <Icon name="view.inspector" size={HEADER_GLYPH} />
-      </button>
-    ),
+    button: <PanelToggle className="acpmux-chat-inspector-toggle" label={label} shown={shown} onToggle={toggle} />,
     panel: (
       <InspectorPresence
         shown={shown}
