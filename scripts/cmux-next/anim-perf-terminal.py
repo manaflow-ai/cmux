@@ -449,6 +449,16 @@ def main():
         app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
         print(f"relaunched pid {app.pid}", flush=True)
     if not wait(up, 120):
+        if app.poll() is None:
+            # Why: the main thread's stack while the socket is missing.
+            stuck = os.path.join(opts.out, "sample-launch.txt")
+            subprocess.run(["/usr/bin/sample", str(app.pid), "3", "-file", stuck], capture_output=True, timeout=60)
+            try:
+                graph = open(stuck, errors="replace").read().split("Call graph:", 1)[-1].splitlines()
+                print("== main thread while the socket is missing", flush=True)
+                print("\n".join(l[:200] for l in graph[:60]), flush=True)
+            except OSError:
+                pass
         log.flush()
         print("the tagged app did not come up", flush=True)
         print(open(os.path.join(opts.out, f"app-{TAG}.log"), errors="replace").read()[-6000:], flush=True)
