@@ -1166,9 +1166,11 @@ impl Brain {
             .filter(|t| t.key == key)
             .and_then(|t| t.conversation.clone());
         let done_conversation = conversation.clone();
-        // A turn stopped for a newer message posts nothing: the next turn,
-        // which starts now with that message, answers both.
-        let superseded = outcome.cancelled && self.stop_wanted;
+        // A turn stopped for the owner's newer message posts nothing, not
+        // even a failure when it ended in an error rather than a clean
+        // cancel: the next turn, which starts now with that message, answers
+        // both ("no fake messages", Lawrence 2026-10-21).
+        let superseded = self.stop_wanted && (outcome.cancelled || outcome.error.is_some());
         self.trace_end(key, &outcome, superseded);
         // A failure names the harness that ran the turn, and the one it
         // stood in for when acpmux moved the session onto a fallback.
