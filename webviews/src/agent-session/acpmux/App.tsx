@@ -3979,6 +3979,8 @@ function AcpmuxPane() {
       cwd: snapshot.summary?.cwd ?? (snapshot.sessionId ? undefined : projectDraft),
       family: snapshot.summary?.family || snapshot.summary?.harness,
       prompts: promptCount,
+      // acpmux runs this chat restricted (`hub/restricted.rs`): Not now left it a chat that sends.
+      restricted: snapshot.summary?.restricted === true,
     },
     answersTrust,
     snapshot.origin !== "remote" && snapshot.origin !== "peer",
