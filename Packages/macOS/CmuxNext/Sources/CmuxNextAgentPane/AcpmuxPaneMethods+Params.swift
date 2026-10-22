@@ -40,6 +40,8 @@ nonisolated extension AcpmuxPaneMethods {
         // The composer's Account menu (direct.ts routes, setChatRoute).
         "_acpmux/route/list": (["sessionId"], []),
         "_acpmux/chat/route.set": (["sessionId", "routeId", "when"], []),
+        // The running-limit stepper: `maxRunning` only, never `maxChildren` or `maxDepth`.
+        "_acpmux/subsession/limits": (["sessionId", "maxRunning"], []),
         "_acpmux/prewarm": (["harness", "cwd"], []),
         "_acpmux/start_mode": (["harness", "cwd"], []),
         // `cwd`: the chat folder whose folder harness profiles to list (checked like every cwd).
