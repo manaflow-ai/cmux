@@ -533,6 +533,19 @@ const envShell = (command: string) =>
     endedAt: minutesAgo(1.88),
   });
 
+/// A quiet turn under a second with no answer, a sub-second answer, then a 5s one (sub-second-turns).
+const subSecondTurns = () =>
+  chat([
+    user("Note for later: the deploy key rotates Friday.", 9),
+    summary(9, { status: "completed", durationMs: 300 }),
+    user("Is CI green?", 6),
+    assistant("Yes, all checks passed.", 6),
+    summary(6, { status: "completed", durationMs: 800 }),
+    user("Summarize the failing test", 3),
+    assistant("The retry test times out: the mock server never answers the second request.", 2.9),
+    summary(2.9, { status: "completed", durationMs: 5_000 }),
+  ]);
+
 /// Opens the turn's Worked for, then its one run's folded line.
 const openGroupedRun = async (ctx: PlayContext) => {
   await openWorked(ctx);
@@ -1604,6 +1617,17 @@ export default agentPaneEntry({
         ...workedTurnRows(minutesAgo(15)),
         summary(14, { status: "completed", toolCount: 3 }),
       ]),
+    },
+    "sub-second-turns": {
+      note: "Turns under a second: no Worked for 0s, and a turn with nothing to copy takes no footer line, only the turn gap (Leo, 2026-10-21).",
+      snapshot: subSecondTurns(),
+    },
+    "sub-second-turns-pointed": {
+      note: "The same turns, the pointer on the quiet one's prompt: its Pin and age show over the turn gap, and nothing below moves.",
+      snapshot: subSecondTurns(),
+      play: async (ctx) => {
+        await ctx.hover({ selector: ".cv-user__bubble" });
+      },
     },
     "prompt-delivery": {
       note: "Each sent prompt's way to the agent: the read check once it started, unread once acpmux took it, a clock and Still sending while it waits, and one that failed with Retry, Edit, Remove and Details.",
