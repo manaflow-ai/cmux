@@ -1441,7 +1441,7 @@ Params:
 | `bytes` | `Base64` | default null | Decoded with standard base64 |
 | `paste` | `boolean` | default false | Protocol 7; conditionally wraps the combined non-empty payload when DEC mode 2004 is enabled |
 | `expect_foreground` | `string` | default null | `send-expect-foreground-v1`; needs `surface`; write only while the foreground executable is this one |
-| `expect_agent` | `{session?: string}` | default null | `send-expect-agent-v1`; needs `surface`; write only while the terminal's agent is `idle` or `done`, in `session` when given |
+| `expect_agent` | `{session: string}` | default null | `send-expect-agent-v1`; needs `surface`; write only while the terminal's agent is `idle` in `session` |
 | `submit` | `boolean` | default false | `send-expect-agent-v1`; needs `surface`; Return after the payload, in the same request |
 
 With `send-expect-foreground-v1`, `expect_foreground` names the executable the caller saw in the
@@ -1454,10 +1454,11 @@ The check is best effort: the program can still exit between the read and the wr
 microseconds instead of a client round trip.
 
 With `send-expect-agent-v1`, `expect_agent` makes the write wait for nobody: right before it, the
-server reads the terminal's agent record, and unless its state is `idle` or `done` (and, when
-`expect_agent.session` is given, its `agent_session_id` equals it), the request fails with
-`agent not waiting: ...` and writes nothing. `submit:true` writes Return (`\r`) after the payload in
-the same request, so no input can land between the text and its submit. The phone's Feed reply uses
+server reads the agent record of the surface's own terminal, and unless its state is `idle` and its
+`agent_session_id` equals `expect_agent.session` (required; a surface with no terminal id fails
+too), the request fails with `agent not waiting: ...` and writes nothing. `submit:true` writes Return
+(`\r`) after the payload in the same request, so no input can land between the text and its submit;
+a Return that fails after the text was written says `submit failed after the text was written`. The phone's Feed reply uses
 both, with `expect_foreground` and `paste:true`, so a reply typed where the screen is not in view
 never answers an approval or question, a running turn or a new agent session.
 

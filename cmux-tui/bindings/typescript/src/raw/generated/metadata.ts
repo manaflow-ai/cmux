@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c74bff41b4554716cf03069cf7ef98837228cc3caf76146caac48a64c134dfc3. */
+/* cmux-tui mux protocol 12, IR f6bbc502577a56ee8cdbb4ac603a0673bf3e899d4cec854b162321626e575278. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "c74bff41b4554716cf03069cf7ef98837228cc3caf76146caac48a64c134dfc3" as const;
+export const SDK_IR_SHA256 = "f6bbc502577a56ee8cdbb4ac603a0673bf3e899d4cec854b162321626e575278" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -24178,7 +24178,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "When both are present, UTF-8 text bytes precede decoded bytes.",
         "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write.",
         "expect_foreground (send-expect-foreground-v1) needs surface: the write happens only while the surface's foreground executable equals it, else the request fails with nothing written.",
-        "expect_agent and submit (send-expect-agent-v1) need surface: with expect_agent the write happens only while the surface's agent is idle or done (in expect_agent.session when given), else the request fails with 'agent not waiting' and nothing written; submit writes Return after the payload in the same request."
+        "expect_agent and submit (send-expect-agent-v1) need surface: with expect_agent the write happens only while the agent of the surface's own terminal is idle in expect_agent.session (required), else the request fails with 'agent not waiting' and nothing written; submit writes Return after the payload in the same request."
       ],
       "fields": {
         "bytes": {

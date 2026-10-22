@@ -672,6 +672,13 @@ fn a_feed_reply_reaches_only_the_waiting_agent_session() {
     assert_eq!(other["ok"], false, "{other}");
     assert!(other["error"].to_string().contains("agent not waiting"), "{other}");
     // The waiting session: typed and submitted (cat prints the line back after Return).
+    // No session: refused (a restarted agent would otherwise pass).
+    let unnamed = request_response(
+        &harness.socket,
+        serde_json::json!({"id": 11, "cmd": "send", "surface": surface, "text": "unnamed_reply",
+            "expect_foreground": program, "expect_agent": {}, "submit": true}),
+    );
+    assert_eq!(unnamed["ok"], false, "{unnamed}");
     let sent = reply(6, "feed_reply_ok", "reply-s1");
     assert_eq!(sent["ok"], true, "{sent}");
     let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
@@ -683,7 +690,7 @@ fn a_feed_reply_reaches_only_the_waiting_agent_session() {
         assert!(Instant::now() < deadline, "the reply was typed but not submitted:\n{screen}");
         std::thread::sleep(Duration::from_millis(50));
     };
-    assert!(!screen.contains("wrong_session_reply"), "{screen}");
+    assert!(!screen.contains("wrong_session_reply") && !screen.contains("unnamed_reply"), "{screen}");
     // The agent went back to work, then asks for approval (its own hooks, from another shell):
     // refused both times.
     // The terminal's public id, as the finished turn's ledger row names it.

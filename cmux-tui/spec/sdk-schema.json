@@ -10080,7 +10080,7 @@
      "When both are present, UTF-8 text bytes precede decoded bytes.",
      "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write.",
      "expect_foreground (send-expect-foreground-v1) needs surface: the write happens only while the surface's foreground executable equals it, else the request fails with nothing written.",
-     "expect_agent and submit (send-expect-agent-v1) need surface: with expect_agent the write happens only while the surface's agent is idle or done (in expect_agent.session when given), else the request fails with 'agent not waiting' and nothing written; submit writes Return after the payload in the same request."
+     "expect_agent and submit (send-expect-agent-v1) need surface: with expect_agent the write happens only while the agent of the surface's own terminal is idle in expect_agent.session (required), else the request fails with 'agent not waiting' and nothing written; submit writes Return after the payload in the same request."
     ]
    },
    "result": {

@@ -73,12 +73,13 @@ pub(super) const SEND_EXPECT_FOREGROUND_CAPABILITY: &str = "send-expect-foregrou
 /// its prompt, and is submitted with no gap between the text and Return.
 pub(super) const SEND_EXPECT_AGENT_CAPABILITY: &str = "send-expect-agent-v1";
 
-/// `send` `expect_agent`: the terminal's agent must wait at its prompt (`idle` or `done`, never
-/// `working` or `blocked` on an approval or a question), in this harness session when given.
+/// `send` `expect_agent`: the terminal's agent must wait at its prompt (`idle`, never `working`,
+/// `blocked` on an approval or a question, or `done`), in this harness session.
 #[derive(serde::Deserialize)]
 pub(super) struct ExpectAgent {
     /// The harness's own session id (`list-agents` `agent_session_id`, the `notification`
-    /// event's `session`): a restarted agent in the same terminal is another session.
+    /// event's `session`): a restarted agent in the same terminal is another session. Required:
+    /// a send without it is refused.
     #[serde(default)]
     pub(super) session: Option<String>,
 }
@@ -164,13 +165,21 @@ pub(super) fn send(
         }
     }
     if let Some(expected) = expect_agent {
-        let agent = mux.list_agents(Some(surface.id), None).into_iter().next();
+        // Only this surface's own terminal's record: a surface with no terminal id fails closed
+        // (an unfiltered roster would name another terminal's agent).
+        let agent = surface.terminal_public_id().cloned().and_then(|terminal| {
+            mux.list_agents(Some(surface.id), None)
+                .into_iter()
+                .find(|record| record.terminal_id == terminal)
+        });
+        // Idle only: `done` is an agent that ended, whose terminal is back at its shell or exiting.
+        // A session is required: without one a restarted agent would pass.
         let waiting = agent.as_ref().is_some_and(|agent| {
-            matches!(agent.state, crate::AgentState::Idle | crate::AgentState::Done)
+            agent.state == crate::AgentState::Idle
                 && expected
                     .session
                     .as_deref()
-                    .is_none_or(|session| agent.agent_session_id.as_deref() == Some(session))
+                    .is_some_and(|session| agent.agent_session_id.as_deref() == Some(session))
         });
         if !waiting {
             return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
@@ -196,7 +205,10 @@ pub(super) fn send(
     if submit {
         // Return as its own key: a full-screen agent editor reads a pasted newline as a line
         // break, not a submit.
-        surface.write_bytes(b"\r")?;
+        // The text is already in: a failed Return must not read as "nothing was written".
+        surface.write_bytes(b"\r").map_err(|error| {
+            anyhow::anyhow!("submit failed after the text was written: {error}")
+        })?;
     }
     mux.note_terminal_input(surface.id, client);
     Ok(json!({}))

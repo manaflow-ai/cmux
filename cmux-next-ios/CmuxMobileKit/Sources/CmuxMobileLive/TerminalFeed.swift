@@ -247,6 +247,9 @@ public final class TerminalFeed {
         entries = rows.compactMap(Entry.init(json:)).sorted { $0.createdAt < $1.createdAt }
         if !hydrated { historyIDs = Set(entries.map(\.id)) }
         apply()
+        // An older Mac's texts are for this ledger read's new rows only, never a later row's
+        // (a tree change between the event and this read must not drop them).
+        if hydrated { unclaimed = [:] }
         hydrated = true
     }
 
@@ -329,8 +332,6 @@ public final class TerminalFeed {
                 history.append(item)
             }
         }
-        // An older Mac's texts are for this read's new rows only: never a later row's.
-        if hydrated { unclaimed = [:] }
         if !history.isEmpty { store.mergeHistory(history) }
         for item in fresh { store.upsert(item, atTop: true) }
         // The Mac's reads.
@@ -460,7 +461,11 @@ public final class TerminalFeed {
         case .waiting: return "The agent is waiting for an answer in the terminal. Open it to answer."
         case nil: break
         }
-        let session = texts[entry.id]?.session
+        // The daemon checks the agent against the session that posted; without one (an older
+        // Mac, or an event this launch did not see) nothing names that session.
+        guard let session = texts[entry.id]?.session else {
+            return "This event's agent session isn't known here. Open the terminal to reply."
+        }
         var sending = false
         do {
             // The daemon must check the agent itself right before the write: the phone's view
@@ -481,6 +486,9 @@ public final class TerminalFeed {
             _ = try WorkspaceSync.check(try await send(surface, Self.typable(text), program, session, connection))
         } catch let error as DaemonReplyError {
             log.error("terminal reply refused: \(error.message, privacy: .public)")
+            if error.message.contains("after the text was written") {
+                return "The reply was typed but may not have been submitted. Open the terminal to check."
+            }
             if error.message.contains("foreground changed") { return "The agent left that terminal, so the reply was not sent." }
             if error.message.contains("agent not waiting") {
                 return "The agent is busy, asking something, or restarted. The reply was not sent. Open the terminal to reply."

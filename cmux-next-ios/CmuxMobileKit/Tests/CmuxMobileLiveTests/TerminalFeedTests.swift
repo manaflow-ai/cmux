@@ -423,8 +423,10 @@ import Testing
         let daemon = FakeDaemon()
         daemon.capabilities = ["send-expect-foreground-v1"]
         let (store, feed) = Self.make(daemon)
-        daemon.rows = [Self.row("ntf_1", "Claude finished", surface: 1, at: 2_000_000)]
         feed.treeChanged(Self.claudeTree(), macID: "mac", connection: Self.connection)
+        await Self.settle { daemon.lists == 1 }
+        daemon.rows = [Self.row("ntf_1", "Claude finished", surface: 1, at: 2_000_000)]
+        feed.notificationPosted(NotificationPost(id: "ntf_1", surface: 1, source: "agent", message: "Done.", session: "sess-1"))
         await Self.settle { store.items.count == 1 }
         #expect(await feed.reply(itemID: "term-mac-ntf_1", text: "hi")?.contains("Update cmux on the Mac") == true)
         #expect(daemon.sent.isEmpty)
@@ -435,11 +437,13 @@ import Testing
     @Test func aReplyGoesOnlyToTheAgentThatWaits() async {
         let daemon = FakeDaemon()
         let (store, feed) = Self.make(daemon)
-        daemon.rows = [
-            Self.row("ntf_1", "Claude finished", surface: 1, at: 2_000_000),
-            Self.row("ntf_2", "Claude finished", surface: 1, at: 3_000_000),
-        ]
+        daemon.rows = [Self.row("ntf_1", "Claude finished", surface: 1, at: 2_000_000)]
         feed.treeChanged(Self.claudeTree(), macID: "mac", connection: Self.connection)
+        await Self.settle { store.items.count == 1 }
+        // An event seen only in the ledger (no live texts): its session is unknown, so no reply.
+        #expect(await feed.reply(itemID: "term-mac-ntf_1", text: "hi")?.contains("session isn't known") == true)
+        daemon.rows.append(Self.row("ntf_2", "Claude finished", surface: 1, at: 3_000_000))
+        feed.notificationPosted(NotificationPost(id: "ntf_2", surface: 1, source: "agent", message: "Done.", session: "sess-1"))
         await Self.settle { store.items.count == 2 }
         // An older event: the agent moved on since.
         #expect(await feed.reply(itemID: "term-mac-ntf_1", text: "hi") != nil)
@@ -460,6 +464,9 @@ import Testing
         feed.treeChanged(Self.claudeTree(), macID: "mac", connection: Self.connection)
         daemon.sendError = "foreground changed: the expected program no longer runs in the foreground"
         #expect(await feed.reply(itemID: "term-mac-ntf_2", text: "hi") == "The agent left that terminal, so the reply was not sent.")
+        // The Return failed after the text went in: possibly delivered, so not typed again blindly.
+        daemon.sendError = "submit failed after the text was written: broken pipe"
+        #expect(await feed.reply(itemID: "term-mac-ntf_2", text: "hi")?.contains("may not have been submitted") == true)
         // The agent started working or asking (or restarted) since the phone looked: the daemon refuses.
         daemon.sendError = "agent not waiting: the terminal's agent is working, asking, or another session"
         #expect(await feed.reply(itemID: "term-mac-ntf_2", text: "hi")?.contains("busy, asking something, or restarted") == true)
@@ -482,6 +489,8 @@ import Testing
         item.opensTerminal = true
         #expect(!item.takesReply)
         item.kind = .failed
+        #expect(!item.takesReply)
+        item.kind = .response
         #expect(item.takesReply)
     }
 }

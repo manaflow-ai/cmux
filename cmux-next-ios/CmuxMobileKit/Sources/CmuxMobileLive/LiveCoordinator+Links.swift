@@ -54,14 +54,14 @@ extension LiveCoordinator {
             self.apply(tree, session: session)
         }
         session.terminalFeed.send = { [weak session] surface, text, expectForeground, agentSession, connection in
+            guard let agentSession else { throw LinkError(code: "no-session", message: "The agent session is not known") }
             // A Feed reply into a terminal agent: this connection's channel only, pasted and
             // submitted in one write, only while that program is still the terminal's foreground
             // one and its agent waits at its prompt in that session (the daemon checks both).
             guard let session, session.workspaces.connectionSerial == connection, let client = session.workspaces.daemon else {
                 throw LinkError(code: "no-link", message: "Not connected to the Mac")
             }
-            var expectAgent: [String: Any] = [:]
-            if let agentSession { expectAgent["session"] = agentSession }
+            let expectAgent: [String: Any] = ["session": agentSession]
             return try await client.request("send", params: [
                 "surface": surface, "text": text, "paste": true, "submit": true,
                 "expect_foreground": expectForeground, "expect_agent": expectAgent,

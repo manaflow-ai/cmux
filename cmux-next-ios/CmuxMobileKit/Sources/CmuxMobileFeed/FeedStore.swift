@@ -84,10 +84,11 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
     }
 
     /// The card takes a typed reply: a chat's events, and a terminal agent's
-    /// finished turn or error (typed into that terminal); a terminal agent's
-    /// question or approval is answered in the terminal.
+    /// finished turn (typed into that terminal). A terminal agent's question,
+    /// approval or error is handled in the terminal (after an error the agent
+    /// may still be working).
     public var takesReply: Bool {
-        !opensTerminal || kind != .needsInput
+        !opensTerminal || kind == .response || kind == .finished
     }
 
     public var needsYou: Bool {
@@ -360,6 +361,9 @@ public final class FeedStore {
                 merged.isDone = next[index].isDone
                 merged.resolution = next[index].resolution ?? item.resolution
                 merged.replies = next[index].replies
+                // A reply on its way, or why the last one failed, outlives a read of the ledger.
+                merged.pending = next[index].pending ?? item.pending
+                merged.error = next[index].error ?? item.error
                 merged.createdAt = next[index].createdAt
                 next[index] = merged
             } else {
