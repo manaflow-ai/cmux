@@ -344,6 +344,23 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       expect(under).toBeLessThanOrEqual(12);
     });
 
+  // Only the floating chat dock drops it: a fresh chat's hero layout (no data-dock) keeps the
+  // composer's own 16 px bottom padding.
+  test("a dock that does not float keeps the composer's bottom padding", async () => {
+    const page = await browser!.newPage({ viewport: { width: 720, height: 600 } });
+    await page.goto(stageURL("claude-auto"));
+    await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+    await page.locator(".acpmux-composer-foot .acpmux-model .acpmux-model-detail:visible").first().waitFor();
+    const padding = await page.evaluate(() => {
+      const composer = () => getComputedStyle(document.querySelector(".acpmux-dock > .acpmux-composer")!);
+      const floating = composer().paddingBottom;
+      document.querySelector(".acpmux-main")!.removeAttribute("data-dock");
+      return { floating, fresh: composer().paddingBottom };
+    });
+    await page.close();
+    expect(padding).toEqual({ floating: "0px", fresh: "16px" });
+  });
+
   for (const width of [420, 720, 1100])
     test(`at ${width} px Stop has Send's footprint as a solid, theme-inverted disc`, async () => {
       // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, so the idle row
