@@ -868,22 +868,14 @@ impl Brain {
         true
     }
 
-    /// A human message arrived during a turn (decision 2026-10-04): the
-    /// model is interrupted at once, even mid-thinking, and a running tool
-    /// call finishes first. The native engine aborts its stream and calls
-    /// the model again with the message; the acpmux engine stops the turn
-    /// (`session/cancel`, sent by the turn's runner once no tool runs, and
-    /// again until the turn ends), and the next fresh turn answers with the
-    /// view of everything the stopped turn did. "thanks" interrupts too.
+    /// A human message arrived during a turn. acpmux: it is steered in at
+    /// once; a steer refused or unread past the deadline stops the turn
+    /// (`steer.rs`, user 2026-10-21). Native: the engine delivers it after
+    /// the next tool results.
     pub(super) fn interrupt_for_newer(&mut self) {
         if self.phase != Phase::Running {
             return;
         }
-        // Decision 2026-10-09 (interruptions, parity with the reference): a
-        // message never stops a turn, on any engine. acpmux: it is steered
-        // in between tool calls when the session steers, else it waits and
-        // the next turn starts the moment this one ends. Native: the engine
-        // delivers it after the next tool results. Only chief.stop stops.
         if matches!(self.settings.engine, Engine::Acpmux) {
             self.try_steer();
         }
@@ -1136,8 +1128,7 @@ impl Brain {
             return;
         }
         self.cuts = 0;
-        // The turn answers its messages itself: no receipt after its end.
-        self.desk.take_if(|d| d.turn == key);
+        self.steer_due.take_if(|(_, turn)| turn == key);
         let outcome_done = outcome.done_draft.take();
         self.keep_turn_session(key, &mut outcome);
         if self.state.turn.as_ref().is_some_and(|t| t.key == key) {

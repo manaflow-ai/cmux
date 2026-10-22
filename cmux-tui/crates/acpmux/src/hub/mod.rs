@@ -56,6 +56,7 @@ mod queue;
 mod queue_edit;
 pub use digest::declared_sender;
 pub use queue::QueuedPrompt;
+pub use queue::supersede::key as supersede_key;
 mod resolve;
 mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
@@ -84,6 +85,7 @@ mod stream;
 mod tags;
 mod tap;
 mod titles;
+mod tool_paths;
 mod tools;
 mod watch;
 pub use new_request::{
@@ -111,11 +113,13 @@ pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
 mod subsession_answer;
 mod subsession_guard;
+mod subsession_runs;
 mod subsession_send;
 pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub use subsession_send::Delivery;
 mod drafts;
+pub(crate) mod outbox;
 pub mod rules;
 mod transcript;
 mod transfer;
@@ -145,6 +149,21 @@ use crate::session_identity::{LOCAL_HOST_ID, SessionReceipt};
 use crate::store::{EventRecord, META_SCHEMA, SessionMeta, SessionStatus, Store, now_ms};
 use anyhow::Result;
 use serde_json::{Value, json};
+
+/// True when a permission request is an agent's question (`questions.rs`): what tells the
+/// person about it says the agent asks, never that it needs a permission.
+pub(crate) fn is_question(request: &Value) -> bool {
+    questions::needs_person(request)
+}
+
+/// The first prompt of an agent's question: the normalized copy, else Claude Code's own input.
+pub(crate) fn question_prompt(request: &Value) -> Option<&str> {
+    questions::question(request)
+        .and_then(|q| q.pointer("/items/0/prompt"))
+        .or_else(|| request.pointer("/toolCall/rawInput/questions/0/question"))
+        .and_then(Value::as_str)
+        .filter(|p| !p.is_empty())
+}
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -252,6 +271,9 @@ pub struct PromptOptions {
     /// An automatic continuation (`auto_resume.rs`): runs only while the chat still ends on
     /// this turn, checked again once it holds the turn lock, else refused unrecorded.
     pub after_turn: Option<String>,
+    /// `_meta.acpmux.supersede` (`supersede.rs`): the same sender's prompts still queued under
+    /// this key leave the queue, replaced by this one.
+    pub supersede: Option<String>,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -386,6 +408,8 @@ pub struct Hub {
     pub(super) offers: offers::Offers,
     /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
     pub(super) subsessions: subsessions::Index,
+    /// Run slots of each session's sub-sessions (`subsession_runs.rs`).
+    pub(super) subsession_runs: Arc<subsession_runs::Runs>,
     /// Automatic continuations waiting to fire, by chat (`auto_resume.rs`).
     pub(super) auto_resumes: auto_resume::Pending,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
@@ -394,6 +418,10 @@ pub struct Hub {
     pub(super) secrets: secrets::Secrets,
     /// Sub-session starts waiting on a folder's trust card, and Not nows (`trust_wait.rs`).
     pub(super) trust_waits: trust_wait::Waits,
+    /// Messages `send --no-wait` handed over, and forwarded prompts waiting for a peer's
+    /// acceptance (`outbox.rs`).
+    pub(crate) outbox: outbox::Outbox,
+    pub(crate) peer_accepts: outbox::PeerAccepts,
     /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
     pub(super) agent_pairs: agent_pairs::AgentPairs,
     /// Pairing tickets and paired machines (`crate::pairing`).
@@ -477,10 +505,13 @@ impl Hub {
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
             offers: Default::default(),
             subsessions: Default::default(),
+            subsession_runs: Default::default(),
             auto_resumes: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
             trust_waits: Default::default(),
+            outbox: Default::default(),
+            peer_accepts: Default::default(),
             agent_pairs: Default::default(),
             pairing: Default::default(),
         });
@@ -833,10 +864,12 @@ impl Hub {
         session: &Session,
         dir: &str,
         kind: &str,
-        msg: Value,
+        mut msg: Value,
         host_seq: Option<u64>,
         at: Option<u64>,
     ) -> (EventRecord, bool) {
+        // Off the append lock: it reads the disk.
+        tool_paths::add_canonical_paths(session, kind, &mut msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;

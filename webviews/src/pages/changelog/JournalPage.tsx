@@ -197,7 +197,9 @@ function SectionBody({
   /** The update's own section reads as happy news (SpanNews.tsx); a day keeps its hero and lists. */
   news?: boolean;
 }) {
-  if (pending && view.count === 0 && view.changes.length === 0)
+  // The update waits for every build of its span (they load at once): drawn early, its fold would
+  // open on the first build's bare changes and close again when a later build's notes arrive.
+  if (pending && (news || (view.count === 0 && view.changes.length === 0)))
     return <div className="clj-placeholder" aria-busy="true" />;
   return (
     <>
@@ -205,7 +207,13 @@ function SectionBody({
       {view.count === 0 && view.changes.length === 0 && !unpublished && <Maintenance strings={ctx.strings} />}
       {unpublished && <p className="cl-muted">{ctx.strings.t("changelog.page.unavailable")}</p>}
       {news ? <SpanNews view={view} ctx={ctx} /> : <Groups view={view} ctx={ctx} />}
-      <ChangesFold changes={view.changes} hidden={view.underTheHood} strings={ctx.strings} />
+      {/* With no curated notes the changes are the news, so the update opens them. */}
+      <ChangesFold
+        changes={view.changes}
+        hidden={view.underTheHood}
+        strings={ctx.strings}
+        open={news && view.count === 0}
+      />
     </>
   );
 }

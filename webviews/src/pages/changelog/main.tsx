@@ -11,6 +11,8 @@ import { MockChangelogProvider } from "./mockProvider";
 import { ChangelogStore, parseDesign, parseSpan } from "./store";
 import { mountUpdateSurface, parseSurface } from "./surface";
 import "../shared/pageBase.css";
+// The enlarged picture is a ui/Dialog: this sheet places a dialog and its backdrop over the page.
+import "../../ui/popupSurface.css";
 import "./styles.css";
 
 export function mountChangelogPage(root: HTMLElement, client: PageClient | null = defaultClient()): ChangelogStore {
