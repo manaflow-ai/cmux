@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+@testable import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
@@ -54,6 +55,7 @@ struct SidebarSlideHoldsContentTests {
             defer { window.close() }
             let sidebar = root.sidebar.frame.width, card = root.contentHost.frame
             try #require(sidebar > 0 && content.frame == root.contentHost.bounds)
+            try #require(root.contentHost.clipsHeldContent, "the default main pane is rounded and clips")
             root.sidebar.isWidthAnimating = true
             root.sidebar.onWidthMotionStart?(sidebar, 0)
             let held = card.width + sidebar
@@ -127,10 +129,44 @@ struct SidebarSlideHoldsContentTests {
         }
     }
 
+    /// A square main pane (radius 0) sets no clip, so content held wider than it would show past
+    /// its edge, and neither Chromium pages nor the overlay's rings would see the edge: no hold.
+    @Test func aSquareMainPaneHoldsNothing() throws {
+        try withHold(nil) {
+            let (window, root, content) = openRoot()
+            defer { window.close() }
+            let sidebar = root.sidebar.frame.width
+            root.sidebar.isWidthAnimating = true
+            root.sidebar.onWidthMotionStart?(sidebar, 0)
+            try #require(root.contentHost.contentHold != nil)
+            root.contentHost.setCornerRadius(0)
+            #expect(root.contentHost.contentHold == nil, "a card that turned square mid-slide lets go")
+            #expect(content.frame == root.contentHost.bounds)
+            root.sidebar.onWidthMotionStart?(sidebar, 0)
+            #expect(root.contentHost.contentHold == nil, "a square card holds nothing")
+            frame(root, width: sidebar / 2)
+            #expect(content.frame == root.contentHost.bounds)
+            root.sidebar.isWidthAnimating = false
+        }
+    }
+
+    /// A page held wider than the rounded card crosses its straight edge between the corners: the
+    /// page's clip shape (a child window, which no layer mask reaches) still cuts it there.
+    @Test func aPageAcrossTheRoundedCardsStraightEdgeIsCut() throws {
+        let card = CEFClipShape.RoundedRect(rect: CGRect(x: 100, y: 0, width: 400, height: 600), radius: 12)
+        let page = CGRect(x: 0, y: 200, width: 300, height: 200)
+        #expect(!CEFClipShape.cutsCorner(of: card, into: page), "the page sits between the card's corner bands")
+        let shape = try #require(CEFClipShape.path(bounds: page, clips: [card]))
+        #expect(abs(shape.boundingBoxOfPath.minX - 100) < 0.5, "the page shows only from the card's edge on")
+        let inside = CGRect(x: 150, y: 200, width: 300, height: 200)
+        #expect(CEFClipShape.path(bounds: inside, clips: [card]) == nil, "a page inside the card is a plain rectangle")
+    }
+
     /// A sidebar on the right moves the card's trailing edge: the content rides that one. A
     /// workspace withdrawn hidden (no autoresizing mask) is left where it is.
     @Test func aRightSidebarSlideRidesTheTrailingEdge() {
         let card = MainPaneCardView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+        card.setCornerRadius(10)
         let content = NSView(frame: card.bounds)
         content.autoresizingMask = [.width, .height]
         let withdrawn = NSView(frame: CGRect(x: 0, y: 0, width: 10, height: 10))

@@ -70,10 +70,15 @@ final class MainPaneCardView: NSView {
         }
     }
 
+    /// Whether content can be held wider than the card: only a rounded card clips (`setCornerRadius`;
+    /// a square one sets no `masksToBounds`), which also clips Chromium pages (`CEFClipShape`) and the
+    /// overlay plane's rings (`OverlayPlane.roundedClip`) at its edges.
+    var clipsHeldContent: Bool { layer?.masksToBounds == true && (layer?.cornerRadius ?? 0) > 0 }
+
     /// Where the held content sits in the card; nil at rest. Several workspaces side by side
     /// (`arrangeContent`) are placed by their own arrangement and never held.
     var heldContentFrame: CGRect? {
-        guard let contentHold, arrangeContent == nil else { return nil }
+        guard let contentHold, arrangeContent == nil, clipsHeldContent else { return nil }
         let width = max(bounds.width, contentHold.width)
         return CGRect(x: contentHold.ridesTrailingEdge ? bounds.width - width : 0, y: 0, width: width, height: bounds.height)
     }
@@ -91,6 +96,8 @@ final class MainPaneCardView: NSView {
     @discardableResult
     func setCornerRadius(_ radius: CGFloat) -> Bool {
         guard let layer, layer.cornerRadius != radius || layer.masksToBounds != (radius > 0) else { return false }
+        // A square card clips nothing, so held content would show past it: no hold there.
+        if radius <= 0 { contentHold = nil }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer.cornerRadius = radius

@@ -36,9 +36,9 @@ extension WindowRootView {
     /// as before and the card clips them at the far edge; a show lays them out once at the landing,
     /// a hide once now. A slide that turns around mid-flight keeps the widest width either leg needs.
     /// The rail style opens over the content (`WindowRootView+SidebarRail`), which never resizes:
-    /// nothing to hold.
+    /// nothing to hold. A square main pane clips nothing, so it keeps resizing its content per frame.
     private func holdContentThroughSlide(from: CGFloat, to: CGFloat) {
-        guard SidebarTunables.slideHoldsContent.value, sidebar.model.style != .rail else {
+        guard SidebarTunables.slideHoldsContent.value, sidebar.model.style != .rail, contentHost.clipsHeldContent else {
             contentHost.contentHold = nil
             return
         }
