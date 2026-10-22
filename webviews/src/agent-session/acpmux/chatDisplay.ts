@@ -35,10 +35,16 @@ export interface ChatDisplay {
   /// lies over the transcript's text (Leo, 2026-10-21); `push` always moves the chat aside. Not a
   /// look: the Text & Width popover's Reset leaves it.
   inspector: "push" | "overlay";
+  /// The edge the prompt rail (threadMinimap/ThreadMinimap.tsx) sits on: `left` (the default) or
+  /// `right` (Leo, 2026-10-22: "an option for moving it the right.. maybe specifically right clicking
+  /// that area (and as a toggle)"). The rail's right-click menu moves it. Not a look: Reset leaves it.
+  railSide: "left" | "right";
 }
 
 /// Settings > Agent Chat > Inspector (Swift AgentPaneDisplaySettingsSchema has the same row).
 export const INSPECTOR_PLACEMENT_KEY = "agentPane.display.inspector.placement";
+/// Settings > Agent Chat > Prompt Rail Side (Swift AgentPaneDisplaySettingsSchema has the same row).
+export const RAIL_SIDE_KEY = "agentPane.display.rail.side";
 
 /// Each option: its cmux.json key, its range and default. The Swift schema has the same rows
 /// (AgentPaneDisplaySettingsSchema).
@@ -69,6 +75,7 @@ export const DEFAULT_CHAT_DISPLAY: ChatDisplay = {
   codeFamily: null,
   codeScale: null,
   inspector: "overlay",
+  railSide: "left",
 };
 
 /// The body font stacks, as the Markdown viewer's presets (pages/markdown/settings.ts).
@@ -117,6 +124,7 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
       number(values[CHAT_DISPLAY.codeScale.key], CHAT_DISPLAY.codeScale) ??
       number(values[MARKDOWN_FOLLOWED.codeScale], CHAT_DISPLAY.codeScale),
     inspector: values[INSPECTOR_PLACEMENT_KEY] === "push" ? "push" : "overlay",
+    railSide: values[RAIL_SIDE_KEY] === "right" ? "right" : "left",
   };
 }
 

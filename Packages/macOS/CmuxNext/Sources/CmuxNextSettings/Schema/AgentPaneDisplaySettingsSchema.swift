@@ -70,6 +70,17 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                     SettingChoice("overlay", SettingsText.keyed("settings.choice.agentChatInspectorOverlay", "Overlay")),
                 ]),
                 .string("overlay"), ["inspector", "panel", "side", "right", "overlay", "push", "details"]),
+            // The rail of prompt ticks at the chat's edge (webviews threadMinimap/railSide.ts); its
+            // right-click menu moves it too (Leo, 2026-10-22: "an option for moving it the right..
+            // maybe specifically right clicking that area (and as a toggle)").
+            row(["rail", "side"], SettingsText.keyed("settings.agentPane.display.rail.side", "Prompt Rail Side"),
+                help: SettingsText.keyed("settings.agentPane.display.rail.side.help",
+                                         "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it."),
+                .choice([
+                    SettingChoice("left", SettingsText.keyed("settings.choice.left", "Left")),
+                    SettingChoice("right", SettingsText.keyed("settings.choice.right", "Right")),
+                ]),
+                .string("left"), ["rail", "minimap", "prompts", "ticks", "scroll", "side", "left", "right"]),
         ]
     }
 }

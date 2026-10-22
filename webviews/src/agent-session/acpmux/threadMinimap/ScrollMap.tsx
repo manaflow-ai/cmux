@@ -13,6 +13,8 @@ import { useHoverIntent } from "../../../ui/hoverIntent";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { animateScroll, reducedMotion, stopScroll } from "./scrollMotion";
 import { PreviewCard } from "./PreviewCard";
+import { useRailSide } from "./railSide";
+import { ContextMenu } from "../../../ui/ContextMenu";
 import type { usePromptMarks } from "./promptMarks";
 import {
   CARD_DELAY,
@@ -86,6 +88,7 @@ export function ScrollMap({
   jump: (turn: number, how: "click" | "scrub") => number | undefined;
 }) {
   const t = useT();
+  const { side, inset, menu } = useRailSide();
   const height = Math.max(0, Math.floor(viewportHeight - 2 * MAP_MARGIN));
   const marks = useMemo(() => mapMarks(rows, turns, layout, height), [rows, turns, layout, height]);
   /// Each mark's place in `marks`, by its row's id. The state below names row ids, not places: which
@@ -255,93 +258,98 @@ export function ScrollMap({
   const cardMarked = cardTurn ? bookmarks.has(cardTurn) : false;
   return (
     <div className="acpmux-minimap">
-      <nav
-        ref={rail}
-        className="acpmux-minimap__rail acpmux-scrollmap"
-        aria-label={t("minimap.label")}
-        style={{ left: RAIL_LEFT, top: MAP_MARGIN, width: ROW_WIDTH, height }}
-        data-hovering={pointerY !== undefined || undefined}
-        data-scrubbing={scrubbing || undefined}
-        data-reduce={reduce || undefined}
-        onPointerEnter={() => setReduce(reducedMotion())}
-        onPointerMove={(event) => {
-          const y = railY(event.clientY);
-          const state = press.current;
-          if (state && !state.moved && Math.abs(event.clientY - state.y) >= SCRUB_SLOP) {
-            state.moved = true;
-            setScrubbing(true);
-            dismiss();
-            try {
-              event.currentTarget.setPointerCapture?.(state.pointer);
-            } catch {}
-          }
-          if (state?.moved) seek(y, false);
-          point(y);
-        }}
-        onPointerLeave={(event) => {
-          if (press.current?.moved) return;
-          setPointerY(undefined);
-          setHovered(undefined);
-          if (!within(card.current, event.relatedTarget)) intend(null);
-        }}
-        onPointerDown={(event) => {
-          if (event.button !== 0 || event.pointerType === "touch") return;
-          const y = railY(event.clientY);
-          const state: Press = {
-            pointer: event.pointerId,
-            y: event.clientY,
-            moved: false,
-            mark: keyOf(marks[markAt(marks, y) ?? -1]),
-          };
-          press.current = state;
-          // A press released off the rail ends here, so a later hover cannot scrub.
-          const page = event.currentTarget.ownerDocument.defaultView ?? window;
-          const released = () => {
-            page.removeEventListener("pointerup", released);
-            page.removeEventListener("pointercancel", released);
-            if (press.current !== state) return;
-            press.current = undefined;
-            if (state.moved) setScrubbing(false);
-          };
-          page.addEventListener("pointerup", released);
-          page.addEventListener("pointercancel", released);
-        }}
-        onPointerUp={endPress}
-        onPointerCancel={(event) => {
-          if (press.current) press.current.moved = true;
-          endPress(event);
-        }}
-        onBlur={(event) => {
-          const next = event.relatedTarget as Node | null;
-          if (event.currentTarget.contains(next) || card.current?.contains(next)) return;
-          if (hovered === undefined) intend(null);
-        }}
-      >
-        <div ref={thumb} className="acpmux-scrollmap__view" aria-hidden />
-        {marks.map((mark, index) => {
-          const turn = mark.kind === "user" ? turns[mark.turn] : undefined;
-          const key = keyOf(mark)!;
-          return (
-            <Mark
-              key={key}
-              id={key}
-              mark={mark}
-              progress={pointerY !== undefined ? mapProgress(mark.y - pointerY) : key === focused ? 1 : 0}
-              active={key === active}
-              current={inView !== undefined && index >= inView.first && index <= inView.last}
-              bookmarked={!!turn && bookmarks.has(turn)}
-              describedBy={showCard && cardMark === key ? cardId : undefined}
-              prompt={turn?.prompt}
-              count={turns.length}
-              actions={actions}
-            />
-          );
-        })}
-      </nav>
+      {/* Right-click the map to move it to the other edge (railSide.ts). */}
+      <ContextMenu items={menu}>
+        <nav
+          ref={rail}
+          className="acpmux-minimap__rail acpmux-scrollmap"
+          aria-label={t("minimap.label")}
+          style={{ ...inset, top: MAP_MARGIN, width: ROW_WIDTH, height }}
+          data-side={side}
+          data-hovering={pointerY !== undefined || undefined}
+          data-scrubbing={scrubbing || undefined}
+          data-reduce={reduce || undefined}
+          onPointerEnter={() => setReduce(reducedMotion())}
+          onPointerMove={(event) => {
+            const y = railY(event.clientY);
+            const state = press.current;
+            if (state && !state.moved && Math.abs(event.clientY - state.y) >= SCRUB_SLOP) {
+              state.moved = true;
+              setScrubbing(true);
+              dismiss();
+              try {
+                event.currentTarget.setPointerCapture?.(state.pointer);
+              } catch {}
+            }
+            if (state?.moved) seek(y, false);
+            point(y);
+          }}
+          onPointerLeave={(event) => {
+            if (press.current?.moved) return;
+            setPointerY(undefined);
+            setHovered(undefined);
+            if (!within(card.current, event.relatedTarget)) intend(null);
+          }}
+          onPointerDown={(event) => {
+            if (event.button !== 0 || event.pointerType === "touch") return;
+            const y = railY(event.clientY);
+            const state: Press = {
+              pointer: event.pointerId,
+              y: event.clientY,
+              moved: false,
+              mark: keyOf(marks[markAt(marks, y) ?? -1]),
+            };
+            press.current = state;
+            // A press released off the rail ends here, so a later hover cannot scrub.
+            const page = event.currentTarget.ownerDocument.defaultView ?? window;
+            const released = () => {
+              page.removeEventListener("pointerup", released);
+              page.removeEventListener("pointercancel", released);
+              if (press.current !== state) return;
+              press.current = undefined;
+              if (state.moved) setScrubbing(false);
+            };
+            page.addEventListener("pointerup", released);
+            page.addEventListener("pointercancel", released);
+          }}
+          onPointerUp={endPress}
+          onPointerCancel={(event) => {
+            if (press.current) press.current.moved = true;
+            endPress(event);
+          }}
+          onBlur={(event) => {
+            const next = event.relatedTarget as Node | null;
+            if (event.currentTarget.contains(next) || card.current?.contains(next)) return;
+            if (hovered === undefined) intend(null);
+          }}
+        >
+          <div ref={thumb} className="acpmux-scrollmap__view" aria-hidden />
+          {marks.map((mark, index) => {
+            const turn = mark.kind === "user" ? turns[mark.turn] : undefined;
+            const key = keyOf(mark)!;
+            return (
+              <Mark
+                key={key}
+                id={key}
+                mark={mark}
+                progress={pointerY !== undefined ? mapProgress(mark.y - pointerY) : key === focused ? 1 : 0}
+                active={key === active}
+                current={inView !== undefined && index >= inView.first && index <= inView.last}
+                bookmarked={!!turn && bookmarks.has(turn)}
+                describedBy={showCard && cardMark === key ? cardId : undefined}
+                prompt={turn?.prompt}
+                count={turns.length}
+                actions={actions}
+              />
+            );
+          })}
+        </nav>
+      </ContextMenu>
       {showCard && cardAt && (
         <PreviewCard
           ref={card}
           id={cardId}
+          side={side}
           x={RAIL_LEFT + ROW_WIDTH}
           y={cardOffset(MAP_MARGIN + cardAt.y, cardHeight, viewportHeight)}
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).

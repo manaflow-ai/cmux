@@ -29,6 +29,8 @@ struct AgentPaneDisplaySettingTests {
             refused: [.number(0.2), .number(3)]),
         Row(key: "agentPane.display.inspector.placement", fallback: .string("overlay"), accepted: [.string("push")],
             refused: [.string("left"), .bool(true)]),
+        Row(key: "agentPane.display.rail.side", fallback: .string("left"), accepted: [.string("right")],
+            refused: [.string("top"), .bool(true)]),
         Row(key: "markdown.code.family", fallback: nil, accepted: [.string("Menlo")], refused: [.bool(true)]),
     ]
 
@@ -67,7 +69,7 @@ struct AgentPaneDisplaySettingTests {
 
     @Test(arguments: [
         "agentPane.display.width", "agentPane.display.code.family", "agentPane.display.font.size",
-        "agentPane.display.inspector.placement",
+        "agentPane.display.inspector.placement", "agentPane.display.rail.side",
     ])
     func thePageMayWriteTheChatKeys(_ key: String) {
         #expect(AgentPaneDisplaySetting.writablePath(key) == key.split(separator: ".").map(String.init))

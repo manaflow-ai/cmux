@@ -57,6 +57,16 @@
       "title" : "Inspector",
       "type" : "string"
     },
+    "agentPane.display.rail.side" : {
+      "default" : "left",
+      "description" : "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it.",
+      "enum" : [
+        "left",
+        "right"
+      ],
+      "title" : "Prompt Rail Side",
+      "type" : "string"
+    },
     "agentPane.display.width" : {
       "default" : 800,
       "description" : "The widest the chat's column gets. On a wider pane the chat stays centered.",
@@ -115,6 +125,12 @@
       ],
       "title" : "Files Outside the Project",
       "type" : "string"
+    },
+    "agentPane.needsYou.enabled" : {
+      "default" : false,
+      "description" : "A badge in the chat header counts what your agents wait on; a click lists every ask with its answers. New agent tabs.",
+      "title" : "Needs You",
+      "type" : "boolean"
     },
     "agentPane.showContextUsage" : {
       "default" : true,
@@ -3348,6 +3364,12 @@
       "title" : "Show Now Playing",
       "type" : "boolean"
     },
+    "sidebar.nowPlaying.otherApps" : {
+      "default" : false,
+      "description" : "Also show what plays in other apps, such as Spotify, Music or another browser. Off: only what plays in cmux.",
+      "title" : "Include Other Apps in Now Playing",
+      "type" : "boolean"
+    },
     "sidebar.numbering" : {
       "default" : "allItems",
       "description" : "Every item: Home is Command-1, the App Store Command-2, the first workspace Command-3. Workspaces only: the first workspace is Command-1.",
@@ -3984,7 +4006,7 @@
       "type" : "boolean"
     },
     "tabs.newTabNowPlaying" : {
-      "default" : true,
+      "default" : false,
       "description" : "A player for what is playing, on the New Tab page.",
       "title" : "Show Now Playing on New Tab",
       "type" : "boolean"
@@ -4033,6 +4055,24 @@
       "description" : "A short greeting over the composer.",
       "title" : "Show Greeting on New Tab",
       "type" : "boolean"
+    },
+    "tabs.newTabWidgets.order" : {
+      "default" : [
+        "projects",
+        "actions",
+        "chats"
+      ],
+      "description" : "The order of the widgets on New Tab. Right-click New Tab and choose Edit New Tab to drag them.",
+      "items" : {
+        "enum" : [
+          "projects",
+          "actions",
+          "chats"
+        ],
+        "type" : "string"
+      },
+      "title" : "New Tab Widget Order",
+      "type" : "array"
     },
     "tabs.newTabWidgets.projects" : {
       "default" : false,

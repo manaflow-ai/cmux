@@ -237,6 +237,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.code.family` | string |  |  | Chat Code Font. The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font. |
 | `agentPane.display.code.scale` | real |  | 0.6 to 1.25 | Chat Code Size. Code as a share of the chat's text size. Empty uses the Markdown viewer's. |
 | `agentPane.display.inspector.placement` | string | `"overlay"` | `push`, `overlay` | Inspector. Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat. |
+| `agentPane.display.rail.side` | string | `"left"` | `left`, `right` | Prompt Rail Side. The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it. |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
 | `terminal.fontSize` | real |  | 4 to 96 | Font Size |
 | `editor.fontFamily` | string |  |  | Font Family. Empty uses the terminal font. |
@@ -337,12 +338,14 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.hoverCards.groups.sections.git` | boolean | `true` |  | Group Card: Branches. Show the members' git branches. |
 | `sidebar.hoverCards.groups.sections.ports` | boolean | `true` |  | Group Card: Ports. Show the members' listening ports. |
 | `sidebar.nowPlaying.enabled` | boolean | `false` |  | Show Now Playing. A player for what is playing, at the bottom of the sidebar. |
-| `tabs.newTabNowPlaying` | boolean | `true` |  | Show Now Playing on New Tab. A player for what is playing, on the New Tab page. |
+| `sidebar.nowPlaying.otherApps` | boolean | `false` |  | Include Other Apps in Now Playing. Also show what plays in other apps, such as Spotify, Music or another browser. Off: only what plays in cmux. |
+| `tabs.newTabNowPlaying` | boolean | `false` |  | Show Now Playing on New Tab. A player for what is playing, on the New Tab page. |
 | `tabs.newTabWidgets.greeting` | boolean | `true` |  | Show Greeting on New Tab. A short greeting over the composer. |
 | `tabs.newTabWidgets.projects` | boolean | `false` |  | Show Projects on New Tab. A card of this Mac and its recent projects over the composer. |
 | `tabs.newTabWidgets.actions` | boolean | `false` |  | Show Quick Actions on New Tab. Chats that need you, and New Terminal, New Browser Tab and New Chat. |
 | `tabs.newTabWidgets.chats` | boolean | `false` |  | Show Recent Chats on New Tab. Your recent chats under the composer. The palette finds any chat. |
 | `tabs.newTabWidgets.styleDots` | boolean | `false` |  | Show Template Dots on New Tab. Dots under the page that switch its template. |
+| `tabs.newTabWidgets.order` | array | `["projects","actions","chats"]` | `projects`, `actions`, `chats` | New Tab Widget Order. The order of the widgets on New Tab. Right-click New Tab and choose Edit New Tab to drag them. |
 | `appearance.colorTransition.enabled` | boolean | `true` |  | Animate Color Changes. Workspace, theme and color changes blend from the old colors to the new ones. Off: they change at once. |
 | `appearance.colorTransition.duration` | real | `200` | 0 to 2000 | Color Change Duration. How long a color change takes. 0 changes colors at once. |
 | `appearance.colorTransition.curve` | string | `"easeOut"` | `easeOut`, `easeInOut`, `linear`, `spring`, `cubicBezier` | Color Change Curve. How a color change moves over its duration. Spring uses Spring Response and Spring Damping; Custom uses the four Bezier values. |
@@ -509,6 +512,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `feed.github.pollIntervalSeconds` | real | `120` | 60 to 900 | Refresh Interval. Seconds between GitHub refreshes. Refresh in the Inbox runs immediately. |
 | `agentPane.links.outsideRoots` | string | `"open"` | `confirm`, `text`, `open` | Files Outside the Project. What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open. |
 | `agentPane.images.remote` | string | `"click"` | `click`, `never`, `always` | Web Images in Replies. A web image loads from its site, which then sees that you read the reply. |
+| `agentPane.needsYou.enabled` | boolean | `false` |  | Needs You. A badge in the chat header counts what your agents wait on; a click lists every ask with its answers. New agent tabs. |
 | `agentPane.editedFiles.show` | string | `"always"` | `always`, `collapsed`, `never` | Edited Files Card. The card that lists a turn's edited files, with Undo and View changes. |
 | `agentPane.editedFiles.maxRows` | real | `5` | 1 to 50 | Edited Files Shown |
 | `agentPane.editedFiles.scope` | string | `"turn"` | `turn`, `session` | Edited Files Card Covers |
