@@ -2345,6 +2345,15 @@ fn run_server(
         }
     }
     let provider_management_pending = provider_management_listener.is_some();
+    // The app starts a headless owner with stderr on /dev/null
+    // (`local_owner`, the app's daemon launch), so every `eprintln!`
+    // diagnostic of the daemon was lost (slow journal maintenance, deferred
+    // auto-vacuum, ledger quarantine). Route fd 2 into the bounded client log
+    // before the registry opens; an owner run by hand in a terminal keeps
+    // its stderr.
+    if headless && !io::stderr().is_terminal() {
+        crate::client_log::redirect_stderr_into_log();
+    }
     // Bind and serve the session socket before the restore below (registry
     // load, terminal host adoption), which can take minutes on a loaded
     // machine (cx-n3bs). For that whole time the socket names this process
