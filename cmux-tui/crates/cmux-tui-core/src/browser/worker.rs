@@ -217,7 +217,9 @@ impl BrowserCommandTx {
         &self,
         command: SequencedBrowserCommand,
     ) -> Result<(), TrySendError<SequencedBrowserCommand>> {
-        let sent = self.tx.as_ref().expect("sender is live until drop").try_send(command);
+        // `tx` is None only inside `drop`.
+        let Some(tx) = self.tx.as_ref() else { return Err(TrySendError::Disconnected(command)) };
+        let sent = tx.try_send(command);
         // A full queue still wakes the worker, which drains it.
         if !matches!(sent, Err(TrySendError::Disconnected(_)))
             && let Some(lane) = self.lane.get()

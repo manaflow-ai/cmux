@@ -40,7 +40,9 @@ impl Drop for FrameRequests {
 
 pub(super) fn spawn_frame_producer(surface: &Arc<Surface>) -> anyhow::Result<()> {
     let weak = Arc::downgrade(surface);
-    let pty = surface.as_pty().expect("frame producer got non-pty surface");
+    let Some(pty) = surface.as_pty() else {
+        anyhow::bail!("surface {} has no terminal for a frame producer", surface.id)
+    };
     let requests = Arc::downgrade(&pty.frame_requests);
     #[cfg(test)]
     let before_upgrade = pty.frame_producer_before_upgrade.clone();
