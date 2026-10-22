@@ -241,6 +241,14 @@ public final class MessagesLabHomeView: NSView {
     /// The header views a click on which runs ``onNamePill``: the pill and the avatar.
     public var namePillToggles: [NSView] { [controller.host.paneHeader.pill, controller.host.paneHeader.avatar] }
 
+    /// cmux: controls at the header's top right (Home's panel toggles), on the avatar's line.
+    /// They get their own clicks; the header's empty space still drags the window. Sized by its
+    /// `intrinsicContentSize`; hidden in a pane too narrow to keep it clear of the avatar. Nil: none.
+    public var headerTrailingAccessory: NSView? {
+        get { controller.host.paneHeader.trailingAccessory }
+        set { controller.host.paneHeader.trailingAccessory = newValue }
+    }
+
     /// The header avatar's text (one or two characters, an emoji); nil
     /// shows the conversation's initials.
     public var avatarText: String? {
@@ -253,6 +261,25 @@ public final class MessagesLabHomeView: NSView {
     public var avatarPicture: NSImage? {
         get { projection.pictureOverride }
         set { projection.pictureOverride = newValue }
+    }
+
+    /// A sender's chosen avatar beside a group's bubbles (``setSenderAvatars(_:)``).
+    public enum SenderAvatar: Hashable, Sendable {
+        /// A picture file.
+        case picture(URL)
+        /// One or two letters or an emoji, on the grey disc.
+        case text(String)
+    }
+
+    /// Chosen avatars by participant id (each Chief's, as Home's row draws it), beside a group's
+    /// bubbles; anyone not listed draws their initials. A new value redraws those bubbles.
+    public func setSenderAvatars(_ avatars: [String: SenderAvatar]) {
+        projection.senderAvatars = avatars.mapValues {
+            switch $0 {
+            case .picture(let url): .image(url.absoluteString)
+            case .text(let text): .monogram(text)
+            }
+        }
     }
 
     /// The name pill's VoiceOver help (what a click on it does).

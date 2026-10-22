@@ -3825,9 +3825,12 @@ jobs:
           SHARED_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track != 'nightly-next' && secrets.SPARKLE_PRIVATE_KEY || '' }}
           NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track != 'nightly-next' && secrets.NIGHTLY_SPARKLE_PRIVATE_KEY || '' }}
           NEXT_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track == 'nightly-next' && secrets.SPARKLE_NEXT_PRIVATE_KEY || '' }}
-          # cmux-next items carry sparkle:channel cmux-next, which only the
-          # cmux-next build allows; every other build ignores them.
-          SPARKLE_CHANNEL: ${{ needs.decide.outputs.track == 'nightly-next' && 'cmux-next' || '' }}
+          # cmux-next items carry a release-ring sparkle:channel, which only
+          # cmux-next builds allow; every other build ignores them. With
+          # NIGHTLY_NEXT_DEV_RING=on a new build starts on Dev (cmux-next-dev)
+          # and moves to Nightly (cmux-next) on a canary pass
+          # (scripts/ci/nightly_next_ring.py, nightly-next-verdict.yml).
+          SPARKLE_CHANNEL: ${{ needs.decide.outputs.track == 'nightly-next' && (vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'cmux-next-dev' || 'cmux-next') || '' }}
         run: |
           set -euo pipefail
           SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
@@ -4630,7 +4633,8 @@ jobs:
         if: steps.continue.outputs.accepted == 'true'
         env:
           NEXT_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}
-          SPARKLE_CHANNEL: cmux-next
+          # A recovered build is new to the feed: Dev first, as in build-sign-notarize-nightly.
+          SPARKLE_CHANNEL: ${{ vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'cmux-next-dev' || 'cmux-next' }}
         run: |
           set -euo pipefail
           SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
@@ -5508,6 +5512,17 @@ jobs:
           set -euo pipefail
           curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o next.xml "${NIGHTLY_NEXT_FEED_BASE}/${LEGACY_APPCAST}"
           curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o old.xml "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"
+          # The old feed's installs predate release rings and follow Nightly:
+          # only builds already tagged cmux-next are candidates, never one
+          # still on Dev (scripts/ci/nightly_next_ring.py; a no-op while
+          # NIGHTLY_NEXT_DEV_RING is off).
+          selected="$(python3 scripts/ci/nightly_next_ring.py select --feed next.xml --out next.xml --channel cmux-next)"
+          echo "cmux NEXT feed by ring: $selected"
+          if [ "$(python3 -I -c 'import json, sys; print(len(json.loads(sys.argv[1])["kept"]))' "$selected")" = 0 ]; then
+            echo "### cmux NIGHTLY-identity: no cmux NEXT build is on Nightly yet; the old feed waits (cx-x7hwx)" >> "$GITHUB_STEP_SUMMARY"
+            { echo "action=none"; echo "pending_run="; echo "bundle_run="; echo "build="; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # A cmux NIGHTLY-identity submission still in Apple's queue is kept by
           # publish-nightly-identity-legacy as the artifacts
           # cmux-nightly-identity-pending-meta/-bundle of its run: the newest
@@ -6201,6 +6216,8 @@ jobs:
         env:
           TRACK: nightly-next
           NEXT_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}
+          # The old feed's installs predate rings and allow only cmux-next;
+          # legacy-identity-target picks only builds already on Nightly.
           SPARKLE_CHANNEL: cmux-next
           SPARKLE_MINIMUM_SYSTEM_VERSION: ${{ needs.sign-nightly-identity-legacy.outputs.minimum_system_version }}
         run: |
@@ -6450,7 +6467,9 @@ jobs:
       SHARED_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track != 'nightly-next' && secrets.SPARKLE_PRIVATE_KEY || '' }}
       NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track != 'nightly-next' && secrets.NIGHTLY_SPARKLE_PRIVATE_KEY || '' }}
       NEXT_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track == 'nightly-next' && secrets.SPARKLE_NEXT_PRIVATE_KEY || '' }}
-      SPARKLE_CHANNEL: ${{ needs.decide.outputs.track == 'nightly-next' && 'cmux-next' || '' }}
+      # Every item starts on the new build's ring; republish-nightly-deltas
+      # moves the ones whose canary passed back to Nightly.
+      SPARKLE_CHANNEL: ${{ needs.decide.outputs.track == 'nightly-next' && (vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'cmux-next-dev' || 'cmux-next') || '' }}
     steps:
       - name: Checkout build ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -6514,6 +6533,20 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
 
+      # The ring script and the guard come from the workflow commit: the build
+      # ref can predate them (publish-nightly does the same).
+      - name: Checkout publication tooling at the workflow commit
+        if: needs.decide.outputs.track == 'nightly-next'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .publish-tooling
+          sparse-checkout: |
+            scripts/ci/nightly_next_ring.py
+            scripts/ci/nightly-next-guard.py
+          sparse-checkout-cone-mode: false
+
       - name: Download delta results
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -6525,6 +6558,8 @@ jobs:
         id: republish
         env:
           GH_TOKEN: ${{ github.token }}
+          TRACK: ${{ needs.decide.outputs.track }}
+          DEV_RING: ${{ vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'on' || 'off' }}
         run: |
           set -euo pipefail
           # The tag itself: `commits/<name>` resolves the nightly-next branch,
@@ -6562,6 +6597,15 @@ jobs:
             echo "No Sparkle deltas were generated; full appcasts remain current"
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
+          fi
+          # The revised feed lists earlier builds again, all on the new build's
+          # ring: each goes back to Nightly when its canary verdict is a pass.
+          if [ "$TRACK" = nightly-next ]; then
+            for feed in nightly-deltas/appcast*.xml; do
+              [ -f "$feed" ] || continue
+              python3 .publish-tooling/scripts/ci/nightly_next_ring.py retag --feed "$feed" --out "$feed" \
+                --mode "$DEV_RING" --verdicts-base "$NIGHTLY_NEXT_FEED_BASE"
+            done
           fi
           feeds=()
           for feed in nightly-deltas/appcast*.xml; do
@@ -6610,8 +6654,8 @@ jobs:
             [ -f "$feed" ] || continue
             name="$(basename "$feed")"
             key="${NIGHTLY_NEXT_R2_PREFIX}${name}"
-            python3 scripts/ci/nightly-next-guard.py appcast "$feed"
-            python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
+            python3 .publish-tooling/scripts/ci/nightly-next-guard.py appcast "$feed"
+            python3 .publish-tooling/scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
             python3 scripts/ci/upload-r2-object.py \
               --file "$feed" \
               --endpoint-url "$R2_ENDPOINT" \
@@ -6882,9 +6926,13 @@ jobs:
     continue-on-error: true
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    # contents: write reaches the pr-media branch through scripts/pr-media.py,
-    # whose privacy check (scripts/ci/pr_media_privacy.py) refuses any private
-    # name in this bot's folder before the first upload.
+    # The private-terms secret lives only in this environment, which admits only
+    # the protected branches (main, feat-cmux-next, nightly-next).
+    environment: pr-media
+    # contents: write reaches the pr-media branch only through
+    # .github/actions/pr-media-publish: its privacy check (pr_media_privacy.py,
+    # with tesseract OCR for the reel's frames) refuses any private name in this
+    # bot's folder before the first upload.
     permissions:
       contents: write
     steps:
@@ -6892,7 +6940,9 @@ jobs:
         with:
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           persist-credentials: false
-          sparse-checkout: scripts
+          sparse-checkout: |
+            scripts
+            .github/actions/pr-media-publish
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: release-notes
@@ -6907,34 +6957,34 @@ jobs:
             sudo apt-get install -y -qq --no-install-recommends ffmpeg fontconfig fonts-dejavu-core >/dev/null
           fi
       - name: Build and publish the reel
+        uses: ./.github/actions/pr-media-publish
         env:
-          GH_TOKEN: ${{ github.token }}
           NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
-          # Built-in fleet patterns only: the private names are a secret, which a
-          # dispatchable job may read only in an environment. main's
-          # pr-media-privacy.yml scans the push with them and removes a bot's hit.
-          PR_MEDIA_AGENT_AUTHORS: ${{ vars.PR_MEDIA_AGENT_AUTHORS }}
-        run: |
-          set -euo pipefail
-          # The notes this run signed and published, checked against the content key.
-          python3 scripts/cmux-next/media/reel.py --build "$NIGHTLY_BUILD" --notes "notes/$NIGHTLY_BUILD.json" \
-            --out "$RUNNER_TEMP/reel" --publish | tee "$RUNNER_TEMP/reel.log"
-          # The page the reel lists its clips on: raw.githubusercontent.com shows
-          # index.html as text, so the summary carries the list itself.
-          python3 - "$RUNNER_TEMP/reel/reel.json" "$RUNNER_TEMP/reel.log" >> "$GITHUB_STEP_SUMMARY" <<'PY'
-          import json, sys
-          report = json.load(open(sys.argv[1]))
-          urls = [line.strip() for line in open(sys.argv[2]) if line.startswith("https://")]
-          reel = next((url for url in urls if url.endswith("/reel.mp4")), None)
-          print(f"### cmux NEXT nightly reel, build {report['build']}\n")
-          print(f"[Reel (mp4)]({reel})\n" if reel else "No pull request in this build has a tour clip.\n")
-          print("| PR | Title | Clip |\n| --- | --- | --- |")
-          for pr in report["prs"]:
-              title = str(pr.get("title", "")).replace("|", "\\|").replace("\n", " ")
-              clip = pr.get("clip", "")
-              cell = f"[{pr.get('tour') or 'clip'}]({clip})" if clip.startswith("https://") else "no clip"
-              print(f"| #{pr['pr']} | {title} | {cell} |")
-          PY
+        with:
+          private-terms: ${{ secrets.PR_MEDIA_PRIVATE_TERMS }}
+          agent-authors: ${{ vars.PR_MEDIA_AGENT_AUTHORS }}
+          github-token: ${{ github.token }}
+          command: |
+            set -euo pipefail
+            # The notes this run signed and published, checked against the content key.
+            python3 scripts/cmux-next/media/reel.py --build "$NIGHTLY_BUILD" --notes "notes/$NIGHTLY_BUILD.json" \
+              --out "$RUNNER_TEMP/reel" --publish | tee "$RUNNER_TEMP/reel.log"
+            # The page the reel lists its clips on: raw.githubusercontent.com shows
+            # index.html as text, so the summary carries the list itself.
+            python3 - "$RUNNER_TEMP/reel/reel.json" "$RUNNER_TEMP/reel.log" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+            import json, sys
+            report = json.load(open(sys.argv[1]))
+            urls = [line.strip() for line in open(sys.argv[2]) if line.startswith("https://")]
+            reel = next((url for url in urls if url.endswith("/reel.mp4")), None)
+            print(f"### cmux NEXT nightly reel, build {report['build']}\n")
+            print(f"[Reel (mp4)]({reel})\n" if reel else "No pull request in this build has a tour clip.\n")
+            print("| PR | Title | Clip |\n| --- | --- | --- |")
+            for pr in report["prs"]:
+                title = str(pr.get("title", "")).replace("|", "\\|").replace("\n", " ")
+                clip = pr.get("clip", "")
+                cell = f"[{pr.get('tour') or 'clip'}]({clip})" if clip.startswith("https://") else "no clip"
+                print(f"| #{pr['pr']} | {title} | {cell} |")
+            PY
 
   # Post-publication compatibility check: the published NEXT DMG on macOS 15
   # (Sequoia), the oldest major a hosted
