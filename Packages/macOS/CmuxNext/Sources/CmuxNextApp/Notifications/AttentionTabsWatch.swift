@@ -19,6 +19,7 @@ enum AttentionTabsWatch {
             }) {
                 guard services != nil else { return }
                 AgentPaneAttentionTabs.shared.items = marked
+                services?.notifications.attentionMarksChanged(marked)
             }
         }
     }

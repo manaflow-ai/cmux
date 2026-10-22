@@ -38,6 +38,8 @@ final class NotificationCenterService {
     /// Going into the tab or Dismiss Highlight hides the ring; the mark and its dot stay until the
     /// agent clears it, the page changes or the tab closes. A new request rings again.
     var dismissedAttention: [String: UInt64] = [:]
+    /// The marked tabs at the last change, for their banners (`+Attention`); nil before the first list.
+    @ObservationIgnored var attentionSeen: [AgentPaneAttentionTabs.Item]?
     @ObservationIgnored weak var services: AppServices?
     /// Bumped when a window's settled focus changes: the viewed-tab rules
     /// (`followViewedProgramStatus`) re-read which tabs are viewed.
@@ -135,6 +137,7 @@ final class NotificationCenterService {
         desktop.onOpen = { [weak self] id, surface in
             if id == IPhonePairNotices.id { try? self?.services?.settingsWindow.show(section: nil, route: IPhonePairNotices.settingsRoute); return }
             if let request = AppBrowserPasskeyHost.requestID(banner: id) { self?.onPasskeyBanner?(request); return }
+            if self?.showAttention(banner: id) == true { return }
             self?.open(surface: surface.map(SurfaceID.init(rawValue:)))
             self?.webNotificationClicks.run(bannerID: id)
         }
