@@ -37,7 +37,7 @@ import Testing
         let onlyErrors = defaults()
         onlyErrors.set(false, forKey: "cmuxMobile.settings.notifyQuestions")
         onlyErrors.set(false, forKey: "cmuxMobile.settings.notifyFinished")
-        #expect(SettingsStore(defaults: onlyErrors).notifyLevel == .everything)
+        #expect(SettingsStore(defaults: onlyErrors).notifyLevel == .needed)
     }
 
     @Test func choicesPersist() {
