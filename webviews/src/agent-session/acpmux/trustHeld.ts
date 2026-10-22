@@ -186,9 +186,25 @@ export function useTrustHeldPrompts({
           }
           // Refused: its ticket is spent, so it goes back into the composer, unless a harness
           // switch already handed it back there (harnessSwitch.ts). A trust refusal (acpmux holds
-          // the folder again) leaves the rest waiting for the next answer.
-          if ((error as { handedBack?: unknown } | null)?.handedBack !== true) latest.current.putBack([entry]);
-          if (latest.current.refusedForTrust(error)) break;
+          // the folder again) in a chat that has a session leaves the rest waiting for the next
+          // answer. Any other refusal, or any in a new chat (whose start may have made a session
+          // its backlog no longer shows in), gives the rest back with it, in their order: none goes
+          // ahead of one refused, and none is left where it no longer shows.
+          const handedBack = (error as { handedBack?: unknown } | null)?.handedBack === true;
+          const waits = chat !== undefined && latest.current.refusedForTrust(error);
+          const rest = waits
+            ? []
+            : now.current.held.filter((item) =>
+                chat === undefined ? item.chat === undefined && item.cwd === entry.cwd : item.chat === chat,
+              );
+          if (rest.length) {
+            const back = new Set(rest.map((item) => item.id));
+            now.current = { ...now.current, held: now.current.held.filter((item) => !back.has(item.id)) };
+            setHeld((list) => list.filter((item) => !back.has(item.id)));
+          }
+          const given = [...(handedBack ? [] : [entry]), ...rest];
+          if (given.length) latest.current.putBack(given);
+          break;
         } finally {
           if (chat === undefined) starting.current = false;
         }

@@ -6014,6 +6014,9 @@ function AcpmuxPane() {
         ) => {
           // The chat it is sent in; once a start made the chat's session, that session.
           let sentFrom = shownFrom.current();
+          // A new chat's held prompt goes only to a session this send starts: one shown already is
+          // another chat's.
+          const selectedBefore = client.shownSession()?.sessionId;
           // The reader sent it: the transcript goes to its latest message now, even scrolled up.
           setSends((count) => count + 1);
           // acpmux holds the prompt while the folder's trust question is open (on session/new
@@ -6100,7 +6103,10 @@ function AcpmuxPane() {
           // start made.
           if (fromTrust) {
             const shown = client.shownSession();
-            const own = fromTrust.chat !== undefined ? fromTrust.chat === shown?.sessionId : shown?.empty === true;
+            const own =
+              fromTrust.chat !== undefined
+                ? fromTrust.chat === shown?.sessionId
+                : selectedBefore === undefined && shown?.empty === true;
             if (!shown || shown.sessionId !== sessionId || !own) throw movedOn();
           }
           const turn = client
@@ -7488,11 +7494,13 @@ function AcpmuxPane() {
       if (snapshot.summary?.watching && !(await directClient.current?.takeOver())) {
         throw new Error("watch.notTakenOver");
       }
+      // The chat this send's start made: a held prompt goes only there (`HeldSend.chat`).
+      let made: unknown;
       if (projectDraft && !snapshot.sessionId)
         // The chat's start is part of this send: a trust refusal there asks the folder's
         // question, keeps this prompt (with its send's gesture) and sends it after Trust
         // (cx-nn3e P0b; the prompt was lost when only the start ran again).
-        await callNative("chat.new", { cwd: projectDraft, ...heldPick(snapshot) }).catch((error: unknown) => {
+        made = await callNative("chat.new", { cwd: projectDraft, ...heldPick(snapshot) }).catch((error: unknown) => {
           // The prompt joins the hold of the new chat it was sent in (a held one goes back there:
           // trustHeld.ts). The question shows either way; the hold sends it after Trust.
           if (isTrustRefusal(error) && !fromTrust)
@@ -7508,7 +7516,12 @@ function AcpmuxPane() {
           accept(true);
         },
         steer,
-        ...(fromTrust ? { fromTrust } : {}),
+        ...(fromTrust
+          ? {
+              fromTrust:
+                fromTrust.chat === undefined && typeof made === "string" ? { ...fromTrust, chat: made } : fromTrust,
+            }
+          : {}),
       });
     };
     // The composer that holds the prompt: a refusal that comes once it is gone (the pane

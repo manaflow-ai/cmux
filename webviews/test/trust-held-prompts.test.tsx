@@ -143,11 +143,13 @@ test("a refused prompt goes back into the composer; after a trust refusal the re
   await act(async () => root.render(<Probe key="b" acpmux={acpmux} holds={false} chat="chat-2" />));
   await settle();
   expect(acpmux.sent.map((sent) => sent.entry.text)).toEqual(["one", "two"]);
-  // Another refusal (the sandbox): back into the composer, and the next one goes.
+  // Another refusal (the sandbox): back into the composer with the one after it, in their order;
+  // none goes ahead of one refused.
   acpmux.sent[1]!.refuse(new Error("sandbox"));
   await settle();
-  expect(acpmux.putBack).toEqual(["one", "two"]);
-  expect(acpmux.sent.map((sent) => sent.entry.text)).toEqual(["one", "two", "three"]);
+  expect(acpmux.givenBack).toEqual([["one"], ["two", "three"]]);
+  expect(acpmux.sent.map((sent) => sent.entry.text)).toEqual(["one", "two"]);
+  expect(shown!.rows).toEqual([]);
 });
 
 test("a new chat's prompts follow it into the session its start made, whatever chat shows meanwhile", async () => {
@@ -329,4 +331,19 @@ test("prompts the hold gives back go where they were typed, never into another c
   expect(texts(noComposer.drafts.get("chat-b")!)).toEqual(["b1"]);
   expect(texts(noComposer.drafts.get("chat-a")!)).toEqual(["a1", "a2"]);
   expect(texts(noComposer.later)).toEqual(["new1"]);
+});
+
+test("a new chat whose first held prompt is refused gives its whole backlog back, in order", async () => {
+  const acpmux = standIn();
+  await act(async () => root.render(<Probe key="l" acpmux={acpmux} holds chat={undefined} />));
+  await act(async () => shown!.hold("start it", []));
+  await act(async () => shown!.hold("and this", []));
+  await act(async () => root.render(<Probe key="l" acpmux={acpmux} holds={false} chat={undefined} />));
+  await settle();
+  // Its start made a session, then acpmux refused the prompt (a spent ticket): the backlog would no
+  // longer show anywhere, so it all comes back.
+  acpmux.sent[0]!.refuse(new Error("gesture expired"));
+  await settle();
+  expect(acpmux.givenBack).toEqual([["start it", "and this"]]);
+  expect(shown!.holdsAny()).toBe(false);
 });
