@@ -258,10 +258,16 @@ input:is(
   ) {
   cursor: pointer;
 }
-/* A disabled control never shows the hand, whatever a surface's rule for it says. A surface that
-   shows another cursor there (`not-allowed`) says so with !important on a :disabled rule. */
+/* A disabled control never shows the hand, whatever a surface's rule for it says, and neither does
+   its label: one around it, or a `for` label right before or after it (Cloud's locked memory
+   sizes). A surface that shows another cursor there (`not-allowed`) says so with !important on a
+   :disabled rule. */
 :is(:disabled, [aria-disabled="true"]),
-:is(:disabled, [aria-disabled="true"]) * {
+:is(:disabled, [aria-disabled="true"]) *,
+label:is(:has(:disabled), :has(+ :disabled)),
+label:is(:has(:disabled), :has(+ :disabled)) *,
+:disabled + label,
+:disabled + label * {
   cursor: default !important;
 }
 
