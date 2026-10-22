@@ -98,19 +98,25 @@ class StarvedDetectionTests(unittest.TestCase):
         found = starved(job(created=40), gate)
         self.assertEqual([(entry["label"], entry["oldest_queued_minutes"]) for entry in found], [(SIDE, 25)])
 
-    def test_a_job_behind_a_queued_sibling_on_an_idle_pool_is_not_starved(self) -> None:
-        # The queued sibling may be its `needs`, stuck itself (queue_janitor._gated()).
+    def test_a_job_behind_a_queued_sibling_waits_the_longer_gated_bound(self) -> None:
+        # The queued sibling may be its `needs` (queue_janitor._gated()), even on a pool serving other jobs,
+        # or a dependent of the stuck fleet job: the API cannot tell. The alert waits STARVED_GATED_AFTER.
         build = job(label="blacksmith-4vcpu-ubuntu-2404", created=40, name="build")
-        self.assertEqual(starved(job(created=40), build), [])
-
-    def test_a_queued_sibling_on_a_serving_pool_is_a_dependent_and_no_gate(self) -> None:
-        # Its pool started a job inside the window, so it waits on its `needs`: downstream of the fleet job.
-        tests = job(label="blacksmith-4vcpu-ubuntu-2404", created=40, name="cloud tests")
         elsewhere = job(label="blacksmith-4vcpu-ubuntu-2404", status="in_progress", created=3, started=2,
                         runner="bs-9", name="lint")
-        found = starved_labels.starved([{"id": 1}, {"id": 2}], {1: [job(created=40), tests], 2: [elsewhere]},
-                                       now=NOW)
-        self.assertEqual([(entry["label"], entry["oldest_queued_minutes"]) for entry in found], [(SIDE, 40)])
+        bound = int(starved_labels.STARVED_GATED_AFTER.total_seconds() // 60)
+        self.assertGreater(bound, 40)
+        self.assertEqual(starved_labels.starved([{"id": 1}, {"id": 2}], {1: [job(created=40), build], 2: [elsewhere]},
+                                                now=NOW), [])
+        stuck = job(created=bound + 5)
+        dependent = job(label="blacksmith-4vcpu-ubuntu-2404", created=bound + 5, name="cloud tests")
+        found = starved(stuck, dependent)
+        self.assertEqual([(entry["label"], entry["oldest_queued_minutes"]) for entry in found], [(SIDE, bound + 5)])
+
+    def test_a_running_sibling_gates_without_a_bound(self) -> None:
+        build = job(label="blacksmith-4vcpu-ubuntu-2404", status="in_progress", created=300, started=299,
+                    runner="bs-1", name="build")
+        self.assertEqual(starved(job(created=300), build), [])
 
     def test_two_stuck_fleet_jobs_never_mask_each_other(self) -> None:
         found = starved(job(created=40), job(label=OTHER, created=40, name="other compile"))

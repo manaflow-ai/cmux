@@ -1237,6 +1237,14 @@ class StarvedLabelSnapshotTests(unittest.TestCase):
     def snapshot(self, runs, jobs, *, fail_jobs=(), completed=None):
         fake = FakeGitHub({r["id"]: dict(r) for r in runs}, jobs)
         fake.completed = dict(completed or {})
+        listing_runs = fake.completed_runs
+
+        def created_since(workflow, since):
+            # GitHub applies `created>=since` to the listing; the shared fake does not.
+            return [run for run in listing_runs(workflow, since)
+                    if janitor.parse_time(run["created_at"]) >= janitor.parse_time(since)]
+
+        fake.completed_runs = created_since
         if fail_jobs:
             listing = fake.jobs
 
@@ -1303,7 +1311,7 @@ class StarvedLabelSnapshotTests(unittest.TestCase):
         run["pull_requests"] = [{"number": 7, "base": {"ref": self.NEXT}}]
         done = make_run(path=".github/workflows/cmux-next.yml", name="cmux-next", branch="lane/y",
                         status="completed", age=20)
-        done["conclusion"] = "success"
+        done.update(conclusion="success", updated_at=iso(1))
         started = {"status": "completed", "conclusion": "success", "name": "cmux-next app compile (build fleet)",
                    "labels": [self.FLEET], "created_at": iso(20), "started_at": iso(5), "completed_at": iso(1),
                    "runner_name": "mini-3"}
@@ -1311,6 +1319,19 @@ class StarvedLabelSnapshotTests(unittest.TestCase):
                                        completed={"cmux-next.yml": [done]})
         self.assertEqual(snapshot["starved"], [])
         self.assertEqual(snapshot["unserved"], [])
+
+    def test_an_older_completed_run_that_started_the_label_recently_serves_it(self):
+        run = make_run(path=".github/workflows/cmux-next.yml", name="cmux-next", branch="lane/x")
+        run["pull_requests"] = [{"number": 7, "base": {"ref": self.NEXT}}]
+        done = make_run(path=".github/workflows/cmux-next.yml", name="cmux-next", branch="lane/y",
+                        status="completed", age=90)
+        done.update(conclusion="success", updated_at=iso(1))
+        started = {"status": "completed", "conclusion": "success", "name": "cmux-next app compile (build fleet)",
+                   "labels": [self.FLEET], "created_at": iso(90), "started_at": iso(5), "completed_at": iso(1),
+                   "runner_name": "mini-3"}
+        snapshot, _ = self.snapshot([run], {run["id"]: [self.compile_job()], done["id"]: [started]},
+                                    completed={"cmux-next.yml": [done]})
+        self.assertEqual(snapshot["starved"], [])
 
     def test_a_main_run_of_a_linux_only_workflow_is_still_not_listed(self):
         into_main = make_run(path=".github/workflows/cmux-next.yml", name="cmux-next", branch="lane/x")
