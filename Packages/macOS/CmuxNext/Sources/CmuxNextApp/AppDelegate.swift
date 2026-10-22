@@ -303,6 +303,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
         BrowserOmnibarPreference.follow(settings, cache: services.cache)
         services.notifications.follow(settings)
+        services.followMacScreenSettings(settings)
+        services.startDeviceHub(settings)
         services.updater.follow(settings)
         ComputerUseHelperDaemon.shared.follow(settings, disabledByPolicy: { [weak services] in
             services?.registry.disabledFeatures.contains(.computerUse) ?? true
@@ -337,6 +339,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerPageDebugMethods(services)
                 control.registerRemoteBrowserDebugMethods(services)
                 RemoteViewDebugMethods(services: services).register(on: control.service?.router)
+                services.registerMacScreenDebug(on: control.service?.router)
+                services.registerDeviceHubDebug(on: control.service?.router)
                 DebugNowPlaying.register(on: control.service?.router, services: services)
                 DebugDownloads.register(on: control.service?.router, services: services)
                 DebugCEFDevToolsLayout.register(on: control.service?.router, services: services)
@@ -357,6 +361,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } catch {
                 logger.error("control socket failed: \(String(describing: error), privacy: .public)")
             }
+            // Share This Mac resumes when the person left it on.
+            services.macScreenPages.activate()
         }
     }
 
