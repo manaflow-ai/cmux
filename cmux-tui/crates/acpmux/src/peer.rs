@@ -324,7 +324,7 @@ impl Peer {
         if self.out.send(line).await.is_err() {
             return Err(RpcError::internal(format!("peer {} connection closed", self.name)));
         }
-        match tokio::time::timeout(Duration::from_secs(600), rx).await {
+        match tokio::time::timeout(self.timings.request, rx).await {
             Ok(Ok(r)) => r,
             Ok(Err(_)) => {
                 Err(RpcError::internal(format!("peer {} dropped the request", self.name)))
