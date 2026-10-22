@@ -25,11 +25,9 @@ nonisolated enum ContextMenuEssentials {
         // Send Message… (u5402: "send messages in the iMessage UI via right clicking") opens the
         // Chief's chat about this workspace.
         // Rename and the color row open the menu as its name field and swatches (MenuIdentityHeader,
-        // Leo 2026-10-20: "like Chrome"). Duplicate joins the top level from More's New. Reset
-        // Workspace Color sits under the swatches; the app leaves it out of an uncolored row's menu
-        // (SidebarContextMenus.workspaceEntries).
+        // Leo 2026-10-20: "like Chrome"). Duplicate joins the top level from More's New.
         .workspaceRow: Rows(top: [.action("renameWorkspace"), .action("palette.toggleWorkspacePin"), .choices("palette.workspaceColor"),
-                                  .action("palette.resetWorkspaceColor"), .action("workspace.newBelow"), .action("workspace.duplicate"), .action("home.messageAbout"), .folder(.move, [])],
+                                  .action("workspace.newBelow"), .action("workspace.duplicate"), .action("home.messageAbout"), .folder(.move, [])],
                             group: [.choices("moveWorkspaceToGroup"), .action("groupSelectedWorkspaces"), .action("removeWorkspaceFromGroup")],
                             close: ["closeWorkspace"]),
         // Chrome's tab menu, in its order (`TabMenuModel::Build`, Leo 2026-10-19: "make sure that

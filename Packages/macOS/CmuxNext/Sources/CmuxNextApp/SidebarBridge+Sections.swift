@@ -165,11 +165,23 @@ extension SidebarBridge {
                                                  entries: entries)
     }
 
-    /// The open workspace a layout item names (a pinned workspace's tile), or nil.
-    func workspaceID(ofItem id: LayoutItemID) -> SidebarWorkspaceID? {
+    /// The open workspace a pinned workspace's tile names, or nil (another item, a closed or
+    /// another device's workspace, or a workspace tile in a section other than Pinned, which keeps
+    /// its item menu: Remove from Section, Remove from Sidebar).
+    func pinnedWorkspaceID(ofItem id: LayoutItemID) -> SidebarWorkspaceID? {
         guard let ref = (model.layout.item(id) ?? model.listedItem(id))?.ref,
-              let workspace = WorkspaceLayoutRefs(machines: services.machines).workspaceID(for: ref) else { return nil }
-        return SidebarWorkspaceID(workspace)
+              let (workspace, _) = WorkspaceLayoutRefs(machines: services.machines).workspace(for: ref),
+              PinCommands(context: AppActionContext(services: services)).isWorkspacePinned(workspace) else { return nil }
+        return SidebarWorkspaceID(workspace.id)
+    }
+
+    /// A pinned workspace tile's own rows, kept under its workspace menu: Show/Hide Label.
+    func tileRows(_ id: LayoutItemID) -> [NSMenuItem] {
+        let menu = services.registry.makeContextMenu(for: .sidebarItem, target: ActionTargetRef(kind: .sidebarItem, id: id.rawValue),
+                                                     entries: [.action("sidebar.item.toggleLabel")])
+        let items = menu.items.filter { !$0.isSeparatorItem }
+        menu.removeAllItems()
+        return items
     }
 
     /// The right-click menu of a layout item: Hide only on app items.

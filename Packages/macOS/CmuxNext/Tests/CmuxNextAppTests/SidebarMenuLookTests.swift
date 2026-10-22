@@ -56,16 +56,30 @@ struct SidebarMenuLookTests {
         #expect(header.strip != nil, "group: the colors are swatches")
     }
 
-    /// A colored workspace's menu offers Reset Workspace Color at the top level, under the
-    /// swatches; an uncolored one's leaves it out, More included.
-    @Test func resetColorShowsOnlyForAColoredWorkspace() {
+    /// A colored workspace's menu offers Reset Workspace Color just under the swatches; an
+    /// uncolored one's leaves it out, More included.
+    @Test func resetColorSitsUnderTheSwatchesOnlyForAColoredWorkspace() throws {
         let ids = { (entries: [ContextMenuEntry]) in ContextMenuCatalog.shared.referencedIDs(entries) }
-        let colored = SidebarContextMenus.workspaceEntries(selection: false, highlighted: false, colored: true)
-        let top = colored.filter { if case .folder = $0 { false } else { true } }
-        #expect(ids(top).contains("palette.resetWorkspaceColor"))
-        #expect(!ids(SidebarContextMenus.workspaceEntries(selection: false, highlighted: false, colored: false)).contains("palette.resetWorkspaceColor"))
-        #expect(ids(SidebarContextMenus.workspaceEntries(selection: true, highlighted: false, colored: true)).contains("palette.resetWorkspaceColor"))
-        #expect(!ids(SidebarContextMenus.workspaceEntries(selection: true, highlighted: false, colored: false)).contains("palette.resetWorkspaceColor"))
+        for selection in [false, true] {
+            #expect(ids(SidebarContextMenus.workspaceEntries(selection: selection, highlighted: false, colored: true)).contains("palette.resetWorkspaceColor"))
+            #expect(!ids(SidebarContextMenus.workspaceEntries(selection: selection, highlighted: false, colored: false)).contains("palette.resetWorkspaceColor"))
+        }
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        let target = ActionTargetRef(kind: .workspace, id: Self.workspace.rawValue)
+        let menu = services.registry.makeContextMenu(for: .workspaceRow, target: target,
+                                                     entries: SidebarContextMenus.workspaceEntries(selection: false, highlighted: false, colored: true))
+        MenuIdentityHeader.install(in: menu, registry: services.registry, target: target, name: "api", rename: "renameWorkspace")
+        SidebarContextMenus.liftResetColor(in: menu)
+        #expect(menu.items.first?.view is MenuIdentityHeaderView)
+        #expect(menu.items.count > 2 && ActionRegistry.menuRun(of: menu.items[2])?.id == "palette.resetWorkspaceColor")
+        #expect(menu.items.filter { !$0.isSeparatorItem }.count <= SidebarContextMenus.topLevelLimit)
+        let more = try #require(menu.items.first { $0.title == MenuFolder.more.title }?.submenu)
+        #expect(!more.items.contains { ActionRegistry.menuRun(of: $0)?.id == "palette.resetWorkspaceColor" })
+        for (index, item) in more.items.enumerated() where item.isSeparatorItem {
+            #expect(index > 0 && index < more.items.count - 1 && !more.items[index + 1].isSeparatorItem, "More keeps no stray separator")
+        }
     }
 
     /// More holds rows and at most one level of submenus: no More inside More.

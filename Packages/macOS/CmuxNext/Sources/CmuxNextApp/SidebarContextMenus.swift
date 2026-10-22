@@ -7,8 +7,6 @@ import CmuxNextSidebar
 /// A sidebar right-click's menu, by target. The layout sections' menus stay
 /// on SidebarBridge (SidebarBridge+Sections), which dispatches to these.
 enum SidebarContextMenus {
-    /// Every sidebar menu draws its rows with a wash of `scope`'s accent (the sidebar's), not the
-    /// system's blue (#19754's follow-up); the workspace and group menus open with their name and colors.
     /// The workspace row menu's entries. Several selected rows get Chrome's menu for several tabs
     /// (ContextMenuEssentials.selectionMenus). Dismiss Highlight shows only on a highlighted row
     /// (cx-epgo), Reset Workspace Color only when a targeted workspace has a color.
@@ -19,7 +17,34 @@ enum SidebarContextMenus {
         return hidden.isEmpty ? all : ContextMenuCatalog.removing(Set(hidden), from: all)
     }
 
-    static func menu(for target: SidebarContextTarget, model: SidebarModel, services: AppServices, scope: ThemeScope) -> NSMenu? {
+    /// Moves Reset Workspace Color from More to just under the header's swatches, where a person
+    /// looks to clear the color they see ringed (2026-10-21). The catalog keeps it in More, so the
+    /// header, which folds Rename and the color row into one item, makes room for it.
+    static func liftResetColor(in menu: NSMenu) {
+        func find(_ menu: NSMenu) -> NSMenuItem? {
+            for item in menu.items {
+                if ActionRegistry.menuRun(of: item)?.id == "palette.resetWorkspaceColor" { return item }
+                if let submenu = item.submenu, let found = find(submenu) { return found }
+            }
+            return nil
+        }
+        guard let reset = find(menu), let parent = reset.menu else { return }
+        parent.removeItem(reset)
+        // A section of More left with only its separators loses them.
+        while parent.items.first?.isSeparatorItem == true { parent.removeItem(at: 0) }
+        while parent.items.last?.isSeparatorItem == true { parent.removeItem(at: parent.items.count - 1) }
+        while let index = parent.items.indices.dropLast().first(where: { parent.items[$0].isSeparatorItem && parent.items[$0 + 1].isSeparatorItem }) {
+            parent.removeItem(at: index)
+        }
+        let headed = menu.items.first?.view is MenuIdentityHeaderView
+        menu.insertItem(reset, at: headed ? min(2, menu.items.count) : 0)
+    }
+
+    /// Every sidebar menu draws its rows with a wash of `scope`'s accent (the sidebar's), not the
+    /// system's blue (#19754's follow-up); the workspace and group menus open with their name and
+    /// colors. `trailing` rows end a workspace menu after a separator (a pinned tile's own rows).
+    static func menu(for target: SidebarContextTarget, model: SidebarModel, services: AppServices, scope: ThemeScope,
+                     trailing: [NSMenuItem] = []) -> NSMenu? {
         let registry = services.registry
         switch target {
         case .tab(let workspace, let tab):
@@ -47,6 +72,11 @@ enum SidebarContextMenus {
             let title = model.workspace(first)?.title ?? services.workspace(id: first.rawValue)?.displayName ?? ""
             MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: selection ? nil : title,
                                        rename: "renameWorkspace")
+            if colored, !selection { liftResetColor(in: menu) }
+            if !trailing.isEmpty {
+                menu.addItem(.separator())
+                for item in trailing { menu.addItem(item) }
+            }
             if selection { nameSelection(menu, ids, services) }
             if !selection, model.workspace(first)?.machineID.isLocalChief == true { noteStartedByChief(menu) }
             menu.themeRows(in: scope)
