@@ -241,7 +241,12 @@ class WorkflowShape(unittest.TestCase):
         for step in steps[first:last]:
             with self.subTest(step=step["name"]):
                 self.assertIs(step.get("continue-on-error"), True)
-                if "run" in step:
+        # A red that keeps going must still fail the job: every continue-on-error step, an action's too, has an id
+        # whose outcome the last step reads.
+        for step in steps:
+            if step.get("continue-on-error") is True:
+                with self.subTest(gated=step["name"]):
+                    self.assertIn("id", step)
                     self.assertIn(f"${{{{ steps.{step['id']}.outcome }}}}", gated)
 
     def test_format_never_hides_lint_or_type_errors(self):
@@ -256,6 +261,8 @@ class WorkflowShape(unittest.TestCase):
                 self.assertNotIn("vp check", pieces)
                 self.assertIn("vp fmt --check", pieces)
                 self.assertIn("vp lint", pieces)
+                # Every caller of `check` (the hook, the fast gates, ci-web off feat-cmux-next) gets the type check.
+                self.assertIn("vp check --no-fmt --no-lint", pieces)
 
     def test_the_type_check_covers_every_webviews_test_file(self):
         tsconfig = json.loads((ROOT / "webviews/tsconfig.json").read_text())
@@ -550,7 +557,7 @@ class ScriptBehavior(unittest.TestCase):
 # fails when that file has any.
 FAKE_BUN = textwrap.dedent("""\
     #!/bin/sh
-    [ "$1" = install ] && exit 0
+    if [ "$1" = install ]; then [ -n "$BUN_LOG" ] && pwd -P >> "$BUN_LOG"; exit 0; fi
     f="findings/$2"
     [ -s "$f" ] || { echo "$2: ok"; exit 0; }
     echo "$2: found"; cat "$f"; exit 1
@@ -704,6 +711,58 @@ class WebviewsChecksGate(unittest.TestCase):
                                 capture_output=True, text=True, env=env)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("typecheck failed", result.stdout)
+
+    def base_installs(self, base_lock: str, head_lock: str) -> list[str]:
+        """The base checks' bun installs when the merge's webviews/node_modules exists and the locks are as given."""
+        (self.repo / ".gitignore").write_text("node_modules/\n")
+        git(self.repo, "add", ".gitignore")
+        (self.repo / "webviews/bun.lock").parent.mkdir(parents=True, exist_ok=True)
+        (self.repo / "webviews/bun.lock").write_text(base_lock)
+        git(self.repo, "add", "webviews/bun.lock")
+        red = type_error("TS2307", "Cannot find module './x.json'.", "src/a.ts:4:21")
+        base = self.findings({"typecheck": red}, "base")
+        (self.repo / "webviews/bun.lock").write_text(head_lock)
+        git(self.repo, "add", "webviews/bun.lock")
+        self.findings({"typecheck": red}, "the merge")
+        (self.repo / "webviews/node_modules").mkdir()
+        log = self.tmp / "bun-installs.log"
+        env = {**os.environ, "PATH": f"{self.bin}:{os.environ['PATH']}", "BUN_LOG": str(log)}
+        result = subprocess.run([sys.executable, str(WEBVIEWS_CHECKS), "--base", base, "--repo", str(self.repo)],
+                                capture_output=True, text=True, env=env)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        merge = str((self.repo / "webviews").resolve())
+        return [line for line in log.read_text().splitlines() if line != merge]
+
+    def test_the_base_installs_its_own_dependencies_when_the_pull_request_changes_them(self):
+        # A pull request that bumps a dependency and so adds a type error must not have the base checked with the
+        # bumped dependency, where the same error would show and pass as the base's.
+        installs = self.base_installs("lock: typescript 5.9\n", "lock: typescript 6.0\n")
+        self.assertEqual(len(installs), 1, installs)
+        self.assertIn("fast-gate-webviews-base-", installs[0])
+
+    def test_the_base_shares_the_merges_dependencies_when_they_install_the_same(self):
+        self.assertEqual(self.base_installs("lock: same\n", "lock: same\n"), [])
+
+    def test_a_new_failure_beside_a_known_diagnostic_is_new(self):
+        known = type_error("TS2307", "Cannot find module './x.json'.", "src/a.ts:4:21")
+        new = self.module.added(known + "error: Failed to resolve vite config: ENOENT\n", known)
+        self.assertEqual(new, ["error: Failed to resolve vite config: ENOENT"])
+
+    def test_a_wrapped_message_compares_whole(self):
+        def wrapped(detail: str) -> str:
+            return (f"  x typescript(TS2322): Type '{{ a: number; }}' is not assignable to type 'Props'.\n"
+                    f"  |   {detail}\n     ,-[src/a.tsx:3:7]\n 3 | <A a={{1}} />\n     :  ^\n     `----\n")
+        self.assertEqual(len(self.module.added(wrapped("Property 'y' is missing in type"),
+                                               wrapped("Property 'x' is missing in type"))), 1)
+        self.assertEqual(self.module.added(wrapped("Property 'x' is missing in type"),
+                                           wrapped("Property 'x' is missing in type")), [])
+
+    def test_fewer_errors_than_the_base_adds_nothing(self):
+        a = type_error("TS2307", "Cannot find module './x.json'.", "src/a.ts:4:21")
+        b = type_error("TS2322", "Type 'string' is not assignable.", "src/b.ts:9:3")
+        self.assertEqual(self.module.added(f"error: Type errors found\n{a}Found 1 error and 0 warnings in 9 files (1.0s)\n",
+                                           f"error: Type errors found\n{a}{b}Found 2 errors and 0 warnings in 9 files (2.1s)\n"),
+                         [])
 
     def test_the_base_worktree_is_removed(self):
         base = self.findings({}, "base")
