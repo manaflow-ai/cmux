@@ -1,4 +1,5 @@
 import CmuxHomeCore
+import CmuxNextChiefPetWiring
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
@@ -29,7 +30,7 @@ extension HomeService {
         draft.chiefShortcuts(contacts: chiefRoster.mainFirst(contacts(), rows: homeStore.rows))
     }
     func recipientLook(_ recipient: HomeRecipient) -> HomeRecipientLook {
-        chiefRoster.look(recipient, rows: homeStore.rows, avatars: directory.chiefAvatars,
+        chiefRoster.look(recipient, rows: homeStore.rows, avatars: chiefFaces,
                          fallback: HomeHostView.defaultTileAvatar(mascot: services.settings?.snapshot.homeChiefPetMascot),
                          harnesses: directory.chiefHarnesses)
     }
@@ -117,7 +118,7 @@ extension HomeService {
             store: HomePinStore(), inboxes: [homeInbox, homeCloudInbox], account: { [weak self] in self?.pinAccount ?? "local" },
             rows: { [weak self] in TopHomePageView.visible(store.rows, archivedChiefs: self?.directory.archivedChiefs ?? [], me: store.me?.id) },
             me: { store.me?.id }, contacts: { [weak self] in self?.contacts() ?? [] },
-            chiefAvatars: { [weak self] in self?.directory.chiefAvatars ?? [:] },
+            chiefAvatars: { [weak self] in self?.chiefFaces ?? [:] },
             defaultChiefAvatar: { [weak self] in HomeHostView.defaultTileAvatar(mascot: self?.services.settings?.snapshot.homeChiefPetMascot) },
             chiefHarnesses: { [weak self] in self?.directory.chiefHarnesses ?? [:] },
             chiefRoster: { [weak self] in self?.chiefRoster ?? HomeChiefRoster() })
@@ -150,5 +151,31 @@ extension HomeService {
             guard let self, directory.chiefAvatars != avatars else { return }
             directory.chiefAvatars = avatars
         }
+    }
+
+    /// Each listed Chief's avatar as its Home row, header and bubbles draw it: its own picture or
+    /// text, else the picture of its own pet character (``ChiefMascotPicks``), so a character picked
+    /// for one Chief never shows on another.
+    var chiefFaces: [String: HomeChiefAvatar] {
+        let picks = services.chiefMascotPicks, snapshot = services.settings?.snapshot
+        let chiefs = Set(homeStore.rows.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
+        return Self.chiefFaces(chiefs: chiefs, own: directory.chiefAvatars) {
+            ChiefPetSettingsRows.avatarURL(of: picks.mascot(of: $0, in: snapshot))
+        }
+    }
+
+    /// `own` (each Chief's own avatar), with each other Chief in `chiefs` wearing the `picture` of its character.
+    static func chiefFaces(chiefs: Set<String>, own: [String: HomeChiefAvatar], picture: (String) -> URL?) -> [String: HomeChiefAvatar] {
+        var faces = own
+        for chief in chiefs where faces[chief] == nil {
+            if let url = picture(chief) { faces[chief] = .picture(url) }
+        }
+        return faces
+    }
+
+    /// The participant id of the one Chief in `participants`; nil for none or several.
+    static func soleChief(of participants: [Participant]) -> String? {
+        let chiefs = participants.filter(\.isChief)
+        return chiefs.count == 1 ? chiefs[0].id.rawValue : nil
     }
 }
