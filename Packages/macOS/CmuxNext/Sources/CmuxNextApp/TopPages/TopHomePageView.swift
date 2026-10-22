@@ -273,10 +273,16 @@ final class TopHomePageView: NSView {
         return store.isInboxCurrent && store.isCacheOnly(shown)
     }
 
-    /// Shows the live Chief instead of a gone conversation; the text the user
-    /// typed there goes with it (after the Chief's own draft), so nothing typed is lost.
+    /// Shows the live Chief instead of a gone conversation; the text and pictures the user
+    /// put there go with it (after the Chief's own draft), so nothing typed or pasted is lost.
     private func replaceGone(with chief: ConversationID, store: HomeStore) {
         guard let gone = shown, gone != chief, store.summary(chief) != nil else { return }
+        let pictures = store.draftAttachments(for: gone)
+        if !pictures.isEmpty {
+            let own = store.draftAttachments(for: chief)
+            store.setDraftAttachments(own + pictures.filter { p in !own.contains { $0.ref.hash == p.ref.hash } }, for: chief)
+            store.setDraftAttachments([], for: gone)
+        }
         if let text = store.draft(for: gone), !text.isEmpty {
             let own = store.draft(for: chief) ?? ""
             store.setDraft(own.isEmpty ? text : own + "\n" + text, for: chief)

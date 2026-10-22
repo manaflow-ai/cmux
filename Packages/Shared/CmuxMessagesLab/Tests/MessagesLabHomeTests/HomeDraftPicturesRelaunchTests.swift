@@ -101,8 +101,34 @@ import UniformTypeIdentifiers
 
         let second = try await launch(root)
         defer { second.quit() }
-        for _ in 0..<200 { await Task.yield() }
+        #expect(second.store.draftAttachments(for: Self.conversation).isEmpty, "nothing for the field to restore")
         #expect(second.view.draftAttachments.isEmpty)
+    }
+
+    /// Return pressed while the last launch's chips are still coming back: what
+    /// was not in the field yet stays out of it and out of the cache.
+    @Test func aSendDuringTheRestoreKeepsTheRestOut() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("home-draft-pictures-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = try await launch(root)
+        first.view.controller.dispatch(.setDraft("two shots"))
+        first.view.projection.draftChanged()
+        _ = try await paste(first)
+        let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 80, pixelsHigh: 30, bitsPerSample: 8,
+                                                samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                                bytesPerRow: 0, bitsPerPixel: 0))
+        let other = try await first.store.prepareAttachment(data: try #require(rep.representation(using: .png, properties: [:])),
+                                                            typeIdentifier: UTType.png.identifier)
+        await first.view.addDraftAttachment(other)
+        #expect(first.store.draftAttachments(for: Self.conversation).count == 2)
+        first.quit()
+
+        let second = try await launch(root)
+        defer { second.quit() }
+        #expect(second.view.sendDraft() == nil, "sent before any chip is back")
+        await until { !second.view.draftAttachments.isEmpty }
+        #expect(second.view.draftAttachments.isEmpty)
+        #expect(second.store.draftAttachments(for: Self.conversation).isEmpty)
     }
 
     @Test func aSentScreenshotDoesNotComeBack() async throws {
@@ -116,7 +142,7 @@ import UniformTypeIdentifiers
 
         let second = try await launch(root)
         defer { second.quit() }
-        for _ in 0..<200 { await Task.yield() }
+        #expect(second.store.draftAttachments(for: Self.conversation).isEmpty, "nothing for the field to restore")
         #expect(second.view.draftAttachments.isEmpty)
     }
 }

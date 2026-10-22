@@ -84,6 +84,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// The last launch's attachments are going back in the field: each one
     /// is not written back on its own, the whole field is once they are in.
     private var restoringDraftAttachments = false
+    /// Bumped by a send: a restore still adding chips stops, so a sent picture does not come back.
+    private var draftAttachmentsRestore = 0
 
     /// What the projection shows, as HomeStore said it (shared with the harness).
     private(set) var core: ProjectionCore
@@ -425,6 +427,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
             controller.dispatch(.setDraft(""))
         }
         homeStore.setDraft("", for: conversation)
+        draftAttachmentsRestore += 1
+        restoringDraftAttachments = false
         homeStore.setDraftAttachments([], for: conversation)
         for a in attachments {
             media.useLocal(a.files, for: a.ref.hash)
@@ -531,11 +535,19 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let kept = homeStore.draftAttachments(for: conversation)
         guard !kept.isEmpty else { return }
         restoringDraftAttachments = true
-        // task-owner: one restore; ends when the last chip is in the field (addDraft returns once stopped)
+        draftAttachmentsRestore += 1
+        let restore = draftAttachmentsRestore
+        // task-owner: one restore; ends when the last chip is in the field, or at a send (restoreDraft does nothing once stopped)
         Task { [weak self] in
-            for attachment in kept { await self?.addDraft(attachment) }
-            self?.restoringDraftAttachments = false
-            self?.saveDraftAttachments()
+            for attachment in kept {
+                guard let self, self.draftAttachmentsRestore == restore else { return }
+                await self.media.prepare(attachment)
+                guard self.draftAttachmentsRestore == restore else { return }
+                self.restoreDraft(attachment)
+            }
+            guard let self, self.draftAttachmentsRestore == restore else { return }
+            self.restoringDraftAttachments = false
+            self.saveDraftAttachments()
         }
     }
 
