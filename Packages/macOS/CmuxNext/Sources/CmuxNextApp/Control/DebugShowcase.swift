@@ -30,7 +30,10 @@ enum DebugShowcase {
             if focus, let nsWindow = window.window { WindowActivation.show(nsWindow, .focus) }
         }
         services.feed.startIfSignedIn()
-        seedNotifications(services: services, surface: pane.pane.tabs.first?.surface)
+        // Never onto a page tab (the Home dock, Settings): an unread marker there rang the Home
+        // pane and dotted its tab in every scene capture, though no reply had happened. With no
+        // other tab the notifications go to the ledger alone.
+        seedNotifications(services: services, surface: pane.pane.tabs.first { $0.page == nil }?.surface)
         let workspace = pane.daemon.store.workspace(containing: pane.pane.handle)?.id ?? ""
         return .object([
             "seeded": .bool(true),
