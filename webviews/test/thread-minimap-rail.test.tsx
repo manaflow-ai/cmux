@@ -461,8 +461,9 @@ test("the wheel and the scrolling keys over the card reach the transcript's own 
     // scroll up from the latest row is not taken for a stray and snapped back.
     expect(heard).toEqual(["wheel -3"]);
     expect(input).toHaveBeenCalledTimes(1);
+    // The jump ended where it was: the frames that follow move the transcript no further.
     const after = view.scroller.scrollTop;
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    for (let frame = 0; frame < 4; frame += 1) await new Promise((resolve) => requestAnimationFrame(resolve));
     expect(view.scroller.scrollTop).toBe(after);
     // A page (deltaMode 2) is the scroller's height.
     view.scroller.scrollTop = 1000;
