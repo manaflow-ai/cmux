@@ -135,7 +135,9 @@ public final class StashService: StashPageSource {
             return StashedGroup.Tab(id: member.id, url: member.url ?? "", title: member.title, profile: member.browserProfileID)
         case .workspace:
             let tabs = member.tabs.compactMap { tab in (tab.title?.isEmpty == false ? tab.title : nil) ?? tab.url }
-            return StashedGroup.Tab(id: member.id, kind: .workspace(tabs: tabs), url: "", title: member.name, profile: nil)
+            let addresses = member.tabs.compactMap { $0.url?.isEmpty == false ? $0.url : nil }
+            return StashedGroup.Tab(id: member.id, kind: .workspace(tabs: tabs, addresses: addresses), url: "", title: member.name,
+                                    profile: nil)
         }
     }
 

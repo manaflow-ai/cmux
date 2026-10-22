@@ -28,6 +28,7 @@ import Testing
         await model.reload()
         #expect(model.groups(matching: "deploy").map(\.id) == ["w"], "a workspace's tab title matches")
         #expect(model.groups(matching: "release work").map(\.id) == ["w"], "a workspace's name matches")
+        #expect(model.groups(matching: "api.example").map(\.id) == ["w"], "a titled page's address in a workspace matches")
         #expect(model.groups(matching: "news.example").first?.tabs.map(\.id) == ["p2"], "only the matching page stays")
         #expect(model.groups(matching: " ").count == 2)
     }
@@ -41,7 +42,7 @@ private final class FailingSource: StashPageSource {
         if failsRead { throw SourceFailure.read }
         return [
             StashedGroup(id: "w", name: nil, createdAt: .now, tabs: [
-                .init(id: "w1", kind: .workspace(tabs: ["deploy logs", "Docs"]), url: "", title: "Release work", profile: nil),
+                .init(id: "w1", kind: .workspace(tabs: ["deploy logs", "Docs"], addresses: ["https://api.example/reference"]), url: "", title: "Release work", profile: nil),
             ]),
             StashedGroup(id: "p", name: "Reading", createdAt: .now, tabs: [
                 .init(id: "p1", url: "https://docs.example/", title: "Docs", profile: nil),

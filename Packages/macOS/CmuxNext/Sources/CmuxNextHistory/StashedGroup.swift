@@ -13,8 +13,8 @@ public nonisolated struct StashedGroup: Identifiable, Hashable, Sendable {
             /// A browser page.
             case page
             /// A whole workspace with its tabs (terminals too), restored as its own workspace.
-            /// `tabs` are its first tabs' titles, for the row.
-            case workspace(tabs: [String])
+            /// `tabs` are its tabs' titles, for the row; `addresses` its pages' addresses, for search.
+            case workspace(tabs: [String], addresses: [String] = [])
         }
 
         /// The daemon's member id, stable while the page stays stashed.
@@ -47,7 +47,13 @@ public nonisolated struct StashedGroup: Identifiable, Hashable, Sendable {
 
         /// A workspace's tab titles; none for a page.
         public var workspaceTabs: [String] {
-            if case .workspace(let tabs) = kind { return tabs }
+            if case .workspace(let tabs, _) = kind { return tabs }
+            return []
+        }
+
+        /// A workspace's page addresses; none for a page.
+        public var workspaceAddresses: [String] {
+            if case .workspace(_, let addresses) = kind { return addresses }
             return []
         }
     }

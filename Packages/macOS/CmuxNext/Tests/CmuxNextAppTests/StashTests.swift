@@ -182,6 +182,18 @@ struct StashTests {
         }
     }
 
+    /// `<scheme>://stashed` opened from another app (ExternalOpenRouter's deep link) or Open Link…
+    /// goes through `link.open`, which shows the Stashed Tabs page instead of refusing the link.
+    @Test func theStashedLinkOpensThePage() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            try #require(services.pages.keys(of: .stashed).isEmpty, "a Stashed Tabs page was open before the link")
+            let link = "\(services.linkScheme)://stashed"
+            let failures = try await Self.perform("link.open", ActionInvocation(arguments: ["url": .string(link)], origin: .cli), services)
+            #expect(failures.isEmpty, "\(failures)")
+            #expect(!services.pages.keys(of: .stashed).isEmpty, "the link opened no Stashed Tabs page")
+        }
+    }
+
     /// Search keeps a group whose name matches whole, else only the members that match.
     @Test func searchFiltersGroupsAndMembers() async throws {
         try await PinnedPageTests.withApp { services, _ in

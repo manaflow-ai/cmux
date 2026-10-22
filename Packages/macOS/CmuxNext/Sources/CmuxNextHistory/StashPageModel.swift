@@ -59,7 +59,7 @@ public final class StashPageModel {
     /// Every tab in every group.
     public var tabCount: Int { groups.reduce(0) { $0 + $1.tabs.count } }
 
-    /// The groups whose members match `query`: a page's title or address, a workspace's name or tab, or the group's name
+    /// The groups whose members match `query`: a page's title or address, a workspace's name, tab title or address, or the group's name
     /// (which keeps all its pages), ignoring case and diacritics. Every group for a blank query.
     public func groups(matching query: String) -> [StashedGroup] {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -68,7 +68,9 @@ public final class StashPageModel {
         return groups.compactMap { group in
             if matches(group.name) { return group }
             var shown = group
-            shown.tabs.removeAll { tab in !(matches(tab.title) || matches(tab.url) || tab.workspaceTabs.contains { matches($0) }) }
+            shown.tabs.removeAll { tab in
+                !(matches(tab.title) || matches(tab.url) || (tab.workspaceTabs + tab.workspaceAddresses).contains { matches($0) })
+            }
             return shown.tabs.isEmpty ? nil : shown
         }
     }
