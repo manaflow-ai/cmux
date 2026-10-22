@@ -182,7 +182,7 @@ class FleetCompileCheck(unittest.TestCase):
                             ([base + "Find and Replace.swift"], f"({base}Find and Replace.swift)")):
             why = guard.verdict(pr(), swift, [])
             self.assertTrue(why.startswith(f"#7 changes Swift {what} and {HEAD[:12]} has no compile result yet."), why)
-            self.assertTrue(why.endswith(f"({HEAD[:12]} has no checks yet.)"), why)
+            self.assertTrue(why.endswith(f"({HEAD[:12]} has no checks yet, so no {COMPILE} either.)"), why)
             self.assertEqual(why.count("cmux-ci compile-check"), 1, why)
 
     def test_a_refusal_names_the_cause_of_its_own_read_not_an_earlier_one(self):

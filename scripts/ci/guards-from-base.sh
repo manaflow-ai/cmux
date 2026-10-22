@@ -9,7 +9,8 @@
 #     before its Release compile passed;
 #   - base-merge-warning-hook.sh (base_merge_warning.py): warns before an update-branch cancels CI.
 # The first that answers (a refusal or a note) is the answer; the hook JSON goes to stdout. A merge
-# whose guards can't be read from the base is refused.
+# whose guards can't be read from the base goes ahead with a warning: only a compile that finished red
+# refuses (merge_compile_guard.py).
 #
 # Usage: printf '%s' "$payload" | bash guards-from-base.sh CHECKOUT
 set -uo pipefail
@@ -17,12 +18,13 @@ dir="${1:-.}"
 input=$(</dev/stdin)
 merge=0
 case $input in *"pr merge"* | *"/merge"*) merge=1 ;; esac
-# A merge the guards can't judge is refused, as merge_compile_guard.py refuses one it can't read;
-# the update-branch warning only warns.
+# A merge the guards can't judge goes ahead with a warning the person and the agent both see, as
+# merge_compile_guard.py lets through one it can't read; the update-branch warning goes to stderr.
 cannot() {
   if ((merge)); then
-    python3 -I -c 'import json, sys; json.dump({"hookSpecificOutput": {"hookEventName": "PreToolUse",
-      "permissionDecision": "deny", "permissionDecisionReason": sys.argv[1]}}, sys.stdout)' "$1"
+    python3 -I -c 'import json, sys; text = sys.argv[1] + "; merging anyway"
+json.dump({"systemMessage": text, "hookSpecificOutput": {"hookEventName": "PreToolUse",
+  "additionalContext": text}}, sys.stdout)' "$1"
     exit 0
   fi
   echo "$1" >&2
