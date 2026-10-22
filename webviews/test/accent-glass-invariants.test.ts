@@ -163,3 +163,7 @@ await requireBrowserLane("accent-glass-invariants.test.ts", async () => {
         ).toBe(true);
   });
 });
+
+// Proof only (ci-speed): a new type error in a test file must fail web lint over a red base. Never merges.
+const ciSpeedProof: number = "not a number";
+void ciSpeedProof;
