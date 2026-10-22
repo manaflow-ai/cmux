@@ -34,6 +34,8 @@ fn dir(tag: &str) -> PathBuf {
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(d.join("work")).unwrap();
     std::fs::create_dir_all(d.join("home")).unwrap();
+    std::fs::create_dir_all(d.join("account")).unwrap();
+    std::os::unix::fs::symlink(d.join("work"), d.join("account").join(".claude")).unwrap();
     std::fs::canonicalize(&d).unwrap()
 }
 
@@ -50,12 +52,17 @@ fn paths(d: &Path) -> Paths {
 fn hub(d: &Path) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
-            "fclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"},
+            // A plugin folder from the env loads that plugin's hooks, like `--plugin-dir`.
+            "fclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
+                        "env": {"CLAUDE_CODE_PLUGIN_DIRS": d.join("work").join("plugin")}},
             "fcodex": {"argv": ["python3", FAKE], "family": "codex"},
             // Its HOME is the chat's folder: Claude Code would read the folder's
             // `.claude/settings.json` as the person's own.
             "fhome": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
                       "env": {"HOME": d.join("work")}},
+            // Its HOME is elsewhere, but its `.claude` is the chat's folder.
+            "fhomelink": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
+                          "env": {"HOME": d.join("account")}},
         },
         "defaultHarness": "fclaude",
         // A restricted chat asks whatever the default says.
@@ -210,6 +217,9 @@ async fn not_now_opens_a_restricted_claude_chat_only_with_the_setting_on() {
                "GIT_CONFIG_VALUE_0": "false", "GIT_CONFIG_KEY_1": "core.hooksPath",
                "GIT_CONFIG_VALUE_1": "/dev/null"})
     );
+    let plugins: Value =
+        serde_json::from_str(&app.ask(&s, "envs: CLAUDE_CODE_PLUGIN_DIRS").await).unwrap();
+    assert_eq!(plugins, json!({"CLAUDE_CODE_PLUGIN_DIRS": ""}), "no plugin from the env");
 
     // Nothing widens it, from the pane or the unix socket. (A connection that is not the
     // person may be refused by the person rule first, `hub/person.rs`; the restricted rule holds
@@ -249,16 +259,18 @@ async fn not_now_opens_a_restricted_claude_chat_only_with_the_setting_on() {
     assert_eq!(reason(&app.new_session(&work, "fcodex").await), "trust.untrusted");
 
     // A Claude Code whose user settings would be the folder's own does not start.
-    let r = app.new_session(&work, "fhome").await;
-    let refused = match r["result"]["sessionId"].as_str() {
-        Some(id) => {
-            let p = json!({"sessionId": id, "prompt": [{"type": "text", "text": "x"}]});
-            app.call("session/prompt", p).await
-        }
-        None => r,
-    };
-    assert_eq!(reason(&refused), "restricted.refused", "{refused}");
-    assert!(refused.to_string().contains("is inside the chat's folder"), "{refused}");
+    for harness in ["fhome", "fhomelink"] {
+        let r = app.new_session(&work, harness).await;
+        let refused = match r["result"]["sessionId"].as_str() {
+            Some(id) => {
+                let p = json!({"sessionId": id, "prompt": [{"type": "text", "text": "x"}]});
+                app.call("session/prompt", p).await
+            }
+            None => r,
+        };
+        assert_eq!(reason(&refused), "restricted.refused", "{harness}: {refused}");
+        assert!(refused.to_string().contains("inside the chat's folder"), "{refused}");
+    }
 
     // A chat that existed unrestricted becomes restricted at the pane's next prompt.
     restricted_flags(&argv(&app.ask(&kept, "argv").await));
