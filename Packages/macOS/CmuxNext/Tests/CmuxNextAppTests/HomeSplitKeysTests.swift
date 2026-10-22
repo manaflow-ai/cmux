@@ -108,6 +108,34 @@ struct HomeSplitKeysTests {
         }
     }
 
+    /// Leo 2026-10-21: "JUST MAKE THE TAB THING SHOW UP ON THE MAIN PANE TOO". Home's pinned dock, as
+    /// the app makes it, takes tabs (`allow_tabs`): its pane shows its tab strip by default with Home's
+    /// tab first and kept, Hide Tab Bar is offered there, and a tab moved in joins it.
+    @Test func homesDockShowsItsTabStripAndTakesTabs() async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let (_, home) = try await Self.showHome(services, connection)
+            let dock = try #require(Self.panes(home).first)
+            @MainActor func dockFlag() -> DockSnapshot? {
+                home.screens.lazy.flatMap(\.columns).first { $0.layout.paneIDs.contains(dock.handle) }?.dock
+            }
+            try await PasswordManagerRouteTests.until({ dockFlag()?.allowsTabs == true }, report: {
+                "Home's dock: \(String(describing: dockFlag()))"
+            })
+            #expect(dockFlag()?.isPinned == true, "the dock stays pinned")
+            let controller = try #require(services.paneController(for: dock))
+            try await PasswordManagerRouteTests.until({ !controller.view.hidesStrip }, report: { "Home's pane hides its tab strip" })
+            #expect(PaneTabBarHandlers.noTabBarReason(controller) == nil, "Hide Tab Bar is refused in Home")
+            let page = try #require(dock.tabs.first)
+            #expect(page.page == HomeDock.page)
+            let created = try await connection.newTab(in: dock.handle)
+            try await PasswordManagerRouteTests.until({ dock.tabs.contains { $0.surface == created.surface } }, report: {
+                "Home's dock holds \(dock.tabs.map(\.surface))"
+            })
+            #expect(dock.tabs.first?.surface == page.surface, "Home's tab stays first")
+            #expect(Self.panes(home).count == 1, "the tab joined the dock")
+        }
+    }
+
     /// Once a pane is beside the dock, the split, focus, equalize and close keys act on it like on any
     /// pane: Cmd-Shift-D splits it in place, Cmd-Opt-Left reaches the dock, Equalize is not refused, and
     /// closing the right side leaves the dock alone again.
