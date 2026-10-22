@@ -72,7 +72,8 @@ const serial = <T>(b: ChiefBrainDO, fn: () => Promise<T>): Promise<T> => {
 export const capOf = (b: ChiefBrainDO, agent: string): number => {
   const env = b.doEnv
   const mine = (env.CHIEF_CC_SANDBOX_CAPS ?? "").split(",").map((s) => s.trim().split("=")).find(([a]) => a === agent)?.[1]
-  const n = Number(mine ?? env.CHIEF_CC_SANDBOX_CAP ?? DEFAULT_CAP)
+  const raw = [mine, env.CHIEF_CC_SANDBOX_CAP].find((x) => x !== undefined && x.trim() !== "")
+  const n = Number(raw ?? DEFAULT_CAP)
   return Number.isInteger(n) && n >= 0 ? Math.min(MAX_CAP, n) : DEFAULT_CAP
 }
 
@@ -208,6 +209,7 @@ const BASES: Record<string, Resources> = {
   "freestyle/ubuntu-xl": { cpu: 16, memory_mb: 32768, disk_gb: 128 },
   "freestyle/ubuntu-2xl": { cpu: 32, memory_mb: 65536, disk_gb: 128 }
 }
+const CHIEF_USER = "id chief >/dev/null 2>&1 || useradd -m -s /bin/bash chief"
 const CHIEF_IMAGE: Resources = { cpu: 4, memory_mb: 8192, disk_gb: 32 }
 const DEFAULT_SIZE = { cpu: 4, memory_mb: 8192 }
 
@@ -228,7 +230,8 @@ const execIn = (req: Req) => {
   if (!LINUX_USERS.includes(user as (typeof LINUX_USERS)[number])) return `user must be ${LINUX_USERS.join(" or ")}`
   const env = req.env as Record<string, unknown> | undefined
   if (env !== undefined && (!env || typeof env !== "object" || Array.isArray(env) || Object.entries(env).some(([k, v]) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(k) || typeof v !== "string"))) return "env must map POSIX names to text"
-  if (req.stdin !== undefined && (typeof req.stdin !== "string" || req.stdin.length > 1_400_000)) return "stdin must be base64, at most 1 MiB"
+  // The turn machine's runner takes 200 kB a call: stdin is at most 128 KiB here (larger input: chief-vm fs put).
+  if (req.stdin !== undefined && (typeof req.stdin !== "string" || req.stdin.length > 180_000)) return "stdin must be base64, at most 128 KiB (larger input: chief-vm fs put, then read the file)"
   return {
     command: req.command,
     timeout_ms: Math.min(EXEC_MAX_MS, Math.max(1_000, Number(req.timeout_ms) || 120_000)),
@@ -283,6 +286,8 @@ const create = async (b: ChiefBrainDO, agent: string, req: Req): Promise<Out> =>
     const { id } = reserved
     const s = reserved
     await grant(b, id).catch(() => undefined)
+    // Both images have the `chief` user exec --user chief runs as (Freestyle's Ubuntu has only ubuntu).
+    await execAs(b, id, { command: CHIEF_USER, timeout_ms: 30_000, user: "root" }).catch(() => undefined)
     const made = { vm: s, ttl_seconds: rest.ttlSeconds ?? TTL_S, idle_pause_seconds: rest.idleTimeoutSeconds ?? IDLE_S }
     const v = await fetchVm(b, id)
     const vm = v && v !== "unknown" ? v : null
@@ -348,7 +353,8 @@ export async function ccSandbox(b: ChiefBrainDO, agent: string, raw: unknown, le
         }
         const off = await execAs(b, vm.id, { command: "(sleep 1; poweroff) >/dev/null 2>&1 &", timeout_ms: 10_000, user: "root" }).then(() => null, (e: unknown) => (e instanceof CcError ? e.message : "the power-off did not run"))
         if (off) return { status: 502, json: { error: `not stopped: ${off}` } }
-        for (let i = 0; i < 60; i++) {
+        const until = Date.now() + 60_000
+        while (Date.now() < until) {
           const v = await fetchVm(b, vm.id)
           if (v && v !== "unknown" && v.state === "stopped") return { status: 200, json: { id: vm.id, state: "stopped", cost: costOf(vm.resources) } }
           await new Promise((r) => setTimeout(r, 1_000))
