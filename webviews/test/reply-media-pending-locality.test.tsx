@@ -148,9 +148,7 @@ describe("media while the chat's locality is pending", () => {
     await page.render("![Shot](/tmp/delayed/shot.png)\n\n![Clip](/tmp/delayed/clip.mp4)", ["/tmp/delayed/tool.png"]);
     const { container, host } = page;
 
-    // Waiting: the reply's thumbnail keeps its waiting frame and the video its name; no card says
-    // the file is unavailable and nothing fell back to text.
-    // Both the reply's thumbnail and the tool's image wait in their frames.
+    // Waiting: the reply's and the tool's images in their frames, the video as its name.
     expect(container.querySelectorAll(".cv-thumb.is-waiting").length).toBe(2);
     expect(container.querySelector(".cv-image-file")).toBeNull();
     expect(container.querySelector(".cv-media.is-video .cv-media__name")?.textContent).toBe("Clip");
@@ -202,24 +200,12 @@ describe("media while the chat's locality is pending", () => {
 
   test("a pending answer that arrives after the locality event is asked again", async () => {
     const page = await setup();
-    const { host } = page;
-    // The host answers the first load only after it has sent the event.
-    let release: () => void = () => {};
-    const answer = host.answer;
-    host.answer = async (method, params) => {
-      if (method !== "image.load" || host.count("image.load") > 0) return answer(method, params);
-      const reply = answer(method, params);
-      await new Promise<void>((resolve) => (release = resolve));
-      return reply;
-    };
+    page.host.late = { method: "image.load", reply: { pending: true } };
     await page.render("![Late](/tmp/delayed-race/late.png)");
-    expect(host.count("image.load")).toBe(1);
-    host.locality = "local";
+    page.host.locality = "local";
     await page.locality({ locality: "local" });
-    release();
-    await page.settle();
-
-    expect(host.count("image.load")).toBe(2);
+    await page.release();
+    expect(page.host.count("image.load")).toBe(2);
     expect(page.container.querySelector(`img[src="${IMAGE}"]`)).not.toBeNull();
     await page.unmount();
   });
@@ -415,5 +401,48 @@ describe("review fixes (#24346)", () => {
     await event("remote");
     expect(view!.imageView).toBeUndefined();
     await act(async () => root.unmount());
+  });
+
+  test.each([
+    ["image", "image.load", "shot.png", ".cv-thumb.is-waiting", `img[src="${IMAGE}"]`],
+    ["video", "media.load", "clip.mp4", ".cv-media.is-video .cv-media__name", `video[src="${MEDIA}"]`],
+  ] as const)(
+    "a local %s that failed waits once the host answers pending, then loads",
+    async (kind, method, name, waiting, shown) => {
+      const page = await setup();
+      page.host.locality = "local";
+      await page.locality({ locality: "local" });
+      page.host.late = { method, reply: {} };
+      await page.render(`![Shot](/tmp/failed-pending/${name})`);
+      await page.release();
+      // A refusal: the image's unavailable card; the video falls back to its link (no player).
+      expect(page.container.querySelector(kind === "image" ? ".cv-image-file" : ".cv-media")).toEqual(
+        kind === "image" ? expect.anything() : null,
+      );
+      // The chat's locality is unknown again and the host answers its paths pending: it waits.
+      page.host.locality = "unknown";
+      page.host.gateInspect = true;
+      await page.locality({ locality: "unknown" });
+      expect(page.container.querySelector(waiting)).not.toBeNull();
+      expect(page.container.querySelector(".cv-image-file")).toBeNull();
+      // Local again: asked again, and it loads.
+      page.host.locality = "local";
+      await page.locality({ locality: "local" });
+      expect(page.container.querySelector(shown)).not.toBeNull();
+      await page.unmount();
+    },
+  );
+
+  test("a link.inspect answered pending with only URLs still applies its policy", async () => {
+    const page = await setup();
+    const policy = { outsideRoots: "confirm", remoteImages: "never" };
+    page.host.late = { method: "link.inspect", reply: { pending: true, policy } };
+    await page.render(`See https://example.com/only and ![Web](${webImage("t8")})`);
+    await page.release();
+    const inspects = page.host.calls.filter((call) => call.method === "link.inspect");
+    expect(inspects.map((call) => call.params.paths)).toEqual(inspects.map(() => []));
+    // "never": the web image draws as its link, with no Load button.
+    expect(page.container.querySelector(".cv-image-placeholder__load")).toBeNull();
+    await page.unmount();
   });
 });
