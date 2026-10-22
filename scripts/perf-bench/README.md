@@ -57,7 +57,7 @@ cmux-ci run --class exclusive --measurement --label bench --target-worker cmux20
 
 About 10 minutes per round after the Release build. The log prints one `PERF-BUDGET` line per
 budget and BENCH.md gets a "Resource budget" table. A budget with `"enforce": false` is advisory
-(reported, never fails); `xbench.py report` exits 1 when an enforced one is broken or not measured.
+(reported, never fails); `xbench.py report` exits 1 when an enforced one is broken or not fully measured (missing, a session error, or fewer samples than rounds).
 Budgets start advisory where the base breaks them; tighten the limit and enforce it once the base
 holds it. The scenario's sizes and settle times are in `budgets.json`; the idle windows follow
 `--arg=idle=` (60 s). `xbench.py gate` skips the `budget-*` rows: budgets.json gates them. The

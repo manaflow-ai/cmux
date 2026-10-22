@@ -905,7 +905,9 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
     palette_found, palette_lines = palette_rows(palette)
     rows.update(palette_found)
     errors = [s for s in samples if s["row"] == "session-error" or (s.get("value") is None and s.get("note"))]
-    budget_result, budget_lines = budget.evaluate(rows, budget.NAME in meta.get("browsers", {}), budgets)
+    budget_errors = sum(1 for sample in samples if sample["browser"] == budget.NAME and sample["row"] == "session-error")
+    budget_result, budget_lines = budget.evaluate(rows, budget.NAME in meta.get("browsers", {}), budgets,
+                                                  int(meta.get("args", {}).get("rounds") or 0), budget_errors)
     result = {"date": time.strftime("%Y-%m-%d"), "machine": meta["machine"], "cmux_ref": meta.get("cmux_ref"),
               "browsers": meta["browsers"], "rows": rows, "published": PUBLISHED,
               "errors": [{k: s.get(k) for k in ("browser", "round", "row", "note")} for s in errors],

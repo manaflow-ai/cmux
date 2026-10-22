@@ -7,7 +7,7 @@
 #   cmux-ci run --class exclusive --measurement --label measure \
 #     --script scripts/measure/perf-bench.sh --ref SHA --artifact artifacts/perf-bench/results.json \
 #     [--arg=rounds=3] [--arg=launches=2] [--arg=idle=60] [--arg=active=30] [--arg=cmux=build|nightly]
-#     [--arg=browsers=cmux-chromium,cmux-webkit,cmux-terminal,chrome,helium,ardia,dia,safari] [--arg=gate=1]
+#     [--arg=browsers=cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari] [--arg=gate=1]
 #     [--arg=tabswitch=chromium,webkit,markdown,chat] [--arg=tabcounts=2,10,30] [--arg=palette=on|off]
 # tabswitch= (default on; tabswitch=off skips it) also builds a tagged Debug app at this checkout and
 # runs scripts/cmux-next/tab-switch-matrix.py: real-window tab switch end to end (input event to
@@ -22,7 +22,7 @@
 set -euo pipefail
 rounds=3 launches=2 idle=60 active=30 settle=30 cmux=build gate=0 maxload=4
 tabswitch="chromium,webkit,markdown,chat" tabcounts="2,10,30" palette=on
-browsers="cmux-chromium,cmux-webkit,cmux-terminal,chrome,helium,ardia,dia,safari"
+browsers="cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari"
 for arg in "$@"; do
   case "$arg" in
     rounds=*) rounds="${arg#rounds=}" ;;

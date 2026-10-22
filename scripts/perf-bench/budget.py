@@ -160,12 +160,15 @@ def _fmt(value, unit: str) -> str:
     return f"{value:,.1f} MB"
 
 
-def evaluate(rows: dict, requested: bool, budgets_path: str | None = None) -> tuple[dict, list[str]]:
+def evaluate(rows: dict, requested: bool, budgets_path: str | None = None, rounds: int = 0,
+             errors: int = 0) -> tuple[dict, list[str]]:
     """Budget verdicts for the cmux-budget medians in `rows` and the BENCH.md section.
 
-    `requested`: the run had a cmux-budget session (its bundle was found). Prints one `PERF-BUDGET`
-    line per budget and a summary line; `failed` counts enforced budgets that were broken or not
-    measured, so a session that crashed or stopped measuring does not pass."""
+    `requested`: the run had a cmux-budget session (its bundle was found). `rounds`: the rounds the
+    run asked for; `errors`: the cmux-budget session-error rows. Prints one `PERF-BUDGET` line per
+    budget and a summary line; `failed` counts enforced budgets that were broken or not fully
+    measured (missing, fewer samples than rounds, or any session error), so a session that crashed
+    or stopped measuring does not pass on the rows another round recorded."""
     data = load(budgets_path)
     measured = requested
     verdicts = []
@@ -182,10 +185,14 @@ def evaluate(rows: dict, requested: bool, budgets_path: str | None = None) -> tu
         value = cell.get("median")
         if value is None:
             verdict = "missing"
+        elif value > entry["limit"]:
+            verdict = "OVER"
+        elif errors or (cell.get("n") or 0) < rounds:
+            verdict = "incomplete"
         else:
-            verdict = "ok" if value <= entry["limit"] else "OVER"
+            verdict = "ok"
         mode = "enforced" if entry.get("enforce") else "advisory"
-        if entry.get("enforce") and verdict in ("OVER", "missing"):
+        if entry.get("enforce") and verdict != "ok":
             failed += 1
         verdicts.append({"row": row, "value": value, "limit": entry["limit"], "unit": unit, "verdict": verdict,
                          "mode": mode, "n": cell.get("n")})
@@ -193,6 +200,6 @@ def evaluate(rows: dict, requested: bool, budgets_path: str | None = None) -> tu
         print(f"PERF-BUDGET {verdict} {mode} {row} value={value} limit={entry['limit']} {unit}", flush=True)
     if not measured:
         print("PERF-BUDGET SKIP no cmux-budget session in this run", flush=True)
-    print(f"PERF-BUDGET {'FAIL' if failed else 'PASS'} enforced_broken={failed}", flush=True)
+    print(f"PERF-BUDGET {'FAIL' if failed else 'PASS'} enforced_broken={failed} session_errors={errors}", flush=True)
     lines.append("")
     return {"measured": measured, "failed": failed, "budgets": verdicts}, (lines if measured else [])
