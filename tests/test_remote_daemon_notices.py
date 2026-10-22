@@ -231,6 +231,41 @@ class RemoteDaemonNoticesTest(unittest.TestCase):
                 self.assertEqual(rdn.allowed_license(text), "Apache-2.0" if approved else None)
                 self.assertLess(time.monotonic() - start, 5)
 
+    def test_a_template_variable_holds_only_its_part_never_added_terms(self) -> None:
+        # Codex review of d869d36: an 18-character restriction fit Apache's bullet, a sentence
+        # fit BSD's holder names, and a line under a copyright line passed as copyright.
+        for name, text in {
+            "a bullet": APACHE.replace("   1. Definitions.", "   No commercial use. Definitions.", 1),
+            "the warranty holder": BSD3.replace("BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS", "BY THE COPYRIGHT HOLDERS, WHO FORBID RESALE,", 1),
+            "the organization": BSD3.replace("Neither the name of Google LLC nor", "Neither the name of Google LLC, nor any fork sold for money, nor", 1),
+            "a line under the copyright": MIT.replace("Copyright (c) 2011 Keith Rarick\n", "Copyright (c) 2011 Keith Rarick\nRedistribution forbidden.\n", 1),
+            "a comment under the copyright": MIT.replace("Copyright (c) 2011 Keith Rarick\n", "Copyright (c) 2011 Keith Rarick\n# Redistribution forbidden.\n", 1),
+            "a sentence after the holder": MIT.replace("Keith Rarick", "Keith Rarick. Redistribution forbidden", 1),
+            "a restriction posing as a title": "Commercial use prohibited. License\n\n" + MIT,
+        }.items():
+            with self.subTest(name):
+                self.assertIsNone(rdn.allowed_license(text))
+
+    def test_titles_copyright_lines_and_whitespace_variants_still_match(self) -> None:
+        for name, text, spdx in (
+            ("a title", "The MIT License (MIT)\n\n" + MIT, "MIT"),
+            ("two copyright lines", MIT.replace("Keith Rarick\n", "Keith Rarick\nCopyright (c) 2020 Example Inc. All rights reserved.\n", 1), "MIT"),
+            ("of the theme", BSD3.replace("source and binary forms,", "source and binary forms of the theme,", 1), "BSD-3-Clause"),
+        ):
+            with self.subTest(name):
+                self.assertEqual(rdn.allowed_license(text), spdx)
+
+    def test_a_recorded_text_approves_only_a_notice_of_an_allowed_entry(self) -> None:
+        saved = rdn.ALLOWED
+        rdn.ALLOWED = frozenset(saved) - {"MIT"}
+        try:
+            unlinked = [m for m in self.modules if m.path != "github.com/creack/pty"]
+            with self.assertRaises(rdn.NoticeError) as raised:
+                rdn.compose([*unlinked, self.module("example.com/dual", LICENSE=BSD3, **{"LICENSE-MIT": MIT})], "go1.26.8", self.review)
+            self.assertIn("LICENSE-MIT", str(raised.exception))
+        finally:
+            rdn.ALLOWED = saved
+
     def test_a_recorded_license_off_the_allowlist_fails_unless_a_person_approved_it(self) -> None:
         saved = rdn.ALLOWED
         rdn.ALLOWED = frozenset(saved) - {"MIT"}
@@ -269,6 +304,33 @@ class RemoteDaemonNoticesTest(unittest.TestCase):
                 rdn.write_review_bundle("new review\n", {"LICENSE": "x"}, new_root)
         finally:
             rdn.TEXTS, rdn.REVIEW, rdn.os.replace = saved
+        self.assertEqual(review.read_text(), "old review\n")
+        self.assertEqual((texts / "go" / "LICENSE").read_text(), "old license\n")
+        self.assertEqual(sorted(p.name for p in texts.iterdir()), ["go", "review.json"])
+
+    def test_a_failed_swap_keeps_the_old_go_texts(self) -> None:
+        texts = self.tmp / "third-party"
+        (texts / "go").mkdir(parents=True)
+        (texts / "go" / "LICENSE").write_text("old license\n")
+        review = texts / "review.json"
+        review.write_text("old review\n")
+        new_root = self.tmp / "goroot-new"
+        new_root.mkdir()
+        (new_root / "LICENSE").write_text("new license\n")
+        saved = rdn.TEXTS, rdn.REVIEW, rdn.os.rename
+        rdn.TEXTS, rdn.REVIEW = texts, review
+        rename = rdn.os.rename
+
+        def fail_staged(source, target):
+            if Path(source).name.startswith(".go.new-"):
+                raise OSError("disk full")
+            rename(source, target)
+        rdn.os.rename = fail_staged
+        try:
+            with self.assertRaises(OSError):
+                rdn.write_review_bundle("new review\n", {"LICENSE": "x"}, new_root)
+        finally:
+            rdn.TEXTS, rdn.REVIEW, rdn.os.rename = saved
         self.assertEqual(review.read_text(), "old review\n")
         self.assertEqual((texts / "go" / "LICENSE").read_text(), "old license\n")
         self.assertEqual(sorted(p.name for p in texts.iterdir()), ["go", "review.json"])
