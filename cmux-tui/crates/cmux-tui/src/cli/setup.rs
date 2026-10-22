@@ -7,11 +7,13 @@
 //! `cloud-machine`, `notifications` and `browser-import` today) checks
 //! before it changes anything, changes nothing when the state is already
 //! right, prints what it would do with `--dry-run`, and names the command
-//! that undoes it.
+//! that undoes it. Each task also carries the `prompt` a person pastes into
+//! Chief to have it done; docs/chief-setup-prompts.md is made from them.
 //! Only what a person must do themselves (an OAuth sign-in, a secret,
 //! installing a CLI, a macOS grant, a key on an ssh machine, allowing a
 //! paid Cloud machine) comes back as
-//! `user_action`. Output is always JSON: these commands are for agents.
+//! `user_action`. Output is JSON (but `list --prompts-md`): these commands
+//! are for agents.
 
 use serde_json::{Value, json};
 
@@ -26,7 +28,7 @@ mod mcp;
 mod notifications;
 mod trust;
 
-const HELP: &str = "Usage: cmux setup <list|status|trust|machine|harness|mcp|computer-use|cloud-machine|notifications|browser-import>\n\nSet up cmux for the person, from an agent. Every command prints one JSON object.\n\n  cmux setup list                 Every setup task and the commands that check and do it\n  cmux setup status               Read-only checks of the tasks setup runs\n  cmux setup trust [FOLDER] [--level trusted|untrusted|unknown] [--dry-run]\n                                  Record the person's trust for a folder (default: this folder, trusted)\n  cmux setup machine SSH_TARGET [--name NAME] [--dry-run]\n                                  Add an ssh machine as an agent peer, or update or repair it (key-only ssh)\n  cmux setup harness [ID ...] [--dry-run]\n                                  Check that each harness is installed, signed in and current (default: every configured or found one)\n  cmux setup mcp [claude|codex ...] [--dry-run]\n                                  Give Claude Code and Codex outside cmux the cmux MCP server (default: each installed one)\n  cmux setup computer-use [--dry-run]\n                                  Turn on cmux Computer Use (the person allows it in cmux) and name the macOS grants it still needs\n  cmux setup cloud-machine [--dry-run] [--forget]\n                                  Have a cmux Cloud machine; create one if there is none (the person allows it in cmux; it costs money while it runs). --forget drops setup's record of the machine it asked for\n  cmux setup notifications [--dry-run]\n                                  Let cmux show macOS notifications (the person allows them on the macOS prompt)\n  cmux setup browser-import [--browser BROWSER[:PROFILE]] [--cookies [--domain D] [--reason TEXT]] [--dry-run]\n                                  Import another browser's bookmarks, or with --cookies its sign-ins (the person allows it in cmux)\n\nA task result is {schema_version, task, state, dry_run, ..., undo, user_action}. state is ok (nothing to do), changed, planned (--dry-run), needs_user (user_action says what the person must do), failed, or not_applicable (nothing to set up on this machine). undo is the command that puts the old state back, or null. Exits 0 unless the task failed (1) or the arguments are wrong (2).\n";
+const HELP: &str = "Usage: cmux setup <list|status|trust|machine|harness|mcp|computer-use|cloud-machine|notifications|browser-import>\n\nSet up cmux for the person, from an agent. Every command prints one JSON object.\n\n  cmux setup list [--prompts-md]  Every setup task, the commands that check and do it, and the prompt a person pastes into Chief to have it done (--prompts-md: the prompts as Markdown, docs/chief-setup-prompts.md)\n  cmux setup status               Read-only checks of the tasks setup runs\n  cmux setup trust [FOLDER] [--level trusted|untrusted|unknown] [--dry-run]\n                                  Record the person's trust for a folder (default: this folder, trusted)\n  cmux setup machine SSH_TARGET [--name NAME] [--dry-run]\n                                  Add an ssh machine as an agent peer, or update or repair it (key-only ssh)\n  cmux setup harness [ID ...] [--dry-run]\n                                  Check that each harness is installed, signed in and current (default: every configured or found one)\n  cmux setup mcp [claude|codex ...] [--dry-run]\n                                  Give Claude Code and Codex outside cmux the cmux MCP server (default: each installed one)\n  cmux setup computer-use [--dry-run]\n                                  Turn on cmux Computer Use (the person allows it in cmux) and name the macOS grants it still needs\n  cmux setup cloud-machine [--dry-run] [--forget]\n                                  Have a cmux Cloud machine; create one if there is none (the person allows it in cmux; it costs money while it runs). --forget drops setup's record of the machine it asked for\n  cmux setup notifications [--dry-run]\n                                  Let cmux show macOS notifications (the person allows them on the macOS prompt)\n  cmux setup browser-import [--browser BROWSER[:PROFILE]] [--cookies [--domain D] [--reason TEXT]] [--dry-run]\n                                  Import another browser's bookmarks, or with --cookies its sign-ins (the person allows it in cmux)\n\nA task result is {schema_version, task, state, dry_run, ..., undo, user_action}. state is ok (nothing to do), changed, planned (--dry-run), needs_user (user_action says what the person must do), failed, or not_applicable (nothing to set up on this machine). undo is the command that puts the old state back, or null. Exits 0 unless the task failed (1) or the arguments are wrong (2).\n";
 
 /// The result of a setup task: the JSON the agent reads, and whether it failed.
 pub(super) struct Outcome {
@@ -60,6 +62,10 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         return 0;
     }
     let result = match args.first().map(String::as_str) {
+        Some("list") if args[1..] == ["--prompts-md"] => {
+            print!("{}", prompts_markdown());
+            return 0;
+        }
         None | Some("list") => no_arguments(&args[args.len().min(1)..])
             .map(|()| Outcome { report: list(), failed: false }),
         Some("status") => no_arguments(&args[1..]).and_then(|()| status(global)),
@@ -128,7 +134,7 @@ const TASKS: &[Task] = &[
         check: &["cmux setup trust FOLDER --dry-run"],
         apply: &["cmux setup trust FOLDER"],
         person: None,
-        prompt: "",
+        prompt: "Trust FOLDER so agents start there without asking: run `cmux setup trust FOLDER` and tell me the undo.",
     },
     Task {
         id: "harness",
@@ -137,7 +143,7 @@ const TASKS: &[Task] = &[
         check: &["cmux setup harness [ID ...]", "cmux harness doctor ID --json"],
         apply: &["cmux harness add ...", "cmux harness login ID"],
         person: Some("the harness's own sign-in (OAuth in a browser) and installing its CLI"),
-        prompt: "",
+        prompt: "Check that my agent harnesses (Claude Code, Codex, ...) are installed, signed in and current here: run `cmux setup harness`, start any sign-in it names in a terminal beside this chat, and tell me what to click.",
     },
     Task {
         id: "machine",
@@ -146,7 +152,7 @@ const TASKS: &[Task] = &[
         check: &["cmux setup machine SSH_TARGET --dry-run", "cmux setup status"],
         apply: &["cmux setup machine SSH_TARGET [--name NAME]"],
         person: Some("key-only ssh to the machine: adding a key there or fixing ssh config"),
-        prompt: "",
+        prompt: "Add my machine HOST as an agent machine (a Mac on my tailnet such as `studio`, or an ssh host such as `ubuntu@build-1`): run `cmux setup machine HOST`, then `cmux acp host doctor NAME --json` with the peer name it reports. If ssh refuses, give me the command to try; never ask for my password. Tell me the undo.",
     },
     Task {
         id: "host_update",
@@ -155,7 +161,7 @@ const TASKS: &[Task] = &[
         check: &["cmux setup status", "cmux acp host ls --json"],
         apply: &["cmux setup machine SSH_TARGET --name NAME", "cmux acp host update --all --json"],
         person: None,
-        prompt: "",
+        prompt: "Something is wrong with one of my agent machines: run `cmux setup status` and run the `fix` it names for each peer that is outdated or not connected. For one that still fails, run `cmux acp host doctor NAME --fix --json` and tell me what is left.",
     },
     Task {
         id: "accounts",
@@ -164,7 +170,7 @@ const TASKS: &[Task] = &[
         check: &["cmux accounts list --json"],
         apply: &["cmux cloud sign-in"],
         person: Some("the cmux sign-in in the browser"),
-        prompt: "",
+        prompt: "Check my sign-ins: run `cmux accounts list --json`. If I am signed out of cmux, run `cmux cloud sign-in` and tell me to finish it in the browser. Then tell me which agent providers are signed in.",
     },
     Task {
         id: "cloud_machine",
@@ -173,7 +179,7 @@ const TASKS: &[Task] = &[
         check: &["cmux setup cloud-machine --dry-run", "cmux cloud diagnostics"],
         apply: &["cmux setup cloud-machine"],
         person: Some("signing in to cmux, and allowing the new machine on the card cmux shows"),
-        prompt: "",
+        prompt: "Make me a cmux Cloud machine. I know it costs money every hour it runs. Run `cmux setup cloud-machine`, tell me which card to click, and tell me the undo.",
     },
     Task {
         id: "tailnet",
@@ -182,7 +188,16 @@ const TASKS: &[Task] = &[
         check: &["cmux host status --json"],
         apply: &["cmux host enable --json"],
         person: Some("signing in to Tailscale (`tailscale up`) when it is not signed in"),
-        prompt: "",
+        prompt: "Let my other machines reach this one over Tailscale: run `cmux host status --json`, and if it is not serving, `cmux host enable --json`. If Tailscale is signed out, tell me to run `tailscale up`.",
+    },
+    Task {
+        id: "pairing_ticket",
+        summary: "Add another machine with one pasted line (a single-use pairing ticket)",
+        setup: None,
+        check: &["cmux host ticket ls --json"],
+        apply: &["cmux host ticket new --json", "cmux host ticket revoke ID --json"],
+        person: Some("pasting the `cmux host join` line on the other machine"),
+        prompt: "Give me a one-line command to add my other machine: run `cmux host ticket new --json` and give me the `cmux host join` line it prints, to paste on that machine. It works once, within 15 minutes.",
     },
     Task {
         id: "mcp",
@@ -191,7 +206,7 @@ const TASKS: &[Task] = &[
         check: &["cmux setup mcp --dry-run", "cmux agents doctor --json", "cmux mcp tools --json"],
         apply: &["cmux setup mcp"],
         person: Some("turning on \"mcp\": {\"enabled\": true} in the cmux settings file"),
-        prompt: "",
+        prompt: "Give Claude Code and Codex outside cmux the cmux MCP server: run `cmux setup mcp`. If it names a setting, give me that one line to turn on; do not edit the file. Tell me the undo.",
     },
     Task {
         id: "computer_use",
@@ -202,7 +217,7 @@ const TASKS: &[Task] = &[
         person: Some(
             "allowing Computer Use on the sheet cmux shows, and the Accessibility and Screen Recording switches in System Settings",
         ),
-        prompt: "",
+        prompt: "Let agents use this Mac: run `cmux setup computer-use`, tell me to click Allow on the sheet cmux shows, then open each System Settings pane it names and tell me which switch to turn on.",
     },
     Task {
         id: "browser_import",
@@ -218,7 +233,7 @@ const TASKS: &[Task] = &[
         person: Some(
             "allowing the cookie import on the panel cmux shows and the Keychain prompt; history and password import (Import from Browser...)",
         ),
-        prompt: "",
+        prompt: "Bring my bookmarks over from BROWSER: run `cmux setup browser-import --browser BROWSER` and tell me the undo. Leave my cookies alone unless I ask.",
     },
     Task {
         id: "keyboard_shortcuts",
@@ -227,7 +242,7 @@ const TASKS: &[Task] = &[
         check: &["cmux keybinding list --json", "cmux keybinding resolve KEYS --json"],
         apply: &["cmux settings keyboard-shortcuts"],
         person: None,
-        prompt: "",
+        prompt: "Show me my cmux key bindings: run `cmux keybinding list --json` and list them; to see what one chord does, run `cmux keybinding resolve KEYS --json`.",
     },
     Task {
         id: "notifications",
@@ -238,7 +253,7 @@ const TASKS: &[Task] = &[
         person: Some(
             "allowing notifications on the macOS prompt, or turning them on in System Settings > Notifications once denied",
         ),
-        prompt: "",
+        prompt: "Let cmux show me notifications: run `cmux setup notifications`, then tell me to click Allow on the macOS prompt, or open the System Settings page it names and tell me what to turn on.",
     },
     Task {
         id: "team_invites",
@@ -247,7 +262,7 @@ const TASKS: &[Task] = &[
         check: &[],
         apply: &["cmux home invite --email EMAIL"],
         person: Some("team invites from the web dashboard (Teams > Members)"),
-        prompt: "",
+        prompt: "Invite EMAIL to this Home conversation: once I confirm the address, run `cmux home invite --email EMAIL`. Team invites I send myself from the web dashboard (Teams > Members).",
     },
 ];
 
@@ -271,12 +286,30 @@ fn list() -> Value {
 
 /// The prompt that sets up this Mac: `cmux setup status` and the fix of
 /// each check it names.
-const STATUS_PROMPT: &str = "";
+const STATUS_PROMPT: &str = "Set up this Mac for agents: run `cmux setup status`, then run the `fix` it names for each check that needs one (harnesses installed and signed in, the cmux MCP server for Claude Code and Codex, this folder's trust). Keep each undo, and tell me only what I must do myself.";
 
 /// docs/chief-setup-prompts.md: every prompt as a copyable block, made from
 /// [`TASKS`] (`cmux setup list --prompts-md`).
 fn prompts_markdown() -> String {
-    String::new()
+    let mut page = String::from(
+        "# Set up cmux with Chief\n\n\
+         <!-- Generated by `cmux setup list --prompts-md` from `TASKS` in \
+         cmux-tui/crates/cmux-tui/src/cli/setup.rs; a test fails when they differ. -->\n\n\
+         Paste one of these into Chief, or any agent chat in cmux. Each one runs a \
+         `cmux setup` task: the agent does every step it can and tells you only what you \
+         must do yourself. Replace the words in capitals (HOST, FOLDER, ...) first.\n",
+    );
+    let block = |page: &mut String, title: &str, prompt: &str| {
+        page.push_str(&format!("\n## {title}\n\n```text\n{prompt}\n```\n"));
+    };
+    block(&mut page, "Set up this Mac", STATUS_PROMPT);
+    for task in TASKS {
+        block(&mut page, task.summary, task.prompt);
+        if let Some(person) = task.person {
+            page.push_str(&format!("\nWhat only you can do: {person}.\n"));
+        }
+    }
+    page
 }
 
 /// The read-only check of every task `setup` runs: this folder's trust,
