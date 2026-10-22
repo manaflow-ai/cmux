@@ -152,18 +152,66 @@ import Testing
         #expect(try gapAbove(layout(DropPosition(section: Self.section, index: 6)), .doneFold(loose)))
     }
 
-    /// The older resolver's rows leave the Done row out; the group's last drawn member is then its last row, so a
-    /// drop past it leaves the group, as with no fold.
-    @Test func theLastDrawnMemberBeforeAGroupsDoneRowEndsTheGroupForTheResolver() throws {
+    /// A loose `x`, then an open group `g` with `members` and nothing after it, laid out with the Done rows folded.
+    static func groupAtEnd(_ members: [SidebarWorkspace], tabs: Bool = false) -> ([SidebarSection], SidebarLayout) {
+        let sections = [SidebarSection(kind: .machine(machine), nodes: [
+            .workspace(ws("x")), .group(SidebarGroup(id: group, name: "G", color: .green, workspaces: members)),
+        ])]
         var o = SidebarLayoutOptions()
         o.foldsDone = true
-        let layout = SidebarLayout.make(sections: Self.sections(), metrics: .standard, options: o)
-        let fold = try #require(layout.row(for: .doneFold(SidebarDoneFoldID(section: Self.section, group: Self.group))))
-        #expect(fold.isLastInGroup)
-        #expect(layout.row(for: .workspace(WorkspaceID("g4")))?.isLastInGroup == false, "the drawn rows changed")
-        let rows = RustRow.resolvable(layout.rows)
-        let last = rows.filter { $0.group == Self.group.rawValue && $0.key.kind == "workspace" }.map { ($0.key.id ?? "", $0.isLastInGroup) }
-        #expect(last.map(\.0) == ["g2", "g4"])
-        #expect(last.map(\.1) == [false, true], "the resolver's last member: \(last)")
+        o.showWorkspaceTabs = tabs
+        return (sections, SidebarLayout.make(sections: sections, metrics: .standard, options: o))
+    }
+
+    /// Where the older (Rust) resolver drops `x` with the pointer at `y`.
+    static func resolve(_ y: CGFloat, _ sections: [SidebarSection], _ layout: SidebarLayout) -> DropTarget? {
+        DropResolver.resolve(y: y, payload: .workspaces([WorkspaceID("x")]), base: layout, sections: sections)
+    }
+
+    /// The older resolver reads a group that a Done row ends as it would with no fold: the bottom of its last drawn
+    /// member, of that member's tab rows, of the Done row and of the space below leaves the group (Codex review).
+    @Test func aDropBelowAGroupThatADoneRowEndsLeavesTheGroup() throws {
+        let after = DropTarget.position(DropPosition(section: Self.section, group: nil, index: 2))
+        let fold = SidebarRowKey.doneFold(SidebarDoneFoldID(section: Self.section, group: Self.group))
+        // A drawn member, then a folded one.
+        var (sections, layout) = Self.groupAtEnd([Self.ws("g2"), Self.ws("d", done: true)])
+        var done = try #require(layout.row(for: fold), "no Done row")
+        #expect(Self.resolve(done.maxY - 1, sections, layout) == after, "over the Done row: \(String(describing: Self.resolve(done.maxY - 1, sections, layout)))")
+        #expect(Self.resolve(done.maxY + 40, sections, layout) == after, "below the group")
+        // The drawn member's upper half still drops before it, in the group.
+        let g2 = try #require(layout.row(for: .workspace(WorkspaceID("g2"))))
+        #expect(Self.resolve(g2.y + 2, sections, layout) == .position(DropPosition(section: Self.section, group: Self.group, index: 0)))
+        // The last drawn member lists its tabs: the tab rows are part of it, so below them leaves the group too.
+        var tabbed = Self.ws("g2")
+        tabbed.tabs = [SidebarTab(id: TabID("t1"), title: "t1"), SidebarTab(id: TabID("t2"), title: "t2")]
+        (sections, layout) = Self.groupAtEnd([tabbed, Self.ws("d", done: true)], tabs: true)
+        try #require(layout.row(for: .tab(WorkspaceID("g2"), TabID("t2"))) != nil, "the layout lists no tab rows")
+        done = try #require(layout.row(for: fold))
+        #expect(Self.resolve(done.maxY - 1, sections, layout) == after, "over the Done row under tab rows")
+        // Every member is Done: the header alone stands for the group, so its bottom and below leave it.
+        (sections, layout) = Self.groupAtEnd([Self.ws("d1", done: true), Self.ws("d2", done: true)])
+        done = try #require(layout.row(for: fold))
+        #expect(Self.resolve(done.maxY - 1, sections, layout) == after, "over an all-Done group's Done row")
+    }
+
+    /// An open fold draws its Done rows below the fold row, out of model order: a gap at a Done row's index opens
+    /// above the fold, before the first row after it in model order, where the new (never Done) row will show.
+    @Test func aGapAtAnOpenFoldsDoneIndexOpensAboveTheFold() throws {
+        let loose = SidebarDoneFoldID(section: Self.section, group: nil)
+        let sections = [SidebarSection(kind: .machine(Self.machine), nodes: [
+            .workspace(Self.ws("a")), .workspace(Self.ws("b", done: true)), .workspace(Self.ws("c")),
+        ])]
+        var o = SidebarLayoutOptions()
+        o.foldsDone = true
+        o.openDoneFolds = [loose]
+        o.gapHeight = 30
+        o.gap = DropPosition(section: Self.section, index: 1)
+        let layout = SidebarLayout.make(sections: sections, metrics: .standard, options: o)
+        let keys = layout.rows.map(\.key).filter { if case .section = $0 { false } else { true } }
+        try #require(keys == [.workspace(WorkspaceID("a")), .workspace(WorkspaceID("c")), .doneFold(loose), .workspace(WorkspaceID("b"))],
+                     "drawn: \(keys)")
+        let gapY = try #require(layout.gapY, "no gap opened")
+        let c = try #require(layout.row(for: .workspace(WorkspaceID("c"))))
+        #expect(abs(c.y - (gapY + layout.gapHeight + SidebarLayoutMetrics.standard.rowSpacing)) < 0.5, "the gap is not above c")
     }
 }

@@ -63,15 +63,15 @@ nonisolated extension SidebarLayout {
         return kept.count == shown.count ? shown : kept + [(showMoreIndex, shown.count - kept.count)]
     }
 
-    /// The `drawn` entry a drop gap opens before when its model index is one a fold hides (a drag keeps the folds,
-    /// and a drop between two drawn rows can name the hidden index between them): the first drawn row after it,
-    /// else the fold row itself, so the gap sits where the dropped row will show; the list's end too opens before the
-    /// fold. Nil when the list draws no fold, the gap is elsewhere, or its index is drawn (`openGapIfNeeded` places it).
+    /// The `drawn` entry a drop gap opens before in a list that draws a fold (a drag keeps the folds): the first row
+    /// drawn before the fold whose model index is at or past the gap's, else the fold row. That is where the dropped
+    /// row (never Done) will show: a hidden index between two drawn rows, the list's end, and, with the fold open, an
+    /// index of a Done row drawn below the fold all open the gap among the rows above it. Nil when the list draws no
+    /// fold or the gap is elsewhere (`openGapIfNeeded` places it as before).
     static func gapEntry(_ drawn: [(index: Int, depth: Int)], gap: DropPosition?, section: SectionID, group: GroupID?, count: Int) -> Int? {
-        guard let gap, gap.section == section, gap.group == group, gap.index <= count, drawn.contains(where: { $0.index < 0 }),
-              !drawn.contains(where: { $0.index == gap.index }) else { return nil }
-        // Shown rows come first in model order, then the fold rows (`foldingDone`).
-        return drawn.first { $0.index < 0 || $0.index > gap.index }?.index
+        guard let gap, gap.section == section, gap.group == group, gap.index <= count, drawn.contains(where: { $0.index < 0 }) else { return nil }
+        // Shown rows come first in model order, then the fold rows and an open fold's Done rows (`foldingDone`).
+        return drawn.first { $0.index < 0 || $0.index >= gap.index }?.index
     }
 
     /// Appends the row of a `foldingDone` entry (`doneFoldIndex` or `showMoreIndex`) at `y`: one line, as a document
