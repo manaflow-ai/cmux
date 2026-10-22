@@ -58,13 +58,14 @@ fn an_agent_marks_a_tab_without_moving_focus_and_clears_it() {
     let cleared = mutate(&mux, "tab.update", json!({"tab": tab, "attention": null}), "attention-3");
     assert!(cleared["extra"].get("attention").is_none());
     assert_eq!(cleared["extra"]["zoom"], 1.5);
-    for bad in [json!(""), json!("two\nlines"), json!(true), json!("x".repeat(201))] {
+    let bad_values = [json!(""), json!("two\nlines"), json!(true), json!("x".repeat(201))];
+    for (index, bad) in bad_values.into_iter().enumerate() {
         assert_eq!(
             error_code(send(
                 &mux,
                 "tab.update",
                 json!({"tab": tab, "attention": bad}),
-                Some(&format!("attention-bad-{bad}"))
+                Some(&format!("attention-bad-{index}"))
             )),
             "validation.invalid",
             "{bad}"

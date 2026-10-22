@@ -108,8 +108,8 @@ pub(crate) fn add_tab_attention_column(transaction: &Transaction<'_>) -> anyhow:
     Ok(())
 }
 
-/// Characters an attention reason keeps at most.
-pub(crate) const MAX_ATTENTION_REASON_CHARS: usize = 200;
+/// UTF-8 bytes an attention reason holds at most (the catalog's max_length unit).
+pub(crate) const MAX_ATTENTION_REASON_BYTES: usize = 200;
 
 /// The stored attention mark: why the agent needs the person in this tab,
 /// and when it asked. Shown as the tab's `extra.attention`.
@@ -165,8 +165,8 @@ impl TabStateUpdate {
                 "bad request: attention needs a reason the person can read"
             );
             anyhow::ensure!(
-                reason.chars().count() <= MAX_ATTENTION_REASON_CHARS,
-                "bad request: an attention reason holds at most {MAX_ATTENTION_REASON_CHARS} characters"
+                reason.len() <= MAX_ATTENTION_REASON_BYTES,
+                "bad request: an attention reason holds at most {MAX_ATTENTION_REASON_BYTES} bytes"
             );
             anyhow::ensure!(
                 !reason.chars().any(char::is_control),
@@ -568,7 +568,7 @@ mod attention_tests {
         assert!(with("Confirm GitHub access").validate().is_ok());
         assert!(with("   ").validate().is_err());
         assert!(with("two\nlines").validate().is_err());
-        assert!(with(&"x".repeat(MAX_ATTENTION_REASON_CHARS + 1)).validate().is_err());
+        assert!(with(&"x".repeat(MAX_ATTENTION_REASON_BYTES + 1)).validate().is_err());
         assert!(TabStateUpdate { attention: Some(None), ..Default::default() }.validate().is_ok());
     }
 }

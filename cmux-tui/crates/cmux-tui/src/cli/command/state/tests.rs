@@ -639,5 +639,5 @@ fn attention_request_and_clear_send_tab_update() {
     assert!(rejects(&["attention", "request", "--tab", TAB]).contains("--reason"));
     assert!(rejects(&["attention", "request", "--tab", TAB, "--reason", "  "]).contains("empty"));
     assert!(rejects(&["attention", "clear"]).contains("--tab"));
-    assert!(rejects(&["attention", "clear", "--tab", "ws_1"]).contains("tab"));
+    assert!(rejects(&["attention", "clear", "--tab", "ws_1"]).contains("not an id"));
 }

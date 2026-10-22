@@ -162,13 +162,19 @@ impl Mux {
             |transaction, _| {
                 let update = TabStateUpdate { attention: Some(None), ..Default::default() };
                 crate::state::tab_state_store::update_tab_state(transaction, &tab, &update)?;
-                let changes =
-                    crate::state::values::fresh_upserts(transaction, &[], &[], &[tab.clone()])?;
+                let changes = crate::state::values::fresh_upserts(
+                    transaction,
+                    &[],
+                    &[],
+                    std::slice::from_ref(&tab),
+                )?;
                 Ok(StateChanges::new(serde_json::json!({"tab": tab}), changes))
             },
         );
         if let Err(error) = result {
-            eprintln!("cmux-tui: clearing the attention mark of {tab} after navigation failed: {error:#}");
+            eprintln!(
+                "cmux-tui: clearing the attention mark of {tab} after navigation failed: {error:#}"
+            );
         }
     }
 
