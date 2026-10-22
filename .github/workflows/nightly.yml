@@ -1,4 +1,8 @@
 name: Nightly macOS build
+# A promotion request's title names its commit, so the promote guard can find
+# requests GitHub cancelled in its queue (REQUEST_TITLE in
+# scripts/ci/promote-nightly-next.mjs). Every other run keeps the default title.
+run-name: ${{ inputs.promote_nightly_next_sha && format('Promote nightly-next to {0}', inputs.promote_nightly_next_sha) || '' }}
 
 # One workflow, two publish channels. A push to `main` publishes cmux NIGHTLY
 # (bundle id com.cmuxterm.app.nightly, GitHub release `nightly`, feed
@@ -115,7 +119,7 @@ jobs:
     # Keep its default on the hosted runner so a busy paid Linux pool cannot
     # delay every nightly before the macOS work is admitted; retain the normal
     # Linux runner fallback for repositories that do not set the override.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_DECIDE_RUNNER || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}
@@ -477,15 +481,22 @@ jobs:
   # give it. The newest request wins: guard.decideNewest() decides the newest
   # commit among this request and the requests still waiting for that approval,
   # and await-release-surface-ack cancels the older waiters.
+  #
+  # One shared concurrency group keeps a single writer. GitHub keeps only one
+  # waiting job in it and cancels that job when another request arrives, so
+  # decideNewest() also decides the newest request GitHub evicted from this
+  # queue (found by run title and the eviction annotation, hence checks: read)
+  # whose commit contains this request's, through the same guard.
   promote-nightly-next:
     if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
     # Holds only the release App credentials (CMUX_RELEASE_APP_*).
     environment: nightly-next-promote
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
       actions: read
+      checks: read
     concurrency:
       group: nightly-next-promote
       cancel-in-progress: false
@@ -503,6 +514,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/promote-nightly-next.mjs
+            scripts/ci/nightly_next_train.py
             .github/release-surface.txt
           sparse-checkout-cone-mode: false
 
@@ -530,6 +542,8 @@ jobs:
               surfaceText: fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/.github/release-surface.txt`, 'utf8'),
               debounce: process.env.DEBOUNCE === 'true',
               minIntervalHours: Number(process.env.MIN_INTERVAL_HOURS),
+              // G1' for a train commit: main's train script rebuilds its tree.
+              verifyTrain: guard.trainVerifier(`${process.env.GITHUB_WORKSPACE}/scripts/ci/nightly_next_train.py`, { cwd: process.env.GITHUB_WORKSPACE }),
             });
             await core.summary.addRaw(`${dryRun ? '**Dry run: nothing moves.**\n\n' : ''}${decision.sha && decision.sha !== sha ? `Requested \`${sha}\`.\n\n` : ''}${guard.summary(decision)}`).write();
             core.setOutput('dry_run', dryRun ? 'true' : 'false');
@@ -596,7 +610,7 @@ jobs:
     # if: (needs.promote-nightly-next.outputs.action == 'needs-ack' || needs.promote-nightly-next.outputs.action == 'promote') && needs.promote-nightly-next.outputs.dry_run != 'true'
     if: false
     environment: ${{ needs.promote-nightly-next.outputs.action == 'needs-ack' && 'release-surface-ack' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
     concurrency:
@@ -620,7 +634,7 @@ jobs:
     # Holds only the release App credentials (CMUX_RELEASE_APP_*). The approval
     # was given to release-surface-ack on this run; guard.approvedBy() reads it.
     environment: nightly-next-promote
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -639,6 +653,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/promote-nightly-next.mjs
+            scripts/ci/nightly_next_train.py
             .github/release-surface.txt
           sparse-checkout-cone-mode: false
 
@@ -657,6 +672,7 @@ jobs:
               github, core, owner, repo,
               sha: (process.env.REQUESTED_SHA || '').trim(),
               surfaceText: fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/.github/release-surface.txt`, 'utf8'),
+              verifyTrain: guard.trainVerifier(`${process.env.GITHUB_WORKSPACE}/scripts/ci/nightly_next_train.py`, { cwd: process.env.GITHUB_WORKSPACE }),
             });
             const approvers = await guard.approvedBy({ github, owner, repo, runId: context.runId });
             const policy = guard.parsePolicy(fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/.github/release-surface.txt`, 'utf8'));
@@ -724,7 +740,7 @@ jobs:
     # older entry by prefix. A seed_only dispatch still warms it on demand.
     if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && vars.CI_PR_POOL_OWNED != '1' || github.event_name == 'workflow_dispatch' && inputs.seed_only
     # Match the PR Release-build runner and Xcode so its compilation cache is reusable.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: macos-26
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # This job rebuilds the cache after the store drops it, so it runs cold
     # by design; scheduled run 35134963192 was cancelled at 45 minutes.
@@ -1133,7 +1149,7 @@ jobs:
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
     # Zig 0.15.2 cannot link the real helper on macOS 26. Match the stable
     # release workflow by building and verifying it on macOS 15 instead.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    runs-on: macos-15
     timeout-minutes: 20
     env:
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
@@ -1222,7 +1238,7 @@ jobs:
     # branch dogfood always uses the dedicated Blacksmith image. A
     # repository-wide runner override may point at a slower shared builder,
     # which defeats the purpose of the one-architecture path.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || 'macos-26' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # The Blacksmith cache is scoped per branch and also drops main's own
     # entry (runs 35179030871 and 35182663752 restored nothing and were
@@ -1255,34 +1271,43 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
 
       # A persistent owned mini keeps the workspace between jobs. Checkout's
-      # clean drops untracked output; remove only the daemon handoff here so
-      # the persistent DerivedData symlink below survives until it is reused.
+      # clean drops untracked output; remove the daemon handoff here too.
       - name: Clear build outputs a persistent runner kept
         run: scripts/ci/clear-dirs.sh remote-daemon-assets
 
-      - name: Prepare persistent Release DerivedData
+      - name: Start Release DerivedData empty
         run: |
           set -euo pipefail
-          # Owned Glaeda runners keep their checkout between jobs. Keep one
-          # DerivedData tree per channel and pinned Xcode/SDK so the next
-          # classic Release build can be incremental. Blacksmith remains on
-          # the workspace-local path and the normal compilation cache.
+          # The shipped app never builds on warm DerivedData. An incremental
+          # build can keep stale autolink and force-load data in objects it
+          # did not recompile after an import set changed, and those objects
+          # then link into the app. Every runner starts from an empty tree.
+          # Warm state that stays: the compilation cache restored into it
+          # below (content-keyed, with explicit module dependencies in each
+          # key) and the Swift package checkouts in .spm-cache.
+          scripts/ci/clear-dirs.sh build-universal
+          mkdir -p build-universal
           case "${RUNNER_NAME:-}" in
             *-glaeda|*-glaeda-[0-9]*)
-              toolchain_key="$({ xcodebuild -version; xcrun --sdk macosx --show-sdk-build-version; } | shasum -a 256 | awk '{print $1}')"
-              derived_data="$HOME/Library/Developer/Xcode/DerivedData/cmux-nightly-${{ needs.decide.outputs.channel }}-${toolchain_key}"
-              if [ -e build-universal ] || [ -L build-universal ]; then
-                if [ ! -L build-universal ] || [ "$(readlink build-universal)" != "$derived_data" ]; then
-                  scripts/ci/clear-dirs.sh build-universal
+              # Earlier jobs linked build-universal to a tree kept per channel
+              # and toolchain. Delete this channel's trees, so no later change
+              # can link one back and they stop using disk. Another channel's
+              # trees (for example cmux-nightly-rc-*) are not touched.
+              # The name ends in the 64-digit toolchain hash (plus the suffix
+              # clear-dirs.sh adds when a delete did not finish), so the match
+              # never reaches another name with the same prefix. The
+              # nightly-next track keeps its state under
+              # ~/Library/Caches/cmux-nightly-next, which this never touches.
+              shopt -s nullglob
+              stale=()
+              for tree in "$HOME"/Library/Developer/Xcode/DerivedData/cmux-nightly-${{ needs.decide.outputs.channel }}-*; do
+                if [[ "${tree##*/}" =~ ^cmux-nightly-${{ needs.decide.outputs.channel }}-[0-9a-f]{64}(\.stale\..+)?$ ]]; then
+                  stale+=("$tree")
                 fi
+              done
+              if [ "${#stale[@]}" -gt 0 ]; then
+                scripts/ci/clear-dirs.sh "${stale[@]}"
               fi
-              mkdir -p "$derived_data"
-              [ -L build-universal ] || ln -s "$derived_data" build-universal
-              [ "$(readlink build-universal)" = "$derived_data" ]
-              echo "Using persistent DerivedData: $derived_data"
-              ;;
-            *)
-              mkdir -p build-universal
               ;;
           esac
 
@@ -1582,7 +1607,7 @@ jobs:
   resolve-nightly-cmux-tui-client:
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     timeout-minutes: 30
@@ -1620,7 +1645,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: macos-26
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -1868,7 +1893,7 @@ jobs:
       actions: read
     # A literal ephemeral label: a repository variable must not move a signing
     # job onto a machine that is reused between jobs.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-26' || 'blacksmith-12vcpu-macos-26') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (needs.decide.outputs.fast_build == 'true' && 'macos-26' || 'macos-26') }}
     # Start the standalone helper submission early so
     # Apple's first wait overlaps useful work; finish it before the final DMG.
     # Sparkle delta generation runs after the full publication in a separate
@@ -2554,7 +2579,7 @@ jobs:
     if: always() && needs.build-sign-notarize-nightly.result != 'skipped' && needs.build-sign-notarize-nightly.result != 'cancelled'
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: macos-26
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -2703,7 +2728,7 @@ jobs:
     # Apple accepts every exact DMG. This job remains only for private branch
     # artifacts, where no Apple ticket or release publication is involved.
     if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.should_publish != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       NIGHTLY_LEGACY_VARIANT: ${{ needs.decide.outputs.legacy_variant }}
@@ -3012,7 +3037,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
+    runs-on: macos-26
     strategy:
       fail-fast: false
       matrix:
@@ -3102,7 +3127,7 @@ jobs:
     needs: [decide, build-nightly-app, publish-nightly, generate-nightly-deltas]
     if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.fast_build != 'true' && needs.publish-nightly.result == 'success'
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       actions: read
@@ -3185,7 +3210,7 @@ jobs:
   report-nightly-failure:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, build-sign-notarize-nightly, verify-signed-nightly, publish-nightly, generate-nightly-deltas, republish-nightly-deltas]
     if: always() && needs.decide.outputs.should_publish == 'true' && (contains(needs.*.result, 'failure') || needs.publish-nightly.outputs.tag_status == 'stale')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       issues: write
@@ -3231,7 +3256,7 @@ jobs:
   close-nightly-failure-issue:
     needs: [decide, publish-nightly, generate-nightly-deltas, republish-nightly-deltas]
     if: needs.decide.outputs.should_publish == 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.tag_status == 'updated' && (needs.generate-nightly-deltas.result == 'success' || needs.generate-nightly-deltas.result == 'skipped') && (needs.republish-nightly-deltas.result == 'success' || needs.republish-nightly-deltas.result == 'skipped')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       issues: write
@@ -3251,4 +3276,3 @@ jobs:
               await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: `${process.env.CHANNEL_APP_NAME} publish succeeded again on ${process.env.HEAD_SHA}: ${runUrl}` });
               await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
             }
-

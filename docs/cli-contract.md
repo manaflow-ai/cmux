@@ -61,6 +61,7 @@ Environment:
 
 | Command | Contract |
 | --- | --- |
+| `completion <bash\|zsh\|fish>` | Print a shell completion script without connecting to cmux. |
 | `welcome` | Print the welcome screen: the logo, the restored v0.64.25 shortcut list (never the user's bindings), and a pointer to `cmux shortcuts` for editing. Works without the app or a socket. |
 | `sudo` | Run one command through the cmux privileged helper, prompting through the app rather than a terminal. Exits with the command's own exit code. |
 | `help` | Print top-level usage, or one task-focused group of commands with `help <topic>`. Works without a socket. |
@@ -85,6 +86,16 @@ Environment:
 | `import` | Import font, colors, cursor, Option-as-Alt, padding, opacity/blur and scrollback from iTerm2, Terminal, Alacritty, Kitty, WezTerm or a Warp theme into cmux's own Ghostty config and a generated theme. With no terminal, lists detected terminals (and prompts in a TTY). `--dry-run` prints the diff without writing; writing asks for confirmation in a TTY and otherwise (scripts, pipes, `--json`) requires `--yes`; `--path <file>` overrides detection; `--json` prints the plan. Never writes `~/.config/ghostty/config` or the source terminal's files. Works without a running app. |
 | `claude-teams` | Launch Claude Code with cmux/tmux-style agent team integration. |
 | `codex-teams` | Launch Codex with cmux-managed subagent panes. |
+| `chief` | Chief, the home agent. `home` and `memory` are file-only (work without the app or a socket): `home` prints the Chief home; `memory add <text\|->` saves one fact (refuses secret-looking text), `memory list`, `memory forget <id>`, and `memory path` print or change `<home>/memory/memory.jsonl` and name `person.md` and `instructions.md`. The home is `CMUX_CHIEF_HOME`, else `~/.cmux/chief/<bundle id>` from `CMUX_BUNDLE_ID` or the app that contains the CLI. All support `--json`. |
+| `chief open` | Show Chief Home in the caller's window, or `--window <id\|ref>` (`chief.open`, an explicit focus-intent method like `workspace.select`). |
+| `chief dispatch` | Start one coding agent on one task in one new workspace (`workspace.create`, then `surface.wait_text_change` with `--wait-working`). `--agent codex\|claude` (default `codex`, run as `codex --yolo`; `claude` runs as `claude`; `--agent-arg <arg>` appends, repeatable), `--name <title>` (default: the task's first line; the description stays empty), `--cwd <dir>`, or `--worktree <repo> [--branch <name>]`, which first runs `git -C <repo> worktree add -b <branch> -- <repo>-<slug>` without a shell (slug and default branch from the title; refuses an existing path). The task is the words after `--`, or `--prompt-file <path\|->` (`-` reads stdin); it is written to a 0600 file in a fresh private temp directory, and the new terminal types only ` /bin/sh '<dir>/launch.sh'`, which reads the task, deletes the directory and `exec`s the agent with the task as one argv word, so quotes, `$` and newlines are never shell-parsed. Being argv, the task is visible to `ps` while the agent runs. Focus follows `--focus`/`--no-focus`, else `defaultFocusForUserOpen` (background when run by an agent). `--wait-working [--timeout <s>]` (default 60, max 600; `--timeout` implies it) waits on the terminal's output (no polling) until Codex's `Working (…)` row or a Claude Code spinner row with a timer or "esc to interrupt"; a trust, bypass-mode or sign-in screen is reported, never answered. Prints `OK <workspace ref> <status> [reason]`; `--json` gives `workspace_id`, `workspace_ref`, `surface_id`, `surface_ref`, `agent`, `title`, `cwd`, `worktree`, `branch`, `status` (`working`, `started` when not waited for, `failed`), `evidence` and `reason` (`timeout`, `trust_prompt`, `sign_in`, `agent_not_found`). A failed wait exits 1 after printing. |
+| `chief send` | Send a message to Chief (`chief.send`). Without `--from` it is the user's message, sent through the same store path as typing in Home; with `--from <name>` it posts a report from an agent of that name, which Chief answers unless `--no-reply`. `--conversation <id>` picks a conversation (default: the default Chief's); `-` reads the text from stdin. Prints `OK <message id>`, or `Queued` when Chief is not connected yet. |
+| `chief status` | Harness, model, effort, unread count, conversation count, working conversations and the Chief home (`chief.status`). `--json` for the payload. |
+| `chief conversations` | List Chief conversations, pinned first, then newest (`chief.conversations`): id, unread, flags, title, preview. |
+| `chief read` | Print the newest messages of a conversation as `<time> <author>: <text>` (`chief.read`, `--limit <n>`, default 20, max 200); `--json` gives `author`, `author_kind`, `text`, `at` and `parts` kinds. |
+| `chief stop` | Stop Chief's running reply in a conversation (`chief.stop`). |
+| `chief approve` | Answer Chief's approval card (`chief.approve`): `[<request id>]` (default: the newest waiting card), `--deny`, or `--choice <option>`; default Allow. Prints `OK <request id> <choice>`. The same answer as the card's buttons. DEBUG builds only: a release build returns `not_available`, so no socket client (the Chief's own shell included) can answer the cards that gate the Chief's commands. |
+| `chief answer` | Answer Chief's question card (`chief.answer`) with the same answer its button sends: `[<message id>]` (default: the newest waiting card), `--choice <option>` once per item (an option's label or id, case-insensitive), `--text <text>` for an Other field. An item no choice names keeps its preselected first option. Prints `OK <message id>` and the answer lines. DEBUG builds only: a release build returns `not_available`. |
 | `omo` | Launch OpenCode with oh-my-openagent integration. |
 | `omx` | Launch Oh My Codex with cmux pane integration. |
 | `omc` | Launch Oh My Claude Code with cmux pane integration. |
@@ -158,7 +169,7 @@ Environment:
 | `memory` | Print the app's own memory use separately from the recursive RSS of terminal child processes, so a heavy child process does not read as an app leak. |
 | `focus-pane` | Focus a pane. |
 | `new-pane` | Create a pane with terminal or browser content. `--command <text>` is accepted for terminal panes only; see [Initial terminal command](#initial-terminal-command). |
-| `new-surface` | Create a surface inside a pane. `--command <text>` is accepted for terminal surfaces only; see [Initial terminal command](#initial-terminal-command). |
+| `new-surface` | Create a surface inside a pane. `--command <text>` is accepted for terminal surfaces only; see [Initial terminal command](#initial-terminal-command). `--profile <name\|uuid>` is accepted for browser surfaces only and selects the cmux browser profile, like `new-pane`. |
 | `close-surface` | Close a surface. |
 | `move-surface` | Move a surface to another pane, workspace, window, or index. |
 | `split-off` | Move a surface into a new split without changing focus by default. |
@@ -166,7 +177,7 @@ Environment:
 | `tab-action` | Run horizontal tab context-menu actions. |
 | `rename-tab` | Rename a tab. Compatibility wrapper for `tab-action rename`. |
 | `drag-surface-to-split` | Move a surface into a split direction. |
-| `canvas` | Canvas layout namespace: `info`, `mode`, `set-frame`, `align`, `reveal`, `overview`, `zoom`, `join`, `break`, `select-tab`, `set-viewport`, `new-pane`. Most take a required argument: `mode`, `align`, and `zoom` a direction or mode word, `set-frame` numeric `--x --y --width --height`, `set-viewport` numeric `--x --y` and an optional numeric `--zoom`, `join` a target. `set-frame`, `join`, `break`, and `select-tab` need a surface, positionally or with `--surface <id\|ref>`; `reveal` takes one optionally, and `align` takes none, because its positional is the align command. `new-pane` takes an optional `--type terminal\|browser\|simulator`. `--workspace <ref>` scopes the whole namespace. |
+| `canvas` | Canvas layout namespace: `info`, `mode`, `set-frame`, `align`, `reveal`, `overview`, `zoom`, `join`, `break`, `select-tab`, `set-viewport`, `new-pane`. Most take a required argument: `mode`, `align`, and `zoom` a direction or mode word, `set-frame` numeric `--x --y --width --height`, `set-viewport` numeric `--x --y` and an optional numeric `--zoom`, `join` a target. `set-frame`, `join`, `break`, and `select-tab` need a surface, positionally or with `--surface <id\|ref>`; `reveal` takes one optionally, and `align` takes none, because its positional is the align command. `new-pane` takes an optional `--type terminal\|browser\|simulator\|chief`. `--workspace <ref>` scopes the whole namespace. An unknown option, an option without a value, or an extra argument is rejected before any request is sent. |
 | `refresh-surfaces` | Ask the app to refresh terminal surfaces. |
 | `surface-resume` | Read or change a surface's agent resume binding: `show` (the default, alias `get`), `set`, `clear`. `set` requires the command to run, as `--shell <command>` or `-- <argv...>`; a bare word after `--shell` is rejected rather than appended. Also spelled `surface resume`. |
 | `reload-config` | Ask cmux to reload configuration. |
@@ -304,6 +315,17 @@ go through. Surfaces without an agent are never blocked. A refusal writes nothin
 and exits non-zero. `--force`, before the text or key, skips the check. When
 the app can't answer `surface.input_state` (an older build, or a `cmux ssh`
 relay, which doesn't forward it) the commands write as before.
+
+`surface.wait_text_change` is a v2 worker-lane socket method that waits for a
+terminal's text to change. It takes the `surface.read_text` params, plus
+`after_revision` (a `revision` from an earlier reply) and `timeout_ms` (0 to
+600000, default 30000). Without `after_revision` it answers at once. Otherwise
+it answers when the text differs from that revision or the timeout passes,
+with the `surface.read_text` payload plus `revision` and `changed` (`false`
+only at the timeout). The app wakes the wait on the terminal's own output, so
+a caller loops read, decide, wait without sleeping. A terminal that is not
+running yet is waited for rather than reported. A `cmux ssh` relay does not
+forward it.
 
 `surface.input_state` is a v2 worker-lane socket method. It takes
 `surface_id`, or the usual workspace selectors for that workspace's focused
@@ -528,7 +550,7 @@ checked. Socket canvas verbs never animate.
 | `canvas overview` | `canvas.overview`: toggle the fit-all overview zoom. |
 | `canvas zoom <in\|out\|reset>` | `canvas.zoom`: step the viewport magnification. Any other word is a usage error before the request is sent. |
 | `canvas set-viewport --x <n> --y <n> [--zoom <n>]` | `canvas.set_viewport`: center the viewport on a canvas point and optionally set its magnification. `--x` and `--y` are required and numeric; `--zoom` must be numeric and the app rejects a non-positive value with `invalid_params`. |
-| `canvas new-pane [--type terminal\|browser\|simulator]` | `canvas.new_pane`: create a free-floating pane, `terminal` by default, and focus it. Any other `--type` is a usage error. The reply adds `surface_id` and `surface_ref`, so the text form prints `OK surface:<n>`. |
+| `canvas new-pane [--type terminal\|browser\|simulator\|chief]` | `canvas.new_pane`: create a free-floating pane, `terminal` by default, and focus it. Any other `--type` is a usage error. The reply adds `surface_id` and `surface_ref`, so the text form prints `OK surface:<n>`. |
 | `canvas join <surface> <target>`, `canvas join <surface> --target <target>` | `canvas.join`: move `<surface>` into the pane that hosts `<target>` as a tab, then focus the moved surface. Both must be canvas panes of the workspace. |
 | `canvas break <surface>` | `canvas.break`: tear a surface out of its multi-tab pane into its own pane, focus it and scroll it into view. |
 | `canvas select-tab <surface>` | `canvas.select_tab`: select a surface as its pane's visible tab and move keyboard focus to it. |
@@ -1008,13 +1030,14 @@ the expected text without connecting to a cmux socket.
 - `cmux cloud guide --help` -> `Usage: cmux cloud guide | cmux cloud --skill [--json]`
 - `cmux cloud --skill -h` -> `Usage: cmux cloud guide | cmux cloud --skill [--json]`
 - `cmux sessions --help` -> `Usage: cmux sessions list [options]`
+- `cmux completion --help` -> `Print a shell completion script for cmux.`
 - `cmux ping --help` -> `Usage: cmux ping`
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
 - `cmux events --help` -> `Usage: cmux events [options]`
 - `cmux glaeda --help` -> `Usage: cmux glaeda <request|observe> [options]`
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout|team>`
-- `cmux vm --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
-- `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+- `cmux vm --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|clean|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+- `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|clean|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
 - `cmux vm new --help` -> `Create a Cloud VM.`
 - `cmux vm ls --help` -> `List your Cloud VMs`
 - `cmux vm ports --help` -> `Show listening TCP ports inside a Cloud VM.`
@@ -1045,8 +1068,10 @@ the expected text without connecting to a cmux socket.
 - `cmux comments --help` -> `Usage: cmux comments <subcommand> [options]`
 - `cmux review --help` -> `Usage: cmux review <subcommand> [options]`
 - `cmux vault --help` -> `Usage: cmux vault <subcommand> [options]`
+- `cmux chief --help` -> `Usage: cmux chief <subcommand> [options]`
 - `cmux help --help` -> `Usage: cmux help`
-- `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies]`
+- `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies|completion]`
+- `cmux docs completion` -> `cmux completion zsh`
 - `cmux docs` -> `Topics:`
 - `cmux docs settings` -> `Config files:`
 - `cmux docs capture` -> `capture: Screenshot or record a cmux window`
@@ -1135,6 +1160,7 @@ the expected text without connecting to a cmux socket.
 - `cmux new-pane --help` -> `--command <text>`
 - `cmux new-surface --help` -> `Usage: cmux new-surface`
 - `cmux new-surface --help` -> `--command <text>`
+- `cmux new-surface --help` -> `--profile <name|uuid>`
 - `cmux close-surface --help` -> `Usage: cmux close-surface`
 - `cmux drag-surface-to-split --help` -> `Usage: cmux drag-surface-to-split`
 - `cmux refresh-surfaces --help` -> `Usage: cmux refresh-surfaces`
@@ -1152,7 +1178,7 @@ the expected text without connecting to a cmux socket.
 - `cmux capture-pane --help` -> `Usage: cmux capture-pane [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>]`
 - `cmux resize-pane --help` -> `Usage: cmux resize-pane [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [-L|-R|-U|-D] [--amount <n>]`
 - `cmux pipe-pane --help` -> `Usage: cmux pipe-pane [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--command <shell-command> | <shell-command>]`
-- `cmux wait-for --help` -> `Usage: cmux wait-for [-S|--signal] <name> [--timeout <seconds>]`
+- `cmux wait-for --help` -> `Usage: cmux wait-for [-S|--signal|-L|-U] <name> [--timeout <seconds>]`
 - `cmux swap-pane --help` -> `Usage: cmux swap-pane --pane <id|ref|index> --target-pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]`
 - `cmux break-pane --help` -> `Usage: cmux break-pane [--workspace <id|ref|index>] [--pane <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]`
 - `cmux join-pane --help` -> `Usage: cmux join-pane --target-pane <id|ref|index> [--workspace <id|ref|index>] [--pane <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]`
@@ -1224,8 +1250,11 @@ the expected text without connecting to a cmux socket.
 - `cmux focus-webview --help` -> `Legacy alias for 'cmux browser focus-webview'`
 - `cmux is-webview-focused --help` -> `Legacy alias for 'cmux browser is-webview-focused'`
 - `cmux markdown --help` -> `Usage: cmux markdown open <path>`
+- `cmux --json list-workspaces --help` -> `List workspaces`
+- `cmux list-workspaces --json --help` -> `List workspaces`
+- `cmux --id-format uuids list-workspaces --help` -> `List workspaces`
 - `cmux canvas --help` -> `Usage: cmux canvas <subcommand> [args] [--workspace <id|ref>]`
-- `cmux canvas --help` -> `new-pane [--type terminal|browser|simulator]`
+- `cmux canvas --help` -> `new-pane [--type terminal|browser|simulator|chief]`
 <!-- cli-contract-help-probes:end -->
 
 For `cmux restore`, `--surface [id|ref]` uses the caller when omitted.
@@ -1259,14 +1288,24 @@ changes them:
 
 ## ArgumentParser Migration Sequence
 
-1. Keep this contract file and `tests/test_cli_contract_help.py` green.
-2. Add Swift ArgumentParser as a dependency without changing behavior.
-3. Introduce a parse-only facade that maps ArgumentParser command structs onto
-   existing `CMUXCLI` runner methods.
+1. **Done.** This contract file and `tests/test_cli_contract_help.py` stay green,
+   gated in CI alongside the command tree snapshot and dispatch parity checks.
+2. **Done.** Swift ArgumentParser is a dependency of the `cmux-cli` target,
+   pinned to the same revision already resolved for `CmuxAPIClient`.
+3. **Done.** `CLI/Commands/CmuxCommand.swift` is the parse-only facade; every
+   declared command's `run()` delegates to the existing `CMUXCLI` runner via
+   `GlobalOptions().makeCLI().run()`. The router hands ArgumentParser only the
+   commands the facade implements itself (`completion` and the hidden candidate
+   and tree dumps); every other invocation goes straight to the legacy parser,
+   so a declaration shapes completion and typo suggestions but never runtime
+   behavior. A family joins the routed set when step 4 moves its runner.
 4. Move one command family at a time into small files, starting with no-socket
    commands (`version`, `themes`, hook installers), then socket commands, then
    browser and tmux compatibility.
 5. After each family moves, run the contract probes plus targeted socket tests in
    GitHub Actions.
 6. When all command families are migrated, remove the manual global parser and
-   legacy helper code that no longer owns behavior.
+   legacy helper code that no longer owns behavior. **Deferred one release**:
+   the hand-rolled parser stays reachable behind `CMUX_CLI_LEGACY_PARSER=1` so a
+   regression in the facade has a documented escape hatch; removing it needs a
+   follow-up PR.

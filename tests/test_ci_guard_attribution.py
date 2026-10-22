@@ -499,15 +499,25 @@ class Reporting(unittest.TestCase):
         body = ga.render_issue(self.red_report(), {"S": {"culprit": {"pr": 14724}}}, {})
         self.assertEqual(ga.issue_data({"body": body})["steps"]["S"]["culprit"]["pr"], 14724)
 
-    def test_a_pr_comment_is_one_comment_updated_in_place(self) -> None:
+    def test_a_pr_report_is_the_guards_line_of_the_status_comment(self) -> None:
         report = {"branch": "pr", "state": "red", "pr": 7, "sha": "abc", "run_url": "u", "steps": []}
         writer = ga.Writer(None, True)
         ga.report_pr(writer, FakeGitHub(), "manaflow-ai/cmux", report)
         self.assertEqual(writer.log[0].splitlines()[0], "--- would POST repos/manaflow-ai/cmux/issues/7/comments")
+        self.assertTrue(writer.log[0].splitlines()[1].startswith(ga.pr_status.MARKER))
         writer = ga.Writer(None, True)
-        gh = FakeGitHub(comments={7: [{"id": 3, "body": ga.PR_MARKER + "\nold"}]})
+        status = ga.pr_status.render({"bead": "Bead: `cx-abc1`", "guards": ga.PR_MARKER + "\nold"})
+        gh = FakeGitHub(comments={7: [{"id": 3, "body": status, "user": {"login": ga.pr_status.BOT}}]})
         ga.report_pr(writer, gh, "manaflow-ai/cmux", {**report, "state": "green"})
         self.assertEqual(writer.log[0].splitlines()[0], "--- would PATCH repos/manaflow-ai/cmux/issues/comments/3")
+        sections = ga.pr_status.parse(writer.log[0].split("\n", 1)[1])
+        self.assertEqual(sections["bead"], "Bead: `cx-abc1`")
+        self.assertIn("passes on `abc`", sections["guards"])
+        # A guards comment from before the status comment is edited into one, not left beside it.
+        writer = ga.Writer(None, True)
+        gh = FakeGitHub(comments={7: [{"id": 4, "body": ga.PR_MARKER + "\nold", "user": {"login": ga.pr_status.BOT}}]})
+        ga.report_pr(writer, gh, "manaflow-ai/cmux", {**report, "state": "green"})
+        self.assertEqual(writer.log[0].splitlines()[0], "--- would PATCH repos/manaflow-ai/cmux/issues/comments/4")
         writer = ga.Writer(None, True)
         ga.report_pr(writer, FakeGitHub(), "manaflow-ai/cmux", {**report, "state": "green"})
         self.assertEqual(writer.log, [])  # never red here: nothing to say

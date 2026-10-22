@@ -53,6 +53,8 @@ GROUPS = (
 # derived from ci-guards.yml by direct_path_owners() and need no entry here.
 PATH_OWNERS = {
     ".github/workflows/ci-main-full-suite.yml": frozenset(("ci",)),
+    # tests/test_ci_gate_absent_signal.py imports the gate verdict.
+    "scripts/ci/gate_verdict.py": frozenset(("ci",)),
 
     # test_ci_runner_capability_resolver.py reads the capability map, the
     # resolver it imports, the reusable workflow that publishes the map, and
@@ -165,6 +167,9 @@ PATH_OWNERS = {
     # The swift-package-tests lane; detect_ci_change_areas.py reads its package list.
     "scripts/ci/package-test-lane.sh": frozenset(("app-host-execution", "ci")),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),
+    # tests/test_ci_owned_pool_sources.py imports the detector, which reads the
+    # pool picker's and the runner label policy's constants.
+    "scripts/ci/owned_pool_sources.py": frozenset(("ci",)),
     # tests/test_ci_ui_tests_dispatch.py imports the script and reads the
     # workflow; owned_pool_rescue.py and classify_failures.py import it too.
     "scripts/ci/ui_tests_dispatch.py": frozenset(("app-host-execution", "ci")),
@@ -172,6 +177,12 @@ PATH_OWNERS = {
     # tests/test_ci_pr_media.py imports the script and reads the workflow.
     "scripts/ci/pr_media.py": frozenset(("app-host-execution",)),
     ".github/workflows/pr-media.yml": frozenset(("app-host-execution",)),
+    # tests/test_ci_pr_media_privacy.py imports the gate and reads its workflow;
+    # scripts/pr-media.py (tests/test_pr_media.py) runs it before every upload.
+    "scripts/ci/pr_media_privacy.py": frozenset(("ci", "preflight")),
+    # tests/test_ci_pr_media_privacy.py runs its upload() through the gate.
+    "dogfood/fuzz/cmuxfuzz/triage.py": frozenset(("ci",)),
+    ".github/workflows/pr-media-privacy.yml": frozenset(("ci",)),
     # detect_ci_change_areas.py imports this to decide the swift-package-tests
     # route, so the ci group's router tests observe an edit to it even though
     # no guard step names it in a `run:`.

@@ -132,6 +132,37 @@ const paths = (report: Report, action: string, category?: string) =>
     .filter((item) => item.action === action && (!category || item.category === category))
     .map((item) => item.path);
 
+/** Sets mtime and atime on a tree to that many hours ago. */
+function ageHours(target: string, hours: number) {
+  age(target, hours / 24);
+}
+
+/** A git checkout holding a Rust project one level down, like a cmux worktree's cmux-tui/. */
+function checkout(m: Machine, name: string, parent = m.code) {
+  const dir = path.join(parent, name);
+  write(path.join(dir, ".git"), "gitdir: /elsewhere\n");
+  write(path.join(dir, "README.md"), "hi");
+  const rust = path.join(dir, "cmux-tui");
+  write(path.join(rust, "Cargo.toml"), "[package]");
+  write(path.join(rust, "src", "main.rs"), "fn main() {}");
+  write(path.join(rust, "target", "debug", "deps", "libx.rlib"), "x");
+  write(path.join(rust, "target", "debug", "incremental", "x-1", "s-1", "dep-graph.bin"), "x");
+  return { dir, target: path.join(rust, "target"), incremental: path.join(rust, "target", "debug", "incremental") };
+}
+
+/** Runs a process named `name` (a copy of sleep) with its cwd at `cwd` until stopped. */
+async function processIn(m: Machine, cwd: string, name = "sleep") {
+  const exe = path.join(m.bin, name);
+  if (!existsSync(exe)) writeFileSync(exe, readFileSync("/bin/sleep"), { mode: 0o755 });
+  const child = spawn(exe, ["60"], { cwd, stdio: "ignore" });
+  await new Promise((resolve) => child.once("spawn", resolve));
+  return async () => {
+    const exited = new Promise((resolve) => child.once("exit", resolve));
+    child.kill();
+    await exited;
+  };
+}
+
 describe("cmux-machine-hygiene", () => {
   test("dry-run is the default and removes nothing", async () => {
     const m = machine();
@@ -577,7 +608,54 @@ describe("cmux-machine-hygiene", () => {
     expect(existsSync(path.join(sibling, "node_modules", "pkg", "index.js"))).toBe(true);
   });
 
+  test("a checkout nothing works in loses its build output after a short settle", async () => {
+    const m = machine();
+    const done = checkout(m, "done");
+    const justBuilt = checkout(m, "just-built");
+    ageHours(done.dir, 3);
+    ageHours(justBuilt.dir, 0.5);
+    const report = await run(m, ["--apply", "--only", "project-artifacts"]);
+    expect(paths(report, "deleted", "project-artifacts")).toEqual([done.target]);
+    expect(existsSync(path.join(done.dir, "cmux-tui", "src", "main.rs"))).toBe(true);
+    expect(existsSync(path.join(done.dir, ".git"))).toBe(true);
+    expect(existsSync(justBuilt.target)).toBe(true);
+  });
+
+  test("a live checkout keeps its build output but loses rustc incremental caches while nothing builds", async () => {
+    const m = machine();
+    const live = checkout(m, "live");
+    const building = checkout(m, "building");
+    ageHours(live.dir, 3);
+    ageHours(building.dir, 3);
+    const stops = [await processIn(m, live.dir), await processIn(m, building.dir), await processIn(m, building.dir, "cargo")];
+    try {
+      const report = await run(m, ["--apply", "--only", "project-artifacts", "--only", "build-incremental"]);
+      expect(paths(report, "deleted", "project-artifacts")).toEqual([]);
+      expect(paths(report, "deleted", "build-incremental")).toEqual([live.incremental]);
+      expect(report.items).toContainEqual(
+        expect.objectContaining({ path: building.incremental, action: "skipped", reason: "building" }),
+      );
+      expect(existsSync(path.join(live.target, "debug", "deps", "libx.rlib"))).toBe(true);
+      expect(existsSync(building.incremental)).toBe(true);
+    } finally {
+      for (const stop of stops) await stop();
+    }
+  });
+
+  test("finds build output in Claude Code worktrees under a repository's .claude", async () => {
+    const m = machine();
+    const repo = path.join(m.code, "repo");
+    write(path.join(repo, ".git", "HEAD"), "ref: refs/heads/main\n");
+    write(path.join(repo, ".claude", "settings.json"), "{}");
+    const wt = checkout(m, "agent-1", path.join(repo, ".claude", "worktrees"));
+    ageHours(repo, 3);
+    const report = await run(m, ["--apply", "--only", "project-artifacts"]);
+    expect(paths(report, "deleted", "project-artifacts")).toEqual([wt.target]);
+    expect(existsSync(path.join(repo, ".claude", "settings.json"))).toBe(true);
+  });
+
   test("stays small enough to ship through the provider's exec limit", () => {
-    expect(statSync(SCRIPT).size).toBeLessThan(24 * 1024);
+    // Half the provider's 64 KiB exec limit, leaving room for the JSON-escaped form and arguments.
+    expect(statSync(SCRIPT).size).toBeLessThan(32 * 1024);
   });
 });
