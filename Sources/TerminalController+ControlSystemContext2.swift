@@ -203,6 +203,9 @@ extension TerminalController {
             // otherwise the pane's TextBox changes without moving focus (#22308).
             guard let terminal = workspace.terminalPanel(for: panelId) else { return .textBoxNotTerminal }
             if focus {
+                // Select the pane first, so the TextBox that takes the keyboard is
+                // in the focused pane.
+                workspace.focusPanel(panelId)
                 terminal.toggleTextBoxInput()
             } else {
                 terminal.toggleTextBoxInputPreservingFocus()
