@@ -1199,12 +1199,12 @@ export function Composer({
     : escapeStop.armed
       ? COMPOSER_LABELS.escapeAgainToStop
       : !queues
-      ? COMPOSER_LABELS.placeholder
-      : !steers
-        ? COMPOSER_LABELS.placeholderQueued
-        : onOpenInWindow || steersAlways
-          ? COMPOSER_LABELS.placeholderSteerQuick
-          : COMPOSER_LABELS.placeholderSteer;
+        ? COMPOSER_LABELS.placeholder
+        : !steers
+          ? COMPOSER_LABELS.placeholderQueued
+          : onOpenInWindow || steersAlways
+            ? COMPOSER_LABELS.placeholderSteerQuick
+            : COMPOSER_LABELS.placeholderSteer;
   // A side session's idle prompt reads "Reply in this session…" (the `placeholder` prop); the
   // mid-turn and Esc hints still win, since they say what a key does now.
   const placeholderText =
@@ -1426,11 +1426,7 @@ export function Composer({
   // Once sent, Stop turns until the turn ends, so a press (or Esc) is seen to take (Leo 2026-10-21:
   // "IDK IF IM ACTUALLY STOPPING YOU"); pressed again it sends Stop again.
   const stopLabel = t(
-    stopping
-      ? COMPOSER_LABELS.stopping
-      : escapeStop.armed
-        ? COMPOSER_LABELS.escapeAgainToStop
-        : COMPOSER_LABELS.stop,
+    stopping ? COMPOSER_LABELS.stopping : escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop,
   );
   const stopButton = running ? (
     <button
