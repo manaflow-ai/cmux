@@ -129,8 +129,14 @@ struct StashTests {
 
     /// A terminal tab is no web page: its menu shows Save and Close Tab disabled with the reason.
     @Test func saveAndCloseTabRefusesATerminal() async throws {
-        try await PinnedPageTests.withApp { services, _ in
-            let terminal = try #require(services.daemon.store.workspaces.first?.screens.first?.panes.first?.tabs.first { $0.kind == .pty })
+        try await PinnedPageTests.withApp { services, connection in
+            let store = services.daemon.store
+            let created = try await connection.state.createWorkspace(name: "stash-pty", ephemeral: false, terminal: true, focus: false)
+            @MainActor func terminal() -> TabModel? {
+                store.workspaces.first { $0.resourceID == created.workspaceID }?.screens.flatMap(\.panes).flatMap(\.tabs).first { $0.kind == .pty }
+            }
+            try await PinnedPageTests.until({ terminal() != nil }, report: { "the new workspace has no terminal tab" })
+            let terminal = try #require(terminal())
             let target = ActionInvocation(target: ActionTargetRef(kind: .tab, id: terminal.id))
             #expect(ActionTargetReasons.reason(for: "tab.stash", invocation: target, in: services.registry) == StashHandlerStrings.noPage)
         }

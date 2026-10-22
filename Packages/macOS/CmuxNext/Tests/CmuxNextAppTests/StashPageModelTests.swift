@@ -23,7 +23,8 @@ import Testing
     }
 
     @Test func searchMatchesWorkspaceNamesAndTheirTabs() async throws {
-        let model = StashPageModel(source: FailingSource())
+        let source = FailingSource() // the model holds its source weakly
+        let model = StashPageModel(source: source)
         await model.reload()
         #expect(model.groups(matching: "deploy").map(\.id) == ["w"], "a workspace's tab title matches")
         #expect(model.groups(matching: "release work").map(\.id) == ["w"], "a workspace's name matches")
