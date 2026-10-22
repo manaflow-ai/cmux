@@ -66,6 +66,9 @@ const MENU_HOST: ChipHostFixture = {
   },
   policy: { outsideRoots: "open", remoteImages: "click" },
 };
+// A one-line merge status (Leo 2026-10-21: "we can render this with pics maybe and just... idk make
+// it all look nicer"): the PR one chip, the SHA quiet, the screenshot one thumbnail.
+const mergedLine = `[menu-lane] MERGED #24151 (9f3c2ab1) manaflow-ai/cmux#24151: the model button keeps its width. After: ${MENU_SHOTS}/after-claude-model-menu.png`;
 const openShots: Play = async (ctx) => {
   for (const toggle of ctx.document.querySelectorAll<HTMLButtonElement>(".cv-received__toggle")) toggle.click();
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__pics img").length >= 2);
@@ -295,6 +298,21 @@ export default agentPaneEntry({
         user(menuShots, 6, { incoming: message("composer-look", menuShots, undefined, "lane-2"), untyped: true }),
       ]),
       play: openShots,
+    },
+    "merged-status": {
+      note: "A one-line merged status, in the transcript and as a queued row: the signature is out, the PR written twice is one chip, the SHA is quiet, and its screenshot is one thumbnail with its mention a quiet link.",
+      chipHost: MENU_HOST,
+      snapshot: chat([
+        user("Land the model button fix", 9),
+        assistant("Asked menu-lane to land it.", 8.5),
+        summary(8.5, { status: "completed" }),
+        user(mergedLine, 6, { incoming: message("menu-lane", mergedLine, undefined, "lane-3"), untyped: true }),
+      ]),
+      play: async (ctx) => {
+        for (const toggle of ctx.document.querySelectorAll<HTMLButtonElement>(".cv-received__toggle")) toggle.click();
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__pics img").length >= 1);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__body .is-image-mention").length >= 1);
+      },
     },
     "files-elsewhere": {
       note: "The same report relayed from another machine: its files are that machine's, so each is a chip with a lock and no thumbnail, never this Mac's file of the same path.",
