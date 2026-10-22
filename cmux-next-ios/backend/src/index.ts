@@ -23,6 +23,8 @@ const COLOR = /^#[0-9A-Fa-f]{6}$/
 const WG_KEY = /^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/
 /** A Mac's machine id (PROTOCOL.md "Devices"): 128 bits of a keyed hash, lowercase hex. */
 const MACHINE_ID = /^[0-9a-f]{32}$/
+/** `{machineId}` when the Mac has one, else nothing: a Mac that never sent one keeps its older wire shape. */
+const machineOf = (d: { machineId: string | null }) => (d.machineId ? { machineId: d.machineId } : {})
 /** Other builds' device ids one registration may name (`siblingDeviceIds`). */
 const MAX_SIBLINGS = 16
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,255}$/
@@ -223,7 +225,11 @@ const withStore = async <T>(env: Env, ctx: ExecutionContext, f: (s: Store) => Pr
 }
 
 /** The PROTOCOL.md device object: `ownerUserId` is the bare sub (the project is recorded, not returned). */
-const publicDevice = (env: Env, d: Device): Device => ({ ...d, ownerUserId: splitOwner(env, d.ownerUserId).userId })
+const publicDevice = (env: Env, { machineId, ...d }: Device) => ({
+  ...d,
+  ownerUserId: splitOwner(env, d.ownerUserId).userId,
+  ...machineOf({ machineId })
+})
 
 const colo = (req: Request): string | null => {
   const c = (req as Request & { cf?: { colo?: unknown } }).cf?.colo
@@ -337,7 +343,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
         updatedAt: d.updatedAt,
         lastSeenAt: d.lastSeenAt,
         online: d.kind === "mac" ? (live.get(d.deviceId) ?? false) : null,
-        machineId: d.machineId,
+        ...machineOf(d),
         push: d.push
       }))
     })
@@ -507,7 +513,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       macs: rows.flatMap((d) => {
         if (!reachable.has(d.teamId)) return []
         const p = presence.get(d.deviceId)
-        return [{ deviceId: d.deviceId, name: d.name, teamId: d.teamId, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId, machineId: d.machineId }]
+        return [{ deviceId: d.deviceId, name: d.name, teamId: d.teamId, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId, ...machineOf(d) }]
       })
     })
   }
@@ -580,7 +586,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       macs: rows.flatMap((d) => {
         if (d.teamId !== teamId || d.ownerUserId !== me) return []
         const p = byId.get(d.deviceId)
-        return [{ deviceId: d.deviceId, name: d.name, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId, machineId: d.machineId }]
+        return [{ deviceId: d.deviceId, name: d.name, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId, ...machineOf(d) }]
       })
     })
   }

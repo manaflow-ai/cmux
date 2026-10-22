@@ -78,7 +78,9 @@ describe("Mac machine id", () => {
     expect(machine.get(old.deviceId)).toBe(MACHINE_A)
     expect(machine.get(claimed.deviceId)).toBe(MACHINE_B)
     const fay = (await call("GET", "/v1/teams/personal-mid-fay/macs", await token("mid-fay"))).json.macs
-    expect(fay).toEqual([expect.objectContaining({ deviceId: theirs.deviceId, machineId: null })])
+    expect(fay).toEqual([expect.objectContaining({ deviceId: theirs.deviceId })])
+    // A Mac with no machine id keeps the older wire shape: no key at all.
+    expect("machineId" in fay[0]).toBe(false)
     const devices = (await call("GET", "/v1/me/devices", t)).json.devices as Array<{ deviceId: string; machineId: string | null }>
     expect(devices.find((d) => d.deviceId === phoneId)?.machineId ?? null).toBeNull()
   })

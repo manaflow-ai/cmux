@@ -410,7 +410,13 @@ export class TeamHub extends DurableObject<Env> {
         Date.now()
       )
     }
-    server.send(JSON.stringify({ type: "hello", you: att.deviceId, macs: this.macList(att.teamId).map(({ teamId: _t, ...m }) => m) }))
+    server.send(
+      JSON.stringify({
+        type: "hello",
+        you: att.deviceId,
+        macs: this.macList(att.teamId).map(({ teamId: _t, machineId, ...m }) => ({ ...m, ...(machineId ? { machineId } : {}) }))
+      })
+    )
     if (att.kind === "mac") this.broadcast(att.teamId, JSON.stringify({ type: "presence", mac: this.presenceOf(att.deviceId) }), server)
     const proto = req.headers.get("x-cmux-mobile-subprotocol")
     return new Response(null, { status: 101, webSocket: client, ...(proto ? { headers: { "sec-websocket-protocol": proto } } : {}) })
@@ -595,7 +601,7 @@ export class TeamHub extends DurableObject<Env> {
   /** The presence frame body: PROTOCOL.md `{deviceId, name, online, lastSeenAt, machineId}`. */
   private presenceOf(deviceId: string) {
     const p = this.presence(deviceId)!
-    return { deviceId: p.deviceId, name: p.name, online: p.online, lastSeenAt: p.lastSeenAt, machineId: p.machineId }
+    return { deviceId: p.deviceId, name: p.name, online: p.online, lastSeenAt: p.lastSeenAt, ...(p.machineId ? { machineId: p.machineId } : {}) }
   }
 
   /** To the sockets opened for `teamId` (the only team whose Macs they list). */
