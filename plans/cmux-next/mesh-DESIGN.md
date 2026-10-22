@@ -213,3 +213,39 @@ each).
   snapshots; one primary machine (v1). Postgres (PlanetScale) is the M3 path for multiple
   coordinators.
 - Secrets (Fly): `WEFT_ADMIN_TOKEN`, `WEFT_TICKET_KEY` (coord), `WEFT_TICKET_PUBKEY` (relay).
+
+## 8. Staging evidence (2026-10-22)
+
+Deployed from `cmux-tui/crates/cmux-weft/deploy/` (org `manaflow`):
+
+| App | URL | Machines |
+| --- | --- | --- |
+| `cmux-weft-coord-staging` | https://cmux-weft-coord-staging.fly.dev | 1 (sjc, 1 GB volume `weft_data`) |
+| `cmux-weft-relay-staging` | https://cmux-weft-relay-staging.fly.dev | 4 (sjc, iad, fra, nrt); `/v1/relay/<region>` and `/healthz/<region>` reach that region through `fly-replay` (checked: each answers with its own region) |
+
+Secrets live in Fly and in `~/.secrets/weft-staging.env` (mode 600) on the operator Mac.
+
+Live run, tailnet `cmux-staging`, policy `tag:fleet -> tag:vm:7, tag:fleet:7`:
+
+| Check | Result |
+| --- | --- |
+| Fleet Mac mini (cmux-lawrence-2, Santa Clara) to Freestyle VM (Ubuntu 24.04, egress 443/53 only, no inbound), echo port 7, 300 x 64 B | first reachable 342 ms after start; connect 12.2 ms; RTT min 10.5, p50 12.6, p90 18.2, p99 31.4, max 236 ms; both homed on relay sjc |
+| Freestyle VM (`tag:vm`) to the mini's port 7 | refused by the mini's inbound filter (not reachable within 15 s) |
+| Mac mini to Mac mini (cmux-lawrence-2 to cmux-lawrence, same LAN) over Weft via relay sjc | p50 14.2, p90 16.4, p99 21.0 ms |
+| Same pair over Tailscale | direct LAN path: ICMP avg 1.2 ms (min 0.6); Tailscale's nearest DERP (sfo) is 12.2 ms one way from cmux-lawrence-2 |
+| Mac mini to Fly relay (sjc) | ICMP avg 8.3 ms |
+
+Reading: Weft v1 always relays, so it costs about the two legs to the nearest Fly region. That is
+close to a DERP-relayed Tailscale path, and about 12 times a direct LAN path. Direct UDP paths
+(M2) are the next milestone and are what closes that gap. After the run the VM was deleted
+(Freestyle 404) and the five test nodes were revoked (audit `node.revoke`).
+
+Tests (`cargo test -p cmux-weft`, 23 tests): policy compile and validation, signature binding,
+replay, clock window, tickets, frames, 6 property-fuzz targets (2000 cases each), and a loopback
+tailnet with two relays that checks allow, receiver-side deny, policy removal, revocation,
+approval and rotation. A mutation check (receiver filter disabled) fails the e2e test.
+
+Known v1 gaps: identity is the admin token plus auth keys (Stack Auth JWT sign-in is M2);
+an existing connection keeps running after its port leaves the filter until it closes (new
+connections are refused at once, and revocation removes the WireGuard peer); one coordinator
+machine (SQLite); no production apps yet.
