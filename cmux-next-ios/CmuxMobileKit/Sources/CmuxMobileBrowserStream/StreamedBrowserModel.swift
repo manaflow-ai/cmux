@@ -36,7 +36,8 @@ extension BrowserTabState {
         if text.isEmpty { return nil }
         if text.hasPrefix("/"), !text.hasPrefix("//") { return URL(filePath: text, directoryHint: .inferFromPath) }
         // `localhost:3000`, `mac.local:8080/x`: a host and port, on the web.
-        if !text.contains(" "), text.wholeMatch(of: /[A-Za-z0-9.-]+:[0-9]{1,5}(\/.*)?/) != nil {
+        if !text.contains(" "), let match = text.wholeMatch(of: /([A-Za-z0-9.-]+):[0-9]{1,5}(\/.*)?/),
+           !macSchemes.contains(String(match.1).lowercased()) {
             return URL(string: "http://\(text)")
         }
         if let url = URL(string: text), let scheme = url.scheme?.lowercased() {

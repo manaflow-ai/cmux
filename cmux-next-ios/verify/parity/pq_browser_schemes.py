@@ -22,6 +22,9 @@ import pq_tabs as t
 from journey import check
 
 STAMP = "7" + time.strftime("%H%M%S")
+# Page bodies are matched by words that are never in a workspace name or an address
+# (review finding: the stamp alone also shows in the tab's name and URL).
+BODY = "ZQ" + time.strftime("%M%S")
 PAGES = f"{pq.RBASE}/macpages"  # not a workspace folder: only the Mac's own tab may show it
 
 
@@ -60,12 +63,12 @@ def notice(j):
 
 @t.flow("mac-file")
 def mac_file(j):
-    path = write_page(f"{PAGES}/iphone-link-sequence-{STAMP}.html", "Mac page", f"MAC FILE {STAMP}")
+    path = write_page(f"{PAGES}/iphone-link-sequence-{STAMP}.html", "Mac page", f"MACBODY {BODY}")
     a = t.seed(f"brs-mac-{STAMP}", terminals=1)
     pane = t.ws_tabs(a)[0][0]
     t.mac_raw({"cmd": "new-browser-tab", "url": f"file://{path}", "pane": pane})
     t.open_ws(j, a["name"])
-    took = ocr_wait(j, STAMP, timeout=45)
+    took = ocr_wait(j, "MACBODY", timeout=45)
     pill = j.sim.ocr_find("only http")
     j.sim.shot("mac-file")
     check(not pill, "the phone shows the old scheme pill")
@@ -76,15 +79,15 @@ def mac_file(j):
 @t.flow("typed")
 def typed(j):
     proj = pq.rsh(f"mkdir -p {t.PROJ} && cd {t.PROJ} && pwd -P").stdout.strip()
-    shared = write_page(f"{proj}/shared-{STAMP}.html", "Shared page", f"SHARED {STAMP}")
-    outside = write_page(f"{PAGES}/outside-{STAMP}.html", "Outside page", f"OUTSIDE {STAMP}")
+    shared = write_page(f"{proj}/shared-{STAMP}.html", "Shared page", f"SHAREDBODY {BODY}")
+    outside = write_page(f"{PAGES}/outside-{STAMP}.html", "Outside page", f"OUTSIDEBODY {BODY}")
     a = t.seed(f"brs-typed-{STAMP}", terminals=1)
     t.open_ws(j, a["name"])
     pq.plus_menu(j, "New Browser Tab")
     pq.wait_opened(j, timeout=60)
     out = []
     go(j, f"file://{shared}")
-    took = ocr_wait(j, STAMP)
+    took = ocr_wait(j, "SHAREDBODY")
     j.sim.shot("typed-shared")
     check(took is not None, "a file in the workspace folder did not load")
     out.append(f"shared file loaded in {took:.1f} s")
@@ -93,7 +96,7 @@ def typed(j):
     said = notice(j)
     j.sim.shot("typed-outside")
     check("isn't in a folder this Mac shares" in said, f"outside file: notice {said!r}")
-    check(not j.sim.ocr_find("OUTSIDE"), "the outside file's content showed")
+    check(not j.sim.ocr_find("OUTSIDEBODY"), "the outside file's content showed")
     out.append(f"outside file: {said!r}")
     go(j, "data:text/html,<h1>DATAOK42</h1>")
     took = ocr_wait(j, "DATAOK42")
@@ -202,9 +205,12 @@ def keyboard(j):
     j.sim.shot("keyboard-form")
     check(took is not None, "the form did not get both fields")
     out.append("form: Name, Tab, City, Return -> 'SENT Ada / Paris'")
-    # Shortcuts from the bar: select all + Backspace clears the field.
+    # Select All from the bar, then typing replaces the City field's text.
     bar(j, "Select All")
-    j.sim.softtype("Zed")
-    out.append("Select All from the bar")
+    j.sim.softtype("Rome\n")
+    took = ocr_wait(j, "Rome", timeout=15)
+    j.sim.shot("keyboard-select-all")
+    check(took is not None and not j.sim.ocr_find("Paris"), "Select All + typing did not replace the field")
+    out.append("Select All from the bar, typed over: 'SENT Ada / Rome'")
     bar(j, "Hide Keyboard")
     return "; ".join(out)

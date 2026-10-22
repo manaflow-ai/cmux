@@ -380,8 +380,8 @@ const MAX_APPROVED: usize = 32;
 /// How long one read of the Mac's state answers the guard's checks: one
 /// `list-workspaces` per burst of page reports, not one per report.
 const VIEW_TTL: Duration = Duration::from_secs(2);
-/// Take-backs in a row (no phone navigation between) after which the guard
-/// sends the host to `about:blank`: a page that bounces to a refused address on
+/// Take-backs in a row (no phone navigation and no new allowed page between)
+/// after which the guard sends the host to `about:blank`: a page that bounces to a refused address on
 /// load would otherwise loop.
 const MAX_TAKE_BACKS: u32 = 3;
 
@@ -445,7 +445,9 @@ impl<'a> PageGuard<'a> {
     async fn navigate(&mut self, url: &str) -> Result<String, crate::browser_policy::Blocked> {
         self.take_backs = 0;
         Ok(match self.check(url).await? {
-            crate::browser_policy::Allowed::SharedFile(path) => crate::browser_policy::file_url(&path),
+            crate::browser_policy::Allowed::SharedFile(path) => {
+                crate::browser_policy::resolved_file_url(url, &path)
+            }
             _ => url.to_owned(),
         })
     }
@@ -478,6 +480,9 @@ impl PageGuard<'_> {
         }
         match self.check(url).await {
             Ok(_) => {
+                // A new page the rules allow: the bounce count starts again (a page that
+                // keeps bouncing returns to the page already shown, which never resets it).
+                self.take_backs = 0;
                 self.shown = Some(url.to_owned());
                 PageVerdict::Forward
             }
@@ -523,7 +528,9 @@ pub async fn serve(
             use crate::browser_policy::Allowed;
             let url = url.trim().to_owned();
             match crate::browser_policy::check(&url, mac, &[]).await {
-                Ok(Allowed::SharedFile(path)) => (crate::browser_policy::file_url(&path), None),
+                Ok(Allowed::SharedFile(path)) => {
+                    (crate::browser_policy::resolved_file_url(&url, &path), None)
+                }
                 Ok(Allowed::MacShows) => (url.clone(), Some(url)),
                 Ok(Allowed::Web) => (url, None),
                 Err(blocked) => return Err(Refusal::new(blocked.code(), blocked.message())),
@@ -1195,16 +1202,38 @@ mod tests {
             panic!("not taken back")
         };
         assert_eq!(rb_body(&to_host), serde_json::json!({"t": "rb.navigate", "url": "https://example.com/"}));
-        // Three take-backs with no phone navigation: the fourth stops on the blank page.
+        // A page that keeps bouncing back to the shown page: the fourth take-back in a
+        // row stops on the blank page.
         assert!(matches!(guard.page("https://example.com/", true).await, PageVerdict::Forward));
         let PageVerdict::TakeBack { to_host, .. } = guard.page("chrome://settings", true).await else {
             panic!("not taken back")
         };
         assert_eq!(rb_body(&to_host), serde_json::json!({"t": "rb.navigate", "url": "about:blank"}));
-        // Web pages never ask the Mac; file checks share one read of it per burst.
+        // Browsing on to a new allowed page starts the count again.
+        assert!(matches!(guard.page("https://example.org/", true).await, PageVerdict::Forward));
+        let PageVerdict::TakeBack { to_host, .. } = guard.page("chrome://flags", true).await else {
+            panic!("not taken back")
+        };
+        assert_eq!(rb_body(&to_host), serde_json::json!({"t": "rb.history", "op": "back"}));
+        // Web pages never ask the Mac.
         let before = mac.0.load(Ordering::SeqCst);
         assert!(guard.navigate("https://cmux.com/").await.is_ok());
         assert_eq!(mac.0.load(Ordering::SeqCst), before);
+    }
+
+    #[tokio::test]
+    async fn checks_share_one_read_of_the_mac_per_burst() {
+        let mac = NoMac(Default::default());
+        let mut guard = PageGuard::new(&mac, None);
+        assert!(guard.navigate("chrome://a").await.is_err());
+        assert!(guard.navigate("file:///b").await.is_err());
+        assert_eq!(mac.0.load(Ordering::SeqCst), 1);
+        // An old read is read again.
+        if let Some((at, _)) = guard.view.as_mut() {
+            *at -= VIEW_TTL;
+        }
+        assert!(guard.navigate("chrome://c").await.is_err());
+        assert_eq!(mac.0.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]

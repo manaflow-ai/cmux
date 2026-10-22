@@ -115,6 +115,14 @@ pub enum Allowed {
     MacShows,
 }
 
+/// The resolved `file:` URL to load for `url` (a shared file at `resolved`):
+/// its canonical path, with the `?query` and `#fragment` the address had.
+pub fn resolved_file_url(url: &str, resolved: &Path) -> String {
+    let rest = url.trim().get("file:".len()..).unwrap_or_default();
+    let suffix = rest.find(['?', '#']).map_or("", |i| &rest[i..]);
+    format!("{}{suffix}", file_url(resolved))
+}
+
 /// `path` as a `file:` URL, percent-encoded.
 pub fn file_url(path: &Path) -> String {
     use std::os::unix::ffi::OsStrExt;
@@ -391,6 +399,11 @@ mod tests {
         let resolved = std::fs::canonicalize(shared.path().join("sub/a b.html")).unwrap();
         assert_eq!(check(&written, &mac, &[]).await, Ok(Allowed::SharedFile(resolved.clone())));
         assert_eq!(file_path(&file_url(&resolved)), Some(resolved));
+        assert_eq!(
+            resolved_file_url("file:///x/a.html?q=1#install", Path::new("/r/a b.html")),
+            "file:///r/a%20b.html?q=1#install"
+        );
+        assert_eq!(resolved_file_url("file:///x/a.html", Path::new("/r/a.html")), "file:///r/a.html");
         // Web addresses never ask the Mac.
         assert!(!needs_view("https://example.com") && !needs_view("data:,x") && needs_view("file:///x"));
     }

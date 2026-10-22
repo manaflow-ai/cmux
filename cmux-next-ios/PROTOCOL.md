@@ -576,8 +576,10 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   - A shared file is loaded at its resolved path (hostd forwards
     `file://<canonical path>`), so a symlink swapped in after the check cannot
     redirect the load. A page the Mac shows is remembered for the tab; a
-    shared file is checked again each time. Checks read the daemon once per
-    2 s at most, and only for `file:` and browser pages.
+    shared file is checked again each time; its `?query` and `#fragment` are
+    kept. Checks read the daemon once per 2 s at most, and only for `file:`
+    and browser pages, so a page the Mac opened within the last 2 s can be
+    refused once (it loads when asked again).
   - A refused `rb.navigate` never reaches the host: hostd answers the phone
     with the rb message `rb.navigate.refused {url, code, reason}`
     (`code`: `file_not_shared`, `file_missing`, `script`, `browser_page`,
@@ -599,12 +601,15 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   **Keyboard** (2026-10-21): the phone types into the page with rb input events on
   the input lane: text as `ime_commit`, Return, Tab, Backspace, Escape and arrows
   as `key` down/up, and shortcuts as `key` with `modifiers` (Command = 8) and the
-  Mac's `edit_commands` (`SelectAll`, `Copy`, `Cut`, `Undo`). Paste sends the
-  phone's clipboard text as `ime_commit`. While the keyboard shows, the phone sends
+  Mac's `edit_commands` (`SelectAll`, `Copy`, `Cut`, `Undo`). Copy and Cut run
+  on the Mac, so they put the text on the Mac's clipboard (the owner's own).
+  Paste sends the phone's clipboard text as `ime_commit`. While the keyboard shows, the phone sends
   `rb.screen` with the page's visible height, so the page lays out above the
   keyboard. Hiding the keyboard sends nothing (the page keeps its focus). The host
   does not report the focused field yet (`rb.text_input`), so the phone cannot
-  raise the keyboard by itself when the page focuses a field. Under
+  raise the keyboard by itself when the page focuses a field. Keys of a
+  hardware keyboard attached to the phone reach the page only as text (and
+  Return, Tab, Backspace); arrows, Escape and shortcuts go through the key bar. Under
   `CMUX_MOBILE_CONTROL=stdio` the app starts the hosts: hostd writes
   `{"type":"need_browser","request","tab","url"}` and the app answers
   `{"type":"browser","request","addr":"127.0.0.1:PORT","secret"}` or

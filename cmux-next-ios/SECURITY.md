@@ -250,8 +250,12 @@ A phone browser tab streams from a CEF remote browser host the Mac app runs,
     another Mac app) never load, even when the daemon lists one. `chrome:`,
     `devtools:`, `chrome-extension:` and other internal pages load only when the
     Mac shows them.
-  - A shared file loads at its resolved path, so a symlink swapped into a
-    shared folder after the check cannot redirect that load.
+  - A shared file loads at its resolved path, which narrows the window for
+    a symlink swapped into a shared folder after the check: the final
+    component and the path as checked are fixed, but a directory component
+    swapped before Chromium opens the file can still redirect the load. The
+    host's next `rb.page` is checked again and taken back, after frames may
+    have reached the phone (the same gap as links, below).
   - A link clicked inside the page follows the phone's rules: hostd does not
     forward an `rb.page` the rules refuse and sends the host back. Chromium
     already refuses a web page's navigation to `file:`, so this matters for a

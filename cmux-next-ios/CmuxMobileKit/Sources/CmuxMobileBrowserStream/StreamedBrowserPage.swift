@@ -213,7 +213,10 @@ struct StreamSurface: UIViewRepresentable {
     func updateUIView(_ view: StreamView, context: Context) {
         view.reportScroll = reportScroll
         if keyboard, !view.isFirstResponder {
-            view.becomeFirstResponder()
+            // Not in a window yet, or focus held elsewhere: the button comes back.
+            if !view.becomeFirstResponder() {
+                DispatchQueue.main.async { keyboard = false }
+            }
         } else if !keyboard, view.isFirstResponder {
             view.resignFirstResponder()
         }
@@ -234,6 +237,9 @@ final class StreamView: UIView, UIKeyInput {
     /// How much of the view the software keyboard covers: the page lays out above it,
     /// so the field being typed in stays in sight (as Safari's page shrinks).
     private var covered: CGFloat = 0
+    /// The software keyboard's frame on the screen, when it shows: `covered` is
+    /// worked out again at each layout (rotation, split view), not only per notification.
+    private var keyboardOnScreen: CGRect?
     private lazy var keyBar = StreamKeyBar(target: self)
 
     init(model: StreamedBrowserModel) {
@@ -263,18 +269,24 @@ final class StreamView: UIView, UIKeyInput {
     private var pageSize: CGSize { CGSize(width: bounds.width, height: max(64, bounds.height - covered)) }
 
     @objc private func keyboardFrame(_ note: Notification) {
-        guard isFirstResponder, let window,
+        guard isFirstResponder,
               let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else { return }
-        let keyboard = window.convert(end, from: window.screen.coordinateSpace)
-        cover(StreamedBrowserKey.covered(page: convert(bounds, to: window), keyboard: keyboard))
+        keyboardOnScreen = end
+        setNeedsLayout()
     }
 
-    @objc private func keyboardHidden(_ note: Notification) { cover(0) }
+    @objc private func keyboardHidden(_ note: Notification) { cover(nil) }
 
-    private func cover(_ height: CGFloat) {
-        guard abs(height - covered) > 0.5 else { return }
-        covered = height
+    private func cover(_ keyboard: CGRect?) {
+        keyboardOnScreen = keyboard
         setNeedsLayout()
+    }
+
+    /// How much of this view the keyboard covers now.
+    private func coveredNow() -> CGFloat {
+        guard let window, let keyboard = keyboardOnScreen else { return 0 }
+        return StreamedBrowserKey.covered(page: convert(bounds, to: window),
+                                          keyboard: window.convert(keyboard, from: window.screen.coordinateSpace))
     }
 
     @available(*, unavailable)
@@ -282,6 +294,7 @@ final class StreamView: UIView, UIKeyInput {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        covered = coveredNow()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         video.frame = CGRect(origin: .zero, size: pageSize)
@@ -380,7 +393,7 @@ final class StreamView: UIView, UIKeyInput {
         let resigned = super.resignFirstResponder()
         if resigned {
             keyboardChanged?(false)
-            cover(0)
+            cover(nil)
         }
         return resigned
     }

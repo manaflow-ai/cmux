@@ -1163,6 +1163,31 @@ async fn receive_upload(
 mod tests {
     use super::*;
 
+    /// The daemon down: only the Chat Folders are shared and no Mac page loads.
+    #[tokio::test]
+    async fn with_no_daemon_the_browser_checks_fail_closed() {
+        use crate::browser_policy::MacPages;
+        let base = tempfile::tempdir().unwrap();
+        let chat = base.path().join("chat");
+        std::fs::create_dir_all(&chat).unwrap();
+        let config = ServiceConfig {
+            tui_socket_dir: base.path().to_path_buf(),
+            default_session: "main".into(),
+            default_socket: Some(base.path().join("gone.sock")),
+            file_roots: vec![chat.clone()],
+            acpmux: AcpmuxTarget::Fixed { url: "ws://127.0.0.1:1".into(), token: None },
+            pairing: None,
+            agent_tab_host: None,
+            uploads_dir: base.path().join("uploads"),
+            upload_max_bytes: 1,
+            chief_socket: None,
+            browser: crate::browser::BrowserConfig::default(),
+        };
+        let view = config.view().await;
+        assert!(view.browser_urls.is_empty());
+        assert_eq!(view.roots, vec![chat]);
+    }
+
     #[test]
     fn the_macs_browser_tabs_are_listed() {
         let reply = serde_json::json!({"ok": true, "data": {"workspaces": [{"screens": [{"panes": [

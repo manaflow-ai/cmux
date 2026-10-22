@@ -268,6 +268,7 @@ final class SinkBox: @unchecked Sendable {
         #expect(url("mailto:a@b.c") == "mailto:a@b.c")
         #expect(url("//server/share")?.hasPrefix("https://duckduckgo.com/") == true)
         #expect(url("localhost:3000") == "http://localhost:3000")
+        #expect(url("tel:911") == "tel:911")
         #expect(url("mac.local:8080/x") == "http://mac.local:8080/x")
         // Unchanged: hosts, searches, web addresses.
         #expect(url("example.com") == "https://example.com")
