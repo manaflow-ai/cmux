@@ -47,21 +47,24 @@ for hook in merge-compile-guard-hook.sh base-merge-warning-hook.sh; do
   if ((status != 0)); then
     out="cmux guards: $hook exited $status, so it judged nothing"
   fi
-  [[ -n "$out" ]] && said+=("$out")
+  [[ -n "$out" ]] || continue
+  # A refusal is the answer the moment its guard gives it, read as JSON whatever its spacing: the next
+  # guard could run the hook past its timeout with the refusal unprinted.
+  if python3 -I -c 'import json, sys
+try:
+    spec = json.loads(sys.argv[1]).get("hookSpecificOutput") or {}
+except (ValueError, AttributeError):
+    sys.exit(1)
+sys.exit(0 if isinstance(spec, dict) and spec.get("permissionDecision") == "deny" else 1)' "$out"; then
+    printf '%s\n' "$out"
+    exit 0
+  fi
+  said+=("$out")
 done
 ((${#said[@]})) || exit 0
-# One answer: a guard's refusal (read as JSON, whatever its spacing) as it is; else every warning joined. A
-# guard's JSON gives its systemMessage and additionalContext, any other text is a note. The person sees the
-# systemMessage, the agent the additionalContext.
+# No refusal: one answer from every warning. A guard's JSON gives its systemMessage and additionalContext,
+# any other text is a note. The person sees the systemMessage, the agent the additionalContext.
 python3 -I -c 'import json, sys
-for out in sys.argv[2:]:
-    try:
-        spec = json.loads(out).get("hookSpecificOutput") or {}
-    except (ValueError, AttributeError):
-        continue
-    if isinstance(spec, dict) and spec.get("permissionDecision") == "deny":
-        sys.stdout.write(out + "\n")
-        sys.exit(0)
 shown, context = [], []
 for out in sys.argv[2:]:
     try:
