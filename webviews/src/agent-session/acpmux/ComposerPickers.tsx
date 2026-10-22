@@ -32,6 +32,7 @@ import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { registerPicker } from "./pickerOpeners";
+import { ContextBreakdownView, contextBreakdown } from "./inspector/ContextSection";
 import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
 import { useEscapingPopup } from "../../ui/popupHost";
 import { usePopupHost } from "../../ui/UiProvider";
@@ -1057,11 +1058,14 @@ export function isPlan(modeId: string): boolean {
 }
 
 /// How much of the context window the session has used, as a pie that fills. A click opens
-/// the details: the share used, tokens used of the window, and Compact when the agent offers it.
+/// the details: the share used, tokens used of the window, what fills it by category when the
+/// harness reports a breakdown (Claude Code's /context, drawn as the Inspector's Context draws it),
+/// and Compact when the agent offers it.
 export function ContextRing({
   used,
   size,
   setup,
+  breakdown: reported,
   onCompact,
   working = false,
 }: {
@@ -1069,6 +1073,8 @@ export function ContextRing({
   size?: number;
   /// Tokens the agent took before the conversation; the details split it out when known.
   setup?: number;
+  /// Claude Code's /context (`summary.contextBreakdown`): its categories replace the bar and parts.
+  breakdown?: unknown;
   onCompact?(): void;
   working?: boolean;
 }) {
@@ -1102,6 +1108,7 @@ export function ContextRing({
   }, [known]);
   const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
   const full = fraction >= 0.8 ? " acpmux-context-full" : "";
+  const breakdown = known ? contextBreakdown(reported) : undefined;
   // On the wrapper, so it also shows while the ring is inert before the first usage report.
   const tooltip = known
     ? t("context.ringTooltip", { percent, used: tokens.format(used), size: tokens.format(size) })
@@ -1155,20 +1162,23 @@ export function ContextRing({
         onOpenChange={setOpen}
         anchor={open ? trigger.current : null}
         label={t("context.title")}
-        className={`acpmux-context-pop${full}`}
+        className={`acpmux-context-pop${full}${breakdown ? " acpmux-context-pop--breakdown" : ""}`}
         finalFocus={trigger}
       >
         <div className="acpmux-context-title">{t("context.title")}</div>
         <div className="acpmux-context-percent">{t("context.percent", { percent })}</div>
-        <div className="acpmux-context-bar" aria-hidden="true">
-          <span style={{ width: `${percent}%` }} />
-        </div>
+        {!breakdown && (
+          <div className="acpmux-context-bar" aria-hidden="true">
+            <span style={{ width: `${percent}%` }} />
+          </div>
+        )}
         {known && (
           <div className="acpmux-context-tokens">
             {t("context.tokens", { used: tokens.format(used), size: tokens.format(size) })}
           </div>
         )}
-        {known && setup !== undefined && setup <= used && (
+        {breakdown && <ContextBreakdownView breakdown={breakdown} />}
+        {known && !breakdown && setup !== undefined && setup <= used && (
           <div className="acpmux-context-parts">
             <div className="acpmux-context-part">
               <span className="acpmux-context-part-name">{t("context.setup")}</span>
@@ -1596,22 +1606,23 @@ export const PlusIcon = () => (
     <path d="M8 2.75v10.5M2.75 8h10.5" />
   </Icon>
 );
-/** Send's arrow: iMessage's bold arrow.up, a heavier stroke than the bar's other glyphs. */
+/** Send's arrow: a plain outline glyph with the mic's stroke (Leo 2026-10-21: no disc). */
 export const ArrowUpIcon = () => (
   <Icon>
-    <path d="M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1" strokeWidth={2.1} />
+    <path d="M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1" />
   </Icon>
 );
 /** Steer's return glyph (↵): a prompt typed during a turn goes in now, as Codex and Claude draw it. */
 export const ReturnIcon = () => (
   <Icon>
-    <path d="M12.6 3.6v4.1a1.8 1.8 0 0 1-1.8 1.8H3.6M6.6 6.4 3.4 9.5l3.2 3.1" strokeWidth={1.9} />
+    <path d="M12.6 3.6v4.1a1.8 1.8 0 0 1-1.8 1.8H3.6M6.6 6.4 3.4 9.5l3.2 3.1" />
   </Icon>
 );
+/** Stop: a plain outline square with the mic's stroke, Claude Code desktop's, never a disc. */
 export const StopIcon = () => (
-  <svg className="acpmux-icon" width={18} height={18} viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-    <rect x="3" y="3" width="10" height="10" rx="2" fill="currentColor" />
-  </svg>
+  <Icon>
+    <rect x="3.5" y="3.5" width="9" height="9" rx="1.5" />
+  </Icon>
 );
 export const PlanIcon = () => (
   <Icon>
