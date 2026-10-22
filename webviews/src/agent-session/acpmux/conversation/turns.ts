@@ -950,8 +950,9 @@ function codexRuns(rows: AcpmuxRow[]): AcpmuxRow[] {
   });
 }
 
-/// Narration short enough to fold into the work around it: about three lines at most.
-export const SHORT_NOTE_CHARS = 240;
+/// Narration short enough to fold into the work around it: a short paragraph, under about three
+/// lines at the pane's width.
+export const SHORT_NOTE_CHARS = 160;
 const TAKEAWAY_LINES = 3;
 /// A reply that reads as a takeaway, not narration of the work: over about three lines, or with a
 /// question, a list, a link, code or a second paragraph (Leo, 2026-10-21). Another agent's words
