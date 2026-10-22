@@ -47,10 +47,6 @@ static ADDRESS: LazyLock<Regex> = LazyLock::new(|| {
 /// Ports named in `text` on a loopback or wildcard host, the last printed
 /// first, each port once, at most [`MAX_CANDIDATES`].
 pub(crate) fn candidates(text: &str) -> Vec<Candidate> {
-    // RED: the failing tests land before the scanner.
-    if !text.is_empty() || ADDRESS.as_str().is_empty() {
-        return Vec::new();
-    }
     let mut found: Vec<Candidate> = Vec::new();
     for capture in ADDRESS.captures_iter(text) {
         let Ok(port) = capture["port"].parse::<u16>() else {
