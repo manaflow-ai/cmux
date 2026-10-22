@@ -283,16 +283,25 @@ def check_scene(name, spec, defaults, shot, reference=None, diff_path=None):
     return result
 
 
+def crop(image, box):
+    """The [x0, y0, x1, y1] fraction box of image."""
+    left, top, right, bottom = region_box(image, box)
+    rows = [image.pixels[y * image.width + left:y * image.width + right] for y in range(top, bottom)]
+    return Gray(right - left, bottom - top, bytearray(b"".join(rows)))
+
+
 def check_distinct(config, shots, results):
     """Fail a scene whose capture matches another scene's (`distinct_from` in scenes.json):
-    the driver never reached it and captured the previous scene again. Same-grid SSIM at or
-    above max_scene_ssim is a match; two different scenes in one window score 0.3-0.8."""
+    the driver never reached it and captured the previous scene again. The two captures'
+    distinct_box (right of the sidebar) are compared on the reference grid; SSIM at or above
+    max_scene_ssim is a match."""
     grids = {}
+    box = config["defaults"].get("distinct_box", [0, 0, 1, 1])
 
     def grid(name):
         if name not in grids:
             path = os.path.join(shots, f"{name}.png")
-            grids[name] = resize(load(path), *GRID) if os.path.exists(path) else None
+            grids[name] = resize(crop(load(path), box), *GRID) if os.path.exists(path) else None
         return grids[name]
     for name, spec in config["scenes"].items():
         result = results[name]

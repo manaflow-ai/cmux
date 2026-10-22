@@ -12,13 +12,16 @@ Release control socket only (no debug.* method), like the canary checks:
               column beside it). The capture waits until the window shows that
               workspace and its pane's selected tab is the session's, no
               longer pending (openSessionWorkspace itself switches nothing).
-  composer    `palette.newAgentChat` on that pane: a new chat tab's composer,
-              in a workspace that is not Home.
+  composer    `palette.newAgentChat` on that pane (it docks the new chat at the
+              left of the screen), then `toggleSplitZoom` on the chat's pane: a
+              new chat's composer, in a workspace that is not Home.
 
 The smoke gives the app a settings file where a chat's Inspector pushes the
 chat aside rather than lying over it, so each chat is drawn whole.
 
-Captured in that order (scenes.json lists home, composer, transcript).
+Captured in that order (scenes.json lists home, composer, transcript). Each
+capture is repeated until the judge's structural checks pass, for at most
+--paint-timeout seconds, so a page still loading is not judged too early.
 
 Each capture is the app's largest on-screen window alone (`screencapture -l`,
 its CGWindowID from the window list), so the menu bar, the Dock and a system
@@ -45,6 +48,9 @@ canary = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(canary)
 Client = canary.Client
 Failed = canary.Failed
+_spec = importlib.util.spec_from_file_location("visual_check", os.path.join(HERE, "visual_check.py"))
+judge = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(judge)
 
 # The app's largest normal-layer window that is on screen, by owner pid. Bounds and ids need
 # no Screen Recording grant (only window titles do).
@@ -126,9 +132,24 @@ def act(socket_path, action, target=None, **args):
     if args:
         params["args"] = args
     reply = Client(socket_path, timeout=60).call("action.run", params)
-    if reply.get("ok") is False or "error" in reply:
-        raise Failed(f"action.run {action}: {json.dumps(reply.get('error'))[:400]}")
+    error = reply.get("error")
+    if error and error.get("code") == "timeout" and (error.get("data") or {}).get("not_run") is False:
+        # It started and is still running past the control-plane deadline (a slow runner's
+        # first window save): the scene's own wait and the judge decide whether it got there.
+        print(f"note: action.run {action} still in progress at its deadline", file=sys.stderr)
+        return {"action": action, "in_progress": error}
+    if reply.get("ok") is False or error:
+        raise Failed(f"action.run {action}: {json.dumps(error)[:400]}")
     return reply.get("result") or {}
+
+
+def zoomed_pane(socket_path, pane_id):
+    """Whether a screen of the snapshot has pane_id zoomed."""
+    for workspace in topology(socket_path).get("workspaces") or []:
+        for screen in workspace.get("screens") or []:
+            if screen.get("zoomed_pane") == pane_id:
+                return True
+    return False
 
 
 def main(argv=None):
@@ -140,18 +161,35 @@ def main(argv=None):
     parser.add_argument("--cwd", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--timeout", type=float, default=60)
-    parser.add_argument("--settle", type=float, default=4, help="seconds a scene gets to paint before its capture")
+    parser.add_argument("--settle", type=float, default=4, help="seconds a scene gets to paint before its first capture")
+    parser.add_argument("--paint-timeout", type=float, default=20,
+                        help="seconds a scene's capture may take to pass the judge's structural checks")
+    parser.add_argument("--scenes", default=os.path.join(HERE, "scenes.json"))
     args = parser.parse_args(argv)
     os.makedirs(args.out, exist_ok=True)
     log = {"scenes": {}}
+    with open(args.scenes) as f:
+        config = json.load(f)
 
     def scene(name, reach):
         """Reach the scene, let it paint, capture it; record the outcome."""
         entry = log["scenes"][name] = {}
         try:
             entry["reached"] = reach()
-            time.sleep(args.settle)  # a fixed paint allowance, not a poll
-            entry["bounds"] = capture(args.pid, os.path.join(args.out, f"{name}.png"))
+            time.sleep(args.settle)
+            # A web page paints after it loads (a fresh runner's first New Tab is black for a
+            # while): capture again until the structural checks pass or paint-timeout runs out.
+            # The last capture is what the judge sees, so a scene that never paints still fails.
+            path = os.path.join(args.out, f"{name}.png")
+            deadline = time.monotonic() + args.paint_timeout
+            entry["captures"] = 0
+            while True:
+                entry["bounds"] = capture(args.pid, path)
+                entry["captures"] += 1
+                drawn = judge.check_scene(name, config["scenes"][name], config["defaults"], path)
+                if drawn["ok"] or time.monotonic() >= deadline:
+                    break
+                time.sleep(2)
             entry["shows"] = where(args.socket)
             entry["ok"] = True
             print(f"ok: {name} captured {entry['bounds']}")
@@ -200,8 +238,6 @@ def main(argv=None):
 
         def new_chat():
             before = set(canary.tabs(canary.snapshot(args.socket)))
-            # Targeted at the transcript's pane, a new chat opens as a tab there (an untargeted
-            # Cmd-I docks a narrow chat at the left of the screen instead).
             pane = log["scenes"]["transcript"]["reached"]["pane"]
             run = act(args.socket, "palette.newAgentChat", target=f"pane:{pane}")
             shown = canary.wait(lambda: shown_tab(args.socket, lambda t: t.get("id") not in before), 20)
@@ -210,7 +246,13 @@ def main(argv=None):
                              f"{json.dumps(where(args.socket))[:600]}")
             if shown["workspace"] == log.get("home_workspace"):
                 raise Failed(f"palette.newAgentChat opened its chat in Home ({shown['workspace']}), beside the Chief column")
-            return {"run": run, **shown}
+            # A new chat in a workspace docks at the left of the screen at half its width, where
+            # the open Inspector lies over it; zoomed, the chat has the workspace's width and its
+            # Inspector pushes it aside (the smoke's settings), so the chat is drawn whole.
+            zoom = act(args.socket, "toggleSplitZoom", target=f"pane:{shown['pane']}")
+            if not canary.wait(lambda: zoomed_pane(args.socket, shown["pane"]), 20):
+                raise Failed(f"toggleSplitZoom ran but pane {shown['pane']} is not zoomed: {json.dumps(where(args.socket))[:600]}")
+            return {"run": run, "zoom": zoom, **shown}
         if log["scenes"].get("transcript", {}).get("ok"):
             scene("composer", new_chat)
         else:
