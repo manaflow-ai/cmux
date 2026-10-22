@@ -17,12 +17,21 @@ import { toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
+import { hasTokens, TimedLabel, TurnTokens } from "./TurnTokens";
 import { ChevronRight, Retry } from "./icons";
 import { ForkButton, MessageCopy, MessageTime, PinButton, ReadAloudButton, ROW_ICON } from "./MessageActions";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { useT } from "../i18n";
 import { failureCopy, failureKind, type FailureRoute } from "../failureCopy";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+
+/// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
+function WorkedLabel({ row }: { row: AcpmuxRow }) {
+  const t = useT();
+  if (row.previous !== undefined || row.durationMs === undefined) return workedLabel(t, row);
+  const key = row.status === "cancelled" ? "turn.stopped" : "turn.worked";
+  return <TimedLabel text={(time) => t(key, { time })} time={row.durationMs} />;
+}
 
 /// The "Worked for 15s" line; it opens the turn's commentary and tool calls.
 export function WorkedFor({
@@ -36,7 +45,6 @@ export function WorkedFor({
   controls?: string;
   onToggle: () => void;
 }) {
-  const t = useT();
   return (
     <button
       type="button"
@@ -45,7 +53,17 @@ export function WorkedFor({
       aria-controls={expanded ? controls : undefined}
       onClick={onToggle}
     >
-      <span className="cv-worked__label">{workedLabel(t, row)}</span>
+      <span className="cv-worked__label">
+        <WorkedLabel row={row} />
+      </span>
+      {hasTokens(row.tokens) && (
+        <span className="cv-worked__count">
+          <span className="cv-worked__sep" aria-hidden="true">
+            ·
+          </span>
+          <TurnTokens split={row.tokens} />
+        </span>
+      )}
       <ChevronRight
         size={14}
         strokeWidth={1.2}
@@ -182,7 +200,19 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               : "cv-turn-actions"
         }
       >
-        {label && <span className="cv-turn-summary">{label}</span>}
+        {label && (
+          <span className="cv-turn-summary">
+            {label}
+            {hasTokens(row.tokens) && (
+              <>
+                <span className="cv-worked__sep" aria-hidden="true">
+                  {" · "}
+                </span>
+                <TurnTokens split={row.tokens} />
+              </>
+            )}
+          </span>
+        )}
         <span className="cv-turn-action-group">
           {text && <MessageCopy text={text} />}
           {failed && retry && prompt && (
