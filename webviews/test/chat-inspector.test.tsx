@@ -306,9 +306,9 @@ test("it floats in the gutter beside the transcript when there is room and pushe
   expect(pushes("overlay", 1600, 320, { min: 720, max: 1100, share: 1, prose: Infinity })).toBe(true);
   // Settings Push always pushes.
   expect(pushes("push", 1600, 320)).toBe(true);
-  // Pushed, it narrows to keep a readable chat, down to its own narrowest width.
+  // Pushed, it narrows to keep a readable chat and its 12px margin, down to its own narrowest width.
   expect(pushedWidth(1200, 320)).toBe(320);
-  expect(pushedWidth(720, 320)).toBe(280);
+  expect(pushedWidth(720, 320)).toBe(268);
   expect(pushedWidth(500, 320)).toBe(INSPECTOR_WIDTH.min);
   expect(pushedWidth(0, 320)).toBe(320);
 
@@ -330,7 +330,7 @@ test("it floats in the gutter beside the transcript when there is room and pushe
     for (const observer of observers) observer();
   });
   expect(panel(container)?.dataset.placement).toBe("push");
-  expect(panel(container)?.style.width).toBe("280px");
+  expect(panel(container)?.style.width).toBe("268px");
   // Settings > Agent Chat > Inspector: Push, even in a wide pane.
   await act(async () => {
     paneWidth = 1600;

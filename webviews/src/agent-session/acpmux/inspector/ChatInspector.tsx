@@ -91,10 +91,12 @@ const SPLIT_SETTLE_MS = 2000;
 export const pushes = (placement: InspectorPlacement, paneWidth: number, width: number, column?: ChatColumn) =>
   placement === "push" || paneWidth <= 0 || transcriptColumn(paneWidth, column).inset < width + 2 * FLOAT_MARGIN;
 
-/// A pushed panel's width: its own, narrowed so the chat keeps PUSH_MIN_CHAT, down to the panel's
-/// narrowest.
+/// A pushed panel's width: its own, narrowed so the chat keeps PUSH_MIN_CHAT beside it and its
+/// right margin, down to the panel's narrowest.
 export const pushedWidth = (paneWidth: number, width: number) =>
-  paneWidth <= 0 ? width : Math.min(width, Math.max(INSPECTOR_WIDTH.min, paneWidth - PUSH_MIN_CHAT));
+  paneWidth <= 0
+    ? width
+    : Math.min(width, Math.max(INSPECTOR_WIDTH.min, paneWidth - PUSH_MIN_CHAT - FLOAT_MARGIN));
 
 /// The pane's width, followed as it resizes; 0 before it is measured.
 function usePaneWidth(shell: HTMLElement | null | undefined, live: boolean): number {
@@ -388,7 +390,7 @@ export function InspectorPanel({
         presence?.props.ref(node);
       }}
       inert={presence?.leaving}
-      className={placement === "overlay" ? "ui-glass acpmux-chat-inspector" : "acpmux-chat-inspector"}
+      className="ui-glass acpmux-chat-inspector"
       data-placement={placement}
       style={under ? ({ width, "--acpmux-inspector-top": under } as CSSProperties) : { width }}
       aria-label={t("chatInspector.title")}

@@ -1,40 +1,42 @@
-/* The Inspector (ChatInspector.tsx): the chat's right-hand panel. Push: a column in the shell's flex row
-   beside the chat, which reflows narrower, on the chat's own page surface; with the default it pushes only when
-   the pane's right gutter has no room for it, and with Settings Push always. Overlay (the default, when the
-   gutter has room): a liquid glass dropdown (.ui-glass, ui/glass/glass.css), never an opaque fill (Leo: "I
-   don't like the non-glassness"), that floats in the gutter beside the transcript's column, never over its
-   text, from just under the chat header (--acpmux-inspector-top, the header's height; the header's tools, its
-   own toggle among them, stay above it) and as tall as its sections, up to the pane's foot. It stays open
-   until its toggle closes it. Its width comes from the viewer's drag (inline style); it slides in from the
-   right and back out, and the width never animates. Sections are hairline cards a step lighter than the page;
-   rows are 28px;
-   a long list scrolls inside its section. */
+/* The Inspector (ChatInspector.tsx): the chat's right-hand panel, a liquid glass dropdown (.ui-glass,
+   ui/glass/glass.css; never an opaque fill, Leo: "I don't like the non-glassness") that hugs its sections
+   (Leo 2026-10-21: never a full-height sidebar of dead glass): from just under the chat header
+   (--acpmux-inspector-top, the header's height; the header's tools, its own toggle among them, stay above
+   it), as tall as its sections, up to 12px above the pane's foot, scrolling inside past that. It stays open
+   until its toggle closes it. Overlay (the default, when the pane's right gutter has room): it floats in the
+   gutter beside the transcript's column, never over its text, and the chat does not move. Push (when the
+   gutter has no room, and with Settings Push always): it is an item of the shell's flex row, so it reserves
+   its width and the chat reflows narrower beside it, but it aligns to the top and keeps its own height, so
+   the reserved column below it is the chat's own page, not an empty slab. Its width comes from the viewer's
+   drag (inline style); it slides in from the right and back out, and the width never animates. Sections are
+   hairline cards; rows are 28px; a long list scrolls inside its section. */
 .acpmux-chat-inspector {
   position: relative;
   flex: none;
   min-width: 0;
   max-width: calc(100% - 24px);
+  max-height: calc(100% - var(--acpmux-inspector-top, 0px) - 16px);
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+  border-radius: 12px;
   color: var(--agent-text);
   font-size: var(--text-control);
   line-height: 18px;
+  --glass-elevation: var(--elevation-2);
 }
+/* Pushing: 12px (ChatInspector.tsx FLOAT_MARGIN) from the pane's right edge, top-aligned under the
+   header, its own height. */
 .acpmux-chat-inspector[data-placement="push"] {
-  border-left: var(--cmux-hairline, 0.5px) solid var(--agent-border);
-  background: var(--agent-page-bg);
+  align-self: flex-start;
+  margin: calc(var(--acpmux-inspector-top, 0px) + 4px) 12px 0 0;
 }
-/* Floating: the glass dropdown, 12px (ChatInspector.tsx FLOAT_MARGIN) from the pane's right edge, as
-   tall as its sections up to the pane's foot. */
+/* Floating: the same dropdown over the gutter, 12px from the pane's right edge. */
 .acpmux-chat-inspector[data-placement="overlay"] {
   position: absolute;
   z-index: var(--layer-overlay);
   top: calc(var(--acpmux-inspector-top, 0px) + 4px);
   right: 12px;
-  max-height: calc(100% - var(--acpmux-inspector-top, 0px) - 16px);
-  border-radius: 12px;
-  --glass-elevation: var(--elevation-2);
 }
 /* It slides in from the pane's right edge and back out (ui/presence.ts, data-presence): pushing, it
    travels its own width inside the pane (the shell clips it), so the chat lays out once, not on
