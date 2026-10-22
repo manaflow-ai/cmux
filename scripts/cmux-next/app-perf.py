@@ -25,8 +25,12 @@ counters (`debug.sidebar_perf`, `debug.layout_counters`), and the app's own pres
 (`debug.new_workspace`) and switch (`debug.tab_switch`).
 
 The summary pools every round's frames per scenario; totals are medians over rounds. It prints a Markdown
-table (--markdown writes it to a file) and a REPORT-JSON line. A run fails only when the window draws no
-frames (an unlit or occluded console) or a scenario never ran; slow numbers are data, not failures.
+table (--markdown writes it to a file) and a REPORT-JSON line. Slow numbers are data, not failures. The run
+fails (RESULT FAIL, with the reasons in `failures`) when the window draws no frames (an unlit or occluded
+console), the app stops holding a requested workspace count, or any requested gesture did not do what it
+names in every round: a split made no pane, a toggle press left the main pane's width unchanged or a round
+lacks one of its two halves, new-top's workspace is not the sidebar's first workspace row, or a switch did
+not land. A partial table is never a PASS.
 
 Fleet (alone on an owned mini's console; the allowlisted entry builds the tagged app at the ref):
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh \
@@ -260,13 +264,31 @@ def main_width():
     return rect[2] if isinstance(rect, list) and len(rect) == 4 else None
 
 
+def sidebar_workspace_keys():
+    """The first window's sidebar workspace rows, top to bottom, as workspace keys (row key `workspace(<key>)`)."""
+    windows = (rpc("debug.sidebar_rows") or {}).get("windows") or [{}]
+    keys = [str(r.get("key", "")) for r in windows[0].get("rows") or []]
+    return [k[len("workspace("):-1] for k in keys if k.startswith("workspace(") and k.endswith(")")]
+
+
+def workspace_key(public_id):
+    return next((w.get("key") for w in topology().get("workspaces") or [] if w.get("id") == public_id), None)
+
+
 def new_top(count, bench):
+    """New Workspace at Top: ok only when it made exactly one workspace and the sidebar lists it first."""
     for index in range(opts.rounds):
         ids = workspace_ids()
         run = measure("new-top", lambda: error_of(action("workspace.newAtTop")), timer="debug.new_workspace")
         now = wait(lambda: (lambda w: w if len(w) > len(ids) else None)(workspace_ids()), 10) or workspace_ids()
         made = [i for i in now if i not in ids]
-        keep(count, "new-top", index, run, made, row_index=now.index(made[0]) if made else None)
+        key = workspace_key(made[0]) if len(made) == 1 else None
+        # The app places a new row once the daemon lists it; the row must reach the top, not merely exist.
+        rows = (wait(lambda: (lambda k: k if k and k[0] == key else None)(sidebar_workspace_keys()), 5)
+                if key else None) or sidebar_workspace_keys()
+        at_top = bool(key) and bool(rows) and rows[0] == key
+        keep(count, "new-top", index, run, len(made) == 1 and at_top, made=len(made),
+             row_index=rows.index(key) if key in rows else None)
         for workspace in made:
             go(workspace, settle=0.2)
             action("closeWorkspace")
@@ -299,6 +321,33 @@ def fill(count, bench):
         return False
     go(bench, settle=3.0)
     return True
+
+
+def expected_runs(scenario):
+    """The rows one workspace count must keep for a scenario, by row label: every round, both halves of a toggle."""
+    if scenario == "right-sidebar":
+        return {"right-sidebar-open": opts.rounds, "right-sidebar-close": opts.rounds}
+    if scenario == "sidebar":
+        return {"sidebar-show": opts.rounds, "sidebar-hide": opts.rounds}
+    return {scenario: opts.rounds * (2 if scenario == "switch" else 1)}
+
+
+def incomplete(count, scenarios):
+    """Why `count`'s measurements are not a full set: a round that failed, a missing or extra row."""
+    problems = []
+    for scenario in scenarios:
+        expected = expected_runs(scenario)
+        runs = [r for r in REPORT["runs"] if r["workspaces"] == count and
+                (r["scenario"] == scenario or r["scenario"].startswith(scenario + "-"))]
+        bad = [r for r in runs if not r["ok"]]
+        if bad:
+            problems.append(f"{count} ws {scenario}: {len(bad)} of {len(runs)} rows failed "
+                            f"({', '.join(sorted({r['scenario'] for r in bad}))})")
+        for label, want in expected.items():
+            have = sum(1 for r in runs if r["scenario"] == label)
+            if have != want:
+                problems.append(f"{count} ws {label}: {have} rows, expected {want}")
+    return problems
 
 
 def pct(values, p):
@@ -362,18 +411,20 @@ def markdown(rows):
              "Frame and main-thread columns pool every round's frames; totals are medians per gesture.", "",
              "| ws | scenario | ok | frame p50 | p95 | p99 | max ms | missed | drop@120 | main ms/frame p50 | p95 | max "
              "| main ms total | view layouts/frame p95 | max | view layouts total | window passes/frame max | window passes total "
-             "| gaps>8.3ms | app ms |",
-             "|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
+             "| gaps>8.3ms | hangs | app ms |",
+             "|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
     for r in rows:
         lines.append(f"| {r['workspaces']} | {r['scenario']} | {r['ok']}/{r['runs']} | {f(r['frame_p50_ms'])} | "
                      f"{f(r['frame_p95_ms'])} | {f(r['frame_p99_ms'])} | {f(r['frame_max_ms'])} | {f(r['missed'])} | "
                      f"{f(r['drop120'])} | {f(r['main_p50_ms'], 2)} | {f(r['main_p95_ms'], 2)} | {f(r['main_max_ms'], 2)} | "
                      f"{f(r['main_total_ms'])} | {f(r['view_layouts_per_frame_p95'])} | {f(r['view_layouts_per_frame_max'])} | "
                      f"{f(r['view_layouts_total'])} | {f(r['window_layouts_per_frame_max'])} | {f(r['window_layouts_total'])} | "
-                     f"{f(r['gaps_over_8_3ms'])} | {f(r['app_commit_ms'])} |")
+                     f"{f(r['gaps_over_8_3ms'])} | {f(r['hangs'])} | {f(r['app_commit_ms'])} |")
     lines += ["", "Busiest layout classes per gesture (median NSView.layout calls):"]
     for r in rows:
         lines.append(f"- {r['workspaces']} ws {r['scenario']}: " + ", ".join(f"{n} {f(c)}" for n, c in r["top_layout_classes"]))
+    if REPORT.get("failures"):
+        lines += ["", "Not a full set (RESULT FAIL):"] + [f"- {failure}" for failure in REPORT["failures"]]
     return "\n".join(lines)
 
 
@@ -444,9 +495,14 @@ def main():
     if opts.scrollback:
         action("terminal.sendText", {"text": f"seq 1 {opts.scrollback}\r"}, settle=1.5)
     wanted = [s for s in opts.scenarios.split(",") if s]
-    for count in sorted(int(v) for v in opts.workspaces.split(",") if v):
+    failures = REPORT.setdefault("failures", [])
+    failures += [f"unknown scenario {s}" for s in wanted if s not in SCENARIOS]
+    counts = sorted(int(v) for v in opts.workspaces.split(",") if v)
+    for count in counts:
         if not fill(count, bench):
-            print(f"stopped: the app holds {len(workspace_ids())} workspaces, not {count}", flush=True)
+            failures.append(f"the app holds {len(workspace_ids())} workspaces, not {count}; "
+                            f"{', '.join(str(c) for c in counts if c >= count)} not measured")
+            print(f"stopped: {failures[-1]}", flush=True)
             break
         print(f"\n== {len(workspace_ids())} workspaces", flush=True)
         for scenario in wanted:
@@ -462,17 +518,17 @@ def main():
                 new_top(count, bench)
             elif scenario == "switch":
                 switch(count, bench)
-            else:
-                print(f"unknown scenario {scenario}", flush=True)
+        failures += incomplete(count, [s for s in wanted if s in SCENARIOS])
+    if not any(r["frames"] for r in REPORT["runs"]):
+        failures.append("the window drew no frames (an unlit or occluded console)")
     rows = summarize()
     table = markdown(rows)
     print("\n== summary\n" + table, flush=True)
     if opts.markdown:
         open(opts.markdown, "w").write(table + "\n")
-    drew = any(r["frames"] for r in REPORT["runs"])
-    if not drew:
-        print("the window drew no frames (an unlit or occluded console)", flush=True)
-    return drew and all(any(r["ok"] for r in REPORT["runs"] if r["scenario"].startswith(s)) for s in wanted)
+    for failure in failures:
+        print(f"FAIL {failure}", flush=True)
+    return not failures
 
 
 ok = False
