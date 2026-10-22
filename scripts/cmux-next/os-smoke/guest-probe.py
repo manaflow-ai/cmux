@@ -532,7 +532,7 @@ try:
             wait(lambda: pane_count() == 1, 10, alive)
             pane_rounds = []
             for verb, want, shot in (("splitRight", 2, "pane-split.png"), ("newColumn", 3, "pane-column.png"),
-                                     ("toggleSplitZoom", 3, "pane-zoom.png"), ("toggleSplitZoom", 3, None),
+                                     ("toggleSplitZoom", 1, "pane-zoom.png"), ("toggleSplitZoom", 3, None),
                                      ("closePane", 2, None), ("closePane", 1, "pane-closed.png")):
                 rpc("debug.frames", {"action": "start"})
                 reply = rpc("action.run", {"action": verb, "focus": True, "origin": "script"})
@@ -544,6 +544,8 @@ try:
                 pane_rounds.append({"verb": verb, "want": want, "panes": count,
                                     "error": reply.get("error") if isinstance(reply, dict) else str(reply),
                                     "missed": frames.get("missed"), "p95_ms": frames.get("p95_ms"), "max_ms": frames.get("max_ms")})
+            for r in pane_rounds:  # one line each: the step line keeps 400 characters
+                print("pane      %s" % json.dumps(r), flush=True)
             step("panes", alive() and all(r["panes"] == r["want"] and not r["error"] for r in pane_rounds), {"rounds": pane_rounds})
         sidebar = rpc("action.run", {"action": "toggleSidebar"})
         snap("sidebar", "sidebar.png")
