@@ -52,6 +52,8 @@ public final class UpdaterService {
     /// injected clock (no `asyncAfter`).
     @ObservationIgnored var expiringCard: UpdateCard?
     @ObservationIgnored let cardTimer: DemandTimer
+    /// A staged update gives way to a newer build of the ring (``StagedUpdateRefresh``).
+    @ObservationIgnored let stagedRefresh: StagedUpdateRefresh
     /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
     /// Opens the changelog page for the releases after `from` up to `to`
@@ -188,6 +190,7 @@ public final class UpdaterService {
         self.now = now
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
         snoozeTimer = DemandTimer(owner: "UpdaterService.snooze", clock: clock)
+        stagedRefresh = StagedUpdateRefresh(clock: clock)
         self.identity = identity
         self.policy = policy
         self.prober = prober
@@ -235,6 +238,7 @@ public final class UpdaterService {
         restoreRollbackSkip()
         tipState = TipState(defaults: defaults)
         updateSnooze = UpdateSnooze(defaults: defaults)
+        stagedRefresh.updater = self
     }
 
     /// Why Sparkle does not run right now, or nil.
