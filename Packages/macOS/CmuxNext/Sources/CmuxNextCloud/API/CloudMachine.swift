@@ -153,6 +153,14 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     /// `nil` when the server did not say (an older server, or a backend
     /// machine).
     public var idlePauseMinutes: Int?
+    /// What one hour of this machine's size costs, in US dollars
+    /// (`hourlyRateUsd`, from the server's rate table; the app keeps none).
+    /// Nil when the server has no rate for it (a size not measured yet, an
+    /// older server).
+    public var hourlyRateUsd: Double?
+    /// When the machine last started running (`runningSince`, epoch ms).
+    /// Nil while it is paused, so a paused machine shows no running cost.
+    public var runningSince: Date?
 
     /// The declared capabilities, or the conservative empty set when the
     /// record declared none. Gate actions with ``allows(_:)``, not this.
@@ -170,7 +178,9 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     public var title: String { displayName?.nonEmpty ?? slug?.nonEmpty ?? id }
 
     enum CodingKeys: String, CodingKey {
-        case id, provider, status, displayName, slug, kind, image, imageVersion, createdAt, address, size, capabilities, pauseReason, idlePauseMinutes
+        case id, provider, status, displayName, slug, kind, image, imageVersion, createdAt, address, size, capabilities
+        case pauseReason, idlePauseMinutes
+        case hourlyRateUsd, runningSince
     }
 
     public init(id: String, provider: String = "freestyle", status: Status = .running, displayName: String? = nil,
@@ -204,6 +214,9 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         declaredCapabilities = try c.decodeIfPresent(Capabilities.self, forKey: .capabilities)
         pauseReason = (try? c.decodeIfPresent(String.self, forKey: .pauseReason)).flatMap(PauseReason.init(rawValue:))
         idlePauseMinutes = try? c.decodeIfPresent(Int.self, forKey: .idlePauseMinutes)
+        // Display facts: a malformed value drops the cost line, never the machine.
+        hourlyRateUsd = (try? c.decodeIfPresent(Double.self, forKey: .hourlyRateUsd)) ?? nil
+        runningSince = ((try? c.decodeIfPresent(Double.self, forKey: .runningSince)) ?? nil).map { Date(timeIntervalSince1970: $0 / 1000) }
     }
 }
 
