@@ -453,7 +453,7 @@ let package = Package(
             swiftSettings: daemonSwiftSettings
         ),
         // The cards' center and surfaces: the scan schedule, the job runner, the `import.*`
-        // actions, the agent pages' push and the Chief front page's row. The App supplies `ImportCardsHost`.
+        // actions and the agent pages' push. The App supplies `ImportCardsHost`.
         .target(
             name: "CmuxNextImportCards",
             dependencies: ["CmuxNextActions", "CmuxNextAgentPane", "CmuxNextBrowserImport", "CmuxNextCompat", "CmuxNextDesign",
