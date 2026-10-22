@@ -262,3 +262,85 @@ async fn a_failover_to_another_store_starts_fresh_with_the_transcript() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// The chat's `_acpmux/info` `contextBreakdown`, polled until `want(breakdown)` or 5 s.
+async fn info_breakdown(c: &mut TestClient, id: &str, want: impl Fn(&Value) -> bool) -> Value {
+    let mut got = Value::Null;
+    for _ in 0..100 {
+        let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+        got = info["contextBreakdown"].clone();
+        if want(&got) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    got
+}
+
+/// A failover moves the chat onto another harness: the last harness's /context breakdown is
+/// not the fallback's, so the chat stops showing it (and a restart does not bring it back).
+#[tokio::test]
+async fn a_failover_drops_the_last_harnesss_context_breakdown() {
+    let root = std::env::temp_dir().join(format!("acpmux-failover-ctx-{}", uuid::Uuid::now_v7()));
+    let claude_store = root.join("claude");
+    std::fs::create_dir_all(&claude_store).unwrap();
+    let die = root.join("die");
+    let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let profile = |primary: bool| {
+        let mut env = BTreeMap::from([(
+            "FAKE_CLAUDE_STORE".to_owned(),
+            claude_store.to_string_lossy().into_owned(),
+        )]);
+        if primary {
+            env.insert("FAKE_CLAUDE_CONTEXT".into(), "1".into());
+            env.insert("FAKE_CLAUDE_DIE_IF".into(), die.to_string_lossy().into_owned());
+        }
+        HarnessProfile {
+            kind: acpmux::config::HarnessKind::ClaudeStdio,
+            argv: vec!["python3".into(), fake_claude.into()],
+            env,
+            description: None,
+            fallback: primary.then(|| "direct".to_owned()),
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        }
+    };
+    let agents = BTreeMap::from([
+        ("primary".to_owned(), profile(true)),
+        ("direct".to_owned(), profile(false)),
+    ]);
+    let mut cfg =
+        Config { harnesses: agents, default_harness: Some("primary".into()), ..Default::default() };
+    cfg.store.mode = StoreMode::Memory;
+    cfg.permission_policy = PermissionPolicy::ApproveAll;
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
+    let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+    c.request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "test"}}))
+        .await
+        .unwrap();
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let prompt = |text: &str| json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
+
+    c.request(method::SESSION_PROMPT, prompt("hi")).await.unwrap();
+    let before = info_breakdown(&mut c, &id, |b| !b.is_null()).await;
+    assert!(!before.is_null(), "the primary's turn leaves its /context breakdown");
+
+    // The primary's launcher dies on the next prompt; the turn goes on, on `direct`.
+    std::fs::write(&die, "").unwrap();
+    let r = c.request(method::SESSION_PROMPT, prompt("again")).await;
+    let session = hub.resolve(&id).unwrap();
+    assert_eq!(hub.session_summary(&session)["harness"], "direct", "{r:?}");
+    let after = info_breakdown(&mut c, &id, Value::is_null).await;
+    assert!(after.is_null(), "the primary's breakdown outlived the failover: {after}");
+    assert!(session.meta().context_breakdown.is_none(), "the saved meta keeps the old breakdown");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
