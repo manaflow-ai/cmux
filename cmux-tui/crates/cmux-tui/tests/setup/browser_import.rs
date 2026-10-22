@@ -431,7 +431,8 @@ fn cmux_setup_browser_import_waits_for_the_apps_bookmarks() {
 }
 
 /// Two imports of one browser at once: a folder another run brings in while
-/// this one runs is not this run's, so its undo never removes it.
+/// this one runs is not this run's, so its undo never removes it, and it
+/// does not count as this run's import having landed.
 #[test]
 fn cmux_setup_browser_import_leaves_another_runs_folders_out_of_its_undo() {
     let mut world = World::new("bimany");
@@ -447,4 +448,14 @@ fn cmux_setup_browser_import_leaves_another_runs_folders_out_of_its_undo() {
     assert_eq!(folders.as_array().map(Vec::len), Some(1), "{changed}");
     assert_eq!(changed["after"]["other"][0]["id"], "work", "{changed}");
     assert!(app.bookmarks.lock().unwrap().contains(&work));
+
+    // Another run's folder is no sign this run's import finished: the app
+    // stopped waiting with nothing of this run in, so it is still `wait`.
+    let twin = json!({"id": "twin", "kind": "folder", "parent": "bar",
+        "title": "Imported from Zen (Work)", "source_key": "zen/Profile 1"});
+    app.concurrent.lock().unwrap().push(twin);
+    let pending = world.json(&["setup", "browser-import", "--browser", "zen"]);
+    assert_eq!(pending["state"], "needs_user", "{pending}");
+    assert_eq!(pending["user_action"]["kind"], "wait", "{pending}");
+    assert_eq!(pending["undo"], Value::Null, "{pending}");
 }
