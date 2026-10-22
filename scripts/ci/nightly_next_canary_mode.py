@@ -71,6 +71,7 @@ REPORT_WEEK = dt.timedelta(days=7)
 ISSUE_TITLE = "nightly-next canary failed"
 # Every entry the canary writes starts with this (nightly-next-canary.yml).
 FAILURE_PREFIX = "cmux NEXT build "
+WRITER = "github-actions[bot]"  # the workflows' GITHUB_TOKEN writes every record entry
 EXPLICIT = ("report", "enforce", "off")
 VARIABLE = "NIGHTLY_NEXT_CANARY"
 
@@ -172,8 +173,14 @@ def resolve(value: str, enforce_after: str, now: dt.datetime,
     return "enforce", f"auto: enforce since {stamp} (no {gate} failure in the report week)"
 
 
-def github_entries(repo: str, token: str,
-                   issue_title: str = ISSUE_TITLE) -> Callable[[dt.datetime], list[tuple[dt.datetime, str]]]:
+def github_entries(repo: str, token: str, issue_title: str = ISSUE_TITLE, author: str = WRITER,
+                   fetch: Callable[[str, dict[str, str]], object] | None = None,
+                   ) -> Callable[[dt.datetime], list[tuple[dt.datetime, str]]]:
+    """The record's entries (issue body and comments) written by `author` alone.
+
+    The repository is public, so anyone can comment on the record or open an
+    issue with its title; only the workflow's own token writes a verdict.
+    """
     def get(path: str, query: dict[str, str]) -> object:
         url = f"https://api.github.com/{path}?{urllib.parse.urlencode(query)}"
         req = urllib.request.Request(url, headers={
@@ -191,18 +198,20 @@ def github_entries(repo: str, token: str,
     def read(since: dt.datetime) -> list[tuple[dt.datetime, str]]:
         if not token:
             raise RuntimeError("no GH_TOKEN")
-        result = get("search/issues", {
+        read_json = fetch or get
+        result = read_json("search/issues", {
             "q": f'repo:{repo} is:issue in:title "{issue_title}"', "per_page": "20"})
         entries: list[tuple[dt.datetime, str]] = []
         for issue in result.get("items", []):  # type: ignore[union-attr]
-            if issue.get("title") != issue_title:
+            if issue.get("title") != issue_title or (issue.get("user") or {}).get("login") != author:
                 continue
             entries.append((stamp(issue["created_at"]), issue.get("body") or ""))
             page = 1
             while page <= 10:
-                comments = get(f"repos/{repo}/issues/{issue['number']}/comments", {
+                comments = read_json(f"repos/{repo}/issues/{issue['number']}/comments", {
                     "since": since.strftime("%Y-%m-%dT%H:%M:%SZ"), "per_page": "100", "page": str(page)})
-                entries.extend((stamp(c["created_at"]), c.get("body") or "") for c in comments)  # type: ignore[union-attr]
+                entries.extend((stamp(c["created_at"]), c.get("body") or "") for c in comments  # type: ignore[union-attr]
+                               if (c.get("user") or {}).get("login") == author)
                 if len(comments) < 100:  # type: ignore[arg-type]
                     break
                 page += 1

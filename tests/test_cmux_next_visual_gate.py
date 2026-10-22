@@ -524,6 +524,37 @@ class ModeResolverTests(unittest.TestCase):
         self.assertEqual(mode.build_verdicts(again, "cmux NEXT visual gate passed ",
                                              "cmux NEXT visual gate failed ")[b], "pass")
 
+    def test_only_the_workflow_writes_a_verdict(self):
+        # The repo is public: anyone can comment on the record or open an issue with its title.
+        mode, bad, good = self.mode, "b" * 40, "a" * 40
+        bot, someone = {"login": "github-actions[bot]"}, {"login": "someone"}
+        title = "nightly-next visual gate"
+        issues = {"items": [{"number": 1, "title": title, "user": bot, "created_at": "2026-10-20T00:00:00Z",
+                             "body": "The nightly-next visual gate's record"},
+                            {"number": 2, "title": title, "user": someone, "created_at": "2026-10-22T00:00:00Z",
+                             "body": f"cmux NEXT visual gate passed {bad}: fake"}]}
+        comments = {1: [{"user": bot, "created_at": "2026-10-21T00:00:00Z",
+                         "body": f"cmux NEXT visual gate failed {bad}: run 1"},
+                        {"user": bot, "created_at": "2026-10-21T01:00:00Z",
+                         "body": f"cmux NEXT visual gate passed {good}: run 2"},
+                        {"user": someone, "created_at": "2026-10-21T02:00:00Z",
+                         "body": f"cmux NEXT visual gate passed {bad}: fake"},
+                        {"user": someone, "created_at": "2026-10-21T03:00:00Z",
+                         "body": f"cmux NEXT visual gate failed {good}: fake"}],
+                    2: [{"user": bot, "created_at": "2026-10-22T01:00:00Z",
+                         "body": f"cmux NEXT visual gate passed {bad}: fake"}]}
+
+        def fetch(path, _query):
+            if path == "search/issues":
+                return issues
+            return comments[int(path.split("/")[-2])]
+
+        read = mode.github_entries("manaflow-ai/cmux", "token", title, fetch=fetch)
+        verdicts = mode.build_verdicts(read(mode.parse_when("2026-10-14")), "cmux NEXT visual gate passed ",
+                                       "cmux NEXT visual gate failed ")
+        self.assertEqual(verdicts, {bad: "fail", good: "pass"})
+        self.assertEqual(mode.admit("enforce", bad, verdicts)[0], False)
+
     def test_a_recovered_build_is_refused_only_by_its_own_failed_verdict_in_enforce(self):
         failed, passed, unknown = "f" * 40, "e" * 40, "d" * 40
         verdicts = {failed: "fail", passed: "pass"}
