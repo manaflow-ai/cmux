@@ -27,7 +27,7 @@ struct HomeUnreadIndicatorTests {
     }
 
     @Test func theUnreadConversationsAreTheListsDotsWithoutMutedOnes() {
-        let rows = [Self.row("read"), Self.row("new", unread: 2), Self.row("marked"), Self.row("muted", unread: 4)]
+        let rows = [Self.row("read"), Self.row("new", unread: 2), Self.row("marked"), Self.row("muted", unread: 4, muted: true)]
         let model = HomeSidebarModel(ordered: rows, pinned: [], me: Self.me, unreadMarks: [ConversationID("marked")])
         #expect(Set(model.unreadConversations) == [ConversationID("new"), ConversationID("marked")])
         // Reading it clears the dot; the indicator follows.
