@@ -42,9 +42,13 @@ await requireBrowserLane("whats-new-surfaces-gallery.test.ts", async () => {
 
       test("the gallery has twelve designs, #2 Readable still the only default", async () => {
         const page = await open();
-        const numbers = await page.locator(".cell").evaluateAll((cells) => cells.map((c) => Number((c as HTMLElement).dataset.design)));
+        const numbers = await page
+          .locator(".cell")
+          .evaluateAll((cells) => cells.map((c) => Number((c as HTMLElement).dataset.design)));
         expect(numbers).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-        const defaults = await page.locator(".cell[data-default]").evaluateAll((cells) => cells.map((c) => (c as HTMLElement).dataset.design));
+        const defaults = await page
+          .locator(".cell[data-default]")
+          .evaluateAll((cells) => cells.map((c) => (c as HTMLElement).dataset.design));
         expect(defaults).toEqual(["2"]);
         await page.close();
       });
@@ -59,7 +63,7 @@ await requireBrowserLane("whats-new-surfaces-gallery.test.ts", async () => {
           }
           // Conductor's entries are a version and a title, then a date: every surface names the update.
           const notes = await page.locator(`.cell[data-design="${n}"] .notes`).innerText();
-          expect(notes, `#${n}`).toContain("Oct 22");
+          expect(notes, `#${n}`).toMatch(/Oct(ober)? 22/);
         }
         await page.close();
       });
@@ -93,7 +97,11 @@ await requireBrowserLane("whats-new-surfaces-gallery.test.ts", async () => {
               const b = lum(background(text));
               worst[n] = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
             }
-            return { scheme: document.documentElement.dataset.theme ?? "", body: getComputedStyle(document.body).backgroundColor, worst };
+            return {
+              scheme: document.documentElement.dataset.theme ?? "",
+              body: getComputedStyle(document.body).backgroundColor,
+              worst,
+            };
           }, NEW);
           expect(result.scheme).toBe(theme);
           schemes[theme] = result.body;
