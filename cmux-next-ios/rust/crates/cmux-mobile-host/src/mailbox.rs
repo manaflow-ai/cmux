@@ -290,7 +290,8 @@ impl SpentReplies {
 
     fn save(&self, spent: &HashMap<String, Spent>) {
         if let Some(path) = &self.path
-            && let Err(error) = crate::push_keys::write_private(path, &serde_json::to_vec(spent).unwrap_or_default())
+            && let Err(error) =
+                crate::push_keys::write_private(path, &serde_json::to_vec(spent).unwrap_or_default())
         {
             // Memory still holds it: a replay before a restart is refused anyway.
             tracing::warn!(%error, "could not save spent mailbox replies");
@@ -352,7 +353,9 @@ pub fn check(
     match spent.claim(&reply.id, phone, &reply.nonce, expires, now) {
         Claim::Fresh => Ok(reply),
         Claim::Settled(outcome) => Err(Rejection::Repeat((outcome != "applied").then_some(outcome))),
-        Claim::Seen { in_progress: true } => Err(Rejection::Unavailable("another copy is being applied".into())),
+        Claim::Seen { in_progress: true } => {
+            Err(Rejection::Unavailable("another copy is being applied".into()))
+        }
         Claim::Seen { in_progress: false } => Err(Rejection::Replayed),
         Claim::Unreadable => Err(Rejection::Unavailable("the spent replies cannot be read".into())),
     }
@@ -467,6 +470,8 @@ pub struct Mailbox {
     /// Shared with the links (`Pairing::spent_replies`).
     pub spent: Arc<SpentReplies>,
     pub applier: Arc<dyn Applier>,
+    /// How long an item waits for the app's keys and paired list (`TRUST_WAIT`).
+    pub key_wait: std::time::Duration,
 }
 
 impl Mailbox {
@@ -492,7 +497,8 @@ impl Mailbox {
                 tracing::info!(id = item.id, reason = ?outcome, "mailbox reply rejected");
             }
             let identity = self.identity.borrow().clone();
-            let sig = identity.and_then(|i| i.sign(&ack_message(&self.mac, &item.id, applied, reason.as_deref())));
+            let sig =
+                identity.and_then(|i| i.sign(&ack_message(&self.mac, &item.id, applied, reason.as_deref())));
             handled.results.push(MailboxResult { id: item.id, applied, reason, sig });
         }
         handled
@@ -500,10 +506,10 @@ impl Mailbox {
 
     async fn handle_one(&self, item: &MailboxItem, now: u64) -> Result<(), Rejection> {
         // A hostd that just started waits for the app's keys and paired list, as `auth` does.
-        let identity = Self::loaded(self.identity.clone()).await.ok_or_else(|| {
-            Rejection::Unavailable("the Mac app has not sent its identity key".into())
-        })?;
-        let trust = Self::loaded(self.trust.clone())
+        let identity = Self::loaded(self.identity.clone(), self.key_wait)
+            .await
+            .ok_or_else(|| Rejection::Unavailable("the Mac app has not sent its identity key".into()))?;
+        let trust = Self::loaded(self.trust.clone(), self.key_wait)
             .await
             .ok_or_else(|| Rejection::Unavailable("the Mac app has not sent its paired iPhones".into()))?;
         let reply = check(item, &self.mac, &identity, &trust, &self.spent, now)?;
@@ -516,9 +522,12 @@ impl Mailbox {
         outcome
     }
 
-    async fn loaded<T: Clone>(mut receiver: watch::Receiver<Option<T>>) -> Option<T> {
-        let wait = async { receiver.wait_for(Option::is_some).await.ok().and_then(|v| v.clone()) };
-        tokio::time::timeout(crate::pairing::TRUST_WAIT, wait).await.ok().flatten()
+    async fn loaded<T: Clone>(
+        mut receiver: watch::Receiver<Option<T>>,
+        wait: std::time::Duration,
+    ) -> Option<T> {
+        let ready = async { receiver.wait_for(Option::is_some).await.ok().and_then(|v| v.clone()) };
+        tokio::time::timeout(wait, ready).await.ok().flatten()
     }
 }
 
@@ -679,7 +688,11 @@ mod tests {
         assert_eq!(message, crate::seal::joined(ACK_DOMAIN, &[MAC, "r-1", "0", "not_pending"]));
         let signature = mac_identity().sign(&message).unwrap();
         assert!(crate::pairing::verify(mac_identity().public_key(), &message, &signature));
-        assert!(!crate::pairing::verify(mac_identity().public_key(), &ack_message(MAC, "r-1", true, None), &signature));
+        assert!(!crate::pairing::verify(
+            mac_identity().public_key(),
+            &ack_message(MAC, "r-1", true, None),
+            &signature
+        ));
     }
 
     #[test]
@@ -818,7 +831,10 @@ mod tests {
         // The file of an older hostd (`{key: until}`) still reads.
         let old = dir.path().join("old.json");
         std::fs::write(&old, serde_json::to_vec(&json!({"id:r": NOW + 60})).unwrap()).unwrap();
-        assert_eq!(SpentReplies::load(old).claim("r", PHONE, "n", NOW + 60, NOW), Claim::Seen { in_progress: false });
+        assert_eq!(
+            SpentReplies::load(old).claim("r", PHONE, "n", NOW + 60, NOW),
+            Claim::Seen { in_progress: false }
+        );
     }
 
     #[test]
@@ -865,6 +881,7 @@ mod tests {
             identity: watch::channel(Some(mac_identity())).1,
             spent: Arc::new(SpentReplies::memory()),
             applier,
+            key_wait: std::time::Duration::from_secs(2),
         }
     }
 
@@ -907,7 +924,10 @@ mod tests {
         let handled = stale.handle(vec![item.clone(), item], NOW).await;
         assert_eq!(
             verified(&handled.results),
-            vec![("m-3".into(), false, Some("not_pending".into())), ("m-3".into(), false, Some("not_pending".into()))]
+            vec![
+                ("m-3".into(), false, Some("not_pending".into())),
+                ("m-3".into(), false, Some("not_pending".into()))
+            ]
         );
     }
 
@@ -923,7 +943,7 @@ mod tests {
         assert_eq!(verified(&handled.results), vec![("m-5".into(), true, None)]);
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn a_hostd_that_just_started_waits_for_the_apps_keys() {
         let recorder = Recorder::new(vec![Ok(())]);
         let (identity_tx, identity) = watch::channel(None);
@@ -933,7 +953,7 @@ mod tests {
         let handled = {
             let handle = mailbox.handle(vec![item.clone()], NOW);
             let send = async {
-                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                 identity_tx.send(Some(mac_identity())).unwrap();
             };
             tokio::join!(handle, send).0
@@ -941,7 +961,12 @@ mod tests {
         assert_eq!(verified(&handled.results), vec![("m-6".into(), true, None)]);
         // No key at all within the wait: kept for later, not acknowledged.
         let (_none_tx, none) = watch::channel(None);
-        let blind = Mailbox { identity: none, spent: Arc::new(SpentReplies::memory()), ..mailbox };
+        let blind = Mailbox {
+            identity: none,
+            spent: Arc::new(SpentReplies::memory()),
+            key_wait: std::time::Duration::from_millis(100),
+            ..mailbox
+        };
         let handled = blind.handle(vec![sealed(text_reply("m-7"), &phone_signer())], NOW).await;
         assert_eq!((handled.results.len(), handled.later.len()), (0, 1));
     }

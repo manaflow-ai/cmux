@@ -129,7 +129,11 @@ pub fn sealed_body(
         };
         // The backend refuses a box over its limit, and with it the whole push.
         if boxed.len() > MAX_BOX_CHARS {
-            tracing::warn!(phone, len = boxed.len(), "a sealed push is over the box limit; that phone gets the fixed banner");
+            tracing::warn!(
+                phone,
+                len = boxed.len(),
+                "a sealed push is over the box limit; that phone gets the fixed banner"
+            );
             continue;
         }
         let Some(sig) = identity.sign(&crate::seal::push_signature_message(mac, phone, event_id, &boxed))
@@ -323,7 +327,10 @@ mod tests {
         assert!(body["sealed"]["p1"]["box"].is_string());
         assert!(body["sealed"].get("p2").is_none());
         // No identity key yet, every phone with a push key: routing ids only.
-        assert_eq!(routing_only(&event()), json!({"eventId": "p-perm1", "kind": "question", "sessionId": "s1", "permissionId": "perm/1"}));
+        assert_eq!(
+            routing_only(&event()),
+            json!({"eventId": "p-perm1", "kind": "question", "sessionId": "s1", "permissionId": "perm/1"})
+        );
     }
 
     #[test]

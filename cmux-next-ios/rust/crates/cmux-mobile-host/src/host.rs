@@ -283,6 +283,7 @@ fn mailbox_for(services: &ServiceConfig) -> Option<Arc<crate::mailbox::Mailbox>>
         trust: pairing.trust.clone(),
         identity: pairing.identity.clone(),
         spent: Arc::clone(&pairing.spent_replies),
+        key_wait: crate::pairing::TRUST_WAIT,
         applier: Arc::new(crate::mailbox_apply::LiveApplier {
             acpmux: services.acpmux.clone(),
             daemon_socket,

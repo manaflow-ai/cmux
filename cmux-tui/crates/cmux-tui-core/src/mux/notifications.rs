@@ -254,7 +254,10 @@ impl Mux {
 
     /// The event number and poster of a ledger row this run posted; `None`
     /// for a row restored from disk or evicted.
-    pub fn notification_post(&self, notification: &NotificationPublicId) -> Option<super::NotificationPost> {
+    pub fn notification_post(
+        &self,
+        notification: &NotificationPublicId,
+    ) -> Option<super::NotificationPost> {
         self.notification_posts.lock().unwrap().get(notification).cloned()
     }
 

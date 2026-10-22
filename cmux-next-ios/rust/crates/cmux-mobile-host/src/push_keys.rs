@@ -59,10 +59,13 @@ impl PushKeys {
             return;
         }
         let next = keys.values().map(|e| e.updated).max().unwrap_or(0) + 1;
-        let entry = Entry { identity_key: identity_key.to_owned(), push_key: push_key.to_owned(), updated: next };
+        let entry =
+            Entry { identity_key: identity_key.to_owned(), push_key: push_key.to_owned(), updated: next };
         if keys.len() >= LIMIT && !keys.contains_key(phone) {
             // Drop the one set longest ago; it comes back on that phone's next link.
-            if let Some(oldest) = keys.iter().min_by_key(|(id, e)| (e.updated, (*id).clone())).map(|(id, _)| id.clone()) {
+            if let Some(oldest) =
+                keys.iter().min_by_key(|(id, e)| (e.updated, (*id).clone())).map(|(id, _)| id.clone())
+            {
                 keys.remove(&oldest);
             }
         }

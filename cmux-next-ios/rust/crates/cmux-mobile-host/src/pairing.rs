@@ -614,10 +614,11 @@ async fn authenticate(
     };
     // A push key that does not check out costs only the sealed pushes, never
     // the pairing (PR B review 7): that phone gets the plain content as before.
-    let push_key = push_key_arg(args, &pairing.mac_device_id, phone, identity_key).unwrap_or_else(|(_, why)| {
-        tracing::warn!(phone, why, "ignoring a push key");
-        None
-    });
+    let push_key =
+        push_key_arg(args, &pairing.mac_device_id, phone, identity_key).unwrap_or_else(|(_, why)| {
+            tracing::warn!(phone, why, "ignoring a push key");
+            None
+        });
     let nonce = new_nonce()?;
     let mut challenge = json!({"challenge": nonce, "mac": pairing.mac_device_id});
     // A phone that pins Macs sends its own nonce: the Mac signs it with its

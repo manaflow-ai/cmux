@@ -189,7 +189,9 @@ pub fn reply_target(row: &Value, info: &Value, now_ms: u64) -> Result<String, Re
     if now_pid != Some(pid) || now_executable != Some(executable) {
         return Err(Rejection::NotPending);
     }
-    foreground_program(info).filter(|p| p == executable).ok_or_else(|| refused("only a shell runs in that terminal"))
+    foreground_program(info)
+        .filter(|p| p == executable)
+        .ok_or_else(|| refused("only a shell runs in that terminal"))
 }
 
 /// Whether `ledger` still holds `notification` on `surface`.
@@ -260,7 +262,11 @@ pub async fn answer_notification_reply(
                 return crate::policy::error_line(id, "refused", &outcome);
             }
             crate::mailbox::Claim::Seen { .. } | crate::mailbox::Claim::Unreadable => {
-                return crate::policy::error_line(id, "unavailable", "that reply is not settled yet; try again");
+                return crate::policy::error_line(
+                    id,
+                    "unavailable",
+                    "that reply is not settled yet; try again",
+                );
             }
         }
     }
@@ -618,7 +624,7 @@ mod tests {
         assert!(matches!(reply_target(&no_reply, &info, NOW_MS), Err(Rejection::Refused(_))));
         let old = NOW_MS + TERMINAL_REPLY_AGE.as_millis() as u64;
         assert_eq!(reply_target(&row, &info, old), Err(Rejection::NotPending));
-        let mut anonymous = row.clone();
+        let mut anonymous = row;
         anonymous.as_object_mut().unwrap().remove("poster_pid");
         assert!(matches!(reply_target(&anonymous, &info, NOW_MS), Err(Rejection::Refused(_))));
         // The shell that posted it (`cmux notify --reply` typed at a prompt) gets nothing.
