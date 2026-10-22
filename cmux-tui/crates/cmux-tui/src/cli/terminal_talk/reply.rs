@@ -13,6 +13,8 @@ const PASTE_END: &str = "\x1b[201~";
 /// How many characters of the message (whitespace removed) the end and
 /// start anchors use when the full message is not on screen.
 const ANCHOR_CHARS: usize = 48;
+/// The shortest end of the message an anchor may use.
+const MIN_ANCHOR_CHARS: usize = 20;
 /// How far from the bottom the footer search looks, in lines.
 const FOOTER_LINES: usize = 14;
 
@@ -80,11 +82,14 @@ fn last_match(lines: &[String], needle: &[char]) -> Option<usize> {
 /// its start, else a Claude Code paste placeholder (`[Pasted text #1 …]`).
 pub(in crate::cli) fn anchor(lines: &[String], message: &str) -> Option<usize> {
     let key = squeeze(message);
-    let tail = &key[key.len().saturating_sub(ANCHOR_CHARS)..];
+    let tail = |chars: usize| &key[key.len().saturating_sub(chars)..];
     let head = &key[..key.len().min(ANCHOR_CHARS)];
     let placeholder = squeeze("[Pasted text #");
-    [&key[..], tail, head, &placeholder[..]]
+    // Shorter ends find a message whose start scrolled off or wrapped
+    // differently; the full message and longer ends are tried first.
+    [&key[..], tail(ANCHOR_CHARS), tail(32), tail(MIN_ANCHOR_CHARS), head, &placeholder[..]]
         .into_iter()
+        .filter(|needle| needle.len() >= MIN_ANCHOR_CHARS.min(key.len()))
         .find_map(|needle| last_match(lines, needle))
         .map(|line| line + 1)
 }
