@@ -4,7 +4,7 @@
 ///
 /// ```jsonc
 /// "browser": {
-///   "hibernation": "moderate",        // "off" | "moderate" | "aggressive" | minutes (number)
+///   "hibernation": "aggressive",      // "off" | "moderate" | "aggressive" (default) | minutes (number)
 ///   "hibernationExclusions": ["mail.google.com", "*.example.com"],
 ///   "hibernatePinnedTabs": false,
 ///   "freezeHiddenTabs": 30,          // "off" | seconds (number)
@@ -62,7 +62,10 @@ public nonisolated struct BrowserHibernationSetting: Sendable, Hashable {
     }
 
     public static let configPath = ["browser", "hibernation"]
-    public static let fallback = BrowserHibernationSetting(mode: .moderate)
+    /// After 10 minutes hidden (Leo, 2026-10-21): a hibernated tab frees its renderer (79 MB for
+    /// Chromium, 61 MB for WebKit in PR 23083's bench) and comes back in about 160 ms with its
+    /// picture shown meanwhile, so an hour of hidden renderers bought little.
+    public static let fallback = BrowserHibernationSetting(mode: .aggressive)
     public static let neighborRadiusPath = ["browser", "keepNeighborTabsAwake"]
     public static let exclusionsPath = ["browser", "hibernationExclusions"]
 
