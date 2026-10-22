@@ -157,6 +157,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func observeWorkspace() {
+        sidebar.container.sidebarView.onSpaceShown = { [weak self] in
+            guard let self else { return }
+            DebugSpaceSwitch.sidebarShown(state, in: window)
+        }
         let machines = services.machines
         let cloud = services.cloud
         let windows = services.windows
@@ -275,6 +279,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         services.cloudContextDidChange()
         services.canvasContextDidChange()
         services.windows.contentDidAppear(self)
+        DebugSpaceSwitch.contentShown(state, in: window)
     }
 
     var focusedPane: PaneController? { content?.focusedPane }

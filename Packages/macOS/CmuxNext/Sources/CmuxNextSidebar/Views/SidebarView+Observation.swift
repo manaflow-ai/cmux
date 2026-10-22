@@ -130,6 +130,7 @@ extension SidebarViewComponents {
         if listChanged {
             if profileChanged {
                 switchSpace(from: lastState?.activeProfile, to: state.activeProfile, profiles: state.profiles, oldSections: previous ?? [])
+                onSpaceShown?()
             } else if selectionChanged, rowsChanged, !model.followsUserIntent, list.showsSelectionRow,
                       list.patchSelection(from: lastState?.selected, oldSelection: lastState?.selection ?? []) {
                 // A click moves no row (Leo 2026-10-20): it draws its selection, and rows that changed with it

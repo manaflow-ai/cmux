@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextWakeups
+import Darwin
 import QuartzCore
 
 /// Debug timing of a switch to the screen (`debug.tab_switch`, cx-8w027.25): per switch, `apply_ms`
@@ -15,6 +16,12 @@ import QuartzCore
 /// names the content each row showed (`cold`: a first visit, whose content shows a frame later).
 /// ``confirms`` holds, per shown switch, when the daemon stored the selection
 /// (``confirmed(requestedAt:)``, asynchronous: the switch never waits for it).
+///
+/// Every row also has `cpu_ms`: main-thread CPU time from the intent to the end of its commit (the
+/// intent, the observation turns, AppKit's layout and display). With a ``settleWindow`` (space switch:
+/// the slide that follows), a row waits that long after its commit and adds `settle_missed_frames`
+/// (vsyncs the main thread's display link skipped in the window: a frame not drawn on time) and
+/// `settle_max_frame_ms` (its longest frame interval).
 @MainActor
 public final class SwitchFrameTimer {
     private struct Started {
@@ -22,9 +29,11 @@ public final class SwitchFrameTimer {
         var input: CFTimeInterval?
         var stages: [String: CFTimeInterval] = [:]
         var kind = "unknown"
+        var cpu = SwitchFrameTimer.threadCPU()
     }
     private struct Pending {
         var started: Started, applied: CFTimeInterval, commit: (CFTimeInterval, CFTimeInterval)? = nil, extra: [String: Double] = [:]
+        var cpuEnd: Double?
     }
 
     public private(set) var isRecording = false
@@ -42,6 +51,11 @@ public final class SwitchFrameTimer {
     private var probes: [ObjectIdentifier: CommitProbe] = [:]
     private let capacity = 1_024
     private var client: FrameClient?
+    /// Recent display-link ticks (time, interval since the previous one), for the settle window.
+    private var ticks: [(time: CFTimeInterval, interval: Double, refresh: Double)] = []
+
+    /// How long a row waits after its commit to count the frames that follow (0: none).
+    public var settleWindow: CFTimeInterval = 0
 
     public init(owner: String) {
         client = FrameClient(owner: owner, isAnimation: false, on: .app) { [weak self] tick in self?.frame(tick) ?? false }
@@ -115,17 +129,34 @@ public final class SwitchFrameTimer {
 
     /// The commit that displayed a probe ran: it carried every switch shown before it.
     private func committed(at time: (CFTimeInterval, CFTimeInterval)) {
-        for index in pending.indices where pending[index].commit == nil && pending[index].applied <= time.0 { pending[index].commit = time }
+        let cpu = Self.threadCPU()
+        for index in pending.indices where pending[index].commit == nil && pending[index].applied <= time.0 {
+            pending[index].commit = time
+            pending[index].cpuEnd = cpu
+        }
+    }
+
+    /// The calling thread's CPU time, seconds (the timer runs on the main thread).
+    nonisolated static func threadCPU() -> Double {
+        var ts = timespec()
+        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts)
+        return Double(ts.tv_sec) + Double(ts.tv_nsec) / 1e9
     }
 
     private func frame(_ tick: FrameTick) -> Bool {
         // `tick.timestamp` is a vsync (not on a stalled tick): each instant maps to the first vsync at or after it.
         guard let refresh = tick.refreshInterval else { return true }
+        if settleWindow > 0 {
+            ticks.append((tick.timestamp, tick.rawElapsed, refresh))
+            let horizon = tick.timestamp - settleWindow - 2
+            if let first = ticks.firstIndex(where: { $0.time >= horizon }), first > 0 { ticks.removeFirst(first) }
+        }
         func vsync(after time: CFTimeInterval) -> CFTimeInterval {
             tick.timestamp + ((time - tick.timestamp) / refresh).rounded(.up) * refresh
         }
         pending.removeAll { switched in
             guard let times = switched.commit, times.1 <= tick.timestamp else { return false }
+            if settleWindow > 0, tick.timestamp < times.1 + settleWindow { return false }
             let late = { (time: CFTimeInterval) in max(0, ((vsync(after: time) - vsync(after: switched.applied)) / refresh).rounded() - 1) }
             let start = switched.started.start
             if samples.count < capacity {
@@ -133,6 +164,15 @@ public final class SwitchFrameTimer {
                            "commit_end_ms": (times.1 - start) * 1_000, "late_vsyncs": late(times.0),
                            "late_end_vsyncs": late(times.1), "refresh_ms": refresh * 1_000]
                 if let input = switched.started.input { row["input_ms"] = (start - input) * 1_000 }
+                if let cpuEnd = switched.cpuEnd { row["cpu_ms"] = (cpuEnd - switched.started.cpu) * 1_000 }
+                if settleWindow > 0 {
+                    // Frames from the intent to the end of the settle window: each tick's interval past one refresh is frames skipped.
+                    // The first one counts only its part after the intent (the link may have been idle before).
+                    let window = ticks.filter { $0.time > start && $0.time <= times.1 + settleWindow }
+                        .map { (interval: min($0.interval, $0.time - start), refresh: $0.refresh) }
+                    row["settle_missed_frames"] = window.reduce(0) { $0 + max(0, ($1.interval / $1.refresh).rounded() - 1) }
+                    row["settle_max_frame_ms"] = (window.map(\.interval).max() ?? 0) * 1_000
+                }
                 for (stage, time) in switched.started.stages { row[stage + "_ms"] = (time - start) * 1_000 }
                 samples.append(row.merging(switched.extra) { own, _ in own })
                 kinds.append(switched.started.kind)

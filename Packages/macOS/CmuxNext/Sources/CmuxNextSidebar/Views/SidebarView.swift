@@ -182,6 +182,9 @@ public final class SidebarView: NSView {
     /// The footer's Search button was pressed: the App opens Search (`palette.open`, scope
     /// `search`) anchored to the given view. Nil leaves the button doing nothing.
     public var onSearch: ((NSView) -> Void)?
+    /// The list shows a new space's rows (after ``switchSpace(from:to:profiles:oldSections:)``), for the
+    /// App's space switch timing (`debug.space_switch`). Nil does nothing.
+    public var onSpaceShown: (() -> Void)?
     /// The Search button while it is on screen (shown, in a window, not inside a collapsed
     /// sidebar), for Search to open from; nil otherwise, and Search opens over the window.
     public var searchAnchor: NSView? {

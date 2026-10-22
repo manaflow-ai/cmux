@@ -16,6 +16,8 @@ extension WindowManager {
     /// workspace created in it.
     func switchProfile(_ profile: ProfileID, in state: WindowState) {
         guard profile != state.profileID else { return }
+        DebugSpaceSwitch.began(state)
+        defer { DebugSpaceSwitch.mark(state, "sync") }
         let machines = services.machines
         let members = registry.members(of: state.id)
         var visible = WindowProfiles.visible(members, profile: profile, machines: machines)
