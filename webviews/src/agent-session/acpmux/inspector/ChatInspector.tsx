@@ -554,7 +554,6 @@ export function ChatInspector({
           remoteControl={remoteControl}
           onSave={onSaveEnvironment}
           onOpenFolder={onOpenFolder}
-          onOpenUrl={onOpenUrl}
         />
       </InspectorSection>
       {known && (

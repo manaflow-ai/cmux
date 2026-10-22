@@ -4,7 +4,7 @@
 // folder with its parent, then each project its tool calls touched, whose full path a hover shows;
 // the GitHub repository; the branch and the worktree. Then Remote Control, when the App offers it.
 // Every row does something: a folder opens in the Files tree beside the chat, the repository and
-// the branch open on GitHub beside it.
+// the branch are links to GitHub, which the pane opens in the browser as it opens a reply's link.
 import { useMemo, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -59,16 +59,19 @@ export function environmentToSave(
   return { name, kind: "local", ...(folder ? { folder } : {}) };
 }
 
-/// A row that does something when it is clicked, else plain text.
+/// A row that does something when it is clicked (`onClick`, or `href`: a web address the pane opens
+/// in the browser as it opens a reply's link), else plain text.
 function Row({
   icon,
   title,
   onClick,
+  href,
   children,
 }: {
   icon: string;
   title?: string;
   onClick?: () => void;
+  href?: string;
   children: ReactNode;
 }) {
   const content = (
@@ -77,6 +80,14 @@ function Row({
       {children}
     </>
   );
+  if (href)
+    return (
+      <li>
+        <a className="acpmux-chat-inspector-row acpmux-chat-inspector-row--button" href={href}>
+          {content}
+        </a>
+      </li>
+    );
   if (!onClick)
     return (
       // tooltip-allow: a folder row shows the folder's name; its full path appears nowhere else.
@@ -108,7 +119,6 @@ export function EnvironmentSection({
   remoteControl,
   onSave,
   onOpenFolder,
-  onOpenUrl,
 }: {
   summary?: Summary;
   machineName?: string;
@@ -123,8 +133,6 @@ export function EnvironmentSection({
   onSave?: () => Promise<unknown> | void;
   /// Opens a folder in the Files tree beside the chat (a chat on this Mac).
   onOpenFolder?: (path: string) => void;
-  /// Opens a web address beside the chat.
-  onOpenUrl?: (url: string) => void;
 }) {
   const t = useT();
   const [saved, setSaved] = useState(false);
@@ -138,7 +146,6 @@ export function EnvironmentSection({
     repositoryUrl && branch
       ? `${repositoryUrl}/tree/${branch.split("/").map(encodeURIComponent).join("/")}`
       : undefined;
-  const open = (url: string | undefined) => (url && onOpenUrl ? () => onOpenUrl(url) : undefined);
   const save = onSave
     ? () => {
         void Promise.resolve(onSave()).then(
@@ -173,7 +180,7 @@ export function EnvironmentSection({
             disabled={saved}
             onClick={save}
           >
-            {t(saved ? "composer.envSaved" : "chatInspector.environment.save")}
+            {t(saved ? "artifact.saved" : "chatInspector.environment.save")}
           </button>
         )}
       </li>
@@ -181,18 +188,12 @@ export function EnvironmentSection({
         folderRow(path, index === 0 && path === summary?.worktree ? "git.worktree" : "folder", index === 0),
       )}
       {repository && (
-        <Row icon="brand.github" onClick={open(repositoryUrl)}>
-          {onOpenUrl ? (
-            <span className="acpmux-chat-inspector-row__name">{repository}</span>
-          ) : (
-            <a className="acpmux-chat-inspector-row__name acpmux-chat-inspector-row__link" href={repositoryUrl}>
-              {repository}
-            </a>
-          )}
+        <Row icon="brand.github" href={repositoryUrl}>
+          <span className="acpmux-chat-inspector-row__name">{repository}</span>
         </Row>
       )}
       {branch && (
-        <Row icon="git.branch" onClick={open(branchUrl)}>
+        <Row icon="git.branch" href={branchUrl}>
           <span className="acpmux-chat-inspector-row__name">{branch}</span>
         </Row>
       )}

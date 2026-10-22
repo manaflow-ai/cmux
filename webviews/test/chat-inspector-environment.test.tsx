@@ -2,7 +2,7 @@
 // The Inspector's Environment (Claude Code desktop's): the machine with Save, then every folder the
 // chat worked in (its own, then each project its tool calls touched), the repository, the branch.
 // Every row does something: a folder opens in the Files tree beside the chat, the repository and the
-// branch open on GitHub, Save keeps the machine and folder as a New Tab environment.
+// branch link to GitHub, Save keeps the machine and folder as a New Tab environment.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -12,6 +12,7 @@ import { ChatInspector } from "../src/agent-session/acpmux/inspector/ChatInspect
 import { chatFolders, projectFolder } from "../src/agent-session/acpmux/inspector/chatFolders";
 import { environmentToSave } from "../src/agent-session/acpmux/inspector/EnvironmentSection";
 import { resetInspectorState } from "../src/agent-session/acpmux/inspector/inspectorState";
+import { translate } from "../src/agent-session/acpmux/i18n";
 import { activity, chat, tool } from "../src/gallery/fixtures/acpmux";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
@@ -125,12 +126,11 @@ test("Save keeps this Mac or the SSH machine and the folder, named after it; a C
   expect(environmentToSave({ ...base, hostKind: "cloud", host: "build-01" })).toBeUndefined();
 });
 
-test("every Environment row does something: folders open in Files, the repository and branch on GitHub, Save", async () => {
+test("every Environment row does something: folders open in Files, the repository and branch link to GitHub, Save", async () => {
   const container = installDom();
   const base = chat(projectsRows);
   const summary: Summary = { ...base.summary!, cwd: `${HOME}/Projects`, branch: "leo/next-backgrounds" };
   const folders: string[] = [];
-  const urls: string[] = [];
   let saves = 0;
   const props: ComponentProps<typeof ChatInspector> = {
     summary,
@@ -138,7 +138,6 @@ test("every Environment row does something: folders open in Files, the repositor
     repository: "manaflow-ai/cmux",
     rows: projectsRows,
     onOpenFolder: (path) => folders.push(path),
-    onOpenUrl: (url) => urls.push(url),
     onSaveEnvironment: async () => {
       saves++;
     },
@@ -156,28 +155,25 @@ test("every Environment row does something: folders open in Files, the repositor
     "cmux-app-screenshots",
     "leo-workspace",
     "glaeda",
-    "manaflow-ai/cmux",
-    "leo/next-backgrounds",
   ]);
   expect(buttons[1]!.getAttribute("title")).toBe(`${HOME}/Projects/cmux`);
-
   await act(async () => buttons[0]!.click());
   await act(async () => buttons[4]!.click());
   expect(folders).toEqual([`${HOME}/Projects`, `${HOME}/Projects/glaeda`]);
 
-  await act(async () => buttons[5]!.click());
-  await act(async () => buttons[6]!.click());
-  expect(urls).toEqual([
-    "https://github.com/manaflow-ai/cmux",
-    "https://github.com/manaflow-ai/cmux/tree/leo/next-backgrounds",
+  // The repository and the branch are links, which the pane opens in the browser.
+  const links = [...environment.querySelectorAll<HTMLAnchorElement>("a.acpmux-chat-inspector-row")];
+  expect(links.map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
+    ["manaflow-ai/cmux", "https://github.com/manaflow-ai/cmux"],
+    ["leo/next-backgrounds", "https://github.com/manaflow-ai/cmux/tree/leo/next-backgrounds"],
   ]);
 
   // Save, once: then it says Saved.
   const save = environment.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-link")!;
-  expect(save.textContent).toBe("Save");
+  expect(save.textContent).toBe(translate("chatInspector.environment.save"));
   await act(async () => save.click());
   expect(saves).toBe(1);
-  expect(save.textContent).toBe("Saved");
+  expect(save.textContent).toBe(translate("artifact.saved"));
   expect(save.disabled).toBe(true);
 });
 
@@ -196,6 +192,7 @@ test("without the App's actions the rows are plain text, and no Remote Control r
   });
   const environment = container.querySelector<HTMLElement>('ul[data-section="environment"]')!;
   expect(environment.querySelector("button")).toBeNull();
+  expect(environment.querySelector("a")).toBeNull();
   expect(environment.textContent).toContain("glaeda");
   expect(environment.textContent).not.toContain("Remote Control");
 });

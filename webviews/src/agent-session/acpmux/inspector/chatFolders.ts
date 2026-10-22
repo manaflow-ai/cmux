@@ -14,33 +14,35 @@ const SCRATCH = /^\/(?:tmp|private\/tmp|private\/var|var\/folders)(?:\/|$)/;
 /// `cd DIR` and `git -C DIR`, DIR absolute or from the home folder, bare or quoted.
 const COMMAND_FOLDER = /(?:^|[\s;&|(])(?:cd|git\s+-C)\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|)]+))/g;
 
-/// Each row's paths, kept while the row is the same object (a streamed update replaces only the
-/// live row).
-const rowPaths = new WeakMap<AcpmuxRow, { files: string[]; folders: string[] }>();
+/// A path a tool call named: a file (an edit's diff, a read's location) or a folder (a command's
+/// `cd` or `git -C`).
+type Touched = { readonly path: string; readonly isFile: boolean };
+
+/// Each row's paths in call order, kept while the row is the same object (a streamed update
+/// replaces only the live row).
+const rowPaths = new WeakMap<AcpmuxRow, Touched[]>();
 
 const parts = (path: string) => path.split("/").filter(Boolean);
 const join = (segments: readonly string[]) => `/${segments.join("/")}`;
 const trim = (path: string) => (path.length > 1 ? path.replace(/\/+$/, "") : path);
 
-function pathsOf(row: AcpmuxRow, home: string | undefined): { files: string[]; folders: string[] } {
+function pathsOf(row: AcpmuxRow, home: string | undefined): Touched[] {
   const cached = rowPaths.get(row);
   if (cached) return cached;
-  const files: string[] = [];
-  const folders: string[] = [];
+  const touched: Touched[] = [];
   for (const item of row.items ?? []) {
     const tool = item.tool;
     if (!tool) continue;
-    for (const diff of tool.diffs ?? []) files.push(diff.path);
-    for (const location of tool.locations ?? []) files.push(location.path);
+    for (const diff of tool.diffs ?? []) touched.push({ path: diff.path, isFile: true });
+    for (const location of tool.locations ?? []) touched.push({ path: location.path, isFile: true });
     for (const match of tool.command?.matchAll(COMMAND_FOLDER) ?? []) {
       const raw = match[1] ?? match[2] ?? match[3] ?? "";
       const folder = raw.startsWith("~/") || raw === "~" ? (home ? home + raw.slice(1) : undefined) : raw;
-      if (folder?.startsWith("/")) folders.push(folder);
+      if (folder?.startsWith("/")) touched.push({ path: folder, isFile: false });
     }
   }
-  const found = { files, folders };
-  rowPaths.set(row, found);
-  return found;
+  rowPaths.set(row, touched);
+  return touched;
 }
 
 /// The project folder `path` belongs to, seen from the chat folder; undefined to leave it out.
@@ -90,9 +92,7 @@ export function chatFolders(rows: readonly AcpmuxRow[], cwd: string | undefined,
   if (cwd) add(trim(cwd));
   for (const row of rows) {
     if (row.kind !== "activity") continue;
-    const { files, folders: commandFolders } = pathsOf(row, home);
-    for (const file of files) add(projectFolder(file, true, cwd, repository));
-    for (const folder of commandFolders) add(projectFolder(folder, false, cwd, repository));
+    for (const { path, isFile } of pathsOf(row, home)) add(projectFolder(path, isFile, cwd, repository));
   }
   return folders;
 }
