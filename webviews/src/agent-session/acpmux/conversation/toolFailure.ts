@@ -69,12 +69,21 @@ const WORDS = /[\p{L}\p{N}]/u;
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
-/// One line: the first line of `text` that has words, trimmed, without an "Error:" lead, cut to MAX_CAUSE.
+/// One line: the first line of `text` that has words, as a terminal draws it, trimmed, without an
+/// "Error:" lead, cut to MAX_CAUSE.
 function oneLine(text: string | undefined): string | undefined {
   if (!text) return undefined;
   const line = text
     .split("\n")
-    .map((part) => part.trim())
+    // A line a carriage return redrew (a progress bar) reads as a terminal draws it: its last part.
+    .map((part) =>
+      (
+        part
+          .split("\r")
+          .filter((drawn) => WORDS.test(drawn))
+          .at(-1) ?? part
+      ).trim(),
+    )
     .find((part) => WORDS.test(part));
   if (!line) return undefined;
   const bare = line.replace(/^(?:error|err|fatal)\s*:\s*/i, "").trim() || line;
@@ -157,7 +166,7 @@ export function toolFailure(tool: Tool): ToolFailure | undefined {
   // cause is.
   const json = body.length <= MAX_JSON ? parseJson(body) : undefined;
   // The tail starts on a whole line, never half a line (or half a character).
-  const tail = () => body.slice(-TAIL_CHARS).replace(/^[^\n]*\n?/, "");
+  const tail = () => body.slice(-TAIL_CHARS).replace(/^[^\n]*\n/, "");
   const text = (body.length > HEAD_CHARS + TAIL_CHARS ? `${body.slice(0, HEAD_CHARS)}\n${tail()}` : body).trim();
 
   // A refusal or a hook's block is the whole result of a call that never ran, so it carries no exit

@@ -309,3 +309,12 @@ test("a failed call that went on in the background shows no cause under its row"
   const html = renderToStaticMarkup(<CommandRow item={item(tool)} />);
   expect(html).not.toContain("cv-tool-error");
 });
+
+test("a line a progress bar redrew reads as the terminal drew it", () => {
+  expect(toolFailure(call("Exit code 1\n10%\r50% error: disk full"))?.cause).toBe("50% error: disk full");
+});
+
+test("a long result whose last line outgrows the tail window still reads that line", () => {
+  const failure = toolFailure(call(`Exit code 1\n${"x".repeat(5_000)}\nfatal: ${"q".repeat(5_000)}`));
+  expect(failure?.cause).toBe(`${"q".repeat(299)}…`);
+});
