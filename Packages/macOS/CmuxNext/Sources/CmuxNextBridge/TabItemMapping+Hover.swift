@@ -40,9 +40,11 @@ extension TabItemMapping {
             } else if let since = SidebarMapping.commandStart(tab) {
                 facts.activity = .running
                 facts.since = SidebarMapping.date(ms: since)
-            } else if tab.promptSinceMs != nil, var at = tab.lastOutputMs {
-                // Counted from when this client saw it when the daemon's clock runs ahead, as `commandStart` does.
-                if let seen = tab.lastOutputSeenAt { at = min(at, UInt64(seen.timeIntervalSince1970 * 1000)) }
+            } else if let prompt = tab.promptSinceMs {
+                // Counted from when this client saw it when the daemon's clock runs ahead, as `commandStart`
+                // does; with no output since the daemon started or adopted the terminal, from its prompt.
+                let seen = tab.lastOutputSeenAt.map { UInt64($0.timeIntervalSince1970 * 1000) }
+                let at = tab.lastOutputMs.map { min($0, seen ?? $0) } ?? prompt
                 facts.lastOutput = SidebarMapping.date(ms: at)
             }
         case .remoteTerminal, .other:

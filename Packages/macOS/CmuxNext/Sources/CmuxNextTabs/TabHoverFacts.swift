@@ -22,8 +22,9 @@ public struct TabHoverFacts: Hashable, Sendable {
     public var model: String?
     /// The git branch of the tab's folder.
     public var branch: String?
-    /// When a plain shell at its prompt last printed (Leo 2026-10-21); nil while it runs a command,
-    /// for an agent and for a shell the daemon reports no prompt for.
+    /// When a plain shell at its prompt last printed (Leo 2026-10-21), or its prompt's start before
+    /// any output is known; nil while it runs a command, for an agent and for a shell the daemon
+    /// reports no prompt for.
     public var lastOutput: Date?
 
     public init(kind: Kind = .other, activity: Activity? = nil, since: Date? = nil, model: String? = nil,
