@@ -49,10 +49,6 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// Compact rows under a badge style (`SidebarRowBadgeStyle`): the dim time since the last
     /// change on the right, unless the second line shows the last activity already.
     public var badgeTime: String?
-    /// While the agent works: when it began (`SidebarWorkspaceDetail.activitySince`). The row
-    /// shows how long ("4m") beside the working dot when its name keeps its full width
-    /// (`WorkspaceRowView+Elapsed`); the hover card shows it to the second.
-    public var workingSince: Date?
     /// The status block under the name (classic's): the reported entries
     /// with `agentStatus` on, the log line with `log` on and the progress
     /// label with `progress` on. Nil when none of those is reported, so a
@@ -128,7 +124,6 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         )
         trailingStatus = trailing
         badgeTime = set.secondLine.contains(.lastActivity) ? nil : ws.lastActivity.map { Self.ageText($0, now: now) }
-        if case .working = activity { workingSince = ws.detail.activitySince }
     }
 
     /// An expanded row (`sidebar.density`, cx-13w3; T3 Code / Codex
@@ -138,9 +133,10 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// since the last change on the title's line, and a third line for the
     /// computer and the pull request. `now` is the start of today, so the
     /// time reads in days; a change today shows its time.
-    public init(expanded ws: SidebarWorkspace, now: Date, machine: String? = nil, showsNotification: Bool = true) {
+    public init(expanded ws: SidebarWorkspace, now: Date, machine: String? = nil, showsNotification: Bool = true,
+                showsPullRequest: Bool = true) {
         let place = [Self.nonEmpty(ws.directory), Self.nonEmpty(ws.branch)].compactMap { $0 }
-        let meta = [Self.nonEmpty(machine), Self.nonEmpty(ws.stage), Self.nonEmpty(ws.pullRequest)].compactMap { $0 }
+        let meta = [Self.nonEmpty(machine), Self.nonEmpty(ws.stage), showsPullRequest ? Self.nonEmpty(ws.pullRequest) : nil].compactMap { $0 }
         self.init(
             icon: ws.icon ?? ws.taskStatus?.glyph,
             detail: (showsNotification ? Self.nonEmpty(ws.notificationText) : nil) ?? Self.descriptionLine(ws)
@@ -153,7 +149,6 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         expanded = true
         time = ws.lastActivity.map { Self.ageText($0, now: now) }
         self.meta = meta.isEmpty ? nil : meta.joined(separator: Self.separator)
-        if case .working = activity { workingSince = ws.detail.activitySince }
     }
 
     /// The age of a change, short: a time today, else days (`3d`), weeks
@@ -177,18 +172,6 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         case .needsYou?, .failed?, .lost?, .ciFailing?: state
         case .done?, .working?, .idle?, nil: nil
         }
-    }
-
-    /// How long a row has worked, in whole minutes ("4m", "1h 3m"); nil under a minute, so the
-    /// row's text changes once a minute at most.
-    static func workingElapsed(since date: Date, now: Date) -> String? {
-        let minutes = (now.timeIntervalSince(date) / 60).rounded(.down)
-        guard minutes >= 1 else { return nil }
-        let formatter = DateComponentsFormatter()
-        formatter.unitsStyle = .abbreviated
-        formatter.maximumUnitCount = 2
-        formatter.allowedUnits = [.day, .hour, .minute]
-        return formatter.string(from: minutes * 60)
     }
 
     /// The part of `reported` the shown elements draw; nil when empty.

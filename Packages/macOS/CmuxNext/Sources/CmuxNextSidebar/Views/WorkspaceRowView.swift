@@ -3,7 +3,6 @@ import Observation
 import CmuxAgentBrands
 import CmuxNextDesign
 import CmuxNextIcons
-import CmuxNextWakeups
 import QuartzCore
 
 final class WorkspaceRowView: SidebarRowView {
@@ -14,10 +13,6 @@ final class WorkspaceRowView: SidebarRowView {
     let subtitle = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     /// Expanded rows (`sidebar.density`, cx-13w3; WorkspaceRowView+Expanded): the age and the meta line.
     let timeLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont), metaLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont)
-    /// How long the agent has worked ("4m"), beside the working dot when the name has room (WorkspaceRowView+Elapsed).
-    let elapsedLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont)
-    var workingSince: Date?
-    let elapsedTicker = DemandTimer(owner: "sidebar.row.elapsed")
     let activity = StatusIndicatorView()
     /// The running agent's brand mark (`SidebarAgentMarkVariant`); hidden when off.
     internal let agentMark = DecorativeImageView() // the row's label says the agent's state
@@ -132,7 +127,7 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.setAccessibilityElement(false)
         machineMark.imageScaling = .scaleProportionallyDown
         machineMark.isHidden = true
-        [icon, title, subtitle, timeLabel, metaLabel, elapsedLabel, activity, agentMark, mutedMark, machineMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock,
+        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, machineMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock,
          treeLine, pullRequests, keycap].forEach(addSubview)
         setUpSessionTree()
         disclosureButton.isHidden = true
@@ -192,7 +187,6 @@ final class WorkspaceRowView: SidebarRowView {
         onToggleTabs = nil
         onToggleAudio = nil
         title.stopMarquee()
-        stopElapsed()
         title.layer?.removeAnimation(forKey: "workspace-title-motion")
         lastTitle = nil
         titleArrivalGeneration &+= 1
@@ -268,13 +262,10 @@ final class WorkspaceRowView: SidebarRowView {
         subtitle.setFont(SidebarStyle.subtitleFont)
         subtitle.setString(shown.now.map(Strings.rowNow) ?? row.detail ?? "")
         hasSubtitle = row.detail != nil
-        // While the agent works, its running time takes the age's place (WorkspaceRowView+Elapsed).
-        // No status words on a row (Leo 2026-10-21): its badge's dot says it; the label reads the chip.
-        let trailingText = (shown.workingSince != nil ? shown.trailingStatus : shown.trailingText)
+        // No status words and no running time on a row (Leo 2026-10-21): its badge's dot says it; the label reads the chip.
+        let trailingText = shown.trailingText
         (isExpanded, timeText) = (shown.expanded, trailingText)
         timeLabel.setString(trailingText ?? "")
-        if workingSince != shown.workingSince { elapsedTicker.cancel() }
-        workingSince = shown.workingSince
         metaLabel.setString(shown.meta ?? "")
         activity.configure(badgesLead ? .idle : shown.activity, style: badgesLead ? nil : ws.activityStyle)
         activityState = shown.activity
