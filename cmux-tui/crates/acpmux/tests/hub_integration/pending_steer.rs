@@ -80,3 +80,28 @@ async fn a_steer_edited_during_a_long_tool_call_reaches_the_agent_as_edited() {
     assert!(sent.iter().any(|t| t.contains("use the new name")), "{sent:?}");
     assert!(sent.iter().all(|t| !t.contains("use the old name")), "the old text went: {sent:?}");
 }
+
+/// A tool call that never reports its end holds a steer until its turn ends: then the steer runs
+/// as the next prompt, so it still reaches the agent, once.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_steer_held_by_a_call_that_never_ends_runs_when_the_turn_ends() {
+    let env = BTreeMap::from([("FAKE_CLAUDE_STEER".to_owned(), "1".to_owned())]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    // "quiet-tool" opens a tool call it never ends, then ends its turn a second later.
+    c.send(method::SESSION_PROMPT, prompt(&id, "quiet-tool", Some("p-work"))).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["toolCallId"] == "q1").await;
+    c.send(method::SESSION_PROMPT, steer(&id, "p-steer", "then read the notes")).await;
+    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-steer").await;
+    let sent = sent_to_agent(&hub, &id).await;
+    let steered = sent.iter().filter(|t| t.contains("then read the notes")).count();
+    assert_eq!(steered, 1, "{sent:?}");
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    let ran = events
+        .iter()
+        .find(|e| e.kind == "user_message" && e.msg["promptId"] == "p-steer")
+        .map(|e| e.msg.clone());
+    assert!(ran.as_ref().is_some_and(|m| m["steer"] != json!(true)), "{ran:?}");
+}

@@ -6,8 +6,9 @@
 //! sat in the agent's input, where Remove and Edit found no queue entry to change. While a tool
 //! call of the running turn is open, a steer now waits in the queue instead (its `queued` record
 //! gives it a queue row with Edit, Remove and Send now) and goes into the agent once no call is
-//! open (`queue_turn`). When the turn ends first, it runs as the next prompt. Send now and a
-//! steer sent with `interrupt` go in at once.
+//! open (`queue_turn`). When the turn ends first, it runs as a prompt in its place in the queue,
+//! never as a steer into a later turn. A call that never reports its end holds it until the turn
+//! ends. Send now and a steer sent with `interrupt` go in at once.
 
 use super::*;
 
@@ -15,6 +16,13 @@ use super::*;
 pub(super) fn mid_step(session: &Session) -> bool {
     let turn = session.turn.lock().unwrap_or_else(|e| e.into_inner());
     turn.as_ref().is_some_and(|t| !t.doing.open_calls.is_empty())
+}
+
+/// The running turn's id while none of its tool calls is open: a steer that waited for that
+/// turn's call goes in now. A steer never goes into a later turn: it runs as a prompt instead.
+pub(super) fn between_steps(session: &Session) -> Option<String> {
+    let turn = session.turn.lock().unwrap_or_else(|e| e.into_inner());
+    turn.as_ref().filter(|t| t.doing.open_calls.is_empty()).map(|t| t.turn_id.clone())
 }
 
 impl Hub {

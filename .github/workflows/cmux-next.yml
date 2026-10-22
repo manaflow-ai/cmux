@@ -98,6 +98,8 @@ on:
       - config/vite-plus/**
       - tests/test_build_web_bundles_from.sh
       - tests/test_web_bundle_key_inputs.sh
+      - tests/test_web_ota_pointer.sh
+      - scripts/cmux-next/web-ota-pointer.py
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
@@ -315,6 +317,8 @@ on:
       - config/vite-plus/**
       - tests/test_build_web_bundles_from.sh
       - tests/test_web_bundle_key_inputs.sh
+      - tests/test_web_ota_pointer.sh
+      - scripts/cmux-next/web-ota-pointer.py
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
@@ -1569,6 +1573,13 @@ jobs:
         continue-on-error: true
         run: bash tests/test_build_web_bundles_from.sh
 
+      # The signed web update pointer (plans/cmux-next/web-ota.md): verifies only under a listed
+      # key, refuses a changed payload, and never moves back.
+      - name: Web update pointer
+        id: web-ota-pointer
+        continue-on-error: true
+        run: bash tests/test_web_ota_pointer.sh
+
       # The companion workflows' structure: generated-files catch-up and the
       # next-batch landing queue.
       - name: Companion workflows
@@ -1735,6 +1746,7 @@ jobs:
             ${{ steps.package-dependency-lists.outcome }}|Package dependency lists sorted
             ${{ steps.web-bundle-key-inputs.outcome }}|Web bundle key inputs
             ${{ steps.web-bundles-from.outcome }}|Prebuilt web bundles install and stamp
+            ${{ steps.web-ota-pointer.outcome }}|Web update pointer
             ${{ steps.companion-workflows.outcome }}|Companion workflows
             ${{ steps.dev-update-classic-import.outcome }}|DEV update and classic import scripts
             ${{ steps.routing-replay.outcome }}|Routing replay (router changes)

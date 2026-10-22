@@ -201,8 +201,15 @@ impl Hub {
         let control = opts.control;
         let trust_gate = opts.trust_gate;
         let mut on_accepted = opts.on_accepted;
-        let mut accept = |v: Value| {
+        // The prompts this one replaced (`supersede.rs`), named in its acceptance: set where it
+        // is committed (queued, started, or steered in), never before a refusal.
+        let supersede = opts.supersede.clone();
+        let replaced = std::sync::OnceLock::<Vec<String>>::new();
+        let mut accept = |mut v: Value| {
             if let Some(f) = on_accepted.take() {
+                if supersede.is_some() {
+                    super::queue::supersede::mark(&mut v, replaced.get());
+                }
                 f(v);
             }
         };
@@ -229,13 +236,16 @@ impl Hub {
         if steer_now && session.moving().is_some() {
             return Err(super::queue::moving_error());
         }
+        // Who sent it, as the queue knows its prompts' senders (`digest.rs`).
+        let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         // During a tool call the agent reads no steer: it waits in the queue, where it can still
         // be edited or taken back, until the call ends (`steer_hold.rs`). Send now does not wait.
-        let after_step = steer_now
-            && !opts.steer_only
-            && !opts.interrupt
-            && super::steer_hold::mid_step(session);
-        if steer_now && !after_step {
+        let after_step = running
+            .as_ref()
+            .filter(|_| steer_now && !opts.steer_only && !opts.interrupt)
+            .filter(|_| super::steer_hold::mid_step(session))
+            .map(|t| t.turn_id.clone());
+        if steer_now && after_step.is_none() {
             let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
             return self.steer_turn(session, blocks, client, &turn_id, opts, &mut accept).await;
@@ -245,7 +255,6 @@ impl Hub {
         let after_turn = opts.after_turn.clone();
         super::auto_resume::check_cut(session, after_turn.as_deref(), false)?;
         // Queued behind the running turn (and the queue) it waits for its turn (`queue.rs`).
-        let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         let slot = super::queue::Slot {
             text: &text,
             blocks: &blocks,
@@ -256,7 +265,9 @@ impl Hub {
             interrupt: opts.interrupt,
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),
-            after_step,
+            after_step: after_step.as_deref(),
+            supersede: supersede.as_deref(),
+            replaced: &replaced,
         };
         let (turn_id, waiting, guard, run) = match self.queue_slot(session, slot, &mut accept).await
         {
@@ -340,6 +351,11 @@ impl Hub {
         let msg = crate::prompt_provenance::marked(msg, provenance.as_ref());
         self.append_prompt(session, msg, &blocks);
         if !waiting {
+            // Started at once: only prompts a failed turn holds can wait under its key.
+            if let Some(key) = supersede.as_deref() {
+                let _ =
+                    replaced.set(self.supersede_queued(session, key, agent.as_deref(), &prompt_id));
+            }
             accept(
                 json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false}),
             );
@@ -698,7 +714,7 @@ impl Hub {
 
     /// A turn refused after it was accepted (dispatch check, remote floor): failed unstarted.
     fn refuse_started_turn(
-        &self,
+        self: &Arc<Self>,
         session: &Arc<Session>,
         prompt_id: &str,
         turn_id: &str,
@@ -730,7 +746,7 @@ impl Hub {
     /// A recorded prompt whose agent could not start: the turn ends failed, so every client
     /// sees the prompt settle instead of a turn that never starts.
     fn fail_unstarted_turn(
-        &self,
+        self: &Arc<Self>,
         session: &Arc<Session>,
         prompt_id: &str,
         turn_id: &str,
