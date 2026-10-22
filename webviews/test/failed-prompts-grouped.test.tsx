@@ -2,8 +2,9 @@
 // Prompts that failed one after another for the same cause share one failure line (Leo,
 // 2026-10-21: Retry, Edit, Remove and Details repeated under every failed message). Each prompt
 // keeps its bubble; the line sits under the last of the run, says how many it covers, and its
-// actions act on all of them: Retry sends them again in the order they were sent, Edit puts them
-// back in the composer in that order, Remove takes them all away. A failure with another cause, or
+// actions act on all of them: Retry sends them again as one prompt, their texts in the order they
+// were sent (the host allows one prompt per click, so one send each got only the first through),
+// Edit puts them back in the composer in that order, Remove takes them all away. A failure with another cause, or
 // a row between, starts a line of its own. The cause is the structured one (promptFailureCause.ts).
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
@@ -93,10 +94,12 @@ const reply = (id: string, text: string): AcpmuxRow => ({
 const timeout = { code: "timeout" };
 const needsApp = { code: "transport.harness_not_confirmed" };
 
-/// The transcript of `rows`, the page's actions recorded as [name, rowId].
+/// The transcript of `rows`, the page's actions recorded as [name, rowId], and the run's row ids
+/// when an action takes the whole run.
 async function draw(rows: AcpmuxRow[]) {
-  const calls: [string, string][] = [];
-  const record = (name: string) => (params: { rowId?: unknown }) => void calls.push([name, String(params.rowId)]);
+  const calls: unknown[][] = [];
+  const record = (name: string) => (params: { rowId?: unknown; rowIds?: unknown }) =>
+    void calls.push(params.rowIds === undefined ? [name, String(params.rowId)] : [name, String(params.rowId), params.rowIds]);
   (dom.window as unknown as { cmuxAcpmuxActions: Record<string, (params: any) => unknown> }).cmuxAcpmuxActions = {
     "chat.retryPrompt": record("chat.retryPrompt"),
     "chat.editFailedPrompt": record("chat.editFailedPrompt"),
@@ -148,15 +151,14 @@ test("three prompts that failed for one cause share one line, under the last", a
   }
 });
 
-test("the shared line's Retry sends every prompt again, in the order they were sent", async () => {
+const run = ["local-p1", "local-p2", "local-p3"];
+
+test("the shared line's Retry sends the whole run once, in the order it was sent", async () => {
   const view = await draw(prompts());
   try {
     await view.click(translate("turn.retry"));
-    expect(view.calls).toEqual([
-      ["chat.retryPrompt", "local-p1"],
-      ["chat.retryPrompt", "local-p2"],
-      ["chat.retryPrompt", "local-p3"],
-    ]);
+    // One action for the run: the page sends it as one prompt (direct.ts retryPrompts).
+    expect(view.calls).toEqual([["chat.retryPrompt", "local-p3", run]]);
   } finally {
     await view.unmount();
   }
@@ -166,12 +168,8 @@ test("Edit puts every prompt back in the composer in order, and Remove takes the
   const edit = await draw(prompts());
   try {
     await edit.click(translate("message.edit"));
-    // The composer puts what comes back ahead of what it holds: the last goes back first.
-    expect(edit.calls).toEqual([
-      ["chat.editFailedPrompt", "local-p3"],
-      ["chat.editFailedPrompt", "local-p2"],
-      ["chat.editFailedPrompt", "local-p1"],
-    ]);
+    // One action for the run: the page takes it back as one text, in order (direct.ts takeFailedPrompts).
+    expect(edit.calls).toEqual([["chat.editFailedPrompt", "local-p3", run]]);
   } finally {
     await edit.unmount();
   }
@@ -179,7 +177,7 @@ test("Edit puts every prompt back in the composer in order, and Remove takes the
   try {
     await remove.click(translate("prompt.delivery.remove"));
     expect(remove.calls.map(([name]) => name)).toEqual(Array(3).fill("chat.removeFailedPrompt"));
-    expect(remove.calls.map(([, row]) => row).sort()).toEqual(["local-p1", "local-p2", "local-p3"]);
+    expect(remove.calls.map(([, row]) => row)).toEqual(run);
   } finally {
     await remove.unmount();
   }
