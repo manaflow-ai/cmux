@@ -3513,6 +3513,18 @@
 			<string>string</string>
 		</dict>
 		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A map of the whole chat down its edge, every message at its place, with a box for what is on screen. Off shows the prompt rail.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.minimap</string>
+			<key>pfm_title</key>
+			<string>Chat Minimap</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
 			<key>pfm_description</key>
 			<string>A monospaced font installed on this Mac.</string>
 			<key>pfm_name</key>

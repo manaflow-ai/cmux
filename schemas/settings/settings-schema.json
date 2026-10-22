@@ -780,6 +780,7 @@
               "agentPane.display.code.family",
               "agentPane.display.code.scale",
               "agentPane.display.inspector.placement",
+              "agentPane.display.minimap",
               "agentPane.links.outsideRoots",
               "agentPane.images.remote",
               "agentPane.needsYou.enabled",
@@ -17829,6 +17830,61 @@
       "title" : {
         "key" : "settings.agentPane.display.inspector",
         "text" : "Inspector"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.minimap.help",
+        "text" : "A map of the whole chat down its edge, every message at its place, with a box for what is on screen. Off shows the prompt rail."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.minimap",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "minimap",
+        "map",
+        "overview",
+        "scroll",
+        "vscode",
+        "rail"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "minimap"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.minimap",
+        "text" : "Chat Minimap"
       },
       "validation" : "portable"
     },

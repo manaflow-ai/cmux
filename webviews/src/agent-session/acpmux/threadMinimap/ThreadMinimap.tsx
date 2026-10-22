@@ -20,6 +20,7 @@ import { PreviewCard } from "./PreviewCard";
 import { ScrollMap } from "./ScrollMap";
 import { threadMinimapLayout } from "./layout.experiment";
 import { experimentArm } from "../../../experiments/experiment";
+import { useChatDisplay } from "../chatDisplay";
 import {
   CARD_DELAY,
   cardOffset,
@@ -104,9 +105,11 @@ export function ThreadMinimap({
   placed?: React.MutableRefObject<(() => void) | undefined>;
 }) {
   const t = useT();
-  /// The full-height map (ScrollMap.tsx), the compact Codex rail below, or none (`off`, the
-  /// default: the turn steps below still run), read once per pane.
-  const [arm] = useState(() => experimentArm(threadMinimapLayout));
+  /// The full-height map (ScrollMap.tsx), the compact Codex rail below, or none (`off`: the turn
+  /// steps below still run), read once per pane. The Chat Minimap setting
+  /// (`agentPane.display.minimap`, and the App Store card that picks its full map) wins when set, live.
+  const [experiment] = useState(() => experimentArm(threadMinimapLayout));
+  const arm = useChatDisplay().minimap ?? experiment;
   const full = arm === "full";
   const marks = usePromptMarks(sessionId);
   const lastTurns = useRef<MinimapTurns | undefined>(undefined);

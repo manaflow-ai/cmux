@@ -57,6 +57,12 @@
       "title" : "Inspector",
       "type" : "string"
     },
+    "agentPane.display.minimap" : {
+      "default" : false,
+      "description" : "A map of the whole chat down its edge, every message at its place, with a box for what is on screen. Off shows the prompt rail.",
+      "title" : "Chat Minimap",
+      "type" : "boolean"
+    },
     "agentPane.display.width" : {
       "default" : 800,
       "description" : "The widest the chat's column gets. On a wider pane the chat stays centered.",
