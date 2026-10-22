@@ -196,6 +196,8 @@ export const SCROLLER_FADE_ATTRIBUTE = "data-cmux-scroller-fade";
  *
  * A shown scroller (`SHOWN_SCROLLER_ATTRIBUTE`) draws the same thumb for every macOS setting and
  * keeps it at rest: it never shows, hides and shows again as rows arrive or the view follows them.
+ * Its lane is always there (`overflow-y: scroll`, on no track; engines draw no thumb while the
+ * content fits), so its content never reflows as it starts to overflow.
  * Its ink is `--cmux-shown-scroller-ink`, a registered percentage, so under
  * `SCROLLER_FADE_ATTRIBUTE` it fades: out over `--cmux-scroller-fade-out` once the element stops
  * scrolling (`SCROLLING_HIDE_MS`), in over `--cmux-scroller-fade-in` when it scrolls again. A
@@ -235,6 +237,7 @@ html[data-scrollers="legacy"] ::-webkit-scrollbar-thumb:active {
 }
 :root [${SHOWN_SCROLLER_ATTRIBUTE}] {
   --cmux-shown-scroller-ink: 38%;
+  overflow-y: scroll;
 }
 :root [${SHOWN_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar {
   width: var(--cmux-scroller-size);

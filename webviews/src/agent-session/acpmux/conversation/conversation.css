@@ -1143,6 +1143,11 @@ pre.cv-math-source {
   --cmux-scroller-fade-in: var(--agent-motion-in, 120ms);
   --cmux-scroller-fade-out: var(--agent-motion-move, 180ms);
 }
+/* The spacer runs across the scrollbar's lane (VirtualTranscript `lane`), so the column matches the
+   composer's; the transcript never scrolls sideways. */
+.acpmux-scroll[data-cmux-shown-scroller] {
+  overflow-x: hidden;
+}
 .acpmux-main:has(.acpmux-asks-stack) .acpmux-scroll {
   margin-bottom: 0;
 }

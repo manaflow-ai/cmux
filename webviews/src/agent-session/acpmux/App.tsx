@@ -1782,6 +1782,10 @@ export function VirtualTranscript({
   const jumpTarget = useRef<number | undefined>(undefined);
   // The last transcript box on this page until this one is measured (before its first paint, below).
   const [height, setHeight] = useState(() => lastTranscriptBox.height);
+  /// The scrollbar's lane (scrollers.ts SHOWN_SCROLLER_ATTRIBUTE: always there, its thumb drawn while
+  /// the chat overflows). The rows lay out across it, against the scroller's full width as the
+  /// composer does, so the column matches the composer's and nothing reflows as a chat starts to scroll.
+  const [lane, setLane] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
   /// The bottom stack's height over the view's foot: room under the last row, out of the view.
   const [dockSpace, setDockSpace] = useState(0);
@@ -2072,9 +2076,11 @@ export function VirtualTranscript({
     const measure = (resized: boolean) => {
       // A box not laid out yet (hidden, 0 high) keeps the last height rather than showing no rows.
       if (resized || node.clientHeight > 0) setHeight(node.clientHeight);
-      setWidth(node.clientWidth);
+      // The column's width is the scroller's with its scrollbar's lane (`lane`).
+      setWidth(node.offsetWidth);
+      setLane(node.offsetWidth - node.clientWidth);
       if (node.clientHeight > 0) lastTranscriptBox.height = node.clientHeight;
-      if (node.clientWidth > 0) lastTranscriptBox.width = node.clientWidth;
+      if (node.offsetWidth > 0) lastTranscriptBox.width = node.offsetWidth;
     };
     // Before the frame paints: a resized pane (its tab strip showing or hiding) otherwise drew the
     // transcript at its old offset and caught up a frame later.
@@ -3201,7 +3207,10 @@ export function VirtualTranscript({
         />
         {find?.open && <ChatFindBar find={find} />}
         <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId}>
-          <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
+          <div
+            className="acpmux-spacer"
+            style={{ height: layout.totalHeight, width: lane > 0 ? `calc(100% + ${lane}px)` : undefined }}
+          >
             <div
               ref={thread}
               className="acpmux-thread"
