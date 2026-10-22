@@ -333,7 +333,6 @@ test("the chat composer forks through Continue In…'s chat.handoff.prepare", as
 // row left out `claude-sr`, and nothing forked to it. The real catalog join and the pane's own chips.
 test("a family's profiles that the catalog join folds into one harness are each its accounts, and fork", async () => {
   const { BUNDLED_MODEL_CATALOG, buildPickerCatalog } = await import("../src/agent-session/acpmux/modelCatalogData");
-  const { familyProfiles } = await import("../src/agent-session/acpmux/pickerProfiles");
   const models = (id: string) =>
     BUNDLED_MODEL_CATALOG.harnesses
       .find((harness) => harness.id === id)!
@@ -351,7 +350,6 @@ test("a family's profiles that the catalog join folds into one harness are each 
   });
   const claude = joined.harnesses.filter((entry) => entry.acpmuxHarness?.startsWith("claude"));
   expect(claude.map((entry) => entry.acpmuxHarness)).toEqual(["claude"]);
-  expect(familyProfiles(catalog, "claude").map((profile) => profile.id)).toEqual(["claude", "claude-sr"]);
 
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
@@ -385,4 +383,25 @@ test("a family's profiles that the catalog join folds into one harness are each 
   expect(calls.filter((call) => call.method.startsWith("chat."))).toEqual([
     { method: "chat.handoff.prepare", params: { harness: "claude-sr" } },
   ]);
+});
+
+test("familyProfiles lists every global profile of the running profile's family", async () => {
+  const { familyProfiles } = await import("../src/agent-session/acpmux/pickerProfiles");
+  const catalog = [
+    { id: "claude", name: "Claude Code", family: "claude", models: [] },
+    { id: "claude-sr", name: "claude-sr", family: "claude", models: [] },
+    { id: "codex", name: "Codex", family: "codex", models: [] },
+    {
+      id: "claude-dir",
+      name: "Folder Claude",
+      family: "claude",
+      models: [],
+      folder: { folder: "/f", state: "enabled" },
+    },
+  ] as Snapshot["catalog"];
+  expect(familyProfiles(catalog, "claude-sr")).toEqual([
+    { id: "claude", name: "Claude Code" },
+    { id: "claude-sr", name: "claude-sr" },
+  ]);
+  expect(familyProfiles(catalog, "gemini")).toEqual([]);
 });
