@@ -5,7 +5,7 @@
 // limit, went on with nothing in the transcript saying so.
 import { expect, test } from "bun:test";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
-import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import type { AcpmuxCompaction, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CompactionNote, compactTokens } from "../src/agent-session/acpmux/conversation/CompactionNote";
@@ -614,3 +614,37 @@ test("a compaction's end on a newer page takes only its own compaction from the 
   await client.loadOlder();
   expect(compactions(rows())).toEqual(compactions(whole.rows()));
 });
+
+// Review of #24296 (Codex): a newer page that holds two ends, neither with its running note, took
+// only one older compaction; reading the whole record, each end takes the next one back.
+const secondEnds: AcpmuxCompaction[] = [
+  { state: "completed", preTokens: 222, postTokens: 22 },
+  { state: "failed", error: "Prompt is too long" },
+];
+for (const second of secondEnds)
+  test(`two ends on a newer page each take their own older compaction (${second.state})`, async () => {
+    const turn = (text: string): Step[] => [
+      ["mux", "user_message", { text }],
+      ["mux", "turn_started", {}],
+      ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+      ["mux", "turn_result", { status: "completed" }],
+    ];
+    const events = record([
+      ...turn("x"),
+      ...turn("y"),
+      ["mux", "user_message", { text: "z" }],
+      ["mux", "turn_started", {}],
+      ["in", "compaction", update({ sessionUpdate: "compaction", state: "completed", preTokens: 111, postTokens: 11 })],
+      ["in", "compaction", update({ sessionUpdate: "compaction", ...second })],
+    ]);
+    const compactions = (rows: AcpmuxRow[]) =>
+      rows.filter((row) => row.kind === "compaction").map((row) => [row.seq, row.compaction]);
+    const whole = await connect(fakeDaemon(events));
+    expect(compactions(whole.rows())).toEqual([
+      [3, second],
+      [7, { state: "completed", preTokens: 111, postTokens: 11 }],
+    ]);
+    const { client, rows } = await connect(fakeDaemon(events, 4));
+    await client.loadOlder();
+    expect(compactions(rows())).toEqual(compactions(whole.rows()));
+  });
