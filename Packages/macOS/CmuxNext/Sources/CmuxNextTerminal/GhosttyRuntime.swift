@@ -231,7 +231,6 @@ public final class GhosttyRuntime {
         }
         ghostty_config_finalize(config)
         loadImageStorageDefaultIfUnset(into: config)
-        enforceClipboardWriteConsent(into: config)
         let count = ghostty_config_diagnostics_count(config)
         for index in 0..<count {
             let diagnostic = ghostty_config_get_diagnostic(config, index)

@@ -480,6 +480,10 @@ pub fn summarize(ev: &Value) -> Option<Value> {
             let u = msg.pointer("/params/update")?;
             match u.get("sessionUpdate").and_then(Value::as_str)? {
                 "agent_message_chunk" => {
+                    // A subagent's words are its own, never the chat's.
+                    if msg.pointer("/params").is_some_and(crate::subagents::is_subagents) {
+                        return None;
+                    }
                     let t = u.pointer("/content/text").and_then(Value::as_str)?;
                     Some(json!({ "kind": "text", "text": t }))
                 }

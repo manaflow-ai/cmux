@@ -3951,7 +3951,7 @@ jobs:
       contents: read
       issues: read # the canary mode's report week (nightly_next_canary_mode.py)
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -4081,6 +4081,29 @@ jobs:
           # A thin x86_64 variant skips when the runner has no Rosetta.
           ./scripts/smoke-signed-app-cli.sh \
             "$CHANNEL_APP_PATH"
+
+      # The nightly visual smoke (docs/ci/nightly-next-canary.md, "Visual
+      # smoke"): the signed app's window in three scenes (Home with the sidebar
+      # and its composer, a new agent chat, an agent chat with one answered
+      # turn), judged by scripts/cmux-next/visual-smoke/visual_check.py. A
+      # blank, black or collapsed window, an empty sidebar, transcript or
+      # composer, or a layout far from a reference in visual-smoke/references/
+      # fails both attempts (gate.sh), so this job fails and publish-nightly
+      # publishes nothing. No variable skips it: a limit or a reference
+      # changes in a reviewed PR to scripts/cmux-next/visual-smoke/, which
+      # nightly-next-canary.yml first runs on the newest feed build.
+      - name: Visual smoke the signed app
+        if: env.TRACK == 'nightly-next'
+        run: ./scripts/cmux-next/visual-smoke/gate.sh "$CHANNEL_APP_PATH" "$RUNNER_TEMP/visual-smoke" "the signed app; nothing is published"
+
+      - name: Upload the visual smoke captures
+        if: always() && env.TRACK == 'nightly-next'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-next-visual-smoke-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          path: ${{ runner.temp }}/visual-smoke
+          if-no-files-found: warn
+          retention-days: 30
 
       # The nightly canary (docs/ci/nightly-next-canary.md): a visible window,
       # a New Tab, an agent session that answers a prompt (acpmux's test
@@ -4669,7 +4692,8 @@ jobs:
     permissions:
       contents: read
     runs-on: macos-26
-    timeout-minutes: 30
+    # +10 for the visual smoke's two attempts, as verify-signed-nightly.
+    timeout-minutes: 40
     env:
       # Set only when the 6 h stapled-app fallback shipped the first DMG.
       STAPLED_APP_FALLBACK_ID: ${{ needs.recover-nightly-next-notarization.outputs.stapled_app_fallback_id }}
@@ -4729,6 +4753,31 @@ jobs:
           path: tested/tested-recovered-arm64.sha256
           if-no-files-found: error
           retention-days: 3
+
+      # The visual smoke of verify-signed-nightly, on the app inside the
+      # recovered DMG: publish-nightly needs this job, so a recovered build
+      # that looks broken is not published either.
+      - name: Visual smoke the recovered app
+        run: |
+          set -euo pipefail
+          mount="$RUNNER_TEMP/recovered-mount"
+          mkdir -p "$mount" "$RUNNER_TEMP/recovered-app"
+          hdiutil attach "recovered/${CHANNEL_DMG_PREFIX}-arm64.dmg" -nobrowse -readonly -mountpoint "$mount" >/dev/null
+          app="$(find "$mount" -maxdepth 1 -name '*.app' -type d -print -quit)"
+          [ -n "$app" ] || { echo "no app in the recovered DMG" >&2; exit 1; }
+          ditto "$app" "$RUNNER_TEMP/recovered-app/$(basename "$app")"
+          hdiutil detach "$mount" >/dev/null
+          ./scripts/cmux-next/visual-smoke/gate.sh "$RUNNER_TEMP/recovered-app/$(basename "$app")" \
+            "$RUNNER_TEMP/visual-smoke" "the recovered app; nothing is published"
+
+      - name: Upload the visual smoke captures
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-next-visual-smoke-recovered-arm64
+          path: ${{ runner.temp }}/visual-smoke
+          if-no-files-found: warn
+          retention-days: 30
 
   publish-nightly:
     # Production secrets: GitHub releases them only to protected refs (the
