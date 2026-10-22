@@ -535,6 +535,20 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   margin-right: 6px;
   color: var(--agent-accent);
 }
+/* Another agent's message: its received line (conversation.css .cv-received) in the text column,
+   its actions at the line's end. The line is 26px tall: it takes the row's padding, so the row
+   stays as tall as one of the person's. */
+.acpmux-queued .cv-received {
+  grid-column: 2 / -1;
+  min-width: 0;
+  margin: -4px 0;
+}
+.acpmux-queued .cv-received__line {
+  padding-right: 0;
+}
+.acpmux-queued .cv-received__line > .acpmux-queued-actions {
+  margin: 0 0 0 auto;
+}
 .acpmux-queued-mark[data-kind="steer"] {
   display: inline-flex;
   align-items: center;
