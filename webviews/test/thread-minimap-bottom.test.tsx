@@ -165,6 +165,68 @@ test("the band shows whole while the reader scrolls down, and reaches the rail's
   }
 });
 
+// With a tick under the pointer or keyboard focus, the rail used to stop following the band
+// (#24058 review round 4): scrolling the chat from top to bottom while hovering left the lit band
+// past the rail's end or under its edge fade until the pointer left. The band stays in view at every
+// offset, whatever is hovered or focused; the rail holds still only while the band already shows.
+for (const how of ["hover", "focus"] as const)
+  test(`with a tick ${how === "hover" ? "hovered" : "focused"}, the band stays in the rail's clear area while the chat scrolls`, async () => {
+    const document = dom.window.document;
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(
+          <VirtualTranscript
+            rows={turnView(turns, new Set())}
+            sessionId={`minimap-${how}-scroll`}
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+          />,
+        ),
+      );
+      const scroller = host.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const list = () => host.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+      const rail = () => host.querySelector<HTMLElement>(".acpmux-minimap__rail")!;
+      const bottom = scroller.scrollTop;
+      const scrollTo = async (top: number) => {
+        scroller.scrollTop = top;
+        await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+      };
+      await scrollTo(0);
+      // A tick near the top of the rail, held while the chat scrolls down to its end.
+      const tick = list().querySelector<HTMLElement>('[data-tick="3"]')!;
+      if (how === "hover")
+        await act(async () => {
+          const Event =
+            (dom.window as unknown as { PointerEvent?: typeof MouseEvent }).PointerEvent ?? dom.window.MouseEvent;
+          tick.dispatchEvent(new Event("pointerover", { bubbles: true, relatedTarget: document.body }));
+        });
+      else await act(async () => tick.focus());
+      expect(rail().hasAttribute("data-hovering") || document.activeElement === tick).toBe(true);
+      const height = Number.parseFloat(rail().style.height);
+      const outside: string[] = [];
+      for (let top = 0; top <= bottom; top += 120) {
+        await scrollTo(top);
+        const node = list();
+        const fade = Number.parseFloat(node.style.getPropertyValue("--acpmux-minimap-fade")) || FADE;
+        const from = node.hasAttribute("data-fade-top") ? fade : 0;
+        const to = height - (node.hasAttribute("data-fade-bottom") ? fade : 0);
+        for (const lit of node.querySelectorAll<HTMLElement>('[data-tick][aria-current="true"]')) {
+          const y = Number(lit.dataset.tick) * 10 - node.scrollTop;
+          if (y < from || y + 10 > to)
+            outside.push(`at ${top} px tick ${lit.dataset.tick} at ${y} px, outside ${from} to ${to}`);
+        }
+        if (outside.length > 5) break;
+      }
+      expect(outside).toEqual([]);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
 /// The transcript mask's fades (conversation.css), in px: each edge's band, and the bottom's while
 /// Jump to latest shows. The 0px rules (find open, Reduce Transparency, Increase Contrast) turn a
 /// fade off and draw nothing, so they don't count.

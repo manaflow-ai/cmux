@@ -91,6 +91,7 @@ strings.__cmuxPaneStrings = { en: english };
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+const { minimapTurns } = await import("../src/agent-session/acpmux/threadMinimap/model");
 const { setBookmarkTransport } = await import("../src/agent-session/acpmux/threadMinimap/bookmarks");
 // No marks in this chat; acpmux answers at once.
 setBookmarkTransport({
@@ -194,14 +195,76 @@ test("a new prompt adds its tick, and the earlier ones keep theirs", async () =>
     );
   try {
     await render(rows);
-    const first = host.querySelector(`[data-tick="0"]`);
+    const before = [...host.querySelectorAll("[data-tick]")];
     await render([...rows, row(`user-${PROMPTS + 1}`, "user", "One more question")]);
     expect(host.querySelectorAll("[data-tick]").length).toBe(PROMPTS + 1);
     expect(host.querySelector(`[data-tick="${PROMPTS}"]`)?.getAttribute("aria-label")).toContain("One more question");
-    // The earlier ticks are the same elements.
-    expect(host.querySelector(`[data-tick="0"]`)).toBe(first);
+    // Every earlier tick is the same element.
+    const after = [...host.querySelectorAll("[data-tick]")].slice(0, PROMPTS);
+    expect(after.every((node, index) => node === before[index])).toBe(true);
   } finally {
     await act(async () => root.unmount());
     host.remove();
   }
+});
+
+/// `rows` behind a proxy that counts the rows read by index.
+function counted(rows: AcpmuxRow[]) {
+  const reads = { count: 0 };
+  const proxy = new Proxy(rows, {
+    get(target, key, receiver) {
+      if (typeof key === "string" && /^\d+$/.test(key)) reads.count += 1;
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  return { proxy, reads };
+}
+
+/// The rows the rail's turns read for one streamed token in a chat of `prompts` prompts, given
+/// where the snapshot changed (the transcript finds it once for every reader of the rows).
+function readsPerToken(prompts: number) {
+  const chatRows = (reply: string) =>
+    Array.from({ length: prompts }, (_, index) => [
+      row(`user-${index + 1}`, "user", `Question ${index}`),
+      row(`t${index}-answer`, "assistant", index === prompts - 1 ? reply : `Answer ${index}.`),
+    ]).flat();
+  const base = counted(chatRows("Streaming"));
+  const previous = minimapTurns(base.proxy, "s");
+  const next = base.proxy.slice();
+  const at = next.length - 1;
+  next[at] = { ...next[at]!, text: "Streaming more", version: 2 };
+  const after = counted(next);
+  base.reads.count = 0;
+  const result = minimapTurns(after.proxy, "s", previous, { base: base.proxy, rows: after.proxy, from: at });
+  return { reads: base.reads.count + after.reads.count, result, previous, fresh: minimapTurns(next, "s") };
+}
+
+test("a streamed token reads the same few rows in a 300- and a 3000-prompt chat", () => {
+  const small = readsPerToken(300);
+  const large = readsPerToken(3000);
+  // Bounded by what changed (the live reply), not by the chat: no scan from the first row.
+  expect(large.reads).toBe(small.reads);
+  expect(small.reads).toBeLessThan(10);
+  // The prompts did not change: the same ticks; the turns are what a fresh read gives.
+  expect(large.result.ticks).toBe(large.previous.ticks);
+  expect(large.result.turns).toEqual(large.fresh.turns);
+});
+
+test("a change in the middle of the chat reads from there on, and matches a fresh read", () => {
+  const rows = Array.from({ length: 50 }, (_, index) => [
+    row(`user-${index + 1}`, "user", `Question ${index}`),
+    row(`t${index}-answer`, "assistant", `Answer ${index}.`),
+  ]).flat();
+  const previous = minimapTurns(rows, "s");
+  // A prompt edited mid-chat, and a row inserted before a later prompt (its index moves).
+  const edited = rows.slice();
+  edited[40] = { ...edited[40]!, text: "Question 20, edited", version: 2 };
+  edited.splice(61, 0, row("t30-read", "activity"));
+  const result = minimapTurns(edited, "s", previous, { base: rows, rows: edited, from: 40 });
+  expect(result.turns).toEqual(minimapTurns(edited, "s").turns);
+  // The turns before the change are the same objects.
+  expect(result.turns.slice(0, 20).every((turn, index) => turn === previous.turns[index])).toBe(true);
+  // A change point for other rows is not used: the turns are read as a scan would.
+  const stale = minimapTurns(edited, "s", previous, { base: [], rows: edited, from: 99 });
+  expect(stale.turns).toEqual(result.turns);
 });
