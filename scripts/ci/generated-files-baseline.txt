@@ -1,0 +1,26 @@
+# Generated files git still tracks that no "committed" generator in generated-files.json covers.
+# Shrink only: a cutover removes lines; nothing adds one (generated_files_guard.py).
+Packages/macOS/CmuxComputerUseHelper/Sources/CCuaDriverABI/include/cua_driver_abi.h
+Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Entries.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt.swift
+Resources/markdown-viewer/ondine.min.js
+THIRD_PARTY_LICENSES.md
+agent-chat/adapters/claude-environment-policy.generated.ts
+backend/apps/api/src/domains/public-suffix-data.ts
+clients/ts/cloud/src/automation-cmux.ts
+cmux-tui/build-support/notices/REVIEW.md
+cmux-tui/build-support/notices/browser-host/THIRD_PARTY_LICENSES.linux.md
+cmux-tui/crates/acpmux/rules/secrets/gitleaks.toml
+cmux-tui/crates/cmux-app-host/js/dist/cmux-app-runtime.js
+cmux-tui/crates/cmux-tasks-core/catalog/mux-task.d.ts
+first-party-apps/codemirror/THIRD_PARTY_NOTICES
+first-party-apps/codemirror/web/THIRD_PARTY_NOTICES.txt
+mux/packages/brain/conformance/chief-cases.json
+plans/cmux-next/coordination/INDEX.md
+web/services/vms/hygiene/script.generated.ts
+webviews/src/diff/generated/protocol.ts
+webviews/src/icon-picker/generated/LICENSES.md
+webviews/src/icon-picker/generated/emoji-data.json
+webviews/src/pages/shared/generated/pageRouter.ts
+workers/cmux-vm/cli/crates/cmux-vm-client/src/generated.rs
+workers/cmux-vm/cli/crates/cmux-vm-client/src/generated_raw.rs

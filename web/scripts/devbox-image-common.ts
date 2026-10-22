@@ -1526,14 +1526,16 @@ export function manifestEntryEpoch(entry: Pick<DevboxManifestEntry, "epoch" | "n
  * metadata service). They are feat-cmux-next's own, so the ladders main
  * promotes (now freestyle-cmux-devbox-agents-1014b, #20524) are baked without
  * them: delete the entry with the promotion that bakes them, and move
- * `baked` and `current` when a main sync brings a new ladder.
+ * `baked` and `current` when a main sync brings a new ladder. The desktop
+ * sources moved again in 089cd3e3dc92 and 5901bc15bec0 (the codex config
+ * merge under a lock), so `current` is their digest.
  */
 export const DEVBOX_AWAITING_REBAKE = [
   {
     layers: "desktop",
     schema: 2,
     baked: "28fce1e49495",
-    current: "8fc6bdb6c96777ef0c304682b4170488d8baf60a9d673cec0408be5bbb299df7",
+    current: "de5d89d6df3c290ad10a69c337153a1d44893371c28d5d636fa95d2ee67d0945",
   },
 ] as const;
 
