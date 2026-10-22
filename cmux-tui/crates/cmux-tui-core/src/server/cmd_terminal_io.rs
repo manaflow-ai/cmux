@@ -404,7 +404,10 @@ pub(super) fn set_default_colors(
                 let index = index
                     .parse::<u8>()
                     .map_err(|_| anyhow::anyhow!("invalid palette index {index}"))?;
-                palette[index as usize] = Some(parse_hex_color(&value)?);
+                let color = parse_hex_color(&value)?;
+                if let Some(slot) = palette.get_mut(usize::from(index)) {
+                    *slot = Some(color);
+                }
             }
             palette
         }
@@ -465,10 +468,10 @@ pub(super) fn scroll_surface(
 }
 
 fn parse_hex_color(value: &str) -> anyhow::Result<Rgb> {
-    let bytes = value.as_bytes();
-    if bytes.len() != 7 || bytes[0] != b'#' {
-        anyhow::bail!("bad color {value:?} (want \"#rrggbb\")");
-    }
+    let bad = || anyhow::anyhow!("bad color {value:?} (want \"#rrggbb\")");
+    let Some(bytes) = value.as_bytes().strip_prefix(b"#").filter(|bytes| bytes.len() == 6) else {
+        return Err(bad());
+    };
     let nibble = |b: u8| -> anyhow::Result<u8> {
         match b {
             b'0'..=b'9' => Ok(b - b'0'),
@@ -478,7 +481,10 @@ fn parse_hex_color(value: &str) -> anyhow::Result<Rgb> {
         }
     };
     let hex = |idx: usize| -> anyhow::Result<u8> {
-        Ok((nibble(bytes[idx])? << 4) | nibble(bytes[idx + 1])?)
+        let (Some(&high), Some(&low)) = (bytes.get(idx), bytes.get(idx + 1)) else {
+            return Err(bad());
+        };
+        Ok((nibble(high)? << 4) | nibble(low)?)
     };
-    Ok(Rgb { r: hex(1)?, g: hex(3)?, b: hex(5)? })
+    Ok(Rgb { r: hex(0)?, g: hex(2)?, b: hex(4)? })
 }
