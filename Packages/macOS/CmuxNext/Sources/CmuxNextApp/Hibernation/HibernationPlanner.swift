@@ -129,9 +129,10 @@ struct HibernationPlanner {
         return plan
     }
 
-    /// Seconds of idleness each doubling of recent focus buys: a tab shown 15 times in the last
-    /// hour (4 doublings) hibernates 20 minutes later than one never shown.
-    static let focusCreditPerDoubling: Double = 300
+    /// The share of the timeout each doubling of recent focus buys: at the 30 minute default a
+    /// tab shown 15 times in the last hour (4 doublings) hibernates 20 minutes later than one
+    /// never shown. A share, not a fixed time, so a short timeout stays short.
+    static let focusCreditPerDoubling: Double = 1.0 / 6
     /// Seconds a page's memory counts as extra idleness under memory pressure: one minute per
     /// 100 MB, at most 10. Without pressure memory is not scarce, so it does not count.
     static func memoryCredit(_ bytes: UInt64?) -> Double {
@@ -140,9 +141,9 @@ struct HibernationPlanner {
     }
 
     /// How idle a page counts as: seconds hidden, plus its memory under pressure, less its
-    /// recent focus. Larger is less valuable: it hibernates first and sooner.
-    static func idleness(_ candidate: Candidate, pressure: MemoryPressureLevel) -> Double {
-        let focus = log2(1 + Double(min(max(candidate.recentFocusCount, 0), 63))) * focusCreditPerDoubling
+    /// recent focus (a share of `timeout`, the seconds before a page is due). Larger is less valuable: it hibernates first and sooner.
+    static func idleness(_ candidate: Candidate, pressure: MemoryPressureLevel, timeout: Double) -> Double {
+        let focus = log2(1 + Double(min(max(candidate.recentFocusCount, 0), 63))) * focusCreditPerDoubling * timeout
         let memory = pressure == .normal ? 0 : memoryCredit(candidate.memoryBytes)
         return candidate.hiddenFor + memory - focus
     }
@@ -166,7 +167,7 @@ struct HibernationPlanner {
                 plan.exemptions[candidate.key] = exemption
                 continue
             }
-            ranked.append((candidate.key, idleness(candidate, pressure: pressure), candidate.hiddenFor,
+            ranked.append((candidate.key, idleness(candidate, pressure: pressure, timeout: threshold), candidate.hiddenFor,
                            pressure != .normal && candidate.recentlyKept))
         }
         ranked.sort {
@@ -175,7 +176,11 @@ struct HibernationPlanner {
         }
         // A page the person just left never goes, whatever its memory or the mode.
         let oldEnough = ranked.filter { $0.hiddenFor >= pace.minimumHidden }
-        var due = oldEnough.filter { $0.idleness >= threshold }
+        // Pages the probe just kept come last: only when no other page can go.
+        let fresh = oldEnough.filter { !$0.kept }
+        var due = fresh.filter { $0.idleness >= threshold }
+        if due.isEmpty, pressure != .normal { due = fresh }
+        if due.isEmpty { due = oldEnough.filter { $0.idleness >= threshold } }
         if due.isEmpty, pressure != .normal { due = oldEnough }
         plan.due = due.prefix(pace.perPass).map(\.key)
         if due.count > plan.due.count || (pressure != .normal && !plan.due.isEmpty) {

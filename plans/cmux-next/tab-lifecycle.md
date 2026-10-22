@@ -166,8 +166,8 @@ pass, and under critical pressure every eligible hidden page went at once.
 
 Now (`HibernationPlanner.plan`):
 
-- Ranking: idleness = seconds hidden, less 5 min per doubling of shows in the
-  last hour (15 shows: 20 min later), plus under memory pressure 1 min per
+- Ranking: idleness = seconds hidden, less a sixth of the timeout per
+  doubling of shows in the last hour (at 30 min, 15 shows: 20 min later), plus under memory pressure 1 min per
   100 MB of the page's memory (at most 10 min; sampled from the resource
   source only under pressure, at most every 30 s). Least valuable first.
 - Timeout: `moderate` is 30 min (default), `aggressive` 10 min, or minutes;
@@ -176,8 +176,9 @@ Now (`HibernationPlanner.plan`):
   the least valuable page still goes.
 - Pace (never all at once): normal 2 pages per pass, next pass after 5 s;
   warning 1 per 15 s; critical 3 per 3 s. A page hidden less than 60 s
-  (10 s critical) never goes. Under pressure a page the probe kept waits 60 s
-  before it is asked again, so it does not hold up the rest.
+  (10 s critical) never goes under pressure; without pressure the timeout
+  decides. Under pressure a page the probe kept in the last 60 s comes last,
+  so it does not hold up the rest.
 - Never: shown pages; playing, muted-playing or Picture in Picture media;
   camera, microphone or screen capture; open DevTools; the person's form
   input or a POST result; a running download the tab started (`downloading`);
