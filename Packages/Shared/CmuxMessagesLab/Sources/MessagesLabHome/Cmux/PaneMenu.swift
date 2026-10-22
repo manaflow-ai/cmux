@@ -205,7 +205,8 @@ final class EmojiBubbleButton: NSView {
 /// The context menu's target highlight: a bubble-shaped layer over the row, white (incoming)
 /// or a multiply tint (outgoing), faded in when the menu opens and out when it closes.
 final class MenuHighlight: NSObject, NSMenuDelegate {
-    private let layer: CALayer
+    /// The highlight (tests read where it is drawn).
+    let layer: CALayer
     private weak var host: NSView?
     /// The cell layer the same soft mask masks: the highlight's mask image is drawn the same way up (`start`).
     private weak var softOwner: CALayer?
