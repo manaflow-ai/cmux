@@ -137,9 +137,10 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// since the last change on the title's line, and a third line for the
     /// computer and the pull request. `now` is the start of today, so the
     /// time reads in days; a change today shows its time.
-    public init(expanded ws: SidebarWorkspace, now: Date, machine: String? = nil, showsNotification: Bool = true) {
+    public init(expanded ws: SidebarWorkspace, now: Date, machine: String? = nil, showsNotification: Bool = true,
+                showsPullRequest: Bool = true) {
         let place = [Self.nonEmpty(ws.directory), Self.nonEmpty(ws.branch)].compactMap { $0 }
-        let meta = [Self.nonEmpty(machine), Self.nonEmpty(ws.stage), Self.nonEmpty(ws.pullRequest)].compactMap { $0 }
+        let meta = [Self.nonEmpty(machine), Self.nonEmpty(ws.stage), showsPullRequest ? Self.nonEmpty(ws.pullRequest) : nil].compactMap { $0 }
         self.init(
             icon: ws.icon ?? ws.taskStatus?.glyph,
             detail: (showsNotification ? Self.nonEmpty(ws.notificationText) : nil) ?? Self.descriptionLine(ws)

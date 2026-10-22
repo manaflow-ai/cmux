@@ -130,7 +130,7 @@ import Testing
     @Test func rowsDrawTheLineTheBadgeAndTheKeycaps() throws {
         SidebarSessionTree.shared.state = Self.tree
         defer { SidebarSessionTree.shared.state = nil }
-        let sidebar = SidebarView(model: SidebarModel(sections: Self.sections), design: DesignSettings())
+        let sidebar = SidebarView(model: SidebarModel(sections: Self.sections), design: SidebarPullRequestBadgeTests.showingPullRequests())
         sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
         sidebar.layoutSubtreeIfNeeded()
         sidebar.list.reload(animated: false)
