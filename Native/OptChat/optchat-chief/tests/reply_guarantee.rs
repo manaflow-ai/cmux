@@ -116,14 +116,13 @@ fn after_the_retries_the_person_gets_a_failure_note() {
     assert_eq!(prompts(&h).len(), 1 + MAX_REPLY_TRIES as usize);
     // The failure note goes into the message's thread.
     let owner = h.owner.lock().unwrap();
-    let note = owner
-        .messages
-        .iter()
-        .find(|m| m.author != "user_local")
-        .unwrap();
+    let reply_to = owner.ops.iter().find_map(|(_, op)| match op {
+        cmux_conversation::Op::MessageSend { reply_to, .. } => Some(reply_to.clone()),
+        _ => None,
+    });
     assert_eq!(
-        note.reply_to.as_ref().map(|r| r.message_id.as_str()),
-        Some("msg_1")
+        reply_to.flatten().map(|r| r.message_id),
+        Some("msg_1".to_owned())
     );
 }
 
@@ -152,7 +151,16 @@ fn the_ledger_survives_a_host_restart() {
     h.say("user_local", "deploy it");
     h.settle_posts();
     assert_eq!(h.brain.awaiting_replies().len(), 1);
-    let Harness { dir, owner, .. } = h;
+    let Harness {
+        dir,
+        owner,
+        chat,
+        brain,
+        ..
+    } = h;
+    drop(brain);
+    chat.shutdown();
+    drop(chat);
     let mut h = Harness::in_dir(dir, says(vec!["On it: deployed."]), owner);
     h.connect();
     h.settle_posts();
