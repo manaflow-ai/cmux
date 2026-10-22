@@ -31,6 +31,7 @@ import { resentAttachments, shownPrompt } from "./pastedText";
 import { peerConnectedFromStatus, peerKindsFromStatus } from "./environments";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
+import { subsessionLimits } from "./subsessionLimits";
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
 import { postNative } from "./native";
@@ -245,6 +246,9 @@ const OFFER_RESULT_PROMPT = "offer-result-";
 /// `prompt_refused`: acpmux refused a prompt sent now at dispatch (hub/web_control.rs), after it left the
 /// queue; it is not a transcript record, so the pane asks for it by name.
 const QUEUE_KINDS = ["queue_order", "queue_updated", "prompt_refused"];
+/// acpmux's sub-session records (hub/subsessions.rs `RECORD_KIND`): a child started or ended, and
+/// the chat's `limits` changing.
+const SUBSESSION_KIND = "subsession";
 /// acpmux's refusals of an answer to a card it no longer has (hub/secrets.rs): a restart lost it,
 /// or the agent stopped waiting.
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
@@ -952,6 +956,9 @@ export class AcpmuxDirectClient {
   /// names the options it runs now), then each newer config update. A replayed update before it is
   /// history and never takes the current options back (a chat moved from Low to High).
   private configSeq = 0;
+  /// The seq the selected chat's `subsessionLimits` were read at (the attach's `lastSeq`, then each
+  /// newer `limits` record): an older record replayed with the page never takes them back.
+  private limitsSeq = 0;
   private queue: QueuedPrompt[] = [];
   /// Prompts that left the queue without running (snapshot `queueWithdrawn`), the last QUEUE_WITHDRAWN_KEPT.
   private queueWithdrawn: readonly string[] = [];
@@ -1495,6 +1502,7 @@ export class AcpmuxDirectClient {
     this.clockOffset = undefined;
     this.summary = undefined;
     this.configSeq = 0;
+    this.limitsSeq = 0;
     this.usage = undefined;
     this.turnTokens = undefined;
     this.usageFromSeq = Infinity;
@@ -1962,6 +1970,18 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/process/kill", { sessionId, processId }, 10_000);
   }
 
+  /// How many of chat `sessionId`'s sub-sessions run a turn at once: `maxRunning` (1 to 1000), or
+  /// `null` to drop the chat's own limit for the one it inherits (an ancestor's, the workspace's,
+  /// the settings' or acpmux's default). acpmux answers `{sessionId, subsessionLimits}` and logs a
+  /// `limits` record; the selected chat's summary takes the reply's limits at once.
+  async setRunningLimit(sessionId: string, maxRunning: number | null): Promise<void> {
+    const result = await this.request("_acpmux/subsession/limits", { sessionId, maxRunning }, 10_000);
+    const limits = result?.subsessionLimits;
+    if (sessionId !== this.selectedSessionId || !limits || typeof limits !== "object") return;
+    this.summary = { ...this.summary, subsessionLimits: limits };
+    this.emit("subsession limits");
+  }
+
   /// Ctrl-B: moves the selected Claude Code chat's foreground work to the background, only the
   /// call `toolCallId` started or all of it (Claude Code's `background_tasks`). acpmux answers
   /// `{backgrounded}` and refuses another harness's chat; a Claude that never answers fails it
@@ -2191,6 +2211,8 @@ export class AcpmuxDirectClient {
         CONFIG_KIND,
         BOOKMARKS_KIND,
         ...SECRET_KINDS,
+        // The chat's sub-session records: its running limit's `limits` changes (the eighth kind).
+        SUBSESSION_KIND,
         ...(this.localOrigin ? QUEUE_KINDS : []),
       ],
       eventStream: true,
@@ -2248,6 +2270,7 @@ export class AcpmuxDirectClient {
       void this.fetchCommands(sessionId, generation, result.lastSeq).catch(() => {});
     this.summary = detail;
     this.configSeq = Array.isArray(detail.configOptions) && typeof result?.lastSeq === "number" ? result.lastSeq : 0;
+    this.limitsSeq = typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.queue = [];
     // The reads the chat draws with, at once rather than one after another: each is a round trip,
     // as slow as the attach on a busy daemon, and the chat shows only once they are in (its asks,
@@ -2602,6 +2625,12 @@ export class AcpmuxDirectClient {
     } else if (event.kind === "permission_group" || event.kind === "permission_chat_allowance")
       void this.permissions.refresh().catch(() => {});
     else if (event.kind === "status") this.summary = { ...this.summary, status: msg.status };
+    // The chat's sub-session limits changed (acpmux hub/subsessions.rs: the person, or an ancestor).
+    else if (event.kind === SUBSESSION_KIND && msg.event === "limits" && msg.limits && typeof msg.limits === "object") {
+      if (event.seq && event.seq <= this.limitsSeq) return;
+      this.summary = { ...this.summary, subsessionLimits: msg.limits };
+      if (event.seq) this.limitsSeq = event.seq;
+    }
   }
 
   /// A turn event newer than Stop ends its grace and its give-up.
@@ -3338,6 +3367,7 @@ export class AcpmuxDirectClient {
       this.asks.sessions(this.sessions);
     }
     const summary = this.summary;
+    const limits = subsessionLimits(summary?.subsessionLimits);
     const effort = (summary?.configOptions ?? []).find(
       (option: any) => option.category === "thought_level" || option.id === "reasoning_effort",
     );
@@ -3387,6 +3417,7 @@ export class AcpmuxDirectClient {
             queuePaused: summary.queuePaused === true,
             ...(text(summary.watching) ? { watching: text(summary.watching) } : {}),
             ...(Array.isArray(summary.mcpServers) ? { mcpServers: summary.mcpServers } : {}),
+            ...(limits ? { subsessionLimits: limits } : {}),
             status: summary.status,
             enforcement: sessionEnforcement(summary.enforcement),
             modes: summary.modes,
