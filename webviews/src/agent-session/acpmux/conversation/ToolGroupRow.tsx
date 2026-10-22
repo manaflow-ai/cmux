@@ -13,6 +13,7 @@ import { isFailed, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolG
 import { useT } from "../i18n";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useFold } from "./fold";
+import { WriteLabel, writeCall } from "./WriteLabel";
 
 function groupIcon(kind: ToolGroupKind): ReactNode {
   switch (kind) {
@@ -69,6 +70,8 @@ export function ToolGroupRow({
   const failures = tools.filter(isFailed).length;
   const additions = counted.reduce((sum, file) => sum + file.additions, 0);
   const deletions = counted.reduce((sum, file) => sum + file.deletions, 0);
+  // A lone Write reads as what it wrote, "Wrote notes.md +18", not as an edit (WriteLabel.tsx).
+  const write = kind === "edits" && tools.length === 1 ? writeCall(tools[0]!) : undefined;
   return (
     <>
       <button
@@ -80,19 +83,30 @@ export function ToolGroupRow({
       >
         <span className="cv-tool__icon">{running ? <Spinner size={16} /> : groupIcon(kind)}</span>
         <span className="cv-tool__text" data-find-skip>
-          {toolGroupLabel(
-            t,
-            kind,
-            items,
-            files.map((file) => file.path),
+          {write ? (
+            <WriteLabel tool={tools[0]!} write={write} t={t} />
+          ) : (
+            <>
+              {toolGroupLabel(
+                t,
+                kind,
+                items,
+                files.map((file) => file.path),
+              )}
+              {counted.length > 0 && (
+                <span className="cv-tool__counts">
+                  <span className="cv-edit-diff__add">+{additions}</span>
+                  <span className="cv-edit-diff__del">-{deletions}</span>
+                </span>
+              )}
+            </>
           )}
-          {counted.length > 0 && (
-            <span className="cv-tool__counts">
-              <span className="cv-edit-diff__add">+{additions}</span>
-              <span className="cv-edit-diff__del">-{deletions}</span>
+          {failures > 0 && (
+            <span className="cv-tool__failed">
+              {" "}
+              {write ? t("tools.failed") : t("tools.failedCount", { n: failures })}
             </span>
           )}
-          {failures > 0 && <span className="cv-tool__failed"> {t("tools.failedCount", { n: failures })}</span>}
         </span>
         <ChevronRight
           size={14}

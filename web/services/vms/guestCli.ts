@@ -35,6 +35,7 @@ import { GUEST_CMUX_ADAPTER_PATH, guestCliDistributionCommand } from "./guestCli
 import { GUEST_CODEROUTER_SHELL, GUEST_CODEROUTER_USE_SHELL } from "./guestCoderouterCli";
 import { GUEST_CMUX_MESSAGE_SHELL } from "./guestCliMessages";
 import { GUEST_CMUX_TOPOLOGY_SHELL } from "./guestTopologyCli";
+import { GUEST_SANDBOX_SHELL } from "./guestSandboxCli";
 import { GUEST_BROWSER_OPENER_PATH, guestBrowserInstallCommand } from "./guestBrowser";
 
 export const GUEST_CMUX_SHIM_PATH = GUEST_CMUX_ADAPTER_PATH;
@@ -1560,6 +1561,8 @@ default_pane() {
 }
 
 ${GUEST_CMUX_TOPOLOGY_SHELL}
+
+${GUEST_SANDBOX_SHELL}
 # ---------------------------------------------------------------------------
 # Layouts as data. \`layout export\` turns a daemon workspace into the same
 # declarative document the Mac accepts (\`cmux new-workspace --layout\`, cmux.json
@@ -2505,6 +2508,10 @@ case "\${1:-}" in
   coderouter|cr)
     shift
     guest_coderouter_command "\$@"
+    ;;
+  sandbox)
+    shift
+    sandbox_command "\$@"
     ;;
   agent)
     shift
