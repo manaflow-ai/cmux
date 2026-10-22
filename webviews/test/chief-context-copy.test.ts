@@ -81,7 +81,7 @@ await requireBrowserLane("chief-context-copy.test.ts", async () => {
       for (const width of [760, 420, 300])
         test(`${engine}, ${theme}, ${width}px: the context's Copy trails its label and covers no text`, async () => {
           const page = await open(engine, width, theme);
-          // Keyboard focus on the row shows its floating Copy too (conversation.css .acpmux-row__copy).
+          // Keyboard focus on the row shows its action row's buttons too.
           await page.locator(".acpmux-row:has(.cv-user__context)").first().focus();
           // The Copy has faded in.
           await eased(page);

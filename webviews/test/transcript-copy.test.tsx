@@ -218,3 +218,34 @@ test("keyboard transcript selection copies source and reports copy success or fa
     restore();
   }
 });
+
+// Leo (2026-10-21): "why is there a copy button for the prompt i sent on teh top left?" then "top
+// left??? just remove it". A prompt drawn as the person's bubble keeps only the Copy in the row under
+// its bubble; a tool row keeps its floating Copy and an answer still has none of its own.
+test("a sent prompt's row has exactly one Copy, the one under its bubble; tool and answer rows unchanged", async () => {
+  const restore = fakeViewport({ width: 760, height: 600 });
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={conversation}
+          sessionId="session-one"
+          onToggleActivity={() => {}}
+          expanded={new Set<string>()}
+        />,
+      ),
+    );
+    const row = (id: string) => dom.window.document.querySelector<HTMLElement>(`[data-row-id="${id}"]`)!;
+    const copies = (id: string) => [...row(id).querySelectorAll('button[aria-label="Copy"]')];
+    expect(row("selection-1").querySelector(".cv-user__bubble")).not.toBeNull();
+    expect(row("selection-1").querySelector(".acpmux-row__copy")).toBeNull();
+    expect(copies("selection-1")).toHaveLength(1);
+    expect(copies("selection-1")[0]!.closest(".cv-user__actions")).not.toBeNull();
+    expect(row("selection-2").querySelector(".acpmux-row__copy")).toBeNull();
+    expect(row("selection-3").querySelector(".acpmux-row__copy")).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
