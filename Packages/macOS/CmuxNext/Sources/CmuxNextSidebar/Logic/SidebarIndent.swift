@@ -17,8 +17,9 @@ nonisolated struct SidebarIndent: Hashable, Sendable {
     /// How many steps in the deepest drawn level may go, for a row `width` wide at level 0.
     func visualCap(width: CGFloat) -> Int {
         guard step > 0 else { return 0 }
-        let fits = Int(((width - minimumLabelWidth) / step).rounded(.down))
-        return max(1, min(maxVisualLevels, fits))
+        // Clamped before the Int conversion: an unbounded width (`SidebarRow.groupGutter`) must not trap.
+        let fits = min(Double(maxVisualLevels), max(0, ((width - minimumLabelWidth) / step).rounded(.down)))
+        return max(1, Int(fits))
     }
 
     /// The x offset of a row at `level`, from the list's leading inset. Level 1 (a top-level group's

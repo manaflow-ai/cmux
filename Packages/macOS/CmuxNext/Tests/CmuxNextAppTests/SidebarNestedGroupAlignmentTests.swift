@@ -136,6 +136,14 @@ import Testing
                 "a reload draws every row where the drop left it")
     }
 
+    /// The width-free offset (`SidebarRow.groupGutter`, `SidebarStyle.groupOffset`) never traps and keeps the level cap.
+    @Test func anUnboundedWidthKeepsTheLevelCap() {
+        let indent = SidebarIndent(step: 8)
+        #expect(indent.visualCap(width: .greatestFiniteMagnitude) == indent.maxVisualLevels)
+        #expect(indent.offset(level: 3, width: .infinity) == 16)
+        #expect(indent.offset(level: 99, width: .greatestFiniteMagnitude) == CGFloat(indent.maxVisualLevels) * 8)
+    }
+
     /// A narrow sidebar stops indenting at the cap: the deepest labels keep their width.
     @Test func aNarrowSidebarCapsTheIndent() {
         let fixture = SidebarNestedFixture(scenario: .narrow)
