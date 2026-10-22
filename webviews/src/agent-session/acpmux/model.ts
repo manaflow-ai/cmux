@@ -206,6 +206,8 @@ export type AcpmuxRow = {
   from?: "chief";
   /// The originating prompt row, so Retry can restore image/PDF attachments.
   retryRowId?: string;
+  /// A turn footer's answer row (turns.ts), whose right-click menu the footer's More opens.
+  answerId?: string;
   retryAttachments?: ComposerAttachment[];
   status?: string;
   error?: string;
