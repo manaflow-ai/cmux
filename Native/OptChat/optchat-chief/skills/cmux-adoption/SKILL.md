@@ -77,34 +77,32 @@ Their one step: install the app and sign in on the phone (or scan the code).
 
 Pick the path by what the person wants:
 
-- **Use that computer's sessions from this Mac** (open its terminals and
-  agents here): it serves cmux over Tailscale. Path A.
-- **You (the Chief) run agents there**: add it as an agent peer over ssh.
-  Path B. Both can be on at once.
+- **You (the Chief) run agents there**, on a Mac or Linux: add it as an
+  agent peer over ssh. Path B. This is the default.
+- **Use another Mac's sessions from this Mac** (open its terminals and
+  agents here): it serves cmux over Tailscale. Path A. Both can be on at
+  once.
 - **The person can't give you ssh and wants one line to paste**: Path C.
 
-### Path A: serve it over Tailscale
+### Path A: serve it over Tailscale (a Mac with the cmux app)
 
-On the new computer (the person runs these, or you do over ssh):
+On the new Mac (the person runs these, or you do over ssh):
 
 1. Tailscale is installed and signed in with the same account as this Mac
    (section 4).
-2. Install cmux. A Mac with a screen: the cmux app. Linux or a headless
-   Mac:
-   ```sh
-   curl -fsSL https://cmux.com/tui/install-static.sh | sh
-   ```
-   It installs `~/.cmux/bin/cmux` and adds it to PATH for new shells.
+2. The same cmux app as on this Mac is installed (`cmux version --json`
+   here names it). Its CLI is inside the app:
+   `"/Applications/APP.app/Contents/Resources/bin/cmux"` (APP as installed,
+   for example `cmux NIGHTLY`).
 3. Serve it:
    ```sh
-   ~/.cmux/bin/cmux setup tailnet
+   "/Applications/APP.app/Contents/Resources/bin/cmux" setup tailnet
    ```
-   (A cmux build older than `cmux setup tailnet`: `~/.cmux/bin/cmux host
-   enable --json`.) Read `state`: `ok` or `changed` means it serves; the
-   `needs_user` kinds are in section 4. A server tagged in Tailscale has no
+   (A cmux build older than `cmux setup tailnet`: `... cmux host enable
+   --json`.) Read `state`: `ok` or `changed` means it serves; the
+   `needs_user` kinds are in section 4. A Mac tagged in Tailscale has no
    owner: ask the person for their Tailscale login and run `cmux setup
-   tailnet --owner LOGIN`. On Linux, hosting stops at logout unless the
-   person runs `loginctl enable-linger $USER` once (enable prints this note).
+   tailnet --owner LOGIN`.
 4. Back on this Mac, check that you reach it:
    ```sh
    cmux host list --json        # the new machine is listed, "access": "owner"
@@ -114,7 +112,13 @@ On the new computer (the person runs these, or you do over ssh):
    the exact command). Then the person can open it from the app: New
    Workspace on Machine.
 
-Undo: `cmux host disable --json` on that computer.
+Undo: `cmux host disable --json` on that Mac.
+
+Not for Linux yet: the public installer
+(`curl -fsSL https://cmux.com/tui/install-static.sh | sh`) installs the
+cmux of the `main` branch, which has no `cmux host` or `cmux acp` (checked
+2026-10-22: it answers `unknown resource scope "host"`). For a Linux box use
+Path B.
 
 ### Path B: an agent peer over ssh
 
@@ -127,6 +131,10 @@ cmux setup machine SSH_TARGET --name NAME
 cmux acp host doctor NAME --json                  # step by step; add --fix to repair
 ```
 
+This is the route for Linux and for any machine you can ssh to. When this
+build cannot run there (another OS or CPU), the result says to install
+from the app: the person clicks Machines > Add Machine in cmux, which puts
+the right build on the machine; then run `cmux setup machine` again.
 SSH_TARGET is `user@host` or the Tailscale name. It uses key-only ssh: if
 the machine refuses, the result is `needs_user` with the ssh command to
 try; hand the person that. With Tailscale SSH on (section 4) no key is
@@ -134,16 +142,18 @@ needed. Undo: `cmux acp host rm NAME`. Follow the `cmux-setup` skill for
 every state of `cmux setup machine`. Ask before adding a machine the person
 did not name.
 
-### Path C: one pasted line
+### Path C: one pasted line (a Mac with the cmux app)
 
 ```sh
 cmux acp host ticket new --role client --ttl 30m --json
 ```
 
-Hand the person `install_command` from the result to paste in a terminal
-on the new computer: it installs cmux and joins it to this Mac (role
-client: the new computer uses this Mac's sessions). Where cmux is already
-installed, `join_command` is enough. The ticket works once and expires.
+Where the same cmux app is installed, hand the person `join_command` from
+the result with the app's CLI path in front (`"/Applications/APP.app/
+Contents/Resources/bin/cmux" host join 'TICKET'`): it joins that machine to
+this Mac (role client: it uses this Mac's sessions). Do not hand out
+`install_command` yet: it installs the `main` branch's cmux, which cannot
+join (see Path A). The ticket works once and expires.
 `cmux acp host ticket ls --json` shows tickets and paired machines;
 `cmux acp host ticket revoke ID` ends one.
 
@@ -191,7 +201,7 @@ Good to know, say it only when it applies:
 | --- | --- |
 | Run every check and every `cmux` command | Sign in to Tailscale and to cmux in the browser |
 | Turn on phone access, open the pairing page | Install the iPhone app, sign in there or scan the code |
-| Install cmux on a machine you can ssh to, add it as a peer, serve it | Approve a new device when their tailnet asks for it |
+| Install cmux on a machine you can ssh to, add it as a peer, serve it | Approve a new device when their tailnet asks for it; click Add Machine when the build must come from the app |
 | Mint a pairing ticket and hand them the line | Paste the line on a machine you cannot reach |
 | Verify with `cmux host dial NAME` and say it works | Give you their Tailscale login for a tagged server |
 
