@@ -55,6 +55,20 @@ import UIKit
         #expect(!drawer.mayOpen(at: CGPoint(x: 200, y: 600)), "a swipe anywhere closes the open row first")
     }
 
+    /// UIKit keeps its swipe actions view in the list at full width after
+    /// the row closes (iOS 26.5): it must not keep the drawer shut.
+    @Test func aClosedRowsLeftoverActionsViewDoesNotBlockTheDrawer() {
+        RowSwipeActions.shared.closeAll()
+        let list = ListController(style: .plain)
+        let (drawer, window) = container(content: list)
+        defer { window.isHidden = true }
+        list.tableView.layoutIfNeeded()
+        final class LeftoverSwipeActionsView: UIView {}
+        list.tableView.addSubview(LeftoverSwipeActionsView(frame: CGRect(x: 0, y: 44, width: 402, height: 44)))
+        #expect(!RowSwipeActions.hasOpenListRow(in: list.view))
+        #expect(drawer.mayOpen(at: CGPoint(x: 200, y: 300)))
+    }
+
     @Test func anOpenFeedRowClosesInsteadOfOpeningTheDrawer() {
         RowSwipeActions.shared.closeAll()
         let (drawer, window) = container(content: UIViewController())

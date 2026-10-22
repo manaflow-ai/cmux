@@ -39,8 +39,7 @@ public final class RowSwipeActions {
     public static let panName = "cmux.rowSwipeActions"
 
     /// Whether a visible `List` (table or collection view) under `root` has
-    /// a row slid open on its swipe actions: a cell away from its laid-out
-    /// place, or one showing UIKit's swipe action view.
+    /// a row slid open on its swipe actions: a cell away from its laid-out place.
     public static func hasOpenListRow(in root: UIView) -> Bool {
         guard !root.isHidden, root.alpha > 0.01, root.window != nil else { return false }
         if let collection = root as? UICollectionView, hasOpenRow(collection) { return true }
@@ -65,15 +64,14 @@ public final class RowSwipeActions {
         return false
     }
 
+    /// UIKit slides an open row's cell off its laid-out place, over the
+    /// actions (measured on iOS 26.5: a List cell at x = -242 with three
+    /// actions). The actions' own view stays in the hierarchy at full width
+    /// after the row closes, so it says nothing about open rows.
     private static func isSlid(_ cell: UIView, from laidOut: CGRect) -> Bool {
         if abs(cell.frame.minX - laidOut.minX) > 0.5 { return true }
-        if let content = (cell as? UICollectionViewCell)?.contentView ?? (cell as? UITableViewCell)?.contentView,
-           abs(content.frame.minX) > 0.5 || abs(content.transform.tx) > 0.5 { return true }
-        // UIKit draws the revealed actions in its own view inside the cell or beside it.
-        let neighbors = (cell.superview?.subviews ?? []) + cell.subviews
-        return neighbors.contains { view in
-            !view.isHidden && view.bounds.width > 1 && String(describing: type(of: view)).contains("SwipeAction")
-        }
+        guard let content = (cell as? UICollectionViewCell)?.contentView ?? (cell as? UITableViewCell)?.contentView else { return false }
+        return abs(content.frame.minX) > 0.5 || abs(content.transform.tx) > 0.5
     }
 }
 
