@@ -1883,6 +1883,20 @@ pre.cv-math-source {
   margin-left: 6px;
   font-variant-numeric: tabular-nums;
 }
+/* A written file's name (WriteLabel.tsx): it opens the file, so it underlines under the pointer. */
+.cv-tool__file.is-link {
+  cursor: pointer;
+  border-radius: 3px;
+}
+.cv-tool__file.is-link:hover {
+  color: var(--cv-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.cv-tool__file.is-link:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: 1px;
+}
 .cv-tool__failed,
 .cv-command__failed {
   color: var(--agent-danger);
@@ -2303,6 +2317,18 @@ button.cv-received__name:focus-visible {
   color: var(--cv-text-muted);
   font-family: var(--cv-font);
   font-size: var(--text-body);
+}
+/* An empty footer (turns.ts isEmptyFooter: no label, no answer to copy, only Pin, Fork and the age,
+   all hover-only) takes no line: the row is its turn gap alone, and pointed at, the controls show
+   over that gap (24px, the line's height), so nothing moves (Leo, 2026-10-21: a "Worked for 0s" row
+   took a full line). The chat's last footer has only the 8px message gap, too short for the line,
+   so there it draws nothing: the prompt's own hover row has the same Fork and age. */
+.cv-turn-actions--empty {
+  position: absolute;
+  inset: 0 0 auto;
+}
+.acpmux-row--last-footer .cv-turn-actions--empty {
+  display: none;
 }
 /* Debug Settings `agentPane.debug.turnActionsPlacement` "right": the earlier row at the column's
    right edge, the actions after the time. */
