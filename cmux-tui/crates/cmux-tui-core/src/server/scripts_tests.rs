@@ -146,6 +146,43 @@ fn terminal_events_become_script_streams_with_public_ids() {
 }
 
 #[test]
+fn notifications_become_a_script_stream_with_or_without_a_terminal() {
+    let ids = |surface: SurfaceId| {
+        (surface == 7).then(|| ScriptIds { tab: "tab_x".into(), terminal: Some("term_x".into()) })
+    };
+    let notification = |surface: Option<SurfaceId>| {
+        MuxEvent::Notification(crate::mux::NotificationEvent {
+            notification: 1,
+            title: "Build".into(),
+            subtitle: None,
+            body: "done".into(),
+            preview: Some("private".into()),
+            level: crate::mux::NotificationLevel::Warning,
+            surface,
+            workspace_id: None,
+            source: crate::mux::NotificationSource::Cli,
+            desktop: true,
+            reply: false,
+        })
+    };
+    let base = json!({
+        "title": "Build", "subtitle": null, "body": "done", "level": "warning",
+        "source": "cli", "workspace": null, "terminal": null, "tab": null,
+    });
+    let mut at = base.clone();
+    at["terminal"] = json!("term_x");
+    at["tab"] = json!("tab_x");
+    // The agent preview stays out: scripts see what the banner's text is.
+    assert_eq!(script_event(&notification(Some(7)), &ids), Some(("notification.created", at)));
+    assert_eq!(
+        script_event(&notification(None), &ids),
+        Some(("notification.created", base.clone()))
+    );
+    // A terminal with no public ids still notifies, without them.
+    assert_eq!(script_event(&notification(Some(8)), &ids), Some(("notification.created", base)));
+}
+
+#[test]
 fn the_router_runs_daemon_reads_with_current_selectors() {
     let mux = Mux::new_for_test("scripts-router-read", SurfaceOptions::default());
     let router = DaemonRouter::new(&mux, "scr_t");
