@@ -570,6 +570,14 @@ CodeRouter argument list to the official Rust core and local/peer commands to th
 guest adapter, which uses the machine's cmux-tui daemon. `cmux coderouter` and
 `cmux cr` use the same CodeRouter implementation as the top-level aliases.
 
+`cmux sandbox create|list|exec|token|delete|whoami` (`guestSandboxCli.ts`) runs a cloud
+agent's own throwaway VMs through the cmux VM API with the agent key it was given
+(`CMUX_AGENT_KEY`, else `CMUX_AGENT_CONFIG` or `~/.config/cmux/agent.json`, which must be
+mode 0600). The key reaches only the VMs it created, within its VM count and USD/h
+budget; the service deletes them when the key expires or is revoked. The same verbs ship
+as the standalone `cmux-sandbox` script (`GUEST_SANDBOX_STANDALONE`) for agent hosts
+without this adapter; the hq cloud-subagents pool tool installs it with each key.
+
 The facade and CodeRouter core are one checksum-pinned archive described by
 `guestCliDistribution.json`. Create and attach heal this distribution separately
 from the persistent terminal daemon, so a CLI upgrade does not restart terminals.
