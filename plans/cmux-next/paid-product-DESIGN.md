@@ -148,15 +148,19 @@ did not need.
 
 Everything here was tested in Stripe test mode against a test-mode web deployment. Before live:
 
-1. Live checkout from cmux-next: `billing.checkout` refuses a `cs_live_` session unless
-   `billing.liveCheckout` is on (app default off). Turning it on lets cmux-next sell the existing
-   live plans (the same products classic sells today).
+1. Live checkout from cmux-next: `billing.checkout` refuses a `cs_live_` session (code
+   `billing.live_off`, nothing opens) while `BillingLivePolicy.shipped.liveCheckout` is false
+   (`Packages/macOS/CmuxNext/Sources/CmuxNextApp/Billing/BillingLivePolicy.swift`). Flipping it is
+   one line and lets cmux-next sell the existing live plans (the same products classic sells today).
+   It is a build constant, not a hidden setting, so nobody turns it on by accident.
 2. `CLOUD_PLAN_ENTITLEMENTS=on` in production: paid users get Cloud VMs at the section 2 limits
    (our Freestyle cost).
 3. The included amounts of section 2 replace the test placeholders in `billing-catalog.ts`
    (`pricing-DESIGN.md` section 9 decisions).
-4. Stripe Link on the live account: Dashboard > Settings > Payment methods > Link (on by default
-   for Checkout in most accounts; confirm).
+4. Stripe Link on the live account: Dashboard > Settings > Payment methods > Link. In test mode the
+   default payment method configuration has Link `on` (read 2026-10-21).
+5. Product text: the Stripe Pro product says "5 Cloud VMs with 4 vCPUs and 8 GB RAM each" (the
+   classic entitlement); cmux-next Pro allows up to 8 vCPU / 16 GB. Align one of them before live.
 
 ## 10. Tests
 
