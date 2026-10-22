@@ -57,7 +57,7 @@ public nonisolated struct AttentionMark: Hashable, Sendable {
     /// Changes with every new notification, so the animation restarts.
     public var generation: UInt64
     /// A one-pixel ring in the pane border color, with no glow, instead of the notification
-    /// blue: an agent chat's own turn-end ring (`AttentionHighlightLook.agentTurnRing`), which is opt-in.
+    /// blue: an agent chat's own turn-end ring (`AgentTurnRing`), which is opt-in.
     public var hairline: Bool
 
     public init(color: ThemeRGB? = nil, generation: UInt64, hairline: Bool = false) {

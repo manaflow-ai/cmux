@@ -73,7 +73,7 @@ final class SidebarTabRowView: SidebarRowView {
     override func layout() {
         super.layout()
         let b = layoutBounds
-        // A grouped tab row starts right of its group's line (SidebarListView.frame(for:)).
+        // A grouped tab row keeps an ungrouped one's left edge (SidebarListView.frame(for:)).
         let iconSide = SidebarStyle.tabIconSize
         let iconX = SidebarStyle.titleLeading + Metrics.space3
         icon.frame = NSRect(x: iconX, y: (b.height - iconSide) / 2, width: iconSide, height: iconSide)

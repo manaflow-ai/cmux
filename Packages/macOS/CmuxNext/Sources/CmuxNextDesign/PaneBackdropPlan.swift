@@ -38,7 +38,9 @@ public nonisolated struct PaneBackdropPlan: Equatable, Sendable {
             // One art layer and one tint per pane; the window keeps the one glass view.
             art.material = .translucent
             plan.art = art
-        } else if own == .none, inheritedHasArt {
+        } else if own == .none || backdrop.isOpaque, inheritedHasArt {
+            // Its own None, or its own Opacity at 100% (an opaque scope): the pane hides the
+            // window's art under its plain background instead of drawing nothing over it.
             plan.cover = true
         }
         return plan
