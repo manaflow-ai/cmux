@@ -46,13 +46,16 @@ public final class SidebarSessionTreeFeed {
             for await pass in ObservationStream({ () -> Pass? in
                 let sections = DesignSettings.shared.sidebarSections
                 guard Self.readsPullRequests(sections) || Self.readsBadges(sections) else { return nil }
-                var pass = Self.pass(Self.chats(workspaces()), lanes: lanes.lanes, remoteParents: remote.parents, localHost: localHost,
+                let models = workspaces()
+                var pass = Self.pass(Self.chats(models), lanes: lanes.lanes, remoteParents: remote.parents, localHost: localHost,
                                      pullRequests: pullRequests.answers)
                 pass.showsTree = sections.sessionTree
+                // Captures: sample pull requests on every row, and no GitHub reads.
+                if SidebarTunables.pullRequestFixture.value { (pass.state.pullRequests, pass.asks) = (SidebarPullRequestFixture.badges(models), []) }
                 return pass
             }) {
                 Self.publish(pass, to: tree)
-                if let pass { pullRequests.refresh(pass.asks) } else { pullRequests.stop() }
+                if let pass, !SidebarTunables.pullRequestFixture.value { pullRequests.refresh(pass.asks) } else { pullRequests.stop() }
             }
         }
     }
