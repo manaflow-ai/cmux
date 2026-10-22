@@ -1,7 +1,8 @@
 //! `acpmux host update`: bring ssh peers to this build (or the one for
 //! their target in `--binary-dir`), check the restarted daemon answers with
 //! it, and roll back what does not. The scripts it runs live in the parent
-//! module (`hosts.rs`), the unit migration in `host_migrate.rs`; `host
+//! module (`hosts.rs`), the unit migration in `host_migrate.rs`, the lock
+//! that keeps two updates of one host apart in `host_lock.rs`; `host
 //! self-update` (`host_self_update.rs`) runs the same update on this machine.
 
 use super::{
@@ -440,9 +441,11 @@ pub(crate) struct Caller {
     pub daemon: String,
 }
 
-/// [`update_peer`] holding the host's update lock ([`lock_updates`]), so a
-/// self-update there (its timer) does not change the binary or
-/// `acpmux.prev` under it; `updateRunning` (nothing changed) while one does.
+/// [`update_peer`] holding the host's update lock ([`lock_updates`]), so
+/// another update of the host (its self-update timer, or a `host update`,
+/// `host setup` or `host enroll --fix` from another machine) does not change
+/// the binary or `acpmux.prev` under it; `updateRunning` (nothing changed)
+/// while one does.
 fn update_locked(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     match lock_updates(remote) {
         Ok(Some(lock)) => update_peer(&lock.fence(remote), opts),
@@ -564,7 +567,13 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     // sessions again right before the restart, and put the binary back
     // rather than restart under it.
     if opts.if_idle {
-        let again = remote.exec(&probe_script(true), None).ok();
+        let again = match remote.exec(&probe_script(true), None) {
+            Ok(out) => Some(out),
+            Err(e) if e.is::<LockLost>() => {
+                return up.end(Outcome::Failed, "lockLost", e.to_string());
+            }
+            Err(_) => None,
+        };
         let busy = match again.as_ref().and_then(|out| Probe::parse(out, caller)) {
             Some(Probe { busy: Some(names), .. }) if names.is_empty() => None,
             Some(Probe { busy: Some(names), .. }) => {
@@ -594,6 +603,10 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
         }
         Err(failure) => failure,
     };
+    // The lease went: nothing more runs there, a rollback neither.
+    if reason == "lockLost" {
+        return up.end(Outcome::Failed, &reason, why);
+    }
     // Refused before the daemon was touched: only the binary goes back.
     if restarted.refused {
         let mut why = why;
@@ -658,7 +671,7 @@ fn restart_checked(remote: &dyn Remote, script: &str, want: Option<&str>) -> Res
     };
     let out = match remote.exec(script, None) {
         Ok(out) => out,
-        Err(e) => return failed(None, false, "restartFailed", e.to_string()),
+        Err(e) => return failed(None, false, lock_lost_or(&e, "restartFailed"), e.to_string()),
     };
     let migrating = out.stdout.lines().find_map(|l| l.strip_prefix(MIGRATING)).map(str::to_owned);
     if !out.ok {
@@ -673,7 +686,7 @@ fn restart_checked(remote: &dyn Remote, script: &str, want: Option<&str>) -> Res
     }
     let status = match remote.exec(AWAIT_DAEMON, None) {
         Ok(out) => out.stdout.trim().to_owned(),
-        Err(e) => return failed(migrating, false, "noAnswer", e.to_string()),
+        Err(e) => return failed(migrating, false, lock_lost_or(&e, "noAnswer"), e.to_string()),
     };
     let Some(build) = answering_build(&status) else {
         let why = "the daemon did not answer within 20 s of its restart".to_owned();

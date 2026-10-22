@@ -797,10 +797,11 @@ when the installed binary differs, checks its sha256 and updates the daemon the 
 included. A build pushed by hand is replaced by the channel's at the next run;
 `host setup --no-auto-update` (the file `~/.acpmux/no-auto-update`) keeps a host off the timer.
 One update of a host runs at a time: the timer, `host update`, `host setup` and `host enroll --fix`
-take the host's update lock (a lease in `~/.acpmux`, kept by the update's connection), and one that
-finds it held changes nothing (`host update`: `updateRunning`). Every step checks the lease on the host
-first, so an update whose connection dropped stops (`lockLost`). The updates reach the daemon through
-the `ACPMUX_HOME` and `ACPMUX_SOCKET` that `acpmux.service` and its drop-ins set.
+take the host's update lock (a lease in `~/.acpmux`, kept by the update's connection or the timer's
+process; it needs `flock` or `perl` on the host), and one that finds it held changes nothing
+(`host update`: `updateRunning`). Every step checks the lease on the host first, so an update whose
+connection dropped stops (`lockLost`). The updates reach the daemon through the
+`ACPMUX_HOME` and `ACPMUX_SOCKET` that `acpmux.service` and its drop-ins set.
 `--json` reports each peer's `outcome`: `updated`, `current`, `busy`, `needsBinary`,
 `rolledBack` or `failed`. `host setup` needs ssh + scp access and a Mac or Linux box with `launchctl`
 (Linux hosts run `acpmux daemon` under whatever supervisor you use). Hosts added by hand still

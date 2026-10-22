@@ -97,6 +97,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A main-thread hang still running after 2 s goes to crash reporting with its stack.
         let reporter = services.crashReporting.reporter
         control.watchdog.onHang = { reporter.reportHang(duration: $0.duration, addresses: $0.addresses, otherThreads: $0.otherThreads.map { ($0.name, $0.addresses) }) }
+        // And to a file per hang (~/Library/Logs/<bundle id>/hangs), listed in Debug Settings > Hangs.
+        control.watchdog.episodes = HangFileTunables.recorder(bundleID: Bundle.main.bundleIdentifier)
         // Shorter lag spikes (250 ms and up, rate-limited) go there too, once they end.
         let lagSpikes = LagSpikeReporter(reporter: reporter)
         lagSpikes.setContextProvider {

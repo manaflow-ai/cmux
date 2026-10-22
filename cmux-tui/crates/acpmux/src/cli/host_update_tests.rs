@@ -230,8 +230,9 @@ impl Remote for FakePeer {
 
     fn spawn(&self, script: &str) -> Result<std::process::Child> {
         use std::process::Stdio;
-        let child = self.sh(script).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()?;
-        Ok(child)
+        let mut child = self.sh(script);
+        child.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        Ok(child.spawn()?)
     }
 
     fn push(&self, local: &Path, remote: &str) -> Result<()> {
@@ -342,18 +343,26 @@ impl FakePeer {
         }
     }
 
-    /// `script` under `sh` in the fake home, as [`Remote::exec`] runs it.
+    /// `script` under `sh` in the fake home, as [`Remote::exec`] runs it;
+    /// `$HOME/path`, when a test wrote one, is its PATH, and `$HOME/shell`
+    /// its shell (ssh runs the login shell).
     fn sh(&self, script: &str) -> Command {
         let script = script
             .replace("/proc/", &format!("{}/", self.home.join("proc").display()))
             .replace("/etc/cmux/", &format!("{}/", self.home.join("etc/cmux").display()));
-        let mut command = Command::new("sh");
+        let shell = std::fs::read_to_string(self.home.join("shell"));
+        let mut command = Command::new(shell.as_deref().unwrap_or("sh").trim());
         command
             .args(["-c", &script])
             .current_dir(&self.home)
             .env("HOME", &self.home)
             .env("XDG_RUNTIME_DIR", self.home.join("run"))
-            .env("PATH", format!("{}:/usr/bin:/bin", self.home.join("fakebin").display()))
+            .env(
+                "PATH",
+                std::fs::read_to_string(self.home.join("path")).unwrap_or_else(|_| {
+                    format!("{}:/usr/bin:/bin", self.home.join("fakebin").display())
+                }),
+            )
             .env_remove("ACPMUX_HOME")
             .env_remove("ACPMUX_SOCKET");
         command
@@ -936,6 +945,10 @@ fn a_listen_address_acpmux_service_would_lose_is_refused() {
     assert!(up.error.as_deref().unwrap_or("").contains("127.0.0.1:47822"), "{up:?}");
     peer.assert_untouched(&fake_acpmux(STALE, Some(STALE)), OLD);
 }
+
+#[cfg(unix)]
+#[path = "host_lock_tests.rs"]
+mod lock;
 
 #[cfg(unix)]
 #[path = "host_self_update_tests.rs"]
