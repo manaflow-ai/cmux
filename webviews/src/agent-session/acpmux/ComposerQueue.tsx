@@ -18,9 +18,9 @@
 //
 // Another agent's message waiting in the queue (`message`, direct.ts `queuedMessage`) is not the
 // person's prompt: its row is the message's received line (conversation/IncomingMessageCard.tsx), as
-// the transcript draws it once it runs: the sender's mark, its name as a chip that opens its chat, a
-// one-line preview, and the message as a card when opened. Its actions, Steer too, sit at the
-// line's end (Leo, 2026-10-21).
+// the transcript draws it once it runs: the sender's mark, its name as a chip that opens its chat,
+// and the message as a card under it, cut to six lines when longer. Its actions, Steer too, sit at
+// the line's end (Leo, 2026-10-21).
 //
 // A prompt's images show as small thumbnails under its text (QueuedImages.tsx), each opening the
 // image viewer; while it is edited each has a remove control, and Save keeps only the images left

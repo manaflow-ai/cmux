@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextSettings
 import CmuxNextUpdater
@@ -72,6 +73,6 @@ enum DebugUpdater {
     }
 
     static func terminate() {
-        RunLoop.main.perform(inModes: [.common]) { NSApp.terminate(nil) }
+        NSApplication.terminateFromRunLoop()
     }
 }

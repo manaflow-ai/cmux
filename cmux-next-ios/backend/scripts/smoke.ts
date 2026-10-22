@@ -74,6 +74,12 @@ const color = `#${Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, 
 const put = await api("PUT", `/v1/teams/${teamId}/prefs`, { color, emoji: "🧪" })
 const got = await api("GET", `/v1/teams/${teamId}/prefs`)
 check("prefs", put.status === 200 && got.json?.color === color && got.json?.emoji === "🧪")
+// Follows the "🧪" PUT above (an icon is set); leaves the test team at emoji "🧪" and transparent false.
+const clear = await api("PUT", `/v1/teams/${teamId}/prefs`, { transparent: true })
+const filled = await api("PUT", `/v1/teams/${teamId}/prefs`, { emoji: "" })
+const bare = await api("PUT", `/v1/teams/${teamId}/prefs`, { transparent: true })
+const back = await api("PUT", `/v1/teams/${teamId}/prefs`, { emoji: "🧪" })
+check("prefs transparent", clear.json?.transparent === true && clear.json?.color === color && filled.json?.transparent === false && filled.json?.color === color && bare.status === 400 && back.json?.transparent === false)
 if (teamId.startsWith("personal-")) check("personal invite refused", (await api("POST", `/v1/teams/${teamId}/invites`, { email: "x@example.com" })).status === 400)
 check("other personal space refused", (await api("GET", "/v1/teams/personal-someone-else/macs")).status === 403)
 check("foreign team refused", (await api("GET", `/v1/teams/00000000-0000-0000-0000-000000000000/macs`)).status === 403)
