@@ -7,7 +7,7 @@ public nonisolated enum TailnetNodeStrings {
     }
 
     public static var title: String { t("tailnet.title", "This Mac on Your Tailnet") }
-    public static var statusTitle: String { t("tailnet.status", "Tailscale") }
+    public static var statusTitle: String { t("tailnet.status", "Status") }
     public static var unavailable: String { t("tailnet.unavailable", "This cmux build can't join a tailnet") }
     public static var signedOut: String { t("tailnet.signedOut", "Reach this Mac from your other devices") }
     public static var signIn: String { t("tailnet.signIn", "Sign In…") }

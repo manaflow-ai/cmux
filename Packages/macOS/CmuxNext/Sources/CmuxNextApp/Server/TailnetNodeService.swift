@@ -10,8 +10,8 @@ import Observation
 
 /// Settings > Accounts > This Mac on Your Tailnet (Labs, `labs.previewFeatures`): the local
 /// daemon's own tailnet node (`tailnet-v1`). It follows `tailnet.state` on the app's own control
-/// connection while the card is enabled, and only on a daemon that advertises the capability, so a
-/// daemon without the node shows "unavailable" and is never asked. Pair mints a single-use
+/// connection while the card is enabled, once per connection; a daemon without the node refuses
+/// the stream and the card shows "unavailable". Pair mints a single-use
 /// `client` ticket (#23297) for this Mac's tailnet address.
 @MainActor @Observable
 final class TailnetNodeService {
@@ -67,8 +67,6 @@ final class TailnetNodeService {
         guard followed != id else { return }
         followed = id
         follow?.cancel()
-        let supported = daemon.identity?.supports(TailnetNodeClient.capability) == true
-        guard supported else { return model.markUnavailable() }
         // task-owner: one tailnet.state read per daemon connection; cancelled by the next or ends with the stream
         follow = Task { [weak self, model] in
             do {

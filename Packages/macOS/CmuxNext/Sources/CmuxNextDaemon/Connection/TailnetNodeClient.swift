@@ -1,15 +1,14 @@
 public import Foundation
 
-/// `tailnet.*` (capability `tailnet-v1`): this install's own device on the person's tailnet, an
-/// embedded Tailscale node the daemon owns. Only the verified app's own control connection may
-/// call them; a daemon built without the node answers `operation.failed` reason `not_built` and
-/// does not advertise the capability, so the app asks only a daemon that has it.
+/// `tailnet.*`: this install's own device on the person's tailnet, an embedded Tailscale node the
+/// daemon owns (a daemon half that is not on this branch yet). Only the verified app's own control
+/// connection may call them. A daemon without the node refuses them (an unknown operation, or
+/// `operation.failed` reason `not_built`); the caller shows that as unavailable.
 ///
 /// The state's shape is decoded by the caller (`S`): `{state, browse_to_url?, dns_name?,
 /// owner?: {login_name, display_name}, ips?, error?}`. `browse_to_url` is a credential until it is
 /// used (whoever opens it first owns the device): never log it.
 public struct TailnetNodeClient: Sendable {
-    public static let capability = "tailnet-v1"
     public let connection: DaemonConnection
 
     public init(_ connection: DaemonConnection) {
