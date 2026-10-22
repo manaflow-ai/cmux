@@ -300,8 +300,9 @@ extension SidebarListViewComponents {
         let widthChanged = newSize.width != frame.width
         super.setFrameSize(newSize)
         guard widthChanged else { return }
-        for row in displayed.rows {
-            guard let view = rowViews[row.key] else { continue }
+        // Only the realized rows have views: visit those, never every row (a live resize runs this each frame).
+        for (key, view) in rowViews {
+            guard let row = displayed.row(for: key) else { continue }
             let target = frame(for: row)
             view.targetSize = target.size
             view.frame = target

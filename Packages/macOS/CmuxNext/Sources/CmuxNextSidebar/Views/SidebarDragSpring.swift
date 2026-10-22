@@ -26,6 +26,40 @@ import QuartzCore
         addDelta(to: layer, position: position, size: size)
     }
 
+    /// Springs each view to its frame (its superview's coordinates) on the render server, all from one
+    /// begin time, so the views of one change move in lockstep: a model change's rows, their group lines
+    /// and the chat history blocks (`RowMotion`, perf step 4: an insert at the top moved every row below
+    /// with AppKit's spring, which writes each row's frame on the main thread every display frame).
+    /// The model frames change at once through the animator in a zero-length group, which also stops a
+    /// move AppKit still runs on a view (a plain set does not, and AppKit would write over it). Nothing
+    /// is left to run on the main thread per frame; the springs end on their own (`settlingTime`).
+    static func move<View: NSView>(_ moves: [(View, NSRect)], in host: NSView) {
+        let moving = moves.filter { $0.0.frame != $0.1 }
+        guard !moving.isEmpty else { return }
+        // Out of a window nothing draws a spring (and none would end): the frames land at once.
+        guard Motion.sidebar.animatesMovement, host.window != nil, Motion.canAnimate(in: host) else {
+            Motion.withoutAnimation { for (view, frame) in moving { view.animator().frame = frame } }
+            return
+        }
+        let starts = moving.map { view, _ in view.layer.map(start(of:)) }
+        Motion.withoutAnimation { for (view, frame) in moving { view.animator().frame = frame } }
+        let now = CACurrentMediaTime()
+        for ((view, _), start) in zip(moving, starts) {
+            guard let layer = view.layer, let start else { continue }
+            addDelta(to: layer, position: start.0, size: start.1, now: now)
+        }
+    }
+
+    /// Takes the springs `move` added off these views: each shows its model frame now (the display went to
+    /// sleep mid-move, so the move settles at once, `RowMotion.animate`).
+    static func stop<View: NSView>(_ views: [View]) {
+        for layer in views.compactMap(\.layer) {
+            for key in layer.animationKeys() ?? [] where key.hasPrefix("drag.position.") || key.hasPrefix("drag.size.") {
+                layer.removeAnimation(forKey: key)
+            }
+        }
+    }
+
     /// Springs a plain layer (a section card, a line) to `frame`.
     static func move(_ layer: CALayer, to frame: CGRect) {
         guard layer.frame != frame else { return }
@@ -55,12 +89,13 @@ import QuartzCore
         return (shown.position, shown.bounds.size)
     }
 
-    private static func addDelta(to layer: CALayer, position: CGPoint, size: CGSize) {
+    /// `now`: the media time the spring starts at (one for a batch, `move(_:in:)`).
+    private static func addDelta(to layer: CALayer, position: CGPoint, size: CGSize, now: CFTimeInterval = CACurrentMediaTime()) {
         serial &+= 1
         // The spring starts now, when it is added, not at the start of this run-loop turn: after a long main-thread
         // update in the same turn (a drag's first move builds its hit geometry, ~30 ms at 1,000 rows) the first frame
         // showed the spring 30 ms on, a 12-17 pt step (hitch3/dphb0 scenario 4, cx-8quut).
-        let begin = layer.convertTime(CACurrentMediaTime(), from: nil)
+        let begin = layer.convertTime(now, from: nil)
         let dp = CGPoint(x: position.x - layer.position.x, y: position.y - layer.position.y)
         let ds = CGSize(width: size.width - layer.bounds.width, height: size.height - layer.bounds.height)
         if dp != .zero {
