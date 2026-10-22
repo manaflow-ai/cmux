@@ -1,9 +1,16 @@
 // The chat's Summary popover (Outputs, Subagents, Sources, Background tasks; summary/SummaryCard.tsx)
 // is the liquid glass, as the chat's other menus and popovers are, never the solid popup card (Leo
-// 2026-10-21: "i dont like the non glassness here :("). In a light and a dark theme, on an opaque
-// window and over art under Plain and Lens glass, the popover's fill is translucent under a backdrop
-// blur, and its title keeps 4.5:1 over a bright and a dark backdrop. Reduce Transparency is the one
-// case it is solid. The inline column (a wide pane) is not an overlay and keeps the page background.
+// 2026-10-21: "i dont like the non glassness here :("). In a light and a dark theme (applied as the
+// host does), on an opaque window and over art under Plain and Lens glass:
+// - the popover is the chat menus' glass: the same fill and blur as a `.ui-popup.ui-glass` menu, a
+//   translucent fill (never opaque) under a backdrop blur;
+// - its muted ink (counts, a section title, a row's meta, the close button) keeps 3:1 over the theme's
+//   own page (white under a light theme, black under a dark one);
+// - under Plain glass its title keeps 3:1 even over the other extreme (a dark theme's light ink over
+//   white). Under Lens the lens (ui/glass/lens.ts) draws its frost behind the glass, which this
+//   harness does not, so there the check is the menus' glass and the theme's page.
+// Reduce Transparency, from the host's attribute or the system setting, is the one case it is solid.
+// The inline column (a wide pane) is not an overlay and keeps the page background.
 //
 // Before: `.acpmux-summary-card[data-placement=popover]` painted `--surface-popup` (alpha 1) with no
 // blur.
@@ -72,57 +79,129 @@ await requireBrowserLane("summary-glass.test.ts", async () => {
     await vite?.close();
   });
 
-  async function open(colorScheme: "light" | "dark", attributes: Record<string, string>): Promise<Page> {
+  // The harness's base layer (shared/styles.css) is a dark page until a theme arrives, so each run
+  // applies a theme the way the host does (applyAgentTheme).
+  const themes = {
+    light: { isDark: false, pageBackground: "transparent", text: "rgb(20, 20, 20)" },
+    dark: { isDark: true, pageBackground: "transparent", text: "rgb(236, 236, 236)" },
+  };
+
+  async function open(
+    colorScheme: "light" | "dark",
+    attributes: Record<string, string>,
+    reduceTransparency = false,
+  ): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 420, height: 420 }, deviceScaleFactor: 2, colorScheme });
+    if (reduceTransparency) {
+      // The system setting (prefers-reduced-transparency), which Playwright's emulateMedia lacks.
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send("Emulation.setEmulatedMedia", {
+        features: [
+          { name: "prefers-reduced-transparency", value: "reduce" },
+          { name: "prefers-color-scheme", value: colorScheme },
+        ],
+      });
+    }
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/test/browser/summary-glass.html`);
     await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
-    await page.evaluate((attributes) => {
-      for (const [name, value] of Object.entries(attributes)) document.documentElement.setAttribute(name, value);
-    }, attributes);
+    await page.evaluate(
+      async ([attributes, theme]) => {
+        const themeModule = "/src/agent-session/shared/theme.ts";
+        const { applyAgentTheme } = await import(/* @vite-ignore */ themeModule);
+        applyAgentTheme(theme);
+        for (const [name, value] of Object.entries(attributes)) document.documentElement.setAttribute(name, value);
+      },
+      [attributes, themes[colorScheme]] as const,
+    );
     return page;
   }
 
+  const muted = ["counts", "section-title", "row-meta", "close"] as const;
   async function popover(page: Page) {
-    const raw = await page.evaluate(() => {
-      const style = getComputedStyle(document.getElementById("popover")!);
+    const raw = await page.evaluate((muted) => {
+      const style = (id: string) => getComputedStyle(document.getElementById(id)!);
       return {
-        fill: style.backgroundColor,
-        backdrop: style.backdropFilter,
-        ink: getComputedStyle(document.getElementById("title")!).color,
+        reduceMedia: matchMedia("(prefers-reduced-transparency: reduce)").matches,
+        fill: style("popover").backgroundColor,
+        backdrop: style("popover").backdropFilter,
+        menuFill: style("menu").backgroundColor,
+        menuBackdrop: style("menu").backdropFilter,
+        title: style("title").color,
+        text: style("row-text").color,
+        muted: muted.map((id) => style(id).color),
       };
-    });
-    return { fill: parse(raw.fill), backdrop: raw.backdrop, ink: parse(raw.ink) };
+    }, muted);
+    return {
+      ...raw,
+      fill: parse(raw.fill),
+      menuFill: parse(raw.menuFill),
+      title: parse(raw.title),
+      text: parse(raw.text),
+      muted: raw.muted.map(parse),
+    };
   }
 
-  const windows: { name: string; attributes: Record<string, string> }[] = [
+  const windows: { name: string; attributes: Record<string, string>; lens?: boolean }[] = [
     { name: "an opaque window", attributes: {} },
     { name: "art under Plain glass", attributes: { "data-cmux-see-through": "", "data-glass": "plain" } },
-    { name: "art under Lens glass", attributes: { "data-cmux-see-through": "", "data-glass": "lens" } },
+    {
+      name: "art under Lens glass",
+      // data-glass-lens: the lens is drawing (glassState.ts), which is what gives the glass its Lens tint.
+      attributes: { "data-cmux-see-through": "", "data-glass": "lens", "data-glass-lens": "" },
+      lens: true,
+    },
   ];
+  // The theme's own page and the other extreme the blur can average to.
+  const ownPage: Record<"light" | "dark", Rgb> = { light: [1, 1, 1], dark: [0, 0, 0] };
+  const otherExtreme: Record<"light" | "dark", Rgb> = { light: [0, 0, 0], dark: [1, 1, 1] };
   for (const colorScheme of ["light", "dark"] as const)
     for (const window of windows)
-      test(`${colorScheme}, ${window.name}: the Summary popover is translucent glass`, async () => {
+      test(`${colorScheme}, ${window.name}: the Summary popover is the menus' translucent glass`, async () => {
         const page = await open(colorScheme, window.attributes);
-        const { fill, backdrop, ink } = await popover(page);
+        const look = await popover(page);
+        const { fill, backdrop, title } = look;
+        // The theme took: a light theme's ink is dark, a dark theme's light.
+        expect(luminance([title[0], title[1], title[2]]) < 0.2, "the title's ink follows the theme").toBe(
+          colorScheme === "light",
+        );
         expect(fill[3], "fill alpha (glass is never opaque)").toBeLessThan(0.9);
         expect(fill[3], "fill alpha (still a surface)").toBeGreaterThan(0.2);
         expect(backdrop, "the popover blurs what is under it").toContain("blur(");
-        // The title over the popover laid on the theme's own extreme (the blur can average to it):
-        // a dark theme's light ink over white is the case a clear film fails.
-        const under: Rgb = colorScheme === "dark" ? [1, 1, 1] : [0, 0, 0];
-        const surface = over(fill, under);
-        expect(contrast(over(ink, surface), surface), "title contrast").toBeGreaterThanOrEqual(3);
+        expect(look.fill, "the popover's fill is a chat menu's").toEqual(look.menuFill);
+        expect(backdrop, "the popover blurs as a chat menu does").toBe(look.menuBackdrop);
+        const own = over(fill, ownPage[colorScheme]);
+        for (const [index, ink] of look.muted.entries())
+          expect(
+            contrast(over(ink, own), own),
+            `${muted[index]} contrast over the theme's page`,
+          ).toBeGreaterThanOrEqual(3);
+        expect(contrast(over(look.text, own), own), "row text contrast over the theme's page").toBeGreaterThanOrEqual(
+          4.5,
+        );
+        if (!window.lens) {
+          const other = over(fill, otherExtreme[colorScheme]);
+          expect(contrast(over(title, other), other), "title contrast over the other extreme").toBeGreaterThanOrEqual(
+            3,
+          );
+        }
         await page.close();
       });
 
-  test("Reduce Transparency is the one case the popover is solid", async () => {
-    for (const colorScheme of ["light", "dark"] as const) {
-      const page = await open(colorScheme, { "data-reduce-transparency": "" });
-      const { fill, backdrop } = await popover(page);
-      expect(fill[3], `${colorScheme} fill under Reduce Transparency`).toBe(1);
-      expect(backdrop, `${colorScheme} blur under Reduce Transparency`).toBe("none");
-      await page.close();
-    }
-  });
+  for (const via of ["data-reduce-transparency", "prefers-reduced-transparency"] as const)
+    test(`Reduce Transparency (${via}) is the one case the popover is solid`, async () => {
+      for (const colorScheme of ["light", "dark"] as const) {
+        const media = via === "prefers-reduced-transparency";
+        const page = await open(
+          colorScheme,
+          { "data-cmux-see-through": "", "data-glass": "plain", ...(media ? {} : { "data-reduce-transparency": "" }) },
+          media,
+        );
+        const { reduceMedia, fill, backdrop } = await popover(page);
+        expect(reduceMedia, `${colorScheme}: the system setting is emulated`).toBe(media);
+        expect(fill[3], `${colorScheme} fill under Reduce Transparency`).toBe(1);
+        expect(backdrop, `${colorScheme} blur under Reduce Transparency`).toBe("none");
+        await page.close();
+      }
+    });
 });
