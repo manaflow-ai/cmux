@@ -148,9 +148,9 @@ cmux browser "$TAB" screenshot --full-page --out full.png
 Without `--out` the PNG goes to a new file in the temporary directory and the
 command prints its path; `--out -` writes the PNG to stdout.
 A tab whose workspace is not on screen is captured too: its page is started
-in the background, never focused. To see the page with its toolbar as the
-window shows it, use `cmux tab screenshot --target tab_… --out tab.png`
-([cmux skill](../cmux/SKILL.md)).
+in the background, never focused. `cmux window|pane|tab screenshot` paint a
+browser page black for an agent ([cmux skill](../cmux/SKILL.md)): only the
+REPL's `page.screenshot()` hides the secrets a page shows.
 
 ## What the per-tab CLI does not cover
 
