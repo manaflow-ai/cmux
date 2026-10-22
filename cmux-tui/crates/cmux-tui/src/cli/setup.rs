@@ -4,7 +4,7 @@
 //! `list` names every setup task and the command that checks and does it,
 //! whether `setup` itself runs it yet or an older command does. A task that
 //! `setup` runs (`trust`, `machine`, `harness`, `mcp`, `computer-use`,
-//! `cloud-machine`, `notifications` and `browser-import` today) checks
+//! `cloud-machine`, `notifications`, `browser-import` and `tailnet` today) checks
 //! before it changes anything, changes nothing when the state is already
 //! right, prints what it would do with `--dry-run`, and names the command
 //! that undoes it.
@@ -24,9 +24,10 @@ mod harness;
 mod machine;
 mod mcp;
 mod notifications;
+mod tailnet;
 mod trust;
 
-const HELP: &str = "Usage: cmux setup <list|status|trust|machine|harness|mcp|computer-use|cloud-machine|notifications|browser-import>\n\nSet up cmux for the person, from an agent. Every command prints one JSON object.\n\n  cmux setup list                 Every setup task and the commands that check and do it\n  cmux setup status               Read-only checks of the tasks setup runs\n  cmux setup trust [FOLDER] [--level trusted|untrusted|unknown] [--dry-run]\n                                  Record the person's trust for a folder (default: this folder, trusted)\n  cmux setup machine SSH_TARGET [--name NAME] [--dry-run]\n                                  Add an ssh machine as an agent peer, or update or repair it (key-only ssh)\n  cmux setup harness [ID ...] [--dry-run]\n                                  Check that each harness is installed, signed in and current (default: every configured or found one)\n  cmux setup mcp [claude|codex ...] [--dry-run]\n                                  Give Claude Code and Codex outside cmux the cmux MCP server (default: each installed one)\n  cmux setup computer-use [--dry-run]\n                                  Turn on cmux Computer Use (the person allows it in cmux) and name the macOS grants it still needs\n  cmux setup cloud-machine [--dry-run] [--forget]\n                                  Have a cmux Cloud machine; create one if there is none (the person allows it in cmux; it costs money while it runs). --forget drops setup's record of the machine it asked for\n  cmux setup notifications [--dry-run]\n                                  Let cmux show macOS notifications (the person allows them on the macOS prompt)\n  cmux setup browser-import [--browser BROWSER[:PROFILE]] [--cookies [--domain D] [--reason TEXT]] [--dry-run]\n                                  Import another browser's bookmarks, or with --cookies its sign-ins (the person allows it in cmux)\n\nA task result is {schema_version, task, state, dry_run, ..., undo, user_action}. state is ok (nothing to do), changed, planned (--dry-run), needs_user (user_action says what the person must do), failed, or not_applicable (nothing to set up on this machine). undo is the command that puts the old state back, or null. Exits 0 unless the task failed (1) or the arguments are wrong (2).\n";
+const HELP: &str = "Usage: cmux setup <list|status|trust|machine|harness|mcp|computer-use|cloud-machine|notifications|browser-import|tailnet>\n\nSet up cmux for the person, from an agent. Every command prints one JSON object.\n\n  cmux setup list                 Every setup task and the commands that check and do it\n  cmux setup status               Read-only checks of the tasks setup runs\n  cmux setup trust [FOLDER] [--level trusted|untrusted|unknown] [--dry-run]\n                                  Record the person's trust for a folder (default: this folder, trusted)\n  cmux setup machine SSH_TARGET [--name NAME] [--dry-run]\n                                  Add an ssh machine as an agent peer, or update or repair it (key-only ssh)\n  cmux setup harness [ID ...] [--dry-run]\n                                  Check that each harness is installed, signed in and current (default: every configured or found one)\n  cmux setup mcp [claude|codex ...] [--dry-run]\n                                  Give Claude Code and Codex outside cmux the cmux MCP server (default: each installed one)\n  cmux setup computer-use [--dry-run]\n                                  Turn on cmux Computer Use (the person allows it in cmux) and name the macOS grants it still needs\n  cmux setup cloud-machine [--dry-run] [--forget]\n                                  Have a cmux Cloud machine; create one if there is none (the person allows it in cmux; it costs money while it runs). --forget drops setup's record of the machine it asked for\n  cmux setup notifications [--dry-run]\n                                  Let cmux show macOS notifications (the person allows them on the macOS prompt)\n  cmux setup browser-import [--browser BROWSER[:PROFILE]] [--cookies [--domain D] [--reason TEXT]] [--dry-run]\n                                  Import another browser's bookmarks, or with --cookies its sign-ins (the person allows it in cmux)\n  cmux setup tailnet [--owner LOGIN] [--dry-run]\n                                  Serve this machine to the person's other machines over Tailscale (cmux host enable); names the Tailscale step the person still needs\n\nA task result is {schema_version, task, state, dry_run, ..., undo, user_action}. state is ok (nothing to do), changed, planned (--dry-run), needs_user (user_action says what the person must do), failed, or not_applicable (nothing to set up on this machine). undo is the command that puts the old state back, or null. Exits 0 unless the task failed (1) or the arguments are wrong (2).\n";
 
 /// The result of a setup task: the JSON the agent reads, and whether it failed.
 pub(super) struct Outcome {
@@ -71,6 +72,7 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         Some("cloud-machine" | "cloud_machine") => cloud_machine::run(global, &args[1..]),
         Some("notifications") => notifications::run(global, &args[1..]),
         Some("browser-import" | "browser_import") => browser_import::run(global, &args[1..]),
+        Some("tailnet") => tailnet::run(&args[1..]),
         Some(other) => Err(Refusal::Usage(format!(
             "cmux: setup: unknown task {other:?}; `cmux setup list` names every task"
         ))),
@@ -168,10 +170,26 @@ const TASKS: &[Task] = &[
     Task {
         id: "tailnet",
         summary: "Serve this machine to the person's other machines over Tailscale",
+        setup: Some("cmux setup tailnet [--owner LOGIN] [--dry-run]"),
+        check: &[
+            "cmux setup tailnet --dry-run",
+            "cmux host status --json",
+            "cmux host list --json",
+        ],
+        apply: &["cmux setup tailnet", "cmux host enable --json"],
+        person: Some(
+            "installing Tailscale, signing in to it (`tailscale up`, a browser sign-in), and an admin approving the device when the tailnet requires it",
+        ),
+    },
+    Task {
+        id: "phone",
+        summary: "Use cmux from an iPhone: pair the cmux iOS app with this Mac",
         setup: None,
-        check: &["cmux host status --json"],
-        apply: &["cmux host enable --json"],
-        person: Some("signing in to Tailscale (`tailscale up`) when it is not signed in"),
+        check: &["cmux settings get phone.allowConnections", "cmux accounts list --json"],
+        apply: &["cmux settings set phone.allowConnections true", "cmux cloud open-mobile-pairing"],
+        person: Some(
+            "installing the cmux iPhone app (TestFlight invite while it is in beta) and signing in there with the same cmux account, or scanning the QR code on the Mobile Pairing page",
+        ),
     },
     Task {
         id: "mcp",
@@ -268,6 +286,7 @@ fn status(global: &GlobalArgs) -> Result<Outcome, Refusal> {
         cloud_machine::status(global),
         notifications::status(global),
         browser_import::status(global),
+        tailnet::status(),
     ];
     Ok(Outcome { report: json!({"schema_version": 1, "checks": checks}), failed: false })
 }
