@@ -267,17 +267,26 @@ input:is(
 /* A disabled control never shows the hand, whatever a surface's rule for it says, and neither does
    the label around it that labels it (no `for`, a disabled field inside and no enabled one: Cloud's
    locked memory sizes). A disabled <option> in an enabled <select> leaves its label alone. CSS
-   cannot follow `for` to its control, so a `for` label keeps the hand. A surface that shows
-   another cursor there (`not-allowed`) says so with !important on a :disabled rule. */
+   cannot follow `for` to its control, so a `for` label keeps the hand. What is inside a disabled
+   thing or a locked label but still works keeps the hand: an enabled control or link (a link in
+   a disabled fieldset still opens) and a disabled fieldset's first legend, which HTML leaves
+   enabled. A surface that shows another cursor there (`not-allowed`) says so with !important on
+   a :disabled rule. */
 :is(:disabled, [aria-disabled="true"]),
-:is(:disabled, [aria-disabled="true"]) *,
+:is(:disabled, [aria-disabled="true"])
+  :not(
+    :is(:disabled, [aria-disabled="true"]) :is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]):not(:is(:disabled, [aria-disabled="true"])),
+    :is(:disabled, [aria-disabled="true"]) :is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]):not(:is(:disabled, [aria-disabled="true"])) *,
+    fieldset:disabled > legend:first-of-type,
+    fieldset:disabled > legend:first-of-type *
+  ),
 label:not([for]):has(:is(input, select, textarea):disabled):not(
     :has(:is(input:not([type="hidden"]), select, textarea):enabled)
   ),
 label:not([for]):has(:is(input, select, textarea):disabled):not(
     :has(:is(input:not([type="hidden"]), select, textarea):enabled)
   )
-  * {
+  :not(:is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]):not(:is(:disabled, [aria-disabled="true"])), :is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]):not(:is(:disabled, [aria-disabled="true"])) *) {
   cursor: default !important;
 }
 
