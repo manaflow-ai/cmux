@@ -232,26 +232,40 @@ impl CodexCli {
     }
 }
 
-/// The bridge's codex as its launch builds it (`hub::spawn`): the profile's
-/// env, then the family's and the profile's `defaults`, references resolved,
-/// then `${home}`, `${cwd}`, `${model}` and a leading `~/` expanded in the
-/// env and the argv.
+/// The bridge's codex as its launch builds it: the profile's env, then the
+/// family's and the profile's `defaults`; then `${home}`, `${cwd}`,
+/// `${model}` and a leading `~/` expanded in the env and the argv
+/// (`hub::spawn`); then the env's references resolved (`agent::command`),
+/// in that order, so `${file:${home}/key}` reads the expanded path.
 fn codex_cli(cfg: &Config, id: &str, profile: &HarnessProfile) -> Result<CodexCli> {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let home = dirs::home_dir().unwrap_or_default();
+    codex_cli_at(cfg, id, profile, &cwd, &home)
+}
+
+/// `codex_cli` with this `cwd` and `home`.
+fn codex_cli_at(
+    cfg: &Config,
+    id: &str,
+    profile: &HarnessProfile,
+    cwd: &std::path::Path,
+    home: &std::path::Path,
+) -> Result<CodexCli> {
     let defaults = cfg.defaults_for(id);
+    let model = defaults.model.unwrap_or_default();
     let mut layered = profile.clone();
     for (k, v) in defaults.env {
         layered.env.entry(k).or_insert(v);
     }
-    let mut layered = resolved(&layered)?;
-    let cwd = std::env::current_dir().unwrap_or_default();
-    let home = dirs::home_dir().unwrap_or_default();
-    let model = defaults.model.unwrap_or_default();
     for v in layered.env.values_mut() {
-        *v = crate::hub::expand_env_value(v, &cwd, &home, &model);
+        *v = crate::hub::expand_env_value(v, cwd, home, &model);
     }
-    let argv: Vec<String> =
-        layered.argv.iter().map(|a| crate::hub::expand_env_value(a, &cwd, &home, &model)).collect();
-    let (command, args) = argv.split_first().ok_or_else(|| anyhow!("{id} has an empty argv"))?;
+    for a in layered.argv.iter_mut() {
+        *a = crate::hub::expand_env_value(a, cwd, home, &model);
+    }
+    let layered = resolved(&layered)?;
+    let (command, args) =
+        layered.argv.split_first().ok_or_else(|| anyhow!("{id} has an empty argv"))?;
     let program = layered
         .env
         .get("CODEX_PATH")
@@ -672,6 +686,28 @@ mod tests {
         assert_eq!(argv, &vec![format!("{home}/bin/codex"), "login".to_owned()]);
         assert_eq!(env.get("CODEX_HOME"), Some(&format!("{home}/.codex-work")));
         assert_eq!(env.get("CODEX_PATH"), Some(&format!("{home}/bin/codex")));
+    }
+
+    /// A `${file:…}` reference reads the path after `${home}` is expanded,
+    /// as the launch does (`hub::spawn` expands, `agent::command` resolves).
+    #[cfg(unix)]
+    #[test]
+    fn codex_bridge_expands_paths_before_reading_references() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = std::env::temp_dir().join(format!("acpmux-login-refs-{}", std::process::id()));
+        std::fs::create_dir_all(home.join(".secrets")).unwrap();
+        let key = home.join(".secrets/openai");
+        std::fs::write(&key, "sk-test\n").unwrap();
+        std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let cfg = config(acp(
+            &["codex", "app-server"],
+            &[("OPENAI_API_KEY", "${file:${home}/.secrets/openai}")],
+        ));
+        let codex =
+            codex_cli_at(&cfg, "codex", &cfg.harnesses["codex"], std::path::Path::new("/"), &home)
+                .unwrap();
+        assert_eq!(codex.env.get("OPENAI_API_KEY").map(String::as_str), Some("sk-test"));
+        std::fs::remove_dir_all(&home).unwrap();
     }
 
     #[test]
