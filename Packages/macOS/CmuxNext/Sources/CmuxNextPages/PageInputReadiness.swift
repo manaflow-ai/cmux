@@ -37,6 +37,9 @@ public final class PageInputReadiness {
         configuration.userContentController.addUserScript(
             WKUserScript(source: Self.script, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         configuration.userContentController.add(Handler(owner: self), contentWorld: .page, name: Self.handlerName)
+        // Every page configuration (the page host's and the agent pane's own) makes one of these,
+        // so the DEBUG styled-frame probe rides along for every engine; a no-op otherwise.
+        PageStyledFrameProbe.install(in: configuration.userContentController)
     }
 
     /// The web view the configuration made (``insert(_:)`` types into it).

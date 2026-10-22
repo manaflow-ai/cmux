@@ -18,7 +18,8 @@ import WebKit
 /// seeds a turn that edits three files instead, for the changes view, and `"short"` one-line
 /// turns answered "ok N", for the thread minimap's density, and `"incoming"` received agent
 /// messages, for the received-message card), `fling` (`seconds`,
-/// default 3; `nominal_ms`; `wait` returns the stats when the fling ends),
+/// default 3; `nominal_ms`; `wait` returns the stats when the fling ends, with the app main
+/// thread's `main_*` per-frame busy time over the scroll, DebugAgentPane+MainThread.swift),
 /// `fling_stats`, `perf_stats` (`raw` adds every frame), `load_seed` (`turns`, default 5000:
 /// a mock session of heavy turns opened through the real client; needs `--showcase`'s mock
 /// daemon), `load_run` (`seconds`, `chunk_chars`, `chunk_ms`, `tool_every`, `scroll_speed`,
@@ -34,7 +35,9 @@ import WebKit
 /// `select_session` (`session`), `pick_folder` (`cwd`: the folder chip's pick), `answer_permission` (`option`, `allow`,
 /// `decision`), `open_changes` (the latest turn's changes view),
 /// `models` (the harness's models), `set_model` (`model`, `effort`), `layout_watch` (`ms`, `tolerance`; layoutWatch.ts),
-/// `readiness` (page body, transcript and composer metrics), `engine` (`cef` or `webkit:<reason>`), `focus_composer`, `click` (`selector`
+/// `readiness` (page body, transcript and composer metrics; `first_contentful_paint_ms` and
+/// `first_styled_frame_ms`, PageStyledFrameProbe, in page ms since navigation start, as is
+/// `page_now_ms`), `engine` (`cef` or `webkit:<reason>`), `focus_composer`, `click` (`selector`
 /// or `text`: a native click on that element, DebugAgentPaneClick), `pid` (the WebContent process, for profiling), or
 /// `full_rate` (`enabled` turns full-rate rendering on or off on the live
 /// page; returns whether it is on), or `inspector` (`open` sets its visibility;
@@ -196,6 +199,9 @@ enum DebugAgentPane {
         guard let function = functions[action] else {
             return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, answer_permission, open_changes, set_model, models, stream, layout_watch, readiness, engine, focus_composer, click, pid, full_rate, gesture_state or inspector")])
         }
+        // A waited fling also times the app main thread per frame (DebugAgentPane+MainThread.swift).
+        let sampler = mainThreadSampler(action, params, view: view)
+        defer { sampler?.stop() }
         do {
             let result = try await view.callPageScript(script, arguments: ["fn": function, "args": arguments(action, params)])
             guard let text = result as? String,
@@ -205,6 +211,7 @@ enum DebugAgentPane {
             }
             guard case .object(var members) = value else { return .object(["pane": .string(pane), "result": value]) }
             members["pane"] = .string(pane)
+            if let sampler { members.merge(mainThreadFields(sampler, reply: members)) { _, main in main } }
             return .object(members)
         } catch {
             return .object(["pane": .string(pane), "error": .string(String(describing: error))])
@@ -228,7 +235,13 @@ enum DebugAgentPane {
           ]);
         }
         const animationsPending = menuAnimations.some((animation) => animation.playState === 'running');
+        const contentful = performance.getEntriesByName('first-contentful-paint')[0];
+        const styledFrame = window.__cmuxStyledFrame; // PageStyledFrameProbe (automation launches)
+        const pageMs = (ms) => typeof ms === 'number' ? Math.round(ms * 10) / 10 : null;
         return JSON.stringify({
+          first_contentful_paint_ms: pageMs(contentful?.startTime),
+          first_styled_frame_ms: pageMs(styledFrame),
+          page_now_ms: pageMs(performance.now()),
           body_text_length: bodyText.length,
           transcript_rows: transcriptRows,
           composer_visible: !!composer && !!composerRect && composerRect.width > 0 && composerRect.height > 0,

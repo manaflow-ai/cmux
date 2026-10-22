@@ -121,6 +121,10 @@ export function createAcpmuxDebug(
       viewport_px: geometry.viewport,
       // The scroll per frame, in viewports: past what the transcript mounts ahead, frames blank.
       viewports_per_frame: geometry.viewport > 0 ? round2(perFrame / geometry.viewport) : 0,
+      // How long before this reply the scroll's first and last frame ticked, in ms: the host times
+      // its own main thread over the same frames (DebugAgentPane+MainThread.swift). Ages, not
+      // clock times, so no clock is shared across processes.
+      scroll_ms_ago: [timestamps[0], timestamps[timestamps.length - 1]].map((at) => round2(performance.now() - at)),
     };
   };
 
