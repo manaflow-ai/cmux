@@ -82,7 +82,7 @@ pub(super) enum Action {
         path: Option<PathBuf>,
     },
     /// `action ID [KEY=VALUE ...] [--args JSON]`: runs a user action.
-    RunAction {
+    UserAction {
         action: String,
         args: Value,
     },
@@ -135,7 +135,7 @@ pub(super) fn parse(args: &[String]) -> Result<Action, String> {
         }
         [verb, id, rest @ ..] if verb == "action" && !id.starts_with('-') => {
             let action = if id.starts_with("user.") { id.clone() } else { format!("user.{id}") };
-            Ok(Action::RunAction { action, args: parse_pairs(rest)? })
+            Ok(Action::UserAction { action, args: parse_pairs(rest)? })
         }
         _ => Err(usage()),
     }
@@ -182,7 +182,7 @@ pub(super) fn config_request(action: &Action) -> Option<Value> {
             }
             request
         }
-        Action::RunAction { action, args } => json!({
+        Action::UserAction { action, args } => json!({
             "id": id,
             "cmd": "script-action-run",
             "action": action,
@@ -206,7 +206,7 @@ pub(super) fn config_report(
         return (None, Some(error_text(answer)), 1);
     }
     let data = &answer["data"];
-    if let Action::RunAction { .. } = action {
+    if let Action::UserAction { .. } = action {
         return (render(&data["value"], output), None, 0);
     }
     let diagnostics: Vec<String> = data["diagnostics"]
@@ -786,7 +786,7 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         Action::ConfigStatus
         | Action::ConfigReload
         | Action::ConfigCheck { .. }
-        | Action::RunAction { .. } => return 2,
+        | Action::UserAction { .. } => return 2,
         Action::Help => {
             println!("{}", messages().usage);
             return 0;
