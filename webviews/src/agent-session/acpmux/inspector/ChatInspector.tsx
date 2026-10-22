@@ -30,6 +30,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { focusAfterEscape } from "../../../ui/escapeFocus";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
 import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
@@ -155,6 +156,7 @@ export function useChatInspector({
   const [revealed, setRevealed] = useState<{ section: InspectorSectionId; at: number }>();
   const clearRevealed = useCallback(() => setRevealed(undefined), []);
   const openedOutputAt = useRef(0);
+  const toggleButton = useRef<HTMLButtonElement>(null);
   const label = t("chatInspector.title");
   useEffect(() => {
     if (!on) return;
@@ -170,6 +172,12 @@ export function useChatInspector({
       setSuppressed(false);
       setInspectorOpen(true);
     }
+  };
+  // The panel's x, or Esc inside it: closed and remembered, as the toggle closes it. After Esc the
+  // focus goes back to the toggle, so the keyboard is not left on nothing.
+  const close = (how: InspectorCloseHow) => {
+    setInspectorOpen(false);
+    if (how === "escape") focusAfterEscape(toggleButton.current);
   };
   const reveal = (section: InspectorSectionId) => {
     setSuppressed(false);
@@ -188,6 +196,7 @@ export function useChatInspector({
     reveal,
     button: (
       <button
+        ref={toggleButton}
         type="button"
         className="acpmux-header-tool acpmux-chat-inspector-toggle"
         aria-label={label}
@@ -208,6 +217,7 @@ export function useChatInspector({
         shell={shell}
         openedOutputAt={openedOutputAt}
         onSuppress={suppress}
+        onClose={close}
         registry={registry}
         subagents={subagents}
         sessions={sessions}
@@ -235,6 +245,7 @@ function InspectorPresence({
   shell,
   openedOutputAt,
   onSuppress,
+  onClose,
   registry,
   subagents,
   sessions,
@@ -256,6 +267,7 @@ function InspectorPresence({
   openedOutputAt: { readonly current: number };
   /// That diff's split left no room to push the chat: the Inspector steps aside.
   onSuppress: () => void;
+  onClose: (how: InspectorCloseHow) => void;
   registry?: ProcessRegistry;
   subagents?: {
     views: Record<string, AcpmuxRow[]> | undefined;
@@ -308,6 +320,7 @@ function InspectorPresence({
       // pane's tab row, the row's height), so the header's tools, its own toggle among them, stay in reach.
       under={tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 44px)"}
       presence={presence}
+      onClose={onClose}
     >
       {/* Another chat's sections start drawn with what that chat has: none of its rows drops in. */}
       <ChatInspector
@@ -342,26 +355,52 @@ function InspectorPresence({
   );
 }
 
+/// How the panel was closed: its x, or Esc with the focus inside it.
+export type InspectorCloseHow = "button" | "escape";
+
 /// The panel's frame: its width, its place beside or over the chat, and the drag handle on its
 /// left edge (a double-click puts the width back). With `presence`, it enters from and leaves toward
 /// the pane's right edge. Over the chat it starts `under` (a CSS length: the chat header's height)
-/// below the pane's top, at the top by default.
+/// below the pane's top, at the top by default. With `onClose`, an x at its top-right closes it, and
+/// so does an Esc inside it that nothing in it took.
 export function InspectorPanel({
   width,
   placement,
   under,
   presence,
+  onClose,
   children,
 }: {
   width: number;
   placement: InspectorPlacement;
   under?: string;
   presence?: Presence;
+  onClose?: (how: InspectorCloseHow) => void;
   children: ReactNode;
 }) {
   const t = useT();
   const frame = useRef<HTMLElement | null>(null);
   const drag = useRef<{ right: number } | undefined>(undefined);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  const closes = onClose !== undefined;
+  // Esc reaches the panel from its focused rows and buttons, so it listens natively: the panel is a
+  // region, not a control of its own. An Esc a control in it used (a field, a menu's own) is that
+  // control's. A menu or dialog it opened lies in a portal outside it, so that Esc never reaches
+  // here; with the focus outside the panel, Esc is the composer's (escapeStop.ts).
+  useEffect(() => {
+    const node = frame.current;
+    if (!node || !closes) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (event.isComposing || event.keyCode === 229) return;
+      if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return;
+      event.preventDefault();
+      closeRef.current?.("escape");
+    };
+    node.addEventListener("keydown", onKey);
+    return () => node.removeEventListener("keydown", onKey);
+  }, [closes]);
   return (
     <aside
       {...presence?.props}
@@ -375,6 +414,19 @@ export function InspectorPanel({
       style={under ? ({ width, "--acpmux-inspector-top": under } as CSSProperties) : { width }}
       aria-label={t("chatInspector.title")}
     >
+      {onClose && (
+        <div className="acpmux-chat-inspector__head">
+          <button
+            type="button"
+            className="acpmux-header-tool acpmux-chat-inspector__close"
+            aria-label={t("chatInspector.close")}
+            title={t("chatInspector.close")}
+            onClick={() => onClose("button")}
+          >
+            <Icon name="action.close" size={15} />
+          </button>
+        </div>
+      )}
       <div
         className="acpmux-chat-inspector__resize"
         aria-hidden="true"

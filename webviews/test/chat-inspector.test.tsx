@@ -228,6 +228,49 @@ test("the Inspector opens with a first chat: its environment, context use and ou
   expect(inspectorState().open).toBe(false);
 });
 
+test("the x at the panel's top-right closes it, so does Esc inside it, and the toggle opens it again", async () => {
+  const container = installDom(true);
+  await render(container, localChat);
+  const close = () => panel(container)?.querySelector<HTMLButtonElement>('button[aria-label="Close Inspector"]');
+  const escape = (target: Element, claimed = false) =>
+    act(async () => {
+      // A control that uses Esc for itself (a field, a menu's own) prevents it first.
+      if (claimed) target.addEventListener("keydown", (event) => event.preventDefault(), { once: true });
+      target.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    });
+
+  // The x closes it, remembered as the toggle's close is.
+  expect(close()).not.toBeNull();
+  await click(close()!);
+  expect(panel(container)).toBeNull();
+  expect(inspectorState().open).toBe(false);
+  expect(toggle(container)?.getAttribute("aria-pressed")).toBe("false");
+
+  // The toggle opens it again.
+  await click(toggle(container)!);
+  expect(panel(container)).not.toBeNull();
+  expect(toggle(container)?.getAttribute("aria-pressed")).toBe("true");
+
+  // An Esc outside the panel is not its own (the composer's stop-turn reads it), nor one a control in
+  // it already took.
+  await escape(document.body);
+  await escape(head(section(container, "environment")!), true);
+  expect(panel(container)).not.toBeNull();
+
+  // Esc with the focus inside it closes it.
+  const fold = head(section(container, "environment")!);
+  fold.focus();
+  await escape(fold);
+  expect(panel(container)).toBeNull();
+  expect(inspectorState().open).toBe(false);
+
+  // And the toggle still toggles.
+  await click(toggle(container)!);
+  expect(panel(container)).not.toBeNull();
+  await click(toggle(container)!);
+  expect(panel(container)).toBeNull();
+});
+
 test("open, closed, folds and width hold in every chat pane, following another pane's change", async () => {
   const container = installDom(true);
   await render(container, localChat);

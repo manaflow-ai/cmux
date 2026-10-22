@@ -34,7 +34,7 @@ const made = sessionSummary(local.rows);
 function GalleryInspector({ placement = "overlay", ...props }: Props) {
   return (
     <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%" }}>
-      <InspectorPanel width={320} placement={placement}>
+      <InspectorPanel width={320} placement={placement} onClose={() => undefined}>
         <ChatInspector {...props} />
       </InspectorPanel>
     </div>

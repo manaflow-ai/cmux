@@ -66,6 +66,17 @@
 .acpmux-chat-inspector[data-resizing] .acpmux-chat-inspector__resize::after {
   background: var(--agent-border);
 }
+/* The x at the panel's top-right (InspectorPanel onClose): a header tool like the toggle that opened
+   it, same size and tint. */
+.acpmux-chat-inspector__head {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 8px 0;
+}
+.acpmux-chat-inspector__head + .acpmux-chat-inspector__body {
+  padding-top: 2px;
+}
 .acpmux-chat-inspector__body {
   flex: 1 1 auto;
   min-height: 0;
