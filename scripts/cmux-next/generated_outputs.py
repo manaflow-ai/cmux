@@ -22,10 +22,6 @@ inputs match. Two readers:
       prints those the pull request does not own. A path is owned when the
       pull request changed it, or when it is an output whose inputs the pull
       request changed. pr-autofix-apply.sh leaves the rest out of the push.
-  generated_outputs.py caused PATH --changed FILE
-      Exit 0 when the pull request changed an input of the output PATH, so a
-      stale PATH is its own (cmux-next.yml's generated files job then exports
-      the settings fresh and compares); exit 1 when a stale PATH is the base's.
 """
 from __future__ import annotations
 
@@ -139,16 +135,11 @@ def read_lines(text: str) -> list[str]:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=("drift", "drop", "caused"))
-    parser.add_argument("path", nargs="?", help="caused: the output to ask about")
+    parser.add_argument("command", choices=("drift", "drop"))
     parser.add_argument("--changed", required=True, help="file with the pull request's changed paths, one per line")
     args = parser.parse_args(argv)
     with open(args.changed, encoding="utf-8") as handle:
         changed = read_lines(handle.read())
-    if args.command == "caused":
-        if not args.path:
-            parser.error("caused needs PATH")
-        return 0 if caused(args.path, changed) else 1
     if args.command == "drift":
         messages = drift(changed)
         for message in messages:

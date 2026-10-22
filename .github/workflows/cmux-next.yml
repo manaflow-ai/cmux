@@ -3006,8 +3006,8 @@ jobs:
           retention-days: 14
 
   # Generated files are fresh: the action catalog, surfaces and inventory
-  # (ActionSurfaceParityTests and its siblings) and the settings exports with
-  # their source stamp; the CI target graph and the defaults snapshot are
+  # (ActionSurfaceParityTests and its siblings) and the settings exports,
+  # against a fresh export; the CI target graph and the defaults snapshot are
   # bot-only (#21946) and not checked. Its
   # own job, so a pull request that skips the package tests still cannot land
   # a stale export (feat-cmux-next went red at a925bd9 that way). When a file
@@ -3209,9 +3209,11 @@ jobs:
       # The settings exports (schemas/settings/settings-schema.json, docs/mdm)
       # are compared with a fresh export, never with a committed stamp of their
       # sources (Leo 2026-10-21: "just generate and don't commit"). Only when this
-      # event changed an export input (generated_outputs.py caused) against HEAD^1
-      # (the merge commit's base tip, or a push's parent): exports already stale
-      # on the base are the base autofix's, which regenerates them after the merge.
+      # event changed the settings sources: their stamp, derived at HEAD^1 (the
+      # merge commit's base tip, or a push's parent) and at HEAD, differs. The
+      # fresh export of a merge commit also holds the base's own unexported
+      # changes, so any other event would go red for the base's staleness; that
+      # is the base autofix's, which regenerates the exports after the merge.
       # The export writes the files into the checkout; any that changed is stale.
       # The defaults snapshot is bot-only (#21946): it is stale on every event
       # between a merge and the base autofix's commit, so no event checks it here.
@@ -3220,10 +3222,10 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/settings-changed.txt"
-          if ! python3 scripts/cmux-next/generated_outputs.py caused schemas/settings/settings-schema.json \
-              --changed "$RUNNER_TEMP/settings-changed.txt"; then
-            echo "No settings export input changed; the exports are not checked here."
+          base_stamp="$(python3 scripts/ci/defaults_guard.py source-stamp --ref "$(git rev-parse HEAD^1)")"
+          head_stamp="$(python3 scripts/ci/defaults_guard.py source-stamp --ref HEAD)"
+          if [[ "$base_stamp" == "$head_stamp" ]]; then
+            echo "The settings sources did not change; any stale export is the base's (the base autofix regenerates it)."
             exit 0
           fi
           scripts/cmux-next/regenerate-settings-exports.sh "$RUNNER_TEMP/settings-exports" | tee "$RUNNER_TEMP/settings-exported.txt"

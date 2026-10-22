@@ -41,7 +41,7 @@ is routed.
 | Tier | Check (job) | Runs when the PR changes | Runner |
 | --- | --- | --- | --- |
 | checks | `cmux-next checks` (god files, concurrency, crash safety, string tables, script tests, package conventions, tier routing) | any cmux-next path | Linux (Blacksmith) |
-| generated | `cmux-next generated files` (action catalog, surfaces and inventory; CI target graph; settings exports, their source stamp and the defaults snapshot) | the CmuxNext package, `plans/cmux-next/`, the settings exports, the generators | mini |
+| generated | `cmux-next generated files` (action catalog, surfaces and inventory; CI target graph; settings exports and the defaults snapshot) | the CmuxNext package, `plans/cmux-next/`, the settings exports, the generators | mini |
 | swift canary | `cmux-next Swift canary` (Debug SwiftPM build of the changed production targets) | production Swift files under `Packages/macOS/CmuxNext/Sources/` only | mini, placed first |
 | native | `cmux-next app compile (build fleet)` on a same-repository PR; `cmux-next Release compile (Xcode 26)` with `full-ci`, from a fork, on a push, or when the fleet gives no verdict | Swift and app sources (a fork PR: any `.swift` file under `Packages/macOS/CmuxNext/`, other sources with `full-ci`) | build fleet (Linux); mini for Release |
 | scheme | `cmux app scheme compile (Debug)` | the app host, Xcode project, CLI, resources, webviews, local packages CmuxNext uses, an executable target | mini |
@@ -164,27 +164,22 @@ regenerates them and uploads the patch. On a same-repository PR,
 The new commit starts a fresh run. Pull before your next push.
 
 The settings exports (`schemas/settings/settings-schema.json`, `docs/mdm/*`)
-come from Swift tests, so `defaults_guard.py check-fresh` cannot compare them
-with the Swift sources directly. It recomputes the source stamp
-`schemas/settings-export/settings-schema.sources.sha256` (one `sha256  path`
-entry per `CmuxNextSettings` source and export test, a blank line between
-entries so pull requests that edit different sources merge cleanly) and fails,
-naming the files, when the sources moved without a re-export. Two branches
-that edit the same source (often `Localizable.xcstrings`) still conflict on its
-entry: regenerate the stamp after the merge, never hand-merge it. `cmux-next generated files` then runs
-`scripts/cmux-next/regenerate-settings-exports.sh` and
-`defaults_guard.py snapshot` and adds the files to the patch. On
+come from Swift tests. When an event changes the `CmuxNextSettings` sources or
+the export tests (their source stamp, `defaults_guard.py source-stamp --ref REF`,
+differs between the event's parent and its head; the stamp is derived, never
+committed), `cmux-next generated files` runs
+`scripts/cmux-next/regenerate-settings-exports.sh`, fails when a committed export
+differs from the fresh one, and adds the regenerated files and
+`defaults_guard.py snapshot` to the patch. Any other event leaves exports the
+base left stale to the base autofix. On
 `feat-cmux-next`, the base autofix's Mac job runs the same script after a
 settings change and commits the exports and the snapshot, so a lane does not
 have to run the export itself.
 
 The defaults snapshot (`schemas/defaults/cmux-next.json`) is bot-only (#21946):
 no pull request commits it, and the PR autofix leaves it out. It is stale
-between a merge and the base autofix's commit, so CI runs `check-stamp`, never
-`check-fresh`, on every event, including the base and batches. The settings
-exports lag the same way, so the defaults-snapshot job passes `--base` (the
-event's parent commit): a stale export of a source the event changed fails, and
-one already stale on the base is a warning. The base autofix
+between a merge and the base autofix's commit, so CI never runs `check-fresh` on
+an event. The base autofix
 rewrites it after each merge. The defaults guard judges a pull request by the defaults its
 exports and sources produce, never by a committed snapshot. A changed default passes
 with an independent review receipt on the head (a comment or review whose first line is
