@@ -54,12 +54,69 @@ struct OmnibarPointerButtonTests {
     @Test func aButtonDisabledOrEnabledUnderTheStillPointerChangesTheRowsCursor() {
         let button = ChromeIconButton(icon: .navPreviousMatch, label: "Back", action: nil, target: nil, toolbar: true)
         let host = row(with: button)
-        host.row.setCursor(at: windowPoint(atCenterOf: button))
+        let point = windowPoint(atCenterOf: button)
+        host.row.currentPointer = { _ in point }
+        host.row.setCursor(at: point)
         #expect(host.row.trackedCursor == .pointingHand)
         button.isEnabled = false
         #expect(host.row.trackedCursor == .arrow)
         button.isEnabled = true
         #expect(host.row.trackedCursor == .pointingHand)
+        withExtendedLifetime(host) {}
+    }
+
+    /// A parked tab hides its row under a still pointer with no exit event: a later state change
+    /// sets no cursor at the old point (it would land over the page).
+    @Test func aStatePointLeftByAHideWithNoExitSetsNoCursor() {
+        let button = ChromeIconButton(icon: .navPreviousMatch, label: "Back", action: nil, target: nil, toolbar: true)
+        let host = row(with: button)
+        let point = windowPoint(atCenterOf: button)
+        host.row.currentPointer = { _ in point }
+        host.row.setCursor(at: point)
+        #expect(host.row.pointerPoint != nil)
+        host.row.isHidden = true
+        #expect(host.row.pointerPoint == nil)
+        host.row.isHidden = false
+        button.isEnabled = false
+        #expect(host.row.trackedCursor == .pointingHand, "no cursor set after the hide")
+        withExtendedLifetime(host) {}
+    }
+
+    /// An exit skipped another way (a menu's tracking loop): the pointer is now outside the row's
+    /// visible rect, or over another window, so a state change sets no cursor and forgets the point.
+    @Test func aPointerNoLongerOverTheRowSetsNoCursor() {
+        let button = ChromeIconButton(icon: .navPreviousMatch, label: "Back", action: nil, target: nil, toolbar: true)
+        let host = row(with: button)
+        host.row.setCursor(at: windowPoint(atCenterOf: button))
+        host.row.currentPointer = { row in row.convert(NSPoint(x: 150, y: 55), to: nil) }
+        button.isEnabled = false
+        #expect(host.row.trackedCursor == .pointingHand)
+        #expect(host.row.pointerPoint == nil)
+
+        host.row.setCursor(at: windowPoint(atCenterOf: button))
+        host.row.currentPointer = { _ in nil }
+        button.isEnabled = true
+        #expect(host.row.trackedCursor == .arrow)
+        #expect(host.row.pointerPoint == nil)
+        withExtendedLifetime(host) {}
+    }
+
+    @Test func aDisabledExtensionButtonKeepsTheArrow() {
+        let button = ExtensionActionButton(actionID: "test-extension")
+        let host = row(with: button)
+        button.isEnabled = false
+        #expect(OmnibarPointer.cursor(atWindowPoint: windowPoint(atCenterOf: button), in: host.row) == .arrow)
+        withExtendedLifetime(host) {}
+    }
+
+    /// The star's own cursor rect (the key window) covers what shows of it, and none while hidden.
+    @Test func theStarsCursorRectIsItsVisibleRect() {
+        let star = BookmarkStarButton(frame: .zero)
+        let host = row(with: star)
+        #expect(ClickableButton.cursorRect(of: star) == star.visibleRect)
+        #expect(!star.visibleRect.isEmpty)
+        star.isHidden = true
+        #expect(ClickableButton.cursorRect(of: star) == nil)
         withExtendedLifetime(host) {}
     }
 
