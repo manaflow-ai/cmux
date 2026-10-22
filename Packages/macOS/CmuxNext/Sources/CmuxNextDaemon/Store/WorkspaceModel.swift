@@ -64,6 +64,18 @@ public final class WorkspaceModel: Identifiable {
         return name
     }
 
+    /// Nobody named the workspace: no title, and the daemon's default name.
+    public var isUnnamed: Bool { (title ?? "").isEmpty && Self.isDefaultName(name) }
+
+    /// True for a name the daemon gave (`workspace-N`, its default).
+    /// A user could name a workspace `workspace-7` by hand; the daemon
+    /// records no "named by the user" flag, so that name reads as default.
+    public nonisolated static func isDefaultName(_ name: String) -> Bool {
+        guard name.hasPrefix("workspace-") else { return false }
+        let number = name.dropFirst("workspace-".count)
+        return !number.isEmpty && number.allSatisfy(\.isASCII) && number.allSatisfy(\.isNumber)
+    }
+
     /// Tabs with an unread marker, counted from the mirrored tabs, which
     /// every tab delta (an acknowledgement included) keeps current. The
     /// daemon rollup arrives only with workspace snapshots, so it goes stale
