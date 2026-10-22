@@ -5,7 +5,7 @@
 // COMPOSER, LIKE CLAUDE DOES."). The prompt (.acpmux-md-field) carries the shared minimal scroller
 // (MINIMAL_SCROLLER_ATTRIBUTE, scrollers.ts): a thin thumb on no track, drawn on every frame while
 // the draft overflows, through typing, an idle pause, blur, focus and the pointer leaving, and gone
-// once the draft fits.
+// once the draft fits (its thin lane stays reserved, empty).
 //
 // Before: the prompt had WebKit's overlay scroller, which shows while the field scrolls and fades
 // out a moment later, so it flashed on every line typed; headless engines draw it as a wide classic
@@ -208,7 +208,8 @@ await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
         for (const [phase, sample] of Object.entries(seen))
           expect({ phase, ...sample }).toEqual({ phase, bar: sample.bar, thumb: true, track: false });
 
-        // Cut back to a draft that fits: no scrollbar on any frame.
+        // Cut back to a draft that fits: no thumb on any frame. The thin lane stays reserved and
+        // empty (scrollbar-gutter), so the draft never rewraps as it starts or stops overflowing.
         await page.locator(EDITABLE).click();
         await page.keyboard.press("ControlOrMeta+A");
         await page.keyboard.type("short again");
@@ -218,8 +219,9 @@ await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
         await idle(page, 1200);
         const fits = await recorded(page);
         expect(fits.length).toBeGreaterThan(10);
-        expect(fits.filter((frame) => frame.overflow > 0 || frame.bar !== 0)).toEqual([]);
-        expect(await thumb(page)).toEqual({ bar: 0, thumb: false, track: false });
+        expect(fits.filter((frame) => frame.overflow > 0 || frame.bar > THIN)).toEqual([]);
+        const fitted = await thumb(page);
+        expect(fitted).toEqual({ bar: fitted.bar, thumb: false, track: false });
         await page.close();
       });
     });

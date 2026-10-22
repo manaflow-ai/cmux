@@ -309,11 +309,16 @@ export const MINIMAL_SCROLLER_ATTRIBUTE = "data-cmux-minimal-scroller";
  * The minimal scroller (Leo 2026-10-21: "IF THERE ARE THINGS TO SCROLL, JUST KEEP THE SCROLLBAR
  * IN THE COMPOSER, LIKE CLAUDE DOES."): a thin thumb in `--cmux-scroller-thumb` on no track, drawn
  * the whole time the content overflows, never faded on input, focus, hover or resize, whatever the
- * macOS setting. Content that fits has no scrollbar (`overflow: auto`). The track stops
- * `--cmux-minimal-scroller-inset` short of each end, clear of a rounded corner. The `:root` prefix
- * outranks the legacy rule's hidden thumb above.
+ * macOS setting. Content that fits draws no thumb (`overflow: auto`). The lane is reserved even
+ * then (`scrollbar-gutter: stable`), so the content never rewraps as it starts or stops
+ * overflowing; take `--cmux-scroller-size` out of the scroller's right padding to keep its text
+ * width. The track stops `--cmux-minimal-scroller-inset` short of each end, clear of a rounded
+ * corner. The `:root` prefix outranks the legacy rule's hidden thumb above.
  */
 export const MINIMAL_SCROLLER_CSS = `
+:root [${MINIMAL_SCROLLER_ATTRIBUTE}] {
+  scrollbar-gutter: stable;
+}
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar {
   width: var(--cmux-scroller-size);
   height: var(--cmux-scroller-size);
