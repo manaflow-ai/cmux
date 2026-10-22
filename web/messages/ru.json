@@ -5335,6 +5335,7 @@
     "signedOutSignIn": "Войти",
     "manageInAppStore": "Управлять в App Store",
     "billedYearly": "${amount} в год",
+    "billedMonthly": "Оплата ежемесячно",
     "earlySupporterPrice": "Цена для ранних пользователей",
     "foundersEditionPrice": "Founder's Edition"
   },

@@ -5334,6 +5334,7 @@
     "signedOutSignIn": "登入",
     "manageInAppStore": "在 App Store 中管理",
     "billedYearly": "按年計費 ${amount}",
+    "billedMonthly": "按月計費",
     "earlySupporterPrice": "早期支持者價格",
     "foundersEditionPrice": "Founder's Edition"
   },

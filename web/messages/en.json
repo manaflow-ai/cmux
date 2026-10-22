@@ -1814,6 +1814,7 @@
     "alreadyPaid": "Already paid? Connect Founder's Edition",
     "perMonth": "/mo",
     "billedYearly": "Billed ${amount} yearly",
+    "billedMonthly": "Billed monthly",
     "earlySupporterPrice": "Early supporter price",
     "foundersEditionPrice": "Founder's Edition",
     "perUserMonth": "/user/mo",

@@ -5333,6 +5333,7 @@
     "signedOutSignIn": "Oturum aç",
     "manageInAppStore": "App Store'da yönet",
     "billedYearly": "Yıllık ${amount} faturalandırılır",
+    "billedMonthly": "Aylık faturalandırılır",
     "earlySupporterPrice": "Erken destekçi fiyatı",
     "foundersEditionPrice": "Founder's Edition"
   },

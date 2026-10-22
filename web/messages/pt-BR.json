@@ -5335,6 +5335,7 @@
     "signedOutSignIn": "Entrar",
     "manageInAppStore": "Gerenciar na App Store",
     "billedYearly": "Cobrado ${amount} por ano",
+    "billedMonthly": "Cobrado mensalmente",
     "earlySupporterPrice": "Preço de apoiador inicial",
     "foundersEditionPrice": "Founder's Edition"
   },

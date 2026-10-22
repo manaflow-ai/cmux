@@ -5332,6 +5332,7 @@
     "signedOutSignIn": "로그인",
     "manageInAppStore": "App Store에서 관리",
     "billedYearly": "연간 ${amount} 청구",
+    "billedMonthly": "월간 청구",
     "earlySupporterPrice": "얼리 서포터 가격",
     "foundersEditionPrice": "Founder's Edition"
   },

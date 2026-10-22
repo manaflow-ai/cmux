@@ -270,6 +270,7 @@ function PricingContent({
     monthly: t("monthly"),
     perMonth: t("perMonth"),
     billedYearlyTemplate: t.raw("billedYearly") as string,
+    billedMonthly: t("billedMonthly"),
     earlySupporterPrice: t("earlySupporterPrice"),
     foundersEdition: t("foundersEditionPrice"),
   };

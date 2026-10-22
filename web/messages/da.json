@@ -5332,6 +5332,7 @@
     "signedOutSignIn": "Log ind",
     "manageInAppStore": "Administrer i App Store",
     "billedYearly": "Faktureres ${amount} årligt",
+    "billedMonthly": "Faktureres månedligt",
     "earlySupporterPrice": "Pris for tidlige støtter",
     "foundersEditionPrice": "Founder's Edition"
   },

@@ -5335,6 +5335,7 @@
     "signedOutSignIn": "Zaloguj się",
     "manageInAppStore": "Zarządzaj w App Store",
     "billedYearly": "${amount} rozliczane rocznie",
+    "billedMonthly": "Rozliczane miesięcznie",
     "earlySupporterPrice": "Cena dla wczesnych użytkowników",
     "foundersEditionPrice": "Founder's Edition"
   },

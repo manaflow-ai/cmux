@@ -18,6 +18,7 @@ export type ProAnnualLabels = {
   perMonth: string;
   /** "Billed ${amount} yearly", with the literal `{amount}` placeholder. */
   billedYearlyTemplate: string;
+  billedMonthly: string;
   /** Marks a subscriber's price that is below today's list price. */
   earlySupporterPrice: string;
   /** Labels a Founder's Edition owner's Pro price. */
@@ -104,12 +105,14 @@ export function ProPlanCard({
     ? null
     : labels.billedYearlyTemplate.replace("{amount}", formatUsd(shown.yearlyTotal));
   // Founder's Edition is always named; any other own price only when it is
-  // below today's list price.
+  // below today's list price. Otherwise the line says how it is billed, so
+  // the label keeps two lines in either period and the card never jumps.
   const priceNote = currentPrice?.foundersEdition
     ? labels.foundersEdition
     : shown.listMonthly !== null
       ? labels.earlySupporterPrice
       : null;
+  const billingDetail = priceNote ?? billedYearly ?? labels.billedMonthly;
 
   return (
     <div className="relative flex h-full min-w-0 flex-col border border-border p-6">
@@ -147,25 +150,21 @@ export function ProPlanCard({
           </fieldset>
         </div>
       )}
-      <div className="mt-3">
-        <div className="flex items-baseline gap-1.5">
-          {shown.listMonthly !== null ? (
-            <s className="text-lg tabular-nums text-muted">
-              {`$${formatUsd(shown.listMonthly)}`}
-            </s>
-          ) : null}
-          <span className="text-3xl font-medium tabular-nums tracking-tight">
-            {`$${formatUsd(shown.monthly)}`}
-          </span>
-          <span className="max-w-44 text-sm leading-snug text-muted">
-            {labels.perMonth}
-          </span>
-        </div>
-        {priceNote || billedYearly ? (
-          <p className="mt-1 text-xs text-muted">
-            {[priceNote, billedYearly].filter(Boolean).join(" · ")}
-          </p>
+      {/* The billing detail sits beside the price as a two-line label, so the
+          price row keeps the Free card's height and the buttons line up. */}
+      <div className="mt-3 flex items-end gap-2">
+        {shown.listMonthly !== null ? (
+          <s className="text-3xl font-medium tabular-nums tracking-tight text-muted decoration-1">
+            {`$${formatUsd(shown.listMonthly)}`}
+          </s>
         ) : null}
+        <span className="text-3xl font-medium tabular-nums tracking-tight">
+          {`$${formatUsd(shown.monthly)}`}
+        </span>
+        <span className="flex min-w-0 flex-col pb-0.5 text-sm leading-[1.15] text-muted">
+          <span>{labels.perMonth}</span>
+          <span className="truncate">{billingDetail}</span>
+        </span>
       </div>
       <div className="mt-3">
         {action ?? (

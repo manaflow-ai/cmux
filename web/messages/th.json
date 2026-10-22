@@ -5340,6 +5340,7 @@
     "signedOutSignIn": "ลงชื่อเข้าใช้",
     "manageInAppStore": "จัดการใน App Store",
     "billedYearly": "เรียกเก็บ ${amount} ต่อปี",
+    "billedMonthly": "เรียกเก็บรายเดือน",
     "earlySupporterPrice": "ราคาสำหรับผู้สนับสนุนรุ่นแรก",
     "foundersEditionPrice": "Founder's Edition"
   },

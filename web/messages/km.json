@@ -5333,6 +5333,7 @@
     "signedOutSignIn": "ចូល",
     "manageInAppStore": "គ្រប់គ្រងនៅក្នុង App Store",
     "billedYearly": "គិតប្រាក់ ${amount} ក្នុងមួយឆ្នាំ",
+    "billedMonthly": "គិតប្រាក់ប្រចាំខែ",
     "earlySupporterPrice": "តម្លៃសម្រាប់អ្នកគាំទ្រដំបូង",
     "foundersEditionPrice": "Founder's Edition"
   },
