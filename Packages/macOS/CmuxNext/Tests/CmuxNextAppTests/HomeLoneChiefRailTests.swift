@@ -86,6 +86,16 @@ struct HomeLoneChiefRailTests {
         #expect(abs(p.split.sidebarWidth - HomeSidebarWidth.standard) < 1, "the list is \(p.split.sidebarWidth) pt")
     }
 
+    /// The person's own avatar-only width keeps its column, so the divider can drag it back out.
+    @Test func aListDraggedToAvatarsKeepsItsColumn() throws {
+        let p = try Self.page(chiefs: 1, width: 1000)
+        defer { p.close() }
+        p.split.setWidth(100)
+        p.split.layoutSubtreeIfNeeded()
+        #expect(!p.home.isHidden, "the list the person dragged to 100 pt folded away with its divider")
+        #expect(abs(p.split.sidebarWidth - 100) < 1, "the list is \(p.split.sidebarWidth) pt")
+    }
+
     @Test func theListFoldsAndComesBackAsConversationsAndWidthChange() throws {
         let p = try Self.page(chiefs: 1, width: 400)
         defer { p.close() }

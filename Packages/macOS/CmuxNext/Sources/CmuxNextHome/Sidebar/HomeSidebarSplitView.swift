@@ -129,12 +129,15 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         chatColumn.showsCompose = HomeSidebarHeaderLayout.isCompact(width: sidebarWidth) && !composing
     }
 
-    /// The avatar-only list holding one conversation (only the Chief) would be one avatar in an
-    /// empty band beside the chat (visual QA 2026-10-21): it takes no column, and compose shows at
-    /// the chat's top-left as for any avatar-only list. Debug Settings can keep the column.
+    /// A narrow column squeezing a list of one conversation (only the Chief) to avatars would leave
+    /// one avatar in an empty band beside the chat (visual QA 2026-10-21): it takes no column, and
+    /// compose shows at the chat's top-left as for any avatar-only list. A list the person dragged
+    /// to avatars keeps its column (and so the divider to drag it back); a wider column brings the
+    /// list back at their width. Debug Settings can keep the column.
     private var foldsLoneConversation: Bool {
-        list.holdsOneConversation && HomeSidebarHeaderLayout.isCompact(width: wantedWidth)
-            && !HomeTunables.loneConversationRail.value(in: tunables)
+        let own = widths.width(window: windowKey()) ?? standard
+        return list.holdsOneConversation && HomeSidebarHeaderLayout.isCompact(width: clamp(own))
+            && !HomeSidebarHeaderLayout.isCompact(width: own) && !HomeTunables.loneConversationRail.value(in: tunables)
     }
 
     /// Hides or shows the list for ``foldsLoneConversation``; true while it is folded.
