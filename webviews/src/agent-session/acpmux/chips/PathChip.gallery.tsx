@@ -26,7 +26,12 @@ const textPreview: ChipHostFixture = {
   paths: { [log]: { place: "root", folder: false } },
   previews: {
     [log]: {
-      lines: ["$ bun run build", "vite v7.1.2 building for production...", "✓ 412 modules transformed.", "built in 2.14s"],
+      lines: [
+        "$ bun run build",
+        "vite v7.1.2 building for production...",
+        "✓ 412 modules transformed.",
+        "built in 2.14s",
+      ],
       truncated: false,
     },
   },

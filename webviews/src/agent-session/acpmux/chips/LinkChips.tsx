@@ -42,7 +42,11 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
   if (plain) return <span className="cv-chip-plain">{written ?? label ?? path}</span>;
   const outside = info?.place === "outside";
   const folder = info?.folder ?? path.endsWith("/");
-  const icon = folder ? <Folder size={15} className="cv-chip__icon" /> : <FileDoc size={15} className="cv-chip__icon" />;
+  const icon = folder ? (
+    <Folder size={15} className="cv-chip__icon" />
+  ) : (
+    <FileDoc size={15} className="cv-chip__icon" />
+  );
   return (
     <>
       <button
