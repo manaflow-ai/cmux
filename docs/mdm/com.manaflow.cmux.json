@@ -57,6 +57,16 @@
       "title" : "Inspector",
       "type" : "string"
     },
+    "agentPane.display.rail.side" : {
+      "default" : "left",
+      "description" : "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it.",
+      "enum" : [
+        "left",
+        "right"
+      ],
+      "title" : "Prompt Rail Side",
+      "type" : "string"
+    },
     "agentPane.display.width" : {
       "default" : 800,
       "description" : "The widest the chat's column gets. On a wider pane the chat stays centered.",
