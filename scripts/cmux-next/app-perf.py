@@ -306,7 +306,7 @@ def new_top(count, bench):
              row_index=rows.index(key) if key in rows else None)
         for workspace in made:
             go(workspace, settle=0.2)
-            reply = action("closeWorkspace")
+            reply = action("closeWorkspace", {"confirm": True})  # destructive: a script caller confirms
             if not wait(lambda: workspace not in workspace_ids(), 10):
                 raise Broken(f"{count} ws new-top: closing the new workspace failed ({error_of(reply)})")
         holds(count, "new-top's close")
