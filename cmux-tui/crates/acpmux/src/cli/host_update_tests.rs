@@ -127,14 +127,15 @@ const UNITS: &str = ".config/systemd/user";
 #[cfg(unix)]
 const TARGET: &str = "x86_64-unknown-linux-musl";
 
+/// The `personInstance` the fake peer daemon reports.
+#[cfg(unix)]
+const PEER_DAEMON: &str = "peer-daemon-run";
+
 /// A fake acpmux of `build` whose daemon, once started, reports `runs`
 /// (None: it never answers). Like cmux-tui, it answers as acpmux only
 /// under that file name. `$HOME/daemon` holds the build of the daemon
 /// that runs (absent: none), `$HOME/started` every build started.
 #[cfg(unix)]
-/// The `personInstance` the fake peer daemon reports.
-const PEER_DAEMON: &str = "peer-daemon-run";
-
 fn fake_acpmux(build: &str, runs: Option<&str>) -> String {
     let start = match runs {
         Some(b) => format!("echo '{b}' > \"$HOME/daemon\"; echo '{b}' >> \"$HOME/started\""),
