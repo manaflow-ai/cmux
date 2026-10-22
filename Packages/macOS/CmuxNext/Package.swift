@@ -183,7 +183,7 @@ let package = Package(
         .package(url: "https://github.com/getsentry/sentry-cocoa.git", "9.3.0"..<"9.29.0"),
         // Sparkle driver shared with the legacy app (no bonsplit, no legacy deps).
         .package(path: "../CmuxUpdater"),
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.0"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.6"),
         // Lock-free atomics on macOS 14 for CmuxNextCompat.Atomic (already resolved through
         // other dependencies; Apache-2.0).
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.3.0"),
