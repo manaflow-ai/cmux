@@ -121,12 +121,13 @@ export function needsYouItems(input: NeedsYouInput): NeedsYouItem[] {
   return items.sort((a, b) => (b.at ?? 0) - (a.at ?? 0));
 }
 
-/// Something is pending on the person: acpmux counts an open request or names what the chat waits
-/// on. A chat on another computer whose daemon names neither still shows by its indicator alone.
-/// A local chat with nothing pending is not waiting, whatever its dot last said.
+/// Something is pending on the person: acpmux counts an open request, names what the chat waits
+/// on, or says the chat is `waiting` (a secret request sets that with neither, hub/secrets.rs). A
+/// chat on another computer, or one whose status is unknown, still shows by its indicator alone. A
+/// local chat acpmux says is not waiting has nothing pending, whatever its dot last said.
 function waitsOnPerson(session: AcpmuxSessionEntry): boolean {
-  if ((session.pendingPermissions ?? 0) > 0 || session.waitingOn) return true;
-  return session.indicator === "input" && Boolean(session.peer);
+  if ((session.pendingPermissions ?? 0) > 0 || session.waitingOn || session.status === "waiting") return true;
+  return session.indicator === "input" && (Boolean(session.peer) || session.status === undefined);
 }
 
 /// What a chat whose ask is not read here waits on, as acpmux names it: a question by its first
