@@ -4,6 +4,7 @@ import CmuxNextDesign
 import CmuxNextImportCards
 import CmuxNextSettings
 import CmuxNextSettingsWindow
+import CmuxNextWebUpdates
 
 /// What the React Settings page shows beside the schema rows (R82 commit 2): `cmux.settings.host.lists`.
 /// Spaces (nil when this daemon has no profiles), saved machines, browser profiles, and the
@@ -46,6 +47,7 @@ extension SettingsWindowService {
             "computer_use": services.onboarding.computerUseSetup.pageJSON,
             "iphone": services.iphone.pageJSON,
             "import_suggestions": ImportSuggestionsCenter.shared.settingsJSON,
+            "web_updates": WebUpdates.shared.pageJSON,
             // Chief > Voice input: home.voiceInput, null where the tunable does not exist (Release).
             "voice_input": ChiefVoiceInputPageRoute().hostJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
