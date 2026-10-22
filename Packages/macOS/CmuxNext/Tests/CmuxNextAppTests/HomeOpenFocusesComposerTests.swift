@@ -112,6 +112,36 @@ import Testing
         h.window.makeFirstResponder(h.document)
     }
 
+    /// A click leaves the run loop it was called from running. In a test process that loop is the
+    /// process's outermost one: swift-testing's async main runs `CFRunLoopRun` and exits 0 when it
+    /// returns. The harness queued its mouse-up with `NSApp.postEvent`, and AppKit stops the
+    /// running loop to wake an event wait (`-[NSEvent _postAtStart:]` calls `CFRunLoopStop`); the
+    /// stop stayed on the outermost loop, which returned at the test's next suspension. The whole
+    /// CmuxNextAppTests process then ended with exit 0 and no summary, hundreds of tests unfinished
+    /// (the PR job's "no Test run with summary line", 2026-10-21). Here the click runs in a nested
+    /// pass of the main run loop, which a stop left by the click ends as stopped.
+    @Test func aClickLeavesTheRunLoopItRanInRunning() async throws {
+        let h = try await Self.harness()
+        defer { h.close() }
+        var clicked = false
+        let result = Self.inANestedPass { clicked = (try? h.click(Self.rows[1])) != nil }
+        #expect(clicked, "the click never ran")
+        #expect(result == .finished, "the click stopped the run loop it ran in")
+    }
+
+    /// Runs `body` in one nested pass of the main run loop and returns how that pass ended:
+    /// `.stopped` when `body` stopped it, else `.finished`. The pass runs in a mode of its own, so
+    /// it runs `body` and nothing else (a default-mode pass would also run other suites' main-actor
+    /// jobs, and end as handled when it drained them), and the wake after `body` ends it.
+    private static func inANestedPass(_ body: @escaping () -> Void) -> CFRunLoopRunResult {
+        let mode = CFRunLoopMode("com.cmuxterm.next.tests.nested-pass" as CFString)
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), mode.rawValue) {
+            MainActor.assumeIsolated { body() }
+            CFRunLoopWakeUp(CFRunLoopGetMain())
+        }
+        return CFRunLoopRunInMode(mode, 5, true)
+    }
+
     /// Every entry point on one Home (a second Home in the same test process does not get its
     /// message box, so the scenarios share one window and run in order).
     @Test func openingAConversationFromTheListPutsTheKeyboardInItsMessageBox() async throws {
