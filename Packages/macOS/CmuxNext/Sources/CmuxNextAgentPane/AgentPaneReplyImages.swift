@@ -83,13 +83,19 @@ nonisolated struct AgentPaneReplyImages {
     /// named as one is read, and it must decode as one of ``nativeTypes`` or ``decodedTypes``;
     /// an SVG or a PDF outside the folders stays a card, and no other bytes ever reach the page.
     @concurrent static func outside(_ path: String) async -> Result<String, AgentPaneReplyError> {
-        let url = URL(fileURLWithPath: path)
-        guard outsideExtensions.contains(url.pathExtension.lowercased()),
-              let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]), values.isRegularFile == true
-        else { return .failure(.pathInvalid) }
-        guard (values.fileSize ?? Int.max) <= maximumBytes else { return .failure(.imageTooLarge) }
+        guard outsideExtensions.contains(URL(fileURLWithPath: path).pathExtension.lowercased()) else {
+            return .failure(.pathInvalid)
+        }
+        // The type, size and read checks use one open handle, so the file cannot be swapped between
+        // them. O_NOFOLLOW refuses a link; O_NONBLOCK keeps a FIFO from blocking the open.
+        let fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard fd >= 0 else { return .failure(.pathInvalid) }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        var info = stat()
+        guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { return .failure(.pathInvalid) }
+        guard info.st_size <= off_t(maximumBytes) else { return .failure(.imageTooLarge) }
         // concurrency-allow: outside(_:) is @concurrent, so this read never runs on the main actor
-        guard let data = try? Data(contentsOf: url, options: [.mappedIfSafe]), data.count <= maximumBytes else {
+        guard let data = try? handle.read(upToCount: maximumBytes + 1), data.count <= maximumBytes else {
             return .failure(.imageFailed)
         }
         return raster(data, reencode: false)
