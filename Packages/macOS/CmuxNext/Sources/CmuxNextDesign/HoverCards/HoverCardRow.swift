@@ -198,6 +198,13 @@ public final class HoverCardRowView: NSView {
         }
         accessoryView.applyColors()
     }
+
+    /// A store repaint with no new theme (a machine color picked while the card shows) reaches
+    /// the row only through this hook.
+    public override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
 }
 
 private extension Array where Element == String {
