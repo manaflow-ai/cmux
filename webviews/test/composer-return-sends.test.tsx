@@ -183,7 +183,12 @@ test("Return after Dictation (keyCode 229, no composition) steers the running tu
 test("Return the input method passes on with no composition at all sends", async () => {
   const { field, sent } = await composer(chat(), "Run the tests");
   const proceeded = await dispatch(field, key({ key: "Enter", keyCode: 229 }), 6_000);
-  expect({ sent, proceeded }).toEqual({ sent: [{ text: "Run the tests", steer: false }], proceeded: false });
+  // Sent, the field is one empty line again; ProseMirror's keymap had split it into two.
+  expect({ sent, proceeded, lines: lines(field) }).toEqual({
+    sent: [{ text: "Run the tests", steer: false }],
+    proceeded: false,
+    lines: 1,
+  });
 });
 
 test("the Return that commits an input method's candidate is the input method's: no send, no line", async () => {
