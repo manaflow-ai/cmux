@@ -109,7 +109,8 @@ import Testing
     /// "Update available" is not a header's business: the name only, the words in its tooltip.
     @Test(arguments: [false, true])
     func aMachineHeaderNeverSaysUpdateAvailable(hostGroup: Bool) {
-        #expect(SectionHeaderRowView.statusText(.updateAvailable, hostGroup: hostGroup) == nil)
+        #expect(SectionHeaderRowView.statusText(.updateAvailable, hostGroup: hostGroup) != Strings.statusUpdateAvailable)
+        #expect(SectionHeaderRowView.statusText(.updateAvailable, hostGroup: false) == nil)
         let header = SectionHeaderRowView(key: .section(SidebarSection(kind: .machine(SidebarMachine(id: MachineID("chief"), name: "Chief", kind: .server)), nodes: []).id))
         let machine = SidebarMachine(id: MachineID("chief"), name: "Chief", kind: .server, status: .updateAvailable,
                                      detail: "Built before this app")
