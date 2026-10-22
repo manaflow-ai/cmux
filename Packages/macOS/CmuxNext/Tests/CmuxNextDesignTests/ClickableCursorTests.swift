@@ -42,10 +42,11 @@ struct ClickableCursorTests {
 
     /// The shared clickable buttons of this module are `ClickableButton`s.
     @Test func theSharedDesignButtonsAreClickableButtons() {
-        let shared: [AnyClass] = [ThemedBezelButton.self, ThemedDefaultButton.self, TitlebarBandButton.self, OverflowButton.self,
-                                  CmuxToastButton.self, CmuxDialogButtonView.self, FindPillButton.self]
+        let shared: [NSButton.Type] = [ThemedBezelButton.self, ThemedDefaultButton.self, TitlebarBandButton.self, OverflowButton.self,
+                                       CmuxToastButton.self, CmuxDialogButtonView.self, FindPillButton.self]
         for type in shared {
-            #expect(type.isSubclass(of: ClickableButton.self), "\(type) must inherit ClickableButton")
+            let inherits = type is ClickableButton.Type
+            #expect(inherits, "\(type) must inherit ClickableButton")
         }
     }
 
