@@ -14,10 +14,21 @@ import os
 /// Only a pid that is this home's (`daemon.pid` in the home), runs `acpmux` (or the bundle's `cmux`)
 /// and is the process listening on the home's socket (`LOCAL_PEERPID`) is ever signalled, and
 /// each pid at most once, and at most `perLaunch` times per home in one app launch (a daemon that
-/// wedges again after every start is left for a person). The `agent.restartUnresponsiveAcpmux`
-/// Debug Settings toggle turns it off.
+/// wedges again after every start is left for a person). That process is known by its pid and
+/// start time (``Daemon``), read before those checks and again after them and before each signal:
+/// a pid the kernel gave to another process meanwhile is never signalled, and the exit watch is
+/// on the process before its SIGTERM, so it never follows the pid to a successor. The
+/// `agent.restartUnresponsiveAcpmux` Debug Settings toggle turns it off.
 nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
     static let shared = AcpmuxUnresponsiveWatch(clock: ContinuousClock())
+
+    /// One process: its pid and its start time (`proc_bsdinfo`). A pid the kernel gives to another
+    /// process later has another start time.
+    struct Daemon: Equatable, Sendable {
+        var pid: Int32
+        var startSeconds: UInt64
+        var startMicroseconds: UInt64
+    }
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
 
@@ -31,6 +42,8 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
     let perLaunch: Int
     /// The clock's time since this watch was made.
     private let elapsed: @Sendable () -> Duration
+    /// The process `pid` names now, nil when none (``kernelProcess(pid:)``; a stand-in in tests).
+    private let process: @Sendable (Int32) -> Daemon?
 
     private struct Streak {
         var pid: Int32
@@ -48,9 +61,11 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
     private let state = Mutex(State())
 
     init<C: Clock>(clock: C, misses: Int = 3, window: Duration = .seconds(20), streakGap: Duration = .seconds(300),
-                   confirm: Duration = .seconds(5), termGrace: Duration = .seconds(10), perLaunch: Int = 3) where C.Duration == Duration {
+                   confirm: Duration = .seconds(5), termGrace: Duration = .seconds(10), perLaunch: Int = 3,
+                   process: @escaping @Sendable (Int32) -> Daemon? = AcpmuxUnresponsiveWatch.kernelProcess(pid:)) where C.Duration == Duration {
         let start = clock.now
         elapsed = { start.duration(to: clock.now) }
+        self.process = process
         self.misses = misses
         self.window = window
         self.streakGap = streakGap
@@ -97,7 +112,8 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
     /// is due. True when the daemon is gone, so the caller starts a new one.
     @concurrent func restartIfStuck(_ environment: AcpmuxEnvironment) async -> Bool {
         let home = environment.home.standardizedFileURL.path
-        guard let pid = await Self.daemonPID(environment), missed(home: home, pid: pid) else { return false }
+        guard let daemon = await daemon(environment), missed(home: home, pid: daemon.pid) else { return false }
+        let pid = daemon.pid
         do {
             _ = try await AcpmuxStatusClient.status(socketPath: environment.socketPath, deadline: confirm)
             answered(home: home)
@@ -110,16 +126,47 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
         guard claim(home: home, pid: pid) else { return false }
         AcpmuxFailureLog(logPath: environment.logPath).record(.unresponsive, detail: "pid \(pid)")
         Self.logger.error("acpmux \(pid) of home=\(home, privacy: .public) missed \(self.misses + 1, privacy: .public) status calls; restarting it")
-        return await Self.stop(pid: pid, grace: termGrace)
+        return await stop(daemon, grace: termGrace)
     }
 
-    /// SIGTERM, then SIGKILL when `pid` outlives `grace`. True once it exited.
-    @concurrent static func stop(pid: Int32, grace: Duration) async -> Bool {
-        guard kill(pid, SIGTERM) == 0 else { return !agentPaneProcessIsRunning(pid) }
-        if await AgentPaneProcessExit(pid: pid).event(within: grace) { return true }
-        logger.error("acpmux \(pid) outlived SIGTERM by \(grace, privacy: .public); sending SIGKILL")
-        guard kill(pid, SIGKILL) == 0 else { return !agentPaneProcessIsRunning(pid) }
-        return await AgentPaneProcessExit(pid: pid).event(within: .seconds(5))
+    /// SIGTERM, then SIGKILL when `daemon` outlives `grace`. True once it exited. Each signal goes
+    /// only to the process `daemon` names, checked right before it with the exit watch already on
+    /// that process; a pid that names another process now means `daemon` exited.
+    @concurrent func stop(_ daemon: Daemon, grace: Duration) async -> Bool {
+        let pid = daemon.pid
+        let process = process
+        // Sends `signal` to `daemon`: nil when sent (wait for the exit), else whether it is gone.
+        func send(_ signal: Int32) -> Bool? {
+            guard process(pid) == daemon else { return true }
+            return kill(pid, signal) == 0 ? nil : !agentPaneProcessIsRunning(pid)
+        }
+        var unsent = false
+        let exited = await AgentPaneProcessExit(pid: pid).event(within: grace) {
+            let answer = send(SIGTERM)
+            unsent = answer != nil
+            return answer
+        }
+        if exited || unsent { return exited }
+        Self.logger.error("acpmux \(pid) outlived SIGTERM by \(grace, privacy: .public); sending SIGKILL")
+        return await AgentPaneProcessExit(pid: pid).event(within: .seconds(5)) { send(SIGKILL) }
+    }
+
+    /// The process `pid` names now (its start time from `proc_pidinfo`), nil when none or unreadable.
+    static func kernelProcess(pid: Int32) -> Daemon? {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard pid > 0, proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
+        return Daemon(pid: pid, startSeconds: info.pbi_start_tvsec, startMicroseconds: info.pbi_start_tvusec)
+    }
+
+    /// `environment`'s own daemon (``daemonPID(_:)``), known by its start time read before those
+    /// checks and again after them: nil when the pid named another process meanwhile.
+    @concurrent func daemon(_ environment: AcpmuxEnvironment) async -> Daemon? {
+        let file = environment.home.appendingPathComponent("daemon.pid")
+        guard let text = try? String(contentsOf: file, encoding: .utf8),
+              let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let before = process(pid), await Self.daemonPID(environment) == pid, process(pid) == before else { return nil }
+        return before
     }
 
     /// The pid of `environment`'s own daemon, nil unless `daemon.pid` in its home names a

@@ -95,6 +95,77 @@ struct AcpmuxUnresponsiveWatchTests {
     }
 }
 
+/// The watch signals only the process it found, known by its pid and start time: a pid the
+/// kernel gave to another process (another start time) gets no signal. The "other process" is a
+/// stand-in identity; the signalled process is a `sleep` this test starts.
+@Suite(.serialized, .timeLimit(.minutes(1)))
+struct AcpmuxUnresponsiveIdentityTests {
+    /// A `sleep` child; with `ignoresTerm` it ignores SIGTERM (the disposition survives `exec`).
+    private func child(ignoresTerm: Bool) async throws -> Process {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c", (ignoresTerm ? "trap '' TERM; " : "") + "exec /bin/sleep 60"]
+        process.standardInput = FileHandle.nullDevice
+        try process.run()
+        // Signalled before its `exec`, bash would still take SIGTERM.
+        let deadline = ContinuousClock.now + .seconds(5)
+        while AcpmuxVersionHandoff.executablePath(pid: process.processIdentifier) != "/bin/sleep", ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        return process
+    }
+
+    /// Identity reads so far, shared with the stand-in.
+    private nonisolated final class Reads: Sendable {
+        let count = Mutex(0)
+    }
+
+    /// The real identity of `pid` for the first `real` reads, then another process's.
+    private func reused(after real: Int) -> @Sendable (Int32) -> AcpmuxUnresponsiveWatch.Daemon? {
+        let reads = Reads()
+        return { pid in
+            guard var daemon = AcpmuxUnresponsiveWatch.kernelProcess(pid: pid) else { return nil }
+            let read = reads.count.withLock { count in
+                defer { count += 1 }
+                return count
+            }
+            if read >= real { daemon.startMicroseconds &+= 1 }
+            return daemon
+        }
+    }
+
+    @Test func aPidThatNamesAnotherProcessNowGetsNoSignal() async throws {
+        let child = try await child(ignoresTerm: false)
+        defer { kill(child.processIdentifier, SIGKILL) }
+        let found = try #require(AcpmuxUnresponsiveWatch.kernelProcess(pid: child.processIdentifier))
+        let watch = AcpmuxUnresponsiveWatch(clock: AcpmuxWatchClock(), process: reused(after: 0))
+
+        #expect(await watch.stop(found, grace: .milliseconds(300)), "the daemon it found is gone")
+        #expect(agentPaneProcessIsRunning(child.processIdentifier), "the process that has the pid now was signalled")
+    }
+
+    @Test func aPidReusedAfterItsSigtermGetsNoSigkill() async throws {
+        let child = try await child(ignoresTerm: true)
+        defer { kill(child.processIdentifier, SIGKILL) }
+        let found = try #require(AcpmuxUnresponsiveWatch.kernelProcess(pid: child.processIdentifier))
+        // The first read is the check before SIGTERM; every later one sees another process.
+        let watch = AcpmuxUnresponsiveWatch(clock: AcpmuxWatchClock(), process: reused(after: 1))
+
+        #expect(await watch.stop(found, grace: .milliseconds(300)))
+        #expect(agentPaneProcessIsRunning(child.processIdentifier), "the process that has the pid now got SIGKILL")
+    }
+
+    @Test func theProcessItFoundGetsSigtermThenSigkill() async throws {
+        let child = try await child(ignoresTerm: true)
+        defer { kill(child.processIdentifier, SIGKILL) }
+        let found = try #require(AcpmuxUnresponsiveWatch.kernelProcess(pid: child.processIdentifier))
+        let watch = AcpmuxUnresponsiveWatch(clock: AcpmuxWatchClock())
+
+        #expect(await watch.stop(found, grace: .milliseconds(300)))
+        #expect(!agentPaneProcessIsRunning(child.processIdentifier))
+    }
+}
+
 /// A local acpmux that is alive but never answers: its socket takes connections and reads
 /// them. After three missed status calls spanning 20 s (one more with the longer deadline),
 /// the app stops it and starts a daemon. The hung daemon is `nc` copied (and signed ad hoc) to a

@@ -201,7 +201,10 @@ public nonisolated struct AgentPaneProcessExit: Sendable {
     }
 
     /// True at the exit; false when `timeout` passes first. A nil `timeout` waits for the exit only.
-    public func event(within timeout: Duration?) async -> Bool {
+    /// `armed` runs once the exit watch is on `pid` and before the check for an exit that came
+    /// first: a signal sent there cannot end the process unseen, and a later reuse of `pid` cannot
+    /// take the watch. It returns the answer when there is nothing to wait for (nil: wait).
+    public func event(within timeout: Duration?, armed: () -> Bool? = { nil }) async -> Bool {
         let pid = self.pid
         return await withCheckedContinuation { continuation in
             let once = Once()
@@ -224,6 +227,10 @@ public nonisolated struct AgentPaneProcessExit: Sendable {
             }
             source.setEventHandler { finish(true) }
             source.resume()
+            if let answer = armed() {
+                finish(answer)
+                return
+            }
             if kill(pid, 0) != 0 && errno == ESRCH { finish(true) }
         }
     }
