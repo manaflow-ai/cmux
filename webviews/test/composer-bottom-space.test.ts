@@ -8,7 +8,7 @@
 //
 // In the chat pane, idle and with a turn running (a queue over the box), and on the New Tab page's
 // stage (Minimal with its widgets on and the template dots off, the composer at the page's foot): the row's bottom sits at
-// most 6 px above the pane's bottom edge, and its controls keep at least 2 px of it, so a focus
+// most 8 px above the pane's bottom edge (Claude Code leaves about 8), and its controls keep at least 2 px of it, so a focus
 // outline or a hover pill still draws whole.
 //
 // Real Chromium and WebKit on the gallery stage. CI fails the file when it cannot launch them
@@ -113,7 +113,7 @@ await requireBrowserLane("composer-bottom-space.test.ts", async () => {
           }, stage.pane);
           await page.close();
           expect(drawn.row, "the row ends inside the pane").toBeGreaterThanOrEqual(-0.5);
-          expect(drawn.row, "a few px under the row, as Claude Code's").toBeLessThanOrEqual(6);
+          expect(drawn.row, "a few px under the row, as Claude Code's").toBeLessThanOrEqual(8);
           expect(drawn.controls, "room for a control's focus outline").toBeGreaterThanOrEqual(2);
         });
 

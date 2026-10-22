@@ -123,6 +123,8 @@ public final class UpdaterService {
     public internal(set) var testFeedURL: String?
     /// The release ring followed in the cmux-next appcast (`updates.channel`, ``follow(ring:)``).
     public internal(set) var ring: UpdateRing = .nightly
+    /// The App applied `updates.channel` once (launch); a later move is the person's pick and checks at once.
+    @ObservationIgnored var ringFollowed = false
     /// The `updates.*` settings the gate reads (set by the App).
     public var preferences = UpdatePreferences.defaults
     /// Sparkle's staged install and its cancel (replaced by tests).
@@ -159,7 +161,7 @@ public final class UpdaterService {
     /// timeout then leaves the state alone so the sheet keeps its details.
     @ObservationIgnored public var isSheetPresented: () -> Bool = { false }
     @ObservationIgnored private let policy: ManagedUpdatePolicy
-    @ObservationIgnored private let prober: UpdateProber
+    @ObservationIgnored let prober: UpdateProber
     @ObservationIgnored let defaults: UserDefaults
     @ObservationIgnored private let switcher: AppChannelSwitcher
     @ObservationIgnored private var probeTask: Task<String?, Never>?
