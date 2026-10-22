@@ -407,7 +407,7 @@ fn run_app_scope(args: &[String]) -> Option<i32> {
 /// the app marks one for the CLI. `None` when it does not, or no app answers.
 #[cfg(unix)]
 fn run_app_action_fallback(args: &[String]) -> Option<i32> {
-    let (global, command_args) = parse_globals(args).ok()?;
+    let (global, command_args) = parse_action_globals(args).ok()?;
     if let Some((name, action_args)) = agent_view::action(&command_args) {
         return app::run_cli_action(&global, &name, &action_args);
     }
@@ -558,6 +558,38 @@ pub(super) fn suggestion<'a>(value: &str, candidates: &'a [&str]) -> Option<&'a 
 }
 
 fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageError, OutputMode)> {
+    scan_globals(args, MachineFlag::Global)
+}
+
+/// Who owns a `--machine` that follows the command's first word.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MachineFlag {
+    /// The global option anywhere before `--` (the mux grammar's routing:
+    /// `cmux workspace list --machine m` lists on machine `m`).
+    Global,
+    /// The command's own argument once a command word came: an app action
+    /// run by its CLI name (`cmux workspace new-on-machine --machine m`)
+    /// gets it as its `machine` argument. Before the first command word it
+    /// is still the global option.
+    #[cfg_attr(not(unix), allow(dead_code))]
+    Command,
+}
+
+/// [`parse_globals`] for an app action run by its CLI name: a `--machine`
+/// after the action's words is the action's own argument
+/// (`workspace.newOnMachine`'s `machine`), which the global option
+/// swallowed, so the app answered "requires --machine".
+#[cfg(unix)]
+fn parse_action_globals(
+    args: &[String],
+) -> Result<(GlobalArgs, Vec<String>), (UsageError, OutputMode)> {
+    scan_globals(args, MachineFlag::Command)
+}
+
+fn scan_globals(
+    args: &[String],
+    machine_flag: MachineFlag,
+) -> Result<(GlobalArgs, Vec<String>), (UsageError, OutputMode)> {
     let mut global = GlobalArgs::default();
     let mut command = Vec::new();
     let mut index = 0;
@@ -585,6 +617,20 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
             })
         {
             command.push(value.clone());
+            index += 1;
+            continue;
+        }
+        if machine_flag == MachineFlag::Command
+            && !command.is_empty()
+            && (value == "--machine" || value.starts_with("--machine="))
+        {
+            command.push(value.clone());
+            if value == "--machine"
+                && let Some(next) = args.get(index + 1)
+            {
+                command.push(next.clone());
+                index += 1;
+            }
             index += 1;
             continue;
         }

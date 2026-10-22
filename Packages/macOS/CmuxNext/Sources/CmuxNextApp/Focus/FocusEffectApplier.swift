@@ -88,7 +88,14 @@ final class FocusEffectApplier: FocusEffectApplying {
         controller.services.newTabSpares.paneLayoutDidChange(in: window)
         switch resolved {
         case .terminal(let pane, let tab):
-            guard case .terminal(let entry)? = presented(pane: pane, tab: tab) else { return }
+            guard case .terminal(let entry)? = presented(pane: pane, tab: tab) else {
+                // Its surface comes on a later frame (a tab this window never showed; `contentPresented`
+                // re-applies). Another pane's terminal must not keep the keyboard meanwhile: its next
+                // replay swaps in a fresh surface that takes the keyboard back, and focus followed it
+                // there (Switch to tab from the New Tab page landed on the workspace's old pane).
+                resignPaneResponder(in: window)
+                return
+            }
             blurChildWindowPage()
             let view = entry.session.surfaceView
             if window.firstResponder !== view { window.makeFirstResponder(view) }

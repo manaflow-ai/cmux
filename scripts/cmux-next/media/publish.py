@@ -12,7 +12,9 @@ steps' screenshots inline and the rest folded. With no tour output, `--note`
 says why in one line. The comment this used to keep on its own (COMMENT_MARKER)
 is deleted on the first write.
 
-Uploads go through scripts/pr-media.py's contents-API writer. Nothing is
+Uploads go through scripts/pr-media.py's contents-API writer, after its
+privacy check (scripts/ci/pr_media_privacy.py) has passed every file of the
+tour: one refused file uploads none of that tour's media. Nothing is
 posted when the pull request's head has moved past SHA: the newer push's run
 posts its own.
 """
@@ -338,6 +340,11 @@ def publish_tour(directory: Path, manifest: dict[str, Any], args: argparse.Names
     for local in (mp4, gif):
         if local:
             files[local.name] = local
+    windows = list(window_files.items())[:MAX_WINDOW_SHOTS]
+    if not args.dry_run:
+        # The whole tour before its first upload; a refusal (PrivacyError) ends the tour.
+        pr_media.check_privacy([(f"{folder}/{key}", local) for key, local in [*files.items(), *windows]],
+                               args.repo)
     urls = {}
     # The main shots and the video first; a window shot that fails to upload is
     # dropped on its own, so it never costs the tour its other media.
@@ -347,14 +354,14 @@ def publish_tour(directory: Path, manifest: dict[str, Any], args: argparse.Names
             # No #N in the message: GitHub lists every commit that names the pull request in its
             # timeline, one entry per uploaded file (scripts/pr-media.py writes PR N the same way).
             pr_media.put_file(args.repo, pr_media.BRANCH, remote, local,
-                              f"PR {args.pr} cmux-next tour media at {args.sha[:8]}")
+                              f"PR {args.pr} cmux-next tour media at {args.sha[:8]}", checked=True)
         urls[key] = pr_media.raw_url(args.repo, pr_media.BRANCH, remote)
-    for key, local in list(window_files.items())[:MAX_WINDOW_SHOTS]:
+    for key, local in windows:
         remote = f"{folder}/{key}"
         try:
             if not args.dry_run:
                 pr_media.put_file(args.repo, pr_media.BRANCH, remote, local,
-                                  f"PR {args.pr} cmux-next tour media at {args.sha[:8]}")
+                                  f"PR {args.pr} cmux-next tour media at {args.sha[:8]}", checked=True)
         except Exception as error:  # noqa: BLE001 - one window's upload must not end the tour
             print(f"warning: {key}: {error}", file=sys.stderr)
             continue

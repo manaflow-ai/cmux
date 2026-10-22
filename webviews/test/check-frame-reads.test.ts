@@ -1,8 +1,7 @@
 // The frame-read rule (scripts/check-frame-reads.ts): browser tests read layout after a frame has
 // painted, never in its requestAnimationFrame callback.
 import { expect, test } from "bun:test";
-import path from "node:path";
-import { checkFrameReadsSource, FRAME_READS_PENDING } from "../scripts/check-frame-reads";
+import { checkFrameReadsSource } from "../scripts/check-frame-reads";
 
 const browserTest = (body: string) => `import { chromium } from "playwright";\n${body}\n`;
 const check = (body: string) => checkFrameReadsSource("/x/test/a.test.ts", browserTest(body));
@@ -77,14 +76,4 @@ test("a test that opens no browser is not checked", () => {
   expect(
     checkFrameReadsSource("a.test.ts", "const tick = () => { el.offsetTop; requestAnimationFrame(tick); };"),
   ).toEqual([]);
-});
-
-test("a pending file is named once it reads after paint, or once it opens no browser", () => {
-  const [name] = [...FRAME_READS_PENDING.keys()];
-  const file = path.resolve(import.meta.dir, "..", name!);
-  expect(checkFrameReadsSource(file, browserTest("window.cmuxAfterPaint(() => {});"))[0]).toContain(
-    "reads after paint now; remove it from FRAME_READS_PENDING",
-  );
-  expect(checkFrameReadsSource(file, "export {};")[0]).toContain("opens no browser now");
-  expect(checkFrameReadsSource(file, browserTest("const t = () => requestAnimationFrame(t);"))).toEqual([]);
 });

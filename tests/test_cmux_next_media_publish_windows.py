@@ -27,11 +27,15 @@ class FakePrMedia:
     def __init__(self, fail=()):
         self.puts = []
         self.fail = fail
+        self.checked = []
+
+    def check_privacy(self, items, repo, **options):
+        self.checked.extend(remote for remote, _local in items)
 
     def family_of_content(self, path):
         return "png" if path.read_bytes().startswith(b"\x89PNG") else "other"
 
-    def put_file(self, repo, branch, remote, local, message):
+    def put_file(self, repo, branch, remote, local, message, checked=False):
         if any(remote.endswith(name) for name in self.fail):
             raise RuntimeError("secondary rate limit")
         self.puts.append(remote)

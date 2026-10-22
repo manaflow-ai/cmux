@@ -1,6 +1,15 @@
 import { CodeView, WorkerPoolContextProvider, type CodeViewHandle } from "@pierre/diffs/react";
 import type { SelectedLineRange } from "@pierre/diffs";
-import { useCallback, useDeferredValue, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { flushSync } from "react-dom";
 import "../../Resources/markdown-viewer/viewer-navigation.js";
 import { copyGitApplyCommand, copyText, resolveDiffNavigationURL } from "./actions";
@@ -14,6 +23,7 @@ import { useCommentsBootstrap } from "./comments/useCommentsBootstrap";
 import { type DiffItem } from "./diff-stream";
 import { withCollapsedFile } from "./collapsed-files";
 import { treeFileActivation } from "./file-activation";
+import { diffItemKind, orderItemsByKind } from "./diff-kind-groups";
 import { filterDiffItems, isDiffFileFilterActive } from "./file-filter";
 import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "./labels";
 import { codeViewOptions, workerHighlighterOptions, type DiffViewerOptions } from "./pierre-options";
@@ -38,6 +48,8 @@ import type { DiffSource } from "./diff/generated/protocol";
 import { createDiffWorkerPoolOptions } from "./worker-pool";
 import {
   adjacentItemId,
+  itemScrollAnchor,
+  itemScrollTarget,
   keepStuckHeaderInView,
   presentedItem,
   scrollTargetForItem,
@@ -70,6 +82,7 @@ import { FilesSidebar, FilesSidebarBackdrop, filteredFileTreeSource } from "./di
 import { LoadingLayer } from "./diff-viewer/Loading";
 import { DiffPill, Toolbar } from "./diff-viewer/Toolbar";
 import { WorkerRenderOptionsSync } from "./diff-viewer/WorkerRenderOptionsSync";
+import { useKindOrder, type KindOrderHandlers } from "./diff-viewer/useKindOrder";
 import { useSyncedRef } from "./diff-viewer/useSyncedRef";
 import { useViewedFilesBootstrap, useViewerPrefsBootstrap } from "./diff-viewer/bootstrap";
 import {
@@ -230,10 +243,25 @@ export function App({ config, initialStatus }: ConfigProps) {
   // frame; the diff column (and what follows it: find, jump, navigation) catches up in a deferred,
   // interruptible render, so laying out the new set of files never sits on the input path.
   const deferredFileFilter = useDeferredValue(state.fileFilter);
-  const visibleItems = useMemo(
-    () => filterDiffItems(state.items, deferredFileFilter, (item) => viewedStateOfItem(item, state.viewedByPath)),
-    [deferredFileFilter, state.items, state.viewedByPath],
-  );
+  // The delineated diff: once every file has arrived, they read in kind order, code first, so
+  // the work is at the top and a lockfile never sits between two source files.
+  const generatedPathSet = useMemo(() => new Set(state.generatedPaths), [state.generatedPaths]);
+  // The reorder happens once the stream settles, and through useKindOrder, which keeps the file
+  // the reader is on under them. Reordering straight off `streamComplete` moved the text out from
+  // under whoever was already reading a long diff. The handlers are filled in below, where the
+  // code view and its measurements exist; they are only ever called from the hook's effects.
+  const kindOrderHandlers = useRef<KindOrderHandlers>({ anchor: () => null, restore: () => {} });
+  const grouped = useKindOrder({
+    enabled: state.options.groupByKind,
+    ready: state.streamComplete,
+    handlers: kindOrderHandlers,
+  });
+  const visibleItems = useMemo(() => {
+    const filtered = filterDiffItems(state.items, deferredFileFilter, (item) =>
+      viewedStateOfItem(item, state.viewedByPath),
+    );
+    return grouped ? [...orderItemsByKind(filtered, generatedPathSet)] : filtered;
+  }, [deferredFileFilter, generatedPathSet, grouped, state.items, state.viewedByPath]);
   const treeItems = useMemo(
     () =>
       deferredFileFilter === state.fileFilter
@@ -241,6 +269,12 @@ export function App({ config, initialStatus }: ConfigProps) {
         : filterDiffItems(state.items, state.fileFilter, (item) => viewedStateOfItem(item, state.viewedByPath)),
     [deferredFileFilter, state.fileFilter, state.items, state.viewedByPath, visibleItems],
   );
+  // The kind pill names each group, but only where there is more than one group to tell apart.
+  const kindOfItem = useMemo(() => {
+    if (!grouped) return undefined;
+    const kinds = new Set(visibleItems.map((item) => diffItemKind(item, generatedPathSet)));
+    return kinds.size > 1 ? (item: DiffItem) => diffItemKind(item, generatedPathSet) : undefined;
+  }, [generatedPathSet, grouped, visibleItems]);
   const visibleItemsRef = useSyncedRef(visibleItems);
   // What CodeView renders: a collapsed file as plain text, so no highlight
   // work is spent on it (see presentedItem).
@@ -440,6 +474,29 @@ export function App({ config, initialStatus }: ConfigProps) {
       ) || (items.some((item) => item.id === current.activeItemId) ? current.activeItemId : "")
     );
   }, [latestState, visibleItemsRef]);
+  // What useKindOrder measures and restores around a reorder of the file column: the file under
+  // the viewport with how far into it the reader is, and a scroll that puts that place back. The
+  // offset is what keeps their line: a reorder moves whole files past each other and changes no
+  // file's own height, so without it a reader 800 pixels into a long file was thrown back to its
+  // first line. A reader who has not scrolled into the diff has no anchor, and nothing to keep.
+  //
+  // In a layout effect, and syncing the list itself, because useKindOrder is called above (it
+  // decides the order `visibleItems` is built in) and measures in a passive effect. Every layout
+  // effect of a commit runs before any passive one, so this is what makes `anchor()` read this
+  // commit's list against the column's current tops rather than the previous render's — the
+  // stream-complete commit is exactly where those two differ.
+  useLayoutEffect(() => {
+    visibleItemsRef.current = visibleItems;
+    kindOrderHandlers.current = {
+      anchor: () =>
+        codeViewScrollTopRef.current > 0
+          ? itemScrollAnchor(currentVisibleItemId(), codeViewScrollTopRef.current, (itemId) =>
+              codeViewRef.current?.getInstance()?.getTopForItem(itemId),
+            )
+          : null,
+      restore: (anchor) => codeViewRef.current?.scrollTo(itemScrollTarget(anchor)),
+    };
+  }, [currentVisibleItemId, visibleItems, visibleItemsRef]);
   const jumpAdjacentFile = useCallback(
     (direction: -1 | 1) => {
       const target = adjacentItemId(currentVisibleItemId(), visibleItemsRef.current, direction);
@@ -562,10 +619,10 @@ export function App({ config, initialStatus }: ConfigProps) {
     dispatch({ type: "set-option", key: "layout", value: layout });
   };
   // Dispatches an options change and persists it globally when the key is a
-  // persisted preference (`collapsed` stays session-local).
+  // persisted preference (`collapsed` and `groupByKind` stay session-local; see ViewerPrefs).
   const setOption = (key: keyof DiffViewerOptions, value: any) => {
     dispatch({ type: "set-option", key, value });
-    if (key !== "collapsed") {
+    if (key !== "collapsed" && key !== "groupByKind") {
       saveViewerPrefs({ [key]: value }, writes);
     }
   };
@@ -769,6 +826,7 @@ export function App({ config, initialStatus }: ConfigProps) {
                   renderCustomHeader={(item) => (
                     <FileHeader
                       item={item as DiffItem}
+                      kind={kindOfItem?.(item as DiffItem)}
                       label={label}
                       onCopyPath={(path) => {
                         copyText(path, copyFallbackRef.current).then(

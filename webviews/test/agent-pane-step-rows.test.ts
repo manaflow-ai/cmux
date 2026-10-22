@@ -14,6 +14,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -117,8 +118,9 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url());
     await page.getByText("build-acpmux.sh").first().waitFor();
-    // Rows place by their drawn heights a frame after they mount.
-    await page.waitForTimeout(300);
+    // Rows place by their drawn heights a frame after they mount: two painted frames later they have.
+    await installPaintedFrames(page);
+    await page.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
     return page;
   };
   /// Opens the run of the first two commands and the thought between them ("Ran commands",
@@ -126,8 +128,20 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
   const openRun = async (page: Page) => {
     await page.locator(".acpmux-row button.cv-tool", { hasText: "Ran commands" }).click();
     await page.locator(".cv-thought").waitFor();
-    // The fold plays, then the rows below it place by their drawn heights.
-    await page.waitForTimeout(500);
+    // The fold plays (a Web Animation, fold.ts), then the rows below it place by their drawn heights.
+    await page.evaluate(async () => {
+      const finite = () =>
+        document
+          .getAnimations()
+          .filter(
+            (animation) =>
+              animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime),
+          );
+      for (let moving = finite(); moving.length > 0; moving = finite())
+        await Promise.allSettled(moving.map((animation) => animation.finished));
+      await window.cmuxPaintFrame();
+      await window.cmuxPaintFrame();
+    });
   };
   beforeAll(async () => {
     daemon = Bun.serve({

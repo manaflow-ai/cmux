@@ -191,7 +191,9 @@ On `feat-cmux-next-browser-input` (browser group 4):
   browser host driver's path); a Chromium page gets DevTools `Input.dispatchMouseEvent`,
   `Input.dispatchKeyEvent` and `Input.insertText` (`BrowserNativeInputs`). Neither moves the
   person's pointer or keyboard focus. The answer's `native` says which ran: with no engine view (a
-  WebKit page in no window, a Chromium page with no browser, AppKit's back and forward buttons)
+  WebKit page in no window, a Chromium page with no browser, AppKit's back and forward buttons,
+  and for a wheel a WebKit window on no screen, where WebKit would hold a native wheel; an
+  occluded window on a screen gets the native wheel; decided before sending, so it scrolls once)
   the input runs as page events instead (untrusted, no default actions): a mouse down focuses
   what it hits, a right down sends `contextmenu`, an up after a down of the same button clicks, a
   wheel the page does not cancel scrolls the box under the point, and a printable key press

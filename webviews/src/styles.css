@@ -2151,6 +2151,17 @@ svg[data-icon-fill] {
   text-overflow: ellipsis;
   color: var(--cmux-diff-text-muted);
 }
+/* The delineated diff's kind pill: which group this file is in, quiet enough to ignore. */
+.file-header-kind {
+  flex: 0 0 auto;
+  margin-right: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--cmux-diff-border);
+  border-radius: 4px;
+  color: var(--cmux-diff-text-muted);
+  font-size: calc(var(--cmux-diff-ui-font-size) * 0.85);
+  white-space: nowrap;
+}
 /* "+N -N" then a five-block bar of the added share (FileHeader.tsx DiffStatBar), in tabular figures
    so the counts of stacked headers line up. */
 .file-header-stats {

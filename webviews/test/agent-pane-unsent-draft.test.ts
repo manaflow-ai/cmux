@@ -79,10 +79,16 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
     return page;
   }
 
-  /// The last text the page handed the host, once it stops changing.
+  /// The last text the page handed the host, once it is `expected` (else what it is after 5 s).
   async function lastUnsent(page: Page, expected: string): Promise<string | undefined> {
     const read = () => page.evaluate(() => (window as unknown as { unsentDrafts: string[] }).unsentDrafts.at(-1));
-    for (let i = 0; i < 100 && (await read()) !== expected; i++) await page.waitForTimeout(50);
+    await page
+      .waitForFunction(
+        (expected) => (window as unknown as { unsentDrafts: string[] }).unsentDrafts.at(-1) === expected,
+        expected,
+        { timeout: 5_000 },
+      )
+      .catch(() => {});
     return read();
   }
 

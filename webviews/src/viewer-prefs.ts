@@ -19,8 +19,18 @@ import type { DiffViewerOptions } from "./pierre-options";
  * On the shared page host the prefs are `diff.*` settings: `cmux.diff.prefs.get` and
  * `cmux.diff.prefs.set {key, value}` (diff/pageStore.ts), and web storage is never touched (the
  * page host pool clears it). The host seeds first paint through `payload.viewerOptions`.
+ *
+ * `groupByKind` is session-local for now, like `collapsed`: the host only accepts the `diff.*`
+ * keys it has schema rows for (`DiffPrefKey.booleans`), so sending it would be refused and
+ * dropped without a word. Giving it a row is the new-setting checklist (schema row, agent policy,
+ * 21 locales, regenerated settings exports) and lands on its own, once the defaults snapshot is
+ * green on base; `test/viewer-prefs-host-keys.test.ts` fails if the two lists drift apart again.
+ * Until then the grouping is off by default (state.ts) and turned on from the toolbar for the
+ * session: a reorder nobody can durably turn off has no business being the default.
  */
-export type ViewerPrefs = Partial<Omit<DiffViewerOptions, "collapsed">> & { collapsedFiles?: string[] };
+export type ViewerPrefs = Partial<Omit<DiffViewerOptions, "collapsed" | "groupByKind">> & {
+  collapsedFiles?: string[];
+};
 
 const persistedOptionsKey = "cmux.diffViewer.options";
 // Layout-only key from before options were persisted as one object.

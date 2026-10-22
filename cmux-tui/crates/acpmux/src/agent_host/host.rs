@@ -228,13 +228,19 @@ struct State {
     stall_hello: bool,
 }
 
+/// The debug builds' hello-stall seam's variable ([`claim_hello_stall`]):
+/// the host launch passes it on (`link.rs`), since the host starts with a
+/// cleared environment.
+#[cfg(debug_assertions)]
+pub(super) const HELLO_STALL_DIR_ENV: &str = "ACPMUX_TEST_HOST_HELLO_STALL_DIR";
+
 /// Debug builds only: `ACPMUX_TEST_HOST_HELLO_STALL_DIR` names a directory of
 /// `stall-*` marker files. A host that removes one never answers `Hello`, as
 /// a wedged host does, so the daemon's integration tests can drive that
 /// path; each marker stalls one host. Release builds have no seam.
 fn claim_hello_stall() -> bool {
     #[cfg(debug_assertions)]
-    if let Some(dir) = std::env::var_os("ACPMUX_TEST_HOST_HELLO_STALL_DIR")
+    if let Some(dir) = std::env::var_os(HELLO_STALL_DIR_ENV)
         && let Ok(entries) = std::fs::read_dir(dir)
     {
         return entries.flatten().any(|e| {

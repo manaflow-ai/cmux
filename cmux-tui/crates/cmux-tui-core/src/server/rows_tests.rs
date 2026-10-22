@@ -370,7 +370,7 @@ fn layout_documents_carry_rows_and_apply_sets_them() {
     assert!(chain.is_string(), "{plain}");
 
     // A down split becomes rows 1 and 2.
-    let mut rows = plain.clone();
+    let mut rows = plain;
     rows["root"]["columns"][0]["rows"] = json!([{"height": 600}, {"row_id": chain, "height": 400}]);
     let applied = apply(&rows, "rows-doc-make");
     assert_eq!(applied["ok"], true, "{applied}");
@@ -413,7 +413,7 @@ fn layout_documents_carry_rows_and_apply_sets_them() {
     let mut unknown_first = exported.clone();
     unknown_first["root"]["columns"][0]["rows"][0]["row_id"] = chain.clone();
     refused.push(apply(&unknown_first, "rows-doc-first"));
-    let mut extra = exported.clone();
+    let mut extra = exported;
     extra["root"]["columns"][0]["rows"][1]["width"] = json!(1);
     refused.push(apply(&extra, "rows-doc-extra"));
     for answer in refused {

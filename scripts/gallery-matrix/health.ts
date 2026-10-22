@@ -10,17 +10,24 @@
 // waiting. A broken state that is not on it fails the check; a listed state that now renders is
 // printed so its line can go.
 //
+// Each state must also say it is ready within its budget (ready-budgets.ts, ready-budgets.json): a
+// state past its budget's margin is rendered again with the broken ones, and fails only if its
+// fastest run is still past it. A state well under its budget is printed so its row can come down.
+//
 //   CMUX_GALLERY_IN_VM=1 bun health.ts --manifest m.json --gallery-dir ../../webviews/dist/gallery
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { appendFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { type Timing, BUDGETS_PATH, fastest, lowerable, overBudget, readBudgets, readyTimes } from "./ready-budgets";
 import { type Engine, type MatrixCase, parseManifest, runLocal, shardCases } from "./runner";
 
 export type HealthResult = {
   id: string;
   params?: Record<string, unknown>;
   ready?: string | null;
+  /** Navigation start to the stage's first ready report (runner.ts). */
+  readyMs?: number | null;
   error?: string;
   play?: { status?: string; error?: string } | null;
 };
@@ -84,6 +91,20 @@ export function summary(verdict: Verdict, cases: number): string {
   return lines.join("\n");
 }
 
+/** States over their ready-time budget fail; states well under it can lower their rows. */
+export function budgetSummary(slow: Timing[], lower: Timing[]): string {
+  const lines: string[] = [];
+  if (slow.length) {
+    lines.push("", "Slower than the ready-time budget on every run (make the state faster; see scripts/gallery-matrix/ready-budgets.ts):");
+    for (const { state, ms, budget } of slow) lines.push(`- ${state}: ${ms} ms, budget ${budget} ms`);
+  }
+  if (lower.length) {
+    lines.push("", "Faster than the budget; lower its row in ready-budgets.json:");
+    for (const { state, ms, budget } of lower) lines.push(`- ${state}: ${budget} -> ${ms} ms`);
+  }
+  return lines.join("\n");
+}
+
 async function main(): Promise<void> {
   const { values } = parseArgs({
     options: {
@@ -91,6 +112,7 @@ async function main(): Promise<void> {
       "gallery-dir": { type: "string" },
       "output-dir": { type: "string", default: "gallery-health-output" },
       allowlist: { type: "string", default: join(import.meta.dir, "broken-allowlist.json") },
+      budgets: { type: "string", default: BUDGETS_PATH },
       engines: { type: "string", default: "chromium" },
       retries: { type: "string", default: "2" },
       "shard-count": { type: "string", default: "1" },
@@ -102,6 +124,7 @@ async function main(): Promise<void> {
   if (process.env.CMUX_GALLERY_IN_VM !== "1") throw new Error("gallery health renders only on CI or a VM (CMUX_GALLERY_IN_VM=1)");
   const engines = values.engines.split(",").filter(Boolean) as Engine[];
   const allowlist = JSON.parse(await readFile(values.allowlist, "utf8")) as Record<string, string>;
+  const budgets = readBudgets(values.budgets);
   const all = parseManifest(JSON.parse(await readFile(values.manifest, "utf8")));
   const cases = shardCases(all, Number(values["shard-count"]), Number(values["shard-index"]));
   const outputDir = resolve(values["output-dir"]);
@@ -121,23 +144,34 @@ async function main(): Promise<void> {
     throw new Error(message);
   }
   let broken = brokenStates(results);
-  for (let attempt = 1; attempt <= Number(values.retries) && broken.size; attempt++) {
-    // Render again only the cases of states still broken; a state stays broken only if it breaks again.
-    const again: MatrixCase[] = cases.filter((item) => broken.has(stateKey(item)));
+  const timings = [readyTimes(results)];
+  const slowStates = () => new Set(overBudget(fastest(timings), budgets).map(({ state }) => state));
+  let slow = slowStates();
+  for (let attempt = 1; attempt <= Number(values.retries) && (broken.size || slow.size); attempt++) {
+    // Render again only the cases of states still broken or slow; a state stays broken only if it
+    // breaks again, and slow only if it is slow again.
+    const retried = new Set([...broken.keys(), ...slow]);
+    const again: MatrixCase[] = cases.filter((item) => retried.has(stateKey(item)));
     const manifest = join(outputDir, `retry-${attempt}.json`);
     await writeFile(manifest, JSON.stringify(again));
     results = (await run(manifest, attempt)) as HealthResult[];
     const still = brokenStates(results);
     broken = new Map([...broken].filter(([state]) => still.has(state)));
+    timings.push(readyTimes(results));
+    slow = slowStates();
   }
   // runLocal sets a failing exit code for quality findings; this check judges only broken states.
   process.exitCode = 0;
   const verdict = judge(cases.map(stateKey), broken, allowlist);
-  const text = summary(verdict, cases.length);
-  await writeFile(join(outputDir, "health.json"), `${JSON.stringify(verdict, null, 2)}\n`);
+  // A broken state answers to the allowlist, not to its budget.
+  const best = new Map([...fastest(timings)].filter(([state]) => !broken.has(state)));
+  const over = overBudget(best, budgets);
+  const lower = lowerable(best, budgets);
+  const text = [summary(verdict, cases.length), budgetSummary(over, lower)].filter(Boolean).join("\n");
+  await writeFile(join(outputDir, "health.json"), `${JSON.stringify({ ...verdict, slow: over, lower }, null, 2)}\n`);
   console.log(text);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${text}\n`);
-  if (verdict.fresh.length) process.exitCode = 1;
+  if (verdict.fresh.length || over.length) process.exitCode = 1;
 }
 
 if (import.meta.main) await main();

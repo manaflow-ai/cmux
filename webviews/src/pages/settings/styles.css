@@ -310,6 +310,16 @@ mark {
   max-width: 60%;
 }
 
+/* A row with a Reset slot (setting rows, the Theme rows, the spacer rows) holds one control and the
+   slot, on one line: the cap leaves the slot's 30 px (22 px slot, 8 px gap) beyond the control's
+   60 %. A wrapped slot left the control in the slot's column, 30 px right of the other rows'
+   controls and a line higher (live QA 7a: the three-choice New Tab Position, 330 px, in a 570 px
+   card). Editors with several parts (number, color, text, lists) wrap inside their own box. */
+.row-control:has(> .reset-slot) {
+  flex-wrap: nowrap;
+  max-width: calc(60% + 30px);
+}
+
 /* The row menu's host around the control (SettingRow): the control's own flex items stay in place. */
 .row-control-menu {
   display: contents;
@@ -634,26 +644,45 @@ mark {
 }
 
 .domain-list {
-  display: flex;
-  flex-direction: column;
-  max-height: 220px;
+  max-height: 260px;
+  margin: 0;
+  padding: 0;
   overflow-y: auto;
+  list-style: none;
 }
 
+/* A font row draws in its own face (FontPicker); the highlight is the theme list's. */
 .domain-option {
-  padding: 4px 8px;
-  border: 0;
+  padding: 3px 6px;
   border-radius: 5px;
-  background: transparent;
-  text-align: left;
 }
 
-.domain-option:hover {
-  background: var(--input-bg);
+.domain-option[data-highlighted] {
+  background: var(--row-focus);
+  box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
 }
 
-.domain-option[aria-pressed="true"] {
-  background: var(--accent-soft);
+.font-option-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.font-option-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.font-option-tag {
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+}
+
+.font-option-check {
+  color: var(--accent-text);
 }
 
 .host-list {
@@ -735,7 +764,8 @@ mark {
     flex-wrap: wrap;
   }
 
-  .row-control {
+  .row-control,
+  .row-control:has(> .reset-slot) {
     max-width: 100%;
   }
 }
@@ -1241,8 +1271,10 @@ mark {
   height: 100%;
   object-fit: cover;
 }
-.chiefs-initial {
-  font-weight: 600;
+/* Pixel-art mascots stay crisp and uncropped, as in the pet card. */
+.chiefs-picture img[data-mascot] {
+  object-fit: contain;
+  image-rendering: pixelated;
 }
 .chiefs-backend {
   flex: none;

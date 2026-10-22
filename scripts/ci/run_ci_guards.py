@@ -288,10 +288,18 @@ def is_stateful(unit: Unit) -> bool:
     return any(
         step.working_directory
         or "git submodule" in step.run
+        or "init-submodule.sh" in step.run
         or "GITHUB_ENV" in step.run
         or "GITHUB_PATH" in step.run
         for step in unit.steps
     )
+
+
+def needs_clean_tree(steps: list[Step]) -> bool:
+    """The workload profile runner refuses a checkout with source changes, and
+    other steps (a submodule init) change the shared checkout while they run,
+    so a task holding it runs alone, before the parallel steps."""
+    return any("cmux_workload_profile.py run" in step.run for step in steps)
 
 
 def skipped_here(step: Step) -> bool:
@@ -401,6 +409,17 @@ def select_steps(units: list[Unit], names: set[str]) -> list[Unit]:
     return selected
 
 
+def feat_routed_groups(changed_files: str) -> tuple[str, ...]:
+    """The groups a feat-cmux-next change routes to; an unreadable list routes every one."""
+    import detect_linux_guard_changes  # noqa: PLC0415 - the router, beside this script
+
+    try:
+        paths = [line.strip() for line in Path(changed_files).read_text(encoding="utf-8").splitlines() if line.strip()]
+    except (OSError, UnicodeError):
+        paths = []
+    return detect_linux_guard_changes.classify_feat(paths)
+
+
 def git(*args: str) -> str:
     return subprocess.run(
         ["git", *args], cwd=ROOT, check=True, stdout=subprocess.PIPE, text=True
@@ -495,6 +514,11 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--root", help="run this checkout's guard steps instead of the runner's own (no stamp)")
     parser.add_argument("--results", help="write {step name: passed} as JSON to this file")
     parser.add_argument("--json", dest="json_path", help="write the plan and every step's result to this file")
+    parser.add_argument(
+        "--feat-routes", metavar="FILE",
+        help="run the fast set plus the groups the changed files in FILE (one per line) route to for a "
+             "feat-cmux-next change (detect_linux_guard_changes.classify_feat); no stamp",
+    )
     args = parser.parse_args(argv)
     if args.root:
         ROOT = Path(args.root).resolve()
@@ -518,6 +542,10 @@ def main(argv: list[str]) -> int:
         print(f"run_ci_guards.py: {error}", file=sys.stderr)
         return 2
     wanted = set(args.group) if args.group else (None if args.all else set(FAST_GROUPS))
+    if args.feat_routes:
+        routed = feat_routed_groups(args.feat_routes)
+        print(f"feat-cmux-next routed guard groups: {', '.join(routed) or 'none'}", flush=True)
+        wanted = (wanted or set(FAST_GROUPS)) | set(routed)
     if wanted is not None:
         units = [u for u in units if u.group in wanted or u.job in wanted]
         if not units:
@@ -570,18 +598,22 @@ def main(argv: list[str]) -> int:
         else:
             tasks.extend((unit, [step]) for step in unit.steps)
     tasks.sort(key=lambda task: -len(task[1]))
+    # Tasks that need a clean checkout run one at a time first; then the rest share the pool.
+    batches = [[task] for task in tasks if needs_clean_tree(task[1])]
+    batches.append([task for task in tasks if not needs_clean_tree(task[1])])
     results: list[StepResult] = []
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs))
-    futures = [pool.submit(run_steps, unit, steps, env, base_sha, args.keep_going) for unit, steps in tasks]
     try:
-        for future in concurrent.futures.as_completed(futures):
-            for result in future.result():
-                results.append(result)
-                if result.ok is False:
-                    print(f"  FAIL {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
-                    print(f"::group::{result.step.name}\n{result.output.rstrip()}\n::endgroup::", flush=True)
-                elif args.verbose and result.ok:
-                    print(f"  ok   {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
+        for batch in batches:
+            futures = [pool.submit(run_steps, unit, steps, env, base_sha, args.keep_going) for unit, steps in batch]
+            for future in concurrent.futures.as_completed(futures):
+                for result in future.result():
+                    results.append(result)
+                    if result.ok is False:
+                        print(f"  FAIL {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
+                        print(f"::group::{result.step.name}\n{result.output.rstrip()}\n::endgroup::", flush=True)
+                    elif args.verbose and result.ok:
+                        print(f"  ok   {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
     except KeyboardInterrupt:
         pool.shutdown(wait=False, cancel_futures=True)
         stop_running()
@@ -604,7 +636,7 @@ def main(argv: list[str]) -> int:
     if failed:
         print("failed: " + "; ".join(f"{r.unit.label}: {r.step.name}" for r in failed), file=sys.stderr)
         return 1
-    if args.no_stamp or args.group or args.step or args.root:
+    if args.no_stamp or args.group or args.step or args.root or args.feat_routes:
         return 0
     if not (clean_at_start and tree_is_clean()) or git("rev-parse", "HEAD") != head_sha:
         print("tree has uncommitted or untracked files (or HEAD moved); no pass stamp written. Commit, then rerun to stamp.")

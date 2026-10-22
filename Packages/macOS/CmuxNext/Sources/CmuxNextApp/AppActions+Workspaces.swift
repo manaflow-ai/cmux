@@ -47,7 +47,7 @@ extension AppActions {
         // fixture: registered at launch so a restored tab finds its provider (not blank).
         services.pages.register(HomePageTab(services: services))
         registry.bind("home.tab", invoke: { _ = HomePageTab.open(services, focus: $0.allowsViewChange) })
-        services.pages.register(HomeChannelsPageTab(services: services))
+        services.pages.register(HomeChannelsPageTab.make(services))
         // The docked Home's tab (HomeDockTab): the Messages or Channels view (the sidebar's Home or Channels entry).
         services.pages.register(HomeDockTab(services: services))
         #if DEBUG
@@ -119,6 +119,12 @@ extension AppActions {
         var spawn = WorkspaceSpawn(invocation)
         let focus = NewWorkspaceFocus(invocation)
         let show = focus.shows
+        // A person's Cmd-N starts where they work: the focused terminal's folder or the focused
+        // agent chat's exact folder, unless `window-inherit-working-directory = false`.
+        if invocation.origin == .user, invocation["machine"] == nil, NewTerminalStart.inherits(.window),
+           let focused = services.windows.active?.focusedPane, focused.daemon === services.daemon {
+            spawn.inheritedCwd = NewTerminalStart.folder(of: focused.selectedTab, services: services)
+        }
 
         let windows = services.windows
         // Shown: the active window, or a new one when none is open. Not

@@ -31,10 +31,14 @@
 # (defaults_guard.py check-stamp), someone else regenerated them: they are
 # dropped from the repair, and nothing waits for them.
 #
-# The action exports are judged the same way from ACTIONS_MADE_AT, the commit the Mac job made them
-# at (base-autofix-action-exports.sh; without it, BASE_SHA): they land whole, as made there, when
-# nothing in ACTIONS_MADE_AT..tip moved the actions area or wrote one of them. Their inputs are the
-# actions area only; the shortcuts and app-host areas hold what is built from them, not the exports.
+# The action exports are judged from ACTIONS_MADE_AT, the commit the Mac job made them at
+# (base-autofix-action-exports.sh; without it, BASE_SHA), and land whole, as made there. When
+# ACTIONS_MADE_AT..tip moved the actions area they still land, as progress: the next push run makes
+# them on the newer tip. Holding them instead meant none landed while merges outran the regeneration
+# (run 39633520123, 2026-10-21). When a commit after ACTIONS_MADE_AT wrote one of them itself, its
+# copy stays (a generated file takes either side) and this repair drops them; nothing waits for them.
+# Their inputs are the actions area only; the shortcuts and app-host areas hold what is built from
+# them, which base-autofix-land.sh makes again on the tip from the exports there.
 #
 # The rest lands; when anything waited the run still fails, so the next run
 # diffs from an older successful one and repairs it. Nothing already on the tip
@@ -296,12 +300,25 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
         moved_areas="$(grep -vx settings <<<"$moved_areas" || true)"
       fi
     fi
+    # The action exports this repair holds: a newer commit's own copy stays, else they land as progress.
+    partial_actions=0
+    todo_actions="$(while IFS= read -r path; do [[ -z "$path" ]] || ! is_action_export "$path" || echo "$path"; done <<<"$todo" | sort -u)"
+    if [[ -z "$actions_unproven" && -n "$todo_actions" ]]; then
+      if [[ -n "$(comm -12 <(printf '%s\n' "$todo_actions") <(printf '%s\n' "$newer_actions"))" ]]; then
+        echo "A commit after ${actions_from:0:12} wrote the action exports itself; its copy stays, and this repair's is dropped."
+        todo="$(while IFS= read -r path; do [[ -z "$path" ]] || is_action_export "$path" || echo "$path"; done <<<"$todo")"
+      elif grep -qx actions <<<"$moved_areas"; then
+        partial_actions=1
+        echo "::warning::$branch moved the action exports' inputs after ${actions_from:0:12}; the exports made there land as progress, and the next run makes them on the newer tip."
+      fi
+    fi
     held_set=""
     while IFS= read -r path; do
       [[ -n "$path" ]] || continue
       # The snapshot is derived again on the tip (below); only moved inputs and other waits hold it.
-      if grep -qxF unknown <<<"$(output_areas <<<"$path")" \
-        || [[ -n "$(comm -12 <(output_areas <<<"$path") <(printf '%s\n' "$moved_areas"))" ]]; then
+      if ! { ((partial_actions)) && is_action_export "$path"; } \
+        && { grep -qxF unknown <<<"$(output_areas <<<"$path")" \
+          || [[ -n "$(comm -12 <(output_areas <<<"$path") <(printf '%s\n' "$moved_areas"))" ]]; }; then
         held_set+="$path"$'\n'
         continue
       fi

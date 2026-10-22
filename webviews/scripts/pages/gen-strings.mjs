@@ -229,6 +229,11 @@ export const PAGES = {
     out: "webviews/src/pages/chief-usage/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/chief-usage/Localizable.xcstrings" }],
   },
+  // The Chief view gallery (cmux-page://cmux.chief-views/); its table lives next to it.
+  "chief-views": {
+    out: "webviews/src/pages/chief-views/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/chief-views/Localizable.xcstrings" }],
+  },
   // The CodeRouter page (cmux-page://cmux.coderouter/) has no Swift page; its table lives next to it.
   coderouter: {
     out: "webviews/src/pages/coderouter/generated/strings.json",
@@ -249,7 +254,7 @@ export const PAGES = {
         keys: (all) =>
           all.filter(
             (key) =>
-              /^(tools|shell|code|image|media|markdown|duration|chip)\./.test(key) ||
+              /^(tools|shell|code|image|media|markdown|duration|chip|message\.channel)\./.test(key) ||
               [
                 "changes.noLineChanges",
                 "link.openPath",
@@ -261,6 +266,12 @@ export const PAGES = {
                 "message.noText",
                 "message.self",
                 "message.unknown",
+                // A sent message's line and status (MessageCard.tsx), which Channels draws too.
+                "message.sentTo",
+                "message.sendingTo",
+                "message.sending",
+                "message.sent",
+                "message.delivered",
               ].includes(key),
           ),
       },

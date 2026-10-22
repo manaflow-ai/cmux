@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextSettings
 import WebKit
 
@@ -22,7 +23,12 @@ import WebKit
 /// (how many it leaves out because the window server gave no image of
 /// them; AppKit drawing never includes a child window). Child windows are
 /// composited by the window server over the window: a Chromium page draws
-/// into its own child window, and overlay panels sit above content. The
+/// into its own child window, and overlay panels sit above content.
+/// `floating_windows` counts the app's other windows the window server shows
+/// above the window and over it, painted on top cut to its frame: an open
+/// context menu (not in AppKit's window list), a hover card or popover that is
+/// not its child; another of the app's titled windows in front at the same
+/// level, with its own child windows and sheets, is left out. The
 /// async verb also paints each engine's own image of every shown page
 /// (`webviews`, `chromium_pages`, with `_composited` and `_failed` counts),
 /// since the window server
@@ -48,12 +54,19 @@ enum DebugWindowSnapshot {
             let snapshot = try window.snapshotImage()
             // Read before the encode's await: a sheet may close meanwhile.
             let children = window.visibleChildWindows.count
-            try await NSWindow.encodeSnapshotPNG(snapshot.image, to: URL(fileURLWithPath: path))
+            // The app's menus, cards and popovers over the window go on top, as on screen.
+            let floating = window.floatingWindowsSnapshot().flatMap { windows in
+                WindowImageLayer.composite(base: snapshot.image, window: window, layers: [.window(windows.image)])
+                    .map { (image: $0, count: windows.count) }
+            }
+            let output = floating?.image ?? snapshot.image
+            try await NSWindow.encodeSnapshotPNG(output, to: URL(fileURLWithPath: path))
             return .object([
-                "path": .string(path), "width": JSONValue(snapshot.image.width), "height": JSONValue(snapshot.image.height),
+                "path": .string(path), "width": JSONValue(output.width), "height": JSONValue(output.height),
                 "kind": .string(kind), "window_number": JSONValue(window.windowNumber), "method": .string(snapshot.method.rawValue),
                 "child_windows": JSONValue(snapshot.method == .composited ? children : 0),
                 "child_windows_failed": JSONValue(snapshot.method == .composited ? 0 : children),
+                "floating_windows": JSONValue(floating?.count ?? 0),
                 "refusal_hud": hudMessage(services), "refusal_hud_count": JSONValue(services.refusalHUD.shownCount),
             ])
         } catch {
@@ -131,14 +144,21 @@ enum DebugWindowSnapshot {
                     pagesFailed += 1
                 }
             }
+            // React pages on the Chromium engine (the agent page, Settings) draw the same way.
+            let reactPages = PageRegistry.shownChromiumPages(in: window)
+            for (page, rect) in reactPages {
+                guard let image = await page.chromiumImage() else { pagesFailed += 1; continue }
+                layers.append(.page(image, rect))
+            }
             if let panels = window.childWindowsSnapshot(includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
                 layers.append(.window(panels))
                 childrenIncluded += children.count - pageChildren
             }
-            // Menus are not child windows: an open one goes on top.
+            // Menus, and cards or popovers not attached to the window, go on top.
             let floating = window.floatingWindowsSnapshot()
             if let floating { layers.append(.window(floating.image)) }
-            let output = WindowImageLayer.composite(base: base.image, window: window, layers: layers) ?? base.image
+            let painted = WindowImageLayer.composite(base: base.image, window: window, layers: layers)
+            let output = painted ?? base.image
             // AppKit/WebKit capture and compositing stay on the main actor;
             // PNG compression and the file write run off-main.
             try await NSWindow.encodeSnapshotPNG(output, to: URL(fileURLWithPath: path))
@@ -148,8 +168,9 @@ enum DebugWindowSnapshot {
                 "webviews": JSONValue(webViews.count), "webviews_composited": JSONValue(webViews.count - failed),
                 "webviews_failed": JSONValue(failed), "child_windows": JSONValue(childrenIncluded),
                 "child_windows_failed": JSONValue(children.count - childrenIncluded),
-                "floating_windows": JSONValue(floating?.count ?? 0),
-                "chromium_pages": JSONValue(pages.count), "chromium_pages_composited": JSONValue(pages.count - pagesFailed),
+                "floating_windows": JSONValue(painted == nil ? 0 : floating?.count ?? 0),
+                "chromium_pages": JSONValue(pages.count + reactPages.count),
+                "chromium_pages_composited": JSONValue(pages.count + reactPages.count - pagesFailed),
                 "chromium_pages_failed": JSONValue(pagesFailed),
                 "refusal_hud": hudMessage(services), "refusal_hud_count": JSONValue(services.refusalHUD.shownCount),
             ])

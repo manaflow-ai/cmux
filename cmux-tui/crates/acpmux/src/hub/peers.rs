@@ -28,6 +28,9 @@ enum PeerAskRun {
 /// The record kind of a peer's `_acpmux/permission_pending`, relayed to
 /// this daemon's watchers (`server/mod.rs` `deliver`); never stored.
 pub(crate) const PEER_PERMISSION_PENDING: &str = "peer_permission_pending";
+/// A peer left events out of this daemon's link (`_acpmux/lagged`, `Conn::send`): each client
+/// reading one of that peer's chats here reads it again from its last record.
+pub(crate) const PEER_LAGGED: &str = "peer_lagged";
 
 impl Hub {
     // ------------------------------------------------------------- peers
@@ -488,6 +491,36 @@ impl Hub {
                         }),
                         remote: Some(RemoteRef { peer: peer.clone(), summary }),
                     });
+                }
+                // A prompt this daemon forwarded was taken (`outbox.rs` `PeerAccepts`).
+                PeerNotice::Notification { method: m, params }
+                    if m == method::MUX_PROMPT_ACCEPTED =>
+                {
+                    self.peer_accepts.accepted(&peer, &params);
+                }
+                PeerNotice::Notification { method: m, params } if m == "_acpmux/lagged" => {
+                    let ids: Vec<String> = self
+                        .remote_sessions
+                        .lock()
+                        .unwrap()
+                        .values()
+                        .filter(|r| r.peer == peer)
+                        .map(|r| r.receipt.mux_session_id.clone())
+                        .collect();
+                    for id in ids {
+                        let _ = self.events.send(HubEvent {
+                            session_id: id,
+                            record: Arc::new(EventRecord {
+                                seq: 0,
+                                at: now_ms(),
+                                dir: "peer".into(),
+                                kind: PEER_LAGGED.into(),
+                                msg: params.clone(),
+                                host_seq: None,
+                            }),
+                            remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null }),
+                        });
+                    }
                 }
                 PeerNotice::Notification { method: m, params } => {
                     let Some(id) =

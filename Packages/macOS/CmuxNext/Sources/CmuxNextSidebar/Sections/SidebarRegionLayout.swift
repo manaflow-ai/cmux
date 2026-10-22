@@ -31,6 +31,9 @@ public nonisolated struct SidebarRegionMetrics: Hashable, Sendable {
     public var topPadding: CGFloat?
     public var bottomPadding: CGFloat?
     public var leadingSeparator = false
+    /// How far a list row ends short of the region's right edge: a block in the sidebar's list takes the
+    /// list rows' `SidebarStyle.rowTrailingTrim`, so a pinned row's pill ends where a workspace row's does.
+    public var trailingTrim: CGFloat = 0
 
     public init(rowHeight: CGFloat, headerHeight: CGFloat, inset: CGFloat, sectionGap: CGFloat, padding: CGFloat,
                 cardPadding: CGFloat, tileMinWidth: CGFloat, tileHeight: CGFloat, tileGap: CGFloat,
@@ -159,7 +162,8 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
                 } else {
                     for item in section.items {
                         result.rows.append(SidebarRegionRow(kind: .item(item.id, section: section.id),
-                                                            frame: CGRect(x: x, y: y, width: innerWidth, height: m.rowHeight)))
+                                                            frame: CGRect(x: x, y: y, width: max(0, innerWidth - (carded ? 0 : m.trailingTrim)),
+                                                                          height: m.rowHeight)))
                         y += m.rowHeight
                     }
                     sectionCapped += CGFloat(min(section.items.count, section.maxRows ?? section.items.count)) * m.rowHeight

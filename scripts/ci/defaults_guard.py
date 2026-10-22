@@ -30,13 +30,22 @@ stale against Swift (e190c402850c); a stamp that differs from the sources says s
 computed from that tree's exports and sources (the trees are read with git as
 data; nothing from the head runs). The snapshot is bot-only (#21946): the base
 autofix rewrites it after a merge, no pull request commits it, and `check`
-never reads it, so a hand-edited copy hides nothing. A change passes
-only with an approving review, on the head commit, from a call owner in
-.github/defaults-call-owners.json who is not the pull request's author: the
-`needs a call` label alone never passes, and a push after the approval needs
-a new one. The workflow (pull_request_target only) runs this script and reads
-the owners file from the base branch, so a pull request cannot approve itself
-by editing either.
+never reads it, so a hand-edited copy hides nothing.
+
+A setting the pull request adds whose default is off (false, null, "off",
+"never", "none", "disabled" or empty) keeps the behavior from before it
+existed (new things ship off), so it passes on its own (Leo 2026-10-21); it
+stays listed. Any other change passes with an independent review receipt on
+the head: a comment or review whose first line is
+`Review (<reviewer>): SHIP at <full head sha>` from a member (OWNER, MEMBER or
+COLLABORATOR, a user, not a bot), not a self-review, the grammar
+scripts/ci/risk_tier.py reads. The newest verdict naming the head decides, so
+a later BLOCK beats an earlier SHIP, and a push needs a new receipt. An
+approving review of the head from a call owner in
+.github/defaults-call-owners.json other than the author still passes too. The
+`needs a call` label alone never passes. The workflow (pull_request_target
+only) runs this script and reads the owners file from the base branch, so a
+pull request cannot approve itself by editing either.
 """
 
 from __future__ import annotations
@@ -98,6 +107,14 @@ MODIFIER_ORDER = ("ctrl", "opt", "shift", "cmd")
 KEYBIND_RE = re.compile(r'"keybind\s*=\s*([^"=]+?)\s*=\s*([^"]*)"')
 YIELDS_RE = re.compile(r"static\s+let\s+(yieldsTo\w+)\s*:\s*Set<ActionID>\s*=\s*\[(.*?)\]", re.S)
 FLAG_RE = re.compile(r"\bstatic\s+(?:let|var)\s+(\w*Enabled)\s*(?::\s*Bool\s*)?=\s*(true|false)\b")
+# An independent review's verdict on the exact head, on a comment's or review's first line:
+# "Review (subagent, correctness first): SHIP at <full head sha>". Same grammar as
+# scripts/ci/risk_tier.py RECEIPT (and next_autoland, merge_audit).
+RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship|block|fix|not ship|hold)(?![\w-])",
+                     re.I)
+TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
+# Default values that read as "off": a new setting with one of them changes nothing for anyone.
+OFF_WORDS = ("off", "never", "none", "disabled", "")
 
 
 # MARK: Reading a tree
@@ -363,6 +380,16 @@ def changes(old: Mapping[str, object], new: Mapping[str, object]) -> list[Change
     return found
 
 
+def is_off(value: object) -> bool:
+    return value is None or value is False or value == [] or value == {} or \
+        (isinstance(value, str) and value.lower() in OFF_WORDS)
+
+
+def exempt(found: list[Change], before: Mapping[str, object]) -> list[Change]:
+    """The settings the head adds with an off default: what everyone got before the setting existed."""
+    return [c for c in found if c.id.startswith("setting.") and c.id not in before and is_off(c.new)]
+
+
 def guard_changes(base: Tree, head: Tree) -> list[Change]:
     found = []
     for path in GUARD_FILES:
@@ -383,6 +410,8 @@ class Approval:
     head: str
     approvers: list[str] = field(default_factory=list)
     stale: list[str] = field(default_factory=list)
+    shipped: str | None = None  # the reviewer whose SHIP receipt is the newest verdict on the head
+    blocked: str | None = None  # the reviewer whose BLOCK receipt is
 
     @property
     def eligible(self) -> list[str]:
@@ -390,7 +419,28 @@ class Approval:
 
     @property
     def approved(self) -> bool:
-        return bool(self.approvers)
+        return bool(self.approvers) or self.shipped is not None
+
+
+def receipt_verdict(pull: Mapping[str, object], head: str) -> tuple[str, str] | None:
+    """("ship" or "block", reviewer) of the newest receipt naming the full head sha on the first line
+    of a trusted comment or review body; a self-review never counts and a BLOCK wins a tie."""
+    found = []
+    items = [(c, c.get("createdAt")) for c in (pull.get("comments") or {}).get("nodes") or []]
+    items += [(r, r.get("submittedAt")) for r in (pull.get("reviews") or {}).get("nodes") or []]
+    for item, at in items:
+        author = item.get("author") or {}
+        if author.get("__typename") != "User" or item.get("authorAssociation") not in TRUSTED:
+            continue
+        first = next((line for line in str(item.get("body") or "").splitlines() if line.strip()), "")
+        line = RECEIPT.match(first)
+        if head and line and "self" not in line.group(1).lower() and head in first:
+            verdict = "ship" if line.group(2).lower() == "ship" else "block"
+            found.append((str(at or ""), verdict == "block", verdict, f"review ({line.group(1).strip()})"))
+    if not found:
+        return None
+    _, _, verdict, who = max(found)
+    return verdict, who
 
 
 def owners_for(text: str | None) -> list[str]:
@@ -417,6 +467,12 @@ def approval(owners: list[str], pull: Mapping[str, object]) -> Approval:
             result.approvers.append(owner)
         else:
             result.stale.append(owner)
+    receipt = receipt_verdict(pull, head)
+    if receipt:
+        if receipt[0] == "ship":
+            result.shipped = receipt[1]
+        else:
+            result.blocked = receipt[1]
     return result
 
 
@@ -425,8 +481,8 @@ query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       author { login } headRefOid merged mergeCommit { oid }
-      reviews(last: 100) { nodes { author { login } state commit { oid } } }
-      comments(last: 100) { nodes { databaseId body author { login } } }
+      reviews(last: 100) { nodes { author { login __typename } authorAssociation state body submittedAt commit { oid } } }
+      comments(last: 100) { nodes { databaseId body createdAt authorAssociation author { login __typename } } }
     }
   }
 }
@@ -450,7 +506,13 @@ def fetch_pull(repo: str, number: int) -> dict:
 # MARK: Report
 
 
-def comment_body(found: list[Change], verdict: Approval | None, head: str, merged: str | None = None) -> str:
+def signed(verdict: Approval) -> str:
+    who = [f"@{a}" for a in verdict.approvers] + ([f"`{plain(verdict.shipped)}`"] if verdict.shipped else [])
+    return ", ".join(who)
+
+
+def comment_body(found: list[Change], verdict: Approval | None, head: str, merged: str | None = None,
+                 free: list[Change] | None = None) -> str:
     lines = [MARKER, "## Default changes"]
     if not found:
         lines.append(f"No defaults change at `{head[:12]}`.")
@@ -458,22 +520,31 @@ def comment_body(found: list[Change], verdict: Approval | None, head: str, merge
     lines.append(f"This pull request changes {len(found)} default{'s' if len(found) != 1 else ''} at `{head[:12]}` "
                  "(what everyone gets without configuring anything):")
     lines.append("")
-    lines += [f"- {code(c.id)}: {code(c.detail)}" for c in found]
+    free = free or []
+    lines += [f"- {code(c.id)}: {code(c.detail)}" + (" (a new setting, off by default: passes on its own)" if c in free else "")
+              for c in found]
     lines.append("")
-    if verdict is not None:
+    if all(c in free for c in found):
+        lines.append("Every change is a new setting that defaults to off, the behavior from before it existed.")
+    elif verdict is not None:
         if verdict.approved:
-            lines.append(f"Approved on this commit by {', '.join('@' + a for a in verdict.approvers)}.")
+            lines.append(f"Signed off on this commit by {signed(verdict)}.")
         else:
             who = " or ".join(f"@{o}" for o in verdict.eligible) or "(no eligible call owner)"
-            lines.append(f"**Needs a call.** It passes only with an approving review on this commit from {who} "
-                         f"(the call owners in `{OWNERS}`, never the author). The `needs a call` label alone does not pass, "
-                         "and a new push needs a new approval.")
+            if verdict.blocked:
+                lines.append(f"The newest verdict on this commit is a BLOCK from `{plain(verdict.blocked)}`.")
+            lines.append(f"**Needs a review.** It passes with an independent review receipt on this commit: a comment "
+                         f"or review whose first line is `Review (<reviewer>): SHIP at {head}`, from a member, not a "
+                         "self-review (the newest verdict naming the head decides; a later BLOCK beats an earlier "
+                         f"SHIP), or with an approving review on this commit from {who} (the call owners in `{OWNERS}`, "
+                         "never the author). A receipt posted as a review re-runs this check; after a plain comment, "
+                         "re-run it. The `needs a call` label alone does not pass, and a new push needs a new receipt.")
             if verdict.stale:
                 lines.append(f"Earlier approvals on an older commit: {', '.join('@' + s for s in verdict.stale)}.")
     if merged:
         lines += ["", f"**Merge receipt:** merged as `{merged[:12]}` with these defaults changed"
-                  + (f", approved by {', '.join('@' + a for a in verdict.approvers)}." if verdict and verdict.approved
-                     else ", WITHOUT an approving call owner review on its head.")]
+                  + (f", signed off by {signed(verdict)}." if verdict and verdict.approved
+                     else ", WITHOUT a SHIP receipt or an approving call owner review on its head.")]
     lines += ["", f"Regenerate the snapshot with `{REGENERATE}`."]
     return "\n".join(lines) + "\n"
 
@@ -633,6 +704,7 @@ def command_check(args: argparse.Namespace) -> int:
     before = defaults(base)
     after = defaults(head)
     found = changes(before, after) + guard_changes(base, head)
+    free = exempt(found, before)
     trusted = Tree(None)  # the base checkout the workflow runs from
     owners = owners_for(trusted.read(OWNERS))
     pull = None
@@ -650,7 +722,7 @@ def command_check(args: argparse.Namespace) -> int:
     if pull is not None and verdict is not None and verdict.head != head_sha:
         problems.append(f"DEFAULTS head: the pull request's head is {verdict.head[:12]}, not {head_sha[:12]}; re-run on the new head")
     merged = str((pull.get("mergeCommit") or {}).get("oid") or "") if pull and pull.get("merged") else None
-    body = comment_body(found, verdict, head_sha, merged)
+    body = comment_body(found, verdict, head_sha, merged, free)
     annotate(found)
     for problem in problems:
         print(f"::error title=Defaults snapshot::{command_text(problem)}" if not problem.startswith("  ") else plain(problem))
@@ -664,9 +736,12 @@ def command_check(args: argparse.Namespace) -> int:
             print(f"::warning title=Defaults comment not posted::{error}")
     if problems:
         return 1
-    if found and not (verdict and verdict.approved):
+    needed = [c for c in found if c not in free]
+    if needed and not (verdict and verdict.approved):
         who = " or ".join(verdict.eligible) if verdict else "a call owner"
-        print(f"::error title=Default changes need a call::{len(found)} default(s) changed; needs an approving review on {head_sha[:12]} from {who}")
+        print(f"::error title=Default changes need a review::{len(needed)} default(s) changed; needs a comment or review "
+              f"whose first line is `Review (<reviewer>): SHIP at {head_sha}` from a member (not a self-review), "
+              f"or an approving review on {head_sha[:12]} from {who}")
         return 1
     return 0
 

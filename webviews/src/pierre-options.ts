@@ -16,6 +16,8 @@ export type DiffViewerOptions = {
   colors: DiffChangeColors;
   diffIndicators: "bars" | "classic" | "none";
   expandUnchanged: boolean;
+  /** The delineated diff: files in kind order, code first (diff-kind-groups.ts). */
+  groupByKind: boolean;
   layout: "split" | "unified";
   lineNumbers: boolean;
   showBackgrounds: boolean;

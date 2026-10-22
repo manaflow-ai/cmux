@@ -20,6 +20,12 @@ final class FieldTextView: NSTextView {
     /// cmux: a drop on the field that the host's intake takes (the paste's
     /// type rule). A plain-text NSTextView would type a dropped file's path.
     var onDropPasteboard: (NSPasteboard) -> Bool = { _ in false }
+    /// cmux: whether the host's intake would take a drag's pasteboard (a drag also counts
+    /// file promises, which a paste cannot receive); nil uses `acceptsPastePasteboard`.
+    var acceptsDropPasteboard: ((NSPasteboard) -> Bool)?
+    /// cmux: the field became (true) or stopped being (false) the target of a drag the host's
+    /// intake takes: the pane's drop highlight follows it.
+    var onDropTargetChange: (Bool) -> Void = { _ in }
     /// Marked (IME) text changed. UITextView reports marked text through
     /// `textViewDidChange`, so the draft (and the field height) follows the
     /// composition; NSTextView does not post a text change for it.
@@ -537,23 +543,29 @@ final class FieldTextView: NSTextView {
     private var dragAnswer: (sequence: Int, accepts: Bool)?
     private func takesDrag(_ sender: any NSDraggingInfo) -> Bool {
         if let a = dragAnswer, a.sequence == sender.draggingSequenceNumber { return a.accepts }
-        let accepts = acceptsPastePasteboard(sender.draggingPasteboard)
+        let accepts = (acceptsDropPasteboard ?? acceptsPastePasteboard)(sender.draggingPasteboard)  // cmux
         dragAnswer = (sender.draggingSequenceNumber, accepts)
         return accepts
     }
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         dragAnswer = nil
-        return takesDrag(sender) ? .copy : super.draggingEntered(sender)
+        let takes = takesDrag(sender)  // cmux
+        onDropTargetChange(takes)  // cmux
+        return takes ? .copy : super.draggingEntered(sender)  // cmux
     }
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        takesDrag(sender) ? .copy : super.draggingUpdated(sender)
+        let takes = takesDrag(sender)  // cmux
+        onDropTargetChange(takes)  // cmux: the host ignores a repeat
+        return takes ? .copy : super.draggingUpdated(sender)  // cmux
     }
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
         dragAnswer = nil
+        onDropTargetChange(false)  // cmux
         super.draggingExited(sender)
     }
     override func draggingEnded(_ sender: any NSDraggingInfo) {
         dragAnswer = nil
+        onDropTargetChange(false)  // cmux
         super.draggingEnded(sender)
     }
     override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
@@ -562,6 +574,7 @@ final class FieldTextView: NSTextView {
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let takes = takesDrag(sender)
         dragAnswer = nil
+        onDropTargetChange(false)  // cmux
         if takes { return onDropPasteboard(sender.draggingPasteboard) }
         return super.performDragOperation(sender)
     }

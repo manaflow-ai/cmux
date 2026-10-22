@@ -7,12 +7,14 @@ USAGE
   cmux workspace create [--name <value>] [--empty] [--ephemeral] [--focus] [--correlation-key <value>]
     [--expected-revision <revision>] [--cwd <path>] [--shell <script> | -- <argv...>]
   cmux workspace <selector> show|focus|close
+  cmux workspace <selector> close [--report-closed-ids]
   cmux workspace <selector> close --others|--to-right|--to-left|--all [--end-terminals]
   cmux workspace <selector> rename <name>|--name <name>
   cmux workspace <selector> rename --release-to-auto
   cmux workspace <selector> move --index <n>
   cmux workspace <selector> update [--title <value>|--clear-title] [--color <value>|--clear-color]
-    [--icon <value>|--clear-icon]
+    [--icon <value>|--clear-icon] [--description <text>|--clear-description]
+    [--task-status todo|working|needs-attention|review|done|--clear-task-status]
   cmux workspace <selector> run [--on-exit <close|keep|shell>] [--correlation-key <value>] -- <argv...>
   cmux workspace <selector> run [--on-exit <close|keep|shell>] [--correlation-key <value>] shell <script>
   cmux workspace <selector> layout apply [OPTIONS]
@@ -60,8 +62,10 @@ its id or exact name. list --order session gives the session's workspace
 order: creation order unless a workspace was moved. list --order personal
 gives the cmux app's sidebar order: loose workspaces, and each group's
 workspaces where the group shows. Without --order, list gives the sidebar
-order in the app's context (an app terminal or Chief addressing the app's
-own daemon), else the session order. The app's
+order to every caller when the session has the sidebar document; without
+the document it gives the sidebar order in the app's context (an app
+terminal or Chief addressing the app's own daemon), else the session
+order. The app's
 snapshot.get windows[].workspaces lists the order each window shows. --top-index
 puts a group right before the workspace at that placement index;
 --clear-top-index puts it after every loose workspace. --icon sets a group's
@@ -118,7 +122,7 @@ USAGE
   cmux tab <tab_…> restart
   cmux tab <selector> zoom <0.25..5>|reset|in|out
   cmux tab <selector> update --zoom <0.25..5>|--clear-zoom
-  cmux tab <selector> update --icon <value>|--clear-icon
+  cmux tab <selector> update [--icon <value>|--clear-icon] [--marked-unread <bool>]
   cmux tab create terminal [--cwd <path>] [--name <value>] [--cols <n> --rows <n>]
     [--workspace <selector>] [--screen <selector>] [--pane <selector>]
     [--correlation-key <value>] [--shell <script> | -- <argv...>]

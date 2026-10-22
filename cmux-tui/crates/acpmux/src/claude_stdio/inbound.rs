@@ -10,15 +10,9 @@ impl Translator {
         self.end_background_asks(false, |_, deadline| deadline.is_some_and(|d| d <= now)).await;
         let kind = line.get("type").and_then(Value::as_str).unwrap_or("");
         let sub = line.get("subtype").and_then(Value::as_str).unwrap_or("");
-        // A subagent's lines carry its Agent tool call's id and stream under
-        // its own session (ACP draft #1992).
+        // A subagent's lines stream under its own session, ended or not (`subagent_route`).
         let parent = line.get("parent_tool_use_id").and_then(Value::as_str);
-        let mut sid = self.acp_session_id.clone();
-        if let Some(p) = parent
-            && let Some(child) = self.subagents.lock().await.get(p)
-        {
-            sid = child.clone();
-        }
+        let sid = self.line_session(parent);
         let upd = |u: Value| {
             Message::notification(method::SESSION_UPDATE, json!({"sessionId": sid, "update": u}))
         };
@@ -856,7 +850,7 @@ impl Translator {
     /// names an agent; a workflow, which always runs in the background, is
     /// named by its saved name until its launch names the run.
     async fn spawn_subagent(&self, tool_use_id: &str, tool: &str, input: &Value) -> Value {
-        let child = format!("{}/{tool_use_id}", self.acp_session_id);
+        let child = self.line_session(Some(tool_use_id));
         self.subagents.lock().await.insert(tool_use_id.to_owned(), child.clone());
         let workflow = tool == "Workflow";
         if workflow {

@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The pane host of a tab whose record names this Mac: a session the Chief host started in its
 /// home's acpmux (`mux.parent` = `optchat-chief:<home id>` in that one daemon's listing) attaches
@@ -57,5 +57,9 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
     /// this Mac's acpmux), so a commit or push runs in that session's folder.
     public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? {
         try await host(for: sessionId).sessionFolder(sessionId: sessionId)
+    }
+
+    public func putFile(sessionId: String, name: String, data: Data) async throws -> String {
+        try await host(for: sessionId).putFile(sessionId: sessionId, name: name, data: data)
     }
 }

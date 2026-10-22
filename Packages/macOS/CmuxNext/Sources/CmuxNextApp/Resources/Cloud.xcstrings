@@ -11793,6 +11793,270 @@
         }
       }
     },
+    "chat.upload.peerFailed": {
+      "comment": "Agent chat composer notice when a dropped or pasted file could not be sent to the ssh peer machine (%@, its name) that runs the chat.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't send the file to %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إرسال الملف إلى %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće poslati datoteku na %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filen kunne ikke sendes til %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Datei konnte nicht an %@ gesendet werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo enviar el archivo a %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’envoyer le fichier à %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile inviare il file a %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを %@ に送信できませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចផ្ញើឯកសារទៅ %@ បានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일을 %@(으)로 보낼 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke sende filen til %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się wysłać pliku do %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível enviar o arquivo para %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось отправить файл на %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถส่งไฟล์ไปยัง %@ ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosya %@ makinesine gönderilemedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося надіслати файл на %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể gửi tệp đến %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法将文件发送到 %@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法將檔案傳送到 %@。"
+          }
+        }
+      }
+    },
+    "chat.upload.peerTooLarge": {
+      "comment": "Agent chat composer notice when a dropped or pasted file is over the size a chat on an ssh peer machine (%@, its name) takes.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file is too large to send to %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الملف أكبر من أن يُرسل إلى %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova datoteka je prevelika za slanje na %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filen er for stor til at sende til %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Datei ist zu groß, um sie an %@ zu senden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este archivo es demasiado grande para enviarlo a %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce fichier est trop volumineux pour être envoyé à %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo file è troppo grande per essere inviato a %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは大きすぎるため %@ に送信できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឯកសារនេះធំពេកមិនអាចផ្ញើទៅ %@ បានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 파일은 너무 커서 %@(으)로 보낼 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filen er for stor til å sendes til %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten plik jest za duży, aby wysłać go do %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este arquivo é grande demais para ser enviado para %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот файл слишком большой для отправки на %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไฟล์นี้ใหญ่เกินกว่าจะส่งไปยัง %@ ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu dosya %@ makinesine gönderilemeyecek kadar büyük."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей файл завеликий, щоб надіслати його на %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tệp này quá lớn để gửi đến %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此文件太大，无法发送到 %@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此檔案太大，無法傳送到 %@。"
+          }
+        }
+      }
+    },
     "cloud.move.unfinishedMove": {
       "extractionState": "manual",
       "localizations": {
@@ -12837,6 +13101,268 @@
           "stringUnit": {
             "state": "translated",
             "value": "此 Cloud 機器無法執行此操作。"
+          }
+        }
+      }
+    },
+    "cloud.cli.createDeclined": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Cloud machine was created: the person declined or dismissed it in cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم إنشاء أي جهاز سحابي: رفض الشخص ذلك أو تجاهله في cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es wurde keine Cloud-Maschine erstellt: Die Person hat in cmux abgelehnt oder abgebrochen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se creó ninguna máquina en la nube: la persona la rechazó o la descartó en cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune machine Cloud n’a été créée : la personne a refusé ou annulé dans cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud マシンは作成されませんでした。cmux で相手が拒否したか閉じました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 머신이 생성되지 않았습니다. 사용자가 cmux에서 거절하거나 닫았습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未创建任何云端机器：对方已在 cmux 中拒绝或关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未建立任何雲端機器：對方已在 cmux 中拒絕或關閉。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nijedna Cloud mašina nije kreirana: osoba je odbila ili zatvorila zahtjev u cmuxu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen Cloud-maskine blev oprettet: personen afviste eller lukkede den i cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna macchina Cloud è stata creata: la persona l’ha rifiutata o chiusa in cmux."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនបានបង្កើតម៉ាស៊ីន Cloud ទេ៖ បុគ្គលនោះបានបដិសេធ ឬបិទវានៅក្នុង cmux។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen Cloud-maskin ble opprettet: personen avslo eller lukket den i cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie utworzono maszyny Cloud: osoba odrzuciła lub zamknęła prośbę w cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma máquina na nuvem foi criada: a pessoa recusou ou descartou no cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Облачная машина не создана: пользователь отклонил или закрыл запрос в cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ได้สร้างเครื่อง Cloud: ผู้ใช้ปฏิเสธหรือปิดคำขอใน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud makinesi oluşturulmadı: kişi cmux’ta reddetti veya kapattı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хмарну машину не створено: користувач відхилив або закрив запит у cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có máy Cloud nào được tạo: người dùng đã từ chối hoặc đóng yêu cầu trong cmux."
+          }
+        }
+      }
+    },
+    "cloud.cli.execUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Cloud machine can't run a command for the CLI and return its output. Open a terminal on it with cmux cloud open-machine instead."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لهذا الجهاز السحابي تشغيل أمر لواجهة سطر الأوامر وإرجاع مخرجاته. افتح طرفية عليه باستخدام ‎cmux cloud open-machine‎ بدلاً من ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova Cloud mašina ne može pokrenuti naredbu za CLI i vratiti njen izlaz. Umjesto toga otvorite terminal na njoj pomoću cmux cloud open-machine."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Cloud-maskine kan ikke køre en kommando for CLI'en og returnere outputtet. Åbn i stedet en terminal på den med cmux cloud open-machine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Cloud-Maschine kann keinen Befehl für die CLI ausführen und seine Ausgabe zurückgeben. Öffne stattdessen mit cmux cloud open-machine ein Terminal darauf."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta máquina en la nube no puede ejecutar un comando para la CLI y devolver su salida. Abre una terminal en ella con cmux cloud open-machine."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette machine Cloud ne peut pas exécuter de commande pour la CLI et en renvoyer la sortie. Ouvrez plutôt un terminal dessus avec cmux cloud open-machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa macchina Cloud non può eseguire un comando per la CLI e restituirne l’output. Apri invece un terminale con cmux cloud open-machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Cloud マシンでは CLI のためにコマンドを実行して出力を返すことができません。代わりに cmux cloud open-machine でターミナルを開いてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីន Cloud នេះមិនអាចដំណើរការពាក្យបញ្ជាសម្រាប់ CLI ហើយបញ្ជូនលទ្ធផលត្រឡប់មកវិញបានទេ។ សូមបើកស្ថានីយនៅលើវាដោយប្រើ cmux cloud open-machine ជំនួសវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Cloud 머신은 CLI를 위해 명령을 실행하고 출력을 반환할 수 없습니다. 대신 cmux cloud open-machine으로 터미널을 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Cloud-maskinen kan ikke kjøre en kommando for CLI-en og returnere utdataene. Åpne heller en terminal på den med cmux cloud open-machine."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta maszyna Cloud nie może uruchomić polecenia dla CLI i zwrócić jego wyniku. Zamiast tego otwórz na niej terminal poleceniem cmux cloud open-machine."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta máquina na nuvem não pode executar um comando para a CLI e retornar a saída. Abra um terminal nela com cmux cloud open-machine."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта облачная машина не может выполнить команду для CLI и вернуть её вывод. Вместо этого откройте на ней терминал командой cmux cloud open-machine."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่อง Cloud นี้ไม่สามารถรันคำสั่งให้ CLI และส่งผลลัพธ์กลับได้ ให้เปิดเทอร์มินัลบนเครื่องด้วย cmux cloud open-machine แทน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Cloud makinesi CLI için komut çalıştırıp çıktısını döndüremez. Bunun yerine cmux cloud open-machine ile üzerinde bir terminal açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця хмарна машина не може виконати команду для CLI і повернути її вивід. Натомість відкрийте на ній термінал командою cmux cloud open-machine."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy Cloud này không thể chạy lệnh cho CLI và trả về kết quả. Hãy mở terminal trên máy bằng cmux cloud open-machine."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台云端机器无法为 CLI 运行命令并返回输出。请改用 cmux cloud open-machine 在其上打开终端。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台雲端機器無法為 CLI 執行指令並傳回輸出。請改用 cmux cloud open-machine 在其上開啟終端機。"
           }
         }
       }

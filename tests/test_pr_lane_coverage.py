@@ -196,6 +196,49 @@ class PullRequestLanes(unittest.TestCase):
         self.assertTrue(any("tests/test_gone.py does not exist" in error for error in errors), errors)
         self.assertTrue(any(error.startswith("tests/test_a.py: a pull request into") for error in errors), errors)
 
+    def test_the_feat_routed_guard_groups_count_and_the_main_only_ones_do_not(self):
+        """cmux-next-guards.yml runs ci-guards.yml's groups routed by the change's paths
+        (`guards-local.sh --feat-routes FILE`, detect_linux_guard_changes.classify_feat). Any routed group
+        may run, so its tests count; release-ios, which guards main's iOS release path, never does."""
+        caller = FEAT_PULL_REQUEST + "jobs:\n" + job(
+            'scripts/ci/guards-local.sh --no-stamp --keep-going --feat-routes "$RUNNER_TEMP/changed.txt"'
+        )
+        guards = textwrap.dedent("""\
+            on:
+              workflow_call:
+                inputs:
+                  linux_guard_test_groups: {type: string, required: true}
+                  linux_guard_history: {type: string, required: true}
+            jobs:
+              workflow-guard-tests:
+                strategy:
+                  matrix:
+                    group: ${{ fromJSON(inputs.linux_guard_test_groups) }}
+                runs-on: ubuntu-24.04
+                steps:
+                  - name: ci guard
+                    if: ${{ !cancelled() && matrix.group == 'ci' }}
+                    run: python3 tests/test_a.py
+                  - name: preflight guard
+                    if: ${{ !cancelled() && matrix.group == 'preflight' }}
+                    run: python3 tests/test_b.py
+                  - name: watchdog guard
+                    if: ${{ !cancelled() && matrix.group == 'app-host-watchdog' }}
+                    run: python3 tests/test_c.py
+                  - name: release-ios guard
+                    if: ${{ !cancelled() && matrix.group == 'release-ios' }}
+                    run: python3 tests/test_d.py
+              workflow-guard-history:
+                if: ${{ inputs.linux_guard_history == 'true' }}
+                runs-on: ubuntu-24.04
+                steps:
+                  - name: Validate SwiftPM lockfile policy
+                    run: python3 tests/test_e.py
+            """)
+        self.check({"next-guards.yml": caller, "ci-guards.yml": guards}, ["tests/test_d.py"],
+                   tests=["tests/test_a.py", "tests/test_b.py", "tests/test_c.py", "tests/test_d.py",
+                          "tests/test_e.py"])
+
 
 class OnlyWhatThePullRequestAdds(unittest.TestCase):
     """feat-cmux-next takes direct-pushed main syncs (18, 10 and 2 new tests in the last three) that skip pull
@@ -250,6 +293,66 @@ class ThisTree(unittest.TestCase):
             with self.subTest(test=test):
                 self.assertIn(test, text)
                 self.assertIn(f"python3 {test}", runs)
+
+    def test_tests_of_feat_files_run_on_feat_pull_requests(self):
+        """Tests whose code feat-cmux-next pull requests edit ran only on main, a push, a schedule, or nowhere.
+
+        Fourteen had no registry entry; eleven more ran only from push, schedule or main-only jobs.
+        Each listed here now runs from a job a feat-cmux-next pull request starts (routed by paths
+        for an area job); the stdlib tests of feat CI tooling run in cmux-next guards / tooling-tests.
+        """
+        import yaml  # noqa: PLC0415
+
+        text = validator.pr_lane_tests(ROOT, BRANCH)[0]
+        workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "cmux-next-guards.yml").read_text(encoding="utf-8"))
+        tooling = "\n".join(str(step.get("run", "")) for step in workflow["jobs"]["tooling-tests"]["steps"])
+        in_tooling_tests = (
+            "tests/test_app_crate_licenses.py",
+            "tests/test_browser_host_release_package.py",
+            "tests/test_ci_macho_parity.py",
+            "tests/test_ci_macos_stubs.py",
+            "tests/test_ci_package_lane_prebuild.py",
+            "tests/test_cmux_next_dev_daily_notify_cli.py",
+            "tests/test_cmux_next_media_publish_windows.py",
+            "tests/test_compile_string_catalogs.py",
+            "tests/test_install_zig_ci_reviewed_version.py",
+            "tests/test_list_macho_candidates.py",
+            "tests/test_normalize_pbxproj.py",
+            "tests/test_publish_cmux_tui_tree.py",
+            "tests/test_swiftpm_test_product.py",
+            "tests/test_web_validation.py",
+        )
+        in_area_jobs = (
+            "tests/test_cmux_bug_triage.py",
+            "tests/test_cmux_code_mode_mcp.py",
+            "tests/test_cmux_cua_dev_helper_identity.py",
+            "tests/test_remote_daemon_notices.py",
+            "tests/test_remote_daemon_release_assets.py",
+            "tests/test_remote_daemon_release_verification.py",
+            "tests/test_shell_claude_rereports_pwd.py",
+            "tests/test_socket_control_schema.py",
+            "tests/test_zsh_git_head_watch_no_fork.py",
+        )
+        for test in in_tooling_tests + in_area_jobs:
+            with self.subTest(test=test):
+                self.assertIn(f"python3 {test}", text)
+        for test in in_tooling_tests:
+            with self.subTest(tooling_tests=test):
+                self.assertIn(f"python3 {test}", tooling)
+
+    def test_the_guard_group_job_runs_the_feat_routed_groups_on_the_head_and_the_base(self):
+        import yaml  # noqa: PLC0415
+
+        workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "cmux-next-guards.yml").read_text(encoding="utf-8"))
+        steps = workflow["jobs"]["ci-guard-group"]["steps"]
+        runs = [str(step.get("run", "")) for step in steps]
+        calls = [line for run in runs for line in run.splitlines() if "scripts/ci/guards-local.sh" in line]
+        self.assertEqual(len(calls), 2, calls)
+        for call in calls:
+            with self.subTest(call=call):
+                self.assertIn("--feat-routes", call)
+        self.assertIn("--root .guard-base", calls[1])
+
 
 if __name__ == "__main__":
     unittest.main()

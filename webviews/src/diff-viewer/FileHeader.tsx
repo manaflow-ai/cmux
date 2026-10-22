@@ -7,8 +7,19 @@ import { isHeaderToggleKey, shouldToggleFromHeaderClick, type HeaderPress } from
 import { FileIcon } from "../file-icons";
 import { Icon } from "../icons";
 import { FileMenuButton } from "../DiffToolbar";
+import { type FileKind } from "../fileKinds";
 import { type ViewedFileState } from "../viewed-files";
-import type { DiffViewerLabelResolver } from "../labels";
+import type { DiffViewerLabelKey, DiffViewerLabelResolver } from "../labels";
+
+/** The kinds' names in the viewer's table (diffViewer.fileKind.*). */
+const FILE_KIND_LABELS: Record<FileKind, DiffViewerLabelKey> = {
+  code: "fileKind.code",
+  tests: "fileKind.tests",
+  mocks: "fileKind.mocks",
+  docs: "fileKind.docs",
+  evals: "fileKind.evals",
+  generated: "fileKind.generated",
+};
 
 /**
  * One file's header row, rendered into Pierre's custom header slot (the row
@@ -19,6 +30,7 @@ import type { DiffViewerLabelResolver } from "../labels";
  */
 export function FileHeader({
   item,
+  kind,
   label,
   onCopyPath,
   onLoadDiff,
@@ -28,6 +40,8 @@ export function FileHeader({
   viewedState,
 }: {
   item: DiffItem;
+  /** The file's kind, while the list reads in kind order and the diff has more than one kind. */
+  kind?: FileKind;
   label: DiffViewerLabelResolver;
   /** The "..." menu's Copy path; the menu shows only that row when given. */
   onCopyPath?: (path: string) => void;
@@ -99,6 +113,11 @@ export function FileHeader({
       </span>
       <span className="file-header-spacer" />
       <DiffHeaderMetadata fileDiff={fileDiff} label={label} />
+      {kind != null ? (
+        <span className="file-header-kind" data-kind={kind}>
+          {label(FILE_KIND_LABELS[kind])}
+        </span>
+      ) : null}
       <span className="file-header-stats" aria-label={label("diffStats")}>
         <span className="file-header-additions">+{stats.added}</span>
         <span className="file-header-deletions">-{stats.deleted}</span>

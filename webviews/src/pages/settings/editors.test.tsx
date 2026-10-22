@@ -93,9 +93,9 @@ describe("editors", () => {
             failures.push(`${row.key}: no art picker`);
           continue;
         }
-        // The Chief Pet card draws home.chiefPetEnabled (Show/Hide Pet, None) and home.chiefPetMascot (its grid).
+        // The Chief Pet card draws home.chiefPetEnabled (Show/Hide Pet) and home.chiefPetMascot (its grid).
         if (row.key === "home.chiefPetEnabled" || row.key === "home.chiefPetMascot") {
-          if (!page.container.querySelector('[data-card="chief-pet"] .chief-pet-choice[data-pet="none"]'))
+          if (!page.container.querySelector('[data-card="chief-pet"] .chief-pet-choice[data-pet="orb"]'))
             failures.push(`${row.key}: no Chief Pet card`);
           continue;
         }
