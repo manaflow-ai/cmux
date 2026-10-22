@@ -12,6 +12,7 @@ import type {
   AcpmuxPlanEntry,
   AcpmuxRow,
   AcpmuxSnapshot,
+  MissingSessionReason,
   PromptImage,
   QueueEdit,
   QueuedPrompt,
@@ -918,6 +919,8 @@ export class AcpmuxDirectClient {
   private selectedSessionId?: string;
   /** The session a link named that the daemon does not have (`sessionMustExist`). */
   private missingSession?: string;
+  /** Why `missingSession` is set: the daemon's list lacked it when the pane opened, or it left the list while shown. */
+  private missingReason?: MissingSessionReason;
   /** The adopt acpmux refused because its chat is live elsewhere, until the user picks a way on. */
   private liveAdopt?: { adopt: AcpmuxAdopt; canFork: boolean; command?: string };
   /** Take Over refused because the watched chat's app still runs it, until the user picks a way on. */
@@ -1328,7 +1331,10 @@ export class AcpmuxDirectClient {
       this.listedSessions = first !== undefined || this.sessions.length > 0;
       if (this.selectedSessionId && !this.sessions.some((session) => session.sessionId === this.selectedSessionId)) {
         // A linked session the daemon lacks is refused, never replaced by the most recent chat.
-        if (this.host.sessionMustExist) this.missingSession = this.selectedSessionId;
+        if (this.host.sessionMustExist) {
+          this.missingSession = this.selectedSessionId;
+          this.missingReason = "notListedAtOpen";
+        }
         this.selectedSessionId = this.host.sessionMustExist ? undefined : this.sessions[0]?.sessionId;
         this.selectionGeneration += 1;
         this.resetSessionState();
@@ -1713,7 +1719,10 @@ export class AcpmuxDirectClient {
   /// The selected session is gone: a tab bound to its session (`sessionMustExist`) says so;
   /// any other pane shows the most recent remaining one, or none.
   private selectFallbackSession(reason: string): void {
-    if (this.host.sessionMustExist) this.missingSession = this.selectedSessionId;
+    if (this.host.sessionMustExist) {
+      this.missingSession = this.selectedSessionId;
+      this.missingReason = "leftListWhileShown";
+    }
     this.selectedSessionId = this.host.sessionMustExist ? undefined : this.sessions[0]?.sessionId;
     if (this.selectedSessionId) this.markSeen(this.selectedSessionId);
     const generation = ++this.selectionGeneration;
@@ -3286,6 +3295,7 @@ export class AcpmuxDirectClient {
       canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1,
       historyFrom: this.firstSeq,
       missingSession: this.selectedSessionId ? undefined : this.missingSession,
+      missingReason: this.selectedSessionId ? undefined : this.missingReason,
       liveChat: this.liveAdopt && {
         canFork: this.liveAdopt.canFork,
         command: this.liveAdopt.command,
@@ -4204,6 +4214,7 @@ export class AcpmuxDirectClient {
     const hold = this.holdSnapshots(SWITCH_HOLD_MS);
     this.selectedSessionId = sessionId;
     this.missingSession = undefined;
+    this.missingReason = undefined;
     this.markSeen(sessionId);
     this.resetSessionState();
     // A chat this page read already draws from what that visit left, on the frame the switch lands;

@@ -124,10 +124,10 @@
   background: none;
 }
 /* Every row that takes a click (a section's head, a file or link, a pull request, a task, the
-   avatars, a subagent or a started chat) hovers one way: a faint tint of the text over whatever the
-   card shows, never a solid fill (--acpmux-menu-hover is opaque, which drew a light slab over the
-   card), and inside the card's padding with the card's radius less that padding, so a hover never
-   reaches past the card's edge. */
+   Subagents' fold rows, a subagent or a started chat) hovers one way: a faint tint of the text over
+   whatever the card shows, never a solid fill (--acpmux-menu-hover is opaque, which drew a light
+   slab over the card), and inside the card's padding with the card's radius less that padding, so a
+   hover never reaches past the card's edge. */
 .acpmux-chat-inspector {
   --acpmux-inspector-card-radius: 10px;
   --acpmux-inspector-panel-radius: 14px;
@@ -141,12 +141,12 @@
 .acpmux-chat-inspector-row--button:hover:not(:disabled),
 .acpmux-chat-inspector-pr:hover,
 .acpmux-chat-inspector-task__open:hover:not(:disabled),
-.acpmux-chat-inspector-avatars:hover,
 .acpmux-chat-inspector-icon-button:hover,
 button.acpmux-chat-inspector-port:hover,
 .acpmux-chat-inspector .acpmux-summary-link:hover:not(:disabled),
 .acpmux-chat-inspector .acpmux-summary-link:active:not(:disabled),
 .acpmux-chat-inspector .acpmux-summary-more:hover,
+.acpmux-chat-inspector-subagents__more:hover,
 .acpmux-chat-inspector .acpmux-summary-agent[aria-current="true"],
 .acpmux-chat-inspector .acpmux-summary-subagent-rows button.cv-subagent:hover {
   background: var(--acpmux-inspector-row-hover);
@@ -652,41 +652,23 @@ button.acpmux-chat-inspector-port:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
 }
-/* Subagents: one row of avatars; a shimmer sweeps across the running ones (ui/wave.ts). */
-.acpmux-chat-inspector-avatars {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  min-height: 34px;
-  padding: 2px 8px;
-  box-sizing: border-box;
-  border: 0;
-  border-radius: var(--acpmux-inspector-row-radius);
-  background: none;
-  color: inherit;
-  font: inherit;
-  cursor: default;
+/* Subagents (SubagentsSection.tsx): the running ones' lines, "Show more" under them, then the one
+   row of the ended ones, which opens into their lines. */
+.acpmux-chat-inspector-subagents__more {
+  margin-top: 2px;
 }
-.acpmux-chat-inspector-avatars:focus-visible {
-  outline: 1.5px solid var(--agent-text);
-  outline-offset: -1.5px;
-}
-.acpmux-chat-inspector-avatars__stack {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-.acpmux-chat-inspector-avatars__stack > .cv-subagent-avatar + .cv-subagent-avatar {
-  margin-left: -6px;
-}
-.acpmux-chat-inspector-avatars__more {
-  flex: none;
+.acpmux-chat-inspector-subagents > .acpmux-chat-inspector-subagents__ended {
+  margin-top: 2px;
   color: var(--agent-muted);
-  font-size: var(--text-detail);
+}
+.acpmux-chat-inspector-subagents > .acpmux-chat-inspector-subagents__ended:hover {
+  color: var(--agent-text);
+}
+.acpmux-chat-inspector-subagents > .acpmux-chat-inspector-subagents__ended > svg {
+  flex: none;
 }
 .acpmux-chat-inspector-subagents__list {
-  margin-top: 4px;
+  margin-top: 2px;
 }
 .acpmux-chat-inspector-menu {
   min-width: 180px;
