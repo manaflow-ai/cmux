@@ -14,6 +14,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The page switched to or created `sessionId`; the host keeps it so a
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)
+    /// `chat.missing` with `{session, reason}`: the page says this tab's chat isn't available
+    /// (`notListedAtOpen`, `leftListWhileShown`); the host logs it, so the views can be counted.
+    case missingChat(session: String, reason: String)
     /// A new chat's typed text before it has a session (`chat.unsentDraft`, cx-z5vd): the App
     /// keeps it with the tab, so a relaunch opens the chat with it.
     case unsentDraft(String)

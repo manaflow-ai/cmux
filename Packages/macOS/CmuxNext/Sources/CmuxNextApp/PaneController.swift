@@ -210,6 +210,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         }
         // A chat's changes tab names what it shows; its hover card names the chat (claude-sr2 2026-10-22).
         if let changes = titles.changesTitle(tab) { (item.subtitle, item.title) = (item.title, changes) }
+        // A Home tab dots while any Home conversation is unread, as the sidebar's Home item counts them.
+        if HomeService.isHomeTab(page: tab.page, app: tab.appTab?.app), !services.home.unreadConversations.isEmpty { item.isUnread = true }
         item.groupID = tab.tabGroup.map { TabGroupID($0.rawValue) }
         if !DesignSettings.shared.attention.showsOnTab { item.isUnread = false }
         item.isDormant = services.cache.dormantTabs.contains(tab.id)

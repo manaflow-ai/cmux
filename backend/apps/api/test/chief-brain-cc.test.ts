@@ -4,6 +4,8 @@ import { importJWK, SignJWT, type JWK } from "jose"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { fireAlarm } from "./setup/alarm.ts"
 import { memberUpsert } from "../src/domains/team-members.ts"
+import { CHIEF_VM_MJS } from "../src/chief-brain-cc/chief-vm-source.ts"
+import { createHash } from "node:crypto"
 
 /**
  * The Claude Code route of a Cloud Chief (chief-brain-cc/): for an owner on the paid-model list, each turn
@@ -61,7 +63,21 @@ const fakeCloud = (answer: (prompt: string, n: number) => string, during?: (s: S
   const tags: Array<Array<string>> = []
   const other: Array<string> = []
   // Execs outside the turn machine's own steps (the Chief's sandboxes).
-  const execs: Array<{ vm: string; command: string }> = []
+  const execs: Array<{ vm: string; command: string; stdin: Uint8Array }> = []
+  // Each VM's size (Freestyle's default 4 vCPU / 8 GiB / 32 GB), and every resize asked for.
+  const sizes = new Map<string, { cpu: number; memory: number; storage: number }>()
+  const resizes: Array<{ vm: string; body: any }> = []
+  // Client sessions (sandbox-access.ts): identities with VM grants and tokens; every sandbox exec's credential.
+  const identities = new Map<string, { grants: Map<string, Array<string> | null> }>()
+  const tokens = new Map<string, { id: string; identity: string; revoked: boolean; expires: number }>()
+  const execAuth: Array<{ vm: string; by: string; user: string | null }> = []
+  const states = new Map<string, string>()
+  const patches: Array<{ vm: string; body: any }> = []
+  // Guest files per VM (fs routes), uploads, snapshots and every lifecycle call.
+  const files = new Map<string, Map<string, Uint8Array>>()
+  const uploads = new Map<string, { vm: string; path: string; size: number; got: Array<number> }>()
+  const snapshots = new Map<string, { source: string; body: any; deleted?: boolean }>()
+  const lifecycle: Array<string> = []
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const req = new Request(input, init)
     const url = new URL(req.url)
@@ -80,24 +96,160 @@ const fakeCloud = (answer: (prompt: string, n: number) => string, during?: (s: S
       other.push(req.url)
       return new Response("not this route", { status: 500 })
     }
+    const idToken = req.headers.get("x-freestyle-identity-access-token")
+    // An identity token reaches only a granted VM's exec route; everything else needs the team key.
+    if (idToken !== null) {
+      expect(req.headers.get("authorization")).toBeNull()
+      const ex = /^\/v5\/vms\/([^/]+)\/exec-await$/.exec(url.pathname)
+      if (!ex || req.method !== "POST") return Response.json({ code: "FORBIDDEN", message: "identity tokens reach exec and pty only" }, { status: 403 })
+      const t = tokens.get(idToken)
+      if (!t || t.revoked || t.expires < Date.now() || !identities.has(t.identity)) return Response.json({ code: "UNAUTHORIZED", message: "invalid identity access token" }, { status: 401 })
+      const body = (await req.json()) as { command: string; linuxUser?: string; env?: Record<string, string>; stdin?: string }
+      const allowed = identities.get(t.identity)!.grants.get(ex[1]!)
+      if (allowed === undefined || (allowed !== null && !allowed.includes(body.linuxUser ?? ""))) return Response.json({ code: "FORBIDDEN", message: "no access to this VM as that user" }, { status: 403 })
+      execAuth.push({ vm: ex[1]!, by: `identity:${t.identity}`, user: body.linuxUser ?? null })
+      execs.push({ vm: ex[1]!, command: body.command, stdin: body.stdin ? Uint8Array.from(atob(body.stdin), (c) => c.charCodeAt(0)) : new Uint8Array() })
+      if (/(^|[;( ])poweroff/.test(body.command)) states.set(ex[1]!, "stopped")
+      if (body.command.includes("resize2fs")) return Response.json({ statusCode: 0, stdout: "/dev/vda 63G 1.2G 62G 2% /\n", stderr: "" })
+      if (body.command === "printenv GREETING; cat") return Response.json({ statusCode: 0, stdout: `${body.env?.GREETING ?? ""}\n${body.stdin ? atob(body.stdin) : ""}`, stderr: "" })
+      if (body.command === "whoami") return Response.json({ statusCode: 0, stdout: `${body.linuxUser}\n`, stderr: "" })
+      if (body.command.startsWith("nproc; awk")) {
+        const z = sizes.get(ex[1]!)!
+        return Response.json({ statusCode: 0, stdout: `${z.cpu}\n${z.memory - 190}\n/dev/vda ${Math.round(z.storage / 1024) - 1}G 1.2G 62G 2% /\n`, stderr: "" })
+      }
+      return Response.json({ statusCode: 0, stdout: body.command.startsWith("echo ") ? `${body.command.slice(5)}\n` : "", stderr: "" })
+    }
     expect(req.headers.get("authorization")).toBe("Bearer test-freestyle-key-not-real")
+    const idn = /^\/v5\/identities(?:\/([^/]+)(?:\/(permissions\/vm|tokens)(?:\/([^/]+))?)?)?$/.exec(url.pathname)
+    if (idn) {
+      const [, who, kind, sub] = idn
+      if (!who && req.method === "POST") {
+        const id = `idn-test${identities.size + 1}`
+        identities.set(id, { grants: new Map() })
+        return Response.json({ id, managed: false })
+      }
+      const it = who ? identities.get(who) : undefined
+      if (!it) return Response.json({ code: "NOT_FOUND", message: "no such identity" }, { status: 404 })
+      if (!kind && req.method === "GET") return Response.json({ id: who, managed: false })
+      if (!kind && req.method === "DELETE") {
+        identities.delete(who!)
+        for (const t of tokens.values()) if (t.identity === who) t.revoked = true
+        return Response.json({})
+      }
+      if (kind === "permissions/vm" && req.method === "POST") {
+        const body = (await req.json()) as { vmId: string; allowedLinuxUsers?: Array<string> | null }
+        it.grants.set(body.vmId, body.allowedLinuxUsers ?? null)
+        return Response.json({ id: `vmp-${body.vmId}`, identityId: who, vmId: body.vmId, allowedLinuxUsers: body.allowedLinuxUsers ?? null })
+      }
+      if (kind === "permissions/vm" && req.method === "DELETE" && sub) return it.grants.delete(sub), Response.json({})
+      if (kind === "tokens" && req.method === "POST") {
+        const body = (await req.json()) as { expiresAt?: string }
+        const id = `tok-test${tokens.size + 1}`
+        const token = `idtok-secret-${tokens.size + 1}-not-real`
+        tokens.set(token, { id, identity: who!, revoked: false, expires: body.expiresAt ? Date.parse(body.expiresAt) : Infinity })
+        return Response.json({ id, token, expiresAt: body.expiresAt ?? null })
+      }
+      if (kind === "tokens" && req.method === "DELETE" && sub) {
+        for (const t of tokens.values()) if (t.id === sub) t.revoked = true
+        return Response.json({})
+      }
+      return new Response("unexpected", { status: 500 })
+    }
+    const life = /^\/v5\/vms\/([^/]+)\/(pause|start)$/.exec(url.pathname)
+    if (req.method === "POST" && life) return lifecycle.push(`${life[1]} ${life[2]}`), states.set(life[1]!, life[2] === "pause" ? "paused" : "running"), Response.json({ id: life[1], state: states.get(life[1]!) })
+    const fsm = /^\/v5\/vms\/([^/]+)\/fs\/([a-z]+)(?:\/([^/]+)(\/commit)?)?$/.exec(url.pathname)
+    if (fsm) {
+      const [, vm, op, up, commit] = fsm
+      const fsOf = files.get(vm!) ?? new Map<string, Uint8Array>()
+      files.set(vm!, fsOf)
+      const path = url.searchParams.get("path") ?? ""
+      if (op === "write" && req.method === "PUT") {
+        const body = (await req.json()) as { path: string; content: string; encoding?: string }
+        fsOf.set(body.path, body.encoding === "base64" ? Uint8Array.from(atob(body.content), (c) => c.charCodeAt(0)) : new TextEncoder().encode(body.content))
+        return new Response(null, { status: 204 })
+      }
+      if (op === "read") {
+        const f = fsOf.get(path)
+        if (!f) return Response.json({ code: "NOT_FOUND", message: "no such file" }, { status: 404 })
+        const m = /^bytes=(\d+)-(\d+)$/.exec(req.headers.get("range") ?? "")
+        if (!m) return new Response(f)
+        const a = Number(m[1])
+        if (a >= f.length) return new Response(null, { status: 416 })
+        const part = f.subarray(a, Math.min(f.length, Number(m[2]) + 1))
+        return new Response(part, { status: 206, headers: { "content-range": `bytes ${a}-${a + part.length - 1}/${f.length}` } })
+      }
+      if (op === "dir") return Response.json({ entries: [...fsOf.keys()].filter((k) => k.startsWith(`${path.replace(/\/$/, "")}/`)).map((k) => ({ name: k.slice(path.replace(/\/$/, "").length + 1).split("/")[0], kind: "file" })) })
+      if (op === "stat") return fsOf.has(path) ? Response.json({ size: fsOf.get(path)!.length, isFile: true, isDirectory: false, isSymlink: false, permissions: "0644", owner: "root", group: "root", modified: "2026-10-21T00:00:00Z" }) : Response.json({ code: "NOT_FOUND", message: "no such path" }, { status: 404 })
+      if (op === "exists") return Response.json({ exists: fsOf.has(path) })
+      if (op === "mkdir") return new Response(null, { status: 204 })
+      if (op === "remove") return fsOf.delete(path), new Response(null, { status: 204 })
+      if (op === "uploads" && req.method === "POST" && !up) {
+        const body = (await req.json()) as { path: string; size: number }
+        const id = `up-${uploads.size + 1}`
+        uploads.set(id, { vm: vm!, path: body.path, size: body.size, got: [] })
+        return Response.json({ uploadId: id, receivedBytes: 0, size: body.size })
+      }
+      const u = up ? uploads.get(up) : undefined
+      if (op === "uploads" && u && req.method === "PUT") {
+        expect(req.headers.get("content-type")).toBe("application/octet-stream")
+        if (Number(url.searchParams.get("offset")) !== u.got.length) return Response.json({ code: "CONFLICT", message: "offset" }, { status: 409 })
+        for (const x of new Uint8Array(await req.arrayBuffer())) u.got.push(x)
+        return Response.json({ uploadId: up, receivedBytes: u.got.length, size: u.size })
+      }
+      if (op === "uploads" && u && commit && req.method === "POST") return fsOf.set(u.path, Uint8Array.from(u.got)), uploads.delete(up!), new Response(null, { status: 204 })
+      return new Response("unexpected fs", { status: 500 })
+    }
+    const snapOf = /^\/v5\/vms\/([^/]+)\/snapshot$/.exec(url.pathname)
+    if (snapOf && req.method === "POST") {
+      const id = `sn-test${snapshots.size + 1}`
+      snapshots.set(id, { source: snapOf[1]!, body: await req.json() })
+      return Response.json({ snapshotId: id, snapshot: { id }, sourceVmId: snapOf[1] })
+    }
+    const sn = /^\/v5\/snapshots\/([^/]+)$/.exec(url.pathname)
+    if (sn) {
+      const it = snapshots.get(sn[1]!)
+      if (!it || it.deleted) return Response.json({ code: "NOT_FOUND", message: "no such snapshot" }, { status: 404 })
+      if (req.method === "DELETE") return (it.deleted = true), Response.json({})
+      if (req.method === "PATCH") it.body = { ...it.body, ...((await req.json()) as object) }
+      return Response.json({ id: sn[1], displayName: it.body.displayName ?? null, ttlSeconds: it.body.ttlSeconds ?? null })
+    }
     if (req.method === "POST" && url.pathname === "/v5/vms") {
       const id = `vm-test${made.length + 1}`
       made.push({ id, body: await req.json() })
+      // A VM starts at its snapshot's size (the small Ubuntu base is 2 vCPU / 4 GiB / 16 GB).
+      sizes.set(id, made[made.length - 1]!.body.snapshotId === "freestyle/ubuntu-sm" ? { cpu: 2, memory: 4096, storage: 16384 } : { cpu: 4, memory: 8192, storage: 32768 })
       return Response.json({ id })
     }
     const del = /^\/v5\/vms\/([^/]+)$/.exec(url.pathname)
     if (req.method === "DELETE" && del) return deleted.push(del[1]!), Response.json({})
-    if (req.method === "GET" && del) {
+    if ((req.method === "GET" || req.method === "PATCH") && del) {
       const m = made.find((x) => x.id === del[1])
       if (!m || deleted.includes(m.id)) return new Response("no such vm", { status: 404 })
-      return Response.json({ id: m.id, state: "running", ipMode: "dualStack" })
+      if (req.method === "PATCH") {
+        const body = (await req.json()) as any
+        patches.push({ vm: m.id, body })
+      }
+      const v = Object.assign({}, m.body, ...patches.filter((p) => p.vm === m.id).map((p) => p.body))
+      return Response.json({ id: m.id, state: states.get(m.id) ?? "running", ipMode: "dualStack", resources: sizes.get(m.id), metadata: v.metadata ?? {}, displayName: v.displayName ?? null, idleTimeoutSeconds: v.idleTimeoutSeconds ?? null, ttlSeconds: v.ttlSeconds ?? null })
+    }
+    const rs = /^\/v5\/vms\/([^/]+)\/resize$/.exec(url.pathname)
+    if (req.method === "POST" && rs) {
+      const vm = rs[1]!
+      const body = (await req.json()) as { cpu?: number; memory?: number; storage?: number }
+      resizes.push({ vm, body })
+      const was = sizes.get(vm)
+      if (!was) return Response.json({ code: "NOT_FOUND", message: "no such vm" }, { status: 404 })
+      const next = { cpu: body.cpu ?? was.cpu, memory: body.memory ?? was.memory, storage: body.storage ?? was.storage }
+      if (next.cpu < was.cpu || next.memory < was.memory || next.storage < was.storage) return Response.json({ code: "BAD_REQUEST", message: "grow only" }, { status: 400 })
+      sizes.set(vm, next)
+      return Response.json({ id: vm, state: "running", resources: next })
     }
     const ex = /^\/v5\/vms\/([^/]+)\/exec-await$/.exec(url.pathname)
     if (req.method === "POST" && ex) {
       const vm = ex[1]!
       const body = (await req.json()) as { command: string; stdin?: string }
       const stdin = body.stdin ? atob(body.stdin) : ""
+      const raw = Uint8Array.from(stdin, (c) => c.charCodeAt(0))
       steps.push(`${vm} ${body.command.split(" ")[0]}`)
       if (body.command.startsWith("/opt/chief-cc/boot.sh ")) return boots.push({ vm, stdin }), Response.json({ statusCode: 0, stdout: "ready\n" })
       if (body.command === "bash -s") return nets.push({ vm, script: stdin }), Response.json({ statusCode: 0, stdout: "net ok\n" })
@@ -110,12 +262,13 @@ const fakeCloud = (answer: (prompt: string, n: number) => string, during?: (s: S
         setTimeout(() => void (during ?? (async () => undefined))(s, n).then(() => machine(s, answer(s.input.prompt, n))), 20)
         return Response.json({ statusCode: 0, stdout: "started\n" })
       }
-      execs.push({ vm, command: body.command })
+      execs.push({ vm, command: body.command, stdin: raw })
+      if (body.command.includes("resize2fs")) return Response.json({ statusCode: 0, stdout: "/dev/vda 63G 1.2G 62G 2% /\n" })
       return Response.json({ statusCode: 0, stdout: body.command.startsWith("echo ") ? `${body.command.slice(5)}\n` : "" })
     }
     return new Response("unexpected", { status: 500 })
   })
-  return { made, deleted, boots, started, nets, steps, keys, tags, other, execs }
+  return { made, deleted, boots, started, nets, steps, keys, tags, other, execs, sizes, resizes, identities, tokens, execAuth, states, patches, files, uploads, snapshots, lifecycle }
 }
 const notes = (s: Started, body: unknown, token = s.input.token) => worker.fetch(s.input.notes_url, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) })
 const machine = async (s: Started, reply: string) => {
@@ -235,6 +388,8 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     // The turn machine knows its settings (chief-net show) and the Chief is told about the tool.
     expect(s.input.net).toEqual({ internet: true, dns: true, tailnet: true, local: false, allow: [], deny: [] })
     expect(cloud.nets[0]!.script).toContain("ip daddr 100.64.0.0/10 accept")
+    // The Worker's current chief-vm client is written over the snapshot's before the agent starts.
+    expect(cloud.nets[0]!.script).toContain(`printf %s '${btoa(String.fromCharCode(...new TextEncoder().encode(CHIEF_VM_MJS)))}' | base64 -d > /opt/chief-cc/chief-vm.mjs.new`)
     expect(cloud.tags).toEqual([["tag:agent-cloud"]])
     expect(s.input.system).toContain("chief-net")
   })
@@ -287,7 +442,10 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
       await replies(token, chief.main_conversation, chief.id, 1)
       const s = cloud.started[0]!
       expect(cloud.tags).toEqual([["tag:lawrence-chief"]])
-      expect((s.input as any).files).toEqual(files)
+      // The tool files as set, plus the Chief's own tools client and the hook that makes ~/.local/bin runnable (tools.ts).
+      expect((s.input as any).files).toMatchObject(files)
+      expect((s.input as any).files[".local/bin/chief-tools"]).toContain("127.0.0.1:4018/vm")
+      expect(JSON.parse((s.input as any).files[".claude/settings.json"]).hooks.SessionStart[0].hooks[0].command).toContain("chmod 700")
       expect((s.input as any).github_token).toBe("github-token-test-not-real")
       // The Chief is told about its tools on this route.
       for (const word of ["chief-agents", "chief-vm", "mac --", "gh auth status", "100.127.110.65:8790"]) expect(s.input.system).toContain(word)
@@ -297,6 +455,140 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     } finally {
       for (const [k, v] of Object.entries(before)) v === undefined ? delete testEnv[k] : (testEnv[k] = v)
     }
+  })
+
+  it("lets the Chief add, change and remove its own tools: served from its next turn, never a token path, never another Chief's, capped", async () => {
+    const files = { ".config/cloud-chief/mac.token": "mac-token-test-not-real" }
+    const before = testEnv.CHIEF_CC_TURN_FILES
+    testEnv.CHIEF_CC_TURN_FILES = JSON.stringify(files)
+    try {
+      const seen: Record<string, any> = {}
+      const call = async (s: Started, vm: unknown) => {
+        const r = await notes(s, { run: s.run, vm })
+        return { status: r.status, body: await r.json().catch(() => null) }
+      }
+      const turns = new Map<string, number>()
+      const hello = "#!/bin/sh\necho hello\n"
+      const skill = "---\nname: deploy\n---\nDeploy steps.\n"
+      const cloud = fakeCloud(
+        () => "tools",
+        async (s) => {
+          const who = s.input.notes_url.includes(seen.a ?? "-") ? "a" : "b"
+          const n = (turns.get(who) ?? 0) + 1
+          turns.set(who, n)
+          if (who === "a" && n === 1) {
+            seen.put = await call(s, { action: "tools_put", path: ".local/bin/hello", text: hello })
+            seen.skill = await call(s, { action: "tools_put", path: ".claude/skills/deploy/SKILL.md", text: skill })
+            seen.token = await call(s, { action: "tools_put", path: ".config/cloud-chief/mac.token", text: "stolen" })
+            seen.settings = await call(s, { action: "tools_put", path: ".claude/settings.json", text: "{}" })
+            seen.client = await call(s, { action: "tools_put", path: ".local/bin/chief-tools", text: "broken" })
+            seen.dots = await call(s, { action: "tools_put", path: ".local/bin/../.config/x", text: "x" })
+            seen.big = await call(s, { action: "tools_put", path: ".chief/tools/big.txt", text: "x".repeat(70_000) })
+            seen.many = []
+            for (let i = 0; i < 5; i++) seen.many.push((await call(s, { action: "tools_put", path: `.chief/tools/part${i}.txt`, text: "y".repeat(60_000) })).status)
+            for (let i = 0; i < 5; i++) await call(s, { action: "tools_rm", path: `.chief/tools/part${i}.txt` })
+            seen.list = await call(s, { action: "tools_list" })
+          } else if (who === "b") {
+            seen.otherList = await call(s, { action: "tools_list" })
+            seen.otherRm = await call(s, { action: "tools_rm", path: ".local/bin/hello" })
+            seen.otherPut = await call(s, { action: "tools_put", path: ".local/bin/hello", text: "#!/bin/sh\necho other\n" })
+          } else if (who === "a" && n === 2) {
+            seen.rm = await call(s, { action: "tools_rm", path: ".claude/skills/deploy/SKILL.md" })
+          }
+        }
+      )
+      const a = await enabledChief("chief-cc-tools-a", "cc")
+      seen.a = a.chief.id
+      const b = await enabledChief("chief-cc-tools-b", "cc")
+      expect((await send(a.token, a.chief.main_conversation, "t1", "add a hello tool")).ok).toBe(true)
+      await replies(a.token, a.chief.main_conversation, a.chief.id, 1)
+      expect(seen.put.status).toBe(200)
+      expect(seen.skill.status).toBe(200)
+      // Token paths, the hook settings, the client itself and any path outside the tool folders are refused.
+      for (const k of ["token", "settings", "client", "dots"]) expect(seen[k].status, k).toBe(400)
+      expect(seen.big.status).toBe(413)
+      // 4 x 60 KB fit the 256 KB total; the fifth does not.
+      expect(seen.many).toEqual([200, 200, 200, 200, 413])
+      expect(seen.list.body.tools.map((t: any) => t.path).sort()).toEqual([".claude/skills/deploy/SKILL.md", ".local/bin/hello"])
+
+      // The next turn's machine gets the tools; the token file stays the Worker's.
+      expect((await send(a.token, a.chief.main_conversation, "t2", "run hello")).ok).toBe(true)
+      await replies(a.token, a.chief.main_conversation, a.chief.id, 2)
+      const second = (cloud.started.at(-1)!.input as any).files
+      expect(second[".local/bin/hello"]).toBe(hello)
+      expect(second[".claude/skills/deploy/SKILL.md"]).toBe(skill)
+      expect(second[".config/cloud-chief/mac.token"]).toBe("mac-token-test-not-real")
+      expect(seen.rm.status).toBe(200)
+
+      // Another Chief neither sees nor changes them; its own put is its own.
+      expect((await send(b.token, b.chief.main_conversation, "t3", "list tools")).ok).toBe(true)
+      await replies(b.token, b.chief.main_conversation, b.chief.id, 1)
+      expect(seen.otherList).toMatchObject({ status: 200, body: { tools: [] } })
+      expect(seen.otherRm.status).toBe(404)
+      expect(seen.otherPut.status).toBe(200)
+
+      // A's third turn: its hello unchanged, the removed skill gone.
+      expect((await send(a.token, a.chief.main_conversation, "t4", "again")).ok).toBe(true)
+      await replies(a.token, a.chief.main_conversation, a.chief.id, 3)
+      const third = (cloud.started.at(-1)!.input as any).files
+      expect(third[".local/bin/hello"]).toBe(hello)
+      expect(third[".claude/skills/deploy/SKILL.md"]).toBeUndefined()
+    } finally {
+      before === undefined ? delete testEnv.CHIEF_CC_TURN_FILES : (testEnv.CHIEF_CC_TURN_FILES = before)
+    }
+  })
+
+  it("writes a pasted PNG into the turn machine with the same sha256, before the turn starts, at the path its message line names", async () => {
+    const cloud = fakeCloud(() => "I see the screenshot.")
+    const { token, chief } = await enabledChief("chief-cc-attachment", "cc")
+    const conversation = chief.main_conversation
+    // A PNG over one exec's stdin, so the write goes in chunks.
+    const png = new Uint8Array(1_700_000)
+    png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    for (let i = 8; i < png.length; i++) png[i] = (i * 31 + 7) & 0xff
+    const hash = createHash("sha256").update(png).digest("hex")
+    const intent = await http("POST", "/v1/home/attachments/intent", token, { conversation, sha256: hash, byte_count: png.byteLength, mime_type: "image/png", name: "Screenshot 9.47.59.png", width: 2880, height: 1800 })
+    expect(intent.json?.ok, intent.text).toBe(true)
+    if (intent.json.value.state !== "exists") {
+      const put = await worker.fetch(intent.json.value.upload_url, { method: "PUT", body: png, headers: { "content-length": String(png.byteLength) } })
+      expect(put.status, await put.clone().text()).toBe(200)
+    }
+    const part = { type: "attachment", hash, name: "Screenshot 9.47.59.png", mime_type: "image/png", byte_count: png.byteLength, width: 2880, height: 1800 }
+    const sent = await op(token, "message.send", { conversation, client_msg_id: "a1", parts: [{ type: "text", text: "what is wrong here?" }, part] }, "a1")
+    expect(sent.ok, JSON.stringify(sent)).toBe(true)
+    await replies(token, conversation, chief.id, 1)
+
+    const path = `/home/chief/work/.attachments/${hash}.png`
+    const s = cloud.started[0]!
+    expect(s.input.prompt).toContain(`[attachment: Screenshot 9.47.59.png, image/png 2880x1800 1.6 MB, file ${path}]`)
+    // The bytes: the chunks written to the part file, in order, then renamed to the named path.
+    const writes = cloud.execs.filter((e) => e.vm === s.vm && /cat >>? \/home\/chief\/work\/\.attachments\//.test(e.command))
+    expect(writes.length).toBeGreaterThan(1)
+    for (const w of writes) expect(w.stdin.byteLength).toBeLessThanOrEqual(1_000_000)
+    const got = new Uint8Array(writes.reduce((n, w) => n + w.stdin.byteLength, 0))
+    let at = 0
+    for (const w of writes) [got.set(w.stdin, at), (at += w.stdin.byteLength)]
+    expect(createHash("sha256").update(got).digest("hex")).toBe(hash)
+    expect(cloud.execs.some((e) => e.vm === s.vm && e.command.includes(`mv -f`) && e.command.endsWith(`${path} && echo ok`))).toBe(true)
+    // Owned by the agent user, mode 600; written before the turn started.
+    expect(cloud.execs.some((e) => e.command.includes("chown chief:chief") && e.command.includes("chmod 600"))).toBe(true)
+    const order = cloud.steps.filter((x) => x.startsWith(s.vm))
+    expect(order.findIndex((x) => x.endsWith("cat")) >= 0 || order.findIndex((x) => x.endsWith("install")) >= 0).toBe(true)
+    expect(order.findIndex((x) => x.endsWith("/opt/chief-cc/start.sh"))).toBeGreaterThan(order.findLastIndex((x) => x.endsWith("chown")))
+    // The bytes are in no reply or run.
+    const runs = (await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${conversation}`, token)).json.value.runs as Array<any>
+    expect(JSON.stringify(runs)).not.toContain("iVBORw0KGgo")
+  })
+
+  it("does not write an attachment of another conversation into the turn machine", async () => {
+    const cloud = fakeCloud(() => "ok")
+    const { token, chief } = await enabledChief("chief-cc-attachment-other", "cc")
+    const foreign = "ab".repeat(32)
+    expect((await send(token, chief.main_conversation, "o1", `look at /home/chief/work/.attachments/${foreign}.png`)).ok).toBe(true)
+    await replies(token, chief.main_conversation, chief.id, 1)
+    const s = cloud.started[0]!
+    expect(cloud.execs.filter((e) => e.vm === s.vm && e.command.includes(".attachments/"))).toHaveLength(0)
+    expect(s.input.prompt).toContain(`${foreign}.png (not found in this conversation)`)
   })
 
   it("lets the Chief keep sandbox VMs of its own across turns: at most two, only its own, through the turn token", async () => {
@@ -331,7 +623,7 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     expect(sandbox.body.metadata).toMatchObject({ cmux_chief_sandbox: chief.id })
     expect(sandbox.body.ttlSeconds).toBeLessThanOrEqual(12 * 3600)
     expect(seen.exec).toMatchObject({ status: 200, body: { exit: 0, stdout: "hello\n" } })
-    expect(cloud.execs).toContainEqual({ vm: seen.a.body.vm.id, command: "echo hello" })
+    expect(cloud.execs.map(({ vm, command }) => ({ vm, command }))).toContainEqual({ vm: seen.a.body.vm.id, command: "echo hello" })
     // The turn machine itself (or any VM it did not make) is not the Chief's sandbox.
     expect(seen.foreign.status).toBe(404)
     expect(cloud.execs.some((e) => e.command === "echo nope")).toBe(false)
@@ -344,6 +636,347 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     expect(seen.list.status).toBe(200)
     expect(seen.list.body.vms.map((v: any) => v.id)).toEqual([seen.a.body.vm.id])
     expect(cloud.deleted).not.toContain(seen.a.body.vm.id)
+  })
+
+  it("lets the Chief grow its own sandboxes (grow only, capped, then the guest filesystem grows), and size them at create", async () => {
+    const seen: Record<string, any> = {}
+    const call = async (s: Started, vm: unknown) => {
+      const r = await notes(s, { run: s.run, vm })
+      return { status: r.status, body: await r.json().catch(() => null) }
+    }
+    const cloud = fakeCloud(
+      () => "resized",
+      async (s) => {
+        seen.a = await call(s, { action: "create" })
+        const id = seen.a.body?.vm?.id
+        seen.grow = await call(s, { action: "resize", id, cpu: 8, memory_mb: 16384, disk_gb: 64 })
+        seen.shrink = await call(s, { action: "resize", id, cpu: 2 })
+        seen.huge = await call(s, { action: "resize", id, cpu: 4096 })
+        seen.nothing = await call(s, { action: "resize", id })
+        seen.junk = await call(s, { action: "resize", id, memory_mb: "lots" })
+        seen.foreign = await call(s, { action: "resize", id: s.vm, cpu: 8 })
+        seen.sized = await call(s, { action: "create", cpu: 6, memory_mb: 12288, disk_gb: 48 })
+        seen.tiny = await call(s, { action: "create", disk_gb: 8 })
+        seen.chiefImage = await call(s, { action: "create", image: "chief" })
+      }
+    )
+    const { token, chief } = await enabledChief("chief-cc-sandbox-resize", "cc")
+    expect((await send(token, chief.main_conversation, "r1", "grow the sandbox")).ok).toBe(true)
+    await replies(token, chief.main_conversation, chief.id, 1)
+    const id = seen.a.body.vm.id
+    expect(seen.grow.status).toBe(200)
+    expect(seen.grow.body).toMatchObject({ id, resources: { cpu: 8, memory_mb: 16384, disk_gb: 64 } })
+    expect(cloud.resizes).toContainEqual({ vm: id, body: { cpu: 8, memory: 16384, storage: 65536 } })
+    expect(cloud.sizes.get(id)).toEqual({ cpu: 8, memory: 16384, storage: 65536 })
+    // The disk grew, so the guest's root filesystem is grown too and df shows it.
+    expect(cloud.execs.some((e) => e.vm === id && e.command.includes("resize2fs"))).toBe(true)
+    expect(seen.grow.body.df).toContain("63G")
+    // The guest sees the new CPUs and memory before resize answers.
+    expect(seen.grow.body.guest).toEqual({ nproc: 8, memory_mb: 16194, df: "/dev/vda 63G 1.2G 62G 2% /" })
+    // Grow only, within the cap, a number on some axis, and only the Chief's own sandboxes; none reaches Freestyle.
+    expect(seen.shrink.status).toBe(400)
+    expect(seen.shrink.body.error).toMatch(/grow/)
+    expect(seen.huge.status).toBe(400)
+    expect(seen.nothing.status).toBe(400)
+    expect(seen.junk.status).toBe(400)
+    expect(seen.foreign.status).toBe(404)
+    // One grow at create (the small default to 4 vCPU / 8 GiB), one asked for; the refused ones never reached Freestyle.
+    expect(cloud.resizes.filter((r) => r.vm === id)).toEqual([{ vm: id, body: { cpu: 4, memory: 8192 } }, { vm: id, body: { cpu: 8, memory: 16384, storage: 65536 } }])
+    expect(cloud.resizes.some((r) => r.vm !== id && !cloud.made.some((m) => m.id === r.vm && m.body.metadata?.cmux_chief_sandbox))).toBe(false)
+    // create takes the same sizes.
+    expect(seen.sized.status).toBe(200)
+    expect(seen.sized.body.resources).toMatchObject({ cpu: 6, memory_mb: 12288, disk_gb: 48 })
+    expect(cloud.sizes.get(seen.sized.body.vm.id)).toEqual({ cpu: 6, memory: 12288, storage: 49152 })
+    // Small disks by default: the 16 GB Ubuntu base, grown to 4 vCPU / 8 GiB; below the base is refused; image chief is the Chief's own.
+    expect(cloud.made.find((m) => m.id === id)!.body.snapshotId).toBe("freestyle/ubuntu-sm")
+    expect(seen.a.body.resources).toEqual({ cpu: 4, memory_mb: 8192, disk_gb: 16 })
+    expect(seen.tiny.status).toBe(400)
+    expect(seen.tiny.body.error).toMatch(/16 GB/)
+    expect(seen.chiefImage.status, JSON.stringify(seen.chiefImage.body)).toBe(429)
+  })
+
+  it("runs sandbox execs on the Chief's own Freestyle identity: A's token cannot reach B's VM, revoked tokens are refused", async () => {
+    const seen: Record<string, any> = {}
+    const call = async (s: Started, vm: unknown) => {
+      const r = await notes(s, { run: s.run, vm })
+      return { status: r.status, body: await r.json().catch(() => null) }
+    }
+    const cloud = fakeCloud(
+      () => "isolated",
+      async (s, n) => {
+        if (n === 1) {
+          seen.a = await call(s, { action: "create" })
+          seen.aExec = await call(s, { action: "exec", id: seen.a.body?.vm?.id, command: "whoami", user: "chief" })
+          seen.badUser = await call(s, { action: "exec", id: seen.a.body?.vm?.id, command: "whoami", user: "nobody" })
+        } else if (n === 2) {
+          seen.b = await call(s, { action: "create" })
+          seen.bExec = await call(s, { action: "exec", id: seen.b.body?.vm?.id, command: "echo b" })
+        } else {
+          seen.cross = await call(s, { action: "exec", id: seen.b.body?.vm?.id, command: "echo stolen" })
+          for (const action of ["get", "update", "resize", "pause", "start", "stop", "delete"]) seen[`cross-${action}`] = await call(s, { action, id: seen.b.body?.vm?.id, cpu: 8, name: "x" })
+          seen.aDel = await call(s, { action: "delete", id: seen.a.body?.vm?.id })
+        }
+      }
+    )
+    const A = await enabledChief("chief-cc-sandbox-a", "cc")
+    const B = await enabledChief("chief-cc-sandbox-b", "cc")
+    expect((await send(A.token, A.chief.main_conversation, "i1", "make one")).ok).toBe(true)
+    await replies(A.token, A.chief.main_conversation, A.chief.id, 1)
+    expect((await send(B.token, B.chief.main_conversation, "i2", "make one")).ok).toBe(true)
+    await replies(B.token, B.chief.main_conversation, B.chief.id, 1)
+    expect((await send(A.token, A.chief.main_conversation, "i3", "reach theirs")).ok).toBe(true)
+    await replies(A.token, A.chief.main_conversation, A.chief.id, 2)
+    const a = seen.a.body.vm.id as string
+    const b = seen.b.body.vm.id as string
+    expect(seen.aExec).toMatchObject({ status: 200, body: { exit: 0, stdout: "chief\n" } })
+    expect(seen.bExec).toMatchObject({ status: 200, body: { exit: 0, stdout: "b\n" } })
+    expect(seen.badUser.status).toBe(400)
+    // One identity per Chief; each holds a grant only on its own VM, Linux users named (never null).
+    const byVm = (vm: string) => [...cloud.identities.entries()].filter(([, i]) => i.grants.has(vm)).map(([id]) => id)
+    expect(byVm(b)).toHaveLength(1)
+    expect(cloud.identities.get(byVm(b)[0]!)!.grants.get(b)).toEqual(["root", "chief"])
+    // Every sandbox exec ran on the owner's identity token, never the team key.
+    expect(cloud.execAuth.filter((e) => e.vm === b).every((e) => e.by === `identity:${byVm(b)[0]}`)).toBe(true)
+    expect(cloud.execAuth.some((e) => e.vm === a)).toBe(true)
+    // A cannot touch B's VM through any verb, and nothing reached Freestyle for it.
+    expect(seen.cross.status).toBe(404)
+    for (const action of ["get", "update", "resize", "pause", "start", "stop", "delete"]) expect(seen[`cross-${action}`].status, action).toBe(404)
+    expect(cloud.execs.some((e) => e.command === "echo stolen")).toBe(false)
+    // B's only resize is its own create-time grow (the small default); A's cpu: 8 never reached Freestyle.
+    expect(cloud.resizes.filter((r) => r.vm === b)).toEqual([{ vm: b, body: { cpu: 4, memory: 8192 } }])
+    expect(cloud.deleted).not.toContain(b)
+    // A's own token is refused on B's VM at Freestyle too (its grant names only A's VM).
+    const aIdentity = cloud.execAuth.find((e) => e.vm === a)!.by.slice("identity:".length)
+    const aToken = [...cloud.tokens.entries()].find(([, t]) => t.identity === aIdentity && !t.revoked)![0]
+    const direct = await fetch(`https://freestyle.test/v5/vms/${b}/exec-await`, { method: "POST", headers: { "x-freestyle-identity-access-token": aToken, "content-type": "application/json" }, body: JSON.stringify({ command: "echo direct", linuxUser: "root" }) })
+    expect(direct.status).toBe(403)
+    // Deleting A's VM revoked its grant; archiving the Chief deletes its identity, and its token is refused.
+    expect(seen.aDel.status).toBe(200)
+    expect(cloud.identities.get(aIdentity)?.grants.has(a)).toBe(false)
+    // Archive: the Chief's sandboxes pause and its identity goes (its default role moves to another Chief first).
+    const other = (await op(A.token, "chief.create", { display_name: "Other Chief" }, "chief-cc-sandbox-a-other")).value as { id: string; rev: number }
+    const listChiefs = async () => (await http("POST", "/v1/read", A.token, { op: "chief.list", params: {} })).json.value.chiefs as Array<any>
+    const mine = (await listChiefs()).find((c) => c.id === A.chief.id)
+    if (mine.is_default) expect((await op(A.token, "chief.update", { chief: other.id, expected_rev: (await listChiefs()).find((c) => c.id === other.id).rev, is_default: true })).ok).toBe(true)
+    const rec = (await listChiefs()).find((c) => c.id === A.chief.id)
+    const archived = await op(A.token, "chief.archive", { chief: A.chief.id, expected_rev: rec.rev })
+    expect(archived.ok, JSON.stringify(archived)).toBe(true)
+    for (let i = 0; i < 200 && cloud.identities.has(aIdentity); i++) await new Promise((r) => setTimeout(r, 20))
+    expect(cloud.identities.has(aIdentity)).toBe(false)
+    const revoked = await fetch(`https://freestyle.test/v5/vms/${a}/exec-await`, { method: "POST", headers: { "x-freestyle-identity-access-token": aToken, "content-type": "application/json" }, body: JSON.stringify({ command: "echo late", linuxUser: "root" }) })
+    expect(revoked.status).toBe(401)
+    // No token ever reached the turn machine.
+    expect(JSON.stringify(seen)).not.toContain("idtok-secret")
+  })
+
+  it("gives the Chief the VM lifecycle, exec options, its cap and the cost per hour", async () => {
+    const seen: Record<string, any> = {}
+    const call = async (s: Started, vm: unknown) => {
+      const r = await notes(s, { run: s.run, vm })
+      return { status: r.status, body: await r.json().catch(() => null) }
+    }
+    const cloud = fakeCloud(
+      () => "lifecycle",
+      async (s) => {
+        seen.made = await call(s, { action: "create", name: "builder", metadata: { purpose: "ci" }, idle_seconds: 600, ttl_seconds: 7200, snapshot: "freestyle/ubuntu" })
+        const id = seen.made.body?.vm?.id
+        seen.badSnap = await call(s, { action: "create", snapshot: "sh-someone-elses" })
+        seen.reserved = await call(s, { action: "update", id, metadata: { cmux_chief_sandbox: "agent_other" } })
+        seen.get = await call(s, { action: "get", id })
+        seen.update = await call(s, { action: "update", id, name: "builder-2", idle_seconds: 900 })
+        seen.exec = await call(s, { action: "exec", id, command: "printenv GREETING; cat", env: { GREETING: "hi" }, stdin: btoa("from stdin") })
+        seen.badEnv = await call(s, { action: "exec", id, command: "true", env: { "1BAD": "x" } })
+        seen.bigStdin = await call(s, { action: "exec", id, command: "cat", stdin: "A".repeat(190_000) })
+        // The identity is deleted at Freestyle behind the Worker's back: the next exec makes a new one and works.
+        for (const k of [...cloud.identities.keys()]) cloud.identities.delete(k)
+        seen.afterLoss = await call(s, { action: "exec", id, command: "echo back" })
+        seen.pause = await call(s, { action: "pause", id })
+        seen.paused = await call(s, { action: "get", id })
+        seen.start = await call(s, { action: "start", id })
+        seen.stop = await call(s, { action: "stop", id })
+        seen.cap = await call(s, { action: "cap" })
+        seen.list = await call(s, { action: "list" })
+        seen.tooBig = await call(s, { action: "resize", id, cpu: 33 })
+        seen.second = await call(s, { action: "create" })
+        seen.third = await call(s, { action: "create" })
+      }
+    )
+    const before = testEnv.CHIEF_CC_SANDBOX_CAPS
+    const beforeCap = testEnv.CHIEF_CC_SANDBOX_CAP
+    const { token, chief } = await enabledChief("chief-cc-sandbox-life", "cc")
+    // An empty per-Chief entry and an empty global value fall back to the default cap of 2 (never 0).
+    testEnv.CHIEF_CC_SANDBOX_CAPS = `agent_unrelated=9,${chief.id}=`
+    testEnv.CHIEF_CC_SANDBOX_CAP = ""
+    try {
+      expect((await send(token, chief.main_conversation, "l1", "lifecycle")).ok).toBe(true)
+      await replies(token, chief.main_conversation, chief.id, 1)
+    } finally {
+      before === undefined ? delete testEnv.CHIEF_CC_SANDBOX_CAPS : (testEnv.CHIEF_CC_SANDBOX_CAPS = before)
+      beforeCap === undefined ? delete testEnv.CHIEF_CC_SANDBOX_CAP : (testEnv.CHIEF_CC_SANDBOX_CAP = beforeCap)
+    }
+    const id = seen.made.body.vm.id
+    const made = cloud.made.find((m) => m.id === id)!
+    expect(made.body).toMatchObject({ snapshotId: "freestyle/ubuntu", displayName: "builder", idleTimeoutSeconds: 600, ttlSeconds: 7200, metadata: { purpose: "ci", cmux_chief_sandbox: chief.id } })
+    // Cost per hour at list prices: 4 vCPU, 8 GiB, 32 GB running; disk only while paused.
+    expect(seen.made.body.cost).toEqual({ running_usd_per_hour: 0.2672, paused_usd_per_hour: 0.0028 })
+    expect(seen.badSnap.status).toBe(400)
+    expect(seen.reserved.status).toBe(400)
+    expect(seen.get.body.vm).toMatchObject({ id, state: "running", display_name: "builder", resources: { cpu: 4, memory_mb: 8192, disk_gb: 32 }, cost: { running_usd_per_hour: 0.2672 } })
+    expect(seen.update.status).toBe(200)
+    expect(cloud.patches).toContainEqual({ vm: id, body: { displayName: "builder-2", idleTimeoutSeconds: 900 } })
+    expect(seen.exec).toMatchObject({ status: 200, body: { exit: 0, stdout: "hi\nfrom stdin" } })
+    expect(seen.badEnv.status).toBe(400)
+    expect(seen.bigStdin.status).toBe(400)
+    expect(seen.bigStdin.body.error).toMatch(/fs put/)
+    expect(seen.afterLoss).toMatchObject({ status: 200, body: { stdout: "back\n" } })
+    // Every new sandbox gets the chief user that exec --user chief runs as.
+    expect(cloud.execs.some((e) => e.vm === id && e.command === "id chief >/dev/null 2>&1 || useradd -m -s /bin/bash chief")).toBe(true)
+    expect(seen.pause.body).toMatchObject({ state: "paused" })
+    expect(seen.paused.body.vm.state).toBe("paused")
+    expect(seen.start.body).toMatchObject({ state: "running" })
+    expect(seen.stop.body).toMatchObject({ state: "stopped" })
+    expect(cloud.execs.some((e) => e.vm === id && e.command.includes("poweroff"))).toBe(true)
+    expect(seen.cap.body).toMatchObject({ cap: 2, live: 1, plan: { name: "pro", max: { cpu: 32, memory_mb: 65536, disk_gb: 256 } } })
+    expect(seen.list.body.vms[0]).toMatchObject({ id, cost: { running_usd_per_hour: 0.2672 } })
+    expect(seen.tooBig.status).toBe(400)
+    expect(seen.tooBig.body.error).toMatch(/pro plan/)
+    expect(seen.second.status).toBe(200)
+    expect(seen.third.status).toBe(429)
+  })
+
+  it("keeps one sandbox list, cap and identity per Chief across its conversations, adopts older lists, and parallel creates stay in the cap", async () => {
+    const seen: Record<string, any> = {}
+    const call = async (s: Started, vm: unknown) => {
+      const r = await notes(s, { run: s.run, vm })
+      return { status: r.status, body: await r.json().catch(() => null) }
+    }
+    const cloud = fakeCloud(
+      () => "shared",
+      async (s, n) => {
+        if (n === 1) {
+          seen.list1 = await call(s, { action: "list" })
+          seen.burst = await Promise.all([1, 2, 3].map(() => call(s, { action: "create" })))
+        } else {
+          seen.list2 = await call(s, { action: "list" })
+          seen.exec2 = await call(s, { action: "exec", id: "vm-legacy", command: "echo still mine" })
+        }
+      }
+    )
+    const before = testEnv.CHIEF_CC_SANDBOX_CAP
+    testEnv.CHIEF_CC_SANDBOX_CAP = "2"
+    try {
+      const { token, user, chief } = await enabledChief("chief-cc-sandbox-shared", "cc")
+      // A sandbox the main conversation's brain kept before sandboxes moved to the Chief's own object.
+      cloud.made.push({ id: "vm-legacy", body: { metadata: { cmux_chief_sandbox: chief.id } } })
+      cloud.sizes.set("vm-legacy", { cpu: 4, memory: 8192, storage: 32768 })
+      const ns = (testEnv as any).CHIEF_BRAIN_DO as DurableObjectNamespace
+      const mainBrain = ns.get(ns.idFromName(`${chief.id}/${chief.main_conversation}`))
+      await inDO(mainBrain, async (instance) => {
+        instance.sql.exec(`CREATE TABLE IF NOT EXISTS cb_config (name TEXT PRIMARY KEY, value TEXT NOT NULL)`)
+        instance.sql.exec(`INSERT INTO cb_config (name, value) VALUES ('cc_sandboxes', ?) ON CONFLICT (name) DO UPDATE SET value = excluded.value`, JSON.stringify([{ id: "vm-legacy", name: "old", created_at: 1 }]))
+      })
+      expect((await send(token, chief.main_conversation, "s1", "make sandboxes")).ok).toBe(true)
+      await replies(token, chief.main_conversation, chief.id, 1)
+      const created = await op(token, "conversation.create", { title: "Side work", participants: [{ id: user, kind: "human", display_name: "Owner" }, { id: chief.id, kind: "agent", agent_class: "mux", owner_user: user, display_name: "Route Chief" }] })
+      expect(created.ok, JSON.stringify(created)).toBe(true)
+      const side = created.value.conversation.id as string
+      expect((await op(token, "message.send", { conversation: side, client_msg_id: "s2", parts: [{ type: "text", text: "@chief list them", runs: [{ start: 0, length: 6, mention: chief.id }] }] }, "s2")).ok).toBe(true)
+      await replies(token, side, chief.id, 1)
+      // The legacy sandbox was adopted and counts against the cap: of three parallel creates, exactly one fits.
+      expect(seen.list1.body.vms.map((v: any) => v.id)).toEqual(["vm-legacy"])
+      expect(seen.burst.map((r: any) => r.status).sort()).toEqual([200, 429, 429])
+      // Another conversation of the same Chief sees the same two sandboxes and can use them.
+      expect(seen.list2.body.vms.map((v: any) => v.id).sort()).toEqual(["vm-legacy", seen.burst.find((r: any) => r.status === 200).body.vm.id].sort())
+      expect(seen.exec2).toMatchObject({ status: 200, body: { stdout: "still mine\n" } })
+      // One identity for the Chief, and the conversation brain no longer keeps its own list.
+      expect(new Set(cloud.execAuth.map((e) => e.by)).size).toBe(1)
+      const left = await inDO(mainBrain, async (instance) => instance.sql.exec(`SELECT value FROM cb_config WHERE name = 'cc_sandboxes'`).toArray())
+      expect(left).toEqual([])
+    } finally {
+      before === undefined ? delete testEnv.CHIEF_CC_SANDBOX_CAP : (testEnv.CHIEF_CC_SANDBOX_CAP = before)
+    }
+  })
+
+  it("gives the Chief files (also while paused, chunked uploads), snapshots of its own and live forks", async () => {
+    const seen: Record<string, any> = {}
+    const call = async (s: Started, vm: unknown) => {
+      const r = await notes(s, { run: s.run, vm })
+      return { status: r.status, body: await r.json().catch(() => null) }
+    }
+    const big = Uint8Array.from({ length: 300_000 }, (_, i) => (i * 7) % 251)
+    const b64 = (u: Uint8Array) => btoa(Array.from(u, (c) => String.fromCharCode(c)).join(""))
+    const cloud = fakeCloud(
+      () => "files",
+      async (s) => {
+        seen.made = await call(s, { action: "create" })
+        const id = seen.made.body?.vm?.id
+        const fs = (op: string, more: object) => call(s, { action: "fs", id, op, ...more })
+        seen.write = await fs("write", { path: "/root/a.txt", data: btoa("hello file") })
+        seen.relative = await fs("write", { path: "root/a.txt", data: btoa("x") })
+        seen.pause = await call(s, { action: "pause", id })
+        seen.read = await fs("read", { path: "/root/a.txt" })
+        seen.readPart = await fs("read", { path: "/root/a.txt", offset: 6, length: 4 })
+        seen.ls = await fs("ls", { path: "/root" })
+        seen.stat = await fs("stat", { path: "/root/a.txt" })
+        seen.exists = await fs("exists", { path: "/root/missing" })
+        seen.begin = await fs("upload_begin", { path: "/root/big.bin", size: big.length })
+        const up = seen.begin.body?.upload?.uploadId
+        seen.chunks = []
+        for (let off = 0; off < big.length; off += 128 * 1024) { const r = await fs("upload_chunk", { upload_id: up, offset: off, data: b64(big.subarray(off, off + 128 * 1024)) }); seen.chunks.push(r.status); (seen.chunkBodies ??= []).push(r.status === 200 ? 200 : r.body) }
+        seen.tooBig = await fs("upload_chunk", { upload_id: up, offset: 0, data: b64(new Uint8Array(128 * 1024 + 1)) })
+        seen.commit = await fs("upload_commit", { upload_id: up })
+        seen.rm = await fs("rm", { path: "/root/a.txt" })
+        seen.snap = await call(s, { action: "snapshot", id, name: "clean" })
+        const snap = seen.snap.body?.snapshot?.id
+        seen.snaps = await call(s, { action: "snapshots" })
+        seen.rename = await call(s, { action: "snapshot_rename", snapshot: snap, name: "cleaner" })
+        seen.foreignSnap = await call(s, { action: "snapshot_delete", snapshot: "sn-not-mine" })
+        seen.fromSnap = await call(s, { action: "create", snapshot: snap })
+        seen.fork = await call(s, { action: "fork", id, name: "try" })
+        seen.forkOver = seen.fork
+        seen.del = await call(s, { action: "snapshot_delete", snapshot: snap })
+      }
+    )
+    const before = testEnv.CHIEF_CC_SANDBOX_CAP
+    testEnv.CHIEF_CC_SANDBOX_CAP = "3"
+    const { token, chief } = await enabledChief("chief-cc-sandbox-files", "cc")
+    try {
+      expect((await send(token, chief.main_conversation, "f1", "files")).ok).toBe(true)
+      await replies(token, chief.main_conversation, chief.id, 1)
+    } finally {
+      before === undefined ? delete testEnv.CHIEF_CC_SANDBOX_CAP : (testEnv.CHIEF_CC_SANDBOX_CAP = before)
+    }
+    const id = seen.made.body.vm.id
+    expect(seen.write).toMatchObject({ status: 200, body: { bytes: 10 } })
+    expect(seen.relative.status).toBe(400)
+    // Reads on a paused VM do not start it.
+    expect(atob(seen.read.body.data)).toBe("hello file")
+    expect(seen.read.body).toMatchObject({ size: 10, eof: true })
+    expect(atob(seen.readPart.body.data)).toBe("file")
+    expect(cloud.lifecycle).toEqual([`${id} pause`])
+    expect(seen.ls.body.entries).toContainEqual({ name: "a.txt", kind: "file" })
+    expect(seen.stat.body).toMatchObject({ size: 10, isFile: true })
+    expect(seen.exists.body).toEqual({ exists: false })
+    expect(seen.chunks, JSON.stringify(seen.chunkBodies)).toEqual([200, 200, 200])
+    expect(seen.tooBig.status).toBe(400)
+    expect(seen.commit.status).toBe(200)
+    expect(cloud.files.get(id)!.get("/root/big.bin")).toEqual(big)
+    expect(cloud.files.get(id)!.has("/root/a.txt")).toBe(false)
+    // Snapshots: its own only, kept 7 days by default; a sandbox can start from one; fork = snapshot + create.
+    expect(seen.snap.status).toBe(200)
+    const snap = seen.snap.body.snapshot.id
+    expect(cloud.snapshots.get(snap)).toMatchObject({ source: id, body: { displayName: "cleaner", ttlSeconds: 7 * 86_400 } })
+    expect(seen.snaps.body.snapshots.map((x: any) => x.id)).toEqual([snap])
+    expect(seen.rename.body.snapshot.name).toBe("cleaner")
+    expect(seen.foreignSnap.status).toBe(404)
+    expect(seen.fromSnap.status).toBe(200)
+    expect(cloud.made.find((m) => m.id === seen.fromSnap.body.vm.id)!.body.snapshotId).toBe(snap)
+    expect(seen.fork.status).toBe(200)
+    expect(seen.fork.body).toMatchObject({ forked_from: id })
+    expect(cloud.made.find((m) => m.id === seen.fork.body.vm.id)!.body.snapshotId).toBe(seen.fork.body.snapshot)
+    expect(cloud.snapshots.get(seen.fork.body.snapshot)!.source).toBe(id)
+    expect(seen.del.status).toBe(200)
+    expect(cloud.snapshots.get(snap)!.deleted).toBe(true)
   })
 
   it("refuses notes without the running turn's token, and after the turn ended", async () => {

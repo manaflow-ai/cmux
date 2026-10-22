@@ -21,8 +21,9 @@ extension CloudHandlers {
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
             guard let session = target, session.daemon.connection != nil else {
                 // A new machine, or one still on its way: show its progress
-                // now. An ended app link connects again on this gesture.
-                if let target, target.appLink != nil { target.connect(origin: connectOrigin(for: invocation)) }
+                // now. An ended app link connects again on this gesture, and
+                // a paused machine resumes (idle auto-pause).
+                target?.attach(origin: connectOrigin(for: invocation))
                 creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession).start(in: window, existing: target)
                 return
             }

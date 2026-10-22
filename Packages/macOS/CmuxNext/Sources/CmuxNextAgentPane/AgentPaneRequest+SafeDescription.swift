@@ -13,6 +13,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .ready: "ready"
         case .reconnect: "reconnect"
         case .persistSession: "persistSession"
+        case .missingChat: "missingChat"
         case .unsentDraft: "unsentDraft"
         case .framePacing: "framePacing"
         case .renderRate: "renderRate"
