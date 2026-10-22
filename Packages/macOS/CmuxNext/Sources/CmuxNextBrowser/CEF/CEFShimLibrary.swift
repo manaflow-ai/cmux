@@ -38,6 +38,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setChromePolicyID: @convention(c) (UnsafePointer<CChar>?) -> Void
     let setBackgroundColor: @convention(c) (UInt32) -> Void
     let browserSetBackgroundColor: @convention(c) (Int32, UInt32) -> Int32
+    /// A see-through page (fork API 17, `CEFTab.pageSeeThrough`); 0 when the fork lacks it.
+    let tabSetTransparentBackground: @convention(c) (Int32, Int32) -> Int32
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
@@ -279,6 +281,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         setChromePolicyID = try r("cmux_shim_set_chrome_policy_id")
         setBackgroundColor = try r("cmux_shim_set_background_color")
         browserSetBackgroundColor = try r("cmux_shim_browser_set_background_color")
+        tabSetTransparentBackground = try r("cmux_shim_tab_set_transparent_background")
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         createWindow = try r("cmux_shim_create_window")
