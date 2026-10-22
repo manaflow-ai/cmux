@@ -9,12 +9,18 @@ import CmuxNextDesign
 final class SidebarPriorityRowView: NSView {
     private(set) var entry: SidebarPriorityEntry
     var onAction: ((SidebarPriorityAction) -> Void)?
-    /// The row is dragged: how far the pointer moved down since the press (up is negative), and
-    /// whether it was released there.
-    var onDrag: ((SidebarPriorityRowView, _ offset: CGFloat, _ ended: Bool) -> Void)?
-    /// Where the press went down (window points), and whether it has moved far enough to drag.
+    /// A drag's step: the pointer moved, the row was released over the list, or the drag ended with
+    /// no place (released beside the list).
+    enum DragPhase { case moved, dropped, cancelled }
+    /// The row is dragged: how far the pointer moved down since the press, in the list's own points
+    /// (so a scroll during the drag counts; up is negative), and the step.
+    var onDrag: ((SidebarPriorityRowView, _ offset: CGFloat, _ phase: DragPhase) -> Void)?
+    /// Where the press went down (in the list's points, `superview`), and whether it has moved far
+    /// enough to drag.
     private var pressStart: NSPoint?
     private var dragging = false
+    /// The list ended this press (`endPress`): its release neither opens the chat nor drops.
+    private var pressEnded = false
 
     private let title = ChromeLabel(labelWithString: "")
     private let placeLabel = ChromeLabel(labelWithString: "")
@@ -197,16 +203,29 @@ final class SidebarPriorityRowView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        pressStart = event.locationInWindow
+        pressStart = listPoint(event)
         dragging = false
+        pressEnded = false
     }
 
     /// Past the threshold (a click's jitter never drags, as in the main list) the press drags the row.
     override func mouseDragged(with event: NSEvent) {
         guard let start = pressStart else { return }
-        let point = event.locationInWindow
+        let point = listPoint(event)
         if !dragging { dragging = SidebarPress.movedPastThreshold(from: start, to: point) }
-        if dragging { onDrag?(self, start.y - point.y, false) }
+        if dragging { onDrag?(self, point.y - start.y, .moved) }
+    }
+
+    /// The press ends with no click and no drop (the list cancelled the drag: a re-rank, a fold, focus lost).
+    func endPress() {
+        if pressStart != nil { pressEnded = true }
+        pressStart = nil
+        dragging = false
+    }
+
+    /// The event's pointer in the list's points (`superview`, flipped: down is positive).
+    private func listPoint(_ event: NSEvent) -> NSPoint {
+        superview.map { $0.convert(event.locationInWindow, from: nil) } ?? event.locationInWindow
     }
 
     /// The App's menu for the row's chat (`SidebarContextTarget.priorityChat`): the same actions as
@@ -217,11 +236,16 @@ final class SidebarPriorityRowView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        let start = pressStart, dragged = dragging
+        let start = pressStart, dragged = dragging, ended = pressEnded
         pressStart = nil
         dragging = false
+        pressEnded = false
+        guard !ended else { return }
         if dragged, let start {
-            onDrag?(self, start.y - event.locationInWindow.y, true)
+            // Released above or below the list takes its first or last place; beside it, no place.
+            let point = listPoint(event)
+            let beside = superview.map { point.x < $0.bounds.minX || point.x > $0.bounds.maxX } ?? false
+            onDrag?(self, point.y - start.y, beside ? .cancelled : .dropped)
             return
         }
         guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }

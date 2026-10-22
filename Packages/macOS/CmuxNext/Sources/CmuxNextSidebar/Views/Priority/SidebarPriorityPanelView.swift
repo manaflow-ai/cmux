@@ -31,6 +31,11 @@ final class SidebarPriorityPanelView: NSView {
     private(set) var panel = SidebarPriorityPanel(entries: [])
     /// Redraws the working chips' elapsed time each minute while one shows; idle otherwise.
     private let ticker = DemandTimer(owner: "sidebar-priority-minute")
+    /// The chat whose row the pointer drags: `placeRows` leaves that row where the pointer has it.
+    private(set) var draggingID: String?
+    /// While a drag is live: the app resigning active or the window losing key with the button up
+    /// cancels it, since its release may never come here. Removed when the drag ends.
+    private var dragObservers: [any NSObjectProtocol] = []
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -52,6 +57,14 @@ final class SidebarPriorityPanelView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
+    // Not an isolated deinit (cx-t7hu: its runtime hop traps when released inside an action's task-local scope).
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            for observer in dragObservers { NotificationCenter.default.removeObserver(observer) }
+        }
+    }
+
     nonisolated override var isFlipped: Bool { true }
 
     /// The header's height and the rows' full height; the sidebar caps it (`height(maximum:)`).
@@ -70,6 +83,11 @@ final class SidebarPriorityPanelView: NSView {
     func show(_ panel: SidebarPriorityPanel) {
         let old = self.panel
         self.panel = panel
+        // A re-rank, a row coming or going, or a fold under a live drag ends it with no place: the
+        // slot it would take was measured against the old rows. A content-only refresh keeps it.
+        if draggingID != nil, old.collapsed != panel.collapsed || old.entries.map(\.id) != panel.entries.map(\.id) {
+            stopDrag()
+        }
         header.configure(title: Strings.priorityTitle, collapsed: panel.collapsed)
         let attention = panel.attentionCount
         count.stringValue = panel.collapsed && attention > 0 ? String(attention) : ""
@@ -112,12 +130,13 @@ final class SidebarPriorityPanelView: NSView {
             let frame = NSRect(x: 0, y: y, width: width, height: height)
             if let row = rows[entry.id] {
                 if row.entry != entry { row.configure(entry) }
-                targets.append((row, frame))
+                // The dragged row stays under the pointer; it lands on its drop or cancel.
+                if entry.id != draggingID { targets.append((row, frame)) }
                 runTop = nil
             } else {
                 let row = SidebarPriorityRowView(entry: entry)
                 row.onAction = { [weak self] action in self?.onAction?(action) }
-                row.onDrag = { [weak self] row, offset, ended in self?.drag(row, offset: offset, ended: ended) }
+                row.onDrag = { [weak self] row, offset, phase in self?.drag(row, offset: offset, phase: phase) }
                 document.addSubview(row)
                 rows[entry.id] = row
                 let top = runTop ?? y
@@ -177,9 +196,14 @@ final class SidebarPriorityPanelView: NSView {
 
     /// The row follows the pointer over the others; released, it takes the slot its middle is in
     /// (past the middle of a row it passed), the view shows that order at once and the App keeps it.
-    /// A drop back in its own slot changes nothing.
-    private func drag(_ row: SidebarPriorityRowView, offset: CGFloat, ended: Bool) {
-        guard let from = panel.entries.firstIndex(where: { $0.id == row.entry.id }) else { return }
+    /// A drop back in its own slot, a release beside the list, or a drag the list cancels changes
+    /// nothing: the row springs back.
+    private func drag(_ row: SidebarPriorityRowView, offset: CGFloat, phase: SidebarPriorityRowView.DragPhase) {
+        guard phase != .cancelled, !panel.collapsed, draggingID == nil || draggingID == row.entry.id,
+              let from = panel.entries.firstIndex(where: { $0.id == row.entry.id }) else {
+            row.endPress()
+            return cancelDrag()
+        }
         let heights = panel.entries.map { SidebarPriorityRowView.height(hasPreview: $0.preview != nil) }
         let top = heights[..<from].reduce(0, +)
         let middle = top + heights[from] / 2 + offset
@@ -188,14 +212,15 @@ final class SidebarPriorityPanelView: NSView {
             if index != from, y + height / 2 < middle { slot += 1 }
             y += height
         }
-        guard ended else {
+        guard phase == .dropped else {
+            if draggingID == nil { startDrag(row.entry.id) }
             Motion.withoutAnimation {
                 row.layer?.zPosition = 1
                 row.animator().frame.origin.y = min(max(0, top + offset), max(0, y - heights[from]))
             }
             return
         }
-        row.layer?.zPosition = 0
+        stopDrag()
         var order = panel.entries
         let entry = order.remove(at: from)
         order.insert(entry, at: slot)
@@ -203,6 +228,46 @@ final class SidebarPriorityPanelView: NSView {
         panel.entries = order
         placeRows(animated: window != nil)
         onAction?(.place(entry.id, order: order.map(\.id)))
+    }
+
+    private func startDrag(_ id: String) {
+        draggingID = id
+        let center = NotificationCenter.default
+        // queue: .main (inline for AppKit's post on main), as the main list's focus observers.
+        dragObservers = [center.addObserver(forName: NSApplication.didResignActiveNotification, object: NSApp, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.cancelDrag() } // main-proof: observer on queue: .main
+        }]
+        if let window {
+            dragObservers.append(center.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in
+                // With the button still held the release still comes to this window.
+                MainActor.assumeIsolated { if NSEvent.pressedMouseButtons & 1 == 0 { self?.cancelDrag() } } // main-proof: observer on queue: .main
+            })
+        }
+    }
+
+    /// Ends the live drag, if any, without placing anything: its row takes no more of this press
+    /// and sits above the others no longer. The caller lays the rows out.
+    private func stopDrag() {
+        guard let id = draggingID else { return }
+        draggingID = nil
+        for observer in dragObservers { NotificationCenter.default.removeObserver(observer) }
+        dragObservers = []
+        if let row = rows[id] {
+            row.endPress()
+            row.layer?.zPosition = 0
+        }
+    }
+
+    /// Cancels the live drag: its row springs back to its slot.
+    private func cancelDrag() {
+        guard draggingID != nil else { return }
+        stopDrag()
+        placeRows(animated: window != nil)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { cancelDrag() }
     }
 
     /// A chip says minutes: one redraw a minute while a row works, none otherwise.
