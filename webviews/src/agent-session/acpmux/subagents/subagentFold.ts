@@ -57,8 +57,10 @@ export class SubagentFold {
   /// The subagents whose end the harness reported (not one ``stopRunning`` guessed): a progress
   /// report that trails it (Claude's last task_progress) does not run one again.
   private readonly ended = new Set<string>();
-  /// Each subagent's newest tool call: an update to an older one does not take its action back.
+  /// Each subagent's newest tool call, and every call it made: an update to an older one does not
+  /// take its action back.
   private readonly latestCall = new Map<string, string>();
+  private readonly calls = new Set<string>();
 
   /// Folds one session/update record; true when it belongs to subagents and draws no row.
   reduce(event: Event, update: any): boolean {
@@ -71,14 +73,14 @@ export class SubagentFold {
     if (owner) {
       // What it does now is its newest call: a later update of an older call (its end) keeps it.
       const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
-      if (update?.sessionUpdate === "tool_call" && call) this.latestCall.set(owner.id, call);
+      // A call met first through its update (a harness that sends no tool_call) is new too.
+      const tool = update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update";
+      if (tool && call && (update.sessionUpdate === "tool_call" || !this.calls.has(`${owner.id}\u0000${call}`))) {
+        this.calls.add(`${owner.id}\u0000${call}`);
+        this.latestCall.set(owner.id, call);
+      }
       const newest = call === undefined || (this.latestCall.get(owner.id) ?? call) === call;
-      if (
-        (update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update") &&
-        update.title &&
-        newest
-      )
-        owner.action = String(update.title);
+      if (tool && update.title && newest) owner.action = String(update.title);
       const kind = update?.sessionUpdate;
       if (kind !== "subagent_spawned" && kind !== "subagent_state_update") this.record(owner.id, { event, update });
       this.touch(owner);

@@ -210,25 +210,62 @@ export function backgroundCommands(
   return [...fromRegistry, ...fromTranscript];
 }
 
-/// One shell word: quoted, or up to the next space.
-const WORD = String.raw`(?:"(?:[^"\\]|\\.)*"|'[^']*'|[^\s;&|]+)`;
-/// What only sets the stage for a command: `cd DIR &&` (or `;`), `export X=1 &&`, `env`, `X=1 `.
-const PREFIX = new RegExp(
-  String.raw`^\s*(?:cd\s+${WORD}\s*(?:&&|;)|export\s+(?:\w+=${WORD}?\s*)+(?:&&|;)|env(?=\s)|\w+=${WORD}?(?=\s))\s*`,
-);
+/// A command's leading shell words, each with where it ends, and the `&&` or `;` that ends its
+/// first part. One pass over the text, quotes kept whole: no pattern that can backtrack.
+function leadingWords(text: string, from: number): { words: { word: string; end: number }[]; end: number } {
+  const words: { word: string; end: number }[] = [];
+  let index = from;
+  for (;;) {
+    while (index < text.length && /\s/.test(text[index]!)) index += 1;
+    if (index >= text.length) return { words, end: -1 };
+    if (text.startsWith("&&", index)) return { words, end: index + 2 };
+    if (text[index] === ";") return { words, end: index + 1 };
+    if (text[index] === "|" || text[index] === "&") return { words, end: -1 };
+    let word = "";
+    while (index < text.length && !/[\s;&|]/.test(text[index]!)) {
+      const quote = text[index]!;
+      if (quote === '"' || quote === "'") {
+        const close = text.indexOf(quote, index + 1);
+        const stop = close < 0 ? text.length : close + 1;
+        word += text.slice(index, stop);
+        index = stop;
+      } else {
+        word += quote;
+        index += 1;
+      }
+    }
+    words.push({ word, end: index });
+  }
+}
 
-/// What the tray names a command by: what its call says it does, else the command without the
-/// `cd`, `export` and environment prefixes in front of what it runs (the whole command when that
-/// is all it is).
+const ASSIGNMENT = /^[A-Za-z_]\w*=/;
+
+/// What the tray names a command by: what its call says it does, else the command without what
+/// only sets the stage in front of what it runs: `cd DIR &&` (or `;`), `export X=1 &&`, a part
+/// that only assigns, and `env` or `X=1` before the program (the whole command when that is all
+/// it is).
 export function commandLabel(command: BackgroundCommand): string {
   if (command.description) return command.description;
-  let rest = command.command.trim();
-  for (let match = PREFIX.exec(rest); match && match[0].length > 0; match = PREFIX.exec(rest)) {
-    const next = rest.slice(match[0].length);
-    if (!next.trim()) break;
-    rest = next;
+  const text = command.command.trim();
+  let from = 0;
+  for (;;) {
+    const { words, end } = leadingWords(text, from);
+    const names = words.map(({ word }) => word);
+    const staging =
+      end > 0 &&
+      names.length > 0 &&
+      ((names[0] === "cd" && names.length <= 2) ||
+        (names[0] === "export" && names.slice(1).every((word) => ASSIGNMENT.test(word))) ||
+        names.every((word) => ASSIGNMENT.test(word)));
+    if (!staging || !text.slice(end).trim()) break;
+    from = end;
   }
-  return rest || command.command;
+  // `env` and assignments before the program it runs; `env` with options stays as it is.
+  const { words } = leadingWords(text, from);
+  let skip = words[0]?.word === "env" && !words[1]?.word.startsWith("-") ? 1 : 0;
+  while (skip < words.length - 1 && ASSIGNMENT.test(words[skip]!.word)) skip += 1;
+  const begin = skip > 0 ? words[skip - 1]!.end : from;
+  return text.slice(begin).trim() || command.command;
 }
 
 const newestFirst = (a: BackgroundCommand, b: BackgroundCommand) =>

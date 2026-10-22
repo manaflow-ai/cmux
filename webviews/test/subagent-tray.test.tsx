@@ -586,6 +586,12 @@ describe("the tray tells the truth", () => {
       { subagent: "a" },
     );
     expect(fold.all().find((one) => one.id === "a")!.action).toBe("Run the tests");
+    // A call met first through its update is the newest one.
+    feed(
+      { sessionUpdate: "tool_call_update", toolCallId: "t3", title: "Grep retries", status: "in_progress" },
+      { subagent: "a" },
+    );
+    expect(fold.all().find((one) => one.id === "a")!.action).toBe("Grep retries");
   });
 
   test("a command shows its description, else the command without its cd and env prefixes", async () => {
@@ -627,6 +633,13 @@ describe("the tray tells the truth", () => {
     expect(commandLabel(command("x", { command: "PORT=3000 bun run dev" }))).toBe("bun run dev");
     expect(commandLabel(command("y", { command: "cd /tmp; ls -la" }))).toBe("ls -la");
     expect(commandLabel(command("z", { command: "cd ~/Projects" }))).toBe("cd ~/Projects");
+    expect(commandLabel(command("w", { command: "X=1 && echo $X" }))).toBe("echo $X");
+    expect(commandLabel(command("v", { command: "env -u FOO bar" }))).toBe("env -u FOO bar");
+    // A long run of assignments that never reaches a command reads in one pass, not exponentially.
+    const long = `export ${Array.from({ length: 30 }, (_, index) => `A${index}="v"`).join(" ")} | x`;
+    const started = performance.now();
+    expect(commandLabel(command("u", { command: long }))).toBe(long);
+    expect(performance.now() - started).toBeLessThan(50);
     const items = trayItems([], commands, NONE, true);
     const { root, done } = await render(
       createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
