@@ -141,6 +141,7 @@ const shows = (peeled: Peeled) => peeled.texts.some((text) => text.trim()) || pe
 /// The index of the text block that repeats `structured` (MCP asks a tool to send its structured
 /// content as text too), or -1.
 function repeated(texts: string[], structured: unknown): number {
+  if (!printable(structured)) return -1;
   const printed = JSON.stringify(structured);
   return texts.findIndex((text) => {
     const parsed = parseJSONValue(text);
@@ -213,7 +214,23 @@ export const printedAsEnvelope = (printed: string | undefined) =>
 /// whole output shows as it was printed.
 const MAX_PRETTY_DEPTH = 64;
 
-class TooDeep extends Error {}
+/// Thrown when JSON cannot be shown other than as printed: nested too deep to indent, or holding a
+/// number JavaScript cannot hold exactly. toolResult then shows the output as it was printed.
+class AsPrinted extends Error {}
+
+/// A JSON string, or a number token (group 1: its digits, without sign, point or exponent).
+const JSON_TOKEN = /"(?:[^"\\]|\\.)*"|-?(\d+(?:\.\d+)?)(?:[eE][+-]?\d+)?/g;
+
+/// Whether `printed` JSON holds a number with more significant digits than a double keeps exactly
+/// (a 64-bit ID, `9007199254740993`): parsed and printed again, it would change.
+export function losesNumbers(printed: string): boolean {
+  if (!/\d{16}/.test(printed)) return false;
+  for (const match of printed.matchAll(JSON_TOKEN)) {
+    const digits = match[1]?.replace(".", "").replace(/^0+/, "").replace(/0+$/, "");
+    if (digits && digits.length > 15) return true;
+  }
+  return false;
+}
 
 function deeperThan(value: unknown, limit: number): boolean {
   if (limit < 0) return true;
@@ -225,10 +242,10 @@ function deeperThan(value: unknown, limit: number): boolean {
 /// Whether `value` is shallow enough to show indented (mcpCalls.ts asks before it prints a residual).
 export const printable = (value: unknown) => !deeperThan(value, MAX_PRETTY_DEPTH);
 
-/// JSON indented, its values as they are: a string that holds JSON stays a string. Throws TooDeep
+/// JSON indented, its values as they are: a string that holds JSON stays a string. Throws AsPrinted
 /// past MAX_PRETTY_DEPTH, so toolResult shows the output as printed instead.
 function pretty(value: unknown): string {
-  if (!printable(value)) throw new TooDeep();
+  if (!printable(value)) throw new AsPrinted();
   return JSON.stringify(value, null, 2);
 }
 
@@ -256,12 +273,12 @@ export function toolResult(output: string, clean: (text: string) => string = ide
 
 const identity = (text: string) => text;
 
-/// `read()`, or `printed` as it is when the JSON is nested too deep to show any other way.
+/// `read()`, or `printed` as it is when its JSON cannot be shown any other way (AsPrinted).
 function bounded(read: () => ToolResult, printed: string): ToolResult {
   try {
     return read();
   } catch (error) {
-    if (!(error instanceof TooDeep) && !(error instanceof RangeError)) throw error;
+    if (!(error instanceof AsPrinted) && !(error instanceof RangeError)) throw error;
     return { text: printed.replace(/\n$/, ""), lang: "json", images: [], unwrapped: false };
   }
 }
@@ -276,14 +293,18 @@ function fromValue(
   // An envelope with nothing in it (`{"content":[],"isError":false}`) shows as the JSON it is,
   // so an opened call is never empty.
   if (peeled && !shows(peeled) && !peeled.rest.length) peeled = undefined;
+  // Numbers past a double's precision would print changed, so this JSON shows only as printed.
+  const exact = printed === undefined || !losesNumbers(printed);
   if (!peeled) {
     // JSON the tool returned. Printed on lines (a file it read) it stays as printed; one long line
-    // is pretty-printed.
-    const text = printed !== undefined && !printedAsEnvelope(printed) ? printed.replace(/\n$/, "") : pretty(value);
+    // is pretty-printed, unless that would change a number.
+    const asPrinted = printed !== undefined && (!printedAsEnvelope(printed) || !exact);
+    const text = asPrinted ? printed.replace(/\n$/, "") : pretty(value);
     return { text, lang: "json", images: [], unwrapped: printed === undefined };
   }
   const text = clean(peeled.texts.join("\n\n")).replace(/\n$/, "");
   if (peeled.rest.length) {
+    if (!exact) throw new AsPrinted();
     // Text, then what the envelope held besides (structured content, an error's data, a block
     // drawn as neither text nor image), each as the JSON it is: it is the payload, not a wrapper.
     const rests = peeled.rest.map(pretty);

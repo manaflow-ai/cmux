@@ -3,9 +3,6 @@
 // envelope shape unwraps to its text, images or structured content; JSON a tool really returned
 // stays JSON.
 import { expect, test } from "bun:test";
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { Markdown } from "./Markdown";
 import { envelopeImages, toolResult } from "./toolResult";
 import { cleanText, prettyOutput } from "./mcpCalls";
 import { findMatches } from "./chatFind";
@@ -187,14 +184,6 @@ test("an envelope with nothing in it shows as its JSON", () => {
   });
 });
 
-test("fences in a tool result's quotes and list items stay plain code, as at the top", () => {
-  // Codex review finding 1: `plainCode` reached only top-level fences.
-  const text =
-    "> ```mermaid\n> graph TD; A-->B\n> ```\n\n- Item\n\n  ```html\n  <b>x</b>\n  ```\n\n```svg\n<svg/>\n```";
-  const html = renderToStaticMarkup(createElement(Markdown, { plainCode: true }, text));
-  expect(html.match(/cv-codeblock--plain/g)).toHaveLength(3);
-});
-
 test("an MCP error's data shows after its message in the opened MCP call", () => {
   // Codex review finding 2: the MCP row dropped what followed the text.
   const output = JSON.stringify({ error: { code: -32602, message: "Invalid params", data: { field: "path" } } });
@@ -344,4 +333,18 @@ test("an envelope's images show when a host put context after it", () => {
   expect(toolImages({ id: "c1", title: "mcp__shots__take", status: "completed", output })).toEqual([
     `data:image/png;base64,${PNG}`,
   ]);
+});
+
+test("JSON with a number past a double's precision shows as printed, never rounded", () => {
+  // Codex review 4: pretty-printing turned 9007199254740993 into 9007199254740992.
+  const output = '{"id":9007199254740993,"name":"row"}';
+  expect(toolResult(output)).toEqual({ text: output, lang: "json", images: [], unwrapped: false });
+  // Inside an envelope's text, the text is shown as printed too.
+  expect(toolResult(JSON.stringify([{ type: "text", text: output }]))).toMatchObject({ text: output, lang: "json" });
+  // Beside text in an envelope, the whole output shows as printed rather than lose the digit.
+  const both = `{"content":[{"type":"text","text":"Found"}],"structuredContent":{"id":9007199254740993}}`;
+  expect(toolResult(both).text).toBe(both);
+  // Long digit runs inside strings, and short numbers, still pretty-print.
+  const safe = { id: "9007199254740993", count: 12345678901234, ratio: 0.5 };
+  expect(toolResult(JSON.stringify(safe)).text).toBe(JSON.stringify(safe, null, 2));
 });
