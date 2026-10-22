@@ -487,6 +487,12 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Settings > Chief > Voice input: turn the message box's mic on or off, then re-read the host lists. */
+  async setVoiceInput(on: boolean): Promise<void> {
+    await this.request("cmux.settings.voice_input.set", { on });
+    await this.refreshHost();
+  }
+
   /** One Accounts gesture; answers the failure text of a Keychain save, else null. */
   async runAccounts(run: AccountsRun): Promise<string | null> {
     const reply = await this.request("cmux.settings.accounts.run", run);
