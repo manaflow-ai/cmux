@@ -51,6 +51,11 @@ if [[ "${1:-}" == --archs ]]; then
   esac
   shift 2
 fi
+# --archs comes first; anything else after the path would be ignored silently.
+if (( $# > 1 )); then
+  echo "check-release-compile: usage: check-release-compile.sh [--archs arm64|x86_64] [derived-data-path]" >&2
+  exit 2
+fi
 kept_path=0
 if [[ -n "${1:-}" ]]; then
   derived_data="$1"
