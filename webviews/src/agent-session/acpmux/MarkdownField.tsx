@@ -578,15 +578,17 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         appendTransaction: (transactions, _previous, state) => {
           const saved = refocus.current;
           if (!saved) return null;
-          if (transactions.some((tr) => tr.docChanged)) {
+          const docChanged = transactions.some((tr) => tr.docChanged);
+          if (performance.now() > saved.until) {
+            // Past the window only WebKit's caret at the start is overruled: it comes after the
+            // focus, as a selectionchange that a busy page (an inbound message drawing) takes well
+            // past 100 ms to deliver (Leo 2026-10-21, after another agent's steer). The person's own
+            // move there comes with a key or a click, which drop the saved selection first.
+            if (docChanged || !caretAtStart(state)) return null;
+          } else if (docChanged) {
             refocus.current = null;
             return null;
           }
-          // Past the window only WebKit's caret at the start is overruled: it comes after the focus,
-          // as a selectionchange that a busy page (an inbound message drawing) takes well past 100 ms
-          // to deliver (Leo 2026-10-21, after another agent's steer). The person's own move there
-          // comes with a key or a click, which drop the saved selection first.
-          if (performance.now() > saved.until && !caretAtStart(state)) return null;
           const selection = kept(state);
           return selection ? state.tr.setSelection(selection) : null;
         },
