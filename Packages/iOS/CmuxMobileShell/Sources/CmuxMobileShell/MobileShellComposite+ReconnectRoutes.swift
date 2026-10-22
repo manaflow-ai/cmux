@@ -454,7 +454,11 @@ extension MobileShellComposite {
         // for one foreground transition. Preview/legacy clients have no stored
         // route to redial, so retain their same-client resubscribe fallback.
         if shouldResync, pairedMacStore == nil {
-            resyncTerminalOutput(reason: "foreground", restartEventStream: true)
+            resyncTerminalOutput(
+                reason: "foreground",
+                restartEventStream: true,
+                preservingLocalHistory: true
+            )
         } else if pairedMacStore == nil, let client = remoteClient,
                   connectionState == .connected {
             // A short background dwell preserves the event subscription, but
@@ -463,7 +467,10 @@ extension MobileShellComposite {
         }
         restartActiveMobileBrowserStreams()
         restartActiveMobileSimulatorStreams()
-        recoverForegroundConnectionIfNeeded(resyncAfterHealthy: shouldResync)
+        recoverForegroundConnectionIfNeeded(
+            resyncAfterHealthy: shouldResync,
+            preservingLocalHistory: shouldResync
+        )
         recoverDisconnectedOnForegroundIfNeeded()
         recoverPendingInactiveRecoveryIfNeeded()
         resumeSecondaryControlMaintenanceAfterForeground()
