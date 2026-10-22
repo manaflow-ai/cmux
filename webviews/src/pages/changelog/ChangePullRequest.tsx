@@ -12,7 +12,6 @@ import { GitHubMark } from "../../agent-session/acpmux/conversation/icons";
 import type { PageClient } from "../shared/pageClient";
 import "./paneStrings";
 import "../../agent-session/acpmux/chips/chips.css";
-import "../../agent-session/acpmux/chips/linkCard.css";
 import "../../agent-session/acpmux/previewCard/previewCard.css";
 
 const REPO = "manaflow-ai/cmux";

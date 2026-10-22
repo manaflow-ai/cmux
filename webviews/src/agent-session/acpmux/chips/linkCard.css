@@ -1,6 +1,7 @@
-/* Every link's hover card (LinkHoverCard.tsx), moved out of the pane's styles.css so another page
-   that shows the card (the changelog's pull request chips) loads the same rules. Colours are the
-   pane's --agent-* tokens; a page outside the pane maps them to its own theme. */
+/* Every link's hover card (LinkHoverCard.tsx imports this sheet), moved out of the pane's styles.css
+   so another page that shows the card (the changelog's pull request chips) loads the same rules;
+   the pane's page inlines it (build-agent-pane-web.sh). Colours are the pane's --agent-* tokens; a
+   page outside the pane maps them to its own theme. */
 .cv-link-preview{min-width:260px;max-width:min(480px,calc(100vw - 24px));padding:0;overflow:hidden;border-radius:9px;color:var(--agent-text);pointer-events:auto}
 /* A tight inset, 6px between rows and no dividers. The head is one row: the icon inline with the
    title (cut to two lines, a web link's address under it), then Open and Open in as quiet
