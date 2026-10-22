@@ -176,4 +176,49 @@ struct WorkspaceChecklistTests {
         #expect(runs[1].1["item"]?.stringValue == "chk_c")
         #expect(runs[3].1["text"]?.stringValue == "ship it today")
     }
+
+    private static func subviews(of root: NSView) -> [NSView] {
+        root.subviews.flatMap { [$0] + subviews(of: $0) }
+    }
+
+    /// The Todo page is AppKit (plans/cmux-next/no-swiftui-DESIGN.md): no SwiftUI bridge; a row per
+    /// item, the state mark toggles, the add field adds on Return, and editing commits on Return.
+    @Test func theTodoPageIsAppKitAndItsControlsRunTheActions() throws {
+        _ = NSApplication.shared
+        let store = try Self.store()
+        var runs: [(ActionID, ActionInvocation)] = []
+        let model = WorkspaceTodoPageModel(workspaceID: "w1", workspace: { store.workspace(id: $0) },
+                                           perform: { runs.append(($0, $1)) })
+        let view = WorkspaceTodoPageView(model: model)
+        view.frame = NSRect(x: 0, y: 0, width: 640, height: 480)
+        view.reload()
+        view.layoutSubtreeIfNeeded()
+        let all = Self.subviews(of: view)
+        #expect(!hostsSwiftUI(view))
+        let rows = all.compactMap { $0 as? WorkspaceTodoRow }
+        #expect(rows.map(\.item.text) == ["read the issue", "write the test", "ship it"])
+        let mark = try #require(Self.subviews(of: rows[2]).first { $0.accessibilityIdentifier() == "cmux.todo.toggle" } as? NSButton)
+        mark.performClick(nil)
+        let add = try #require(all.first { $0.accessibilityIdentifier() == "cmux.todo.add" } as? NSTextField)
+        add.stringValue = "review"
+        add.sendAction(add.action, to: add.target)
+        rows[2].beginEditing()
+        let edit = try #require(Self.subviews(of: rows[2]).first { $0.accessibilityIdentifier() == "cmux.todo.edit" } as? NSTextField)
+        edit.stringValue = "ship it today"
+        edit.sendAction(edit.action, to: edit.target)
+        #expect(runs.map(\.0) == ["toggleChecklistItemComplete", "palette.addWorkspaceChecklistItem", "checklistEditItem"])
+        #expect(runs[0].1["item"]?.stringValue == "chk_c")
+        #expect(runs[1].1["text"]?.stringValue == "review")
+        #expect(runs[2].1["text"]?.stringValue == "ship it today")
+        #expect(model.draft.isEmpty, "the add field clears after it adds")
+    }
+}
+
+/// Whether `root`'s own view tree (not the inside of an AppKit control, whose private views on
+/// macOS 26 include hosting views of AppKit's own) holds a SwiftUI hosting bridge.
+@MainActor
+private func hostsSwiftUI(_ root: NSView) -> Bool {
+    if String(describing: type(of: root)).contains("Hosting") { return true }
+    if root is NSControl { return false }
+    return root.subviews.contains { hostsSwiftUI($0) }
 }
