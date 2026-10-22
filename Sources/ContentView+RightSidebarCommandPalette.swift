@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCommandPalette
+import CmuxWorkspaces
 import CmuxSidebar
 import CmuxSwiftRender
 
@@ -24,6 +25,8 @@ extension ContentView {
             return .newBrowserWorkspace
         case ContentView.commandPaletteCloudNewMachineCommandId:
             return .newCloudMachine
+        case ContentView.commandPaletteCloudNewWorkspaceCommandId:
+            return .newCloudWorkspace
         case "palette.newWindow":
             return .newWindow
         case "palette.openFolder":
@@ -126,6 +129,8 @@ extension ContentView {
             return .resizePaneDown
         case "palette.triggerFlash":
             return .triggerFlash
+        case "palette.openChief":
+            return .openChief
         default:
             return nil
         }
@@ -287,11 +292,41 @@ extension ContentView {
             )
         }
         let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
-        let snapshot = CustomSidebarContextSnapshot(
+        return Self.customSidebarDataContext(
             workspaces: workspaces,
+            workspaceGroups: tabManager.workspaceGroups,
             selectedWorkspaceId: selectedId,
             selectedWorkspaceTitle: selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? "",
             totalUnreadCount: sidebarUnread.totalUnreadCount,
+            now: now
+        )
+    }
+
+    static func customSidebarDataContext(
+        workspaces: [CustomSidebarWorkspaceSnapshot],
+        workspaceGroups: [WorkspaceGroup],
+        selectedWorkspaceId: UUID?,
+        selectedWorkspaceTitle: String,
+        totalUnreadCount: Int,
+        now: Date
+    ) -> [String: SwiftValue] {
+        let groups = workspaceGroups.map { group in
+            CustomSidebarGroupSnapshot(
+                id: group.id,
+                name: group.name,
+                isCollapsed: group.isCollapsed,
+                isPinned: group.isPinned,
+                anchorWorkspaceId: group.anchorWorkspaceId,
+                customColor: group.customColor,
+                iconSymbol: group.iconSymbol
+            )
+        }
+        let snapshot = CustomSidebarContextSnapshot(
+            workspaces: workspaces,
+            groups: groups,
+            selectedWorkspaceId: selectedWorkspaceId,
+            selectedWorkspaceTitle: selectedWorkspaceTitle,
+            totalUnreadCount: totalUnreadCount,
             now: now
         )
         return CustomSidebarDataContextBuilder().dataContext(for: snapshot)

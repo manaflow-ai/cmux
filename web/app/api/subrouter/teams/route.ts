@@ -22,6 +22,7 @@ import {
   serviceUnavailableResponse,
 } from "../../../../services/subrouter/routeHelpers";
 import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
+import { isCoderouterViewOpenRequest } from "../../../../services/coderouter/viewAnalytics";
 import { reportError } from "../../../../services/observability/report";
 import { getStackServerApp } from "../../../lib/stack";
 import {
@@ -161,14 +162,18 @@ export async function organizationsGet(request: Request,
         });
       }
       selectedTeamId ??= stackSelectedTeamId;
-      captureCoderouterEvent({
-        event: "coderouter_organization_catalog_viewed",
-        ...(selectedTeamId ? { teamId: selectedTeamId } : {}),
-        properties: {
-          organization_count: teams.length,
-          has_selected_organization: selectedTeamId !== null,
-        },
-      });
+      // Every native auth refresh reads this catalog; only an opened
+      // organization picker counts as a view.
+      if (isCoderouterViewOpenRequest(request)) {
+        captureCoderouterEvent({
+          event: "coderouter_organization_catalog_viewed",
+          ...(selectedTeamId ? { teamId: selectedTeamId } : {}),
+          properties: {
+            organization_count: teams.length,
+            has_selected_organization: selectedTeamId !== null,
+          },
+        });
+      }
       return jsonResponse({ selectedTeamId, teams });
     });
   } catch (error) {

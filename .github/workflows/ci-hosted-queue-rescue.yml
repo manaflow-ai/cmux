@@ -15,6 +15,7 @@ on:
     workflows:
       - CLA policy guard
       - CLA Assistant
+      - CI
       - CI fast guards
     types: [completed]
 
@@ -27,6 +28,7 @@ env:
   SOURCE_WORKFLOW_PATHS: >-
     .github/workflows/cla-policy-guard.yml
     .github/workflows/cla.yml
+    .github/workflows/ci.yml
     .github/workflows/ci-fast-guards.yml
 
 concurrency:
@@ -48,9 +50,41 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-checks: read
+          permission-contents: read
+          permission-issues: write
+          permission-pull-requests: write
+
+      # The two reads go on the manaflow-glaeda-route App's own budget (GITHUB_TOKEN's ran
+      # out on 2026-10-21). The re-run stays on GH_TOKEN: attempt 3 is routed by its
+      # triggering actor being github-actions[bot] (ci-macos.yml).
+      - name: Mint the glaeda-route token
+        id: glaeda-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: read
+
       - name: Rerun only a no-runner hosted queue timeout
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token }}
           GH_REPO: ${{ github.repository }}
           RUN_ID: ${{ github.event.workflow_run.id }}
           EVENT_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
@@ -78,7 +112,17 @@ jobs:
             }
           fi
 
-          run_json="$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID")"
+          # A read on READ_TOKEN, then on GH_TOKEN when it is refused or unset.
+          read_api() {
+            local out
+            if [[ -n "${READ_TOKEN:-}" && "$READ_TOKEN" != "$GH_TOKEN" ]] && out="$(GH_TOKEN="$READ_TOKEN" gh api "$@")"; then
+              printf '%s' "$out"
+              return 0
+            fi
+            gh api "$@"
+          }
+
+          run_json="$(read_api "repos/$GH_REPO/actions/runs/$RUN_ID")"
           current_attempt="$(jq -r '.run_attempt // 0' <<<"$run_json")"
           [[ "$current_attempt" == "$EVENT_ATTEMPT" ]] || {
             echo "run attempt already changed; another rescue owns it"
@@ -98,7 +142,7 @@ jobs:
             exit 0
           }
 
-          jobs_json="$(gh api --paginate "repos/$GH_REPO/actions/runs/$RUN_ID/jobs?per_page=100")"
+          jobs_json="$(read_api --paginate "repos/$GH_REPO/actions/runs/$RUN_ID/jobs?per_page=100")"
           jq -e '
             (.jobs | length > 0) and
             all(.jobs[];

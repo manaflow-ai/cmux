@@ -8,11 +8,14 @@ extension CMUXCLI {
         configuredRemoteCommand: String?,
         client: SocketClient,
         jsonOutput: Bool,
-        idFormat: CLIIDFormat
+        idFormat: CLIIDFormat,
+        routeIdentifier: String? = nil
     ) throws {
         var params: [String: Any] = [
             "destination": options.destination,
-            "ssh_options": options.sshOptions,
+            "ssh_options": SSHConnectionSharingOptions().optionsForTUIHandoff(
+                options.sshOptions, routeIdentifier: routeIdentifier
+            ),
             "focus": !options.noFocus,
             "operation_id": UUID().uuidString.lowercased(),
         ]

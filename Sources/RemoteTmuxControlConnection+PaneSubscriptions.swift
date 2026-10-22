@@ -79,6 +79,21 @@ extension RemoteTmuxControlConnection {
         )
     }
 
+    /// The exact `refresh-client -B` line for a pane's hook-published agent status.
+    static func paneAgentSubscriptionCommand(paneId: Int) -> String {
+        "refresh-client -B \"\(agentSubscriptionPrefix)\(paneId):%\(paneId):#{@cmux_agent}\""
+    }
+
+    /// Subscribes to the pane user option written by remote Claude/Codex hooks.
+    func subscribePaneAgent(paneId: Int) {
+        send(Self.paneAgentSubscriptionCommand(paneId: paneId))
+    }
+
+    /// Removes a pane's agent-status subscription after the pane leaves the mirror.
+    func unsubscribePaneAgent(paneId: Int) {
+        send("refresh-client -B \(Self.agentSubscriptionPrefix)\(paneId)")
+    }
+
     /// Format for close-time activity queries: the pane id (for cache refresh and
     /// multi-pane correlation) plus the same `alternate_on`/`pane_current_command`
     /// pair the reflow subscription streams. Quoted by the command builders — see
@@ -191,7 +206,7 @@ extension RemoteTmuxControlConnection {
         send(Self.paneReflowSubscriptionCommand(paneId: paneId))
     }
 
-    /// All four live subscriptions (reflow, cwd, header, title) for a pane in ONE
+    /// All five live subscriptions (reflow, cwd, header, title, agent) for a pane in ONE
     /// `refresh-client`. tmux accepts multiple `-B` directives per command,
     /// so this is exactly equivalent to four separate sends but costs
     /// one FIFO slot instead of four. Under rapid pane churn the per-pane
@@ -205,6 +220,7 @@ extension RemoteTmuxControlConnection {
                 + " -B \"\(Self.cwdSubscriptionPrefix)\(paneId):%\(paneId):#{pane_current_path}\""
                 + " -B \"\(Self.headerSubscriptionPrefix)\(paneId):%\(paneId):#{T:pane-border-format}\""
                 + " -B \"\(Self.paneTitleSubscriptionPrefix)\(paneId):%\(paneId):\(Self.paneTitleMetadataFormat)\""
+                + " -B \"\(Self.agentSubscriptionPrefix)\(paneId):%\(paneId):#{@cmux_agent}\""
         )
     }
 

@@ -12,8 +12,9 @@ nonisolated private let deviceDirectoryLog = Logger(subsystem: "dev.cmux", categ
 /// The account's discoverable Macs, authorized by the Mac directory and enriched
 /// with saved pairings, registry metadata, and live presence. An unavailable
 /// discovery client never makes those secondary sources authoritative.
-/// Bound to one account generation and team scope: the registry
-/// rebuilds it when either changes, and every token it uses fails closed after.
+/// Bound to one account generation. Account-wide presence and ownership stay
+/// live when the selected team changes; team-scoped registry enrichment may
+/// fail and is never allowed to remove an account-owned row.
 ///
 /// Liveness is push: one presence WebSocket subscription (snapshot first, then
 /// transitions, plus the `devices` sync collection for owners) reconnects with
@@ -106,11 +107,18 @@ final class DeviceDirectory {
         self.teamID = teamID
         self.pairing = pairing
         self.automaticClient = automaticClient
-        let tokens = HiveAccountTokenSource(auth: auth, identity: identity, teamID: teamID)
+        let accountDirectoryEnabled = AccountMacDirectoryFeature.isEnabled()
+        let tokens = accountDirectoryEnabled
+            ? HiveAccountTokenSource(accountScopedAuth: auth, identity: identity)
+            : HiveAccountTokenSource(auth: auth, identity: identity, teamID: teamID)
         self.tokens = tokens
         self.registryClient = registryClient ?? DeviceRegistryDirectoryClient(
             session: { try await tokens.session() },
-            teamID: teamID
+            // The account directory has no selected-team partition. The
+            // registry is enrichment only, so do not pin it to the team that
+            // happened to be selected when this account-scoped directory was
+            // created. The rollback path keeps the team header.
+            teamID: accountDirectoryEnabled ? nil : teamID
         )
         self.serviceURL = serviceURL
         self.makeSubscriber = makeSubscriber
@@ -119,6 +127,37 @@ final class DeviceDirectory {
     }
 
     var isRunning: Bool { presenceTask != nil }
+
+    /// What a team switch carries into the next team's directory so My Devices
+    /// keeps its rows while the new team's sources load. Membership is the
+    /// account's (the per-user directory), so only team-scoped reads restart.
+    /// Live presence is not carried: it comes from the new team's stream.
+    struct CarriedState: Sendable {
+        var records: [DeviceDirectoryRecord]
+        var registryDevices: [DeviceRegistryDirectoryClient.Device]
+        var authenticatedMacs: [DeviceDiscoveredMac]
+        var owners: [String: String]
+        var ownersKnown: Bool
+        var hasLoadedRegistry: Bool
+    }
+
+    func carriedState() -> CarriedState {
+        CarriedState(records: records, registryDevices: registryDevices, authenticatedMacs: authenticatedMacs,
+            owners: owners, ownersKnown: ownersKnown, hasLoadedRegistry: hasLoadedRegistry)
+    }
+
+    /// Seeds a not-yet-started directory for the same account from the
+    /// previous team's directory. Ignored once started.
+    func adopt(_ carried: CarriedState) {
+        guard presenceTask == nil else { return }
+        records = carried.records
+        registryDevices = carried.registryDevices
+        authenticatedMacs = carried.authenticatedMacs
+        owners = carried.owners
+        ownersKnown = carried.ownersKnown
+        hasLoadedRegistry = carried.hasLoadedRegistry
+        notifyChanged()
+    }
 
     func start() {
         guard presenceTask == nil else { return }
@@ -237,10 +276,14 @@ final class DeviceDirectory {
                 presenceState = .connecting
                 notifyChanged()
                 let tokens = self.tokens
-                let teamID = self.teamID
+                let presenceTeamID = AccountMacDirectoryFeature.isEnabled() ? nil : self.teamID
                 let subscriber = makeSubscriber(url) {
                     let session = try await tokens.session()
-                    return DevicePresenceSubscriber.Credentials(accessToken: session.accessToken, teamID: teamID)
+                    // The account stream is deliberately independent of the
+                    // selected team. The rollback path uses the team stream
+                    // and therefore carries its captured team header.
+                    return DevicePresenceSubscriber.Credentials(
+                        accessToken: session.accessToken, teamID: presenceTeamID)
                 }
                 let frames = try await subscriber.subscribe()
                 for try await frame in frames {
@@ -320,7 +363,9 @@ final class DeviceDirectory {
                     owners[cmxCanonicalDeviceID(device.deviceId)] = owner
                 }
             }
-        case .ignored:
+        case .vmsSnapshot, .vmsDelta, .vmsMalformed, .ignored:
+            // The `vms` collection belongs to CloudVMSyncSubscriber's socket;
+            // this hello never asks for it.
             return
         }
         remerge()

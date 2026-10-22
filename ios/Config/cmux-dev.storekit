@@ -71,6 +71,28 @@
         {
           "adHocOffers" : [],
           "codeOffers" : [],
+          "displayPrice" : "699.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "6749000004",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM.",
+              "displayName" : "cmux Pro",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "dev.cmux.ios.pro.yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Pro Yearly",
+          "subscriptionGroupID" : "21490001",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : []
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
           "displayPrice" : "14.99",
           "familyShareable" : false,
           "groupNumber" : 3,

@@ -217,3 +217,137 @@ struct SidebarEmptyAreaNewWorkspaceActionTests {
         return true
     }
 }
+
+// MARK: - Cmd+N and the controls that share it
+
+/// Cmd+N, File → New Workspace, the titlebar `+`, the command palette and
+/// Ghostty's `new_tab` all create a local workspace, whatever is selected.
+/// Staying local must not also drop the user's `ui.newWorkspace.action`:
+/// since 0.65.1 they opened a blank terminal with one configured.
+/// https://github.com/manaflow-ai/cmux/issues/20268
+extension SidebarEmptyAreaNewWorkspaceActionTests {
+    private static let configuredLayoutJSON = """
+    {
+      "actions": {
+        "cmd-n-layout": {
+          "type": "workspace",
+          "title": "Cmd N Layout",
+          "workspace": { "name": "CmdNLayout" }
+        }
+      },
+      "ui": { "newWorkspace": { "action": "cmd-n-layout" } }
+    }
+    """
+
+    @Test func localOnlyNewWorkspaceAppliesConfiguredNewWorkspaceLayout() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let fixture = try ConfigFixture(globalJSON: Self.configuredLayoutJSON)
+        defer { fixture.cleanUp() }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        let context = try #require(
+            appDelegate.mainWindowContexts.values.first { $0.windowId == windowId }
+        )
+        context.cmuxConfigStore = fixture.store
+        let knownIds = Set(manager.tabs.map(\.id))
+
+        #expect(appDelegate.performNewWorkspaceAction(
+            tabManager: manager,
+            debugSource: "test.cmdN.configuredAction",
+            localOnly: true
+        ))
+        let created = try createdWorkspace(in: manager, knownIds: knownIds)
+        waitUntil { created.customTitle != nil }
+
+        #expect(
+            created.customTitle == "CmdNLayout",
+            Comment(
+                rawValue: "Cmd+N must honor ui.newWorkspace.action, got title "
+                    + "\(created.customTitle ?? "<none>")"
+            )
+        )
+    }
+
+    /// A Cloud workspace being selected must not send Cmd+N to the Cloud,
+    /// with or without a configured action.
+    @Test func localOnlyNewWorkspaceWithConfiguredActionStaysOffTheSelectedCloudMachine() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let fixture = try ConfigFixture(globalJSON: Self.configuredLayoutJSON)
+        defer { fixture.cleanUp() }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        let context = try #require(
+            appDelegate.mainWindowContexts.values.first { $0.windowId == windowId }
+        )
+        context.cmuxConfigStore = fixture.store
+        let selected = try #require(manager.selectedWorkspace)
+        selected.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "cloud-machine", isBase: false)
+        let knownIds = Set(manager.tabs.map(\.id))
+
+        #expect(appDelegate.performNewWorkspaceAction(
+            tabManager: manager,
+            debugSource: "test.cmdN.configuredAction.cloudSelected",
+            localOnly: true
+        ))
+        let created = try createdWorkspace(in: manager, knownIds: knownIds)
+        waitUntil { created.customTitle != nil }
+
+        #expect(created.customTitle == "CmdNLayout")
+        #expect(created.cloudVMID == nil)
+    }
+
+    @Test func localOnlyNewWorkspaceWithoutConfiguredActionCreatesPlainWorkspace() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let fixture = try ConfigFixture(globalJSON: "{}")
+        defer { fixture.cleanUp() }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        let context = try #require(
+            appDelegate.mainWindowContexts.values.first { $0.windowId == windowId }
+        )
+        context.cmuxConfigStore = fixture.store
+        let knownIds = Set(manager.tabs.map(\.id))
+
+        #expect(appDelegate.performNewWorkspaceAction(
+            tabManager: manager,
+            debugSource: "test.cmdN.noConfiguredAction",
+            localOnly: true
+        ))
+        let created = try createdWorkspace(in: manager, knownIds: knownIds)
+
+        #expect(created.customTitle == nil)
+        #expect(created.id == manager.selectedTabId)
+    }
+
+    /// Picking the built-in New Workspace by name, as the `+` button's menu
+    /// does, means the plain workspace and not the configured one.
+    @Test func builtInNewWorkspaceByNameSkipsTheConfiguredAction() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let fixture = try ConfigFixture(globalJSON: Self.configuredLayoutJSON)
+        defer { fixture.cleanUp() }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        let context = try #require(
+            appDelegate.mainWindowContexts.values.first { $0.windowId == windowId }
+        )
+        context.cmuxConfigStore = fixture.store
+        let knownIds = Set(manager.tabs.map(\.id))
+
+        #expect(appDelegate.performNewWorkspaceAction(
+            tabManager: manager,
+            debugSource: "test.contextMenu.builtInNewWorkspace",
+            skipConfiguredAction: true
+        ))
+        let created = try createdWorkspace(in: manager, knownIds: knownIds)
+
+        #expect(created.customTitle == nil)
+    }
+}

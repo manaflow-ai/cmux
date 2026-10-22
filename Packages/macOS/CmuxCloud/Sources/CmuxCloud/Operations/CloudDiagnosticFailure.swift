@@ -58,7 +58,7 @@ public enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             case .malformedResponse: return .response
             case .disabledByManagedPolicy, .cloudMachinesDisabled: return .permission
             case .lifecycleUnsupported: return .unsupported
-            case .httpStatus(let status, _): return classify(status: status)
+            case .httpStatus(let status, let body): return classify(status: status, body: body)
             }
         }
         if let error = error as? MachineUsageClientError {
@@ -67,14 +67,14 @@ public enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             case .sessionRefreshFailed: return .sessionRefresh
             case .backendUnreachable: return .network
             case .malformedResponse: return .response
-            case .httpStatus(let status, _): return classify(status: status)
+            case .httpStatus(let status, let body): return classify(status: status, body: body)
             }
         }
         if let error = error as? CloudMachineLink.LinkError {
             switch error {
-            case .timedOut: return .timeout
+            case .timedOut, .requestTimedOut: return .timeout
             case .inputTooLarge: return .resourceLimit
-            case .clientMissing, .spawnFailed, .exited: return .process
+            case .clientMissing, .spawnFailed, .exited, .exitedBeforeSocket: return .process
             case .failureMessage: return .network
             }
         }
@@ -100,6 +100,22 @@ public enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
         case .wireGuardHubUnsupported: return .unsupported
         case .privateRouteRequired, .retryLater: return .network
         }
+    }
+
+    /// Classifies an HTTP answer by its `error` code when the server named
+    /// one, so a full pool is not reported as a missing plan.
+    /// - Parameters:
+    ///   - status: The HTTP status.
+    ///   - body: The response body.
+    public static func classify(status: Int, body: String) -> Self {
+        CloudPlanRefusal(status: status, body: body)?.diagnosticFailure ?? classify(status: status)
+    }
+
+    /// The sentence a person sees for a failure: the server's explained
+    /// refusal when it named one, otherwise the class label.
+    /// - Parameter error: The thrown error.
+    public static func message(for error: Error) -> String {
+        CloudPlanRefusal(error)?.message ?? classify(error).label
     }
 
     public static func classify(status: Int) -> Self {

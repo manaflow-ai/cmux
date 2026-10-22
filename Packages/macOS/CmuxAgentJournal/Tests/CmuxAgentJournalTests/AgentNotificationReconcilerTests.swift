@@ -7,6 +7,7 @@ struct AgentNotificationReconcilerTests {
     private let surface = UUID().uuidString
 
     private func event(_ sequence: Int64, _ kind: AgentJournalEventKind, source: String,
+                       session: String = "session",
                        turn: String? = "turn-1", request: String? = nil, pending: Bool = false,
                        notify: Bool = true, occurredAt: Int64? = nil, nativeID: String? = nil,
                        surfaceID: String? = nil, declaredPhase: AgentLifecyclePhase? = nil,
@@ -14,7 +15,7 @@ struct AgentNotificationReconcilerTests {
         AgentJournalEvent(sequence: sequence, committedAtMs: 1000 + sequence,
             draft: AgentJournalEventDraft(eventId: "event-\(sequence)", kind: kind,
                 occurredAtMs: occurredAt ?? sequence, source: source, agentKey: source,
-                sessionId: "session", workspaceId: workspace, surfaceId: surfaceID ?? surface,
+                sessionId: session, workspaceId: workspace, surfaceId: surfaceID ?? surface,
                 pendingWork: pending, nativeEvent: nativeEvent, declaredPhase: declaredPhase, attention: AgentAttentionContext(eventIdentity: nativeID,
                     turnIdentity: turn, requestIdentity: request,
                     notification: notify ? AgentJournalNotification(title: "Agent", subtitle: "",
@@ -99,6 +100,194 @@ struct AgentNotificationReconcilerTests {
         #expect(duplicate.disposition == .stale)
         #expect(duplicate.invalidatedCorrelationKeys.isEmpty)
         #expect(reconciler.apply(event(4, .approvalRequested, source: source, request: "r1")).identity == first.identity)
+    }
+
+    @Test func recoveredReplacementInvalidatesTheOldErrorNotification() throws {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .errorReported, source: "claude", session: "old"))
+        let replacement = reconciler.apply(event(2, .sessionStarted, source: "claude", session: "new"))
+        #expect(replacement.invalidatedCorrelationKeys.count == 1)
+        #expect(reconciler.apply(event(3, .errorReported, source: "claude", session: "old")).disposition == .stale)
+        let recovered = reconciler.apply(event(4, .turnCompleted, source: "claude", session: "new"))
+        #expect(recovered.disposition != .accepted || recovered.identity != replacement.identity)
+    }
+
+    @Test(arguments: ["antigravity", "grok"])
+    func multiSessionAdapterStartKeepsSiblingSessionsLive(source: String) {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .sessionStarted, source: source, session: "first", notify: false))
+        let sibling = reconciler.apply(event(2, .sessionStarted, source: source, session: "second", notify: false))
+        #expect(sibling.invalidatedCorrelationKeys.isEmpty)
+        #expect(reconciler.apply(event(3, .errorReported, source: source, session: "first")).disposition == .accepted)
+        #expect(reconciler.apply(event(4, .errorReported, source: source, session: "second")).disposition == .accepted)
+    }
+
+    @Test func lateOlderSessionStartCannotSupersedeTheNewerOwner() {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .errorReported, source: "claude", session: "old"))
+        _ = reconciler.apply(event(2, .sessionStarted, source: "claude", session: "new", notify: false))
+
+        let lateStart = reconciler.apply(
+            event(1, .sessionStarted, source: "claude", session: "old", notify: false)
+        )
+        #expect(lateStart.disposition == .stale)
+        #expect(lateStart.invalidatedCorrelationKeys.isEmpty)
+
+        #expect(
+            reconciler.apply(event(3, .errorReported, source: "claude", session: "new")).disposition
+                == .accepted
+        )
+    }
+
+    @Test func sessionStartOnSiblingSurfacePreservesTheOtherSurfaceSession() throws {
+        var reconciler = AgentNotificationReconciler()
+        let sibling = UUID().uuidString
+        _ = reconciler.apply(event(1, .errorReported, source: "claude", session: "old"))
+        let replacement = reconciler.apply(
+            event(2, .sessionStarted, source: "claude", session: "new", notify: false, surfaceID: sibling)
+        )
+        #expect(replacement.invalidatedCorrelationKeys.isEmpty)
+        #expect(
+            reconciler.apply(event(3, .errorReported, source: "claude", session: "old")).disposition
+                == .accepted
+        )
+    }
+
+    @Test func movingASessionInvalidatesReceiptsFromItsOriginalSurface() throws {
+        var reconciler = AgentNotificationReconciler()
+        let newSurface = UUID().uuidString
+        let error = reconciler.apply(event(1, .errorReported, source: "claude", session: "old"))
+        let errorIdentity = try #require(error.identity)
+        let moved = reconciler.apply(
+            event(2, .turnStarted, source: "claude", session: "old", notify: false, surfaceID: newSurface)
+        )
+        #expect(moved.invalidatedCorrelationKeys == [errorIdentity])
+
+        let replacement = reconciler.apply(
+            event(3, .sessionStarted, source: "claude", session: "new", notify: false)
+        )
+        #expect(replacement.invalidatedCorrelationKeys.isEmpty)
+    }
+
+    @Test func messagePublishedMoveReturnsOriginInvalidationAndCommitsDestination() throws {
+        var reconciler = AgentNotificationReconciler()
+        let origin = UUID().uuidString
+        let destination = UUID().uuidString
+        let error = reconciler.apply(
+            event(1, .errorReported, source: "claude", session: "old", surfaceID: origin)
+        )
+        let errorIdentity = try #require(error.identity)
+
+        let moved = reconciler.apply(
+            event(2, .messagePublished, source: "claude", session: "old", request: "push",
+                  surfaceID: destination)
+        )
+        #expect(moved.disposition == .accepted)
+        #expect(moved.invalidatedCorrelationKeys == [errorIdentity])
+        let destinationError = reconciler.apply(
+            event(3, .errorReported, source: "claude", session: "old", surfaceID: destination)
+        )
+        let destinationErrorIdentity = try #require(destinationError.identity)
+        #expect(destinationError.disposition == .accepted)
+        let late = reconciler.apply(
+            event(4, .errorReported, source: "claude", session: "old", occurredAt: 1, surfaceID: origin)
+        )
+        #expect(late.disposition == .stale)
+        #expect(late.invalidatedCorrelationKeys.isEmpty)
+        let later = reconciler.apply(
+            event(5, .messagePublished, source: "claude", session: "old", request: "later",
+                  surfaceID: destination)
+        )
+        #expect(later.disposition == .accepted)
+        #expect(later.invalidatedCorrelationKeys.isEmpty)
+
+        let replacement = reconciler.apply(
+            event(6, .sessionStarted, source: "claude", session: "new", notify: false,
+                  surfaceID: destination)
+        )
+        #expect(replacement.disposition == .observation)
+        #expect(replacement.invalidatedCorrelationKeys == [destinationErrorIdentity])
+        #expect(
+            reconciler.apply(
+                event(7, .errorReported, source: "claude", session: "old", surfaceID: destination)
+            ).disposition == .stale
+        )
+    }
+
+    @Test func freshEventsFromRetiredSurfaceCannotMoveSessionBack() throws {
+        var reconciler = AgentNotificationReconciler()
+        let origin = UUID().uuidString
+        let destination = UUID().uuidString
+        _ = reconciler.apply(
+            event(1, .errorReported, source: "claude", session: "moved", surfaceID: origin)
+        )
+        let moved = reconciler.apply(
+            event(2, .messagePublished, source: "claude", session: "moved", request: "move",
+                  surfaceID: destination)
+        )
+        #expect(moved.disposition == .accepted)
+
+        let late = reconciler.apply(
+            event(3, .errorReported, source: "claude", session: "moved", occurredAt: 3,
+                  surfaceID: origin)
+        )
+        #expect(late.disposition == .stale)
+        #expect(late.invalidatedCorrelationKeys.isEmpty)
+
+        let moveBack = reconciler.apply(
+            event(4, .sessionStarted, source: "claude", session: "moved", notify: false,
+                  surfaceID: origin)
+        )
+        #expect(moveBack.disposition == .observation)
+        #expect(
+            reconciler.apply(
+                event(5, .errorReported, source: "claude", session: "moved", surfaceID: origin)
+            ).disposition == .accepted
+        )
+    }
+
+    @Test func olderSessionStartCannotRetireNewerOriginProjection() {
+        var reconciler = AgentNotificationReconciler()
+        let origin = UUID().uuidString
+        let destination = UUID().uuidString
+        _ = reconciler.apply(
+            event(1, .errorReported, source: "claude", session: "timestamped", occurredAt: 100,
+                  surfaceID: origin)
+        )
+
+        let staleMove = reconciler.apply(
+            event(2, .sessionStarted, source: "claude", session: "timestamped", notify: false,
+                  occurredAt: 50, surfaceID: destination)
+        )
+        #expect(staleMove.disposition == .stale)
+        #expect(
+            reconciler.apply(
+                event(3, .errorReported, source: "claude", session: "timestamped", occurredAt: 101,
+                      surfaceID: origin)
+            ).disposition == .accepted
+        )
+    }
+
+    @Test func idleObservedMoveReturnsOriginInvalidation() throws {
+        var reconciler = AgentNotificationReconciler()
+        let origin = UUID().uuidString
+        let destination = UUID().uuidString
+        let error = reconciler.apply(
+            event(1, .errorReported, source: "claude", session: "old", surfaceID: origin)
+        )
+        let errorIdentity = try #require(error.identity)
+
+        let moved = reconciler.apply(
+            event(2, .idleObserved, source: "claude", session: "old", notify: false,
+                  surfaceID: destination)
+        )
+        #expect(moved.disposition == .delayed)
+        #expect(moved.invalidatedCorrelationKeys == [errorIdentity])
+        #expect(
+            reconciler.apply(
+                event(1, .errorReported, source: "claude", session: "old", surfaceID: origin)
+            ).disposition == .stale
+        )
     }
 
     @Test func contextPersistsAndIdempotentAppendRejectsChangedEvidence() throws {
@@ -228,6 +417,22 @@ struct AgentNotificationReconcilerTests {
     }
 
     @Test(arguments: ["claude", "codex"])
+    func sameSessionStartRetiresPriorNotification(source: String) throws {
+        var reconciler = AgentNotificationReconciler()
+        let failure = reconciler.apply(event(1, .errorReported, source: source))
+        let failureIdentity = try #require(failure.identity)
+        let recovery = event(2, .sessionStarted, source: source, turn: nil, notify: false)
+
+        let recovered = reconciler.apply(recovery)
+        #expect(recovered.disposition == .observation)
+        #expect(recovered.invalidatedCorrelationKeys == [failureIdentity])
+        #expect(reconciler.lifecycleEvent(recovery).draft.kind == .sessionStarted)
+        #expect(
+            reconciler.apply(event(3, .errorReported, source: source)).disposition == .accepted
+        )
+    }
+
+    @Test(arguments: ["claude", "codex"])
     func explicitMessagesRespectFreshnessAndSessionEnd(source: String) {
         var reconciler = AgentNotificationReconciler()
         _ = reconciler.apply(event(2, .turnStarted, source: source, notify: false))
@@ -248,6 +453,86 @@ struct AgentNotificationReconcilerTests {
         #expect(delayed.disposition == .delayed)
         #expect(!delayed.projectsLifecycle)
         #expect(reconciler.apply(event(6, .approvalRequested, source: source, turn: "next", request: "real", occurredAt: 10)).disposition == .accepted)
+    }
+
+    @Test(arguments: ["grok", "claude"])
+    func structuredIdleReminderAfterCompletionDeliversWithoutReopeningAttention(source: String) throws {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnStarted, source: source, notify: false))
+        let done = reconciler.apply(event(2, .turnCompleted, source: source))
+        var reminder = event(3, .idleObserved, source: source).draft
+        reminder.attention?.notification?.category = "idle-reminder"
+
+        let delivered = reconciler.apply(AgentJournalEvent(sequence: 3, committedAtMs: 1003, draft: reminder))
+        #expect(delivered.disposition == .accepted)
+        #expect(delivered.identity != done.identity)
+        #expect(!delivered.projectsLifecycle)
+        let doneIdentity = try #require(done.identity)
+        #expect(delivered.remindedCompletion == .init(identity: doneIdentity, correlationKey: doneIdentity))
+        #expect(reconciler.lifecycleEvent(AgentJournalEvent(sequence: 3, committedAtMs: 1003, draft: reminder)).draft.declaredPhase == .idle)
+
+        _ = reconciler.apply(event(4, .sessionEnded, source: source, notify: false))
+        var lateReminder = event(5, .idleObserved, source: source).draft
+        lateReminder.attention?.notification?.category = "idle-reminder"
+        #expect(reconciler.apply(AgentJournalEvent(sequence: 5, committedAtMs: 1005, draft: lateReminder)).disposition == .delayed)
+    }
+
+    private func idleReminder(_ sequence: Int64, source: String, turn: String? = "turn-1",
+                              occurredAt: Int64? = nil) -> AgentJournalEvent {
+        var reminder = event(sequence, .idleObserved, source: source, turn: turn, occurredAt: occurredAt).draft
+        reminder.attention?.notification?.category = "idle-reminder"
+        return AgentJournalEvent(sequence: sequence, committedAtMs: 1000 + sequence, draft: reminder)
+    }
+
+    @Test(arguments: ["grok", "claude"])
+    func idleReminderLinksOnlyItsOwnTurnsDeliveredCompletion(source: String) throws {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnStarted, source: source, turn: nil, notify: false))
+        // A settled turn whose Stop carried no notification has nothing to repeat.
+        _ = reconciler.apply(event(2, .turnCompleted, source: source, turn: nil, notify: false))
+        #expect(reconciler.apply(idleReminder(3, source: source, turn: nil)).remindedCompletion == nil)
+
+        // The next identity-less turn links its own completion, with its key.
+        _ = reconciler.apply(event(4, .turnStarted, source: source, turn: nil, notify: false))
+        var stop = event(5, .turnCompleted, source: source, turn: nil).draft
+        stop.attention?.notification?.correlationKey = "stop-key"
+        let done = reconciler.apply(AgentJournalEvent(sequence: 5, committedAtMs: 1005, draft: stop))
+        let reminder = reconciler.apply(idleReminder(6, source: source, turn: nil))
+        #expect(reminder.disposition == .accepted)
+        let doneIdentity = try #require(done.identity)
+        #expect(reminder.remindedCompletion == .init(identity: doneIdentity, correlationKey: "stop-key"))
+    }
+
+    /// A continuation without UserPromptSubmit reopens the settled turn. Its
+    /// Stop is deduplicated against the first completion, so the reminder must
+    /// not be linked to (and suppressed by) that already-read completion.
+    @Test(arguments: ["claude"])
+    func reminderAfterPromptlessContinuationIsNotLinkedToTheReadCompletion(source: String) throws {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnStarted, source: source, turn: nil, notify: false))
+        let first = reconciler.apply(event(2, .turnCompleted, source: source, turn: nil))
+        #expect(first.disposition == .accepted)
+        _ = reconciler.apply(event(3, .stateChanged, source: source, turn: nil, notify: false,
+                                   occurredAt: 20, declaredPhase: .running, nativeEvent: "PreToolUse"))
+        let second = reconciler.apply(event(4, .turnCompleted, source: source, turn: nil, occurredAt: 30))
+        #expect(second.identity == first.identity)
+        let reminder = reconciler.apply(idleReminder(5, source: source, turn: nil, occurredAt: 31))
+        #expect(reminder.disposition == .accepted)
+        #expect(reminder.remindedCompletion == nil)
+
+        // A real next turn links its own completion again.
+        _ = reconciler.apply(event(6, .turnStarted, source: source, turn: nil, notify: false, occurredAt: 40))
+        let third = reconciler.apply(event(7, .turnCompleted, source: source, turn: nil, occurredAt: 41))
+        let thirdIdentity = try #require(third.identity)
+        let nextReminder = reconciler.apply(idleReminder(8, source: source, turn: nil, occurredAt: 42))
+        #expect(nextReminder.remindedCompletion?.identity == thirdIdentity)
+    }
+
+    @Test func remindedCompletionIsAcknowledgedOnlyAfterRecordingAndRead() {
+        let completion = AgentNotificationDecision.RemindedCompletion(identity: "done", correlationKey: "done")
+        #expect(completion.isAcknowledged(completionWasRecorded: true, completionIsUnread: false))
+        #expect(!completion.isAcknowledged(completionWasRecorded: true, completionIsUnread: true))
+        #expect(!completion.isAcknowledged(completionWasRecorded: false, completionIsUnread: false))
     }
 
     @Test(arguments: ["claude", "codex"])

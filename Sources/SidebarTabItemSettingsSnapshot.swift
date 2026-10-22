@@ -22,6 +22,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let branchDirectory: SidebarWorkspaceBranchDirectorySettings
     let details: SidebarWorkspaceDetailSettings
     let showsGitBranchIcon: Bool
+    let showsCloudDeviceIcons: Bool
     let makesPullRequestsClickable: Bool
     let openPullRequestLinksInCmuxBrowser: Bool
     let openPortLinksInCmuxBrowser: Bool
@@ -33,6 +34,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let selectionColorHex: String?
     let subtleSelection: Bool
     let brightenInDarkMode: Bool
+    let unselectedFillOpacity: Double
     let notificationBadgeColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     let iMessageModeEnabled: Bool
@@ -62,6 +64,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         sidebarFontScale = SidebarTabItemFontScale.scale(for: sidebarFontSize)
         showsGitBranch = Self.bool(defaults: defaults, key: "sidebarShowGitBranch", defaultValue: true)
         showsGitBranchIcon = Self.bool(defaults: defaults, key: "sidebarShowGitBranchIcon", defaultValue: false)
+        showsCloudDeviceIcons = settings.value(for: sidebar.showCloudDeviceIcons)
         makesPullRequestsClickable = settings.value(for: sidebar.makePullRequestsClickable)
         openPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(
             defaults: defaults
@@ -105,6 +108,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         selectionColorHex = settings.value(for: workspaceColors.selectionColorHex).nilIfEmpty
         subtleSelection = settings.value(for: workspaceColors.subtleSelection)
         brightenInDarkMode = settings.value(for: workspaceColors.brightenInDarkMode)
+        unselectedFillOpacity = settings.value(for: workspaceColors.unselectedFillOpacity)
         notificationBadgeColorHex = settings.value(for: workspaceColors.notificationBadgeColorHex).nilIfEmpty
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
         workspaceTodoChecklistStyle = settings.value(for: betaFeatures.workspaceTodosChecklistStyle)

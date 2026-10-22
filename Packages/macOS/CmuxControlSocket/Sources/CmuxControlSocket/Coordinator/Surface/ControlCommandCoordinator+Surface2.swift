@@ -58,6 +58,12 @@ extension ControlCommandCoordinator {
             return .err(code: "invalid_params", message: "Anchor surface must be in the same pane", data: nil)
         case .reorderFailed:
             return .err(code: "internal_error", message: "Failed to reorder surface", data: nil)
+        case .denied(let id, let message):
+            return .err(
+                code: "denied",
+                message: message,
+                data: .object(["surface_id": .string(id.uuidString), "reason": .string("browser_repl_tab")])
+            )
         case .reordered(let windowID, let workspaceID, let paneID, let surfaceID):
             return .ok(.object([
                 "window_id": .string(windowID.uuidString),

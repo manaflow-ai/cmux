@@ -176,6 +176,12 @@ struct GlobalSearchResultRow: Identifiable, Equatable {
         hit.location.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// The small label after the title: the agent's name for a session
+    /// ("Codex"), the kind for everything else.
+    var kindLabel: String {
+        hit.kind == .agentSession && !hit.anchor.isEmpty ? hit.anchor : hit.kind.localizedLabel
+    }
+
     var snippet: String {
         let trimmed = hit.snippet.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? title : trimmed
@@ -187,6 +193,8 @@ struct GlobalSearchResultRow: Identifiable, Equatable {
 
     var systemImageName: String {
         switch hit.kind {
+        case .agentSession:
+            return "sparkles"
         case .browser:
             return "globe"
         case .markdown:

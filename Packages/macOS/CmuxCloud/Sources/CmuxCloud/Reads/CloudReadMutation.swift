@@ -24,7 +24,7 @@ public struct CloudReadMutation: Sendable {
                 paths.insert("/api/coderouter/vm-usage/team")
                 if method == "DELETE" { paths.insert("\(machinePath)/stats") }
             } else if parts.count == 4, method == "POST", [
-                "pause", "resume", "resize", "fork", "attach-endpoint", "ssh-endpoint",
+                "pause", "resume", "restart", "resize", "hygiene", "fork", "attach-endpoint", "ssh-endpoint",
                 "scp-endpoint", "sessions", "exec", "open-port"
             ].contains(parts[3]) {
                 // Open/exec/file-transfer routes can wake a suspended machine.

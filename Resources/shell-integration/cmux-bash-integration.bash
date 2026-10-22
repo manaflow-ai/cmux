@@ -282,6 +282,7 @@ _cmux_show_welcome_once() {
 _cmux_show_welcome_once
 _CMUX_CLAUDE_WRAPPER="${_CMUX_CLAUDE_WRAPPER:-}"
 _CMUX_GROK_WRAPPER="${_CMUX_GROK_WRAPPER:-}"
+_CMUX_MUSE_WRAPPER="${_CMUX_MUSE_WRAPPER:-}"
 # Sets REPLY to PATH-style $2 with $1 moved to the front (and $3 dropped),
 # without the subshell a command substitution would fork.
 _cmux_path_prepend_unique_directory_into_reply() {
@@ -557,7 +558,9 @@ _cmux_install_cli_wrapper() {
     fi
 }
 _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
+_cmux_install_cli_wrapper agy _CMUX_AGY_WRAPPER
 _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
+_cmux_install_cli_wrapper muse _CMUX_MUSE_WRAPPER
 
 # Throttle heavy work to avoid prompt latency.
 _CMUX_PWD_LAST_PWD="${_CMUX_PWD_LAST_PWD:-}"
@@ -581,9 +584,11 @@ _CMUX_BASH_STATE_DIR="${_CMUX_BASH_STATE_DIR%/}/cmux-bash-$EUID"
 _cmux_private_dirs 1 "$_CMUX_BASH_STATE_DIR" || _CMUX_BASH_STATE_DIR=""
 _CMUX_PR_ACTION_HINT_FILE=""
 _CMUX_BASH_HISTORY_LAST_FILE=""
+_CMUX_PWD_REREPORT_FILE=""
 if [[ -n "$_CMUX_BASH_STATE_DIR" ]]; then
     _CMUX_PR_ACTION_HINT_FILE="$_CMUX_BASH_STATE_DIR/pr-action-$$"
     _CMUX_BASH_HISTORY_LAST_FILE="$_CMUX_BASH_STATE_DIR/history-last-$$"
+    _CMUX_PWD_REREPORT_FILE="$_CMUX_BASH_STATE_DIR/pwd-rereport-$$"
 fi
 
 _CMUX_PORTS_LAST_RUN="${_CMUX_PORTS_LAST_RUN:-0}"
@@ -949,6 +954,20 @@ _cmux_reset_terminal_keyboard_protocols() {
     printf '\033[>m\033[<8u'
 }
 
+_cmux_reset_terminal_leftover_modes() {
+    [[ -t 1 || -n "${CMUX_TEST_FORCE_KEYBOARD_RESET:-}" ]] || return 0
+    # A TUI killed mid-run (SIGKILL, a crash) leaves its modes on: mouse
+    # reporting types reports like 35;1;13M at the prompt. The shell is the
+    # foreground job here, before its line editor turns bracketed paste back
+    # on. A hidden cursor comes back. Cursor-key mode (?1) stays, as in zsh,
+    # where zle sets it after this hook.
+    printf '\033[?9l\033[?1000l\033[?1002l\033[?1003l\033[?1005l\033[?1006l\033[?1015l\033[?1016l\033[?1004l\033[?2004l\033[?25h'
+    # Leaving the alternate screen restores a saved cursor; ESC 7 makes that
+    # the prompt's own spot on Ghostty's primary screen. tmux and screen keep
+    # the 1049 cursor apart from ESC 7, so there the prompt would jump.
+    [[ -n "${TMUX:-}${STY:-}" ]] || printf '\033\067\033[?1049l'
+}
+
 _cmux_ports_kick() {
     local reason="${1:-command}"
     # Lightweight: just tell the app to run a batched scan for this panel.
@@ -1163,8 +1182,36 @@ _cmux_command_starts_nested_shell() {
     return 1
 }
 
+# True when a command line runs Claude Code. Claude reports its own cwd through
+# hooks while it runs (`claude --worktree` moves it to another checkout), so the
+# next prompt must re-report $PWD even though the shell never left it. Extra
+# matches only cost one redundant report_pwd.
+_cmux_command_runs_claude() {
+    [[ "$1" == *claude* ]] || return 1
+    local -a words=()
+    read -r -a words <<< "$1"
+    local word
+    for word in "${words[@]}"; do
+        word="${word#\(}"
+        word="${word%\)}"
+        word="${word%;}"
+        case "${word##*/}" in
+            claude|cmux-claude-wrapper) return 0 ;;
+        esac
+    done
+    return 1
+}
+
 _cmux_preexec_command() {
     local cmd="${1:-${BASH_COMMAND:-}}"
+    if _cmux_command_runs_claude "$cmd"; then
+        _CMUX_PWD_LAST_PWD=""
+        # Before bash 5.3, PS0 runs this hook in a subshell; the prompt reads
+        # the marker instead.
+        if [[ -n "${_CMUX_IN_PREEXEC:-}" && -n "${_CMUX_PWD_REREPORT_FILE:-}" ]]; then
+            printf '1\n' >| "$_CMUX_PWD_REREPORT_FILE" 2>/dev/null || true
+        fi
+    fi
     _cmux_tmux_sync_cmux_environment
 
     local cmux_has_unix_socket=0
@@ -1283,6 +1330,7 @@ _cmux_prompt_command() {
     fi
 
     if [[ -n "$CMUX_PANEL_ID" ]]; then
+        _cmux_reset_terminal_leftover_modes
         _cmux_reset_terminal_keyboard_protocols
     fi
     if [[ -n "$CMUX_PANEL_ID" ]] || (( ! cmux_has_unix_socket )); then
@@ -1290,6 +1338,11 @@ _cmux_prompt_command() {
     fi
     _cmux_report_tty_once
 
+    # A subshell preexec (bash < 5.3) marks a claude command here.
+    if [[ -n "${_CMUX_PWD_REREPORT_FILE:-}" && -s "$_CMUX_PWD_REREPORT_FILE" ]]; then
+        : >| "$_CMUX_PWD_REREPORT_FILE"
+        _CMUX_PWD_LAST_PWD=""
+    fi
     local now="${EPOCHSECONDS:-$SECONDS}"
     local pwd="$PWD"
     if (( ! cmux_has_unix_socket )); then

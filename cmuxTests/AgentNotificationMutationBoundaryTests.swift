@@ -3,6 +3,7 @@ import CmuxCore
 import Darwin
 import Foundation
 import Testing
+@preconcurrency import XCTest
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -10,6 +11,133 @@ import Testing
 #endif
 
 extension AgentNotificationRegressionTests {
+    /// A reused PID must fail closed when the cached start-time key changes.
+    @Test("Socket PID evidence rejects a changed birth-time key")
+    func staleSocketPIDEvidenceIsRejected() throws {
+        let identity = try #require(agentLiveProcessIdentity(pid: Darwin.getpid()))
+        let staleKey = CmuxTopProcessScopeCacheKey(
+            pid: identity.scopeCacheKey.pid,
+            startSeconds: identity.scopeCacheKey.startSeconds &+ 1,
+            startMicroseconds: identity.scopeCacheKey.startMicroseconds
+        )
+        let evidence = AgentDeliveryProcessEvidence(
+            isLive: true,
+            identityValidated: true,
+            ttyDevice: identity.ttyDevice,
+            scope: nil,
+            scopeCacheKey: staleKey
+        )
+
+        #expect(
+            !agentDeliveryEvidenceMatchesProcess(
+                evidence,
+                currentScopeCacheKey: identity.scopeCacheKey
+            ),
+            "A PID reused while the socket request waited must fail the birth-time check"
+        )
+    }
+
+    /// Both supported PID encodings must revalidate evidence after the actor hop.
+    @Test("Async socket dispatch rejects stale PID evidence", arguments: [false, true])
+    func staleSocketPIDEvidenceIsRejectedThroughAsyncDispatch(useStringPID: Bool) async throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let identity = try #require(agentLiveProcessIdentity(pid: Darwin.getpid()))
+        let staleKey = CmuxTopProcessScopeCacheKey(
+            pid: identity.scopeCacheKey.pid,
+            startSeconds: identity.scopeCacheKey.startSeconds &+ 1,
+            startMicroseconds: identity.scopeCacheKey.startMicroseconds
+        )
+        let scope = CmuxTopProcessScope(
+            workspaceID: fixture.source.id,
+            surfaceID: fixture.panelId,
+            attributionReason: "test"
+        )
+        let currentEvidence = AgentDeliveryProcessEvidence(
+            isLive: true,
+            identityValidated: true,
+            ttyDevice: nil,
+            scope: scope,
+            scopeCacheKey: identity.scopeCacheKey
+        )
+        let request = ControlRequest(
+            id: .string("stale-evidence"),
+            method: "agent.resolve_delivery_target",
+            params: [
+                "pid": useStringPID
+                    ? .string(" \(identity.scopeCacheKey.pid) \n")
+                    : .int(Int64(identity.scopeCacheKey.pid)),
+                "pid_resolution": .string(AgentProcessBindingResolution.corroborated.rawValue),
+            ]
+        )
+
+        let currentEncoded = try await TerminalController.shared.socketAgentResolveDeliveryTargetResponseAsync(
+            request,
+            precomputedProcessEvidence: currentEvidence
+        )
+        let currentResponse = try #require(
+            JSONSerialization.jsonObject(with: Data(currentEncoded.utf8)) as? [String: Any]
+        )
+        try #require(currentResponse["ok"] as? Bool == true)
+        let currentTarget = try #require(currentResponse["result"] as? [String: Any])
+        #expect(currentTarget["workspace_id"] as? String == fixture.source.id.uuidString)
+        #expect(currentTarget["surface_id"] as? String == fixture.panelId.uuidString)
+
+        // Change only the process birth-time key. The ownership lookup above
+        // must succeed, so not_found below proves that revalidation ran.
+        let staleEvidence = AgentDeliveryProcessEvidence(
+            isLive: true,
+            identityValidated: true,
+            ttyDevice: nil,
+            scope: scope,
+            scopeCacheKey: staleKey
+        )
+        let encoded = try await TerminalController.shared.socketAgentResolveDeliveryTargetResponseAsync(
+            request,
+            precomputedProcessEvidence: staleEvidence
+        )
+        let response = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(encoded.utf8),
+                options: []
+            ) as? [String: Any]
+        )
+        #expect(response["ok"] as? Bool == false)
+        #expect((response["error"] as? [String: Any])?["code"] as? String == "not_found")
+    }
+
+    /// The public socket dispatcher must use the worker-backed delivery path
+    /// and fail closed for a live PID that has no owned surface. This keeps the
+    /// regression coverage on the same V2 envelope path used by clients,
+    /// rather than only exercising the injected-evidence helper overload.
+    @Test("V2 socket delivery dispatch fails closed for an unowned PID")
+    func v2SocketDispatchFailsClosedForUnownedPID() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+
+        let request: [String: Any] = [
+            "id": "unowned-pid",
+            "method": "agent.resolve_delivery_target",
+            "params": [
+                "pid": 1,
+                "pid_resolution": AgentProcessBindingResolution.controllingTTY.rawValue,
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: request)
+        let line = try #require(String(data: data, encoding: .utf8))
+        let encoded = try #require(
+            await TerminalController.shared.processCommandUsingSocketExecutionPolicyAsync(line)
+        )
+        let response = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(encoded.utf8),
+                options: []
+            ) as? [String: Any]
+        )
+        #expect(response["ok"] as? Bool == false)
+        #expect((response["error"] as? [String: Any])?["code"] as? String == "not_found")
+    }
+
     // Allow loaded CI runners time for subprocess spawning and signal delivery.
     func waitForMarker(at url: URL, timeout: Duration = .seconds(15)) async -> Bool {
         let deadline = ContinuousClock.now + timeout
@@ -654,5 +782,29 @@ extension AgentNotificationRegressionTests {
             recorded.isEmpty,
             "A confined in-flight delivery must be cancelled by clearing its authorized workspace; saw \(recorded.map(\.tabId))"
         )
+    }
+}
+
+// Keep one regression on the real Unix-socket path so the V2 dispatcher cannot
+// accidentally bypass the async evidence handoff and fall back to probing on
+// MainActor.
+extension TerminalNotificationSocketActionTests {
+    /// Drives the production Unix-socket V2 path for agent target resolution.
+    func testAgentResolveDeliveryTargetUsesAsyncV2SocketDispatch() async throws {
+        let fixture = try makeSocketFixture(name: "agent-resolve-async")
+        defer { fixture.cleanup() }
+
+        let response = try await sendV2RequestAsync(
+            method: "agent.resolve_delivery_target",
+            params: [
+                "pid": 1,
+                "pid_resolution": AgentProcessBindingResolution.controllingTTY.rawValue,
+            ],
+            to: fixture.socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "\(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "not_found", "\(response)")
     }
 }

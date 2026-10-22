@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 import datetime as dt
+import email.message
 import importlib.util
+import io
 import re
 import sys
 import tempfile
 import unittest
+import urllib.error
 import urllib.parse
 from pathlib import Path
 from unittest import mock
@@ -677,9 +680,22 @@ class WorkflowShapeTests(unittest.TestCase):
         triggers = workflow[True] if True in workflow else workflow["on"]
         self.assertEqual(triggers["workflow_run"], {"workflows": ["CI"], "types": ["requested"]})
         steps = workflow["jobs"]["sweep"]["steps"]
-        self.assertEqual(steps[0]["id"], "fresh")
-        for step in steps[1:]:
+        # Only the glaeda-route App mint comes first (it spends the App's budget, not
+        # GITHUB_TOKEN's), so the freshness probe's one read is on the App's budget too.
+        self.assertEqual(steps[0]["id"], "glaeda-token")
+        self.assertEqual(steps[0]["with"]["private-key"], "${{ secrets.GLAEDA_ROUTE_APP_KEY }}")
+        self.assertEqual(steps[1]["id"], "fresh")
+        self.assertEqual(steps[1]["env"]["GH_TOKEN"], "${{ steps.glaeda-token.outputs.token || github.token }}")
+        for step in steps[2:]:
             self.assertIn("steps.fresh.outputs.skip != 'true'", step["if"], step["name"])
+
+    def test_a_feat_cmux_next_ci_run_starts_no_sweep(self):
+        # feat-cmux-next's ci.yml never sends its pull requests to macOS; the cron still sweeps.
+        workflow = yaml.safe_load(self.text)
+        self.assertEqual(
+            workflow["jobs"]["sweep"]["if"],
+            "${{ !(github.event_name == 'workflow_run' && "
+            "github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next') }}")
 
     def test_requested_runs_only_stand_in_for_a_late_cron(self):
         # 2026-10-06: CI was requested hundreds of times an hour, a 240 s skip
@@ -689,7 +705,7 @@ class WorkflowShapeTests(unittest.TestCase):
         # when a requested run has just swept for it. A manual dispatch always
         # sweeps.
         workflow = yaml.safe_load(self.text)
-        fresh = workflow["jobs"]["sweep"]["steps"][0]
+        fresh = workflow["jobs"]["sweep"]["steps"][1]
         self.assertEqual(fresh["if"], "github.event_name != 'workflow_dispatch'")
         self.assertEqual(fresh["env"]["FRESH_SECONDS"],
                          "${{ github.event_name == 'workflow_run' && '600' || '300' }}")
@@ -1107,7 +1123,7 @@ class OrphanSweepTests(unittest.TestCase):
             summary = Path(temp) / "summary.md"
             argv = ["--repo", "manaflow-ai/cmux", "--summary", str(summary),
                     "--workflows-dir", str(Path(temp) / "none"), *args]
-            with mock.patch.object(janitor, "GitHub", lambda token, repo: fake), \
+            with mock.patch.object(janitor, "GitHub", lambda token, repo, fallback_token="": fake), \
                     mock.patch.dict("os.environ", {"GH_TOKEN": "t"}), \
                     mock.patch.object(janitor.time, "sleep", lambda _: None), \
                     mock.patch.object(janitor, "utc_now", lambda: NOW), \
@@ -1151,7 +1167,7 @@ class OwnedMarkerListingSweepTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             argv = ["--repo", "manaflow-ai/cmux", "--dry-run", "--pool-load", str(Path(temp) / "load.json"),
                     "--summary", str(Path(temp) / "summary.md"), "--workflows-dir", str(Path(temp) / "none")]
-            with mock.patch.object(janitor, "GitHub", lambda token, repo: fake), \
+            with mock.patch.object(janitor, "GitHub", lambda token, repo, fallback_token="": fake), \
                     mock.patch.dict("os.environ", {"GH_TOKEN": "t", "PR_POOL_OWNED": "1"}), \
                     mock.patch.object(janitor, "utc_now", lambda: NOW), \
                     mock.patch("builtins.print"):
@@ -1202,6 +1218,28 @@ class RateLimitTests(unittest.TestCase):
                 github.request("GET", "/repos/manaflow-ai/cmux/actions/runs")
         self.assertEqual(github.rate_limits["core"]["remaining"], 0)
 
+    def test_a_refused_app_token_hands_the_sweep_to_the_workflow_token(self):
+        github = janitor.GitHub("app", "manaflow-ai/cmux", fallback_token="workflow")
+        sent = []
+
+        class Response(io.BytesIO):
+            headers = email.message.Message()
+
+        def urlopen(request, timeout=30):
+            sent.append(request.get_header("Authorization"))
+            if request.get_header("Authorization") == "Bearer app":
+                raise urllib.error.HTTPError(request.full_url, 403, "rate limited", email.message.Message(), None)
+            return Response(b"{}")
+
+        with mock.patch.object(janitor.urllib.request, "urlopen", urlopen), mock.patch("builtins.print"):
+            github.request("GET", "/repos/manaflow-ai/cmux/actions/runs")
+            github.request("POST", "/repos/manaflow-ai/cmux/actions/runs/1/cancel")
+        self.assertEqual(sent, ["Bearer app", "Bearer workflow", "Bearer workflow"])
+        # Without a fallback the refusal is still an error.
+        github = janitor.GitHub("app", "manaflow-ai/cmux")
+        with mock.patch.object(janitor.urllib.request, "urlopen", urlopen), self.assertRaises(RuntimeError):
+            github.request("GET", "/repos/manaflow-ai/cmux/actions/runs")
+
     def test_sweep_summary_reports_the_budget(self):
         fake = FakeGitHub({})
         fake.rate_limits["core"] = {"remaining": 900, "limit": 15000, "used": 14100}
@@ -1209,7 +1247,7 @@ class RateLimitTests(unittest.TestCase):
             summary = Path(temp) / "summary.md"
             argv = ["--repo", "manaflow-ai/cmux", "--dry-run", "--summary", str(summary),
                     "--workflows-dir", str(Path(temp) / "none")]
-            with mock.patch.object(janitor, "GitHub", lambda token, repo: fake), \
+            with mock.patch.object(janitor, "GitHub", lambda token, repo, fallback_token="": fake), \
                     mock.patch.dict("os.environ", {"GH_TOKEN": "t"}), \
                     mock.patch.object(janitor, "utc_now", lambda: NOW), \
                     mock.patch("builtins.print"):

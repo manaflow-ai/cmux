@@ -38,6 +38,10 @@ struct cmuxApp: App {
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+    @AppStorage(SettingCatalog().betaFeatures.remoteTmuxNewWorkspaceOnHost.userDefaultsKey)
+    private var remoteTmuxNewWorkspaceOnHostEnabled = SettingCatalog().betaFeatures.remoteTmuxNewWorkspaceOnHost.defaultValue
+    @AppStorage(ChiefCatalogSection().enabled.userDefaultsKey)
+    private var chiefEnabled = ChiefCatalogSection().enabled.defaultValue
     @State private var aboutWindowController: AboutWindowController?
     @State private var browserFocusModeMenuRevision = 0
     @State private var browserAvailabilityMenuRevision = 0
@@ -159,8 +163,9 @@ struct cmuxApp: App {
         )
         // Codex app approval authenticates the MCP broker as the exact
         // executable already serving this cmux-owned helper generation.
-        // Export the installed helper path rather than the separately signed
-        // Resources/bin client; the wrapper validates the path before use.
+        // Both agent wrappers use this installed helper as their MCP client;
+        // the app ships no other cmux-cua copy, and the wrappers validate the
+        // path before use.
         setenv(
             ComputerUseRuntimePaths.clientExecutableEnvironmentKey,
             computerUsePaths.installedHelperExecutableURL.path,
@@ -229,7 +234,8 @@ struct cmuxApp: App {
         let tabManager = TabManager(
             workspaceCustomizationStore: workspaceCustomizationStore,
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
-            cloudWorkspaceSelection: cloudWorkspaceCoordinator.makeSelectionState()
+            cloudWorkspaceSelection: cloudWorkspaceCoordinator.makeSelectionState(),
+            sshClipboardWriteTrustStore: AppDelegate.shared?.sshClipboardWriteTrustStore
         )
         let historyMenuCoordinator = HistoryMenuCoordinator(
             closedItemHistoryStore: closedItemHistoryStore,
@@ -887,10 +893,24 @@ struct cmuxApp: App {
                     if let appDelegate = AppDelegate.shared {
                         appDelegate.performNewWorkspaceAction(
                             tabManager: activeTabManager,
-                            debugSource: "menu.newWorkspace"
+                            debugSource: "menu.newWorkspace",
+                            localOnly: true
                         )
                     } else {
                         activeTabManager.addWorkspaceIfActive()
+                    }
+                }
+
+                // In a remote-tmux mirror window, plain New Workspace (above) spawns a
+                // tmux session on the window's host, leaving no way to open LOCAL work
+                // there. Offer an explicit escape hatch, shown only when New Workspace
+                // would go remote so it never clutters ordinary windows.
+                if newLocalWorkspaceMenuItemVisible {
+                    splitCommandButton(title: String(localized: "menu.file.newLocalWorkspace", defaultValue: "New Local Workspace"), shortcut: menuShortcut(for: .newLocalWorkspace)) {
+                        AppDelegate.shared?.performNewLocalWorkspaceAction(
+                            tabManager: activeTabManager,
+                            debugSource: "menu.newLocalWorkspace"
+                        )
                     }
                 }
 
@@ -1296,8 +1316,18 @@ struct cmuxApp: App {
                 AppDelegate.shared?.jumpToLatestUnread()
             }
 
+            splitCommandButton(title: String(localized: "menu.view.jumpToLastPrompt", defaultValue: "Jump to Last Prompt"), shortcut: menuShortcut(for: .jumpToLastPrompt)) {
+                AppDelegate.shared?.jumpToLastPromptFromUserCommand()
+            }
+
             splitCommandButton(title: String(localized: "menu.view.showNotifications", defaultValue: "Show Notifications"), shortcut: menuShortcut(for: .showNotifications)) {
                 showNotificationsPopover()
+            }
+
+            if chiefEnabled {
+                splitCommandButton(title: String(localized: "menu.view.chief", defaultValue: "Chief"), shortcut: menuShortcut(for: .openChief)) {
+                    AppDelegate.shared?.openChiefHome(toggle: true, source: "menu.view.chief")
+                }
             }
         }
     }
@@ -1415,6 +1445,24 @@ struct cmuxApp: App {
         ) ?? tabManager
     }
 
+    /// Whether the "New Local Workspace" File-menu item should be shown: true only
+    /// when plain New Workspace in the active window would route to a remote tmux
+    /// host. Reads `historyMenuCoordinator.state` so the menu re-evaluates on
+    /// window-focus and workspace-selection changes: the coordinator refreshes its
+    /// state when focus history changes and when a window becomes key, and a window
+    /// must become key before its menu bar opens. Also reads the controller's
+    /// mirror-membership, which changes when a mirror is added or removed. A workspace can
+    /// start or stop being a mirror while it stays selected, and neither focus nor
+    /// selection changes when that happens. The setting read keeps the menu in sync when
+    /// routing is toggled while the selected mirror remains unchanged.
+    private var newLocalWorkspaceMenuItemVisible: Bool {
+        let _ = historyMenuCoordinator.state
+        let _ = remoteTmuxNewWorkspaceOnHostEnabled
+        guard let appDelegate = AppDelegate.shared else { return false }
+        let _ = appDelegate.remoteTmuxController.mirrorMembership.workspaceIDs
+        return appDelegate.remoteTmuxController.wouldNewWorkspaceSpawnRemote(in: activeTabManager)
+    }
+
     private func notificationMenuItemTitle(for notification: TerminalNotification) -> String {
         let tabTitle = appDelegate.tabTitle(for: notification.tabId)
         return MenuBarNotificationLineFormatter.menuTitle(notification: notification, tabTitle: tabTitle)
@@ -1458,22 +1506,6 @@ struct cmuxApp: App {
     private func clearSelectedWorkspaceCustomName(in manager: TabManager) {
         guard let workspace = manager.selectedWorkspace else { return }
         manager.clearCustomTitle(tabId: workspace.id)
-    }
-
-    private func moveSelectedWorkspaceToTop(in manager: TabManager) {
-        guard let workspace = manager.selectedWorkspace else { return }
-        manager.moveTabsToTop([workspace.id])
-        manager.selectWorkspace(workspace)
-    }
-
-    private func moveSelectedWorkspace(in manager: TabManager, toWindow windowId: UUID) {
-        guard let workspace = manager.selectedWorkspace else { return }
-        _ = AppDelegate.shared?.moveWorkspaceToWindow(workspaceId: workspace.id, windowId: windowId, focus: true)
-    }
-
-    private func moveSelectedWorkspaceToNewWindow(in manager: TabManager) {
-        guard let workspace = manager.selectedWorkspace else { return }
-        _ = AppDelegate.shared?.moveWorkspaceToNewWindow(workspaceId: workspace.id, focus: true)
     }
 
     private func closeWorkspaceIds(
@@ -1587,6 +1619,10 @@ struct cmuxApp: App {
             }
         }
         .disabled(workspace == nil)
+
+        if let workspace {
+            WorkspaceMergeIntoMenu(sourceWorkspaceId: workspace.id)
+        }
 
         Divider()
 

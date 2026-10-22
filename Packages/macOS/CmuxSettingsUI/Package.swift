@@ -36,6 +36,7 @@ let package = Package(
         .testTarget(
             name: "CmuxSettingsUITests",
             dependencies: [
+                "CMUXMobileCore",
                 "CmuxSettingsUI",
                 "CmuxSettings",
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),

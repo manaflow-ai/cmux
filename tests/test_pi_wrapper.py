@@ -22,11 +22,12 @@ def run_case(
     root: Path,
     *,
     args: tuple[str, ...] = ("--print", "hello"),
+    bin_name: str = "bin",
     disabled: bool = False,
     managed_global: bool = False,
     stale_cached_extension: bool = False,
 ) -> dict[str, object]:
-    bin_dir = root / "bin"
+    bin_dir = root / bin_name
     bin_dir.mkdir(exist_ok=True)
     log = root / "pi-argv.json"
     fake_pi = bin_dir / "pi"
@@ -75,13 +76,21 @@ def run_case(
 
 
 def main() -> int:
+    with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-glob-") as directory:
+        root = Path(directory)
+        (root / "bin1").mkdir()
+        literal_path = run_case(root, bin_name="bin[1]")
+        if "-e" not in literal_path["args"]:
+            raise AssertionError(f"Pi in a literal PATH entry was not launched: {literal_path}")
+
     passthrough_args = (
-        ("install", "--help"),
-        ("remove", "--help"),
-        ("uninstall", "--help"),
+        ("install", "npm:@termdraw/pi", "--local"),
+        ("remove", "npm:@termdraw/pi", "--local"),
+        ("uninstall", "npm:@termdraw/pi", "--local"),
         ("update", "--extensions"),
+        ("update", "--extension", "npm:@termdraw/pi"),
         ("list", "--help"),
-        ("config", "--help"),
+        ("config", "--local"),
         ("auth", "check", "--help"),
         ("mcp", "list", "--help"),
         ("--help",),
@@ -95,10 +104,20 @@ def main() -> int:
             if result["args"] != list(args) or result["extension_exists"]:
                 raise AssertionError(f"Pi subcommand was changed by extension injection: {result}")
 
-    with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-prompt-") as directory:
-        prompted = run_case(Path(directory), args=("--print", "update"))
-        if "-e" not in prompted["args"] or prompted["args"][-2:] != ["--print", "update"]:
-            raise AssertionError(f"Pi prompt matching a subcommand lost extension injection: {prompted}")
+    interactive_args = (
+        (),
+        ("hello",),
+        ("--print", "update"),
+        ("--model", "provider/model", "hello"),
+        ("--", "--no-extensions"),
+    )
+    for args in interactive_args:
+        with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-prompt-") as directory:
+            root = Path(directory)
+            prompted = run_case(root, args=args)
+            expected = ["-e", str(root / "tmp/cmux-pi-extensions/surface-test/cmux-session.ts"), *args]
+            if prompted["args"] != expected or not prompted["extension_exists"]:
+                raise AssertionError(f"Pi interactive invocation lost extension injection: {prompted}")
 
     with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-") as directory:
         root = Path(directory)
@@ -125,6 +144,12 @@ def main() -> int:
         if "-e" in disabled["args"] or disabled["extension_exists"]:
             raise AssertionError(f"Pi hooks disabled still injected extension: {disabled}")
 
+    with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-no-extensions-") as directory:
+        root = Path(directory)
+        opted_out = run_case(root, args=("--print", "hello", "--no-extensions"))
+        if opted_out["args"] != ["--print", "hello", "--no-extensions"] or opted_out["extension_exists"]:
+            raise AssertionError(f"Pi --no-extensions was overridden by cmux injection: {opted_out}")
+
     with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-missing-") as directory:
         root = Path(directory)
         shim_dir = root / "shim-bin"
@@ -149,7 +174,7 @@ def main() -> int:
                 f"status={result.returncode} stderr={result.stderr!r}"
             )
 
-    print("PASS: Pi wrapper injects one bundled extension and honors global/disabled cases")
+    print("PASS: Pi wrapper injects one bundled extension and honors global/disabled/opt-out cases")
     return 0
 
 

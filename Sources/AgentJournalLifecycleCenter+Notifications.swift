@@ -20,6 +20,20 @@ extension AgentJournalLifecycleCenter {
         }
     }
 
+    /// An idle reminder repeats its turn's completion. Once the notification
+    /// store recorded that completion and the user read or dismissed it, the
+    /// turn is acknowledged and the reminder must not come back as a new unread
+    /// notification. The durable receipt is not evidence here: it is claimed
+    /// before mute and policy gates, so a completion that was never recorded, or
+    /// is still unread, keeps its reminder.
+    @MainActor
+    static func reminderRepeatsAcknowledgedCompletion(
+        _ completion: AgentNotificationDecision.RemindedCompletion
+    ) -> Bool {
+        let state = TerminalNotificationStore.shared.agentNotificationState(correlationKey: completion.correlationKey)
+        return completion.isAcknowledged(completionWasRecorded: state.recorded, completionIsUnread: state.unread)
+    }
+
     static func clearInvalidatedNotifications(_ event: AgentJournalEvent, decision: AgentNotificationDecision) {
         guard let workspaceID = event.draft.workspaceId.flatMap(UUID.init(uuidString:)),
               let surfaceID = event.draft.surfaceId.flatMap(UUID.init(uuidString:)) else { return }
@@ -92,9 +106,19 @@ extension AgentJournalLifecycleCenter {
         let category = AgentNotifyCategory(rawValue: notification.category)
         let alert: NotificationSoundAlertType? = draft.kind == .errorReported ? .errorStalled : category?.soundAlertType
         let sound = alert.flatMap { NotificationSoundOverrideContext(agentID: draft.source, alertType: $0) }
+        let workspaceTitle = AppDelegate.shared?.workspaceContainingPanel(
+            panelId: liveSurfaceID,
+            preferredWorkspaceId: live.tabId
+        )?.workspace.title
+        let title = AgentHookNotificationPolicy.notificationTitle(
+            agentName: draft.source,
+            displayName: notification.title,
+            surfaceTitle: nil,
+            workspaceTitle: workspaceTitle
+        )
         let delivered = delivery.enqueue(
             workspaceID: live.tabId, surfaceID: liveSurfaceID,
-            title: notification.title, subtitle: notification.subtitle, body: notification.body,
+            title: title, subtitle: notification.subtitle, body: notification.body,
             category: category, pending: draft.pendingWork, soundContext: sound,
             agentKind: draft.source, isSubagent: draft.isSubagent,
             correlationKey: notification.correlationKey ?? identity,

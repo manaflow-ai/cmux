@@ -12,12 +12,12 @@ final class AnalyticsConsentRevocationObserver: @unchecked Sendable {
     init(
         notificationCenter: NotificationCenter,
         consent: any AnalyticsConsentProviding,
-        uploader: any AnalyticsUploading,
+        uploader: (any AnalyticsUploading)? = nil,
         generationGate: AnalyticsConsentGenerationGate,
         onConsentChange: @escaping @Sendable (AnalyticsConsentSnapshot) -> Void
     ) {
         self.notificationCenter = notificationCenter
-        uploader.setUploadsEnabled(consent.isTelemetryEnabled)
+        uploader?.setUploadsEnabled(consent.isTelemetryEnabled)
         self.token = notificationCenter.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: nil,
@@ -32,7 +32,7 @@ final class AnalyticsConsentRevocationObserver: @unchecked Sendable {
                 // Publish transport state before the FIFO command. A capture
                 // racing notification delivery therefore cannot be accepted by
                 // consent and then dropped by a still-disabled uploader.
-                uploader.setUploadsEnabled(snapshot.isEnabled)
+                uploader?.setUploadsEnabled(snapshot.isEnabled)
                 onConsentChange(snapshot)
             }
         }

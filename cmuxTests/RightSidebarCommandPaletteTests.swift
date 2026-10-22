@@ -1,4 +1,6 @@
 import CmuxCommandPalette
+import CmuxSidebar
+import CmuxWorkspaces
 import Foundation
 import XCTest
 
@@ -9,6 +11,38 @@ import XCTest
 #endif
 
 final class RightSidebarCommandPaletteTests: XCTestCase {
+    @MainActor
+    func testCustomSidebarDataContextIncludesWorkspaceGroups() throws {
+        let group = WorkspaceGroup(
+            id: UUID(),
+            name: "Work",
+            isCollapsed: true,
+            isPinned: false,
+            anchorWorkspaceId: UUID(),
+            customColor: "#FF8800",
+            iconSymbol: "briefcase.fill"
+        )
+
+        let context = ContentView.customSidebarDataContext(
+            workspaces: [],
+            workspaceGroups: [group],
+            selectedWorkspaceId: nil,
+            selectedWorkspaceTitle: "",
+            totalUnreadCount: 0,
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        let groups = try XCTUnwrap(context["groups"]?.iterationValues)
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups[0].member("id"), .string(group.id.uuidString))
+        XCTAssertEqual(groups[0].member("name"), .string("Work"))
+        XCTAssertEqual(groups[0].member("collapsed"), .bool(true))
+        XCTAssertEqual(groups[0].member("pinned"), .bool(false))
+        XCTAssertEqual(groups[0].member("anchorId"), .string(group.anchorWorkspaceId.uuidString))
+        XCTAssertEqual(groups[0].member("color"), .string("#FF8800"))
+        XCTAssertEqual(groups[0].member("icon"), .string("briefcase.fill"))
+    }
+
     func testStoredLegacyDockOptOutDoesNotHideDockCommand() throws {
         let defaults = UserDefaults.standard
         let key = "rightSidebar.beta.dock.enabled"
@@ -59,10 +93,6 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             // Cloud Machines defaults on in dev builds (d6584c07e0); pin the toggle off so
             // the default-mode contract below is the same on every build.
             defaults.set(false, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
-            let cloudFlag = CmuxFeatureFlags.cloudMachinesFlag
-            let previousCloudOverride = CmuxFeatureFlags.shared.overrideValue(for: cloudFlag)
-            CmuxFeatureFlags.shared.setOverride(true, for: cloudFlag)
-            defer { CmuxFeatureFlags.shared.setOverride(previousCloudOverride, for: cloudFlag) }
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
             let context = CommandPaletteContextSnapshot()
@@ -100,10 +130,6 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
     @MainActor
     func testCommandPaletteRightSidebarActionsUseModeShortcutActions() {
         withSavedBetaFeatureDefaults {
-            let definition = CmuxFeatureFlags.cloudMachinesFlag
-            let previousOverride = CmuxFeatureFlags.shared.overrideValue(for: definition)
-            CmuxFeatureFlags.shared.setOverride(true, for: definition)
-            defer { CmuxFeatureFlags.shared.setOverride(previousOverride, for: definition) }
             let defaults = UserDefaults.standard
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)

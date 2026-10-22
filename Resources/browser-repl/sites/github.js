@@ -44,27 +44,42 @@
     return out;
   }
 
+  // Owner and repository names are single path segments: letters, digits,
+  // "_", "-" and "." (so no "/", "%" or other encoded form), and never
+  // "." or "..", which URL parsing resolves out of the named repository.
+  function component(value, what, input) {
+    if (!/^[\w.-]+$/.test(value) || value === "." || value === "..") throw new S.SiteError("invalid", `github: the ${what} name ${JSON.stringify(value)} in ${JSON.stringify(input)} is not a GitHub ${what} name; expected "owner/repo"`);
+    return value;
+  }
   // "owner/repo#12", "https://github.com/owner/repo/issues/12" or ".../pull/12".
   function ref(input, want) {
     const s = String(input || "").trim();
     let m = /^([\w.-]+)\/([\w.-]+)#(\d+)$/.exec(s);
-    if (m) return { owner: m[1], repo: m[2], number: Number(m[3]), kind: want };
+    if (m) return { owner: component(m[1], "owner", input), repo: component(m[2], "repository", input), number: Number(m[3]), kind: want };
     m = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(issues|pull)\/(\d+)/.exec(s);
-    if (m) return { owner: m[1], repo: m[2], number: Number(m[4]), kind: m[3] === "pull" ? "pull" : "issue" };
+    if (m) return { owner: component(m[1], "owner", input), repo: component(m[2], "repository", input), number: Number(m[4]), kind: m[3] === "pull" ? "pull" : "issue" };
     throw new S.SiteError("invalid", `github: expected "owner/repo#123" or an issue or pull request URL, got ${JSON.stringify(input)}`);
   }
   const repoName = (s) => {
-    const m = /^(?:https:\/\/github\.com\/)?([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/.exec(String(s || "").trim());
+    const m = /^(?:https:\/\/github\.com\/)?([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/.exec(String(s || "").trim());
     if (!m) throw new S.SiteError("invalid", `github: expected "owner/repo", got ${JSON.stringify(s)}`);
-    return m[1];
+    return `${component(m[1], "owner", s)}/${component(m[2], "repository", s)}`;
   };
+  // A URL under the repository: it must still start with
+  // https://github.com/owner/repo/ once parsed.
+  function repoURL(name, rest) {
+    const prefix = `${ORIGIN}/${name}/`;
+    const url = prefix + rest;
+    if (!new root.CmuxBrowserRepl.core.URL(url).href.startsWith(prefix)) throw new S.SiteError("invalid", `github: ${JSON.stringify(rest)} is not a path inside the repository ${name}`);
+    return url;
+  }
 
   S.register(
     "github",
     (t) => {
       const issueFn = new Function("arg", `return (${readIssue.toString().replace("(__MD__)", `(${S.ELEMENT_MARKDOWN})`)})(arg);`);
       async function page(r, kind) {
-        const url = `${ORIGIN}/${r.owner}/${r.repo}/${kind === "pull" ? "pull" : "issues"}/${r.number}`;
+        const url = repoURL(`${r.owner}/${r.repo}`, `${kind === "pull" ? "pull" : "issues"}/${r.number}`);
         return t.withTab(url, async (p) => {
           t.assertSignedIn("github", p, SIGN_IN);
           if (/\/404|Page not found/.test(await p.title())) throw new S.SiteError("not_found", `github: ${url} was not found, or this account cannot see it`);
@@ -75,7 +90,7 @@
       }
       async function diff(input) {
         const r = ref(input, "pull");
-        const res = await t.fetch(`${ORIGIN}/${r.owner}/${r.repo}/pull/${r.number}.diff`);
+        const res = await t.fetch(repoURL(`${r.owner}/${r.repo}`, `pull/${r.number}.diff`));
         if (res.status === 404) throw new S.SiteError("not_found", `github.diff: ${r.owner}/${r.repo}#${r.number} is not a pull request this account can see`);
         if (!res.ok) throw new S.SiteError("http", `github.diff: HTTP ${res.status}`);
         return res.text();
@@ -100,7 +115,7 @@
           const name = repoName(repo);
           const kind = options.pulls ? "pulls" : "issues";
           const q = options.query !== undefined ? `?q=${encodeURIComponent(options.query)}` : "";
-          return t.withTab(`${ORIGIN}/${name}/${kind}${q}`, async (p) => {
+          return t.withTab(repoURL(name, `${kind}${q}`), async (p) => {
             t.assertSignedIn("github.issues", p, SIGN_IN);
             await t.waitIn(p, (repoPath) => [...document.querySelectorAll("a[href]")].some((a) => new RegExp("/" + repoPath + "/(issues|pull)/\\d+$").test(a.getAttribute("href") || "")) || /No results|There aren.t any|No open|No issues/i.test(document.body.innerText), name, { signIn: SIGN_IN, name: "github", what: "the issue list", timeout: 20000 });
             return p.evaluate(readList, { repo: name, limit: options.limit || 50 });
@@ -140,9 +155,23 @@
           return out;
         },
         // A file's text at a ref: file("owner/repo", "path/to/file", { ref: "main" }).
+        // The path's segments and the ref name a file inside the one
+        // repository: an empty, "." or ".." segment (which URL parsing
+        // would resolve, leaving the repository) is refused, and the URL
+        // must still be under the repository's raw prefix once parsed.
         async file(repo, filePath, options = {}) {
           const name = repoName(repo);
-          const res = await t.fetch(`${ORIGIN}/${name}/raw/${encodeURIComponent(options.ref || "HEAD")}/${String(filePath).split("/").map(encodeURIComponent).join("/")}`);
+          const ref = String(options.ref || "HEAD");
+          if (ref === "." || ref === "..") throw new S.SiteError("invalid", `github.file: ref: ${JSON.stringify(ref)} is not a ref`);
+          const segments = String(filePath).split("/");
+          for (const seg of segments) {
+            if (seg === "") throw new S.SiteError("invalid", `github.file: ${JSON.stringify(String(filePath))} has an empty segment; give the path from the repository root, like "src/main.c"`);
+            if (seg === "." || seg === "..") throw new S.SiteError("invalid", `github.file: ${JSON.stringify(String(filePath))} has a dot segment; give the path inside the repository, without "." or ".."`);
+          }
+          const prefix = repoURL(name, `raw/${encodeURIComponent(ref)}/`);
+          const url = prefix + segments.map(encodeURIComponent).join("/");
+          if (!new root.CmuxBrowserRepl.core.URL(url).href.startsWith(prefix)) throw new S.SiteError("invalid", `github.file: ${JSON.stringify(String(filePath))} is not a path inside ${name}`);
+          const res = await t.fetch(url);
           if (res.status === 404) throw new S.SiteError("not_found", `github.file: ${name}/${filePath} not found at ${options.ref || "HEAD"}`);
           if (!res.ok) throw new S.SiteError("http", `github.file: HTTP ${res.status}`);
           return res.text();

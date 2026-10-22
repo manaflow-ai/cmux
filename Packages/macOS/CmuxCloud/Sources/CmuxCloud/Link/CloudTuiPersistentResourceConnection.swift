@@ -95,7 +95,7 @@ public actor CloudTuiPersistentResourceConnection {
         _ request: CloudTuiRequest, timeout: Duration, clock: RequestClock
     ) async throws -> Data where RequestClock.Duration == Duration {
         try Task.checkCancellation()
-        guard timeout > .zero else { throw CloudMachineLink.LinkError.timedOut }
+        guard timeout > .zero else { throw CloudMachineLink.LinkError.requestTimedOut }
         try await start()
         try Task.checkCancellation()
         guard !closed else { throw Self.protocolFailure }
@@ -112,7 +112,7 @@ public actor CloudTuiPersistentResourceConnection {
                 // A genuine request deadline, owned and cancelled with its pending entry.
                 let deadline = Task { [weak self, clock] in
                     do { try await clock.sleep(until: expiresAt, tolerance: nil) } catch { return }
-                    await self?.retire(id, error: CloudMachineLink.LinkError.timedOut)
+                    await self?.retire(id, error: CloudMachineLink.LinkError.requestTimedOut)
                 }
                 pending[id] = Pending(
                     continuation: continuation, request: request, deadline: deadline,
@@ -268,7 +268,7 @@ public actor CloudTuiPersistentResourceConnection {
         }
         // After suspend/resume, the socket reader may run before the deadline task.
         guard !entry.isExpired() else {
-            retire(id, error: CloudMachineLink.LinkError.timedOut)
+            retire(id, error: CloudMachineLink.LinkError.requestTimedOut)
             return
         }
         pending.removeValue(forKey: id)
@@ -279,7 +279,7 @@ public actor CloudTuiPersistentResourceConnection {
         if !ok.boolValue {
             let errorObject: Any = entry.request.raw
                 ? ["code": "raw.command_failed", "details": ["error": root["error"] ?? "request rejected"]]
-                : root["error"] ?? [:]
+                : (root["error"] as? [String: Any]) ?? ["code": "request.rejected", "details": ["error": root["error"] ?? NSNull()]]
             let errorData = (try? JSONSerialization.data(withJSONObject: errorObject)) ?? Data()
             entry.continuation.resume(throwing: CloudMachineLink.LinkError.exited(status: 1, output: String(decoding: errorData, as: UTF8.self)))
         } else if entry.request.raw {

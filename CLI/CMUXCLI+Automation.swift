@@ -14,9 +14,7 @@ extension CMUXCLI {
         case "list":
             response = try client.sendV2(method: "automation.list")
         case "show":
-            guard let id = rest.first, !id.isEmpty, !id.hasPrefix("--") else {
-                throw CLIError(message: Self.automationUsage())
-            }
+            let id = try automationRuleID(from: rest, commandName: "automation show")
             response = try client.sendV2(method: "automation.show", params: ["id": id])
         case "test":
             guard let id = rest.first, !id.isEmpty, !id.hasPrefix("--") else {
@@ -25,9 +23,7 @@ extension CMUXCLI {
             let event = try parseAutomationEvent(Array(rest.dropFirst()))
             response = try client.sendV2(method: "automation.test", params: ["id": id, "event": event])
         case "enable", "disable":
-            guard let id = rest.first, !id.isEmpty, !id.hasPrefix("--") else {
-                throw CLIError(message: Self.automationUsage())
-            }
+            let id = try automationRuleID(from: rest, commandName: "automation \(subcommand)")
             response = try client.sendV2(
                 method: subcommand == "enable" ? "automation.enable" : "automation.disable",
                 params: ["id": id]
@@ -52,6 +48,39 @@ extension CMUXCLI {
             return
         }
         printAutomationResponse(response, subcommand: subcommand)
+    }
+
+    /// Checks the socket-backed verbs before the CLI looks for the app, so a typo
+    /// fails with its own error instead of reaching the app, even when cmux is
+    /// not running. `test` runs offline and checks its own arguments while it
+    /// reads `--event`.
+    func validateAutomationArgumentsBeforeSocket(_ commandArgs: [String]) throws {
+        let subcommand = commandArgs.first?.lowercased() ?? "list"
+        let rest = Array(commandArgs.dropFirst())
+        let commandName = "automation \(subcommand)"
+        switch subcommand {
+        case "list", "reload":
+            try rejectUnexpectedArguments(rest, commandName: commandName, valueOptions: [], maxPositionals: 0)
+        case "show", "enable", "disable":
+            _ = try automationRuleID(from: rest, commandName: commandName)
+        case "logs":
+            try rejectUnexpectedArguments(rest, commandName: commandName, valueOptions: ["--limit"], maxPositionals: 0)
+            _ = try automationLimit(from: rest)
+        default:
+            // Help and unknown subcommands keep their usage output.
+            return
+        }
+    }
+
+    /// The one rule id that `show`, `enable` and `disable` take. After `--` the
+    /// id may start with a dash.
+    private func automationRuleID(from args: [String], commandName: String) throws -> String {
+        try rejectUnexpectedArguments(args, commandName: commandName, valueOptions: [], maxPositionals: 1)
+        let positionals = args.first == "--" ? args.dropFirst() : args[...]
+        guard let id = positionals.first, !id.isEmpty, id != "--" else {
+            throw CLIError(message: Self.automationUsage())
+        }
+        return id
     }
 
     /// The test command can run without a live app, which makes it useful for
@@ -107,9 +136,24 @@ extension CMUXCLI {
                 defaultValue: "automation test requires --event <json>"
             ))
         }
+        // Nothing may come before `--event`. With `--event=<json>` nothing may
+        // follow it either; the spaced form joins the remaining words so
+        // unquoted JSON still works.
+        try rejectUnexpectedArguments(
+            Array(args[..<markerIndex]),
+            commandName: "automation test",
+            valueOptions: [],
+            maxPositionals: 0
+        )
         let marker = args[markerIndex]
         let raw: String
         if let inline = marker.split(separator: "=", maxSplits: 1).dropFirst().first {
+            try rejectUnexpectedArguments(
+                Array(args[(markerIndex + 1)...]),
+                commandName: "automation test",
+                valueOptions: [],
+                maxPositionals: 0
+            )
             raw = String(inline)
         } else {
             let valueStart = markerIndex + 1

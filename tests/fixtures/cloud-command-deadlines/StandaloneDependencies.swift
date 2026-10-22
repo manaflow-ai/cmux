@@ -5,6 +5,7 @@ import Foundation
 enum CloudMachineLink {
     enum LinkError: Error {
         case timedOut
+        case requestTimedOut
         case inputTooLarge
         case exited(status: Int32, output: String)
     }

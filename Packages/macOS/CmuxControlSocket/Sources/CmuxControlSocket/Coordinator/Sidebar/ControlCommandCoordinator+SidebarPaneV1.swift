@@ -257,6 +257,8 @@ extension ControlCommandCoordinator {
             return "ERROR: \(sidebarContext?.controlSidebarCloseStrings().failed ?? "Failed to close surface")"
         case .surfaceNotFound:
             return "ERROR: Surface not found"
+        case .denied(let message):
+            return "ERROR: \(message)"
         case .lastSurface:
             return "ERROR: Cannot close the last surface"
         case .confirmationRequired:

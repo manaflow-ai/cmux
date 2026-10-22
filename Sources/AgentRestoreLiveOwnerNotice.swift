@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 /// Renders the terminal-visible explanation for a suppressed duplicate restore.
@@ -134,22 +135,33 @@ enum AgentRestoreAttachCommand {
     ) -> String? {
         let session = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !session.isEmpty else { return nil }
-        let arguments = launchCommand?.arguments ?? []
-        let executableIndex = arguments.firstIndex {
-            URL(fileURLWithPath: $0).lastPathComponent == "claude"
-        }
-        let prefix: [String]
-        if let executableIndex {
-            let outer = Array(arguments[..<executableIndex])
-            prefix = outer + [arguments[executableIndex]]
-        } else if launchCommand?.launcher?.lowercased() == "sr" {
-            prefix = ["sr", "claude"]
-        } else {
-            prefix = ["claude"]
-        }
-        return (prefix + ["attach", session])
-            .map(TerminalStartupShellQuoting.singleQuoted)
-            .joined(separator: " ")
+        return ClaudeBackgroundSessionAttach.attachArguments(
+            target: session,
+            launchArguments: launchCommand?.arguments ?? [],
+            launcher: launchCommand?.launcher
+        )
+        .map(TerminalStartupShellQuoting.singleQuoted)
+        .joined(separator: " ")
+    }
+
+    /// Reattaches a Claude Code background session the daemon still hosts.
+    ///
+    /// The attach runs through `/usr/bin/env` so the captured config directory
+    /// and routing keys reach the same daemon in every shell dialect.
+    static func claudeBackgroundStartupInput(
+        _ plan: ClaudeBackgroundAttachPlan,
+        dialect: TerminalStartupShellDialect = .loginShell
+    ) -> String {
+        let assignments = plan.environment
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+        let words = (assignments.isEmpty ? [] : ["/usr/bin/env"] + assignments) + plan.arguments
+        // The leading space keeps the typed command (config dir, routing URL)
+        // out of shell history under HISTCONTROL=ignorespace / HIST_IGNORE_SPACE.
+        return " " + typedInput(
+            command: words.map(TerminalStartupShellQuoting.singleQuoted).joined(separator: " "),
+            dialect: dialect
+        )
     }
 
     private static func typedInput(

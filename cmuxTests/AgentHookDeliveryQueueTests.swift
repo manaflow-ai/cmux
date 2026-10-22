@@ -858,6 +858,7 @@ struct AgentHookDeliveryQueueTests {
                 "CMUX_AGENT_MANAGED_SUBAGENT": "1",
                 "CMUX_CLAUDE_PID": "8535",
                 "CMUX_SURFACE_ID": "surface-a",
+                "CMUX_STABLE_SURFACE_ID": "stable-surface-a",
             ],
         ]
         let event = try #require(AgentHookDeliveryEvent(
@@ -878,6 +879,9 @@ struct AgentHookDeliveryQueueTests {
         #expect(environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] == "1")
         #expect(environment["CMUX_AGENT_MANAGED_SUBAGENT"] == "1")
         #expect(environment["CMUX_SURFACE_ID"] == "surface-a")
+        // The relay alias-rewrites runtime routing only. A remote-supplied
+        // stable ID could claim a local panel's restore identity.
+        #expect(environment["CMUX_STABLE_SURFACE_ID"] == nil)
         #expect(environment["ANTHROPIC_BASE_URL"] == nil)
         #expect(environment["CMUX_CLAUDE_PID"] == nil)
         let relayStateDirectory = try #require(
@@ -927,6 +931,7 @@ struct AgentHookDeliveryQueueTests {
             executableURL: URL(fileURLWithPath: "/bin/true")
         )
         #expect(directEnvironment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] == nil)
+        #expect(directEnvironment["CMUX_STABLE_SURFACE_ID"] == "stable-surface-a")
     }
 
     @Test("Mirrored cmux-tui session hooks replay relay-backed to the local pane")
