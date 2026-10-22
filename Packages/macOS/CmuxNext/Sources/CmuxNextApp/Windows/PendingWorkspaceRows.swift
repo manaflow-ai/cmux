@@ -32,6 +32,11 @@ final class PendingWorkspaceRows {
     /// Rows whose daemon workspace has taken over the stand-in (the row stays until the sidebar document places it):
     /// a close in that time leaves nothing to list, so `forget` drops the row once the store no longer holds it.
     @ObservationIgnored private var takenOver: Set<String> = []
+    /// Rows whose window still owes their workspace the move to their slot (`WindowManager.applyPendingPlacements`
+    /// has not run for it): until then the daemon's workspace lists at the daemon's own slot for it (first below Home
+    /// under `top`), not inside the current workspace's group, so its row drew there and then moved (Austin
+    /// 2026-10-21). Read in the sidebar's tracked pass, so the pass that follows the move lists the workspace's row.
+    private var owed: Set<String> = []
     /// Each window's sidebar, redrawn in the turn a row comes or goes: the row draws over the rows the
     /// sidebar shows already, not after a rows pass walks every workspace on a later hop.
     let redraws = SidebarRedraws()
@@ -47,7 +52,19 @@ final class PendingWorkspaceRows {
         rows.removeAll { $0.id == id }
         names[id] = nil
         takenOver.remove(id)
+        owed.remove(id)
         redraws.run()
+    }
+
+    /// The window will move create `id`'s workspace to its row's slot once the daemon reports it: the row stands in
+    /// for the workspace until then (`listing`).
+    func owesPlacement(_ id: String) {
+        if rows.contains(where: { $0.id == id }) { owed.insert(id) }
+    }
+
+    /// The window sent create `id`'s move (or found none needed): the workspace's own row lists from the next pass.
+    func placed(_ id: String) {
+        if owed.contains(id) { owed.remove(id) }
     }
 
     /// The names given to `machine`'s creates that no store lists yet (`listed`); the listed ones are released here.
@@ -70,7 +87,7 @@ final class PendingWorkspaceRows {
             row.window == window && (listed.contains(row.id) || elsewhere(row.id) || takenOver.contains(row.id) && !held(row.id))
         }
         guard rows.contains(where: done) else { return }
-        for row in rows where done(row) { takenOver.remove(row.id) }
+        for row in rows where done(row) { takenOver.remove(row.id); owed.remove(row.id) }
         rows.removeAll(where: done)
         redraws.run()
     }
@@ -78,11 +95,17 @@ final class PendingWorkspaceRows {
     /// `listed` without the workspaces Cmd-N shows before the daemon has them: their pending rows list instead, at their
     /// slot, until the daemon's workspace takes the model over (read in the sidebar's tracked pass, so that re-runs it).
     /// Also while the sidebar document does not place the daemon's workspace yet: the document lists it last until its
-    /// next projection (a hop later) places it, so its own row drew at the end and sprang to its slot.
+    /// next projection (a hop later) places it, so its own row drew at the end and sprang to its slot. Also while the
+    /// window still owes it the move to its slot (`owed`: inside the current workspace's group, after the current one).
     func listing(_ listed: [SidebarRowSection], in window: String, machines: MachineRegistry) -> [SidebarRowSection] {
-        Self.removing(ids(in: window) { id in
+        let owed = owed
+        return Self.removing(ids(in: window) { id in
             guard let (workspace, daemon) = machines.workspace(id: id) else { return false }
             if workspace.isProvisional { return true }
+            if owed.contains(id) {
+                takenOver.insert(id)
+                return true
+            }
             guard SidebarDocWiring.awaitsPlacement(workspace, session: daemon.store.registryID) else { return false }
             takenOver.insert(id)
             return true
