@@ -28,7 +28,7 @@ extension WebUpdates {
                     let done = (try? await ControlDeadline.shared.run(method: call.method, deadline: answerBy) { await check.value }) != nil
                     return await MainActor.run {
                         guard case .object(var fields) = Self.json(web) else { return .null }
-                        fields["pending"] = .bool(!done)
+                        fields["pending"] = .bool(!done || updater.phase == .checking || updater.phase == .downloading)
                         return .object(fields)
                     }
                 }

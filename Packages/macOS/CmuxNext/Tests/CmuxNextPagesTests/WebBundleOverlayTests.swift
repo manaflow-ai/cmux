@@ -8,11 +8,13 @@ import Testing
 struct WebBundleOverlayTests {
     static let bundledPages = URL(fileURLWithPath: "/App.app/Contents/Resources/CmuxNextPages.bundle/pages", isDirectory: true)
     static let bundledPane = URL(fileURLWithPath: "/App.app/Contents/Resources/CmuxNextAgentPane.bundle/agent-pane", isDirectory: true)
+    // Not a repository path, so ci-target-graph.py does not count it as a read of the real bundle.
+    static let paneOutput = "fixture/agent-pane"
     static let tree = URL(fileURLWithPath: "/Support/web-updates/trees/abc", isDirectory: true)
 
     static func overlay() -> WebBundleOverlay {
         let overlay = WebBundleOverlay(bases: [.init(bundled: bundledPages.path, output: WebBundleOverlay.pagesOutput)])
-        overlay.register(bundled: bundledPane, output: "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane")
+        overlay.register(bundled: bundledPane, output: paneOutput)
         return overlay
     }
 
@@ -29,7 +31,7 @@ struct WebBundleOverlayTests {
         let settings = await overlay.root(for: Self.bundledPages.appending(path: "settings", directoryHint: .isDirectory))
         #expect(settings.path == Self.tree.path + "/" + WebBundleOverlay.pagesOutput + "/settings")
         #expect(await overlay.root(for: Self.bundledPane).path
-            == Self.tree.path + "/Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane")
+            == Self.tree.path + "/" + Self.paneOutput)
         // A root no bundle registered (an app page's own folder) keeps its files.
         let other = URL(fileURLWithPath: "/Users/me/app-page", isDirectory: true)
         #expect(await overlay.root(for: other) == other)

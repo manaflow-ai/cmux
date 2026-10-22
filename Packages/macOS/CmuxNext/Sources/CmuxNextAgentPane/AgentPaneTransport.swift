@@ -149,6 +149,10 @@ import CmuxNextCompat
         throw AcpmuxStatusClient.Failure.closed
     }
 
+    /// Keeps the prompts acpmux has not acknowledged across the app's end (``AgentPanePromptJournal``).
+    public var promptJournal: AgentPanePromptJournal? = AgentPanePromptJournal.shared
+    var promptRelay: AgentPanePromptRelay?
+
     /// Pushes and flushes so far (tests and the bench read them).
     public private(set) var flushes = 0
 
@@ -193,7 +197,8 @@ import CmuxNextCompat
         pickCredit.clear()
         decisions.reset()
         sentFirst = false
-        let ids = AcpmuxRequestIds()
+        promptRelay = AgentPanePromptRelay(connection, journal: promptJournal)
+        let ids = AcpmuxRequestIds(promptAccepted: promptRelay?.forget)
         requestIds = ids
         let socket = AcpmuxPaneSocket(request: connection.request, wire: connection.remote?.makeWire(), limits: limits,
                                       options: permissionOptions, sessions: sessions, decisions: decisions, ids: ids) { [weak self] in
@@ -297,6 +302,7 @@ import CmuxNextCompat
         socket.close(code: 1000, reason: "", error: nil)
         self.socket = nil
         localAppToken = nil
+        promptRelay?.ended(byDaemon: false)
     }
 
     private func arrived(_ id: Int) {
@@ -315,6 +321,7 @@ import CmuxNextCompat
         if batch.closed != nil {
             self.socket = nil
             localAppToken = nil
+            promptRelay?.ended(byDaemon: deliver != nil)
             Self.logger.info("agent pane transport closed connection=\(self.current, privacy: .public) code=\(batch.closed?.code ?? 0, privacy: .public) error=\(batch.closed?.error?.rawValue ?? "-", privacy: .public)")
         }
         let more = batch.more && self.socket != nil

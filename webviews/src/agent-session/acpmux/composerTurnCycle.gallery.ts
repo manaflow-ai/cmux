@@ -60,6 +60,8 @@ function phase(
     summary: {
       ...summary,
       turnCount: 1,
+      // Claude Code steers (acpmux `steering`): a prompt typed mid-turn draws the ↵ control.
+      steering: true,
       configOptions: [effort],
       modes,
       ...(used === undefined ? {} : { usage: { used, size: 200_000 } }),

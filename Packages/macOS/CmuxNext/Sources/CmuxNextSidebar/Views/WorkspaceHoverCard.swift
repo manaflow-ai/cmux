@@ -97,7 +97,9 @@ final class WorkspaceHoverCardController: HoverCardSource {
                                                     delay: DesignSettings.shared.groupHoverCard.delay, leave: leave),
                                 anchor: anchor)
         }
-        guard let id = list.hoverCardWorkspace(at: point), let anchor = list.hoverCardAnchor(for: id) else { return nil }
+        guard let id = list.hoverCardWorkspace(at: point), let anchor = list.hoverCardAnchor(for: id),
+              !Self.onPullRequestBadge((list.rowViews[.workspace(id)] as? WorkspaceRowView)?.pullRequests, window: window, screenPoint: screenPoint)
+        else { return nil }
         return HoverCardHit(target: HoverTarget(id: Self.targetID(id), window: window.windowNumber, delay: delay, leave: leave),
                             anchor: anchor)
     }
@@ -117,6 +119,14 @@ final class WorkspaceHoverCardController: HoverCardSource {
         return workspaceID(id).flatMap { list?.hoverCardAnchor(for: $0) }
     }
 
+    /// The pointer is on a row's pull request badge, whose own card (`SidebarPullRequestCard`)
+    /// shows there instead.
+    static func onPullRequestBadge(_ badge: SidebarPullRequestBadgeView?, window: NSWindow, screenPoint: CGPoint) -> Bool {
+        guard let badge, !badge.isHidden, badge.badge?.items.isEmpty == false, SidebarPullRequestCardController.isEnabled
+        else { return false }
+        return window.convertToScreen(badge.convert(badge.bounds, to: nil)).contains(screenPoint)
+    }
+
     func hoverCardBody(for id: HoverTargetID) -> HoverCardBody? {
         if let group = groupID(id) { return groupCardBody(for: group, id: id) }
         guard let list, let ws = workspaceID(id), let workspace = list.workspaces[ws] else { return nil }
@@ -126,7 +136,10 @@ final class WorkspaceHoverCardController: HoverCardSource {
         let options = DesignSettings.shared.workspaceHoverCard
         let wantsTimeline = options.layout != .classic
         let timeline = wantsTimeline ? (timelineSource?(ws, Self.timelineReadLimit) ?? []) : []
-        let content = WorkspaceHoverCardContent.make(workspace, machine: machine, now: Date(), options: options, timeline: timeline)
+        // The workspace on screen needs no digest: the person is looking at it.
+        let looked = SidebarTunables.sinceLooked.value && ws != list.model.activeWorkspaceID ? SidebarLookedStore.shared.stamps[ws] : nil
+        let content = WorkspaceHoverCardContent.make(workspace, machine: machine, now: Date(), options: options, timeline: timeline,
+                                                     looked: looked)
         body.configure(content)
         body.setResources(resources.report)
         bodyID = id
@@ -140,14 +153,16 @@ final class WorkspaceHoverCardController: HoverCardSource {
         guard let list, let item = list.groups[group] else { return nil }
         let body = groupBody ?? GroupHoverCardView()
         groupBody = body
-        body.configure(Self.groupSummary(item, options: DesignSettings.shared.groupHoverCard, now: Date()))
+        body.configure(Self.groupSummary(item, workspaces: list.subtreeWorkspaces(of: group),
+                                         options: DesignSettings.shared.groupHoverCard, now: Date()))
         bodyID = id
         return HoverCardBody(view: body, placement: .beside, themeAnchor: list) { [weak body] in body?.applyColors() }
     }
 
-    /// What `group`'s card says: its workspaces as the shared group summary counts them.
-    static func groupSummary(_ group: SidebarGroup, options: GroupHoverCardOptions, now: Date) -> GroupHoverCardSummary {
-        let members = group.workspaces.map { ws in
+    /// What `group`'s card says: `workspaces` (its own and its subgroups') as the shared group summary counts them.
+    static func groupSummary(_ group: SidebarGroup, workspaces: [SidebarWorkspace], options: GroupHoverCardOptions,
+                             now: Date) -> GroupHoverCardSummary {
+        let members = workspaces.map { ws in
             GroupHoverCardMember(title: ws.title, activity: GroupHoverCardMember.Activity(ws.agentWorking && ws.activity == .idle ? .working : ws.activity),
                                  unread: Self.unreadCount(ws.unread), lastActivity: ws.lastActivity, branch: ws.branch, ports: ws.ports)
         }

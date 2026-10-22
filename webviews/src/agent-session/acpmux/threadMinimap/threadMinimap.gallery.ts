@@ -2,6 +2,7 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 import { setBookmarkTransport } from "./bookmarks";
+import { threadMinimapLayout } from "./layout.experiment";
 
 // The gallery has no acpmux: the chat's marks live in this page, answered as acpmux answers them.
 const galleryMarks = new Map<string, Set<number>>();
@@ -90,15 +91,31 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/App.tsx#VirtualTranscript",
     "agent-session/acpmux/threadMinimap/ThreadMinimap.tsx#ThreadMinimap",
+    "agent-session/acpmux/threadMinimap/ScrollMap.tsx#ScrollMap",
     "agent-session/acpmux/threadMinimap/BookmarkIcon.tsx#BookmarkIcon",
+    "agent-session/acpmux/threadMinimap/PreviewCard.tsx#PreviewCard",
   ],
+  experiment: {
+    definition: threadMinimapLayout,
+    script: [
+      { name: "scroll mid-thread", run: (ctx) => ctx.scroll({ selector: ".acpmux-scroll" }, 700) },
+      {
+        name: "hover prompt 8",
+        run: async (ctx) => {
+          await ctx.hover({ selector: '[data-tick="8"]' });
+          await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card"));
+        },
+      },
+    ],
+  },
   variants: {
     rest: {
-      note: "At rest mid-thread: every tick the same 6 px, the prompts on screen brighter (the text at 60%, the rest the muted text at 40%). Scrolling moves that band with the transcript on the scroll's own frame.",
+      note: "At rest mid-thread. Off (the default): no minimap, the left edge empty. Full height: the rail spans the transcript, each prompt a longer tick and each reply a shorter one set in, at its place in the chat, under a bar for the view. Compact: every tick the same 6 px, the prompts on screen brighter.",
       snapshot: chat(rows, { title: "Thread minimap at rest" }),
       play: async (ctx) => {
         if (!ctx.document.querySelector('[data-tick="8"]')) return;
         await ctx.scroll({ selector: ".acpmux-scroll" }, 700);
+        if (ctx.document.querySelector(".acpmux-scrollmap")) return;
         await ctx.waitFor(() => ctx.document.querySelector('[data-tick="4"][aria-current="true"]'));
       },
     },
@@ -113,11 +130,12 @@ export default agentPaneEntry({
       },
     },
     "seventy-prompts": {
-      note: "Seventy prompts: the rail holds 70% of the window's height (about 44 rows at this height) and scrolls the rest, with 2.5rem fades at an edge with more rows past it. It keeps the band on screen in view as the transcript scrolls.",
+      note: "Seventy prompts. Full height: all 70 prompts and their replies fit the rail, the bar a sliver near the top after scrolling 4000 px. Compact: the rail holds 70% of the window's height and scrolls the rest, with 2.5rem fades.",
       snapshot: chat(long, { title: "Thread minimap, a long chat" }),
       play: async (ctx) => {
         if (!ctx.document.querySelector('[data-tick="40"]')) return;
         await ctx.scroll({ selector: ".acpmux-scroll" }, 4000);
+        if (ctx.document.querySelector(".acpmux-scrollmap")) return;
         // The rail has scrolled to keep the band in view: rows past both of its edges.
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__list[data-fade-top][data-fade-bottom]"));
       },

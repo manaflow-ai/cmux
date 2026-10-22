@@ -413,17 +413,32 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     if (!entity || !principalJson || request.headers.get("Upgrade") !== "websocket") return new Response("bad request", { status: 400 })
     const principal = JSON.parse(principalJson) as Principal
     if (!this.isBound(entity) && !this.maySubscribe(this.domain.initial(), principal)) return new Response("forbidden", { status: 403 })
-    const engine = this.bind(entity)
-    if (!this.maySubscribe(engine.currentState, principal)) return new Response("forbidden", { status: 403 })
+    if (!this.maySubscribe(this.bind(entity).currentState, principal)) return new Response("forbidden", { status: 403 })
     const pair = new WebSocketPair()
     const [client, server] = [pair[0], pair[1]]
+    this.acceptSubscriber(server, entity, principal)
+    return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": "cmux.wire.v1" } })
+  }
+
+  /**
+   * Admits an accepted server socket for `principal` (already checked by `maySubscribe`): hibernating
+   * accept, attachment, expiry gate and the `welcome` frame. The Worker path (`fetch`) and the
+   * self-hosted runtime (backend/apps/home-server) both admit sockets here.
+   */
+  acceptSubscriber(server: WebSocket, entity: string, principal: Principal): void {
+    const engine = this.bind(entity)
     this.ctx.acceptWebSocket(server)
     server.serializeAttachment({ principal, subscribed: false } satisfies Attachment)
     // The Worker checked the install just now; the alarm closes the socket at its token's expiry.
     this.gate.seed(server, principal, { cls: this.constructor.name, name: entity })
     this.afterCommit()
     safeSend(server, JSON.stringify({ t: "welcome", principal: { user: principal.user, team: principal.team, install: principal.install }, server_time: Date.now(), streams: [engine.stream], ...(this.welcomeCapabilities.length > 0 ? { capabilities: this.welcomeCapabilities } : {}) }))
-    return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": "cmux.wire.v1" } })
+  }
+
+  /** Whether `principal` may subscribe to `entity` (self-hosted runtime; the Worker path checks inside `fetch`). Never creates storage for a refusal. */
+  async mayAccept(entity: string, principal: Principal): Promise<boolean> {
+    if (!this.isBound(entity) && !this.maySubscribe(this.domain.initial(), principal)) return false
+    return this.maySubscribe(this.bind(entity).currentState, principal)
   }
 
   /** One promise chain per socket: frames are gated and routed strictly in arrival order. */

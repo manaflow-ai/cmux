@@ -567,6 +567,7 @@ public final class AddressBarView: NSView {
         }
         pill.state = state.isPopupOpen ? .card : (state.hasFocus ? .editing : .idle)
         backdrop.isHidden = !state.isPopupOpen
+        if state.isPopupOpen { backdrop.opensUpward = toolbarOpensUpward }
         let site = PageInfoSite(url: state.pageURL, security: security)
         chip.indicator = PageInfoIndicator.resolve(site: site, chip: OmnibarPresentation(state).chip)
         updateStarVisibility()

@@ -40,6 +40,24 @@ extension PaneTabRowSharing {
     }
 }
 
+/// A pane's hosted view that shares the tab row through the view it wraps (a page tab's view over
+/// its page, the docked Home's Chief tools): every requirement goes to ``tabRowSharer``, and with none
+/// the view has no tools in the row.
+@MainActor
+public protocol PaneTabRowForwarding: PaneTabRowSharing {
+    var tabRowSharer: PaneTabRowSharing? { get }
+}
+
+extension PaneTabRowForwarding {
+    public var tabRowToolsWidth: CGFloat? { tabRowSharer?.tabRowToolsWidth }
+    public var tabRowToolsNeed: CGFloat? { tabRowSharer?.tabRowToolsNeed }
+    public var onTabRowToolsChange: (() -> Void)? {
+        get { tabRowSharer?.onTabRowToolsChange }
+        set { tabRowSharer?.onTabRowToolsChange = newValue }
+    }
+    public func setTabRow(height: CGFloat, trailingInset: CGFloat) { tabRowSharer?.setTabRow(height: height, trailingInset: trailingInset) }
+}
+
 extension NSView {
     /// The top of a view that shares its pane's tab row (``PaneTabRowSharing``) that the row covers:
     /// 0 points tall while it does not share the row. The pane lays the view under the strip then,

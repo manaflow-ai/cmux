@@ -20,6 +20,7 @@
 import { build } from "esbuild";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { reactCompilerMode } from "../../reactCompiler.mjs";
 import { reactCompilerPlugin } from "./reactCompilerPlugin.mjs";
 import { tailwindPlugin } from "./tailwindCompile.mjs";
@@ -37,7 +38,7 @@ const split = rest.includes("--split");
 const cssInputsIndex = rest.indexOf("--css-inputs");
 const cssInputsFile = cssInputsIndex >= 0 ? rest[cssInputsIndex + 1] : undefined;
 const cssInputsOnly = rest.includes("--css-inputs-only");
-const srcRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../src");
+const srcRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../src");
 
 const mode = reactCompilerMode();
 const bailouts = [];
@@ -59,6 +60,9 @@ const result = await build({
   minify: !cssInputsOnly,
   write: !cssInputsOnly,
   legalComments: "none",
+  // An imported PNG becomes a data URL: a page ships as one index.html and its CSP allows
+  // `img-src data:` only (the Settings page's Chief Pet mascots).
+  loader: { ".png": "dataurl" },
   alias: shikiAlias === "-" ? {} : { shiki: path.resolve(shikiAlias) },
   logLevel: "warning",
   ...(split

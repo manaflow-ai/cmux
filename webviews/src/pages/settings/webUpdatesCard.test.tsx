@@ -1,4 +1,4 @@
-// General > Web UI: the card shows the web UI a NIGHTLY build serves (host lists `web_updates`, the
+// Updates > Web UI: the card shows the web UI a NIGHTLY build serves (host lists `web_updates`, the
 // app's WebUpdates), follows each change live, words the check in plain language, and its buttons
 // send the host's Check Now and Roll Back ops. A bundle that takes no web updates shows no card.
 import { act } from "react";
@@ -28,7 +28,7 @@ const active: WebUpdatesState = {
 };
 
 async function show(state: WebUpdatesState | null, failing: Record<string, string> = {}) {
-  const page = await renderPage({ path: "/settings/general", mock: { failing } });
+  const page = await renderPage({ path: "/settings/updates", mock: { failing } });
   await act(async () => page.provider.setHost({ ...page.provider.host, web_updates: state }));
   await settle();
   return page;

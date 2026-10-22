@@ -129,7 +129,7 @@ test("an answer saved for another folder leaves this folder's read standing", as
   await trust.saved();
   await trust.answer("unknown", second);
   expect(shown!.ask).toEqual({ cwd: second, state: "ask" });
-  expect(shown!.blocked).toEqual({ reason: "trust.answerFirst" });
+  expect(shown!.blocked).toEqual({ reason: "trust.answerFirst", shownAbove: true });
 });
 
 // Leo 2026-10-19: a switch to another chat in the very same folder checked the folder's trust

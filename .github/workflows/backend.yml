@@ -31,6 +31,8 @@ on:
       - scripts/cmux-next/check-acpmux-guest-commands.ts
       - .github/workflows/backend.yml
       - .github/workflows/backend-migrations.yml
+      - scripts/cmux-next/release/prod-promote.ts
+      - scripts/cmux-next/release/production-approvals.json
   push:
     branches: [feat-cmux-next, main]
     paths:
@@ -152,6 +154,9 @@ jobs:
         run: bun run test
       - name: API Worker tests (workerd)
         working-directory: backend/apps/api
+        run: bun run test
+      - name: Self-hosted chat server (cloud owners on the local runtime, Tailscale admission)
+        working-directory: backend/apps/home-server
         run: bun run test
       - name: Dashboard build
         working-directory: backend/apps/dashboard

@@ -29,6 +29,10 @@ import "../../src/agent-session/acpmux/keys.css";
 import "../../src/agent-session/acpmux/newtab/screen.css";
 import "../../src/agent-session/acpmux/newtab/history.css";
 import "../../src/agent-session/acpmux/threadMinimap/threadMinimap.css";
+// The motion tests measure the compact (Codex) rail; `?layout=full` shows the full-height map.
+(globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = {
+  "thread-minimap-layout": new URLSearchParams(location.search).get("layout") === "full" ? "full" : "compact",
+};
 
 const root = document.getElementById("root")!;
 document.documentElement.style.height = document.body.style.height = "100%";

@@ -25,6 +25,30 @@ public nonisolated enum StaticStatusGlyph: String, CaseIterable, Hashable, Senda
     case info
     /// Done, unread (Codex-like): a blue dot, 6 pt (Leo 2026-10-14: 4 pt was too tiny).
     case dot
+    /// Nothing running (Dots): a hollow dot.
+    case dotsIdle
+    /// An agent works (Dots): the hollow dot, its lower half filled.
+    case dotsWorking
+    /// Waiting on you, a question or blocked with no reason (Dots): a dot in a ring.
+    case dotsWaiting
+    /// Needs permission or a sign-in (Dots): a dot with a bar cut out.
+    case dotsPermission
+    /// Finished (Dots): a dot with a check cut out.
+    case dotsDone
+    /// Failed (Dots): a dot with an x cut out.
+    case dotsError
+    /// Nothing running (Pictograms): a crescent moon.
+    case pictogramsIdle
+    /// An agent works (Pictograms): an hourglass, its sand run down.
+    case pictogramsWorking
+    /// Waiting on you, a question or blocked with no reason (Pictograms): a speech bubble with three dots.
+    case pictogramsWaiting
+    /// Needs permission or a sign-in (Pictograms): a padlock.
+    case pictogramsPermission
+    /// Finished (Pictograms): a check.
+    case pictogramsDone
+    /// Failed (Pictograms): a warning triangle with ! cut out.
+    case pictogramsError
 
     /// The theme role the glyph is tinted with.
     public var tint: StatusIndicatorPlan.Tint {
@@ -38,6 +62,18 @@ public nonisolated enum StaticStatusGlyph: String, CaseIterable, Hashable, Senda
         case .shieldLine: .loading
         case .info: .danger
         case .dot: .unread
+        case .dotsIdle: .loading
+        case .dotsWorking: .accent
+        case .dotsWaiting: .attention
+        case .dotsPermission: .attention
+        case .dotsDone: .success
+        case .dotsError: .danger
+        case .pictogramsIdle: .loading
+        case .pictogramsWorking: .accent
+        case .pictogramsWaiting: .attention
+        case .pictogramsPermission: .attention
+        case .pictogramsDone: .success
+        case .pictogramsError: .danger
         }
     }
 
@@ -229,6 +265,265 @@ public nonisolated enum StaticStatusGlyph: String, CaseIterable, Hashable, Senda
             path.addRect(CGRect(x: 3, y: 2, width: 4, height: 1))
             path.addRect(CGRect(x: 2, y: 3, width: 6, height: 4))
             path.addRect(CGRect(x: 3, y: 7, width: 4, height: 1))
+        case (.dotsIdle, false):
+            path.addEllipse(in: CGRect(x: 2, y: 2, width: 16, height: 16))
+            path.addEllipse(in: CGRect(x: 4, y: 4, width: 12, height: 12))
+        case (.dotsIdle, true):
+            path.addRect(CGRect(x: 3, y: 1, width: 4, height: 1))
+            path.addRect(CGRect(x: 2, y: 2, width: 1, height: 1))
+            path.addRect(CGRect(x: 7, y: 2, width: 1, height: 1))
+            path.addRect(CGRect(x: 1, y: 3, width: 1, height: 4))
+            path.addRect(CGRect(x: 8, y: 3, width: 1, height: 4))
+            path.addRect(CGRect(x: 2, y: 7, width: 1, height: 1))
+            path.addRect(CGRect(x: 7, y: 7, width: 1, height: 1))
+            path.addRect(CGRect(x: 3, y: 8, width: 4, height: 1))
+        case (.dotsWorking, false):
+            path.addEllipse(in: CGRect(x: 2, y: 2, width: 16, height: 16))
+            path.addEllipse(in: CGRect(x: 4, y: 4, width: 12, height: 12))
+            path.move(to: CGPoint(x: 4, y: 10))
+            path.addLine(to: CGPoint(x: 16, y: 10))
+            path.addArc(center: CGPoint(x: 10, y: 10), radius: 6, startAngle: 0, endAngle: .pi, clockwise: false)
+            path.closeSubpath()
+        case (.dotsWorking, true):
+            path.addRect(CGRect(x: 3, y: 1, width: 4, height: 1))
+            path.addRect(CGRect(x: 2, y: 2, width: 1, height: 1))
+            path.addRect(CGRect(x: 7, y: 2, width: 1, height: 1))
+            path.addRect(CGRect(x: 1, y: 3, width: 1, height: 2))
+            path.addRect(CGRect(x: 8, y: 3, width: 1, height: 2))
+            path.addRect(CGRect(x: 1, y: 5, width: 8, height: 2))
+            path.addRect(CGRect(x: 2, y: 7, width: 6, height: 1))
+            path.addRect(CGRect(x: 3, y: 8, width: 4, height: 1))
+        case (.dotsWaiting, false):
+            path.addEllipse(in: CGRect(x: 2, y: 2, width: 16, height: 16))
+            path.addEllipse(in: CGRect(x: 4, y: 4, width: 12, height: 12))
+            path.addEllipse(in: CGRect(x: 6, y: 6, width: 8, height: 8))
+        case (.dotsWaiting, true):
+            path.addRect(CGRect(x: 3, y: 1, width: 4, height: 1))
+            path.addRect(CGRect(x: 2, y: 2, width: 1, height: 1))
+            path.addRect(CGRect(x: 7, y: 2, width: 1, height: 1))
+            path.addRect(CGRect(x: 1, y: 3, width: 1, height: 4))
+            path.addRect(CGRect(x: 4, y: 3, width: 2, height: 1))
+            path.addRect(CGRect(x: 8, y: 3, width: 1, height: 4))
+            path.addRect(CGRect(x: 3, y: 4, width: 4, height: 2))
+            path.addRect(CGRect(x: 4, y: 6, width: 2, height: 1))
+            path.addRect(CGRect(x: 2, y: 7, width: 1, height: 1))
+            path.addRect(CGRect(x: 7, y: 7, width: 1, height: 1))
+            path.addRect(CGRect(x: 3, y: 8, width: 4, height: 1))
+        case (.dotsPermission, false):
+            path.addEllipse(in: CGRect(x: 2, y: 2, width: 16, height: 16))
+            path.move(to: CGPoint(x: 8, y: 4))
+            path.addLine(to: CGPoint(x: 12, y: 4))
+            path.addLine(to: CGPoint(x: 12, y: 16))
+            path.addLine(to: CGPoint(x: 8, y: 16))
+            path.closeSubpath()
+        case (.dotsPermission, true):
+            path.addRect(CGRect(x: 3, y: 1, width: 4, height: 1))
+            path.addRect(CGRect(x: 2, y: 2, width: 2, height: 1))
+            path.addRect(CGRect(x: 6, y: 2, width: 2, height: 1))
+            path.addRect(CGRect(x: 1, y: 3, width: 3, height: 4))
+            path.addRect(CGRect(x: 6, y: 3, width: 3, height: 4))
+            path.addRect(CGRect(x: 2, y: 7, width: 2, height: 1))
+            path.addRect(CGRect(x: 6, y: 7, width: 2, height: 1))
+            path.addRect(CGRect(x: 3, y: 8, width: 4, height: 1))
+        case (.dotsDone, false):
+            path.addEllipse(in: CGRect(x: 2, y: 2, width: 16, height: 16))
+            path.move(to: CGPoint(x: 4.5, y: 10))
+            path.addLine(to: CGPoint(x: 6.5, y: 8))
+            path.addLine(to: CGPoint(x: 8.5, y: 10))
+            path.addLine(to: CGPoint(x: 13, y: 5.5))
+            path.addLine(to: CGPoint(x: 15, y: 7.5))
+            path.addLine(to: CGPoint(x: 8.5, y: 14))
+            path.closeSubpath()
+        case (.dotsDone, true):
+            path.addRect(CGRect(x: 3, y: 1, width: 4, height: 1))
+            path.addRect(CGRect(x: 2, y: 2, width: 6, height: 1))
+            path.addRect(CGRect(x: 1, y: 3, width: 6, height: 1))
+            path.addRect(CGRect(x: 8, y: 3, width: 1, height: 2))
+            path.addRect(CGRect(x: 1, y: 4, width: 1, height: 2))
+            path.addRect(CGRect(x: 3, y: 4, width: 3, height: 1))
+            path.addRect(CGRect(x: 4, y: 5, width: 1, height: 1))
+            path.addRect(CGRect(x: 7, y: 5, width: 2, height: 1))
+            path.addRect(CGRect(x: 1, y: 6, width: 2, height: 1))
+            path.addRect(CGRect(x: 6, y: 6, width: 3, height: 1))
+            path.addRect(CGRect(x: 2, y: 7, width: 2, height: 1))
+            path.addRect(CGRect(x: 5, y: 7, width: 3, height: 1))
+            path.addRect(CGRect(x: 3, y: 8, width: 4, height: 1))
+        case (.dotsError, false):
+            path.addEllipse(in: CGRect(x: 2, y: 2, width: 16, height: 16))
+            path.move(to: CGPoint(x: 5, y: 7))
+            path.addLine(to: CGPoint(x: 7, y: 5))
+            path.addLine(to: CGPoint(x: 10, y: 8))
+            path.addLine(to: CGPoint(x: 13, y: 5))
+            path.addLine(to: CGPoint(x: 15, y: 7))
+            path.addLine(to: CGPoint(x: 12, y: 10))
+            path.addLine(to: CGPoint(x: 15, y: 13))
+            path.addLine(to: CGPoint(x: 13, y: 15))
+            path.addLine(to: CGPoint(x: 10, y: 12))
+            path.addLine(to: CGPoint(x: 7, y: 15))
+            path.addLine(to: CGPoint(x: 5, y: 13))
+            path.addLine(to: CGPoint(x: 8, y: 10))
+            path.closeSubpath()
+        case (.dotsError, true):
+            path.addRect(CGRect(x: 3, y: 1, width: 4, height: 1))
+            path.addRect(CGRect(x: 2, y: 2, width: 6, height: 1))
+            path.addRect(CGRect(x: 1, y: 3, width: 2, height: 1))
+            path.addRect(CGRect(x: 4, y: 3, width: 2, height: 1))
+            path.addRect(CGRect(x: 7, y: 3, width: 2, height: 1))
+            path.addRect(CGRect(x: 1, y: 4, width: 3, height: 2))
+            path.addRect(CGRect(x: 6, y: 4, width: 3, height: 2))
+            path.addRect(CGRect(x: 1, y: 6, width: 2, height: 1))
+            path.addRect(CGRect(x: 4, y: 6, width: 2, height: 1))
+            path.addRect(CGRect(x: 7, y: 6, width: 2, height: 1))
+            path.addRect(CGRect(x: 2, y: 7, width: 6, height: 1))
+            path.addRect(CGRect(x: 3, y: 8, width: 4, height: 1))
+        case (.pictogramsIdle, false):
+            path.move(to: CGPoint(x: 10.4, y: 1.01))
+            path.addArc(center: CGPoint(x: 10, y: 10), radius: 9, startAngle: .pi * 1.514, endAngle: .pi * 0.111, clockwise: true)
+            path.addArc(center: CGPoint(x: 16, y: 6), radius: 7.5, startAngle: .pi * 0.394, endAngle: .pi * 1.232, clockwise: false)
+            path.closeSubpath()
+        case (.pictogramsIdle, true):
+            path.addRect(CGRect(x: 2, y: 1, width: 3, height: 1))
+            path.addRect(CGRect(x: 1, y: 2, width: 3, height: 1))
+            path.addRect(CGRect(x: 1, y: 3, width: 2, height: 2))
+            path.addRect(CGRect(x: 1, y: 5, width: 3, height: 1))
+            path.addRect(CGRect(x: 1, y: 6, width: 4, height: 1))
+            path.addRect(CGRect(x: 8, y: 6, width: 1, height: 1))
+            path.addRect(CGRect(x: 2, y: 7, width: 7, height: 1))
+            path.addRect(CGRect(x: 3, y: 8, width: 4, height: 1))
+        case (.pictogramsWorking, false):
+            path.move(to: CGPoint(x: 0, y: 0))
+            path.addLine(to: CGPoint(x: 20, y: 0))
+            path.addLine(to: CGPoint(x: 20, y: 2))
+            path.addLine(to: CGPoint(x: 12, y: 10))
+            path.addLine(to: CGPoint(x: 20, y: 18))
+            path.addLine(to: CGPoint(x: 20, y: 20))
+            path.addLine(to: CGPoint(x: 0, y: 20))
+            path.addLine(to: CGPoint(x: 0, y: 18))
+            path.addLine(to: CGPoint(x: 8, y: 10))
+            path.addLine(to: CGPoint(x: 0, y: 2))
+            path.closeSubpath()
+            path.move(to: CGPoint(x: 3, y: 2))
+            path.addLine(to: CGPoint(x: 17, y: 2))
+            path.addLine(to: CGPoint(x: 10, y: 9))
+            path.closeSubpath()
+        case (.pictogramsWorking, true):
+            path.addRect(CGRect(x: 0, y: 0, width: 10, height: 1))
+            path.addRect(CGRect(x: 1, y: 1, width: 1, height: 1))
+            path.addRect(CGRect(x: 8, y: 1, width: 1, height: 1))
+            path.addRect(CGRect(x: 2, y: 2, width: 1, height: 1))
+            path.addRect(CGRect(x: 7, y: 2, width: 1, height: 1))
+            path.addRect(CGRect(x: 3, y: 3, width: 1, height: 1))
+            path.addRect(CGRect(x: 6, y: 3, width: 1, height: 1))
+            path.addRect(CGRect(x: 4, y: 4, width: 2, height: 2))
+            path.addRect(CGRect(x: 3, y: 6, width: 4, height: 1))
+            path.addRect(CGRect(x: 2, y: 7, width: 6, height: 1))
+            path.addRect(CGRect(x: 1, y: 8, width: 8, height: 1))
+            path.addRect(CGRect(x: 0, y: 9, width: 10, height: 1))
+        case (.pictogramsWaiting, false):
+            path.move(to: CGPoint(x: 3, y: 2))
+            path.addLine(to: CGPoint(x: 17, y: 2))
+            path.addArc(center: CGPoint(x: 17, y: 5), radius: 3, startAngle: -.pi * 0.5, endAngle: 0, clockwise: false)
+            path.addLine(to: CGPoint(x: 20, y: 11))
+            path.addArc(center: CGPoint(x: 17, y: 11), radius: 3, startAngle: 0, endAngle: .pi * 0.5, clockwise: false)
+            path.addLine(to: CGPoint(x: 8, y: 14))
+            path.addLine(to: CGPoint(x: 2, y: 18))
+            path.addLine(to: CGPoint(x: 3, y: 14))
+            path.addArc(center: CGPoint(x: 3, y: 11), radius: 3, startAngle: .pi * 0.5, endAngle: .pi, clockwise: false)
+            path.addLine(to: CGPoint(x: 0, y: 5))
+            path.addArc(center: CGPoint(x: 3, y: 5), radius: 3, startAngle: .pi, endAngle: .pi * 1.5, clockwise: false)
+            path.closeSubpath()
+            path.addEllipse(in: CGRect(x: 2, y: 6, width: 4, height: 4))
+            path.addEllipse(in: CGRect(x: 8, y: 6, width: 4, height: 4))
+            path.addEllipse(in: CGRect(x: 14, y: 6, width: 4, height: 4))
+        case (.pictogramsWaiting, true):
+            path.addRect(CGRect(x: 1, y: 1, width: 8, height: 1))
+            path.addRect(CGRect(x: 0, y: 2, width: 10, height: 1))
+            path.addRect(CGRect(x: 0, y: 3, width: 1, height: 2))
+            path.addRect(CGRect(x: 3, y: 3, width: 1, height: 2))
+            path.addRect(CGRect(x: 6, y: 3, width: 1, height: 2))
+            path.addRect(CGRect(x: 9, y: 3, width: 1, height: 2))
+            path.addRect(CGRect(x: 0, y: 5, width: 10, height: 1))
+            path.addRect(CGRect(x: 1, y: 6, width: 8, height: 1))
+            path.addRect(CGRect(x: 1, y: 7, width: 3, height: 1))
+            path.addRect(CGRect(x: 1, y: 8, width: 1, height: 1))
+        case (.pictogramsPermission, false):
+            path.move(to: CGPoint(x: 4, y: 8))
+            path.addLine(to: CGPoint(x: 4, y: 6))
+            path.addArc(center: CGPoint(x: 10, y: 6), radius: 6, startAngle: .pi, endAngle: .pi * 2, clockwise: false)
+            path.addLine(to: CGPoint(x: 16, y: 8))
+            path.addLine(to: CGPoint(x: 14, y: 8))
+            path.addLine(to: CGPoint(x: 14, y: 6))
+            path.addArc(center: CGPoint(x: 10, y: 6), radius: 4, startAngle: 0, endAngle: -.pi, clockwise: true)
+            path.addLine(to: CGPoint(x: 6, y: 8))
+            path.closeSubpath()
+            path.move(to: CGPoint(x: 2, y: 8))
+            path.addLine(to: CGPoint(x: 18, y: 8))
+            path.addLine(to: CGPoint(x: 18, y: 20))
+            path.addLine(to: CGPoint(x: 2, y: 20))
+            path.closeSubpath()
+            path.move(to: CGPoint(x: 8, y: 12))
+            path.addLine(to: CGPoint(x: 12, y: 12))
+            path.addLine(to: CGPoint(x: 12, y: 16))
+            path.addLine(to: CGPoint(x: 8, y: 16))
+            path.closeSubpath()
+        case (.pictogramsPermission, true):
+            path.addRect(CGRect(x: 3, y: 0, width: 4, height: 1))
+            path.addRect(CGRect(x: 2, y: 1, width: 1, height: 3))
+            path.addRect(CGRect(x: 7, y: 1, width: 1, height: 3))
+            path.addRect(CGRect(x: 1, y: 4, width: 8, height: 2))
+            path.addRect(CGRect(x: 1, y: 6, width: 3, height: 2))
+            path.addRect(CGRect(x: 6, y: 6, width: 3, height: 2))
+            path.addRect(CGRect(x: 1, y: 8, width: 8, height: 2))
+        case (.pictogramsDone, false):
+            path.move(to: CGPoint(x: 0, y: 11))
+            path.addLine(to: CGPoint(x: 3, y: 8))
+            path.addLine(to: CGPoint(x: 7, y: 12))
+            path.addLine(to: CGPoint(x: 17, y: 2))
+            path.addLine(to: CGPoint(x: 20, y: 5))
+            path.addLine(to: CGPoint(x: 7, y: 18))
+            path.closeSubpath()
+        case (.pictogramsDone, true):
+            path.addRect(CGRect(x: 9, y: 1, width: 1, height: 1))
+            path.addRect(CGRect(x: 8, y: 2, width: 2, height: 1))
+            path.addRect(CGRect(x: 7, y: 3, width: 3, height: 1))
+            path.addRect(CGRect(x: 0, y: 4, width: 1, height: 1))
+            path.addRect(CGRect(x: 6, y: 4, width: 3, height: 1))
+            path.addRect(CGRect(x: 0, y: 5, width: 2, height: 1))
+            path.addRect(CGRect(x: 5, y: 5, width: 3, height: 1))
+            path.addRect(CGRect(x: 0, y: 6, width: 3, height: 1))
+            path.addRect(CGRect(x: 4, y: 6, width: 3, height: 1))
+            path.addRect(CGRect(x: 1, y: 7, width: 5, height: 1))
+            path.addRect(CGRect(x: 2, y: 8, width: 3, height: 1))
+            path.addRect(CGRect(x: 3, y: 9, width: 1, height: 1))
+        case (.pictogramsError, false):
+            path.move(to: CGPoint(x: 9, y: 0))
+            path.addLine(to: CGPoint(x: 11, y: 0))
+            path.addLine(to: CGPoint(x: 20, y: 18))
+            path.addLine(to: CGPoint(x: 20, y: 20))
+            path.addLine(to: CGPoint(x: 0, y: 20))
+            path.addLine(to: CGPoint(x: 0, y: 18))
+            path.closeSubpath()
+            path.move(to: CGPoint(x: 9, y: 6))
+            path.addLine(to: CGPoint(x: 11, y: 6))
+            path.addLine(to: CGPoint(x: 11, y: 12))
+            path.addLine(to: CGPoint(x: 9, y: 12))
+            path.closeSubpath()
+            path.move(to: CGPoint(x: 9, y: 14))
+            path.addLine(to: CGPoint(x: 11, y: 14))
+            path.addLine(to: CGPoint(x: 11, y: 16))
+            path.addLine(to: CGPoint(x: 9, y: 16))
+            path.closeSubpath()
+        case (.pictogramsError, true):
+            path.addRect(CGRect(x: 4, y: 0, width: 2, height: 2))
+            path.addRect(CGRect(x: 3, y: 2, width: 4, height: 1))
+            path.addRect(CGRect(x: 3, y: 3, width: 1, height: 1))
+            path.addRect(CGRect(x: 6, y: 3, width: 1, height: 1))
+            path.addRect(CGRect(x: 2, y: 4, width: 2, height: 2))
+            path.addRect(CGRect(x: 6, y: 4, width: 2, height: 2))
+            path.addRect(CGRect(x: 1, y: 6, width: 8, height: 1))
+            path.addRect(CGRect(x: 1, y: 7, width: 3, height: 1))
+            path.addRect(CGRect(x: 6, y: 7, width: 3, height: 1))
+            path.addRect(CGRect(x: 0, y: 8, width: 10, height: 2))
         }
         // The grid runs y-down from the top-left corner.
         var place = CGAffineTransform(a: rect.width / grid, b: 0, c: 0, d: -rect.height / grid, tx: rect.minX, ty: rect.maxY)

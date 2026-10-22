@@ -63,6 +63,9 @@ final class HoverCardPanel: NSPanel {
     var activeMorph: HoverCardMorph?
     /// The card takes clicks and scrolls (the update highlights' "See all changes").
     private(set) var isInteractive = false
+    /// The current press began in the clear band around the card: it and its drags and release
+    /// go to the parent window (`HoverCardPanel+ClickThrough.swift`).
+    var forwardsPress = false
     /// A `.beside` card sits left of its target (no room on its right: a sidebar on the right).
     private(set) var isLeading = false
     /// The card's frame on screen at rest, while a morph lays the window out larger.
@@ -83,7 +86,8 @@ final class HoverCardPanel: NSPanel {
 
     init() {
         // `PopupHostView` resets an overlay card to the popup radius; the host's radius below sets it back.
-        glass = Glass.makeOverlayPanel(cornerRadius: Self.cornerRadius)
+        // Bare themed glass, no solid card fill (`Glass.makeOverlayPanel`'s `cardFill`).
+        glass = Glass.makeOverlayPanel(cornerRadius: Self.cornerRadius, cardFill: false)
         // The card is its clear window's whole content: before macOS 26 its blur samples what is
         // behind the window (the sidebar, a terminal), as its Liquid Glass refracts it.
         glass.samplesBehindWindow = true
@@ -151,11 +155,21 @@ final class HoverCardPanel: NSPanel {
             newBody.translatesAutoresizingMaskIntoConstraints = false
             let container = glass.contentView
             container.addSubview(newBody)
+            // Bottom and trailing just below required: `place()` lays the glass out at the last
+            // card's size before it measures and resizes, and a required pair there conflicted
+            // with the new body's fixed rows and width limits on every hover retarget (about 650
+            // of 1564 "Unable to simultaneously satisfy constraints" in 3 h of NIGHTLY logs, up
+            // to 39 a second, each solved and logged on the main thread). 999 still beats the
+            // fitting-size compression, so `fittingSize` and the resting layout are the same.
+            let bottom = newBody.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+            bottom.priority = .init(999)
+            let trailing = newBody.trailingAnchor.constraint(equalTo: container.trailingAnchor)
+            trailing.priority = .init(999)
             edgeConstraints = [
                 newBody.topAnchor.constraint(equalTo: container.topAnchor),
-                newBody.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+                bottom,
                 newBody.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-                newBody.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                trailing,
             ]
             sizeConstraints = [newBody.widthAnchor.constraint(equalToConstant: 0), newBody.heightAnchor.constraint(equalToConstant: 0)]
             NSLayoutConstraint.activate(edgeConstraints)

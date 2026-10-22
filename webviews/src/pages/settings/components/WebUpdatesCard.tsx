@@ -1,4 +1,4 @@
-// General > Web UI (plans/cmux-next/web-ota.md): the web UI a NIGHTLY build serves between app
+// Updates > Web UI (plans/cmux-next/web-ota.md): the web UI a NIGHTLY build serves between app
 // updates, from the host lists' `web_updates` (the app's WebUpdates, live through
 // cmux.settings.host.changed). Check Now and Roll Back take the paths of the socket's
 // updates.web.check and updates.web.rollback. Which updates it takes is the schema row updates.web.

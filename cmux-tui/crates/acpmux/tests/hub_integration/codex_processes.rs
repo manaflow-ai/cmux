@@ -162,6 +162,21 @@ async fn codex_a_background_terminal_that_exits_keeps_its_exit_code() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// Codex moves long commands to the background itself: Ctrl-B
+/// (`_acpmux/process/background`) on its chat is refused, and its terminal
+/// is left alone.
+#[tokio::test]
+async fn codex_background_is_refused() {
+    let (hub, mut c, root) = codex_hub().await;
+    let id = chat(&mut c, "bg-codex").await;
+    let refused =
+        c.request("_acpmux/process/background", json!({"sessionId": id})).await.unwrap_err();
+    assert!(refused.contains("only Claude Code"), "{refused}");
+    assert_eq!(process(&mut c, &id, &format!("{id}/1001")).await["state"], "running");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Killing a running background terminal calls the app-server's
 /// `thread/backgroundTerminals/terminate` for its thread and process; it
 /// ends killed by the person, once, and attached clients hear it.

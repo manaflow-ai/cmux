@@ -13,7 +13,7 @@ export function setSuggestedTasks(on: boolean): boolean {
 }
 
 /// Whether an agent's offers draw (cx-lo9yf): with the `agent.suggestedTasks` Debug toggle on, or the
-/// `session-offer` experiment's `on` arm. Off by default; off, offers draw nothing.
+/// `session-offer` experiment's `on` arm. The host's toggle is on by default; off, offers draw nothing.
 export function offersShown(): boolean {
   return toggle || experimentArm(sessionOffer) === "on";
 }

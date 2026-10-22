@@ -12,13 +12,13 @@ import Observation
 @MainActor @Observable
 public final class WebUpdater {
     /// `updates.web` in cmux.json.
-    public enum Channel: String, Sendable, CaseIterable {
+    nonisolated public enum Channel: String, Sendable, CaseIterable {
         case off
         case nightly
         case everyMerge = "every-merge"
     }
 
-    public enum Phase: Equatable, Sendable {
+    nonisolated public enum Phase: Equatable, Sendable {
         case idle
         case checking
         case downloading
@@ -26,16 +26,28 @@ public final class WebUpdater {
     }
 
     /// What the running app's own web bundles are.
-    public struct App: Sendable {
+    nonisolated public struct App: Sendable {
         /// `pages/web-abi.json` of the bundled pages.
         public var abi: Int
-        /// When the bundled web was built (that file's modification time), unix seconds: an update
-        /// from an older commit than this is never newer than the bundle.
+        /// When the bundled web was built, unix seconds: an update from an older commit than this
+        /// is never newer than the bundle.
         public var webBuiltAt: Int
 
         public init(abi: Int, webBuiltAt: Int) {
             self.abi = abi
             self.webBuiltAt = webBuiltAt
+        }
+
+        /// The running app's bundled web: the `abi` of its `pages/web-abi.json` and, as its build
+        /// time, the modification time of the app's `Info.plist`. NIGHTLY updates by Sparkle
+        /// delta, which rewrites only the files whose bytes changed, so `web-abi.json` keeps the
+        /// first install's time while every nightly rewrites the plist (its build number and
+        /// commit). The plist's time is at or after the build, never before its commit.
+        public static func bundled(pages: URL, infoPlist: URL) -> App? {
+            guard let abi = WebUpdateTree.abi(inPages: pages),
+                  let built = (try? infoPlist.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            else { return nil }
+            return App(abi: abi, webBuiltAt: Int(built.timeIntervalSince1970))
         }
     }
 
@@ -94,14 +106,14 @@ public final class WebUpdater {
     }
 
     /// The launch check of the kept update, for ``WebBundleOverlay/load(_:)``: its folder when it
-    /// still verifies, suits this app and `updates.web` is not off, else nil (and the state
-    /// forgets it). It runs once; later calls get its result.
+    /// still verifies, suits this app and came from the `updates.web` channel (not off), else nil
+    /// (and the state forgets it). It runs once; later calls get its result.
     public func launchTree() async -> URL? {
         if let launch { return await launch.value }
-        let store = store, app = app, off = followed && channel == .off
+        let store = store, app = app, channel: Channel? = followed ? channel : nil
         // task-owner: the one launch check, kept so later callers await the same result
         let task = Task { @MainActor [weak self] () -> URL? in
-            let (tree, state) = await Self.launchCheck(store: store, app: app, off: off)
+            let (tree, state) = await Self.launchCheck(store: store, app: app, channel: channel)
             self?.state = state
             return tree
         }
@@ -109,14 +121,16 @@ public final class WebUpdater {
         return await task.value
     }
 
-    @concurrent nonisolated static func launchCheck(store: WebUpdateStore, app: App, off: Bool = false) async -> (URL?, WebUpdateState) {
+    /// `channel` is the followed `updates.web` (nil before it is read: any kept update).
+    @concurrent nonisolated static func launchCheck(store: WebUpdateStore, app: App, channel: Channel? = nil) async -> (URL?, WebUpdateState) {
         var state = store.readState()
         guard let active = state.active else { return (nil, state) }
-        if !off, active.abi == app.abi, active.committedAt > app.webBuiltAt, let tree = store.verifiedTree(active) {
+        let followed = channel.map { $0 != .off && active.channel == $0.rawValue } ?? true
+        if followed, active.abi == app.abi, active.committedAt > app.webBuiltAt, let tree = store.verifiedTree(active) {
             return (tree, state)
         }
-        // Web updates are off, a newer app shipped newer web, or the tree changed on disk: serve
-        // the bundle.
+        // Web updates are off or follow another channel, a newer app shipped newer web, or the
+        // tree changed on disk: serve the bundle.
         state.active = nil
         state.previous = nil
         try? store.write(state)
@@ -175,7 +189,7 @@ public final class WebUpdater {
                 try take(pointer)
             } catch {
                 // A lasting refusal: read the pointer again only when it changes.
-                etag = tag
+                if self.channel == channel { etag = tag }
                 throw error
             }
             phase = .downloading
@@ -195,7 +209,7 @@ public final class WebUpdater {
             } catch {
                 // An archive that does not match its signed pointer stays wrong: not again until
                 // the pointer changes.
-                if let refusal = error as? WebUpdateRefusal, case .integrity = refusal { etag = tag }
+                if let refusal = error as? WebUpdateRefusal, Self.isLasting(refusal), self.channel == channel { etag = tag }
                 throw error
             }
             guard self.channel == channel else {
@@ -209,6 +223,13 @@ public final class WebUpdater {
             next.active = pointer
             next.floor = max(next.floor, pointer.committedAt)
             try await Self.save(next, store: store, served: served())
+            guard self.channel == channel else {
+                // The channel changed during the save: put the state back (and drop the tree);
+                // the next check serves the right channel.
+                try? await Self.save(state, store: store, served: served())
+                phase = .idle
+                return
+            }
             state = next
             etag = tag
             lastRefusal = nil
@@ -226,6 +247,7 @@ public final class WebUpdater {
     /// its ETag (stored once the outcome lasts, so a failed download is tried again); nil when
     /// unchanged.
     func newPointer() async throws -> (WebUpdatePointer, String?)? {
+        let channel = channel
         var request = URLRequest(url: base.appending(path: "ota/\(channel.rawValue).json"))
         request.cachePolicy = .reloadIgnoringLocalCacheData
         if let etag { request.setValue(etag, forHTTPHeaderField: "If-None-Match") }
@@ -244,7 +266,7 @@ public final class WebUpdater {
         do {
             return (try WebUpdatePointer.verified(data, keys: keys, channel: channel.rawValue), tag)
         } catch {
-            etag = tag
+            if self.channel == channel { etag = tag }
             throw error
         }
     }
@@ -281,12 +303,22 @@ public final class WebUpdater {
 
     /// Removes the kept trees nothing serves or may serve; the app calls it after a safe point.
     public func pruneUnused() async {
+        // A check in flight may be unpacking into staging or keeping a tree it has not saved
+        // yet; its own save prunes.
+        guard phase != .checking, phase != .downloading else { return }
         let store = store, keys = state.keptKeys.union([served()?.lastPathComponent].compactMap { $0 })
         await Self.prune(store, keeping: keys)
     }
 
     @concurrent nonisolated static func prune(_ store: WebUpdateStore, keeping keys: Set<String>) async {
         store.prune(keeping: keys)
+    }
+
+    /// Whether an install refusal is about the published archive itself (so trying again cannot
+    /// help), not this machine (a full disk, an unreadable file).
+    static func isLasting(_ refusal: WebUpdateRefusal) -> Bool {
+        guard case .integrity(let what) = refusal else { return false }
+        return ["archive digest", "tree digest", "tree abi", "archive too large", "link ", "special file "].contains { what.hasPrefix($0) }
     }
 
     static func isAppTooOld(_ refusal: WebUpdateRefusal) -> Bool {

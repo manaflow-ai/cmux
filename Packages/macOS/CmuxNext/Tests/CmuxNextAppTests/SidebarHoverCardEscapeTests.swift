@@ -140,8 +140,12 @@ import Testing
         }
         try #require(row.maxX + 2 < window.frame.maxX, "the row reaches the window's edge; no margin to test")
         list.updateHover(window.convertPoint(fromScreen: CGPoint(x: row.maxX + 2, y: row.maxY - 3)))
-        try await clock.waitForSleeper()
-        clock.advance(by: DesignSettings.shared.hoverCardDelay + .milliseconds(100))
+        // The slot may start no card at all (the row's hover stops short of the margin): then
+        // there is no timer to run out. A pending card must still not show when its delay ends.
+        if coordinator.machine.activeTarget != nil {
+            try await clock.waitForSleeper()
+            clock.advance(by: DesignSettings.shared.hoverCardDelay + .milliseconds(100))
+        }
         for _ in 0..<20 { await Task.yield() }
         for _ in 0..<30 { try await Task.sleep(for: .milliseconds(10)) }
         #expect(!(coordinator.panel?.isShowingCard ?? false), "the card showed (\(coordinator.machine.phase)) with the pointer in its slot")

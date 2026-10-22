@@ -3,7 +3,7 @@ public import CmuxNextSettings
 import CmuxNextUpdater
 import Foundation
 
-/// Settings > General's Web UI card (plans/cmux-next/web-ota.md): its two buttons,
+/// Settings > Updates' Web UI card (plans/cmux-next/web-ota.md): its two buttons,
 /// `cmux.settings.web_updates.check` and `cmux.settings.web_updates.rollback`, routed here by
 /// prefix so the settings provider stays as it is. They take the paths of `updates.web.check` and
 /// `updates.web.rollback`. The card reads ``WebUpdates/pageJSON`` from the host lists.

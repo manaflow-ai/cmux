@@ -16,7 +16,10 @@ import { usePromptMarks } from "./promptMarks";
 import { useHoverIntent } from "../../../ui/hoverIntent";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { animateScroll, highlightBubble, reducedMotion, settleScroll, stopScroll } from "./scrollMotion";
-import { BookmarkIcon } from "./BookmarkIcon";
+import { PreviewCard } from "./PreviewCard";
+import { ScrollMap } from "./ScrollMap";
+import { threadMinimapLayout } from "./layout.experiment";
+import { experimentArm } from "../../../experiments/experiment";
 import {
   CARD_DELAY,
   cardOffset,
@@ -83,6 +86,7 @@ export function ThreadMinimap({
   scroller,
   scrollTop,
   viewportHeight,
+  scrolls,
   width,
   placed,
 }: {
@@ -92,12 +96,18 @@ export function ThreadMinimap({
   scroller: React.RefObject<HTMLElement | null>;
   scrollTop: number;
   viewportHeight: number;
+  /// Whether the transcript scrolls at all (its layout, dock space included, is taller than it).
+  scrolls: boolean;
   width: number;
   /// The transcript calls what the rail puts here once each commit's placement pass has set its
   /// offset (VirtualTranscript), so the band reads where the transcript put the reader.
   placed?: React.MutableRefObject<(() => void) | undefined>;
 }) {
   const t = useT();
+  /// The full-height map (ScrollMap.tsx), the compact Codex rail below, or none (`off`, the
+  /// default: the turn steps below still run), read once per pane.
+  const [arm] = useState(() => experimentArm(threadMinimapLayout));
+  const full = arm === "full";
   const marks = usePromptMarks(sessionId);
   const lastTurns = useRef<MinimapTurns | undefined>(undefined);
   const turns = useMemo(() => {
@@ -151,7 +161,7 @@ export function ThreadMinimap({
   const shift = restoring.current && restoring.current.from === seen ? restoring.current.by : 0;
   const top = (seen ?? scrollTop) + shift;
   const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight);
-  const shown = turns.length >= MIN_PROMPTS && gutter(width) >= MIN_GUTTER;
+  const shown = arm === "compact" && turns.length >= MIN_PROMPTS && gutter(width) >= MIN_GUTTER;
   const height = railHeight(turns.length, windowHeight, viewportHeight);
   const overflow = turns.length * ROW_PITCH > height;
 
@@ -164,9 +174,19 @@ export function ThreadMinimap({
     viewportHeight,
     onScreen,
     sessionId,
+    shown,
   });
   useLayoutEffect(() => {
-    live.current = { turns, tops: layout.tops, total: layout.totalHeight, marks, viewportHeight, onScreen, sessionId };
+    live.current = {
+      turns,
+      tops: layout.tops,
+      total: layout.totalHeight,
+      marks,
+      viewportHeight,
+      onScreen,
+      sessionId,
+      shown,
+    };
   });
 
   // The band follows the scroll on its own frame: a scroll that moves it renders the rail at once
@@ -178,6 +198,8 @@ export function ThreadMinimap({
       const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
       domTop.current = { sessionId: session, top: node.scrollTop };
       restoring.current = undefined;
+      // The full-height map moves its own bar; no band to draw here.
+      if (!live.current.shown) return;
       const next = visibleTurns(all, tops, total, node.scrollTop, height);
       if (next.first !== drawn.first || next.last !== drawn.last) flushSync(() => setBandMoves((count) => count + 1));
     };
@@ -198,6 +220,7 @@ export function ThreadMinimap({
       const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
       domTop.current = { sessionId: session, top: node.scrollTop };
       restoring.current = undefined;
+      if (!live.current.shown) return;
       const next = visibleTurns(all, tops, total, node.scrollTop, height);
       if (next.first !== drawn.first || next.last !== drawn.last) setBandMoves((count) => count + 1);
     };
@@ -453,6 +476,20 @@ export function ThreadMinimap({
     [intend, dismiss, jump],
   );
 
+  if (full)
+    return (
+      <ScrollMap
+        rows={rows}
+        turns={turns}
+        layout={layout}
+        scroller={scroller}
+        viewportHeight={viewportHeight}
+        scrolls={scrolls}
+        width={width}
+        marks={marks}
+        jump={jump}
+      />
+    );
   if (!shown) return null;
   const indexAt = (clientY: number) => {
     const node = list.current;
@@ -473,7 +510,8 @@ export function ThreadMinimap({
       event.currentTarget.releasePointerCapture(state.pointer);
   };
   const railTop = Math.round((viewportHeight - height) / 2);
-  const active = hovered ?? focused;
+  // The previewed prompt stays lit while the pointer is on its card, as ChatGPT's rail does.
+  const active = hovered ?? focused ?? (showCard ? cardRow : undefined);
   const cardMarked = cardTurn ? marks.has(cardTurn) : false;
   const cardTop =
     cardRow === undefined
@@ -572,11 +610,14 @@ export function ThreadMinimap({
         </div>
       </nav>
       {showCard && (
-        <div
+        <PreviewCard
           ref={card}
           id={cardId}
-          className="acpmux-minimap__card"
-          style={{ transform: `translate3d(${RAIL_LEFT + ROW_WIDTH}px, ${cardTop}px, 0)` }}
+          x={RAIL_LEFT + ROW_WIDTH}
+          y={cardTop}
+          prompt={cardTurn.prompt}
+          reply={cardTurn.reply}
+          bookmark={marks.can(cardTurn) ? { marked: cardMarked, toggle: () => marks.toggle(cardTurn) } : undefined}
           onPointerLeave={(event) => {
             // Back onto the rail keeps it (its row takes over); anywhere else it goes.
             if (!within(rail.current, event.relatedTarget)) intend(null);
@@ -590,34 +631,7 @@ export function ThreadMinimap({
             if (within(rail.current, next)) return;
             if (hovered === undefined) intend(null);
           }}
-        >
-          <div className="acpmux-minimap__title">
-            <span className="acpmux-minimap__prompt">{cardTurn.prompt}</span>
-            {marks.can(cardTurn) && (
-              <button
-                type="button"
-                className="acpmux-minimap__bookmark"
-                aria-pressed={cardMarked}
-                aria-label={t(cardMarked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
-                title={t(cardMarked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
-                onClick={() => marks.toggle(cardTurn)}
-              >
-                <BookmarkIcon filled={cardMarked} />
-              </button>
-            )}
-          </div>
-          {cardTurn.reply.length > 0 && (
-            <div className="acpmux-minimap__reply">
-              {cardTurn.reply.map((block, blockIndex) => (
-                <p key={blockIndex} className={block.kind === "item" ? "acpmux-minimap__item" : undefined}>
-                  {block.spans.map((span, spanIndex) =>
-                    span.bold ? <strong key={spanIndex}>{span.text}</strong> : span.text,
-                  )}
-                </p>
-              ))}
-            </div>
-          )}
-        </div>
+        />
       )}
     </div>
   );
