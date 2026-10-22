@@ -1,3 +1,4 @@
+import CmuxNextPages
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -29,6 +30,22 @@ struct AgentPaneAppLinkTests {
                                                 openApp: { app.append($0); return true }))
         #expect(app == [workspace])
         #expect(system.isEmpty, "an app link went to the system")
+    }
+
+    /// A link in a chat is the agent's text (media safety R8), so by default it goes to the app's
+    /// model-output opener, which only reveals what is open, never to the person's own one.
+    @Test func aChatsAppLinkGoesToTheModelOutputOpener() {
+        let router = LinkRouter.shared
+        let savedPerson = router.appLink, savedModel = router.modelOutputAppLink
+        defer { router.appLink = savedPerson; router.modelOutputAppLink = savedModel }
+        var person: [URL] = [], model: [URL] = []
+        router.appLink = { person.append($0); return true }
+        router.modelOutputAppLink = { model.append($0); return true }
+        let gestures = AgentPaneUserGestures()
+        gestures.record(click: true)
+        #expect(AgentPaneNavigation.openOutside(workspace, gestures: gestures, open: { _ in }))
+        #expect(model == [workspace])
+        #expect(person.isEmpty, "a chat's link reached the person's opener")
     }
 
     @Test func onlyCmuxSchemesWithAKnownHostAreAppLinks() {

@@ -25,6 +25,10 @@ const UNSAFE = [
   "data:text/html,<b>x</b>",
   "vbscript:msgbox",
   "ssh://host",
+  "vscode://file/etc/passwd",
+  "x-custom-app://open?cmd=1",
+  "data:image/svg+xml,<svg onload=alert(1)>",
+  "JavaScript:alert(1)",
   "cmux://auth-callback/x",
   "cmux://user:pw@workspace/ws_0123456789abcdef0123456789abcdef",
   "cmuxx://workspace/ws_0123456789abcdef0123456789abcdef",
@@ -61,6 +65,11 @@ test("the agent pane draws cmux app links as links and nothing else that is not 
     expect(linkHref(href)).toBe(href);
     expect(safeHref(href)).toBeUndefined();
   }
-  for (const href of UNSAFE) expect(linkHref(href)).toBeUndefined();
+  for (const href of UNSAFE) {
+    expect(safeHref(href)).toBeUndefined();
+    expect(appHref(href)).toBeUndefined();
+    expect(linkHref(href)).toBeUndefined();
+  }
+  expect(safeHref("https://user:pw@cmux.dev/")).toBeUndefined();
   expect(linkHref("https://cmux.dev/")).toBe("https://cmux.dev/");
 });
