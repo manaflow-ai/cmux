@@ -148,7 +148,7 @@ fn server_lifecycle_routing_flags_follow_action() {
     assert!(global.session.is_none());
     assert!(matches!(
         plan.action,
-        lifecycle::ServerAction::Stop { force: true, end_terminals: false }
+        lifecycle::ServerAction::Stop { force: true, end_terminals: false, .. }
     ));
 
     let ParsedCommand::Command { plan: CommandPlan::Server(plan), .. } =
@@ -158,7 +158,7 @@ fn server_lifecycle_routing_flags_follow_action() {
     };
     assert!(matches!(
         plan.action,
-        lifecycle::ServerAction::Stop { force: false, end_terminals: true }
+        lifecycle::ServerAction::Stop { force: false, end_terminals: true, .. }
     ));
 
     let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } = parse(

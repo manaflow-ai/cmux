@@ -33,6 +33,7 @@ import { acpmuxListCommand, acpmuxListProblems, programChecksCommand } from "../
 import { runChild } from "./helpers/run-child";
 
 const lockText = readFileSync(DEFAULT_LOCK_PATH, "utf8");
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- tests mutate arbitrary nested lock fields
 const fresh = () => JSON.parse(lockText) as Record<string, any>;
 
 function problemsOf(raw: unknown): string[] {
@@ -168,6 +169,14 @@ describe("base fingerprint and closure checks", () => {
       "lock package acl was not installed",
     ]);
     expect(aptClosureProblems({ ripgrep: "14.1.0-2" }, new Map([["ripgrep", "14.1.0-1"]]))).toEqual(["apt installed ripgrep=14.1.0-1, the lock says 14.1.0-2"]);
+  });
+
+  test("a locked package the base already has at the locked version counts as installed", () => {
+    // The 10-21 Freestyle base started shipping ripgrep 14.1.0-1, so apt had nothing to add for it.
+    const base = parseDpkgList("ripgrep\t14.1.0-1\tamd64\nacl\t2.3.2-1build1\tamd64\n");
+    expect(aptClosureProblems({ ripgrep: "14.1.0-1" }, new Map(), base)).toEqual([]);
+    expect(aptClosureProblems({ acl: "2.3.2-1build1.1" }, new Map(), base)).toEqual(["lock package acl=2.3.2-1build1.1 was not installed (the base has 2.3.2-1build1)"]);
+    expect(aptClosureProblems({ ripgrep: "14.1.0-1" }, new Map())).toEqual(["lock package ripgrep was not installed"]);
   });
 
   test("base packages and npm globals must be in the lock", () => {
