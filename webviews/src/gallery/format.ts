@@ -254,6 +254,8 @@ export type ChangelogPageVariant = VariantBase & {
   notes: ReleaseNotes[];
   /** The page route the host opens it on (`#/?from=<v>&to=<v>`, an update's span). */
   route?: string;
+  /** Experiment arms the page runs, by experiment id (`{ "whats-new-reel-look": "row" }`). */
+  arms?: Record<string, string>;
 };
 
 /** The icon picker page on an in-page cmuxPage host serving a picker session. */

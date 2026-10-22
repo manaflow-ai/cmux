@@ -5,6 +5,7 @@ import { realNightlies } from "./realNightlyFixtures";
 import nightly3913596493801 from "./fixtures/nightly-3913596493801-span.json";
 import realChanges from "./fixtures/real-pr-changes.json";
 import type { ReleaseNotes } from "./types";
+import { reelLook } from "./reelLook.experiment";
 import { journalNotes } from "./whatsNewFixtures";
 
 /** Where build `index` of the 18 starts in realChanges: each takes (index % 5) + 1, none shared. */
@@ -31,6 +32,7 @@ const manyNotes = Array.from({ length: 18 }, (_, index) => ({
 
 /** A real published reel (scripts/cmux-next/media/reel.py), so the gallery shows the card as it plays. */
 const nightlyReel = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/nightly-next/3969193688601/reel.mp4";
+const reelNotes = journalNotes.map((n, i) => (i === 0 ? { ...n, reel: nightlyReel } : n));
 
 export default changelogPageEntry({
   id: "pages.changelog",
@@ -77,9 +79,21 @@ export default changelogPageEntry({
       route: "#/?from=1.0.0-nightly.410&to=1.0.0-nightly.413",
     },
     "ledger-update-reel": {
-      note: "The same update with a nightly reel: one video card (its first frame, a play button, its length and title) that plays in place. The reel is nightly 3969193's, as published.",
-      notes: journalNotes.map((n, i) => (i === 0 ? { ...n, reel: nightlyReel } : n)),
+      note: "The same update with a nightly reel, look Card (ships): one video card (its first frame, a play button, its length and title) that plays in place. The reel is nightly 3969193's, as published.",
+      notes: reelNotes,
       route: "#/?from=1.0.0-nightly.410&to=1.0.0-nightly.413",
+    },
+    "ledger-update-reel-row": {
+      note: "The reel, look Row: a small first-frame thumbnail with the title and length beside it; a press opens the full player.",
+      notes: reelNotes,
+      route: "#/?from=1.0.0-nightly.410&to=1.0.0-nightly.413",
+      arms: { [reelLook.id]: "row" },
+    },
+    "ledger-update-reel-poster": {
+      note: "The reel, look Poster: the first frame full width with the title over a dark band at its foot.",
+      notes: reelNotes,
+      route: "#/?from=1.0.0-nightly.410&to=1.0.0-nightly.413",
+      arms: { [reelLook.id]: "poster" },
     },
     journal: {
       note: "Design A (Debug Settings whatsNew.design = journal): four nightlies stacked; the lead change with light/dark media, grouped rows, folded commits.",

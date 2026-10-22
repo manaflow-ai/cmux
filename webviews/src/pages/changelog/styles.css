@@ -269,6 +269,34 @@ html[data-cmux-page="changelog"] body {
   pointer-events: none;
 }
 .cl-reel-title { margin: 10px 4px 0; font-size: var(--text-body); font-weight: 600; color: var(--page-text); }
+/* The other looks at rest (reelLook.experiment.ts); playing, each is the card above. Row: a small
+   thumbnail with the title beside it. */
+.cl-reel-card[data-look="row"]:not([data-playing]) {
+  display: grid;
+  grid-template-columns: 168px 1fr;
+  align-items: center;
+  gap: 14px;
+  padding: 8px;
+}
+.cl-reel-card[data-look="row"]:not([data-playing]) .cl-reel-title { margin: 0; }
+.cl-reel-card[data-look="row"]:not([data-playing]) .cl-reel-play svg {
+  width: 16px;
+  height: 16px;
+  padding: 9px 8px 9px 10px;
+}
+/* Poster: the frame edge to edge, the title on a dark band at its foot. */
+.cl-reel-card[data-look="poster"] { position: relative; padding: 0; overflow: hidden; }
+.cl-reel-card[data-look="poster"] .cl-reel-stage { border-radius: 0; }
+.cl-reel-card[data-look="poster"]:not([data-playing]) .cl-reel-title {
+  position: absolute;
+  inset: auto 0 0;
+  margin: 0;
+  padding: 32px 72px 12px 14px;
+  background: linear-gradient(transparent, rgb(0 0 0 / 0.6));
+  color: #fff;
+  pointer-events: none;
+}
+.cl-reel-card[data-look="poster"][data-playing] .cl-reel-title { margin: 10px 12px 12px; }
 .cl-reel-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
 .cl-reel-picker { display: flex; flex-wrap: wrap; gap: 6px; }
 .cl-reel-chip {

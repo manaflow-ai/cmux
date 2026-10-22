@@ -368,6 +368,8 @@ export async function mountChangelogPage(state: ChangelogPageVariant, _context: 
   );
   host.delayMs = 0;
   if (state.route) history.replaceState(null, "", state.route);
+  // The compare view's arm (frame main.ts) wins over the variant's.
+  if (state.arms) globalThis.cmuxExperiments = { ...state.arms, ...globalThis.cmuxExperiments };
   document.documentElement.dataset.cmuxPage = "changelog";
   document.documentElement.dataset.cmuxWebviewKind = "changelog";
   await import("../../pages/changelog/main");

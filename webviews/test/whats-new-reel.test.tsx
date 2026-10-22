@@ -143,6 +143,33 @@ test("the card shows the reel's length, and a press plays it in place with contr
   expect(player.querySelector("button.cl-reel-play")).toBeNull();
   expect(player.querySelector(".cl-reel-length")).toBeNull();
   expect(player.querySelector("a.cl-reel")).toBeNull();
+  // Focus moves to the video, so the keyboard drives its controls.
+  expect(dom.window.document.activeElement).toBe(element);
+});
+
+test("the look comes from the whats-new-reel-look experiment, and every look plays as the card", async () => {
+  const { reelLook } = await import("../src/pages/changelog/reelLook.experiment");
+  expect(Object.keys(reelLook.arms)).toEqual(["card", "row", "poster"]);
+  const card = async () => {
+    const section = await mount([notes("3940400000000", video("3940400000000")), notes("3940100000000")], 1);
+    return section!.querySelector<HTMLElement>(".cl-reel-card")!;
+  };
+  expect((await card()).dataset.look).toBe("card");
+  const saved = globalThis.cmuxExperiments;
+  try {
+    for (const look of ["row", "poster"]) {
+      globalThis.cmuxExperiments = { [reelLook.id]: look };
+      const figure = await card();
+      expect(figure.dataset.look).toBe(look);
+      expect(figure.dataset.playing).toBeUndefined();
+      figure.querySelector("video")!.play = () => Promise.resolve();
+      await act(async () => figure.querySelector<HTMLButtonElement>("button.cl-reel-play")!.click());
+      expect(figure.dataset.playing).toBe("true");
+      expect(figure.querySelector("video")!.hasAttribute("controls")).toBe(true);
+    }
+  } finally {
+    globalThis.cmuxExperiments = saved;
+  }
 });
 
 test("a reel that cannot play here leaves only its link", async () => {

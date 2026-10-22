@@ -4,12 +4,14 @@
 import { useRef, useState, useSyncExternalStore } from "react";
 import { Dialog } from "../../ui/Dialog";
 import { DialogButton } from "../../ui/DialogButton";
+import { experimentArm } from "../../experiments/experiment";
 import type { Strings } from "../shared/i18n";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
 import { byArea } from "./areas";
 import { formatReleaseDate, type AreaChange, type MediaRef, type ReleaseItem, type ReleaseView } from "./model";
 import type { ChangeItem, IndexEntry, WhatsNewCategory } from "./types";
 import { cardVersion } from "./UpdateSurfaces";
+import { reelLook } from "./reelLook.experiment";
 
 export interface PartsContext {
   strings: Strings;
@@ -396,23 +398,27 @@ export function ReelPlayer({
 }
 
 /** One reel as a card: its first frame (the `#t` fragment makes the video show it before it
-    plays), a play button and the reel's length over it, its title under it. A press plays it in
-    place with controls; the button goes away so the controls take the clicks. */
+    plays), a play button and the reel's length over it, its title by it. A press plays it in
+    place with controls; the button goes away so the controls take the clicks, and focus moves to
+    the video so the keyboard drives it. How it looks at rest is the `whats-new-reel-look`
+    experiment (`data-look`; styles.css). */
 function ReelCard({ url, title, onError }: { url: string; title: string; onError(): void }) {
   const video = useRef<HTMLVideoElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [seconds, setSeconds] = useState<number | undefined>();
   const play = () => {
     setPlaying(true);
+    video.current?.focus({ preventScroll: true });
     void video.current?.play()?.catch(() => undefined);
   };
   return (
-    <figure className="cl-reel-card">
+    <figure className="cl-reel-card" data-look={experimentArm(reelLook)} data-playing={playing || undefined}>
       <div className="cl-reel-stage">
         <video
           ref={video}
           src={`${url}#t=0.1`}
           aria-label={title}
+          tabIndex={-1}
           controls={playing}
           muted
           playsInline
