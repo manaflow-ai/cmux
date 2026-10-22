@@ -116,5 +116,74 @@ class ExportsAreComparedWithAFreshExport(unittest.TestCase):
             result = subprocess.run(["bash", "-c", self.step()], cwd=repo, env=env, capture_output=True, text=True)
             self.assertIn("EXPORTED", result.stdout)
 
+    def run_step_on_merge(self, base_edit, pr_edit) -> subprocess.CompletedProcess:
+        """The step on a merge commit: base_edit(repo) lands on the base without an export, then
+        pr_edit(repo) is the pull request; the fake export writes the schema from A.swift's text."""
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(subprocess.run, ["rm", "-rf", tmp])
+        repo = Path(tmp) / "repo"
+        repo.mkdir()
+        run = lambda *args: subprocess.run(args, cwd=repo, capture_output=True, text=True, check=True)
+        run("git", "init", "-q", "-b", "main")
+        run("git", "config", "user.email", "t@t")
+        run("git", "config", "user.name", "t")
+        (repo / "scripts/ci").mkdir(parents=True)
+        (repo / "scripts/ci/defaults_guard.py").write_text(
+            (ROOT / "scripts/ci/defaults_guard.py").read_text(encoding="utf-8"))
+        settings = repo / "Packages/macOS/CmuxNext/Sources/CmuxNextSettings"
+        settings.mkdir(parents=True)
+        (settings / "A.swift").write_text("v1\n")
+        tests_dir = repo / "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests"
+        tests_dir.mkdir(parents=True)
+        for name in ("ManagedPreferencesManifestTests.swift", "SettingsSchemaExportTests.swift"):
+            (tests_dir / name).write_text("// t\n")
+        (repo / "schemas/settings").mkdir(parents=True)
+        (repo / "schemas/settings/settings-schema.json").write_text("v1\n")
+        fake = repo / "scripts/cmux-next"
+        fake.mkdir(parents=True)
+        (fake / "regenerate-settings-exports.sh").write_text(
+            "#!/bin/sh\nset -e\nf=schemas/settings/settings-schema.json\n"
+            "cp Packages/macOS/CmuxNext/Sources/CmuxNextSettings/A.swift \"$f\"\n"
+            "git diff --quiet -- \"$f\" || echo \"regenerated: $f\"\n")
+        (fake / "regenerate-settings-exports.sh").chmod(0o755)
+        run("git", "add", "-A")
+        run("git", "commit", "-q", "-m", "base")
+        base_edit(repo)
+        run("git", "commit", "-q", "-am", "base change", "--allow-empty")
+        run("git", "checkout", "-q", "-b", "pr", "HEAD~1")
+        pr_edit(repo)
+        run("git", "commit", "-q", "-am", "pr change")
+        run("git", "checkout", "-q", "main")
+        run("git", "merge", "-q", "--no-ff", "--no-edit", "pr")
+        env = {"RUNNER_TEMP": tmp, "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"}
+        result = subprocess.run(["bash", "-c", self.step()], cwd=repo, env=env, capture_output=True, text=True)
+        left = [line for line in run("git", "status", "--porcelain", "--untracked-files=no").stdout.splitlines()
+                if not line.endswith("schemas/settings/settings-schema.json")]
+        self.assertEqual(left, [], "the step leaves the settings sources as HEAD has them")
+        return result
+
+    @staticmethod
+    def write(path: str, text: str):
+        return lambda repo: (repo / path).write_text(text)
+
+    def test_base_export_lag_is_a_warning_for_a_pr_that_touches_another_settings_source(self):
+        result = self.run_step_on_merge(
+            self.write("Packages/macOS/CmuxNext/Sources/CmuxNextSettings/A.swift", "v2\n"),
+            self.write("Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift", "// t2\n"))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("::warning", result.stdout)
+
+    def test_a_pr_settings_change_without_its_export_fails_over_base_lag(self):
+        result = self.run_step_on_merge(
+            lambda repo: None, self.write("Packages/macOS/CmuxNext/Sources/CmuxNextSettings/A.swift", "v3\n"))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("settings-schema.json", result.stdout)
+
+    def test_a_pr_that_edits_an_export_to_a_stale_value_fails(self):
+        result = self.run_step_on_merge(
+            self.write("Packages/macOS/CmuxNext/Sources/CmuxNextSettings/A.swift", "v2\n"),
+            self.write("schemas/settings/settings-schema.json", "hand edit\n"))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+
 if __name__ == "__main__":
     unittest.main()
