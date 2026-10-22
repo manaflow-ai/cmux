@@ -32,7 +32,9 @@ exports=(
 guard="$(git rev-parse --show-toplevel)/scripts/ci/defaults_guard.py"
 git fetch --quiet --no-tags "$remote" "refs/heads/$branch"
 tip="$(git rev-parse FETCH_HEAD)"
-git cat-file -e "$made^{commit}" 2>/dev/null || git fetch --quiet --no-tags --depth=1 "$remote" "$made" || true
+depth=()
+[[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
+git cat-file -e "$made^{commit}" 2>/dev/null || git fetch --quiet --no-tags ${depth[@]+"${depth[@]}"} "$remote" "$made" || true
 if ! made_stamp="$(python3 "$guard" source-stamp --ref "$made")" \
   || ! tip_stamp="$(python3 "$guard" source-stamp --ref "$tip")"; then
   echo "::error::cannot derive the settings source stamps of ${made:0:12} and ${tip:0:12}; the next run makes the exports again"
