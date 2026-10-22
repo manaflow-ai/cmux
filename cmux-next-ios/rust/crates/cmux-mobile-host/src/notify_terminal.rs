@@ -13,7 +13,15 @@
 //! - a `daemon`-sourced one (the daemon's own bookkeeping);
 //! - the second of an agent hook's and the terminal's own notification on the
 //!   same tab within `ECHO_WINDOW` (Codex posts both for one event);
-//! - a kind no phone wants (`Wants`).
+//! - a kind no phone wants (`Wants`);
+//! - more than one per tab in `TERMINAL_SURFACE_GAP`, or more than
+//!   `TERMINAL_PER_MINUTE` in a minute in all: a program that loops OSC 9 must
+//!   not bury the asks (PR #24156 review M3).
+//!
+//! A terminal push carries the program's own title and body (redacted), never
+//! the terminal's screen: until payloads are sealed (PR B) the screen, which
+//! shows the prompt's folder and whatever a command printed, stays on the Mac
+//! (review M2).
 //!
 //! A terminal agent's question (an agent hook's notification carrying the daemon's
 //! `question`: Claude Code AskUserQuestion, Codex `request_user_input`) pushes as kind
@@ -31,13 +39,18 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 
-use crate::notify::{Reporter, label};
-use crate::notify_content::{PlaceMap, Places, tail};
+use crate::notify::{Reporter, text_label, valid_id};
+use crate::notify_content::{PlaceMap, Places};
 
 /// An agent hook's and the terminal's own notification this close on one tab are one event.
 pub const ECHO_WINDOW: Duration = Duration::from_secs(10);
-/// How long a `wants` answer stands before a kind it left out is tried again.
-pub const WANTS_TTL: Duration = Duration::from_secs(60);
+/// How long a `wants` answer stands before a kind it left out is tried again:
+/// a phone that just turned a kind on gets it within this.
+pub const WANTS_TTL: Duration = Duration::from_secs(15);
+/// At most one terminal push per tab in this window.
+pub const TERMINAL_SURFACE_GAP: Duration = Duration::from_secs(10);
+/// At most this many terminal pushes a minute from this Mac.
+pub const TERMINAL_PER_MINUTE: usize = 10;
 
 /// Turns daemon `notification` events into `terminal` pushes.
 #[derive(Debug, Default)]
@@ -46,6 +59,8 @@ pub struct TerminalClassifier {
     order: VecDeque<u64>,
     /// Per surface: the last pushed notification's source and time.
     last: HashMap<u64, (String, Instant)>,
+    /// When the pushes of the last minute went.
+    sent: VecDeque<Instant>,
 }
 
 const SEEN_LIMIT: usize = 512;
@@ -86,6 +101,15 @@ impl TerminalClassifier {
         if !self.first_time(id) {
             return None;
         }
+        // A terminal agent's question (an agent hook only; a program's output never makes
+        // one): the same questions the acpmux path sends, so the phone answers it alike. An
+        // ask is never held back by the limits below, which are for programs that loop OSC 9.
+        let questions = (source == "agent")
+            .then(|| event.get("question"))
+            .flatten()
+            .map(terminal_questions)
+            .unwrap_or_default();
+        let ask = !questions.is_empty();
         if let Some(surface) = surface {
             // An agent hook's and the terminal's own notification for one event.
             let echo = self.last.get(&surface).is_some_and(|(last, at)| {
@@ -96,6 +120,29 @@ impl TerminalClassifier {
             if echo {
                 return None;
             }
+            if !ask
+                && self
+                    .last
+                    .get(&surface)
+                    .is_some_and(|(_, at)| now.saturating_duration_since(*at) < TERMINAL_SURFACE_GAP)
+            {
+                return None;
+            }
+        }
+        while self
+            .sent
+            .front()
+            .is_some_and(|at| now.saturating_duration_since(*at) >= Duration::from_secs(60))
+        {
+            self.sent.pop_front();
+        }
+        if !ask {
+            if self.sent.len() >= TERMINAL_PER_MINUTE {
+                return None;
+            }
+            self.sent.push_back(now);
+        }
+        if let Some(surface) = surface {
             self.last.insert(surface, (source.to_owned(), now));
             if self.last.len() > SEEN_LIMIT {
                 self.last.retain(|_, (_, at)| now.saturating_duration_since(*at) <= ECHO_WINDOW);
@@ -103,11 +150,11 @@ impl TerminalClassifier {
         }
         let text =
             |key: &str| event.get(key).and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty());
-        let title = text("title").map(|t| label(t, 200)).filter(|t| !t.is_empty());
+        let title = text("title").map(|t| text_label(t, 200)).filter(|t| !t.is_empty());
         let body = [text("subtitle"), text("body")]
             .into_iter()
             .flatten()
-            .map(|t| label(t, 400))
+            .map(|t| text_label(t, 400))
             .filter(|t| !t.is_empty())
             .collect::<Vec<_>>()
             .join(" · ");
@@ -124,16 +171,9 @@ impl TerminalClassifier {
         };
         let workspace_id = place
             .as_ref()
-            .map(|p| p.workspace_id.clone())
-            .or_else(|| text("workspace_id").map(|w| label(w, 128)));
-        // A terminal agent's question (an agent hook only; a program's output never makes
-        // one): the same questions the acpmux path sends, so the phone answers it alike.
-        let questions = (source == "agent")
-            .then(|| event.get("question"))
-            .flatten()
-            .map(terminal_questions)
-            .unwrap_or_default();
-        if !questions.is_empty() {
+            .and_then(|p| valid_id(&p.workspace_id, 128))
+            .or_else(|| text("workspace_id").and_then(|w| valid_id(w, 128)));
+        if ask {
             return Some(NotifyEvent {
                 event_id: format!("n-{id}"),
                 kind: "question".into(),
@@ -286,17 +326,11 @@ async fn watch_once(
                 places.set(PlaceMap::from_workspaces(&reply));
             }
         }
-        let Some(mut push) = classifier.handle_at(&value, places, Instant::now()) else { continue };
+        let Some(push) = classifier.handle_at(&value, places, Instant::now()) else { continue };
         if !reporter.wants(&push.kind) {
             continue;
         }
-        let surface = value.get("surface").and_then(Value::as_u64);
-        if let (Some(surface), true) = (surface, push.tab_id.is_some())
-            && let Ok(reply) = query(socket, "read-screen", Some(surface)).await
-        {
-            let text = reply.pointer("/data/text").and_then(Value::as_str).unwrap_or("");
-            push.tail = tail(text);
-        }
+        // No screen read: the screen stays on the Mac until payloads are sealed (module doc).
         reporter.send(push);
     };
     refresher.abort();
@@ -441,9 +475,12 @@ mod tests {
             c.handle_at(&event(12, Some(7), "terminal"), &places(), t0 + Duration::from_secs(60)).is_some()
         );
         assert!(c.handle_at(&hook_n(13), &places(), t0 + Duration::from_secs(61)).is_none());
-        // Two OSC notifications in a row are two events.
+        // Two OSC notifications in a row are two events, once the tab's gap is over.
         assert!(
-            c.handle_at(&event(14, Some(7), "terminal"), &places(), t0 + Duration::from_secs(62)).is_some()
+            c.handle_at(&event(14, Some(7), "terminal"), &places(), t0 + Duration::from_secs(62)).is_none()
+        );
+        assert!(
+            c.handle_at(&event(16, Some(7), "terminal"), &places(), t0 + Duration::from_secs(72)).is_some()
         );
         // Past the window both push.
         assert!(c.handle_at(&hook_n(15), &places(), t0 + Duration::from_secs(120)).is_some());
@@ -517,6 +554,10 @@ mod tests {
         let e = c.handle_at(&codex, &places(), Instant::now() + Duration::from_secs(20)).unwrap();
         assert_eq!(e.kind, "question");
         assert!(!e.questions[0].allows_other);
+        // An ask right after another push on the same tab is not held back by the tab limit.
+        let mut again = hook.clone();
+        again["notification"] = json!(53);
+        assert_eq!(c.handle_at(&again, &places(), Instant::now() + Duration::from_secs(21)).unwrap().kind, "question");
         // A question from a terminal program (not an agent hook) is never taken as one.
         let mut osc = event(52, Some(7), "terminal");
         osc["question"] = hook["question"].clone();

@@ -63,7 +63,7 @@ describe("notify body (0.13.0 fields)", () => {
     expect(Array.from(r.title!)).toHaveLength(200)
     expect(r.body).toHaveLength(400)
     expect(r.options).toHaveLength(6)
-    expect(r.options![0]).toEqual({ id: "o0", label: "L".repeat(60), kind: "allow_once" })
+    expect(r.options![0]).toEqual({ id: "o0", label: `${"L".repeat(59)}…`, kind: "allow_once" })
     expect(r.options![1]!.kind).toBeUndefined()
     expect(r.questions).toHaveLength(4)
     expect(r.questions![0]!.question).toHaveLength(200)
@@ -77,19 +77,25 @@ describe("notify body (0.13.0 fields)", () => {
     expect(r.state).toBe("waiting")
   })
 
-  it("refuses malformed fields", () => {
+  it("refuses only a push it can't name; drops other malformed fields (review #6)", () => {
     const ok = { eventId: "e1", kind: "terminal" }
     expect(typeof parseNotify(ok)).toBe("object")
     expect(parseNotify({ ...ok, kind: "shell" })).toMatch(/kind/)
-    expect(parseNotify({ ...ok, permissionId: "has space" })).toMatch(/permissionId/)
-    expect(parseNotify({ ...ok, notificationId: "x".repeat(65) })).toMatch(/notificationId/)
-    expect(parseNotify({ ...ok, conversationId: 7 })).toMatch(/conversationId/)
-    expect(parseNotify({ ...ok, state: "sleeping" })).toMatch(/state/)
-    expect(parseNotify({ ...ok, options: "yes" })).toMatch(/options/)
-    expect(parseNotify({ ...ok, options: [{ label: "no id" }] })).toMatch(/options/)
-    expect(parseNotify({ ...ok, questions: [{ options: [] }] })).toMatch(/questions/)
-    expect(parseNotify({ ...ok, tail: [1, 2] })).toMatch(/tail/)
-    expect(parseNotify({ ...ok, title: 5 })).toMatch(/title/)
+    expect(parseNotify({ ...ok, eventId: "has space" })).toMatch(/eventId/)
+    for (const bad of [
+      { permissionId: "has space" },
+      { notificationId: "x".repeat(65) },
+      { conversationId: 7 },
+      { state: "sleeping" },
+      { options: "yes" },
+      { options: [{ label: "no id" }] },
+      { questions: [{ options: [] }] },
+      { tail: [1, 2] },
+      { title: 5 }
+    ]) {
+      const r = parseNotify({ ...ok, ...bad })
+      expect(typeof r, JSON.stringify(bad)).toBe("object")
+    }
   })
 })
 
@@ -141,7 +147,7 @@ describe("v2 APNs payload", () => {
     expect(alert({ kind: "failed", body: "rate limited", tail: ["x"] }).body).toBe("rate limited")
     expect(alert({ kind: "failed", tail: ["boom"] })).toMatchObject({ title: "Claude stopped with an error", body: "boom" })
     expect(alert({ kind: "chief", body: "Done: 3 PRs merged" })).toMatchObject({ title: "Chief", body: "Done: 3 PRs merged" })
-    expect(alert({ kind: "terminal", title: "Build done", body: "exit 0", workspace: "api" })).toEqual({ title: "Build done", subtitle: "api · Mac mini", body: "exit 0" })
+    expect(alert({ kind: "terminal", title: "Build done", body: "exit 0", workspace: "api" })).toEqual({ title: "Terminal · api", subtitle: "api · Mac mini", body: "Build done: exit 0" })
     // No content (a 0.11 host): the 0.11 banner, unchanged.
     expect(alert({ kind: "permission" })).toEqual({ title: "Claude needs permission", body: "cmux-next · Mac mini" })
   })
@@ -180,8 +186,8 @@ describe("v2 APNs payload", () => {
   })
 
   it("collapses a terminal notification per ledger id and keeps the turn rules", () => {
-    expect(collapseId({ eventId: "n-9", kind: "terminal", notificationId: "42" })).toBe("term-42")
-    expect(collapseId({ eventId: "n-9", kind: "terminal" })).toBe("n-9")
+    expect(collapseId({ eventId: "n-9", kind: "terminal", notificationId: "42", macId: MAC })).toMatch(/^term-[0-9a-f]{16}-42$/)
+    expect(collapseId({ eventId: "n-9", kind: "terminal", macId: MAC })).toBe("n-9")
     expect(collapseId({ eventId: "t-s1-t9", kind: "completed", sessionId: "s1" })).toBe("turn-s1")
     expect(collapseId({ eventId: "p-1", kind: "question", sessionId: "s1" })).toBe("p-1")
   })
@@ -252,7 +258,7 @@ describe("push registration settings (HTTP)", () => {
     await call("PUT", `/v1/devices/${phone}/push`, t, { token: HEX, environment: "sandbox", topic: "dev.cmux.mobile", kinds: ["question", "terminal"] })
     const r = await call("POST", `/v1/devices/${mac}/notify`, t, { eventId: "n-1", kind: "terminal", title: "Build done", notificationId: "7" })
     expect(r).toMatchObject({ status: 200, json: { configured: false, sent: 0, wants: ["question", "terminal"] } })
-    expect((await call("POST", `/v1/devices/${mac}/notify`, t, { eventId: "n-2", kind: "terminal", state: "nope" })).status).toBe(400)
+    expect((await call("POST", `/v1/devices/${mac}/notify`, t, { eventId: "n-2", kind: "terminal", state: "nope" })).status).toBe(200)
     await call("PUT", `/v1/devices/${phone}/push`, t, { token: HEX, environment: "sandbox", topic: "dev.cmux.mobile", mutedMacs: [mac] })
     expect((await call("POST", `/v1/devices/${mac}/notify`, t, { eventId: "n-3", kind: "terminal" })).json.wants).toEqual([])
   })
