@@ -3,7 +3,13 @@
 // the composer's two looks (composerLook.ts), Claude's then Codex's; they show on every New Tab page.
 // With the style dots widget on (newtab/pageWidgets.ts, off by default on Minimal, always on the
 // other styles) the page's other styles follow them, as the style switch had them (templates.ts).
-import { COMPOSER_LOOK_NAMES, COMPOSER_LOOKS, setComposerLook, useComposerLook, type ComposerLook } from "../composerLook";
+import {
+  COMPOSER_LOOK_NAMES,
+  COMPOSER_LOOKS,
+  setComposerLook,
+  useComposerLook,
+  type ComposerLook,
+} from "../composerLook";
 import { useNt } from "./strings";
 import { DotSwitch } from "./StyleSwitch";
 import { PAGE_STYLES, pageStyle, pickNewTabStyle, type NewTabTemplate, type PageStyle } from "./templates";
