@@ -56,6 +56,11 @@ struct AgentReplyPullRequestsTests {
 
     private static func calls(_ gh: String) -> Int { callLines(gh).count }
 
+    /// How many pull requests every `gh api graphql` call of this rig asked about.
+    private static func asked(_ gh: String) -> Int {
+        callLines(gh).reduce(0) { $0 + $1.components(separatedBy: "pullRequest(number:").count - 1 }
+    }
+
     @Test func readsThePullRequestByItsLink() async throws {
         let gh = try Self.rig()
         let read = try #require(await AgentChatPullRequestReader(gh: gh).read(url: Self.url))
@@ -108,7 +113,7 @@ struct AgentReplyPullRequestsTests {
 
     /// The links a reply shows are read when the page inspects them, so the data is there before
     /// a card opens — and all of them in one GraphQL read, not one `gh pr view` each. A reply
-    /// full of pull request links must cost GitHub one call, not sixteen.
+    /// full of pull request links must cost GitHub one call, not one per link.
     @Test func aReplysLinksAreOneBatchedRead() async throws {
         let gh = try Self.rig()
         let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh))
@@ -188,14 +193,23 @@ struct AgentReplyPullRequestsTests {
         #expect(query.contains("commits(last: 1)"))
         #expect(query.contains("files(first: 100)"))
         #expect(query.contains("labels(first: \(AgentPanePullRequest.maximumLabels))"))
+        // Every context carries the run it came from, on the head's rollup as well as the base's:
+        // `AgentPanePullRequest.identity` matches a head check against a base one by its workflow
+        // as well as its name, so trimming these fields would quietly degrade the match to the
+        // name alone and excuse a red of one workflow with a same-named red of another.
+        #expect(query.components(separatedBy: "checkSuite { workflowRun { databaseId workflow { databaseId name } } }").count == 3,
+                "the run fields belong to both rollups the query reads")
+        // And the base branch's tip is read beside the head's, which is what "also red on base"
+        // compares against.
+        #expect(query.contains("baseRef { target { ... on Commit { statusCheckRollup {"))
     }
 
-    /// Replies full of links cannot grow the cache without bound: a batch records up to sixteen
-    /// links at once, so dropping one per read left ``AgentReplyPullRequests/maximumKept`` behind.
+    /// Replies full of links cannot grow the cache without bound: a batch records a whole host
+    /// request at once, so dropping one per read left ``AgentReplyPullRequests/maximumKept`` behind.
     @Test func manyRepliesLeaveTheCacheAtItsBound() async throws {
         let gh = try Self.rig()
         let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh))
-        // Twenty replies of sixteen links each: 320 links through a cache that keeps 200.
+        // Twenty requests of a full bound each, through a cache that keeps 200.
         let size = AgentReplyPullRequests.maximumRegistered
         for reply in 0..<20 {
             let batch = (0..<size).compactMap { URL(string: "https://github.com/o/r/pull/\(100 + reply * size + $0)") }
@@ -212,12 +226,36 @@ struct AgentReplyPullRequestsTests {
     @Test func oneHostRequestPrefetchesAtMostItsBound() async throws {
         let gh = try Self.rig()
         let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh))
-        let many = (1...40).compactMap { URL(string: "https://github.com/o/r/pull/\($0)") }
+        let bound = AgentReplyPullRequests.maximumRegistered
+        let many = (1...(bound + 10)).compactMap { URL(string: "https://github.com/o/r/pull/\($0)") }
         pullRequests.register(many)
-        // Awaits the one batch the register started, whatever it answered for this link.
+        // Awaits the register's read, whatever it answered for this link.
         _ = await pullRequests.read(many[0])
-        #expect(Self.calls(gh) == 1)
-        let asked = Self.callLines(gh).first?.components(separatedBy: "pullRequest(number:").count ?? 0
-        #expect(asked - 1 == AgentReplyPullRequests.maximumRegistered)
+        #expect(Self.asked(gh) == bound)
+    }
+
+    /// Every link of one host request is prefetched, so no card is left to read its own.
+    ///
+    /// The page gathers its chips' links across every reply and asks for them in one
+    /// `link.inspect` (``AgentPaneReplyRequest/maximumInspect``), so a bound below that number was
+    /// a bound on the page, not on the reply: in a chat with more pull request links than it, the
+    /// ones past it cost a read each when a card opened them. Covering the whole request costs one
+    /// more batched read (64 links at ``AgentChatPullRequestReader/batchSize`` 50 is two), which is
+    /// two calls to GitHub for a page instead of one call per card.
+    @Test func everyLinkOfOneHostRequestIsPrefetched() async throws {
+        let gh = try Self.rig()
+        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh))
+        let whole = (1...AgentPaneReplyRequest.maximumInspect).compactMap {
+            URL(string: "https://github.com/o/r/pull/\($0)")
+        }
+        pullRequests.register(whole)
+        _ = await pullRequests.read(whole[0])
+        #expect(Self.asked(gh) == AgentPaneReplyRequest.maximumInspect, "the whole request, not a prefix of it")
+        let batches = (AgentPaneReplyRequest.maximumInspect + AgentChatPullRequestReader.batchSize - 1)
+            / AgentChatPullRequestReader.batchSize
+        #expect(Self.calls(gh) == batches, "and in batched reads, never one call per link")
+        // The card of the last link of the request waits on nothing and costs no further call.
+        #expect(pullRequests.answer(whole[whole.count - 1]).reading == false)
+        #expect(Self.calls(gh) == batches)
     }
 }

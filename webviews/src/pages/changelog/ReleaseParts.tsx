@@ -12,7 +12,7 @@ import { cardVersion } from "./UpdateSurfaces";
 export interface PartsContext {
   strings: Strings;
   onTry: (action: string) => void;
-  /** Each change with a picture shows it under its row (the Ledger: a visual per feature). */
+  /** Each change is a wide row with its whole description and its picture beside it (the Ledger). */
   rowMedia?: boolean;
 }
 
@@ -69,11 +69,12 @@ export function ItemActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContex
   );
 }
 
-/** Try it and Learn more for one grouped change, kept with its title and summary. */
+/** Try it and Learn more for one grouped change, kept with its title and summary. A span: the
+    Ledger puts it inside a paragraph, where a div is invalid. */
 export function RowActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContext }) {
   if (!item.action && !item.docs) return null;
   return (
-    <div className="cl-row-actions">
+    <span className="cl-row-actions">
       {item.action && (
         <button type="button" className="cl-row-action" onClick={() => ctx.onTry(item.action!.id)}>
           {item.action.title || ctx.strings.t("changelog.page.tryIt")}
@@ -89,7 +90,7 @@ export function RowActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContext
           {ctx.strings.t("changelog.page.learnMore")}
         </a>
       )}
-    </div>
+    </span>
   );
 }
 
@@ -149,16 +150,19 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
     <section className="cl-group" aria-label={categoryLabel(ctx.strings, category)}>
       <h3>{categoryLabel(ctx.strings, category)}</h3>
       <ul>
-        {shown.map((item, index) => (
-          <li key={`${item.id}-${index}`}>
-            <span className="cl-row-text">
-              <span className="cl-row-title">{item.title}</span>
-              {item.summary && <span className="cl-row-summary"> {item.summary.split(/\n{2,}/)[0]}</span>}
-              {ctx.rowMedia && item.media && <Media media={item.media} className="cl-row-media" />}
-            </span>
-            <RowActions item={item} ctx={ctx} />
-          </li>
-        ))}
+        {shown.map((item, index) =>
+          ctx.rowMedia ? (
+            <WideRow key={`${item.id}-${index}`} item={item} ctx={ctx} />
+          ) : (
+            <li key={`${item.id}-${index}`}>
+              <span className="cl-row-text">
+                <span className="cl-row-title">{item.title}</span>
+                {item.summary && <span className="cl-row-summary"> {item.summary.split(/\n{2,}/)[0]}</span>}
+              </span>
+              <RowActions item={item} ctx={ctx} />
+            </li>
+          ),
+        )}
       </ul>
       {!all && items.length > GROUP_PAGE && (
         <button type="button" className="cl-more" onClick={() => setAll(true)}>
@@ -166,6 +170,29 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
         </button>
       )}
     </section>
+  );
+}
+
+/** A change in the Ledger, which uses the pane's width: its title, then its whole description, and
+    its picture beside them when the pane has room (under them when it does not). Its actions end
+    the last line (#21185: a box of their own would leave an empty line under every row). */
+function WideRow({ item, ctx }: { item: ReleaseItem; ctx: PartsContext }) {
+  const paragraphs = item.summary.split(/\n{2,}/).filter(Boolean);
+  const actions = <RowActions item={item} ctx={ctx} />;
+  return (
+    <li className={item.media ? "cl-wide-row cl-has-media" : "cl-wide-row"}>
+      <div className="cl-row-text">
+        <span className="cl-row-title">{item.title}</span>
+        {paragraphs.length === 0 && actions}
+        {paragraphs.map((p, i) => (
+          <p key={i} className="cl-row-summary">
+            {p}
+            {i === paragraphs.length - 1 && actions}
+          </p>
+        ))}
+      </div>
+      {item.media && <Media media={item.media} className="cl-row-media" />}
+    </li>
   );
 }
 
@@ -239,9 +266,11 @@ function ChangeList({ changes }: { changes: ChangeItem[] }) {
 
 const CHANGES_PAGE = 20;
 
-/** The nightly reels of `builds` (in their order, newest first), one card each: a link to the
-    video, which opens as links do (the host's link setting). Only an https reel is shown. */
-export function ReelCards({
+/** The span's nightly reels as ONE player (Leo 2026-10-21: one reel inline, not a row per
+    nightly): the newest reel plays in place, muted with controls, and a row of nightly chips picks
+    another. Under it a link opens the video as links do (the host's link setting), which is also
+    all that shows when the video cannot play here. Only an https reel is shown. */
+export function ReelPlayer({
   builds,
   reels,
   strings,
@@ -250,15 +279,49 @@ export function ReelCards({
   reels: Record<string, string>;
   strings: Strings;
 }) {
+  const [picked, setPicked] = useState<string | undefined>();
+  const [broken, setBroken] = useState<ReadonlySet<string>>(() => new Set());
   const shown = builds.filter((b) => reels[b.build]?.startsWith("https://"));
-  if (shown.length === 0) return null;
+  const current = shown.find((b) => b.build === picked) ?? shown[0];
+  if (!current) return null;
+  const url = reels[current.build]!;
+  const label = strings.format("changelog.page.watchReel", cardVersion(current.shortVersion));
   return (
-    <div className="cl-reels">
-      {shown.map((b) => (
-        <a key={b.build} className="cl-reel" href={reels[b.build]} rel="noreferrer">
-          {strings.format("changelog.page.watchReel", cardVersion(b.shortVersion))}
+    <div className="cl-reel-player">
+      {!broken.has(url) && (
+        <figure className="cl-media cl-reel-video">
+          <video
+            key={url}
+            src={url}
+            aria-label={label}
+            controls
+            muted
+            playsInline
+            preload="metadata"
+            onError={() => setBroken((set) => new Set(set).add(url))}
+          />
+        </figure>
+      )}
+      <div className="cl-reel-bar">
+        {shown.length > 1 && (
+          <div className="cl-reel-picker">
+            {shown.map((b) => (
+              <button
+                key={b.build}
+                type="button"
+                className="cl-reel-chip"
+                aria-pressed={b === current}
+                onClick={() => setPicked(b.build)}
+              >
+                {cardVersion(b.shortVersion)}
+              </button>
+            ))}
+          </div>
+        )}
+        <a className="cl-reel" href={url} rel="noreferrer">
+          {label}
         </a>
-      ))}
+      </div>
     </div>
   );
 }

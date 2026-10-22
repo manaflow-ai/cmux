@@ -39,6 +39,9 @@ pub struct QueuedPrompt {
     pub(super) joined: Arc<StdMutex<Option<super::digest::Joined>>>,
     /// Put back once after a failed turn of agent messages (`requeue_joined`): not again.
     pub(super) requeued: bool,
+    /// Times a hold let it go by itself (`digest.rs` `retry_held_agent_messages`): the next
+    /// hold waits longer.
+    pub(super) retries: usize,
 }
 
 /// A queued prompt and the rules it runs under.
@@ -285,6 +288,7 @@ impl Hub {
                 sent_now: false,
                 joined: joined.clone(),
                 requeued: false,
+                retries: 0,
             },
         );
         let order: Vec<String> = queue.iter().map(|q| q.prompt_id.clone()).collect();
@@ -376,9 +380,10 @@ impl Hub {
     }
 
     /// A failed turn holds the prompts that waited behind it: they were written for a turn that
-    /// went well. They wait until a client resumes them (`resume_queue`) or sends one now
-    /// (`put_next`); a prompt sent meanwhile runs ahead of them.
-    pub(super) fn pause_queue(&self, session: &Arc<Session>, turn_id: &str) {
+    /// went well. The person's wait until a client resumes them (`resume_queue`) or sends one now
+    /// (`put_next`); a prompt sent meanwhile runs ahead of them. Agent messages go in again by
+    /// themselves (`digest.rs` `retry_held_agent_messages`).
+    pub(super) fn pause_queue(self: &Arc<Self>, session: &Arc<Session>, turn_id: &str) {
         let held: Vec<String> = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             queue
@@ -392,6 +397,7 @@ impl Hub {
         };
         if !held.is_empty() {
             self.append(session, "mux", "queue_paused", json!({"turnId": turn_id, "held": held}));
+            self.retry_held_agent_messages(session);
         }
     }
 
@@ -716,6 +722,7 @@ impl Hub {
                 sent_now: false,
                 joined: Arc::new(StdMutex::new(None)),
                 requeued: e.msg.get("requeued") == Some(&Value::Bool(true)),
+                retries: 0,
             });
             session.queued.fetch_add(1, Ordering::SeqCst);
             ledger.push_back((prompt_id, Arc::new(tokio::sync::watch::channel(None).0)));
@@ -729,6 +736,8 @@ impl Hub {
         // And what a resumed agent pair still held when the daemon stopped (`agent_pairs.rs`).
         self.resume_agent_pair_drains();
         for session in self.sessions() {
+            // Agent messages a failed turn held before the restart go in again by themselves.
+            self.retry_held_agent_messages(&session);
             let restored: Vec<QueuedPrompt> = session
                 .queue
                 .lock()
