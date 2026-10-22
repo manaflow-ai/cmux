@@ -11,6 +11,11 @@ public protocol AppSceneInteraction: AnyObject {
 /// The observable mirror of one mounted contribution, for `AppSceneView`.
 /// Written only by the supervisor's scene stream for the mount (`apps-scene`);
 /// hover and press stay in the views.
+///
+/// Views observe one ``AppSceneNodeSlot`` per node, never the whole scene: a batch
+/// re-renders only the nodes it touched (a custom sidebar's one-row update costs one row at
+/// any row count, plans/cmux-next/custom-sidebar-DESIGN.md). Whole-scene readers observe
+/// `revision`.
 @MainActor
 @Observable
 public final class AppSceneModel {
@@ -24,8 +29,15 @@ public final class AppSceneModel {
         case disconnected(String)
     }
 
-    public private(set) var scene = AppScene()
+    /// The current scene. Not observed: views read their node's slot, whole-scene readers
+    /// observe `revision`.
+    @ObservationIgnored public private(set) var scene = AppScene()
+    /// Bumped once per batch that changed the scene.
+    public private(set) var revision = 0
+    /// The root node's id.
+    public private(set) var root: String?
     public var status: Status = .loading
+    @ObservationIgnored private var slots: [String: AppSceneNodeSlot] = [:]
     public weak var interaction: (any AppSceneInteraction)?
 
     public init(status: Status = .loading) {
@@ -35,7 +47,13 @@ public final class AppSceneModel {
     /// Applies one batch; a budget refusal fails the mount (the runtime
     /// itself refuses to emit past its budgets, so this means a bad VM).
     public func apply(_ ops: [AppSceneOp]) {
-        let issues = scene.apply(ops)
+        var touched = Set<String>()
+        let issues = scene.apply(ops, touched: &touched)
+        if scene.root != root { root = scene.root }
+        if !touched.isEmpty {
+            revision &+= 1
+            refreshSlots(touched)
+        }
         if let issue = issues.first {
             switch issue {
             case .nodeBudget: status = .failed("app.limit: more than \(AppScene.maxNodes) scene nodes")
@@ -49,7 +67,40 @@ public final class AppSceneModel {
 
     public func reset() {
         scene = AppScene()
+        root = nil
+        revision &+= 1
+        for slot in slots.values { slot.set(node: nil, children: []) }
+        slots.removeAll()
         status = .loading
+    }
+
+    /// The observable view of node `id` (created on first read; the node may not exist yet).
+    public func slot(_ id: String) -> AppSceneNodeSlot {
+        if let slot = slots[id] { return slot }
+        let slot = AppSceneNodeSlot(node: scene[id], children: scene.flattenedChildren(of: id))
+        slots[id] = slot
+        return slot
+    }
+
+    /// Writes the slots of the touched nodes, plus the parents that lay a touched inline node's
+    /// children out in place (a ForEach's new order changes its stack's flattened children).
+    private func refreshSlots(_ touched: Set<String>) {
+        var dirty = touched
+        for id in touched {
+            var current = id
+            while scene[current]?.type.isInline == true, let up = scene.parent(of: current), dirty.insert(up).inserted {
+                current = up
+            }
+        }
+        for id in dirty {
+            guard let slot = slots[id] else { continue }
+            guard let node = scene[id] else {
+                slot.set(node: nil, children: [])
+                slots.removeValue(forKey: id)
+                continue
+            }
+            slot.set(node: node, children: scene.flattenedChildren(of: id))
+        }
     }
 
     func send(_ node: String, _ event: String, _ payload: AppJSON = .object([:])) {

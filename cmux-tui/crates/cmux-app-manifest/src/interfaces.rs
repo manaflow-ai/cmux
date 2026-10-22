@@ -28,6 +28,7 @@ interfaces! {
     "cmux.pane/1" => "cmux.pane",
     "cmux.search.provider/1" => "cmux.search.provider",
     "cmux.section/1" => "cmux.section",
+    "cmux.sidebar/1" => "cmux.sidebar",
     "cmux.sidebar.rows/1" => "cmux.sidebar.rows",
     "cmux.status/1" => "cmux.status",
     "cmux.terminal.backend/1" => "cmux.terminal.backend",

@@ -11,22 +11,24 @@ struct AppSceneNodeView: View {
     let id: String
 
     var body: some View {
-        if let node = model.scene[id] {
-            content(node).modifier(AppSceneDecorations(model: model, id: id, node: node))
+        // The node's own slot: this view re-renders only when a batch touched its node.
+        let slot = model.slot(id)
+        if let node = slot.node {
+            content(node, children: slot.children).modifier(AppSceneDecorations(model: model, id: id, node: node))
         }
     }
 
     @ViewBuilder
-    private func content(_ node: AppSceneNode) -> some View {
+    private func content(_ node: AppSceneNode, children list: [String]) -> some View {
         switch node.type {
         case .vStack, .group, .forEach, .reorderable:
-            VStack(alignment: AppSceneStyle.alignment(node), spacing: node.number("spacing").map { CGFloat($0) } ?? 0) { children(node) }
+            VStack(alignment: AppSceneStyle.alignment(node), spacing: node.number("spacing").map { CGFloat($0) } ?? 0) { children(list) }
         case .lazyVStack:
-            LazyVStack(alignment: AppSceneStyle.alignment(node), spacing: node.number("spacing").map { CGFloat($0) } ?? 0) { children(node) }
+            LazyVStack(alignment: AppSceneStyle.alignment(node), spacing: node.number("spacing").map { CGFloat($0) } ?? 0) { children(list) }
         case .hStack:
-            HStack(spacing: node.number("spacing").map { CGFloat($0) } ?? Metrics.space2) { children(node) }
+            HStack(spacing: node.number("spacing").map { CGFloat($0) } ?? Metrics.space2) { children(list) }
         case .zStack:
-            ZStack { children(node) }
+            ZStack { children(list) }
         case .text:
             Text(node.string("text") ?? "")
                 .font(AppSceneStyle.font(node))
@@ -40,7 +42,7 @@ struct AppSceneNodeView: View {
         case .image:
             AppSceneBundleImage(path: node.string("src"))
         case .button:
-            AppSceneButton(model: model, id: id, node: node) { AnyView(children(node)) }
+            AppSceneButton(model: model, id: id, node: node) { AnyView(children(list)) }
         case .menu:
             AppSceneMenuButton(model: model, id: id, node: node)
         case .spacer:
@@ -66,8 +68,8 @@ struct AppSceneNodeView: View {
         }
     }
 
-    private func children(_ node: AppSceneNode) -> some View {
-        ForEach(model.scene.flattenedChildren(of: id), id: \.self) { child in
+    private func children(_ list: [String]) -> some View {
+        ForEach(list, id: \.self) { child in
             AppSceneNodeView(model: model, id: child)
         }
     }

@@ -7,12 +7,15 @@ public import Observation
 /// 2026-10-14: the app platform is the engine). The app that implements `cmux.hovercard/1` draws
 /// the hover card of the row it gets as `ctx.target`; the one that implements
 /// `cmux.sidebar.rows/1` decorates rows. The user's own folder app (`local/customize`) wins over
-/// any other. Scripts run in the daemon's sandboxed app host; this only mounts and hosts.
+/// any other. The one that implements `cmux.sidebar/1` replaces the workspace list
+/// (plans/cmux-next/custom-sidebar-DESIGN.md); without it nothing mounts and nothing is
+/// observed. Scripts run in the daemon's sandboxed app host; this only mounts and hosts.
 @MainActor
 @Observable
 public final class SidebarCustomizationService: SidebarCustomization {
     static let hoverCardInterface = "cmux.hovercard/1"
     static let rowsInterface = "cmux.sidebar.rows/1"
+    static let sidebarInterface = "cmux.sidebar/1"
     static let userApp = "local/customize"
 
     @ObservationIgnored private let client: AppsClient
@@ -35,6 +38,17 @@ public final class SidebarCustomizationService: SidebarCustomization {
                 self?.mountRows(key.value)
             }
         }
+    }
+
+    /// `app#implementation@version` of the user's custom sidebar (`cmux.sidebar/1`); nil with no
+    /// script. Observable: a window's sidebar mounts its own when it appears and remounts when it
+    /// changes. Nothing is mounted or watched here, so no script costs nothing.
+    public var customSidebarKey: String? { implementationKey(Self.sidebarInterface) }
+
+    /// Mounts the custom sidebar for one window's list; nil with no script. The caller releases it.
+    public func makeCustomSidebar() -> (any SidebarCustomContent)? {
+        guard let (app, found) = implementation(Self.sidebarInterface) else { return nil }
+        return AppCustomSidebarContent(mount: client.mount(app, implementation: found, surface: "customSidebar"), client: client)
     }
 
     /// The user's own app (`local/customize`) when it implements `interface`. Only it may redraw
@@ -88,8 +102,8 @@ public final class SidebarCustomizationService: SidebarCustomization {
         let model = mount.model
         // task-owner: one watch per rows mount, cancelled when it remounts.
         sceneWatch = Task { [weak self] in
-            for await scene in ObservationStream({ model.scene }) {
-                self?.setDecorations(Self.decorations(scene))
+            for await _ in ObservationStream({ model.revision }) {
+                self?.setDecorations(Self.decorations(model.scene))
             }
         }
     }
@@ -129,7 +143,7 @@ final class AppHoverCardContent: SidebarCustomContent {
         let model = mount.model
         // task-owner: lives while the card shows; release() cancels it.
         watch = Task { [weak self] in
-            for await _ in ObservationStream({ (model.status, model.scene) }) {
+            for await _ in ObservationStream({ (model.status, model.revision) }) {
                 self?.onChange?()
             }
         }
