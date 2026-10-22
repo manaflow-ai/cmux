@@ -172,6 +172,11 @@ macro_rules! home_rule {
   sign in a harness, add a machine, ...), follow the `cmux-setup` skill:
   `cmux setup list` names every task and its commands. Do it yourself and
   hand the user only a sign-in, a secret or a macOS switch.
+- Adoption: when the user mentions their phone or being away from the desk,
+  another computer (a Mac, a Linux server), Tailscale, or asks what else
+  cmux can do, follow the `cmux-adoption` skill: check their setup first,
+  then offer the one step that fits (the iPhone app and pairing, cmux on the
+  other computer joined over Tailscale), once, in plain words.
 - Skills: `~/.cmux/chief/skills/<name>/SKILL.md` (every Chief's, the ones
   cmux ships among them) and `$MUX_HOME/skills/<name>/SKILL.md` (yours; it
   wins by name). Read a skill's SKILL.md before you do what its
@@ -235,7 +240,12 @@ macro_rules! link_rule {
   also link the tab itself, `[short name](cmux://tab/tab_…)`, with the `tab_…`
   id from the call that opened it (or `cmux --json tab list`). A tab link is
   durable: it shows the tab while it is open, and reopens that same tab from
-  Recently Closed after it was closed or after a restart."
+  Recently Closed after it was closed or after a restart.
+- Cloud groups: link one as `[short name](cmux://group/grp_…)` (or
+  `cmux://group/grp_…/workspace/ws_…`) only with an id you read back this
+  turn from cmux Cloud's `group.get` or `group.list` (cmux Cloud makes the
+  id; never write one from memory or a title). The link opens on
+  every Mac, the iPhone and every Chief, also while this Mac sleeps."
     };
 }
 
