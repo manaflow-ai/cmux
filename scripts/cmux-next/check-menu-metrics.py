@@ -12,7 +12,10 @@ separator or strip, the style or layout type that holds a menu's metrics, or an 
   highlight's radius;
 - a highlight drawn at its own inset (`bounds.insetBy(dx: 5`);
 - a row laid out at its own x (`NSRect(x: 3`, `NSPoint(x: 10`) or with its own leading or trailing
-  constraint constant (`leadingAnchor, constant: Metrics.space3`).
+  constraint constant (`leadingAnchor, constant: Metrics.space3`); a constant read from a row's
+  `layout` (`PopupRowView.Layout`, whose defaults this check holds to MenuMetrics) is the grid's.
+
+A zero (no inset at all) is no metric of its own.
 
 Files still on their own grid are listed in DEBT; the list only shrinks. Run from anywhere:
 
@@ -22,24 +25,16 @@ import os, re, sys
 
 SOURCES = "Packages/macOS/CmuxNext/Sources"
 # Menus not yet on the grid: each moves to MenuMetrics in its own follow-up and leaves this list.
-DEBT = {
-    "CmuxNextSidebar/Views/GroupEditor/SidebarGroupEditorControls.swift",
-    "CmuxNextTabs/Groups/Editor/TabGroupEditorControls.swift",
-    "CmuxNextPalette/PaletteActionsMenuView.swift",
-    "CmuxNextDesign/Overlay/PopupRowView.swift",
-    "CmuxNextDesign/Overlay/WebPopupHost.swift",
-    "CmuxNextDesign/PopupStyle.swift",
-    "CmuxNextBrowser/UI/ExtensionsMenu/ExtensionsMenuStyle.swift",
-}
+DEBT = set()
 SURFACE = re.compile(r"\b(?:class|struct|enum|extension)\s+(\w*(?:Menu|Popup|Picker)\w*(?:Row|Item|Header|Separator|Strip|Style|Layout|Metrics)\w*|\w*EditorRow)\b")
 NUMBER = r"-?\d+(?:\.\d+)?"
 HORIZONTAL = r"\w*(?:[a-z]X|[Ii]nset|[Pp]adding|[Ll]eading|[Tt]railing|[Ii]ndent|[Mm]argin|(?:[Hh]ighlight|[Rr]ow)\w*Radius)\w*"
 RULES = [
-    (re.compile(r"\b(?:let|var)\s+(" + HORIZONTAL + r")\s*(?::\s*CGFloat)?\s*=\s*" + NUMBER + r"\b"),
+    (re.compile(r"\b(?:let|var)\s+(" + HORIZONTAL + r")\s*(?::\s*CGFloat)?\s*=\s*(?!0\b)" + NUMBER + r"\b"),
      "declares its own horizontal metric"),
     (re.compile(r"\bbounds\.insetBy\(dx:\s*" + NUMBER + r"\b"), "draws its highlight at its own inset"),
     (re.compile(r"\bNS(?:Rect|Point)\(x:\s*(?!0\b)" + NUMBER + r"\b"), "places a row part at its own x"),
-    (re.compile(r"(?:leading|trailing)Anchor\b[^\n]*\bconstant:\s*(?![^\n]*MenuMetrics)[^\s)]"),
+    (re.compile(r"(?:leading|trailing)Anchor\b[^\n]*\bconstant:\s*(?![^\n]*(?:MenuMetrics|\blayout\.))[^\s)]"),
      "lays out a row with its own leading or trailing constant"),
 ]
 

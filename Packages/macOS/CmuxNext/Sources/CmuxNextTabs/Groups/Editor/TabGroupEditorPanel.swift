@@ -45,7 +45,7 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     var onClose: (() -> Void)?
 
     private let nameField = NSTextField()
-    private let field = NSView()
+    let field = NSView()
     /// The bubble's material: glass, or opaque under Reduce Transparency.
     private(set) var glass: OverlaySurfaceView?
     private var swatches: [TabGroupSwatchView] = []
@@ -101,12 +101,18 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
             return swatch
         }
         customSwatch.onPress = { [weak self] in self?.pickCustom() }
-        let swatchRow = NSStackView(views: swatches + [customSwatch])
-        swatchRow.spacing = Metrics.space2
-        swatchRow.distribution = .equalSpacing
+        let dots = NSStackView(views: swatches + [customSwatch])
+        dots.spacing = Metrics.space2
+        dots.distribution = .equalSpacing
+        // On the menu grid (MenuMetrics), as the right-click menu's header: the first swatch's color
+        // on the rows' text column (the icon column, as no row has an icon), the separator at the
+        // menus' separator inset. The stack starts at the highlight inset.
+        let swatchRow = dots.inMenuGridBox(leading: MenuMetrics.iconX - MenuMetrics.highlightInset - TabGroupSwatchView.ringRoom, trailing: 0)
 
-        let separator = HairlineView()
-        separator.heightAnchor.constraint(equalToConstant: 1).isActive = true
+        let line = HairlineView()
+        line.heightAnchor.constraint(equalToConstant: 1).isActive = true
+        let separatorX = MenuMetrics.separatorInset - MenuMetrics.highlightInset
+        let separator = line.inMenuGridBox(leading: separatorX, trailing: separatorX)
 
         let save = row(Strings.editorSave) { [weak self] group in group.isSaved ? .unsave(group.id) : .save(group.id) }
         saveRow = save
@@ -129,8 +135,8 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         let p = Metrics.space5
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: content.topAnchor, constant: p),
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p),
-            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: MenuMetrics.highlightInset),
+            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -MenuMetrics.highlightInset),
             stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -p),
             field.heightAnchor.constraint(equalToConstant: Metrics.controlHeight),
             nameField.leadingAnchor.constraint(equalTo: field.leadingAnchor, constant: Metrics.space4),

@@ -39,7 +39,7 @@ final class ExtensionsMenuItemView: NSView {
         self.style = style
         primary = ExtensionsMenuHoverButton(
             image: icon, imageSize: style.extensionIcon, imageBox: style.extensionIconBox, title: info.name, detail: true,
-            insets: NSEdgeInsets(top: 0, left: style.rowInset, bottom: 0, right: style.rowInset),
+            insets: NSEdgeInsets(top: 0, left: style.rowInset, bottom: 0, right: style.rowTrailingInset),
             style: style, tint: nil
         )
         let square = (style.squareButton - style.buttonIcon) / 2
@@ -131,7 +131,7 @@ final class ExtensionsMenuItemView: NSView {
         super.layout()
         let square = style.squareButton
         let y = (bounds.height - square) / 2
-        var trailing = bounds.width - (style.rowInset - (square - style.buttonIcon) / 2)
+        var trailing = bounds.width - (style.rowTrailingInset - (square - style.buttonIcon) / 2)
         for button in [moreButton, pinButton, sidePanelButton] where !button.isHidden {
             trailing -= square
             button.frame = NSRect(x: trailing, y: y, width: square, height: square)

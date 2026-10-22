@@ -17,7 +17,7 @@ final class PaletteActionsMenuView: NSView {
     private let filter = PaletteText.label(Typography.body, tone: .tertiary)
     /// Shown in the one row a filter that matches nothing keeps, instead of a blank row.
     private let empty = PaletteText.label(Typography.body, tone: .tertiary)
-    private let separator = NSView()
+    let separator = NSView()
     private var rowViews: [PaletteMenuRow] = []
 
     override init(frame: NSRect) {
@@ -73,27 +73,31 @@ final class PaletteActionsMenuView: NSView {
         super.layout()
         glass.frame = bounds
         content.frame = CGRect(origin: .zero, size: glass.bounds.size)
-        let inset = Metrics.space2
-        let padding = PaletteLayout.horizontalPadding
+        // On the menu grid (MenuMetrics): the rows span the highlight; the title, the empty row and
+        // the filter take the rows' text column.
+        let inset = MenuMetrics.highlightInset
+        let textX = MenuMetrics.textX(iconColumn: true)
+        let textWidth = max(0, bounds.width - textX - MenuMetrics.trailing)
         var y = Metrics.space4
         let titleHeight = PaletteText.height(title)
-        title.frame = content.pixelAligned(NSRect(x: padding, y: y, width: bounds.width - 2 * padding, height: titleHeight))
+        title.frame = content.pixelAligned(NSRect(x: textX, y: y, width: textWidth, height: titleHeight))
         y = Metrics.space4 + PaletteLayout.headerRowHeight
         let emptyHeight = PaletteText.height(empty)
-        empty.frame = content.pixelAligned(NSRect(x: padding, y: y + (PaletteLayout.actionsMenuRowHeight - emptyHeight) / 2,
-                                                  width: bounds.width - 2 * padding, height: emptyHeight))
+        empty.frame = content.pixelAligned(NSRect(x: textX, y: y + (PaletteLayout.actionsMenuRowHeight - emptyHeight) / 2,
+                                                  width: textWidth, height: emptyHeight))
         if rowViews.isEmpty { y += PaletteLayout.actionsMenuRowHeight }
         for row in rowViews {
             row.frame = NSRect(x: inset, y: y, width: bounds.width - 2 * inset, height: PaletteLayout.actionsMenuRowHeight)
             y += PaletteLayout.actionsMenuRowHeight
         }
         y += Metrics.space2
-        separator.frame = NSRect(x: 0, y: y, width: bounds.width, height: Metrics.dividerThickness)
+        separator.frame = NSRect(x: MenuMetrics.separatorInset, y: y, width: max(0, bounds.width - 2 * MenuMetrics.separatorInset),
+                                 height: Metrics.dividerThickness)
         applyColors()
         y += Metrics.dividerThickness
         let filterHeight = PaletteText.height(filter)
-        filter.frame = content.pixelAligned(NSRect(x: padding, y: y + (PaletteLayout.actionsMenuRowHeight - filterHeight) / 2,
-                                                   width: bounds.width - 2 * padding, height: filterHeight))
+        filter.frame = content.pixelAligned(NSRect(x: textX, y: y + (PaletteLayout.actionsMenuRowHeight - filterHeight) / 2,
+                                                   width: textWidth, height: filterHeight))
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -120,13 +124,14 @@ final class PaletteActionsMenuView: NSView {
     }
 }
 
-/// One command row in the Actions menu.
+/// One command row in the Actions menu, on the menu grid (MenuMetrics): the row spans the
+/// highlight, so its columns sit the highlight inset less in.
 final class PaletteMenuRow: NSView {
     var onPress: ((NSEvent) -> Void)?
     var onHover: (() -> Void)?
-    private let icon = NSImageView()
-    private let label = PaletteText.label(Typography.body)
-    private let keys = PaletteKeycapsView()
+    let icon = NSImageView()
+    let label = PaletteText.label(Typography.body)
+    let keys = PaletteKeycapsView()
     private let isSelected: Bool
 
     init(command: PaletteCommand, keycaps: [String]?, isSelected: Bool) {
@@ -168,7 +173,7 @@ final class PaletteMenuRow: NSView {
         guard isSelected else { return }
         performWithTheme {
             Palette.selectionFill.setFill()
-            NSBezierPath(roundedRect: bounds, xRadius: PaletteLayout.rowCornerRadius, yRadius: PaletteLayout.rowCornerRadius).fill()
+            NSBezierPath(roundedRect: bounds, xRadius: MenuMetrics.highlightRadius, yRadius: MenuMetrics.highlightRadius).fill()
         }
     }
 
@@ -188,17 +193,17 @@ final class PaletteMenuRow: NSView {
 
     override func layout() {
         super.layout()
-        let padding = Metrics.space4
-        let box = PaletteLayout.iconBox
-        icon.frame = NSRect(x: padding, y: (bounds.height - box) / 2, width: box, height: box)
-        var right = bounds.maxX - padding
+        let inset = MenuMetrics.highlightInset
+        let box = MenuMetrics.iconSize
+        icon.frame = NSRect(x: MenuMetrics.iconX - inset, y: (bounds.height - box) / 2, width: box, height: box)
+        var right = bounds.maxX - (MenuMetrics.trailing - inset)
         if !keys.isHidden {
             let size = keys.intrinsicContentSize
             right -= size.width
             keys.frame = pixelAligned(NSRect(x: right, y: (bounds.height - size.height) / 2, width: size.width, height: size.height))
-            right -= Metrics.space4
+            right -= MenuMetrics.shortcutGap
         }
-        let x = icon.frame.maxX + Metrics.space4
+        let x = MenuMetrics.textX(iconColumn: true) - inset
         let height = PaletteText.height(label)
         label.frame = pixelAligned(NSRect(x: x, y: (bounds.height - height) / 2, width: max(0, right - x), height: height))
     }

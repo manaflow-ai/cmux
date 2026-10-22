@@ -132,7 +132,7 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     var onClose: (() -> Void)?
 
     let nameField = NSTextField()
-    private let field = NSView()
+    let field = NSView()
     private(set) var swatches: [SidebarGroupSwatchView] = []
     /// After the palette dots, icon-only (cx-25az): a custom color and the emoji or icon picker.
     let customSwatch = GroupCustomSwatchView(label: GroupEditorStrings.customColor)
@@ -175,6 +175,9 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
 
     /// About the Chrome bubble's width at the sidebar's type size.
     static var width: CGFloat { Metrics.space6 * 15 }
+    /// The swatch row and the separators in the stack, which starts at the highlight inset.
+    static var dotsX: CGFloat { MenuMetrics.iconX - MenuMetrics.highlightInset - SidebarGroupSwatchView.ringRoom }
+    static var separatorX: CGFloat { MenuMetrics.separatorInset - MenuMetrics.highlightInset }
 
     private func build(in content: NSView) {
         nameField.placeholderString = GroupEditorStrings.namePlaceholder
@@ -207,14 +210,16 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         stack.spacing = Metrics.space1
         stack.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(stack)
+        // On the menu grid (MenuMetrics), as the group's right-click menu: the field's box and the
+        // rows' highlights span the stack, the highlight inset in from the bubble's edges.
         let p = Metrics.space4
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: content.topAnchor, constant: p),
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p),
-            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: MenuMetrics.highlightInset),
+            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -MenuMetrics.highlightInset),
             stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -p),
             field.heightAnchor.constraint(equalToConstant: Metrics.controlHeight),
-            stack.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.width - 2 * p),
+            stack.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.width - 2 * MenuMetrics.highlightInset),
             nameField.leadingAnchor.constraint(equalTo: field.leadingAnchor, constant: Metrics.space3),
             nameField.trailingAnchor.constraint(equalTo: field.trailingAnchor, constant: -Metrics.space3),
             nameField.centerYAnchor.constraint(equalTo: field.centerYAnchor),
@@ -227,23 +232,27 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         nameField.stringValue = group.name
         showChosen(group.tint)
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        let dots = NSStackView(views: swatches + [customSwatch, emojiButton])
-        dots.spacing = Metrics.space1
-        dots.distribution = .equalSpacing
+        let swatchRow = NSStackView(views: swatches + [customSwatch, emojiButton])
+        swatchRow.spacing = Metrics.space1
+        swatchRow.distribution = .equalSpacing
+        // The first dot's color on the rows' icon column, as in the right-click menu's header.
+        let dots = swatchRow.inMenuGridBox(leading: Self.dotsX, trailing: 0)
         var views: [NSView] = [dots]
         stack.addArrangedSubview(field)
         stack.addArrangedSubview(dots)
         stack.setCustomSpacing(Metrics.space3, after: field)
         var last: NSView = dots
+        let iconColumn = items.joined().contains { $0.icon != nil }
         for section in items where !section.isEmpty {
-            let separator = HairlineView()
-            separator.heightAnchor.constraint(equalToConstant: 1).isActive = true
+            let line = HairlineView()
+            line.heightAnchor.constraint(equalToConstant: 1).isActive = true
+            let separator = line.inMenuGridBox(leading: Self.separatorX, trailing: Self.separatorX)
             stack.setCustomSpacing(Metrics.space3, after: last)
             stack.addArrangedSubview(separator)
             stack.setCustomSpacing(Metrics.space2, after: separator)
             views.append(separator)
             for item in section {
-                let row = SidebarGroupEditorRow(item)
+                let row = SidebarGroupEditorRow(item, iconColumn: iconColumn)
                 row.onPress = { [weak self] in self?.press(item.id) }
                 stack.addArrangedSubview(row)
                 views.append(row)

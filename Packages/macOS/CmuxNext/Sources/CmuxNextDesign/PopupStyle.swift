@@ -12,9 +12,10 @@ public struct PopupStyle: Sendable {
     public static let standard = PopupStyle()
 
     public let cornerRadius: CGFloat = 8
-    public let padding: CGFloat = 4
+    /// The rows' highlight inset and radius: the menu grid's (MenuMetrics), as every menu's.
+    public var padding: CGFloat { MenuMetrics.highlightInset }
     public let rowHeight: CGFloat = 28
-    public let rowCornerRadius: CGFloat = 5
+    public var rowCornerRadius: CGFloat { MenuMetrics.highlightRadius }
     public let openDuration: TimeInterval = 0.12
 
     /// The one popover shadow: the raised step of the elevation scale.

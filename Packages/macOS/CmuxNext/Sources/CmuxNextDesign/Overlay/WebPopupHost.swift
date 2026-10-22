@@ -226,8 +226,15 @@ final class WebPopupRows: NSView {
         self.items = items
         builtPlain = plain
         rows.forEach { $0.view.removeFromSuperview() }
+        // The menu grid's columns: a state column only when a row is checked, as a Mac menu keeps
+        // one (the layout's defaults); else the title where a menu's content starts. A tooltip has
+        // no check column.
         var layout = PopupRowView.Layout()
-        layout.leadingColumn = plain ? 1 : 15
+        layout.startsLeadingColumn = true
+        if plain || !items.contains(where: \.checked) {
+            layout.leading = MenuMetrics.textX(iconColumn: false) - style.padding
+            layout.leadingColumn = 0
+        }
         layout.hoverFills = false
         rows = items.map { item -> (item: WebPopupHost.Item, view: NSView) in
             guard !item.separator else { return (item, WebPopupSeparator()) }
@@ -275,12 +282,19 @@ final class WebPopupRows: NSView {
     }
 }
 
-/// A hairline between groups of a page menu's rows.
-private final class WebPopupSeparator: NSView {
+/// A hairline between groups of a page menu's rows, at the menus' separator inset (MenuMetrics; the
+/// view spans the rows, `PopupStyle.padding` in).
+final class WebPopupSeparator: NSView {
+    /// The line, in the view's bounds.
+    var line: NSRect {
+        let inset = MenuMetrics.separatorInset - PopupStyle.standard.padding
+        return NSRect(x: inset, y: bounds.midY.rounded(.down), width: max(0, bounds.width - 2 * inset), height: 1)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         performWithTheme {
             Palette.separator.setFill()
-            NSRect(x: 6, y: bounds.midY.rounded(.down), width: max(0, bounds.width - 12), height: 1).fill()
+            line.fill()
         }
     }
 }

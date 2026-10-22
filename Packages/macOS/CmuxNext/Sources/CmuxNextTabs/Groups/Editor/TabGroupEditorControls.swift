@@ -37,13 +37,16 @@ final class TabGroupSwatchView: NSView {
         return NSSize(width: side, height: side)
     }
 
+    /// The ring's room around the color: the swatch itself starts this far in.
+    static var ringRoom: CGFloat { Metrics.space1 + 1 }
+
     override func layout() {
         super.layout()
         let side = min(bounds.width, bounds.height)
         let outer = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
         ring.frame = outer
         ring.cornerRadius = side / 2
-        let inner = outer.insetBy(dx: Metrics.space1 + 1, dy: Metrics.space1 + 1)
+        let inner = outer.insetBy(dx: Self.ringRoom, dy: Self.ringRoom)
         fill.frame = inner
         fill.cornerRadius = inner.width / 2
         updateColors()
@@ -75,16 +78,17 @@ final class TabGroupSwatchView: NSView {
     }
 }
 
-/// A menu-like row in the group editor.
+/// A menu-like row in the group editor, on the menu grid (MenuMetrics): the row spans the
+/// highlight, and with no icon in the editor its title sits on the icon column.
 final class TabGroupEditorRow: NSView {
     var onPress: (() -> Void)?
-    private let label = ChromeLabel(labelWithString: "")
+    let label = ChromeLabel(labelWithString: "")
     private var isHovered = false { didSet { if oldValue != isHovered { updateColors(animated: window != nil) } } }
 
     init(title: String) {
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = Metrics.itemCornerRadius
+        layer?.cornerRadius = MenuMetrics.highlightRadius
         layer?.cornerCurve = .continuous
         label.font = Typography.body
         label.stringValue = title
@@ -93,8 +97,8 @@ final class TabGroupEditorRow: NSView {
         addSubview(label)
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: Metrics.sidebarRowHeight),
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.space4),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -Metrics.space4),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: MenuMetrics.textX(iconColumn: false) - MenuMetrics.highlightInset),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: MenuMetrics.highlightInset - MenuMetrics.trailing),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         setAccessibilityElement(true)

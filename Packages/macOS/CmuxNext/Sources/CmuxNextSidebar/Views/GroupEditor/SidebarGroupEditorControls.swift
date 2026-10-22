@@ -39,13 +39,16 @@ final class SidebarGroupSwatchView: NSView {
         return NSSize(width: side, height: side)
     }
 
+    /// The ring's room around the color: the dot itself starts this far in.
+    static var ringRoom: CGFloat { Metrics.space1 + 1 }
+
     override func layout() {
         super.layout()
         let side = min(bounds.width, bounds.height)
         let outer = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
         ring.frame = outer
         ring.cornerRadius = side / 2
-        let inner = outer.insetBy(dx: Metrics.space1 + 1, dy: Metrics.space1 + 1)
+        let inner = outer.insetBy(dx: Self.ringRoom, dy: Self.ringRoom)
         fill.frame = inner
         fill.cornerRadius = inner.width / 2
         updateColors()
@@ -81,20 +84,22 @@ final class SidebarGroupSwatchView: NSView {
 }
 
 /// A menu-like row of the group editor: an icon, the title and the
-/// action's shortcut, like a menu item.
+/// action's shortcut, like a menu item. On the menu grid (MenuMetrics): the
+/// row spans the highlight, so its columns sit the highlight inset less in.
 final class SidebarGroupEditorRow: NSView {
     var onPress: (() -> Void)?
     let item: SidebarGroupEditorItem
-    private let icon = DecorativeImageView() // the row's label names the action
-    private let label = ChromeLabel(labelWithString: "")
-    private let shortcut = ChromeLabel(labelWithString: "")
+    let icon = DecorativeImageView() // the row's label names the action
+    let label = ChromeLabel(labelWithString: "")
+    let shortcut = ChromeLabel(labelWithString: "")
     private var isHovered = false { didSet { if oldValue != isHovered { updateColors(animated: window != nil) } } }
 
-    init(_ item: SidebarGroupEditorItem) {
+    /// `iconColumn`: some row of the editor has an icon, so every title starts after the icon column.
+    init(_ item: SidebarGroupEditorItem, iconColumn: Bool) {
         self.item = item
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = Metrics.itemCornerRadius
+        layer?.cornerRadius = MenuMetrics.highlightRadius
         layer?.cornerCurve = .continuous
         label.font = Typography.body
         label.stringValue = item.title
@@ -110,13 +115,13 @@ final class SidebarGroupEditorRow: NSView {
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: Metrics.sidebarRowHeight),
-            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.space3),
+            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: MenuMetrics.iconX - MenuMetrics.highlightInset),
             icon.centerYAnchor.constraint(equalTo: centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: Metrics.iconSize),
-            label.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: Metrics.space3),
+            icon.widthAnchor.constraint(equalToConstant: MenuMetrics.iconSize),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: MenuMetrics.textX(iconColumn: iconColumn) - MenuMetrics.highlightInset),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
-            shortcut.leadingAnchor.constraint(greaterThanOrEqualTo: label.trailingAnchor, constant: Metrics.space4),
-            shortcut.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.space3),
+            shortcut.leadingAnchor.constraint(greaterThanOrEqualTo: label.trailingAnchor, constant: MenuMetrics.shortcutGap),
+            shortcut.trailingAnchor.constraint(equalTo: trailingAnchor, constant: MenuMetrics.highlightInset - MenuMetrics.trailing),
             shortcut.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         setAccessibilityElement(true)

@@ -11,12 +11,15 @@ struct ExtensionsMenuStyle {
     /// The bubble's width (Edge's menu, a little narrower).
     let width: CGFloat = 340
     var cornerRadius: CGFloat { PopupStyle.standard.cornerRadius }
-    /// Space between the card's edge and a row's highlight.
+    /// Space between the card's edge and a row's highlight (the menu grid's, MenuMetrics).
     var padding: CGFloat { PopupStyle.standard.padding }
-    /// Space between a row's highlight and its content.
-    let rowInset: CGFloat = 8
-    /// Where text and icons start: the padding and the row inset.
-    var contentInset: CGFloat { padding + rowInset }
+    /// Space between a row's highlight and its icon's box: an extension's icon starts on the
+    /// menus' icon column. Its text keeps its own column: a 20-point icon is wider than the menus'.
+    var rowInset: CGFloat { MenuMetrics.iconX - (extensionIconBox - extensionIcon) / 2 - padding }
+    /// Space between a row's last control and its highlight: the menus' trailing column.
+    var rowTrailingInset: CGFloat { MenuMetrics.trailing - padding }
+    /// Where the header's, the sections' and the empty state's text starts: the menus' icon column.
+    var contentInset: CGFloat { MenuMetrics.iconX }
     /// The list scrolls above this height.
     let maxListHeight: CGFloat = 400
     /// The title row: the title, the site under it, and the close button.
@@ -44,7 +47,7 @@ struct ExtensionsMenuStyle {
     /// The close button and its glyph.
     let closeButton: CGFloat = 24
     let closeGlyph: CGFloat = 14
-    /// A highlight's corner radius (rows and buttons).
+    /// A highlight's corner radius (rows and buttons; the menu grid's).
     var highlightRadius: CGFloat { PopupStyle.standard.rowCornerRadius }
     /// The pinned pin's fill: the accent, washed (``Palette/menuHighlight`` strength), and a
     /// little stronger under the pointer.

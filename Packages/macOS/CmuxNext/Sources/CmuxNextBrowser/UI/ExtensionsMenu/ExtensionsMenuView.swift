@@ -63,7 +63,7 @@ final class ExtensionsMenuView: NSView {
             image: NSImage.icon(.browserToolbarClose, size: style.closeGlyph), imageSize: style.closeGlyph, imageBox: style.closeGlyph,
             insets: NSEdgeInsets(top: glyphInset, left: glyphInset, bottom: glyphInset, right: glyphInset), style: style
         )
-        let footerInsets = NSEdgeInsets(top: 0, left: style.rowInset, bottom: 0, right: style.rowInset)
+        let footerInsets = NSEdgeInsets(top: 0, left: style.rowInset, bottom: 0, right: style.rowTrailingInset)
         manageButton = ExtensionsMenuHoverButton(
             image: NSImage.icon(.browserExtensionsManage, size: style.footerIcon), imageSize: style.footerIcon,
             imageBox: style.extensionIconBox, title: Strings.extensionMenuTitle(.manage), insets: footerInsets,

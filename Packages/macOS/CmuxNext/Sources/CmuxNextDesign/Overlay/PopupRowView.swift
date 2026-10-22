@@ -11,17 +11,25 @@ public import AppKit
 /// the row), Return / Enter / Space when it has the keys, and the accessibility press.
 @MainActor
 open class PopupRowView: NSView {
-    /// Where the columns sit. The defaults are the page menu's row.
+    /// Where the columns sit. The defaults are a checked page menu's row on the menu grid
+    /// (MenuMetrics) in a popup that insets its rows by `PopupStyle.padding`: the check mark on the
+    /// state column, the title where a menu with a state column and no icons starts it, the
+    /// trailing view on the menus' trailing column.
     public struct Layout {
         /// Space before the leading column, and after the trailing view.
-        public var leading: CGFloat = 7
-        public var trailing: CGFloat = 8
+        public var leading: CGFloat = MenuMetrics.stateX - MenuMetrics.highlightInset
+        public var trailing: CGFloat = MenuMetrics.trailing - MenuMetrics.highlightInset
         /// The leading column's width (icon or check mark); 0 for none.
-        public var leadingColumn: CGFloat = 15
+        public var leadingColumn: CGFloat = MenuMetrics.textX(iconColumn: false, stateColumn: true) - MenuMetrics.stateX
+        /// The leading view starts the column (a check mark on the state column) instead of
+        /// sitting in its middle (an icon).
+        public var startsLeadingColumn = false
         /// Space between the leading column and the title.
         public var gap: CGFloat = 0
+        /// Where the title starts.
+        public var textX: CGFloat { leading + leadingColumn + (leadingColumn > 0 ? gap : 0) }
         /// Space between the title and the trailing view (a shortcut keeps a wide gap).
-        public var trailingGap: CGFloat = 12
+        public var trailingGap: CGFloat = MenuMetrics.shortcutGap
         public var minHeight: CGFloat = PopupStyle.standard.rowHeight
         /// The highlight's inset from the row's bounds.
         public var fillInset = NSSize.zero
@@ -86,19 +94,22 @@ open class PopupRowView: NSView {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
-        let textLeading = layout.leading + layout.leadingColumn + (layout.leadingColumn > 0 ? layout.gap : 0)
         var constraints = [
             heightAnchor.constraint(greaterThanOrEqualToConstant: layout.minHeight),
-            texts.leadingAnchor.constraint(equalTo: leadingAnchor, constant: textLeading),
+            texts.leadingAnchor.constraint(equalTo: leadingAnchor, constant: layout.textX),
             texts.centerYAnchor.constraint(equalTo: centerYAnchor),
             texts.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 4),
         ]
         if let leading {
-            constraints += [
-                leading.centerXAnchor.constraint(equalTo: leadingAnchor, constant: layout.leading + layout.leadingColumn / 2),
-                leading.centerYAnchor.constraint(equalTo: centerYAnchor),
-                leading.widthAnchor.constraint(lessThanOrEqualToConstant: max(layout.leadingColumn, 1)),
-            ]
+            constraints.append(leading.centerYAnchor.constraint(equalTo: centerYAnchor))
+            if layout.startsLeadingColumn {
+                constraints.append(leading.leadingAnchor.constraint(equalTo: leadingAnchor, constant: layout.leading))
+            } else {
+                constraints += [
+                    leading.centerXAnchor.constraint(equalTo: leadingAnchor, constant: layout.leading + layout.leadingColumn / 2),
+                    leading.widthAnchor.constraint(lessThanOrEqualToConstant: max(layout.leadingColumn, 1)),
+                ]
+            }
         }
         if let trailing {
             trailing.setContentCompressionResistancePriority(.required, for: .horizontal)
