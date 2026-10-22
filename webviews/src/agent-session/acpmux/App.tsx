@@ -6589,12 +6589,16 @@ function AcpmuxPane() {
     // Quick Chat's panel has no tab beside it; a pane on a turn's changes shows another turn in place;
     // a remote or cloud chat's folder is not on this Mac, and the app opens no second tab on its session.
     if (quick || changesRequested.current || !localCwd) return false;
+    // The row's tool call, read before the status read: older history paging in meanwhile renames the row.
+    const toolId = rowTool(turnRowsRef.current, rowId);
     // The folder's diff is its repository's: a folder outside a repository, or a file the turn wrote
     // outside it, opens the turn's own diff in a pane of its own (turnChanges/viewChanges.ts).
     const root = await repositoryRoot(localCwd, readFolderStatus);
     // The pane moved to another chat meanwhile: its rows and folder are not the clicked chat's.
     if (sessionIdRef.current !== sessionId) return true;
-    if (viewChangesBeside(turnRowsRef.current, rowId, root)) {
+    // Older history paged in meanwhile renames the row; its tool call finds it again.
+    const row = requestedRow(turnRowsRef.current, { sessionId, rowId, toolId }) ?? rowId;
+    if (viewChangesBeside(turnRowsRef.current, row, root)) {
       const reply = await callNative<{ ran?: boolean } | null>("pane.action", {
         id: HEADER_ACTIONS.changes,
         cwd: localCwd,
@@ -6603,7 +6607,7 @@ function AcpmuxPane() {
       window.setTimeout(refreshTabState, 400);
       if (reply?.ran === true) return true;
     }
-    return openChangesPane(callNative, sessionId, rowId, rowTool(turnRowsRef.current, rowId), path);
+    return openChangesPane(callNative, sessionId, row, toolId, path);
   };
   // The label starts from the chat's layout; Quick Chat's panel has no tab to read.
   useEffect(() => {
