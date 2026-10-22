@@ -30,7 +30,7 @@ public final class SidebarSessionTreeFeed {
         var state: SidebarSessionTreeState
         var asks: Set<String>
         /// The session tree is on (`sidebar.sessionTree`): the pass writes `SidebarSessionTree.state`.
-        /// Off, the pass runs only for the Priority view's Red CI.
+        /// Off, the pass runs only for the pull request badges and the Priority view's Red CI.
         var showsTree = true
     }
 
@@ -45,17 +45,33 @@ public final class SidebarSessionTreeFeed {
         task = Task {
             for await pass in ObservationStream({ () -> Pass? in
                 let sections = DesignSettings.shared.sidebarSections
-                guard Self.readsPullRequests(sections) else { return nil }
-                var pass = Self.pass(Self.chats(workspaces()), lanes: lanes.lanes, remoteParents: remote.parents, localHost: localHost,
+                guard Self.readsPullRequests(sections) || Self.readsBadges(sections) else { return nil }
+                // Each local session's links only (`AgentLaneStore.links(_:)`): an agent's new step or state passes nothing
+                // again; with the badges on this pass ran over every workspace on every agent event.
+                let chats = Self.chats(workspaces())
+                var links: [String: AgentLaneLinks] = [:]
+                for (_, refs) in chats {
+                    for ref in refs where ref.host == localHost {
+                        if let session = ref.session, let link = lanes.links(session) { links[session] = link }
+                    }
+                }
+                var pass = Self.pass(chats, links: links, remoteParents: remote.parents, localHost: localHost,
                                      pullRequests: pullRequests.answers)
                 pass.showsTree = sections.sessionTree
                 return pass
             }) {
-                let state = pass?.showsTree == true ? pass?.state : nil
-                if tree.state != state { tree.state = state }
+                Self.publish(pass, to: tree)
                 if let pass { pullRequests.refresh(pass.asks) } else { pullRequests.stop() }
             }
         }
+    }
+
+    /// `pass` into `tree`: the badges whenever the feed runs, the tree itself only while it shows.
+    static func publish(_ pass: Pass?, to tree: SidebarSessionTree) {
+        let state = pass?.showsTree == true ? pass?.state : nil
+        if tree.state != state { tree.state = state }
+        let badges = pass?.state.pullRequests ?? [:]
+        if tree.pullRequests != badges { tree.pullRequests = badges }
     }
 
     /// Each workspace's agent chat tabs, in model order.
@@ -66,6 +82,13 @@ public final class SidebarSessionTreeFeed {
     }
 
     static func pass(_ chats: [(SidebarWorkspaceID, [AgentSessionRef])], lanes: [String: AgentActivityLane],
+                     remoteParents: [String: String] = [:], localHost: String?,
+                     pullRequests: [String: AgentPanePullRequest]) -> Pass {
+        pass(chats, links: lanes.mapValues(AgentLaneLinks.init), remoteParents: remoteParents, localHost: localHost, pullRequests: pullRequests)
+    }
+
+    /// The pass over each session's links (`AgentLaneLinks`): all it reads of a lane.
+    static func pass(_ chats: [(SidebarWorkspaceID, [AgentSessionRef])], links lanes: [String: AgentLaneLinks],
                      remoteParents: [String: String] = [:], localHost: String?,
                      pullRequests: [String: AgentPanePullRequest]) -> Pass {
         // Each workspace's acpmux sessions on this Mac (the lanes cover this Mac's acpmux only), and
@@ -81,6 +104,7 @@ public final class SidebarSessionTreeFeed {
             }
         }
         var state = SidebarSessionTreeState()
+        var agentStates: [SidebarWorkspaceID: SidebarAgentState] = [:]
         var asks: Set<String> = []
         for (id, ids) in remote {
             if let parent = ids.lazy.compactMap({ remoteParents[$0].flatMap { owner[$0] } }).first(where: { $0 != id }) {
@@ -92,16 +116,21 @@ public final class SidebarSessionTreeFeed {
             if let parent = shown.lazy.compactMap({ $0.spawnedBy.flatMap { owner[$0] } }).first(where: { $0 != id }) {
                 state.parents[id] = parent
             }
-            let wanted = Self.asks(shown)
+            // The strongest of its agents' states: one waiting on you outranks one still running.
+            if let state = shown.map({ Self.state($0.state) }).max() { agentStates[id] = state }
+            let wanted = Self.asks(links: shown)
             asks.formUnion(wanted)
             state.pullRequests[id] = Self.badge(wanted, answers: pullRequests)
         }
+        state.states = agentStates
         return Pass(state: state, asks: asks)
     }
 
     /// What a workspace's sessions show: their folders (each one's branch's pull request) and the
     /// pull requests they opened (their URLs), as ``SidebarPullRequestStore`` keys them.
-    static func asks(_ lanes: [AgentActivityLane]) -> [String] {
+    static func asks(_ lanes: [AgentActivityLane]) -> [String] { asks(links: lanes.map(AgentLaneLinks.init)) }
+
+    static func asks(links lanes: [AgentLaneLinks]) -> [String] {
         let folders = Set(lanes.compactMap(\.cwd)).sorted()
         var opened: [String] = []
         for url in lanes.flatMap(\.pullRequests) where !opened.contains(url) { opened.append(url) }
@@ -115,6 +144,16 @@ public final class SidebarSessionTreeFeed {
         var seen: Set<String> = []
         let items = asks.compactMap { answers[$0] }.filter { seen.insert($0.url).inserted }.map(Self.item)
         return SidebarPullRequestBadge.combining(items: items)
+    }
+
+    /// A lane's state in the tree's terms: acpmux's `input` waits on the person; a lost agent counts as failed.
+    static func state(_ lane: AgentActivityLane.State) -> SidebarAgentState {
+        switch lane {
+        case .input: .blocked
+        case .failed, .lost: .failed
+        case .working: .running
+        case .idle: .idle
+        }
     }
 
     /// The badge color of one pull request; nil for a closed one, which the badge leaves out.

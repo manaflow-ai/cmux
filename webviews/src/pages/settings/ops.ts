@@ -106,6 +106,8 @@ export type HostLists = {
   iphone?: IPhoneHostState | null;
   /** Settings › Import: the import suggestion cards, every text localized by the host (ui/ImportCards.tsx parses it). */
   import_suggestions?: unknown;
+  /** Settings > Chief > Voice input: the Debug toggle home.voiceInput; null where it does not exist (Release). */
+  voice_input?: { on: boolean } | null;
   /**
    * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Each carries its
    * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`, `yours`, `apple`, `video`) and
@@ -385,10 +387,89 @@ export type HarnessesRun = {
   recheck?: boolean;
 };
 
+/** One coding agent's hooks as `cmux agent hook status` reports them (Settings > Agents >
+ * Agent integrations). `conflict`: a file cmux did not create is in the way (install refuses
+ * it); `unavailable`: the file could not be read. */
+export type IntegrationRow = {
+  id: string;
+  path: string;
+  state: "installed" | "partial" | "absent" | "conflict" | "unavailable";
+  /** For `conflict` / `unavailable`: what is in the way. */
+  reason: "symlink" | "not_a_file" | "not_a_directory" | "not_owned" | "unreadable" | null;
+  /** The CLI's own (English) text for a conflict. */
+  detail: string | null;
+  /** The CLI's refusal of this row's last gesture, in the CLI's own words. */
+  error: string | null;
+  /** When the CLI gave no words of its own: `noAnswer` (it did not answer) or `notFinished`
+   * (it failed without saying why); the page shows its localized text. Absent from older hosts. */
+  errorKind?: "noAnswer" | "notFinished" | null;
+};
+
+/** The Agent integrations part (`SettingsAgentIntegrations.state`). */
+export type IntegrationsState = {
+  loading: boolean;
+  /** `unavailable`: this build carries no cmux CLI; `failed`: status did not answer. */
+  problem: "unavailable" | "failed" | null;
+  /** The command to run by hand (`cmux agent hook install`); a row appends its id. */
+  command: string;
+  providers: IntegrationRow[];
+};
+
+/** One Agent integrations gesture; each runs only on a click. */
+export type IntegrationsRun = { action: "refresh" } | { action: "install" | "repair" | "remove"; id: string };
+
 /** The v2 mutation result: `revision` is a decimal string. */
 export type MutationResult = { value: { keys: string[] }; revision: string; replayed: boolean };
 
 type Mutation<P> = P & { idempotency_key: string; if_revision?: string };
+
+/** One build on a channel's track (Settings > Updates, Channels). Every text and link is the host's. */
+export type ChannelBuild = {
+  build: string;
+  version: string;
+  date: string;
+  commit: string | null;
+  commit_url: string | null;
+  /** GitHub's compare from the installed build's commit; null for that build or an unknown commit. */
+  compare_url: string | null;
+  health: "promoted" | "held" | "pulled" | "pending";
+  health_title: string;
+  pulled_reason: string | null;
+  /** This Mac runs it ("You Are Here"). */
+  installed: boolean;
+  /** This Mac kept a copy for rollback. */
+  kept: boolean;
+  prs: { number: number; url: string }[];
+};
+
+/** One release channel's recent builds, newest first. */
+export type ChannelTrack = {
+  ring: "stable" | "nightly" | "canary" | "dev";
+  title: string;
+  followed: boolean;
+  release_url: string | null;
+  /** The empty track's line; null when it has builds. */
+  empty: string | null;
+  builds: ChannelBuild[];
+};
+
+/** The way back to a slower channel the running build is not on: Go Back into the build this
+ * Mac kept (`build` and `action`), or only a line that the running build stays (both null). */
+export type ChannelSwitch = {
+  ring: ChannelTrack["ring"];
+  build: string | null;
+  action: string | null;
+  detail: string;
+};
+
+/** Settings > Updates' Channels card (`cmux.settings.channels.state`). */
+export type ChannelsState = {
+  title: string;
+  installed: string;
+  switch: ChannelSwitch | null;
+  labels: { you_are_here: string; following: string; kept: string; compare: string; commit: string; release: string };
+  tracks: ChannelTrack[];
+};
 
 /** Every op the page calls: params and result. */
 export type SettingsOps = {
@@ -399,12 +480,18 @@ export type SettingsOps = {
   "cmux.settings.reset_all": [Mutation<object>, MutationResult];
   /** Native: spaces, machines and browser profiles from the app's live stores. */
   "cmux.settings.host.lists": [Record<string, never>, HostLists];
+  /** Native: every release channel's recent builds, read on demand (Settings > Updates). */
+  "cmux.settings.channels.state": [{ ring?: string }, ChannelsState];
+  /** Native: the card's Go Back: restarts once into a kept build of a slower channel (the person's gesture only). */
+  "cmux.settings.channels.go_back": [{ ring: string; build: string }, Record<string, never>];
   /** Native: Settings > Mobile's Remove: the phone leaves the account's devices (the person's gesture only). */
   "cmux.settings.mobile.remove_phone": [{ id: string }, Record<string, never>];
   /** Native: after the owner removed this Mac, allow iPhone connections again (a new device; the person's gesture only). */
   "cmux.settings.mobile.allow_again": [Record<string, never>, Record<string, never>];
   /** A phone's pairing request: Allow or Don't Allow (the person's own gesture only). */
   "cmux.settings.mobile.answer_pair": [{ id: string; allow: boolean }, Record<string, never>];
+  /** Native: Settings > Chief > Voice input's switch writes home.voiceInput (the person's gesture only). */
+  "cmux.settings.voice_input.set": [{ on: boolean }, Record<string, never>];
   /** Native: the Accounts part (providers, linked accounts, forms). */
   "cmux.settings.accounts.state": [Record<string, never>, AccountsState];
   /** Native: one Accounts gesture; a failed Keychain save answers its message. */
@@ -417,6 +504,10 @@ export type SettingsOps = {
   "cmux.settings.harnesses.state": [Record<string, never>, HarnessesState];
   /** Native: one Harnesses gesture (a terminal tab for sign-in, or a refresh). */
   "cmux.settings.harnesses.run": [HarnessesRun, unknown];
+  /** Native: the coding-agent hooks `cmux agent hook status` reports (Settings > Agents). */
+  "cmux.settings.integrations.state": [Record<string, never>, IntegrationsState];
+  /** Native: one Agent integrations gesture (`agent hook install|uninstall <id>`, or a refresh). */
+  "cmux.settings.integrations.run": [IntegrationsRun, unknown];
   /** Native: set the theme of one level of the active window; `spec` null uses the Ghostty config. */
   "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];
   /** Native: the colors of every published theme, for the theme preview and the picker's swatches. */

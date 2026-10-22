@@ -1,11 +1,13 @@
 import CmuxNextAccounts
 import CmuxNextActions
+import CmuxNextAgentIntegrations
 import CmuxNextApps
 import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextUpdater
 import Foundation
 import UniformTypeIdentifiers
 import CmuxNextMobileHost
@@ -28,12 +30,11 @@ struct PageFactory {
         return page
     }
 
-    /// The React App Store page (react-pages.md 3) on `route` (`#/discover?app=<id>`,
-    /// `#/installed`) when Debug Settings `apps.store.surface` is `web`, else nil (the Swift
-    /// store). `cmux.apps.` goes to the daemon relay behind the native sheet of
-    /// ``AppsPageConfirmations``; the sheet reads the listing first so it can name the scopes.
+    /// The App Store page (react-pages.md 3, apps-web-DESIGN.md) on `route` (`#/discover?app=<id>`,
+    /// `#/installed`); nil only when the page resources are missing.
+    /// `cmux.apps.` goes to the daemon relay behind the native sheet of ``AppsPageConfirmations``
+    /// (the sheet reads the listing first so it can name the scopes); `glyph/` is ``AppsGlyphResource``.
     func appsWebPage(route: String?) -> PageWebView? {
-        guard PageTunables.appStore.value == .web else { return nil }
         // The organization's DisabledFeatures `apps` turns the store off for this page too (the
         // native store reads the same transport state), checked on every call.
         let relay = PolicyGatedPageProvider(inner: DaemonPageRelay(services: services)) { [weak apps = services.apps] in
@@ -47,7 +48,7 @@ struct PageFactory {
         }
         let native = AppPageNativeProvider(services: services, page: .apps)
         let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native)]
-        guard let page = PageWebView(descriptor: .apps, routes: routes, route: route) else { return nil }
+        guard let page = PageWebView(descriptor: .apps, routes: routes, route: route, dynamicResources: AppsGlyphResource()) else { return nil }
         confirming.anchor = { [weak page] in page }
         native.anchor = { [weak page] in page }
         PageConnectionWatch(page: page, store: services.machines.local.store).start()
@@ -124,10 +125,7 @@ struct PageFactory {
         provider.agents = services.agentHarnesses
         let harnesses = SettingsHarnesses(
             environment: { [weak services] in services.flatMap(QuitAgents.environment) },
-            openTerminal: { [weak services] line in
-                guard let pane = services?.windows.active?.focusedPane else { return }
-                pane.newTerminalTab(typing: line + "\r")
-            },
+            openTerminal: { [weak services] line in _ = services?.inFrontPane { $0.newTerminalTab(typing: line + "\r") } },
             runUpdate: { [weak services] params, context in
                 guard let services, let updates = services.agentHarnesses.updates else { throw PageError.closed }
                 return try await updates.runPage(params, context: context, registry: services.registry)
@@ -137,12 +135,10 @@ struct PageFactory {
         )
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
+        provider.integrations = SettingsAgentIntegrations(cli: { LocalServerSource.bundledCLI() })
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
-        provider.themeColors = { [weak services] in
-            guard let catalog = services?.themes.catalog else { return [] }
-            return catalog.names.compactMap { catalog.colors[$0] }
-        }
+        provider.themeColors = { [weak services] in (services?.themes.catalog).map { c in c.names.compactMap { c.colors[$0] } } ?? [] }
         let registry = services.registry
         provider.sectionActions = { section in
             .array(SettingsSchema.actions(in: section).compactMap { id in
@@ -194,7 +190,10 @@ struct PageFactory {
                       // Agents > Chiefs: the same Chief editor routes as Home (ChiefProfilePageRelay, AgentHarnessCenter).
                       PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
-                      PageRoute(prefix: "cmux.settings.mobile.", provider: MobilePageProvider(host: services.iphone))]
+                      PageRoute(prefix: "cmux.settings.mobile.", provider: MobilePageProvider(host: services.iphone)),
+                      PageRoute(prefix: ChannelsPageProvider.prefix, provider: ChannelsPageProvider(updater: services.updater)),
+                      // Chief > Voice input: the home.voiceInput tunable (DEV and NIGHTLY).
+                      PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute())]
             + (images.map { [PageRoute(prefix: BackdropImagesPageProvider.prefix, provider: $0)] } ?? [])
         // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
         let dynamicResources = SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices,
