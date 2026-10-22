@@ -35,8 +35,8 @@
    "indexing_slicing": 798,
    "string_slice": 99,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 971,
-   "cast_possible_truncation": 110
+   "arithmetic_side_effects": 978,
+   "cast_possible_truncation": 113
   },
   "bindings-rust": {
    "unwrap_used": 0,
@@ -708,10 +708,10 @@
    "unreachable": 30,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 995,
+   "indexing_slicing": 1060,
    "string_slice": 82,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 1104,
+   "arithmetic_side_effects": 1115,
    "cast_possible_truncation": 133
   },
   "cmux-tui-cdp": {
@@ -741,17 +741,17 @@
    "cast_possible_truncation": 1
   },
   "cmux-tui-core": {
-   "unwrap_used": 1438,
-   "expect_used": 267,
-   "panic": 3,
-   "unreachable": 35,
+   "unwrap_used": 1039,
+   "expect_used": 173,
+   "panic": 2,
+   "unreachable": 24,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 1405,
-   "string_slice": 55,
+   "indexing_slicing": 1047,
+   "string_slice": 52,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 869,
-   "cast_possible_truncation": 91
+   "arithmetic_side_effects": 830,
+   "cast_possible_truncation": 89
   },
   "cmux-tui-hooks": {
    "unwrap_used": 0,

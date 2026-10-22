@@ -39,10 +39,10 @@ stack overflow, out of memory, a signal) never loses user state.
 
 ## 2. Inventory (before, feat-cmux-next 7c48cdf2c40e, 2026-10-22)
 
-The baseline file is measured again at the landing's merged head
-(8e10a3c3c4ae): other lanes added 45 deny hits in the meantime (acpmux
-indexing +11, cmux-tui indexing +30, cmux-tui-core unwrap +4), 7700 in all.
-The table below is the first measurement.
+The baseline file is measured at the landing's merged head (08c6e29f6e57):
+6899 deny hits. In between, core-socket landed (cmux-tui-core 3199 -> 2337)
+and other lanes added about 110 hits (mostly cmux-tui `app/` indexing). The
+table below is the first measurement.
 
 Compiler-accurate: `cargo clippy --workspace --lib --bins` on rbx (Linux),
 production targets only, build scripts excluded, one count per source
