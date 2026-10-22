@@ -6,7 +6,8 @@
 // refusal a person at the Mac must lift or a request the host does not accept, and for a trust
 // refusal once the folder is trusted. Prompts that failed one after another for one cause share
 // one line, under the last of them, whose actions act on all of them (failedPromptGroups.ts):
-// Retry and Edit take the run as one prompt.
+// Retry and Edit take the run as one prompt, as many of its leading prompts as one prompt's
+// attachments allow. A prompt acpmux gave no answer for keeps its own line.
 import { useContext, useEffect, useState } from "react";
 import type { AcpmuxRow, PromptDelivery } from "../model";
 import { canRetry, promptFailureCause, RetryGateContext, type RetryGate } from "../promptFailureCause";

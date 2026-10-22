@@ -3,10 +3,12 @@
 // bubble; the line sits under the last of the run, and its actions act on the whole run
 // (PromptDelivery.tsx `DeliveryFailure`). The cause is the structured one (promptFailureCause.ts and
 // the refusal's reason or code), never the message's words; another cause, or any row drawn
-// between, starts a run of its own.
+// between, starts a run of its own. A prompt acpmux gave no answer for is never in a run: acpmux may
+// have taken it, and only a Retry under its own prompt id with `resend` cannot run it twice
+// (promptFailureCause.ts `mayHaveBeenTaken`); it keeps its own line.
 import { createContext, useMemo } from "react";
 import type { AcpmuxRow } from "../model";
-import { promptFailureCause } from "../promptFailureCause";
+import { mayHaveBeenTaken, promptFailureCause } from "../promptFailureCause";
 
 /// A run of two or more failed prompts, their row ids in the order they were sent.
 export type FailedPromptGroup = { rowIds: readonly string[] };
@@ -20,6 +22,7 @@ export const FailedPromptGroupsContext = createContext<FailedPromptGroups>(NONE)
 function failureKey(row: AcpmuxRow): string | undefined {
   if (row.kind !== "user" || !row.failed) return undefined;
   const delivery = row.delivery;
+  if (mayHaveBeenTaken(delivery)) return undefined;
   return `${promptFailureCause(delivery)}|${delivery?.reason ?? delivery?.code ?? ""}`;
 }
 

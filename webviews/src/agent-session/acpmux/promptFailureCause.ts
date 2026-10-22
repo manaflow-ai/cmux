@@ -76,6 +76,13 @@ export function promptFailureCause(
   return "transient";
 }
 
+/// Whether acpmux may have taken the prompt though it never said so: it gave no answer in time
+/// (direct.ts `timeout`; a late acceptance still lands). Such a prompt goes again only under its own
+/// prompt id with `resend`, which acpmux runs once, so it never joins a run (failedPromptGroups.ts).
+export function mayHaveBeenTaken(delivery: Pick<PromptDelivery, "code"> | undefined): boolean {
+  return delivery?.code === "timeout";
+}
+
 /// Whether Retry can work for `cause` now.
 export function canRetry(cause: PromptFailureCause, gate: RetryGate): boolean {
   switch (cause) {

@@ -1648,7 +1648,36 @@ export default agentPaneEntry({
       },
     },
     "prompt-not-sent-grouped": {
-      note: "Three prompts that failed one after another for one cause (acpmux never answered): each keeps its bubble, and one line under the last says why and how many, with one Retry, Edit, Remove and Details for all three.",
+      note: "Three prompts the host refused one after another for one cause (it wanted a click or a key press): each keeps its bubble, and one line under the last says why and how many, with one Retry, Edit, Remove and Details for all three.",
+      snapshot: chat([
+        user("Add retries to the client", 6),
+        assistant("Added.", 5.5),
+        summary(5.5, { status: "completed" }),
+        ...["Ship it", "Ship it now", "Please ship it"].map((text, index) =>
+          user(text, 3 - index, {
+            failed: true,
+            error: "Not sent: it needs a click or a key press.",
+            delivery: {
+              state: "failed",
+              promptId: `ng${index}`,
+              sessionId: "s",
+              sentAt: 0,
+              failedAt: 10,
+              hop: "acpmux",
+              code: "transport.gesture_required",
+              error: "Not sent: it needs a click or a key press.",
+            },
+          }),
+        ),
+      ]),
+      play: async (ctx) => {
+        await ctx.waitFor(() => (ctx.document.querySelectorAll(".cv-user").length >= 4 ? true : null));
+        const lines = ctx.document.querySelectorAll(".cv-user__status--failed");
+        if (lines.length !== 1) throw new Error(`expected one failure line, found ${lines.length}`);
+      },
+    },
+    "prompt-not-sent-no-answer": {
+      note: "Three prompts acpmux never answered in time: acpmux may have taken them, so they share no line; each keeps its own, whose Retry sends it again under its own id.",
       snapshot: chat([
         user("Add retries to the client", 6),
         assistant("Added.", 5.5),
@@ -1659,7 +1688,7 @@ export default agentPaneEntry({
             error: "Not sent: no answer from acpmux.",
             delivery: {
               state: "failed",
-              promptId: `ng${index}`,
+              promptId: `na${index}`,
               sessionId: "s",
               sentAt: 0,
               failedAt: 60000,
@@ -1673,7 +1702,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.waitFor(() => (ctx.document.querySelectorAll(".cv-user").length >= 4 ? true : null));
         const lines = ctx.document.querySelectorAll(".cv-user__status--failed");
-        if (lines.length !== 1) throw new Error(`expected one failure line, found ${lines.length}`);
+        if (lines.length !== 3) throw new Error(`expected three failure lines, found ${lines.length}`);
       },
     },
     "edited-files": {

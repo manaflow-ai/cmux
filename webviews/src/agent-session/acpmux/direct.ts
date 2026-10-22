@@ -24,6 +24,7 @@ import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { MAX_ATTACHMENTS, promptBlocks, promptText, takesAudio, type ComposerAttachment } from "./attachments";
 import { liftInlineImages } from "./inlineImages";
+import { mayHaveBeenTaken } from "./promptFailureCause";
 import { primeSentImages } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
 import { peerConnectedFromStatus, peerKindsFromStatus } from "./environments";
@@ -3626,22 +3627,30 @@ export class AcpmuxDirectClient {
   /// Retry on the line a run of failed prompts shares (failedPromptGroups.ts): their rows go and they
   /// go again as one prompt, their texts and attachments in the order they were sent. The host counts
   /// one gesture per click and spends one on each `session/prompt` (AgentPaneUserGestures), so one
-  /// click that sent each of them got only the first through.
+  /// click that sent each of them got only the first through. Only the leading prompts whose
+  /// attachments fit in one prompt go (`fittingRun`); the rest stay failed rows for the next click.
   async retryPrompts(rowIds: readonly string[]): Promise<string | undefined> {
-    if (rowIds.length <= 1) return rowIds[0] === undefined ? undefined : this.retryPrompt(rowIds[0]);
-    const run = this.takeFailedPrompts(rowIds);
-    if (!run) return undefined;
+    // A prompt acpmux may have taken goes again only as itself, under its own id with `resend`
+    // (no shared line holds one): a new id would run it twice.
+    const run = rowIds.some((rowId) => mayHaveBeenTaken(this.rows.get(rowId)?.delivery))
+      ? rowIds.slice(0, 1)
+      : this.fittingRun(rowIds);
+    if (run.length <= 1) return run[0] === undefined ? undefined : this.retryPrompt(run[0]);
+    const taken = this.takeFailedPrompts(run);
+    if (!taken) return undefined;
     const promptId = crypto.randomUUID();
     this.retriedPrompts.add(promptId);
     try {
-      return await this.send(run.input, run.attachments, promptId);
+      return await this.send(taken.input, taken.attachments, promptId);
     } finally {
       this.retriedPrompts.delete(promptId);
     }
   }
   /// Edit on that line: the run's rows go and come back as one prompt, in the order they were sent.
+  /// Only the leading prompts whose attachments fit in one prompt come back (`fittingRun`); the rest
+  /// stay failed rows, so no attachment is dropped.
   takeFailedPrompts(rowIds: readonly string[]): { input: string; attachments: ComposerAttachment[] } | undefined {
-    const taken = rowIds.flatMap((rowId) => this.takeFailedPrompt(rowId) ?? []);
+    const taken = this.fittingRun(rowIds).flatMap((rowId) => this.takeFailedPrompt(rowId) ?? []);
     if (!taken.length) return undefined;
     const attachments: ComposerAttachment[] = [];
     for (const attachment of taken.flatMap((prompt) => prompt.attachments))
@@ -3651,8 +3660,23 @@ export class AcpmuxDirectClient {
         .map((prompt) => prompt.input)
         .filter((input) => input.trim())
         .join("\n\n"),
-      attachments: attachments.slice(0, MAX_ATTACHMENTS),
+      attachments,
     };
+  }
+  /// The leading failed prompts of `rowIds` whose attachments together fit in one prompt
+  /// (MAX_ATTACHMENTS), and always the first, which the composer already held to that cap.
+  private fittingRun(rowIds: readonly string[]): string[] {
+    const run: string[] = [];
+    let held = new Set<string>();
+    for (const rowId of rowIds) {
+      const failed = this.failedPrompts.get(rowId);
+      if (!failed) continue;
+      const next = new Set([...held, ...failed.attachments.map((attachment) => attachment.id)]);
+      if (run.length && next.size > MAX_ATTACHMENTS) break;
+      run.push(rowId);
+      held = next;
+    }
+    return run;
   }
   /// Edit on a prompt that was not sent: its row goes and what it held comes back, for the composer.
   takeFailedPrompt(rowId: string): { input: string; attachments: ComposerAttachment[] } | undefined {
