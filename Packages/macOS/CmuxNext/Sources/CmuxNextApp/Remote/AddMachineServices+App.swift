@@ -19,18 +19,14 @@ extension AddMachineServices {
             return session
         }
         return AddMachineServices(
-            // No port: enroll's ssh destination is `[user@]host` (acpmux `checked_host`); a port belongs
-            // in ~/.ssh/config.
-            parse: { text in
-                (try? SSHDestination(parsing: text)).flatMap { $0.port == nil ? HostDestination(host: $0.description, shortName: $0.displayName) : nil }
-            },
+            parse: hostDestination,
             candidates: { probe in
                 // A candidate is Added only when it is one of the app's SSH machines; an acpmux peer
                 // the app lacks stays pickable (it is connected, not enrolled again).
                 let list = await cli?.candidates(probe: probe).flatMap { try? HostCandidate.parseList($0) }
                 return list?.map { candidate in
                     var candidate = candidate
-                    let peerHost = candidate.peerDestination.flatMap { try? SSHDestination(parsing: $0) }
+                    let peerHost = candidate.peerSSHDestination.flatMap { try? SSHDestination(parsing: $0) }
                     candidate.inApp = machines.sshMachine(named: [candidate.name, candidate.dnsName, candidate.ip, candidate.peer ?? "",
                                                                   peerHost?.host ?? "", peerHost?.displayName ?? ""]) != nil
                     return candidate
@@ -43,11 +39,16 @@ extension AddMachineServices {
             connect: { host, name in (try? connect(host, name))?.machineID },
             record: { health.record($0, $1) },
             openWorkspace: { id in registry.perform("remote.newWorkspace", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: id))) },
-            copy: { CloudPresenter.copy($0) },
-            // An agent peer's own destination keeps its port: the app connects it over ssh, it is
-            // not enrolled again.
-            parsePeer: { text in
-                (try? SSHDestination(parsing: text)).map { HostDestination(host: $0.description, shortName: $0.displayName) }
-            })
+            copy: { CloudPresenter.copy($0) })
+    }
+
+    /// The field read as ssh takes it, for enroll and the app's connect alike. No port: enroll's ssh
+    /// destination is `[user@]host` (acpmux `checked_host`); a port belongs in ~/.ssh/config, and an
+    /// agent peer's URL port is its daemon's, not ssh's. An IPv6 host keeps its brackets
+    /// (`leo@[fd7a::2]`) so the text parses back to the same host instead of a port.
+    static func hostDestination(_ text: String) -> HostDestination? {
+        guard let parsed = try? SSHDestination(parsing: text), parsed.port == nil else { return nil }
+        let host = parsed.host.contains(":") ? "[\(parsed.host)]" : parsed.host
+        return HostDestination(host: (parsed.user.map { "\($0)@" } ?? "") + host, shortName: parsed.displayName)
     }
 }

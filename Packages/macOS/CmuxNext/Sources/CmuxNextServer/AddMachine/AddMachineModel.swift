@@ -86,9 +86,6 @@ public struct AddMachineServices {
 
     /// Reads the field (`SSHDestination`); nil when ssh cannot take it.
     public var parse: (String) -> HostDestination?
-    /// Reads a picked agent peer's own destination, which may carry a port (enroll refuses one, the
-    /// app's ssh connect takes it); ``parse`` when not given.
-    public var parsePeer: (String) -> HostDestination?
     /// The Tailscale peers (`host candidates --json`, with `--probe` when `probe`), nil without
     /// Tailscale or when the run failed or timed out.
     public var candidates: (_ probe: Bool) async -> [HostCandidate]?
@@ -108,9 +105,8 @@ public struct AddMachineServices {
                 run: @escaping (HostCommand) -> AsyncThrowingStream<String, any Error>,
                 install: @escaping (String, String) async -> Installed, connect: @escaping (String, String) -> String?,
                 record: @escaping (String, HostReport) -> Void, openWorkspace: @escaping (String) -> Void,
-                copy: @escaping (String) -> Void, parsePeer: ((String) -> HostDestination?)? = nil) {
+                copy: @escaping (String) -> Void) {
         self.parse = parse
-        self.parsePeer = parsePeer ?? parse
         self.candidates = candidates
         self.run = run
         self.install = install
@@ -212,7 +208,7 @@ public final class AddMachineModel {
 
     /// The picked agent peer and its destination while the field still holds it.
     private var peerTarget: (candidate: HostCandidate, destination: HostDestination)? {
-        guard let pickedPeer, destination == pickedPeer.destination, let parsed = services.parsePeer(destination) else { return nil }
+        guard let pickedPeer, destination == pickedPeer.destination, let parsed = services.parse(destination) else { return nil }
         return (pickedPeer, parsed)
     }
 
