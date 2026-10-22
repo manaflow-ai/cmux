@@ -7,39 +7,56 @@
 //! Its `queued` record stays in the restore's waiting list, so what a daemon that put it back
 //! logged about it afterwards (an edit, a reorder, a hold) applies to it as to any waiting
 //! prompt, and a later restore runs its latest copy.
+//!
+//! Only its own turn's start settles it: another turn's (one a daemon that did not restore it
+//! ran, its log load failed) did not run it, and settling it there dropped it unrun.
 
+use super::queue_waiting::{Order, Waiting};
 use crate::store::EventRecord;
 use serde_json::Value;
+
+/// A prompt dequeued for a turn that has not started.
+struct Lost {
+    prompt_id: Value,
+    turn_id: Value,
+    /// The turn whose `turn_started` starts it: its own, or the agent message turn it joined
+    /// (`joinedTurnId`, `digest.rs` `take_joined`).
+    starts_in: Value,
+}
 
 /// The prompts dequeued for a turn that has not started, read in log order.
 #[derive(Default)]
 pub(super) struct Unstarted {
     /// A turn started and not settled: a prompt dequeued into it was steered in (`steer_end.rs`).
     open: bool,
-    /// `(promptId, turnId)` of each, in the order they left the queue.
-    lost: Vec<(Value, Value)>,
+    /// In the order they left the queue.
+    lost: Vec<Lost>,
 }
 
 impl Unstarted {
     /// One record, before `restore_queue` reads it; `waiting` is what it still holds queued.
-    /// Returns the turn ids of the prompts the record settled: they leave the waiting list.
-    pub(super) fn read(&mut self, e: &EventRecord, waiting: &[EventRecord]) -> Vec<Value> {
+    /// Returns the `(promptId, turnId)` of the prompts the record settled: they leave the waiting
+    /// list and the queue order.
+    pub(super) fn read(&mut self, e: &EventRecord, waiting: &Waiting) -> Vec<(Value, Value)> {
         let (turn_id, prompt_id) = (e.msg.get("turnId"), e.msg.get("promptId"));
-        let other = |(p, _): &(Value, Value)| Some(p) != prompt_id;
+        let other = |q: &Lost| Some(&q.prompt_id) != prompt_id;
         match e.kind.as_str() {
             "dequeued" if !self.open => {
-                let queued = waiting.iter().any(|q| q.msg.get("turnId") == turn_id);
-                if let (true, Some(p), Some(t)) = (queued, prompt_id, turn_id)
+                if let (true, Some(p), Some(t)) = (waiting.has_turn(turn_id), prompt_id, turn_id)
                     && !self.holds(turn_id)
                 {
-                    self.lost.push((p.clone(), t.clone()));
+                    let starts_in = e.msg.get("joinedTurnId").unwrap_or(t).clone();
+                    self.lost.push(Lost { prompt_id: p.clone(), turn_id: t.clone(), starts_in });
                 }
                 Vec::new()
             }
-            // Its turn started; a daemon that started another turn had settled it too.
+            // Its own turn started, or it ran under another turn id; another prompt's turn did
+            // not start it.
             "turn_started" => {
                 self.open = true;
-                self.settle(|_| false)
+                self.settle(|q| {
+                    other(q) && Some(&q.starts_in) != turn_id && Some(&q.turn_id) != turn_id
+                })
             }
             "turn_result" => {
                 self.open = false;
@@ -49,15 +66,15 @@ impl Unstarted {
             // under another turn id) settled it.
             "user_message" => {
                 let steer = e.msg.get("steer") == Some(&Value::Bool(true));
-                self.settle(|q| other(q) || (!steer && Some(&q.1) == turn_id))
+                self.settle(|q| other(q) || (!steer && Some(&q.turn_id) == turn_id))
             }
             // Refused, withdrawn, or queued again under a new turn id.
             "prompt_refused" | "queue_removed" | "queued" => self.settle(other),
             // A daemon that put it back moved or held it (an edit only changes its record): it
             // waits as any queued prompt since, in that place, and only what settles a queued
             // prompt settles it.
-            "queue_order" => self.forget(|q| named(&e.msg, "order", &q.0)),
-            "queue_paused" => self.forget(|q| named(&e.msg, "held", &q.0)),
+            "queue_order" => self.forget(|q| named(&e.msg, "order", &q.prompt_id)),
+            "queue_paused" => self.forget(|q| named(&e.msg, "held", &q.prompt_id)),
             _ => Vec::new(),
         }
     }
@@ -65,31 +82,30 @@ impl Unstarted {
     /// Whether the prompt of `turn_id` left the queue for a turn that has not started: its
     /// `queued` record stays waiting.
     pub(super) fn holds(&self, turn_id: Option<&Value>) -> bool {
-        self.lost.iter().any(|(_, t)| Some(t) == turn_id)
+        self.lost.iter().any(|q| Some(&q.turn_id) == turn_id)
     }
 
-    /// Whether the prompt `prompt_id` left the queue for a turn that has not started.
-    pub(super) fn holds_prompt(&self, prompt_id: &Value) -> bool {
-        self.lost.iter().any(|(p, _)| p == prompt_id)
+    /// The prompt ids of the prompts that left the queue for a turn that has not started.
+    pub(super) fn prompts(&self) -> impl DoubleEndedIterator<Item = &Value> {
+        self.lost.iter().map(|q| &q.prompt_id)
     }
 
     /// Puts these prompts at the head of the queue's `order`, as they left it: they run first,
     /// as they would have. A reorder logged after one left does not name it.
-    pub(super) fn lead(&self, order: &mut Vec<Value>) {
-        order.retain(|id| !self.holds_prompt(id));
-        order.splice(0..0, self.lost.iter().map(|(p, _)| p.clone()));
+    pub(super) fn lead(&self, order: &mut Order) {
+        order.lead(self.prompts());
     }
 
-    /// Keeps the prompts `keep` accepts; returns the turn ids of the others.
-    fn settle(&mut self, keep: impl Fn(&(Value, Value)) -> bool) -> Vec<Value> {
+    /// Keeps the prompts `keep` accepts; returns the others.
+    fn settle(&mut self, keep: impl Fn(&Lost) -> bool) -> Vec<(Value, Value)> {
         let (kept, settled): (Vec<_>, Vec<_>) =
-            std::mem::take(&mut self.lost).into_iter().partition(keep);
+            std::mem::take(&mut self.lost).into_iter().partition(|q| keep(q));
         self.lost = kept;
-        settled.into_iter().map(|(_, t)| t).collect()
+        settled.into_iter().map(|q| (q.prompt_id, q.turn_id)).collect()
     }
 
     /// Stops tracking the prompts `waits` accepts; they stay waiting.
-    fn forget(&mut self, waits: impl Fn(&(Value, Value)) -> bool) -> Vec<Value> {
+    fn forget(&mut self, waits: impl Fn(&Lost) -> bool) -> Vec<(Value, Value)> {
         self.lost.retain(|q| !waits(q));
         Vec::new()
     }
