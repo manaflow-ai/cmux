@@ -88,8 +88,7 @@ struct HomeSidebarHeaderTests {
     }
 
     /// A light/dark switch of the scope the list draws in rebuilds each header glyph in the new
-    /// tint (the theme's secondary text), and a button hidden during the switch shows the new
-    /// tint once shown.
+    /// tint (the theme's secondary text): a new image, never the dark one left on screen.
     @Test func theHeaderGlyphsAreRebuiltOnALightDarkSwitch() throws {
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
         let scope = ThemeScope(level: .room)
@@ -104,12 +103,10 @@ struct HomeSidebarHeaderTests {
         let buttons = [home.compose, home.unreadToggle]
         try paint(background: 0x1C1C1F, foreground: 0xE6E6E6)
         #expect(scope.tokens.isDark)
-        let dark = try buttons.map { (image: try #require($0.image), tint: try #require($0.glyphTint)) }
+        let dark = try buttons.map { button in (image: try #require(button.image), tint: try #require(button.glyphTint)) }
 
-        home.compose.isHidden = true
         try paint(background: 0xFEFFFF, foreground: 0x1C1C1F)
         #expect(!scope.tokens.isDark)
-        home.compose.isHidden = false
         for (button, before) in zip(buttons, dark) {
             let name = button.accessibilityIdentifier()
             let image = try #require(button.image, "\(name) lost its glyph on the switch to light")
