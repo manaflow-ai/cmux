@@ -3,7 +3,7 @@
 // a Chief (`cmux.chief.backend.list`), each with Check: the same real hello turn the Chief editor
 // runs before it saves a new backend (`cmux.chief.backend.doctor`). The answer stays in the row: that
 // it answered, or the step that failed with its detail and fix. Nothing here changes a setting.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChiefHost } from "../../home-channels/chiefEditing";
 import type { HomeChiefBackend, HomeChiefDoctor } from "../../home-channels/types";
 import { formatString } from "../../shared/i18n";
@@ -21,6 +21,14 @@ export function ChiefDiagnosticsCard() {
   const [running, setRunning] = useState<boolean | undefined>();
   const [backends, setBackends] = useState<HomeChiefBackend[] | undefined>();
   const [checks, setChecks] = useState<ReadonlyMap<string, Check>>(new Map());
+  // A check still running when the card goes away settles nothing.
+  const mounted = useRef(true);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    [],
+  );
   useEffect(() => {
     let live = true;
     host.rawList().then(
@@ -35,7 +43,10 @@ export function ChiefDiagnosticsCard() {
       live = false;
     };
   }, [host]);
-  const settle = useCallback((id: string, check: Check) => setChecks((now) => new Map(now).set(id, check)), []);
+  const settle = useCallback(
+    (id: string, check: Check) => mounted.current && setChecks((now) => new Map(now).set(id, check)),
+    [],
+  );
   const run = useCallback(
     (id: string) => {
       settle(id, { state: "checking" });
@@ -115,21 +126,33 @@ function BackendRow({
         : format("chief.backend.failed", check.step?.name ?? "doctor");
   const ok = check ? check.state === "passed" : !backend.unavailable;
   const failed = check?.state === "failed" ? check.step : undefined;
+  // The button reads "Check Codex": its word, then the backend's name.
+  const id = useId();
   return (
     <div className="row chief-diagnostic" data-diagnostic={backend.id}>
       <div className="row-main">
         <div className="row-label">
-          <div className="row-title">{backend.name}</div>
+          <div className="row-title" id={`${id}-name`}>
+            {backend.name}
+          </div>
           {failed?.detail && <div className="row-help">{failed.detail}</div>}
           {failed?.fix && <div className="row-help">{format("chief.backend.fix", failed.fix)}</div>}
         </div>
         <span
           className="row-help chief-diagnostic-status"
+          role="status"
           data-ok={check?.state === "checking" ? undefined : String(ok)}
         >
           {status}
         </span>
-        <button type="button" className="button" disabled={disabled || check?.state === "checking"} onClick={onCheck}>
+        <button
+          type="button"
+          className="button"
+          id={`${id}-check`}
+          aria-labelledby={`${id}-check ${id}-name`}
+          disabled={disabled || check?.state === "checking"}
+          onClick={onCheck}
+        >
           {t(check ? "chief.backend.recheck" : "chief.diagnostics.check")}
         </button>
       </div>

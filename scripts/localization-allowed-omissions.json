@@ -6701,5 +6701,30 @@
     "identityLocales": {
       "de": "Updates is the standard German UI word for software updates, spelled as in English."
     }
+  },
+  "chief.diagnostics.chief": {
+    "source": "Chief",
+    "identityLocales": {
+      "ar": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "bs": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "da": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "de": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "es": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "fr": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "it": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "ja": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "km": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "ko": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "nb": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "pl": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "pt-BR": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "ru": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "th": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "tr": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "uk": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "vi": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "zh-Hans": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "zh-Hant": "Chief is the product name of cmux's lead agent and stays untranslated."
+    }
   }
 }
