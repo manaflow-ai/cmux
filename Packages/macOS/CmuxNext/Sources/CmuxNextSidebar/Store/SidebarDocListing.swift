@@ -68,7 +68,7 @@ extension SidebarDocProjection {
             let pinnedRows = projection.pinnedWorkspaces.filter { $0.section == id }.compactMap { entry -> SidebarNode? in
                 if let workspace = pulledPinned[entry.item] { return .workspace(workspace) }
                 // Live but not in this window or space: it lists where it is shown, not here.
-                return entry.closed ? .item(titled(entry.listed)) : nil
+                return entry.closed ? .item(Self.titled(entry.listed)) : nil
             }
             let nodes = pinnedRows + projection.bandGroups.filter { $0.section == id }.map { SidebarNode.group(pulled[$0.id] ?? Self.emptyGroup($0)) }
             guard !passedMachines || !nodes.isEmpty else { continue }
@@ -86,7 +86,7 @@ extension SidebarDocProjection {
     @MainActor private static func markingPinned(_ sections: [SidebarSection], _ projection: SidebarDocProjection,
                                                  drag: SidebarDocDrag) -> [SidebarSection] {
         func marked(_ workspace: SidebarWorkspace) -> SidebarWorkspace {
-            let pinned = drag.item(.workspace(workspace.id)).map(projection.pinnedItems.contains) ?? false
+            let pinned = drag.item(.workspace(workspace.id)).map { projection.pinnedItems.contains($0) } ?? false
             guard workspace.pinned != pinned else { return workspace }
             var workspace = workspace
             workspace.pinned = pinned
