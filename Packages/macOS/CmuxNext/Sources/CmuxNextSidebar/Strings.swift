@@ -27,6 +27,22 @@ enum Strings {
     static var statusConnecting: String { String(localized: "sidebar.machine.connecting", defaultValue: "Connecting…", bundle: .module) }
     static var statusReconnecting: String { String(localized: "sidebar.machine.reconnecting", defaultValue: "Reconnecting…", bundle: .module) }
     static var statusOffline: String { String(localized: "sidebar.machine.offline", defaultValue: "Offline", bundle: .module) }
+    nonisolated static func costRate(_ price: String) -> String { String(localized: "sidebar.machine.cost.rate", defaultValue: "\(price)/h", bundle: .module) }
+    nonisolated static func costRateWhenRunning(_ price: String) -> String {
+        String(localized: "sidebar.machine.cost.rateWhenRunning", defaultValue: "\(price)/h when running", bundle: .module)
+    }
+    nonisolated static func costRunning(_ duration: String) -> String { String(localized: "sidebar.machine.cost.running", defaultValue: "Running \(duration)", bundle: .module) }
+    nonisolated static func costSoFar(_ price: String) -> String { String(localized: "sidebar.machine.cost.soFar", defaultValue: "About \(price) so far", bundle: .module) }
+    nonisolated static func costUnderSoFar(_ price: String) -> String {
+        String(localized: "sidebar.machine.cost.underSoFar", defaultValue: "Under \(price) so far", bundle: .module)
+    }
+    nonisolated static func capOf(_ running: Int, _ max: Int) -> String {
+        String(localized: "sidebar.machine.cap.of", defaultValue: "\(running) of \(max) machines running", bundle: .module)
+    }
+    nonisolated static func capNone(_ running: Int) -> String {
+        String(localized: "sidebar.machine.cap.none", defaultValue: "\(running) running, no machine cap", bundle: .module)
+    }
+    nonisolated static var capClosed: String { String(localized: "sidebar.machine.cap.closed", defaultValue: "Machines are closed on this plan", bundle: .module) }
     static var statusUpdateAvailable: String { String(localized: "sidebar.machine.updateAvailable", defaultValue: "Update available", bundle: .module) }
     static var statusUpdateRequired: String { String(localized: "sidebar.machine.updateRequired", defaultValue: "Update needed", bundle: .module) }
     static var statusInstallRequired: String { String(localized: "sidebar.machine.installRequired", defaultValue: "Install needed", bundle: .module) }
