@@ -234,18 +234,25 @@ public final class BrowserRecordWriter {
             guard state.url != from else { return }
             followedFrom = nil
         }
-        pending?.cancel()
         guard recorded.update(toward: state, state: tracksState) != nil else {
+            pending?.cancel()
             pending = nil
             unsent = nil
             return
         }
         unsent = state
+        // The first change opens one `delay` window and its end writes the latest state. A change
+        // inside the window does not restart it: a page whose title ticks faster than `delay` (a
+        // timer, a ticker) never let a restarting debounce write its address or history.
+        guard pending == nil else { return }
         let delay = delay, sleep = sleep
         pending = Task { [weak self] in
             do { try await sleep(delay) } catch { return }
-            self?.unsent = nil
-            await self?.flush(state)
+            guard let self, !Task.isCancelled else { return }
+            let latest = self.unsent
+            self.pending = nil
+            self.unsent = nil
+            if let latest { await self.flush(latest) }
         }
     }
 
