@@ -2,7 +2,8 @@ import CmuxUpdater
 
 /// A nightly's automatic install (`installsUpdatesWhenIdle`) runs what the install click runs
 /// (preflight, the What's New record, the rollback copy) before the relaunch gate takes it,
-/// without hiding any window or opening anything.
+/// without opening anything. The windows hide only when Sparkle commits to the relaunch
+/// (`willRelaunch`), and come back if that install still fails.
 extension UpdaterService {
     /// False when the preflight fails: the update stays staged for a click and nothing opens.
     public func updaterPrepareAutomaticInstall() -> Bool {
