@@ -32,6 +32,8 @@ The Unix parser turned the 1-based coordinates of a mouse report (X10, rxvt
 and SGR encodings) and a cursor position report into 0-based ones with `- 1`.
 A report with coordinate 0, or an X10 byte below 33, overflowed: a panic in
 builds with overflow checks (cmux-tui dev builds) and column 65535 otherwise.
-The cmux patch reports such a sequence as a malformed event. Regression input:
+The cmux patch clamps a mouse coordinate of 0 to 0, so the event (often a
+button release) still arrives, and reports a cursor position report with a 0
+as a malformed event. Regression input:
 `cmux-tui/fuzz/regressions/tui_input/`. Remove this part when upstream
 Crossterm checks the subtraction.

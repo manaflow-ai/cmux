@@ -31,8 +31,8 @@ while [ $# -gt 0 ]; do
     --build-only) build_only=1; shift ;;
     --replay) replay=1; shift ;;
     --list) sed -n 's/^name = "\(.*\)"$/\1/p' Cargo.toml | grep -v '^cmux-tui-fuzz$'; exit 0 ;;
-    -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
-    all) mapfile -t targets < <("$0" --list); shift ;;
+    -h|--help) sed -n '2,19p' "$FUZZ_DIR/run.sh"; exit 0 ;;
+    all) mapfile -t -O "${#targets[@]}" targets < <("$FUZZ_DIR/run.sh" --list); shift ;;
     -*) echo "run.sh: unknown option $1" >&2; exit 2 ;;
     *) targets+=("$1"); shift ;;
   esac
@@ -91,8 +91,8 @@ for target in "${targets[@]}"; do
     > "$out/logs/$target.log" 2>&1
   code=$?
   set -e
-  execs=$(sed -n 's/^stat::number_of_executed_units: *//p' "$out/logs/$target.log" | tail -1)
-  cov=$(grep -o 'cov: [0-9]*' "$out/logs/$target.log" | tail -1)
+  execs=$(sed -n 's/^stat::number_of_executed_units: *//p' "$out/logs/$target.log" | tail -1 || true)
+  cov=$(grep -o 'cov: [0-9]*' "$out/logs/$target.log" | tail -1 || true)
   echo "== $target: exit $code, ${execs:-?} execs in ${seconds}s, ${cov:-cov: ?}"
   if [ "$code" != 0 ]; then
     status=1

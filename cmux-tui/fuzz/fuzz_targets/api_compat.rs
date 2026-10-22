@@ -1,6 +1,6 @@
 //! Daemon API compatibility rewriter on client JSON lines. Mode byte 0..127:
-//! a fixed schema that uses every change kind, the message rewritten between
-//! two of its revisions. 128..255: the input is `schema JSON \0 message`.
+//! a fixed schema that uses every change kind (kind = mode parity), then a
+//! byte whose nibbles pick the two revisions the message is rewritten between. 128..255: the input is `schema JSON \0 message`.
 #![no_main]
 
 use std::sync::OnceLock;
@@ -116,13 +116,15 @@ fn rewrite(compat: &Compat, kind: &str, from: u32, to: u32, message: &[u8]) {
 fuzz_target!(|data: &[u8]| {
     let Some((&mode, rest)) = data.split_first() else { return };
     if mode < 128 {
+        // The next byte picks the two revisions (low and high nibble).
+        let Some((&revisions, message)) = rest.split_first() else { return };
         let compat = fixed();
-        let current = compat.current();
-        let span = current - compat.schema().base + 1;
-        let from = compat.schema().base + u32::from(mode & 0x07) % span;
-        let to = compat.schema().base + u32::from((mode >> 3) & 0x07) % span;
-        let kind = KINDS[usize::from(mode >> 6) % KINDS.len()];
-        rewrite(compat, kind, from, to, rest);
+        let base = compat.schema().base;
+        let span = compat.current() - base + 1;
+        let from = base + u32::from(revisions & 0x0f) % span;
+        let to = base + u32::from(revisions >> 4) % span;
+        let kind = KINDS[usize::from(mode) % KINDS.len()];
+        rewrite(compat, kind, from, to, message);
         return;
     }
     let (schema, message) = match rest.iter().position(|byte| *byte == 0) {

@@ -90,7 +90,12 @@ impl Schema {
 
     /// Checks numbering and that every change compiles in both directions.
     pub fn validate(&self) -> Result<(), CompatError> {
-        for (expected, revision) in (self.base + 1..).zip(&self.revisions) {
+        let mut expected = self.base;
+        for revision in &self.revisions {
+            // A base near u32::MAX has no room for its revisions (cmux-tui/fuzz api_compat).
+            expected = expected.checked_add(1).ok_or_else(|| {
+                CompatError::InvalidSchema(format!("revision numbers pass {}", u32::MAX))
+            })?;
             if revision.rev != expected {
                 return Err(CompatError::InvalidSchema(format!(
                     "revision {} out of order (expected {expected})",

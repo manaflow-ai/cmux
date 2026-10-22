@@ -14,6 +14,8 @@ on:
       - "cmux-tui/vendor/crossterm/**"
       - "cmux-tui/fuzz/**"
       - "cmux-tui/rust-toolchain.toml"
+      - "cmux-tui/Cargo.toml"
+      - "ghostty-next"
       - ".github/workflows/cmux-tui-fuzz.yml"
   push:
     branches:
@@ -24,6 +26,8 @@ on:
       - "cmux-tui/vendor/crossterm/**"
       - "cmux-tui/fuzz/**"
       - "cmux-tui/rust-toolchain.toml"
+      - "cmux-tui/Cargo.toml"
+      - "ghostty-next"
       - ".github/workflows/cmux-tui-fuzz.yml"
   schedule:
     - cron: "17 9 * * *"
@@ -52,9 +56,9 @@ jobs:
     name: fuzz (${{ matrix.group }})
     # Fork pull requests get a small runner; the repository's own runs use Blacksmith.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}
-    # Pull requests and pushes: about 7 targets x 60 s plus the build. Nightly:
-    # about 7 targets x 600 s.
-    timeout-minutes: ${{ github.event_name == 'schedule' && 110 || 40 }}
+    # Pull requests: about 7 targets x 60 s plus the build. Nightly and manual
+    # runs may use up to 600 s per target (about 70 min).
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 40 || 110 }}
     strategy:
       fail-fast: false
       matrix:

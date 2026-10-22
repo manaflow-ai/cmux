@@ -1,6 +1,8 @@
 //! Terminal input bytes (what the host terminal sends cmux-tui on stdin)
-//! through the vendored crossterm event parser, the way its reader feeds it:
-//! the buffer grows one byte at a time; an event or an error clears it.
+//! through the vendored crossterm event parser, close to how its reader feeds
+//! it: the buffer grows one byte at a time; an event or an error clears it.
+//! (The reader also clears it after an internal event such as a cursor
+//! position report, which this public entry point returns as `None`.)
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
