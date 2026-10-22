@@ -173,6 +173,18 @@ class SyncIssuesTests(unittest.TestCase):
         self.assertEqual(github.closed(), [])
 
 
+    def test_a_duplicate_updated_after_the_snapshot_keeps_the_label_tracked(self) -> None:
+        # Keeper #7 updated before the snapshot, duplicate #12 after it: this older snapshot closes neither.
+        github = FakeGitHub([search_item(SIDE, 7, updated=10), search_item(SIDE, 12, updated=1)])
+        starved_labels.sync_issues(github, [], iso(5), unserved=[])
+        self.assertEqual(github.closed(), [])
+
+    def test_stale_duplicates_still_close_beside_a_fenced_one(self) -> None:
+        github = FakeGitHub([search_item(SIDE, 7, updated=10), search_item(SIDE, 12, updated=1),
+                             search_item(SIDE, 15, updated=20)])
+        starved_labels.sync_issues(github, [], iso(5), unserved=[])
+        self.assertEqual(github.closed(), [15])
+
 class MainTests(unittest.TestCase):
     def run_main(self, snapshot: dict, env: dict) -> tuple[int, str, str]:
         with tempfile.TemporaryDirectory() as tmp:
