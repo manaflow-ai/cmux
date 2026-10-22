@@ -79,6 +79,10 @@ fn hub(d: &Path) -> Arc<Hub> {
             "fzdot": {"argv": [CLAUDE], "kind": "claude-stdio", "env": {"ZDOTDIR": "."}},
             "fzdotabs": {"argv": [CLAUDE], "kind": "claude-stdio",
                          "env": {"ZDOTDIR": d.join("work").join("dots")}},
+            // A bare relative ZDOTDIR, or the one the app's zsh agent layer reads, is the folder's.
+            "frelzdot": {"argv": [CLAUDE], "kind": "claude-stdio", "env": {"ZDOTDIR": "dots"}},
+            "frelcarrier": {"argv": [CLAUDE], "kind": "claude-stdio",
+                            "env": {"CMUX_CLI_AGENT_ZDOTDIR": "dots"}},
             // Its HOME is the chat's folder: Claude Code would read the folder's
             // `.claude/settings.json` as the person's own.
             "fhome": {"argv": [CLAUDE], "kind": "claude-stdio",
@@ -305,7 +309,18 @@ async fn not_now_opens_a_restricted_claude_chat_only_with_the_setting_on() {
     std::fs::copy(FAKE_CLAUDE, work.join("claude.py")).unwrap();
     std::fs::copy(FAKE_CLAUDE, work.join("claude_wrapper.py")).unwrap();
     std::fs::create_dir_all(work.join("dots")).unwrap();
-    for harness in ["fhome", "fhomelink", "fscript", "fscriptrel", "fpymod", "fzdot", "fzdotabs"] {
+    let folder_code = [
+        "fhome",
+        "fhomelink",
+        "fscript",
+        "fscriptrel",
+        "fpymod",
+        "fzdot",
+        "fzdotabs",
+        "frelzdot",
+        "frelcarrier",
+    ];
+    for harness in folder_code {
         let r = app.new_session(&work, harness).await;
         let refused = match r["result"]["sessionId"].as_str() {
             Some(id) => {

@@ -918,8 +918,10 @@ mod tests {
         let opts = format!("--rcfile \"{spaced_dots}/x\"");
         assert!(folder_env(&env(&[("TOOL_OPTS", &opts)]), &spaced).is_err());
         assert!(folder_env(&env(&[("ZDOTDIR", "./my dots")]), &spaced).is_err());
-        let sibling = root.join("my chat2").to_string_lossy().into_owned();
-        assert!(folder_env(&env(&[("ZDOTDIR", &sibling)]), &spaced).is_ok());
+        for sibling in ["my chat2", "my chat backup/dots"] {
+            let sibling = root.join(sibling).to_string_lossy().into_owned();
+            assert!(folder_env(&env(&[("ZDOTDIR", &sibling)]), &spaced).is_ok(), "{sibling}");
+        }
         let _ = std::fs::remove_dir_all(&root);
     }
 
