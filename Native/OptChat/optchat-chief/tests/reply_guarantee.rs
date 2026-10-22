@@ -190,3 +190,22 @@ fn a_retracted_message_needs_no_reply() {
     ));
     assert!(h.brain.awaiting_replies().is_empty());
 }
+
+#[test]
+fn a_host_notice_is_no_reply() {
+    let mut h = Harness::new(says(vec!["NO_REPLY"]));
+    h.connect();
+    h.say("user_local", "deploy it");
+    h.settle_posts();
+    assert_eq!(h.brain.awaiting_replies().len(), 1);
+    // The host's own message (a notice) answers nothing.
+    h.brain
+        .notice_for_test("notice:test", "The Chief's memory cannot summarize line 3.");
+    h.settle_posts();
+    assert_eq!(posted(&h).len(), 1, "the notice posted");
+    assert_eq!(
+        h.brain.awaiting_replies().len(),
+        1,
+        "still waiting for a reply"
+    );
+}

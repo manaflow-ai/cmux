@@ -73,11 +73,13 @@ impl Brain {
         })
     }
 
-    /// The owner took `op` in `conversation`: the messages it answers leave
-    /// the ledger. A post with text (or an attachment) answers the messages
-    /// it names (`answers`, `reply_to`); one that names none (a `send`, a
-    /// retry turn's reply) answers every message a turn has seen.
-    pub(super) fn reply_posted(&mut self, conversation: &str, op: &Op) {
+    /// The owner took `op` under `key` in `conversation`: the messages it
+    /// answers leave the ledger. A post with text (or an attachment) answers
+    /// the messages it names (`answers`, `reply_to`); a Chief's post that
+    /// names none (a `send`, a retry turn's reply) answers every message a
+    /// turn has seen. The host's own notices and the desk's voice answer
+    /// nothing.
+    pub(super) fn reply_posted(&mut self, conversation: &str, key: &str, op: &Op) {
         if self.state.awaiting.is_empty()
             || self.state.conversation.as_deref() != Some(conversation)
         {
@@ -95,6 +97,7 @@ impl Brain {
         if !says_something(parts) {
             return;
         }
+        let chief_post = key.starts_with("send-") || key.starts_with("turn:optchat:");
         let mut named: Vec<String> = answers.clone();
         if let Some(parent) = reply_to {
             named.push(parent.message_id.clone());
@@ -105,7 +108,7 @@ impl Brain {
             .into_iter()
             .filter(|a| {
                 if named.is_empty() {
-                    self.reply_queued(&a.id)
+                    !chief_post || self.reply_queued(&a.id)
                 } else {
                     !named.contains(&a.id)
                 }
@@ -170,6 +173,12 @@ impl Brain {
     /// The messages still waiting for a reply, oldest first.
     pub fn awaiting_replies(&self) -> Vec<Awaiting> {
         self.state.awaiting.clone()
+    }
+
+    /// Posts a host notice, as a compactor fault or a stuck line does (tests).
+    #[doc(hidden)]
+    pub fn notice_for_test(&mut self, key: &str, text: &str) {
+        self.notice(key.to_owned(), text.to_owned());
     }
 
     /// Sets the waits between retry checks (tests shorten them).
