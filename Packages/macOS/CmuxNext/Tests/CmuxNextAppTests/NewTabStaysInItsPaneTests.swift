@@ -38,17 +38,22 @@ struct NewTabStaysInItsPaneTests {
             services.linkOpener.placement = { .splitRight }
             let window = try #require(services.windows.active)
             let pane = try #require(window.focusedPane)
-            let terminalID = try #require(pane.selectedTab?.id)
-            try #require(pane.selectedTab?.kind == .pty, "the first pane does not show a terminal")
+            let store = services.daemon.store
+            // The pane's first tab, then a terminal, then a page; the terminal is selected.
+            let firstID = try #require(pane.orderedIDs.first?.rawValue)
+            let terminal = try await connection.newTab(in: pane.pane.handle)
+            try await PasswordManagerRouteTests.until { store.tab(surface: terminal.surface) != nil }
+            let terminalID = try #require(store.tab(surface: terminal.surface)).id
             let page = try await Self.browserTab("https://example.com/c", in: pane, services: services, connection: connection)
-            try await PasswordManagerRouteTests.until { pane.orderedIDs.map(\.rawValue) == [terminalID, page] }
+            try await PasswordManagerRouteTests.until { pane.orderedIDs.map(\.rawValue) == [firstID, terminalID, page] }
             pane.select(TabID(terminalID))
+            try #require(pane.selectedTab?.kind == .pty, "the selected tab is not a terminal")
 
             try Self.perform("newTab.default", on: pane, services: services)
 
-            let after = try await Self.settled(pane)
-            #expect(after.first == terminalID && after.last == page, "the new tab is not right after the selected one: \(after)")
-            #expect(pane.stripModel.selectedID?.rawValue == after[1], "selected \(pane.stripModel.selectedID?.rawValue ?? "none"), strip \(after)")
+            let after = try await Self.settled(pane, count: 4)
+            #expect(after[0] == firstID && after[1] == terminalID && after[3] == page, "the new tab is not right after the selected one: \(after)")
+            #expect(pane.stripModel.selectedID?.rawValue == after[2], "selected \(pane.stripModel.selectedID?.rawValue ?? "none"), strip \(after)")
         }
     }
 
@@ -57,16 +62,20 @@ struct NewTabStaysInItsPaneTests {
         try await PasswordManagerRouteTests.withApp { services, connection in
             services.linkOpener.placement = { .splitRight }
             let (window, strip, dock, dockIDs) = try await Self.dockedChat(services: services, connection: connection)
-            // The strip pane: its terminal, then a page; the terminal is selected.
-            let terminalID = try #require(strip.orderedIDs.first?.rawValue)
+            // The strip pane: its first tab, then a page; the first is selected.
+            let stripFirstID = try #require(strip.orderedIDs.first?.rawValue)
             let page = try await Self.browserTab("https://example.com/c", in: strip, services: services, connection: connection)
-            try await PasswordManagerRouteTests.until { strip.orderedIDs.map(\.rawValue) == [terminalID, page] }
-            strip.select(TabID(terminalID))
+            try await PasswordManagerRouteTests.until { strip.orderedIDs.map(\.rawValue) == [stripFirstID, page] }
+            strip.select(TabID(stripFirstID))
+            // Pressed in the chat: focus starts there, so the strip's focus below is the new tab's doing.
+            let content = try #require(window.workspaceContent)
+            PaneHandlers.focus(dock.layoutPaneID, in: content)
+            try await PasswordManagerRouteTests.until({ window.focusedPane === dock }, report: { "focus did not reach the dock" })
 
             try Self.perform(action, on: dock, services: services)
 
             let after = try await Self.settled(strip)
-            #expect(after.first == terminalID && after.last == page, "the new tab is not right after the strip's selected one: \(after)")
+            #expect(after.first == stripFirstID && after.last == page, "the new tab is not right after the strip's selected one: \(after)")
             #expect(strip.stripModel.selectedID?.rawValue == after[1], "selected \(strip.stripModel.selectedID?.rawValue ?? "none"), strip \(after)")
             #expect(window.focusedPane === strip, "focus is not in the strip pane")
             #expect(dock.orderedIDs.map(\.rawValue) == dockIDs, "the dock changed: \(dockIDs) -> \(dock.orderedIDs.map(\.rawValue))")
@@ -90,7 +99,7 @@ struct NewTabStaysInItsPaneTests {
         }
     }
 
-    /// Two pages in an agent chat dock left of the strip pane (which keeps its terminal), the first selected.
+    /// Two pages in an agent chat dock left of the strip pane (which keeps its first tab), the first selected.
     private static func dockedChat(services: AppServices, connection: DaemonConnection) async throws
         -> (WindowController, PaneController, PaneController, [String]) {
         services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-new-tab-stays")
@@ -137,14 +146,14 @@ struct NewTabStaysInItsPaneTests {
         #expect(services.registry.perform(action, invocation: ActionInvocation(target: target, origin: .user)))
     }
 
-    /// `pane`'s tab ids once it lists three real tabs and holds them past the new-tab placement window.
-    private static func settled(_ pane: PaneController) async throws -> [String] {
+    /// `pane`'s tab ids once it lists `count` real tabs and holds them past the new-tab placement window.
+    private static func settled(_ pane: PaneController, count: Int = 3) async throws -> [String] {
         @MainActor func order() -> [String] { pane.orderedIDs.map(\.rawValue) }
-        try await PasswordManagerRouteTests.until({ order().count == 3 && !order().contains(where: ProvisionalTab.isProvisional) },
+        try await PasswordManagerRouteTests.until({ order().count == count && !order().contains(where: ProvisionalTab.isProvisional) },
                                                   report: { "strip: \(order())" })
         try await Task.sleep(for: .seconds(1))
         let after = order()
-        try #require(after.count == 3, "strip: \(after)")
+        try #require(after.count == count, "strip: \(after)")
         return after
     }
 }
