@@ -191,7 +191,16 @@ function PullRequestRow({
           <span className="acpmux-chat-inspector-sr-only">{stateLabel}</span>
         </span>
         <span className="acpmux-chat-inspector-pr__text">
-          <span className="acpmux-chat-inspector-pr__title">{title || `#${pr.number}`}</span>
+          {/* The owner sits beside the title, so the line under it keeps the row's whole width. */}
+          <span className="acpmux-chat-inspector-pr__head">
+            <span className="acpmux-chat-inspector-pr__title">{title || `#${pr.number}`}</span>
+            {live.owner && (
+              <span className="acpmux-chat-inspector-pr__owner">
+                <span className="acpmux-chat-inspector-sr-only">{t("chatInspector.changes.ownerLabel")} </span>
+                {live.owner}
+              </span>
+            )}
+          </span>
           <span className="acpmux-chat-inspector-pr__line">
             <span className="acpmux-chat-inspector-pr__ref">{`${repoName} #${pr.number}`}</span>
             {live.additions !== undefined && live.deletions !== undefined && (
@@ -225,12 +234,6 @@ function PullRequestRow({
           </span>
         </span>
       </a>
-      {live.owner && (
-        <span className="acpmux-chat-inspector-pr__owner">
-          <span className="acpmux-chat-inspector-sr-only">{t("chatInspector.changes.ownerLabel")} </span>
-          {live.owner}
-        </span>
-      )}
       <Menu>
         <MenuButton
           className="acpmux-chat-inspector-icon-button acpmux-chat-inspector-pr__more"

@@ -358,7 +358,14 @@
   display: flex;
   flex-direction: column;
 }
+.acpmux-chat-inspector-pr__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
 .acpmux-chat-inspector-pr__title {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -421,7 +428,6 @@
 .acpmux-chat-inspector-pr__owner {
   flex: none;
   max-width: 40%;
-  margin-top: 6px;
   padding: 0 6px;
   overflow: hidden;
   border-radius: 6px;
