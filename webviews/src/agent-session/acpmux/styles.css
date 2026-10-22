@@ -457,7 +457,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-pr-card__title{color:var(--agent-text);font-size:var(--text-control);line-height:var(--text-control--line-height);font-weight:600;overflow-wrap:anywhere}
 .acpmux-pr-card__facts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 7px;color:var(--agent-muted)}
 .acpmux-pr-card__facts>svg{flex:none}
-.acpmux-pr-card__ref{font-variant-numeric:tabular-nums}
+.acpmux-pr-card__ref{color:var(--agent-accent,var(--agent-text));font-variant-numeric:tabular-nums;font-weight:500;text-decoration:none;border-radius:3px}.acpmux-pr-card__ref:hover{text-decoration:underline;text-underline-offset:2px}.acpmux-pr-card__ref:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
 .acpmux-pr-card__state{font-weight:500}
 .acpmux-pr-card__state[data-state=open]{color:var(--agent-success,var(--acpmux-add,#3fb950))}
 .acpmux-pr-card__state[data-state=merged]{color:var(--agent-ansi-5,#a371f7)}
