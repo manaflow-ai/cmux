@@ -153,6 +153,13 @@ public final class SidebarDocSections {
             listed.formUnion(members.map(\.id))
             sections.append(CmuxNextDaemon.SidebarSection(group: model(group), workspaces: members))
         }
+        // A workspace at the top level of Pinned is mapped with its machine's rows (its real machine, so a Chief's
+        // row keeps its own title rule); the sidebar model lists it in the Pinned area (`SidebarDocProjection.arrange`).
+        let pinned = projection.pinnedWorkspaces.filter { $0.ref.sessionID == session }.compactMap { byResource[$0.ref.workspaceID] }
+        if !pinned.isEmpty {
+            listed.formUnion(pinned.map(\.id))
+            sections.append(CmuxNextDaemon.SidebarSection(group: nil, workspaces: pinned))
+        }
         let placed = Set(projection.items.keys.filter { $0.sessionID == session }.map(\.workspaceID))
         let unplaced = workspaces.filter { w in !listed.contains(w.id) && !(w.resourceID.map { placed.contains($0.rawValue) } ?? false) }
         if !unplaced.isEmpty {

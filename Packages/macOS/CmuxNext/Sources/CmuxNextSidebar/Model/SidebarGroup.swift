@@ -196,6 +196,8 @@ public nonisolated struct SidebarListItem: Hashable, Sendable {
     public var title: String
     /// The page icon address of a link (stored on the item, else the site's own).
     public var iconAddress: String?
+    /// A closed workspace pinned at the top level of Pinned: its row draws the pin glyph, as a pinned workspace row does.
+    public var pinned = false
 
     public init(id: String, ref: LayoutItemRef, title: String, iconAddress: String? = nil) {
         self.id = id

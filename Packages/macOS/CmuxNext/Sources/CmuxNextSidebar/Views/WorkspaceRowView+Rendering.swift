@@ -64,6 +64,7 @@ extension WorkspaceRowView {
             subtitle.setColor(Palette.textSecondary); [timeLabel, metaLabel].forEach { $0.setColor(Palette.textTertiary) }
             tabCount.setColor(Palette.textTertiary)
             mutedMark.setTint(Palette.textTertiary)
+            pinMark.setTint(Palette.textTertiary)
             if let machine { machineMark.setTint(machine.color) }
             prBadge.setColor(Palette.textSecondary)
             tintSessionTree()
@@ -165,8 +166,7 @@ extension WorkspaceRowView {
         // show; VoiceOver uses the row's custom action.
         setHoverShown(moreButton, showMore, fades: fades)
         moreButton.frame = closeButton.frame.offsetBy(dx: isClosable && !isShowingPlaceholder ? -(control + Metrics.space1) : 0, dy: 0)
-        let pinStart = layoutPin(showMore: showMore, control: control, fades: fades)
-        let overlayStart = [showClose ? closeButton.frame.minX : nil, showMore ? moreButton.frame.minX : nil, pinStart].compactMap { $0 }.min()
+        let overlayStart = [showClose ? closeButton.frame.minX : nil, showMore ? moreButton.frame.minX : nil].compactMap { $0 }.min()
         let ind = SidebarStyle.indicatorSize
         // With nothing else at the row's end, the lone dot or spinner takes the trailing column,
         // centered on the group header chevron's x (SidebarStyle+TrailingColumn).
@@ -208,6 +208,11 @@ extension WorkspaceRowView {
         if !machineMark.isHidden {
             machineMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
             textX = machineMark.frame.maxX + Metrics.space1
+        }
+        // A pinned row's pin leads its title, as the Pinned band's rows did; nothing covers it on hover.
+        if !pinMark.isHidden {
+            pinMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
+            textX = pinMark.frame.maxX + Metrics.space1
         }
         let textW = max(0, trailing - textX)
         let titleArrival = titleArrivalPending || titleArrivalActive

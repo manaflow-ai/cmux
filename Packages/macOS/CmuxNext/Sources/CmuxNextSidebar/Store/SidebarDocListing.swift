@@ -12,16 +12,29 @@ import Foundation
 ///   (`SectionID.custom`) at its own place in the document order: its items
 ///   draw in its own arrangement (`SidebarRowKey.block`), and its groups
 ///   leave their machine and list there as header and member rows. An empty
-///   kept group lists there too.
+///   kept group lists there too;
+/// - a workspace at the top level of Pinned leaves its machine and lists as a
+///   workspace row in Pinned, at the top of the list, in the document's order,
+///   before Pinned's groups; one that is closed lists as an item row with its
+///   stored name and the pin (`SidebarListItem.pinned`). Every pinned
+///   workspace's row draws the pin glyph (`SidebarWorkspace.pinned`), a member
+///   pinned in its group too; a content patch keeps it. Its item actions
+///   resolve through `SidebarDocProjection.pinnedLayoutItem`.
 extension SidebarDocProjection {
     /// `sections` arranged as this document places items; `drag` names each row's item and each list section's document section.
     @MainActor public func arrange(_ sections: [SidebarSection], drag: SidebarDocDrag) -> [SidebarSection] {
         let projection = self
         let bandIDs = Set(projection.bandGroups.map(\.id))
+        let pinnedIDs = Set(projection.pinnedWorkspaces.map(\.item))
         var pulled: [String: SidebarGroup] = [:]
+        var pulledPinned: [String: SidebarWorkspace] = [:]
         var arranged = sections.map { section in
             var section = section
             section.nodes.removeAll { node in
+                if case .workspace(let workspace) = node, let item = drag.item(.workspace(workspace.id)), pinnedIDs.contains(item) {
+                    pulledPinned[item] = workspace
+                    return true
+                }
                 guard case .group(let group) = node, bandIDs.contains(group.id.rawValue) else { return false }
                 // A group whose members sit on more than one machine comes once per machine: one group again.
                 if var seen = pulled[group.id.rawValue] {
@@ -54,7 +67,12 @@ extension SidebarDocProjection {
                 continue
             }
             let id = layoutSection.id.rawValue
-            let nodes = projection.bandGroups.filter { $0.section == id }.map { SidebarNode.group(pulled[$0.id] ?? Self.emptyGroup($0)) }
+            let pinnedRows = projection.pinnedWorkspaces.filter { $0.section == id }.compactMap { entry -> SidebarNode? in
+                if let workspace = pulledPinned[entry.item] { return .workspace(workspace) }
+                // Live but not in this window or space: it lists where it is shown, not here.
+                return entry.closed ? .item(Self.titled(entry.listed)) : nil
+            }
+            let nodes = pinnedRows + projection.bandGroups.filter { $0.section == id }.map { SidebarNode.group(pulled[$0.id] ?? Self.emptyGroup($0)) }
             guard !passedMachines || !nodes.isEmpty else { continue }
             let section = SidebarSection(kind: .custom(SidebarCustomSection(id: id, title: layoutSection.title, showsTitle: false)), nodes: nodes)
             if passedMachines { after.append(section) } else { before.append(section) }
@@ -62,7 +80,33 @@ extension SidebarDocProjection {
         let at = arranged.firstIndex { $0.machine != nil } ?? arranged.count
         arranged.insert(contentsOf: before, at: at)
         arranged += after
-        return Self.withMemberItems(arranged, projection, drag: drag)
+        return Self.markingPinned(Self.withMemberItems(arranged, projection, drag: drag), projection, drag: drag)
+    }
+
+    /// `sections` with `pinned` set on each workspace the document reads as pinned (`pinnedItems`) and
+    /// cleared on every other, loose or a group's member, so its row draws the pin glyph and no other does.
+    @MainActor private static func markingPinned(_ sections: [SidebarSection], _ projection: SidebarDocProjection,
+                                                 drag: SidebarDocDrag) -> [SidebarSection] {
+        func marked(_ workspace: SidebarWorkspace) -> SidebarWorkspace {
+            let pinned = drag.item(.workspace(workspace.id)).map { projection.pinnedItems.contains($0) } ?? false
+            guard workspace.pinned != pinned else { return workspace }
+            var workspace = workspace
+            workspace.pinned = pinned
+            return workspace
+        }
+        return sections.map { section in
+            var section = section
+            section.nodes = section.nodes.map { node in
+                switch node {
+                case .workspace(let workspace): return .workspace(marked(workspace))
+                case .group(var group):
+                    group.workspaces = group.workspaces.map(marked)
+                    return .group(group)
+                case .item: return node
+                }
+            }
+            return section
+        }
     }
 
     /// `sections` with each group's url, tab and app members (`SidebarGroup.items`): a member follows the

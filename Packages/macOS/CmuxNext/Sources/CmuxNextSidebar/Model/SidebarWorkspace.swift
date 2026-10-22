@@ -154,6 +154,11 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// The title's weight from the user's row decoration (`SidebarRowDecoration`); nil is the
     /// default (regular).
     public var titleWeight: SidebarRowDecoration.Weight?
+    /// The person pinned it (the row menu's Pin Workspace): its row draws the pin glyph and, at the
+    /// top level, lists in the Pinned area at the top of the list. Set by the list's arrangement
+    /// (`SidebarDocProjection.arrange`, `SidebarSection.pinnedFirst`), never by default: an
+    /// unpinned row draws no pin (Lawrence 2026-10-21).
+    public var pinned = false
 
     public init(
         id: WorkspaceID,

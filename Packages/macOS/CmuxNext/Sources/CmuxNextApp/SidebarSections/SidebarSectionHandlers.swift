@@ -112,7 +112,9 @@ enum SidebarSectionHandlers {
         // On a tile the menu reads Unpin Workspace; on a top row, Remove from Top.
         ActionTargetTitles.set("sidebar.item.remove", in: registry) { invocation in
             let doc = layout.document
-            guard let item = try? SidebarSectionResolve.item(invocation.target, in: doc), let (s, _) = doc.locate(item.id) else { return nil }
+            guard let item = try? SidebarSectionResolve.item(invocation.target, in: doc) else { return nil }
+            // A workspace listed as a row in Pinned (not in `doc`): Remove from Section unpins it.
+            guard let (s, _) = doc.locate(item.id) else { return item.ref.kind == LayoutItemRef.workspaceKind ? PinStrings.unpinWorkspace : nil }
             if doc.sections[s].id == SidebarLayoutDocument.pinnedSectionID, item.ref.kind == LayoutItemRef.workspaceKind {
                 return PinStrings.unpinWorkspace
             }
@@ -236,7 +238,7 @@ enum SidebarSectionResolve {
     static func owningApp(_ target: ActionTargetRef?, in doc: SidebarLayoutDocument) throws -> String? {
         switch target?.kind {
         case .sidebarSection?: try section(target, in: doc).owningAppID
-        default: try item(target, in: doc).owningAppID
+        default: try item(target, in: doc, shown: nil).owningAppID // an app item is in `doc`
         }
     }
 
@@ -261,8 +263,14 @@ enum SidebarSectionResolve {
         }
     }
 
-    /// By item id, else by built-in name (`home`).
-    static func item(_ target: ActionTargetRef?, in doc: SidebarLayoutDocument) throws -> LayoutItem {
+    /// By item id, else by built-in name (`home`); while the sidebar document shows, a workspace at the top level of
+    /// Pinned too, open or closed: it lists as a row, not in `doc` (`SidebarDocProjection.pinnedLayoutItem`).
+    @MainActor static func item(_ target: ActionTargetRef?, in doc: SidebarLayoutDocument) throws -> LayoutItem {
+        try item(target, in: doc, shown: SidebarDocWiring.isActive ? SidebarDocStore.current?.shown : nil)
+    }
+
+    /// By item id in `doc`, else by built-in name, else a Pinned workspace of `shown`.
+    static func item(_ target: ActionTargetRef?, in doc: SidebarLayoutDocument, shown: SidebarDocProjection?) throws -> LayoutItem {
         guard let target, target.kind == .sidebarItem else { throw ActionFailure(message: SidebarSectionStrings.noSuchItem) }
         if let item = doc.item(LayoutItemID(target.id)) { return item }
         if let builtIn = SidebarBuiltIn(rawValue: target.id) {
@@ -270,6 +278,7 @@ enum SidebarSectionResolve {
             let ref = SidebarLayoutDocument.firstPartyApps[builtIn].map(LayoutItemRef.app) ?? .builtIn(builtIn)
             if let item = doc.firstItem(with: ref) { return item }
         }
+        if let pinned = shown?.pinnedLayoutItem(target.id) { return pinned }
         throw ActionFailure(message: SidebarSectionStrings.noSuchItem)
     }
 }

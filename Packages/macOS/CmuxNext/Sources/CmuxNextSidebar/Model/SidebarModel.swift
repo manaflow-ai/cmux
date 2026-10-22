@@ -246,7 +246,9 @@ public final class SidebarModel {
     /// Receives every intent. When nil, `send` applies intents locally.
     @ObservationIgnored public var onIntent: ((SidebarIntent) -> Void)?
     /// A workspace's pin state and the Pin/Unpin Workspace action, from the
-    /// App (layout tiles or the daemon flag): an expanded row's hover pin.
+    /// App (layout tiles or the daemon flag). No row draws a pin control from it:
+    /// Pin Workspace is in the row's menu, and a pinned row's glyph reads
+    /// `SidebarWorkspace.pinned` (Lawrence 2026-10-21).
     @ObservationIgnored public var workspacePin: (isPinned: (WorkspaceID) -> Bool, toggle: (WorkspaceID) -> Void)?
     /// The sections another space shows (R99: the page beside the current
     /// one during a horizontal swipe). Read when a swipe reaches that page.
@@ -414,6 +416,8 @@ public final class SidebarModel {
             let old = SidebarRowIndex.workspace(at: path, in: storedSections)
             row.rowState = old.rowState
             row.machineID = old.machineID
+            // Pinned is structural (a pin or unpin moves the row; `arrange` marks it): a content patch keeps the glyph.
+            row.pinned = old.pinned
             guard row != old else { continue }
             guard !movesRows(from: old, to: row) else { return false }
             for path in paths {

@@ -43,8 +43,10 @@ final class WorkspaceRowView: SidebarRowView {
     /// under the button. Shows on hover only, over the end of the title
     /// behind a fade (Lawrence 2026-10-11: no layout shift).
     let moreButton = OverflowButton(label: Strings.workspaceMenu)
-    /// An expanded row's Pin or Unpin (cx-13w3), on hover beside the menu button.
-    let pinButton = SidebarIconButton(icon: .actionPin, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.pinWorkspace)
+    /// A pinned workspace's pin (`WorkspaceRowContent.pinned`): a quiet glyph before the title, at
+    /// rest and on hover, at every density. An unpinned row draws none, not even on hover
+    /// (Lawrence 2026-10-21: the pin shows only once Pin Workspace in the row's menu turned it on).
+    let pinMark = DecorativeImageView() // the row's label says it is pinned
     /// `sidebar.showWorkspaceTabs`: hides or lists the workspace's tabs. Always drawn
     /// while the setting is on (never on hover), so rows never shift.
     let disclosureButton = SidebarIconButton(icon: .disclosureCollapsed, pointSize: { Metrics.smallIconSize - Metrics.space2 },
@@ -93,8 +95,6 @@ final class WorkspaceRowView: SidebarRowView {
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
     var onClose: (() -> Void)?
     var onMore: (() -> Void)?
-    /// nil: the App offers no pin; the pin button does not show.
-    var onPin: (() -> Void)?, isPinned: (() -> Bool?)?
     /// Activates this workspace from an accessibility AXPress.
     var onSelect: (() -> Void)?
     var onToggleTabs: (() -> Void)?
@@ -133,7 +133,10 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.setAccessibilityElement(false)
         machineMark.imageScaling = .scaleProportionallyDown
         machineMark.isHidden = true
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, machineMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock,
+        pinMark.imageScaling = .scaleProportionallyDown
+        pinMark.isHidden = true
+        pinMark.setAccessibilityElement(false)
+        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, machineMark, pinMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock,
          treeLine, pullRequests, keycap, treeFoldButton, rollUp].forEach(addSubview)
         setUpSessionTree()
         disclosureButton.isHidden = true
@@ -153,12 +156,11 @@ final class WorkspaceRowView: SidebarRowView {
         title.wantsLayer = true
         closeButton.onPress = { [weak self] in self?.onClose?() }
         moreButton.onPress = { [weak self] in self?.onMore?() }
-        pinButton.onPress = { [weak self] in self?.onPin?() }
         disclosureButton.onPress = { [weak self] in self?.onToggleTabs?() }
         audioButton.onPress = { [weak self] in self?.onToggleAudio?() }
     }
 
-    override var interactiveSubviews: [NSView] { [closeButton, moreButton, pinButton, disclosureButton, treeFoldButton, audioButton] }
+    override var interactiveSubviews: [NSView] { [closeButton, moreButton, disclosureButton, treeFoldButton, audioButton] }
     override var debugIcon: String? {
         switch iconKind {
         case nil: !agentMark.isHidden && agentMarkVariant == .besideTitle ? "agentMark" : nil
@@ -188,7 +190,6 @@ final class WorkspaceRowView: SidebarRowView {
         isDropTarget = false
         onClose = nil
         onMore = nil
-        (onPin, isPinned) = (nil, nil)
         onSelect = nil
         onToggleTabs = nil
         onToggleTree = nil
@@ -288,6 +289,9 @@ final class WorkspaceRowView: SidebarRowView {
         // The bell-slash alone does not say what is muted: notifications, not the tabs' sound
         // (the row's accessibility label says it too).
         mutedMark.themedToolTip = mutedMark.isHidden ? nil : Strings.notificationsMuted
+        pinMark.image = shown.pinned && !isShowingPlaceholder
+            ? NSImage.icon(.statePinned, size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)) : nil
+        pinMark.isHidden = pinMark.image == nil
         let previousMachine = machine
         machine = isShowingPlaceholder ? nil : shown.machine
         // A new image only when the mark or its size changes: every patch and every row scrolled in configures the row.
@@ -324,7 +328,8 @@ final class WorkspaceRowView: SidebarRowView {
         setAccessibilityElement(!isShowingPlaceholder)
         setAccessibilityRole(.row)
         setAccessibilityIdentifier("cmux.sidebar.workspace.\(ws.id.rawValue)")
-        for (button, control) in [(closeButton, "close"), (moreButton, "more"), (pinButton, "pin"), (disclosureButton, "disclosure")] as [(NSButton, String)] {
+        pinMark.setAccessibilityIdentifier("cmux.sidebar.workspace.\(ws.id.rawValue).pin")
+        for (button, control) in [(closeButton, "close"), (moreButton, "more"), (disclosureButton, "disclosure")] as [(NSButton, String)] {
             button.setAccessibilityIdentifier("cmux.sidebar.workspace.\(ws.id.rawValue).\(control)")
         }
         setAccessibilityLabel(accessibilityText(ws, content: shown))

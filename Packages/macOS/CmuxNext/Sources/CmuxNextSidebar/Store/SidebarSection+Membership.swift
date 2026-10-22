@@ -49,7 +49,12 @@ nonisolated extension SidebarSection {
             }
             return section
         }
-        let nodes = moving.map(SidebarNode.workspace)
+        // A pinned row draws the pin glyph (`SidebarWorkspace.pinned`); no other row does.
+        let nodes = moving.map { workspace in
+            var workspace = workspace
+            workspace.pinned = true
+            return SidebarNode.workspace(workspace)
+        }
         if let index = result.firstIndex(where: { $0.id == .pinned }) {
             result[index].nodes += nodes
         } else {
