@@ -33,7 +33,8 @@ nonisolated extension SidebarLayout {
         guard pinnedChatsY == nil, earlierChatsY == nil else { return false }
         // A nested group or a group holding subgroups (remote-groups-DESIGN.md slice 2): its block holds other groups'
         // rows, so the full layout places them.
-        guard group.parent == nil,
+        // A group holding workspaces marked Done draws them behind its "Done (N)" row (`foldingDone`): laid out again.
+        guard group.parent == nil, !(o.foldsDone && group.workspaces.contains { $0.taskStatus == .done }),
               !section.nodes.contains(where: { if case let .group(child) = $0 { child.parent == group.id } else { false } }) else { return false }
         let m = o.minimal ? base.minimal : base
         let header = rows[headerIndex]

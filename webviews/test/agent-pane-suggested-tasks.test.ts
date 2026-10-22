@@ -207,6 +207,18 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
     extra?: () => Record_[];
     width?: number;
   };
+  /// The Retry buttons a page shows: under the person's prompts (each prompt's own, Leo's prompt row),
+  /// and anywhere else (a turn's footer, another agent's message).
+  async function retryButtons(page: Page): Promise<{ prompts: number; elsewhere: number }> {
+    return page.evaluate(() => {
+      const shown = [...document.querySelectorAll('button[aria-label="Retry"]')].filter(
+        (button) => button.getClientRects().length > 0,
+      );
+      const prompts = shown.filter((button) => button.closest(".cv-user__actions")).length;
+      return { prompts, elsewhere: shown.length - prompts };
+    });
+  }
+
   async function openChat({ offered, experiment = "on", extra, width = 900 }: Setup): Promise<Page> {
     calls = [];
     seq = 0;
@@ -864,8 +876,8 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       expect(order.footers.some((index) => index > order.first && index < order.second)).toBe(true);
       expect(await page.locator("body").innerText()).not.toContain("The date changed.");
       // The last turn is the reminder's, which has no prompt of the person's to send again: no
-      // Retry resends the earlier prompt in its place.
-      expect(await page.getByRole("button", { name: "Retry", exact: true }).count()).toBe(0);
+      // Retry resends the earlier prompt in its place. Only the person's one prompt has its own.
+      expect(await retryButtons(page)).toEqual({ prompts: 1, elsewhere: 0 });
       await page.close();
     });
 
@@ -909,7 +921,8 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
         ],
       });
       await page.getByText("The build is done.").first().waitFor({ timeout: 10_000 });
-      expect(await page.getByRole("button", { name: "Retry", exact: true }).count()).toBe(0);
+      // Only the person's one prompt has its own Retry; the notification's turn offers none.
+      expect(await retryButtons(page)).toEqual({ prompts: 1, elsewhere: 0 });
       await page.close();
     });
 

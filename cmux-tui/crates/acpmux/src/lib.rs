@@ -21,6 +21,7 @@ pub mod agent_displays;
 pub mod agent_host;
 pub mod agent_tools;
 pub mod byo_endpoint;
+pub mod capabilities;
 pub mod catalog;
 pub mod chats;
 pub mod claude_auth;
@@ -56,6 +57,7 @@ pub mod native;
 pub mod offer_mcp;
 #[cfg(windows)]
 mod owner_only;
+pub mod pairing;
 pub mod peer;
 pub mod peer_link;
 #[cfg(not(unix))]

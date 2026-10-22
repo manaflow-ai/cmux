@@ -15,12 +15,15 @@ public struct AgentSessionSummary: Hashable, Sendable, Identifiable {
     public var macName: String
     public var branch: String?
     public var status: Status
+    /// The tab's Mac (tab ids repeat across Macs); empty when not known.
+    public var macID: String
 
     public init(
         id: String, name: String, harness: String, agentName: String, cwd: String, workspaceTitle: String,
-        macName: String, branch: String? = nil, status: Status = .idle
+        macName: String, branch: String? = nil, status: Status = .idle, macID: String = ""
     ) {
         self.id = id
+        self.macID = macID
         self.name = name
         self.harness = harness
         self.agentName = agentName

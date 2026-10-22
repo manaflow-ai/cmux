@@ -54,7 +54,8 @@ import Testing
         #expect(live.link.target?.macID == "m2")
         await settle { store.macConnection["m2"] == .connected }
         #expect(store.macConnection["m2"] == .connected)
-        #expect(store.macConnection["m1"] == nil)
+        // The first Mac keeps its own link (PROTOCOL.md "One link per Mac").
+        #expect(store.macConnection["m1"] == .connected)
         #expect(UserDefaults.standard.string(forKey: key) == "m2")
 
         // Choosing the linked Mac again changes nothing (no redial).

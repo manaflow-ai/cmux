@@ -10222,13 +10222,13 @@
       }
     },
     "action.sidebar.chat.togglePin": {
-      "comment": "Action title: pins or unpins a chat of the sidebar session tree's history (Pinned / Earlier); the chat row's right-click menu runs it, titled Pin or Unpin",
+      "comment": "Action title: pins or unpins a chat of the sidebar session tree's history (Pinned / Earlier); the chat row's right-click menu runs it, titled Pin or Unpin by the chat's state",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pin or Unpin Chat"
+            "value": "Pin/Unpin Chat"
           }
         },
         "ja": {
@@ -10240,115 +10240,115 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تثبيت الدردشة أو إلغاء تثبيتها"
+            "value": "تثبيت/إلغاء تثبيت الدردشة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zakači ili otkači chat"
+            "value": "Zakači/otkači chat"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fastgør eller frigør chat"
+            "value": "Fastgør/frigør chat"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chat anheften oder loslösen"
+            "value": "Chat anheften/loslösen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fijar o dejar de fijar chat"
+            "value": "Fijar/dejar de fijar chat"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Épingler ou désépingler la discussion"
+            "value": "Épingler/désépingler la discussion"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fissa o rimuovi fissaggio chat"
+            "value": "Fissa/rimuovi fissaggio chat"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ខ្ទាស់ ឬឈប់ខ្ទាស់ការជជែក"
+            "value": "ខ្ទាស់/ឈប់ខ្ទាស់ការជជែក"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "채팅 고정 또는 고정 해제"
+            "value": "채팅 고정/고정 해제"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fest eller løsne chat"
+            "value": "Fest/løsne chat"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przypnij lub odepnij czat"
+            "value": "Przypnij/odepnij czat"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fixar ou desafixar chat"
+            "value": "Fixar/desafixar chat"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Закрепить или открепить чат"
+            "value": "Закрепить/открепить чат"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ปักหมุดหรือเลิกปักหมุดแชท"
+            "value": "ปักหมุด/เลิกปักหมุดแชท"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sohbeti sabitle veya sabitlemeyi kaldır"
+            "value": "Sohbeti sabitle/sabitlemeyi kaldır"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Закріпити або відкріпити чат"
+            "value": "Закріпити/відкріпити чат"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghim hoặc bỏ ghim cuộc trò chuyện"
+            "value": "Ghim/bỏ ghim cuộc trò chuyện"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "置顶或取消置顶聊天"
+            "value": "置顶/取消置顶聊天"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "釘選或取消釘選聊天"
+            "value": "釘選/取消釘選聊天"
           }
         }
       }

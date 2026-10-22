@@ -84,7 +84,7 @@ pub(super) fn claude_spawn_mode(
         return None;
     }
     let offered: Vec<String> =
-        crate::claude_stdio::MODES.iter().map(|(id, _)| (*id).to_owned()).collect();
+        crate::claude_stdio::MODES.iter().map(|(id, ..)| (*id).to_owned()).collect();
     policy_mode(policy, "claude", &offered)
 }
 

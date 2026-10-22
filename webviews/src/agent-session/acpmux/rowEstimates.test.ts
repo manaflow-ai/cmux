@@ -6,7 +6,8 @@
 //     line that the footer takes the place of: its text and the 4px meta gap, with no 34px floor;
 //   - a task's result (`.cv-received`): its 26px line and the 8px message gap;
 //   - a turn's footer: its 24px line and the 24px turn gap, or the 8px message gap for the chat's
-//     last one (`.acpmux-row--last-footer`), so no band sits over the composer.
+//     last one (`.acpmux-row--last-footer`), so no band sits over the composer, and for one over
+//     another agent's line, which belongs with the agent's text above it.
 //
 // Before: a reply over a footer was estimated as any reply (8px below it, at least 34px), and a
 // task's result kept the old 16px below it.
@@ -77,6 +78,22 @@ test("the chat's last footer is placed again when a prompt follows it", () => {
     layout: first,
   });
   expect(second.heights[1]).toBe(48);
+});
+
+test("a footer over another agent's line or a task's result ends at the message gap, not the turn gap", () => {
+  const result = { id: "r", version: 1, at: 0, kind: "user", text: "Done", received: { offerId: "o", title: "Tests" } };
+  const message = {
+    id: "m",
+    version: 1,
+    at: 0,
+    kind: "user",
+    text: "Not idle.",
+    incoming: { kind: "message", message: { name: "deputy-2", text: "Not idle.", raw: "Not idle." } },
+  };
+  const notice = { id: "n", version: 1, at: 0, kind: "user", text: "Done", incoming: { kind: "notice", text: "Done" } };
+  for (const line of [result, message, notice]) expect(heightsOf([reply("a", "Done."), footer("f"), line])[1]).toBe(32);
+  // The person's prompt after it still starts a turn of its own.
+  expect(heightsOf([reply("a", "Done."), footer("f"), prompt("p")])[1]).toBe(48);
 });
 
 test("a task's result is its 26px line and the 8px message gap", () => {

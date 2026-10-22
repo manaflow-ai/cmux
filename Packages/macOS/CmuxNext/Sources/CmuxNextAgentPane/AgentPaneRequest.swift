@@ -142,6 +142,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// agent started, the session that started it): its tab, else one beside this chat, focused
     /// (``AgentPaneOfferOpen``).
     case offerOpen(String)
+    /// `chat.asks.open {sessionId}`: Needs you went to another chat's ask: that chat's tab, else a
+    /// new tab beside this chat; never this chat replaced in place (``AgentPaneAskOpen``).
+    case asksOpen(String)
     /// `chat.subagentPane {subagent, focus}`: this chat's subagent in an agent pane of its own,
     /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it.
     case subagentPane(String, focus: Bool)
