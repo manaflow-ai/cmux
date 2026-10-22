@@ -9,8 +9,8 @@
 //
 // - The chat pane, idle and with a turn running, at a narrow, a normal and a wide pane: the box's
 //   edges are the transcript column's, and the quiet row's first and last controls sit on them.
-// - The New Tab page: the box takes the chat's column at every width, and the row ends on its
-//   right edge.
+// - The New Tab page, every template (Cards had its own 880 px column, the Classic page 760 px):
+//   the box takes the chat's column at every width, and the row ends on its right edge.
 //
 // Real Chromium and WebKit on the gallery stage. CI fails the file when it cannot launch them
 // (requireBrowserLane). Locally: CMUX_BROWSER_TESTS=1 bun test test/composer-side-inset.test.ts
@@ -41,6 +41,16 @@ await requireBrowserLane("composer-side-inset.test.ts", async () => {
 
   const CHAT = "agent-pane.composer-row";
   const NEW_TAB = "agent-pane.new-tab";
+  /** Each template's gallery state and its box. */
+  const NEW_TAB_TEMPLATES: [string, string, string][] = [
+    ["minimal", "minimal-default", ".nt-box"],
+    ["default", "reasoning-chip-stage", ".nt-box"],
+    ["cards", "template-cards", ".nt-box"],
+    ["composer", "template-composer", ".nt-box"],
+    ["threads", "template-threads", ".nt-box"],
+    ["console", "template-console", ".nt-box"],
+    ["classic", "template-classic", ".acpmux-newtab-box"],
+  ];
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -52,7 +62,7 @@ await requireBrowserLane("composer-side-inset.test.ts", async () => {
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,
     });
-    await page.locator(".acpmux-composer-foot button:visible").first().waitFor();
+    await page.locator(".acpmux-composer-foot button:visible, .acpmux-newtab-box").first().waitFor();
     await page.evaluate(() => document.fonts.ready);
     return page;
   };
@@ -85,7 +95,7 @@ await requireBrowserLane("composer-side-inset.test.ts", async () => {
       const rows = [...document.querySelectorAll(".acpmux-scroll .acpmux-row")]
         .map((row) => row.getBoundingClientRect())
         .filter((rect) => rect.width > 0);
-      const screen = document.querySelector(".nt-screen");
+      const screen = document.querySelector(".nt-screen, .acpmux-newtab");
       return {
         box: { left: card.left, right: card.right },
         first: Math.min(...controls.map((rect) => rect.left)),
@@ -121,26 +131,31 @@ await requireBrowserLane("composer-side-inset.test.ts", async () => {
           ).toBeLessThanOrEqual(0.5);
         });
 
-    for (const width of [420, 760, 1400, 1600])
-      test(`${engine}: New Tab at ${width} px: the box takes the chat's column, the row ends on its edge`, async () => {
-        const page = await open(engine, NEW_TAB, "minimal-default", width);
-        const at = await measure(page, ".nt-box");
-        await page.close();
-        // The chat's column (conversation.css --cv-column, --cv-inset): 720 px, widening to 800 px
-        // at 62.5% of a wide pane, never nearer the sides than the 18 px page edge.
-        const column = Math.min(800, Math.max(720, at.page!.width * 0.625));
-        const inset = Math.max(18, (at.page!.width - column) / 2);
-        expect(
-          Math.abs(at.box.left - (at.page!.left + inset)),
-          "the box's left edge on the chat's column",
-        ).toBeLessThanOrEqual(1);
-        expect(
-          Math.abs(at.page!.left + at.page!.width - inset - at.box.right),
-          "the box's right edge on the chat's column",
-        ).toBeLessThanOrEqual(1);
-        expect(Math.abs(at.box.right - at.last), "the row's last control on the box's right edge").toBeLessThanOrEqual(
-          0.5,
-        );
-      });
+    // Every New Tab template (templates.ts), Cards and the Classic page included, takes the chat's
+    // column: none keeps a column of its own (Cards had 880 px, Classic 760 px, the rest 720 px).
+    for (const [template, variant, box] of NEW_TAB_TEMPLATES)
+      for (const width of [420, 760, 1400, 1600])
+        test(`${engine}: New Tab ${template} at ${width} px: the box takes the chat's column, the row ends on its edge`, async () => {
+          const page = await open(engine, NEW_TAB, variant, width);
+          const at = await measure(page, box);
+          await page.close();
+          // The chat's column (conversation.css --cv-column, --cv-inset): 720 px, widening to 800 px
+          // at 62.5% of a wide pane, never nearer the sides than the 18 px page edge.
+          const column = Math.min(800, Math.max(720, at.page!.width * 0.625));
+          const inset = Math.max(18, (at.page!.width - column) / 2);
+          expect(
+            Math.abs(at.box.left - (at.page!.left + inset)),
+            "the box's left edge on the chat's column",
+          ).toBeLessThanOrEqual(1);
+          expect(
+            Math.abs(at.page!.left + at.page!.width - inset - at.box.right),
+            "the box's right edge on the chat's column",
+          ).toBeLessThanOrEqual(1);
+          // The Classic page has no quiet row.
+          if (Number.isFinite(at.last))
+            expect(Math.abs(at.box.right - at.last), "the row's last control on the box's right edge").toBeLessThanOrEqual(
+              0.5,
+            );
+        });
   }
 });
