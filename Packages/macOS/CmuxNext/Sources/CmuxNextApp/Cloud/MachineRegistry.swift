@@ -19,6 +19,9 @@ final class MachineRegistry {
     let local: DaemonService
     /// Cloud machines in sidebar order (newest last).
     private(set) var cloud: [CloudMachineSession] = []
+    /// The account's Cloud machine cap from the last `/api/vm` list (nil
+    /// before one, or when the list carried none). Never inferred from `cloud`.
+    var cloudLimits: CloudMachineLimits?
     /// SSH machines in the order they were added.
     private(set) var ssh: [SSHMachineSession] = []
     /// Paired servers whose Chief brain session the app shows (`ServerReachService`).
@@ -92,6 +95,15 @@ final class MachineRegistry {
     /// The sidebar name of a remote machine, nil for local.
     func machineName(_ machineID: String) -> String? {
         session(machineID)?.machine.title ?? sshSession(machineID)?.host.label ?? server(machineID)?.name
+    }
+
+    /// The name a tab's machine badge takes its color from (`TabItem.machineName`): the sidebar
+    /// name of `machineID` when `badge` is that machine's short name (an SSH host's badge shows
+    /// its destination, the sidebar its label), so the tab wears its rows' MachineColor. Nil for
+    /// any other badge (a "this Mac" chip) or a machine not known here: the badge's own text.
+    func tabColorName(_ machineID: String?, badge: String?) -> String? {
+        guard let machineID, let badge, badge == machineBadge(machineID) else { return nil }
+        return machineName(machineID)
     }
 
     /// What `daemon` can do for the app. A remote daemon never needs the

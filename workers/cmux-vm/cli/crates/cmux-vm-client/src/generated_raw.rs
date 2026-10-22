@@ -320,6 +320,218 @@ pub mod types {
                 })
         }
     }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct AgentsCreateAgentKeyXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for AgentsCreateAgentKeyXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<AgentsCreateAgentKeyXCmuxTeamId> for ::std::string::String {
+        fn from(value: AgentsCreateAgentKeyXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for AgentsCreateAgentKeyXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for AgentsCreateAgentKeyXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for AgentsCreateAgentKeyXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for AgentsCreateAgentKeyXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct AgentsCreateClientSessionXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for AgentsCreateClientSessionXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<AgentsCreateClientSessionXCmuxTeamId> for ::std::string::String {
+        fn from(value: AgentsCreateClientSessionXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for AgentsCreateClientSessionXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for AgentsCreateClientSessionXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for AgentsCreateClientSessionXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for AgentsCreateClientSessionXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct AgentsRevokeAgentKeyXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for AgentsRevokeAgentKeyXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<AgentsRevokeAgentKeyXCmuxTeamId> for ::std::string::String {
+        fn from(value: AgentsRevokeAgentKeyXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for AgentsRevokeAgentKeyXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for AgentsRevokeAgentKeyXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for AgentsRevokeAgentKeyXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for AgentsRevokeAgentKeyXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct AgentsRevokeClientSessionXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for AgentsRevokeClientSessionXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<AgentsRevokeClientSessionXCmuxTeamId> for ::std::string::String {
+        fn from(value: AgentsRevokeClientSessionXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for AgentsRevokeClientSessionXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for AgentsRevokeClientSessionXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for AgentsRevokeClientSessionXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for AgentsRevokeClientSessionXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
     ///`ApiKey`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct ApiKey {
@@ -787,6 +999,86 @@ pub mod types {
                     <D::Error as ::serde::de::Error>::custom(e.to_string())
                 })
         }
+    }
+    ///`ClientSession`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct ClientSession {
+        #[serde(rename = "apiBaseUrl")]
+        pub api_base_url: ::std::string::String,
+        #[serde(rename = "createdAt")]
+        pub created_at: ::std::string::String,
+        ///a string matching the pattern ^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        pub id: ClientSessionId,
+        #[serde(rename = "linuxUser")]
+        pub linux_user: ::std::string::String,
+        #[serde(rename = "providerVmId")]
+        pub provider_vm_id: ::std::string::String,
+        pub ssh: ClientSessionSsh,
+        pub token: ::std::string::String,
+        #[serde(rename = "vmId")]
+        pub vm_id: ::std::string::String,
+    }
+    ///a string matching the pattern ^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct ClientSessionId(::std::string::String);
+    impl ::std::ops::Deref for ClientSessionId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<ClientSessionId> for ::std::string::String {
+        fn from(value: ClientSessionId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for ClientSessionId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for ClientSessionId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for ClientSessionId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for ClientSessionId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`ClientSessionSsh`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct ClientSessionSsh {
+        pub host: ::std::string::String,
+        pub user: ::std::string::String,
     }
     ///`ClosedTerminal`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
@@ -1616,6 +1908,84 @@ pub mod types {
             value.parse()
         }
     }
+    ///`CreateAgentKeyRequest`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct CreateAgentKeyRequest {
+        ///a number less than or equal to 50
+        #[serde(
+            rename = "maxUsdPerHour",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub max_usd_per_hour: ::std::option::Option<f64>,
+        #[serde(
+            rename = "maxVms",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub max_vms: ::std::option::Option<::std::num::NonZeroU64>,
+        ///a string at most 200 character(s) long
+        pub name: CreateAgentKeyRequestName,
+        ///an array of at most 3 item(s)
+        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+        pub scopes: ::std::vec::Vec<::std::string::String>,
+        #[serde(
+            rename = "ttlSeconds",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub ttl_seconds: ::std::option::Option<i64>,
+    }
+    ///a string at most 200 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct CreateAgentKeyRequestName(::std::string::String);
+    impl ::std::ops::Deref for CreateAgentKeyRequestName {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<CreateAgentKeyRequestName> for ::std::string::String {
+        fn from(value: CreateAgentKeyRequestName) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for CreateAgentKeyRequestName {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 200usize {
+                return Err("longer than 200 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for CreateAgentKeyRequestName {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for CreateAgentKeyRequestName {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for CreateAgentKeyRequestName {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
     ///`CreateApiKeyRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct CreateApiKeyRequest {
@@ -1739,6 +2109,70 @@ pub mod types {
         }
     }
     impl<'de> ::serde::Deserialize<'de> for CreateApiKeyRequestResourceAllowlistItem {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`CreateClientSessionRequest`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+    pub struct CreateClientSessionRequest {
+        ///a string matching the pattern ^[a-z_][a-z0-9_-]{0,31}$
+        #[serde(
+            rename = "linuxUser",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub linux_user: ::std::option::Option<CreateClientSessionRequestLinuxUser>,
+    }
+    ///a string matching the pattern ^[a-z_][a-z0-9_-]{0,31}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct CreateClientSessionRequestLinuxUser(::std::string::String);
+    impl ::std::ops::Deref for CreateClientSessionRequestLinuxUser {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<CreateClientSessionRequestLinuxUser> for ::std::string::String {
+        fn from(value: CreateClientSessionRequestLinuxUser) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for CreateClientSessionRequestLinuxUser {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[a-z_][a-z0-9_-]{0,31}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[a-z_][a-z0-9_-]{0,31}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for CreateClientSessionRequestLinuxUser {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for CreateClientSessionRequestLinuxUser {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for CreateClientSessionRequestLinuxUser {
         fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
         where
             D: ::serde::Deserializer<'de>,
@@ -2048,6 +2482,80 @@ pub mod types {
         }
     }
     impl<'de> ::serde::Deserialize<'de> for CreateVmRequestSnapshotId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`CreatedAgentKey`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct CreatedAgentKey {
+        #[serde(rename = "createdAt")]
+        pub created_at: ::std::string::String,
+        #[serde(rename = "expiresAt")]
+        pub expires_at: ::std::string::String,
+        ///a string matching the pattern ^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        pub id: CreatedAgentKeyId,
+        pub key: ::std::string::String,
+        pub labels: ::std::collections::HashMap<::std::string::String, ::std::string::String>,
+        #[serde(rename = "maxUsdPerHour")]
+        pub max_usd_per_hour: f64,
+        #[serde(rename = "maxVms")]
+        pub max_vms: Int,
+        pub name: ::std::string::String,
+        pub scopes: ::std::vec::Vec<::std::string::String>,
+    }
+    ///a string matching the pattern ^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct CreatedAgentKeyId(::std::string::String);
+    impl ::std::ops::Deref for CreatedAgentKeyId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<CreatedAgentKeyId> for ::std::string::String {
+        fn from(value: CreatedAgentKeyId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for CreatedAgentKeyId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for CreatedAgentKeyId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for CreatedAgentKeyId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for CreatedAgentKeyId {
         fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
         where
             D: ::serde::Deserializer<'de>,
@@ -14342,6 +14850,102 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
+    /**Issue an agent key
+
+    Issue an agent key. Requires the vm:write scope, from a credential that is not itself an agent key or limited to specific resources. The key reaches only VMs labelled cmux.agent=<its id> (plus any labels the issuer is confined to); every VM it creates gets those labels. Defaults: scopes vm:read, vm:write, vm:exec, ttlSeconds 14400 (at most 86400, never past the issuer's expiry), maxVms 5 (at most 20), maxUsdPerHour 2 (at most 50). When it expires or is revoked, its VMs and their client sessions are deleted within minutes.
+
+    Sends a `POST` request to `/v1/agent-keys`
+
+    Arguments:
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    - `body`
+    */
+    pub async fn agents_create_agent_key<'a>(
+        &'a self,
+        x_cmux_team_id: Option<&'a types::AgentsCreateAgentKeyXCmuxTeamId>,
+        body: &'a types::CreateAgentKeyRequest,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!("{}/v1/agent-keys", self.baseurl,);
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .post(url)
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "agents_create_agent_key",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            201u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Revoke an agent key and delete its VMs
+
+    Revoke an agent key at once, then delete its VMs and their client sessions (the background cleanup finishes anything left). Allowed for the credential that issued it, an admin key or team admin, and the agent key itself. Anything else is 404.
+
+    Sends a `DELETE` request to `/v1/agent-keys/{keyId}`
+
+    Arguments:
+    - `key_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn agents_revoke_agent_key<'a>(
+        &'a self,
+        key_id: &'a str,
+        x_cmux_team_id: Option<&'a types::AgentsRevokeAgentKeyXCmuxTeamId>,
+    ) -> Result<ResponseValue<()>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/agent-keys/{}",
+            self.baseurl,
+            encode_path(&key_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.delete(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "agents_revoke_agent_key",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            204u16 => Ok(ResponseValue::empty(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
     /**List the team's API keys, newest first, without their secrets
 
     List the team's API keys, newest first, without their secrets. Requires the admin scope, or a session of a team admin.
@@ -16990,6 +17594,112 @@ impl Client {
             403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Mint a provider token for one VM
+
+    Mint a provider access token scoped to this VM and one Linux user. Requires the vm:exec scope. The token works only on this VM, is shown once, and is revoked when the VM is deleted or the session is revoked. Another tenant's or another agent's VM is 404.
+
+    Sends a `POST` request to `/v1/vms/{vmId}/client-session`
+
+    Arguments:
+    - `vm_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    - `body`
+    */
+    pub async fn agents_create_client_session<'a>(
+        &'a self,
+        vm_id: &'a str,
+        x_cmux_team_id: Option<&'a types::AgentsCreateClientSessionXCmuxTeamId>,
+        body: &'a types::CreateClientSessionRequest,
+    ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/vms/{}/client-session",
+            self.baseurl,
+            encode_path(&vm_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .post(url)
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "agents_create_client_session",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            201u16 => Ok(ResponseValue::stream(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**Revoke a VM's client session
+
+    Revoke a client session's provider token at once. Requires the vm:exec scope. Revoking twice is not an error.
+
+    Sends a `DELETE` request to `/v1/vms/{vmId}/client-sessions/{sessionId}`
+
+    Arguments:
+    - `vm_id`
+    - `session_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn agents_revoke_client_session<'a>(
+        &'a self,
+        vm_id: &'a str,
+        session_id: &'a str,
+        x_cmux_team_id: Option<&'a types::AgentsRevokeClientSessionXCmuxTeamId>,
+    ) -> Result<ResponseValue<()>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/vms/{}/client-sessions/{}",
+            self.baseurl,
+            encode_path(&vm_id.to_string()),
+            encode_path(&session_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self.client.delete(url).headers(header_map).build()?;
+        let info = OperationInfo {
+            operation_id: "agents_revoke_client_session",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            204u16 => Ok(ResponseValue::empty(response)),
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             _ => Err(Error::UnexpectedResponse(response)),

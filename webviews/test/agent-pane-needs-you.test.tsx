@@ -115,7 +115,7 @@ test("a question with several items or many choices gets no one-click answers", 
 test("a chat waiting with no readable ask still shows, once; an archived chat never does", () => {
   const items = needsYouItems({
     sessions: [
-      session("remote", { indicator: "input", updatedAt: 5, preview: "Pick a branch" }),
+      session("remote", { indicator: "input", peer: "build-box", updatedAt: 5, preview: "Pick a branch" }),
       session("counted", { pendingPermissions: 2 }),
       session("asked", { pendingPermissions: 1 }),
       session("gone", { indicator: "input", archived: true }),
@@ -125,7 +125,136 @@ test("a chat waiting with no readable ask still shows, once; an archived chat ne
   });
   expect(items.map((item) => item.id)).toEqual(["acpmux:p1", "chat:remote", "chat:counted"]);
   expect(items[1]!.kind).toBe("input");
-  expect(items[1]!.ask).toBe("Pick a branch");
+});
+
+// Leo 2026-10-21: the list said "Waiting 5m" for a chat and showed the agent's last message, not the
+// question it waited on. A chat whose ask is not read here shows what acpmux says it waits on: a
+// question by its prompt, a permission as a permission, and never the chat's last message.
+test("a waiting chat shows the question or permission it waits on, never its last message", () => {
+  const items = needsYouItems({
+    sessions: [
+      session("question", {
+        indicator: "input",
+        pendingPermissions: 1,
+        updatedAt: 9,
+        preview: "I compared both branches.",
+        waitingOn: { on: "question", prompt: "Which branch should the release start from?" },
+      }),
+      session("unworded", {
+        indicator: "input",
+        pendingPermissions: 1,
+        updatedAt: 8,
+        preview: "Here is the plan.",
+        waitingOn: { on: "question" },
+      }),
+      session("permission", {
+        indicator: "input",
+        pendingPermissions: 1,
+        updatedAt: 7,
+        preview: "Running the suite now.",
+        waitingOn: { on: "permission" },
+      }),
+      session("remote", { indicator: "input", peer: "build-box", updatedAt: 6, preview: "Drafted the notes." }),
+    ],
+    asks: [],
+  });
+  expect(items.map((item) => [item.id, item.kind, item.ask])).toEqual([
+    ["chat:question", "decision", "Which branch should the release start from?"],
+    ["chat:unworded", "decision", ""],
+    ["chat:permission", "approval", ""],
+    ["chat:remote", "input", ""],
+  ]);
+  const html = renderToStaticMarkup(
+    <NeedsYouPanel
+      items={items}
+      actions={{ answer: async () => undefined, goTo: () => undefined, ask: async () => "" }}
+    />,
+  );
+  expect(html).toContain("Which branch should the release start from?");
+  // A question reads as a question, a permission as a permission.
+  expect(html.split(translate("needsYou.waiting")).length - 1).toBe(2);
+  expect(html.split(translate("needsYou.waitingPermission")).length - 1).toBe(1);
+  expect(html).toContain(translate("needsYou.kind.decision"));
+  expect(html).toContain(translate("needsYou.kind.approval"));
+  for (const said of ["I compared both branches.", "Here is the plan.", "Running the suite now.", "Drafted the notes."])
+    expect(html).not.toContain(said);
+});
+
+test("a chat with nothing pending is not listed as waiting", () => {
+  // acpmux says the chat is idle: a stale dot claims no wait.
+  const items = needsYouItems({
+    sessions: [session("done", { status: "idle", indicator: "input", updatedAt: 5, preview: "All set." })],
+    asks: [],
+  });
+  expect(items).toEqual([]);
+});
+
+// Review of #23875: acpmux marks a chat `waiting` for a secret request too (hub/secrets.rs), with no
+// pending permission and no `waitingOn`. That chat stays listed, with the plain waiting line and
+// never its last message.
+test("a local chat waiting on a secret stays listed and shows no last message", () => {
+  const items = needsYouItems({
+    sessions: [
+      session("secret", { status: "waiting", indicator: "input", updatedAt: 5, preview: "I need the deploy token." }),
+    ],
+    asks: [],
+  });
+  expect(items.map((item) => [item.id, item.kind, item.ask])).toEqual([["chat:secret", "input", ""]]);
+  const html = renderToStaticMarkup(
+    <NeedsYouPanel
+      items={items}
+      actions={{ answer: async () => undefined, goTo: () => undefined, ask: async () => "" }}
+    />,
+  );
+  expect(html).toContain(translate("needsYou.waiting"));
+  expect(html).not.toContain("I need the deploy token.");
+});
+
+// Leo 2026-10-21: a row read "Waiting 5m" over the chat's last reply while a question waited. A chat
+// whose ask the page cannot read (another computer's) still names it in its summary (acpmux
+// `waitingOn`, `waitingPrompt`): the row shows that question. A row never shows the last reply: a
+// chat that names no question text reads as its kind's line (NeedsYou.tsx `askText`).
+test("a waiting chat's row shows the question it waits on, not its last reply", () => {
+  const items = needsYouItems({
+    sessions: [
+      session("question", {
+        indicator: "input",
+        updatedAt: 5,
+        preview: "I moved the retry helper into fetch.ts.",
+        waitingOn: { on: "question", prompt: "Which branch should the docs target?" },
+      }),
+      session("permission", {
+        indicator: "input",
+        updatedAt: 4,
+        preview: "The tests pass; pushing next.",
+        waitingOn: { on: "permission" },
+      }),
+      session("unnamed", {
+        indicator: "input",
+        updatedAt: 3,
+        preview: "Which tag should the notes start from?",
+        waitingOn: { on: "question" },
+      }),
+      session("plain", { indicator: "input", updatedAt: 2, preview: "Pick a branch" }),
+    ],
+    asks: [],
+  });
+  expect(items.map((item) => [item.id, item.kind, item.ask])).toEqual([
+    ["chat:question", "decision", "Which branch should the docs target?"],
+    ["chat:permission", "approval", ""],
+    ["chat:unnamed", "decision", ""],
+    ["chat:plain", "input", ""],
+  ]);
+  expect(items.every((item) => item.answers.length === 0)).toBe(true);
+  const html = renderToStaticMarkup(
+    <NeedsYouPanel
+      items={items.slice(0, 1)}
+      actions={{ answer: async () => undefined, goTo: () => undefined, ask: async () => "" }}
+    />,
+  );
+  expect(html).toContain("Which branch should the docs target?");
+  expect(html).not.toContain("I moved the retry helper");
+  expect(html).toContain(translate("needsYou.kind.decision"));
 });
 
 test("the open chat's held agent pair messages are one item with Resume; a resumed pair is not", () => {
@@ -215,7 +344,10 @@ test("an answer goes to the ask's own chat: a permission by option, a question i
     },
   });
   // A waiting chat with no ask read is answered at its source.
-  const waiting = needsYouItems({ sessions: [session("r", { indicator: "input" })], asks: [] })[0]!;
+  const waiting = needsYouItems({
+    sessions: [session("r", { indicator: "input", pendingPermissions: 1 })],
+    asks: [],
+  })[0]!;
   expect(answerParams(waiting, { id: "x", label: "x", tone: "choice" })).toBeUndefined();
 });
 
@@ -410,7 +542,11 @@ test("compact mode lists asks without answers", () => {
   expect(html).not.toContain("acpmux-needs-you-answer");
 });
 
-test("answering another chat's ask opens that chat first, so the relay lets the answer through", async () => {
+test("another chat's ask opens in that chat's own tab; the chat on screen is never replaced", async () => {
+  // Leo 2026-10-21: a Needs you jump switched the coordinator's pane to another chat in place
+  // (`chat.select`), so the coordinator's chat was gone from its own tab. A jump, an answer or a
+  // side question for another chat asks the app to show that chat's tab or open one
+  // (`chat.asks.open`, AgentPaneAskOpen); only this chat's asks are answered here.
   const host = installDom();
   const calls: string[] = [];
   const callNative = (async (method: string, params?: Record<string, unknown>) => {
@@ -444,16 +580,40 @@ test("answering another chat's ask opens that chat first, so the relay lets the 
   await actions!.answer(here, here.answers[0]!);
   expect(calls).toEqual(["chat.permission:here"]);
   calls.length = 0;
-  await actions!.answer(other, other.answers[0]!);
-  expect(calls).toEqual(["chat.select:other", "chat.permission:other"]);
-  // A refused question answer rejects instead of throwing out of the click.
-  await expect(actions!.answer({ ...other, permissionId: undefined }, other.answers[0]!)).rejects.toThrow();
+  // The relay answers only the chat this pane shows: the answer is not sent from here, and the
+  // row stays (a rejection) while the ask's own tab comes up for the person to answer there.
+  await expect(actions!.answer(other, other.answers[0]!)).rejects.toThrow();
+  expect(calls).toEqual(["chat.asks.open:other"]);
+  calls.length = 0;
+  actions!.goTo(other);
+  await Promise.resolve();
+  expect(calls).toEqual(["chat.asks.open:other"]);
   // Ask about this starts a side session (`_acpmux/btw`), which the relay also scopes to a chat the
-  // pane shows: another chat's ask opens that chat first; this chat's goes out at once.
+  // pane shows: this chat's goes out at once; another chat's opens that chat's tab instead.
   calls.length = 0;
   await actions!.ask(here, "Why?");
   expect(calls).toEqual(["btw:here:Why?"]);
   calls.length = 0;
-  await actions!.ask(other, "Why?");
-  expect(calls).toEqual(["chat.select:other", "btw:other:Why?"]);
+  await expect(actions!.ask(other, "Why?")).rejects.toThrow();
+  expect(calls).toEqual(["chat.asks.open:other"]);
+  // A host that opens no tab (another machine's chat) leaves the chat on screen as it is.
+  const refusing = (async (method: string, params?: Record<string, unknown>) => {
+    calls.push(`${method}:${String(params?.sessionId ?? "")}`);
+    throw new Error("unsupported");
+  }) as <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
+  let refused: NeedsYouActions | undefined;
+  function Refused() {
+    refused = useNeedsYou({
+      snapshot: { sessionId: "here", rows: [], sessions: [session("here"), session("other")], asks: [] },
+      callNative: refusing,
+      sideSession: async () => undefined,
+    }).actions;
+    return null;
+  }
+  await act(async () => root!.render(<Refused />));
+  calls.length = 0;
+  refused!.goTo(other);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(calls).toEqual(["chat.asks.open:other"]);
+  expect(calls.some((call) => call.startsWith("chat.select"))).toBe(false);
 });

@@ -3,6 +3,7 @@
 //! acpmux keeps every message as a `serde_json::Value` so that unknown
 //! methods, `_meta` blocks, and vendor extensions pass through untouched.
 
+use crate::no_panic::JsonExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -125,14 +126,14 @@ impl Message {
             Message::Request { id, method, params } => {
                 let mut v = json!({"jsonrpc": "2.0", "id": id, "method": method});
                 if let Some(p) = params {
-                    v["params"] = p.clone();
+                    v.set("params", p.clone());
                 }
                 v
             }
             Message::Notification { method, params } => {
                 let mut v = json!({"jsonrpc": "2.0", "method": method});
                 if let Some(p) = params {
-                    v["params"] = p.clone();
+                    v.set("params", p.clone());
                 }
                 v
             }
@@ -259,6 +260,9 @@ pub mod method {
     pub const MUX_STEP_NOW: &str = "_acpmux/step_now";
     /// An agent message's sender takes it back (`hub/withdraw.rs`).
     pub const MUX_PROMPT_WITHDRAW: &str = "_acpmux/prompt_withdraw";
+    /// `acpmux send --no-wait`: queue a prompt for this daemon to deliver (`hub/outbox.rs`).
+    pub const MUX_SEND_QUEUE: &str = "_acpmux/send_queue";
+    pub const MUX_SEND_STATUS: &str = "_acpmux/send_status";
     /// Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
     pub const MUX_AGENT_PAIR_RESUME: &str = "_acpmux/agent_pair_resume";
     pub const MUX_INFO: &str = "_acpmux/info";

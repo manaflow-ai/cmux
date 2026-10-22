@@ -13,9 +13,11 @@ import Testing
     static func withMultiView<T>(_ on: Bool = true, _ body: () throws -> T) rethrows -> T {
         TunableStore.shared.register(SidebarTunables.all)
         TunableStore.shared.activate(file: nil)
+        // Puts back what it found, so a test of the other multi-view suite that runs in this one's await keeps its value.
+        let before = TunableStore.shared.override(SidebarTunables.multiView.key)
         TunableStore.shared.set(SidebarTunables.multiView.key, on ? .bool(true) : nil)
         precondition(SidebarTunables.multiView.value == on, "the sidebar.multiView override did not take")
-        defer { TunableStore.shared.set(SidebarTunables.multiView.key, nil) }
+        defer { TunableStore.shared.set(SidebarTunables.multiView.key, before) }
         return try body()
     }
 
@@ -93,13 +95,16 @@ import Testing
         }
     }
 
-    @Test func withTheToggleOffAPressStillSelectsAtOnce() throws {
+    /// Leo 2026-10-21 ("MOUSE DOWN DRAGGING ON A WORKSPACE SHOULDN'T BE IMMEDIATELY FOCUSING"): navigate on release is
+    /// the default now, with the toggle off too (`SidebarPressDoesNotFocusTests`).
+    @Test func withTheToggleOffAPressAlsoSelectsNothingUntilItsRelease() throws {
         try Self.withMultiView(false) {
             let (list, window) = G.list()
             defer { window.close() }
             list.mouseDown(with: try G.event(list, .leftMouseDown, at: try G.point(list, .workspace(WorkspaceID("y")))))
-            #expect(list.model.activeWorkspaceID == WorkspaceID("y"))
+            #expect(list.model.activeWorkspaceID == WorkspaceID("x"), "the press switched: \(Self.shown(list))")
             list.mouseUp(with: try G.event(list, .leftMouseUp, at: try G.point(list, .workspace(WorkspaceID("y")))))
+            #expect(list.model.activeWorkspaceID == WorkspaceID("y"), "the release did not switch: \(Self.shown(list))")
         }
     }
 
