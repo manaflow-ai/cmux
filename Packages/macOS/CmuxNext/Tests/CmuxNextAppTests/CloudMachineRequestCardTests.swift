@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextCookieImport
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextSettings
@@ -52,6 +53,64 @@ import Testing
         SidebarCardFeed.handle(.noticeAction(card: card.id, action: create.id), services: services)
         #expect(await answer.value, "Create on the card did not approve the request")
         #expect(services.machineAsks.card == nil, "the answered card stays")
+    }
+
+    /// The card says exactly which agent asked and where (u9380), and its line opens that chat
+    /// without answering; a terminal's CLI names the terminal; no caller is a program outside cmux.
+    @Test func theCardNamesTheAgentThatAskedAndWhereAndOpensItsChat() async throws {
+        let (services, window) = make()
+        defer { window.close() }
+        let asks = services.machineAsks
+        var machine = Self.machine
+        machine.askedBy = CloudMachineCreateFlow.Asker(session: "sess-412")
+        let revealed = RevealLog()
+        let found = CookieImportRequester(kind: .agentChat, name: "a412 · cloud groups", workspace: "Home & chat", tabID: "tab-412")
+        let answer = Task {
+            await CloudPresenter.confirmCreate(.agentRequest(machine), in: window, asks: asks,
+                                               requester: { $0.session == "sess-412" ? found : nil }, reveal: { revealed.tabs.append($0) })
+        }
+        defer { answer.cancel() }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while asks.card == nil, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5)) // test-only: waits for the request's task, bounded
+        }
+        let card = try #require(asks.card, "the agent's request shows no sidebar card")
+        let requester = try #require(card.requester, "the card does not say who asked")
+        #expect(requester.text == CloudStrings.createAskedByChat("a412 · cloud groups", in: "Home & chat"))
+        #expect(requester.help == CloudStrings.createShowAsker("a412 · cloud groups"))
+        #expect(card.detail == CloudStrings.createRequestDetail)
+
+        // The card as drawn shows the line, and a click on it sends its action.
+        let view = SidebarNoticeCardView(frame: NSRect(x: 0, y: 0, width: Metrics.sidebarWidth, height: 200))
+        var sent: [String] = []
+        view.onAction = { sent.append($1) }
+        view.configure(card)
+        view.layoutSubtreeIfNeeded()
+        #expect(view.shownText.contains(requester.text), "the drawn card does not name the agent")
+        #expect(!view.requesterButton.isHidden && view.requesterButton.frame.height > 0, "the requester line is not a button")
+        view.requesterButton.press()
+        let action = try #require(sent.first, "a click on the requester line sends nothing")
+
+        // That click opens the chat that asked and leaves the question open.
+        SidebarCardFeed.handle(.noticeAction(card: card.id, action: action), services: services)
+        #expect(revealed.tabs == ["tab-412"], "the requester line did not open the chat that asked")
+        #expect(asks.card == card, "opening the asker answered the question")
+    }
+
+    @Test(arguments: ["terminal", "unknown"])
+    func theCardNamesATerminalOrAProgramOutsideCmux(_ kind: String) async throws {
+        let found = kind == "terminal"
+            ? CookieImportRequester(kind: .terminal, name: "zsh — ~/fun/cmux", workspace: "cmux-next app", tabID: "tab-7")
+            : CookieImportRequester(kind: .unknown, name: "")
+        let line = CloudPresenter.askerLine(CloudMachineCreateFlow.Asker(session: nil, terminal: "term-7"), requester: { _ in found })
+        if kind == "terminal" {
+            #expect(line.line.text == CloudStrings.createAskedByTerminal("zsh — ~/fun/cmux", in: "cmux-next app"))
+            #expect(line.tab == "tab-7")
+        } else {
+            #expect(line.line.text == CloudStrings.createAskedByUnknown)
+            #expect(line.tab == nil, "a program outside cmux has nothing to open")
+        }
+        #expect(CloudPresenter.askerLine(nil, requester: { _ in nil }).line.text == CloudStrings.createAskedByUnknown)
     }
 
     @Test func cancelOrTheXDeclinesTheRequest() async throws {
@@ -109,4 +168,9 @@ import Testing
         } while ContinuousClock.now < deadline
         #expect(sidebar.cardSlot.showsNotice, "the staged update card hides the agent's request")
     }
+}
+
+/// The tabs the card's requester line opened.
+@MainActor private final class RevealLog {
+    var tabs: [String] = []
 }

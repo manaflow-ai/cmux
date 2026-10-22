@@ -11,7 +11,7 @@ extension CloudHandlers {
         bind("newCloudMachine", registry, reason: reason) { invocation in
             // The new machine's progress shows in the window at once; its
             // first workspace opens there when its daemon is ready.
-            let creation = creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession).start(in: invocation.allowsViewChange ? context.services.windows.active?.state : nil, existing: nil)
+            let creation = creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: CloudMachineCreateFlow.Asker(invocation)).start(in: invocation.allowsViewChange ? context.services.windows.active?.state : nil, existing: nil)
             reportCreatedMachine(creation, context)
         }
         bind("newCloudWorkspace", registry, reason: reason) { invocation in
@@ -24,7 +24,7 @@ extension CloudHandlers {
                 // now. An ended app link connects again on this gesture, and
                 // a paused machine resumes (idle auto-pause).
                 target?.attach(origin: connectOrigin(for: invocation))
-                creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession).start(in: window, existing: target)
+                creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: CloudMachineCreateFlow.Asker(invocation)).start(in: window, existing: target)
                 return
             }
             run("new cloud workspace", context) {
@@ -37,7 +37,7 @@ extension CloudHandlers {
     /// `startedByPerson`: true only for an action invoked with origin user;
     /// any other create (a Retry or Dismiss button of the progress view,
     /// which carries no gesture origin) asks the person first.
-    static func creationFlow(_ context: AppActionContext, startedByPerson: Bool = false, askedBy: String? = nil) -> CloudCreationFlow {
+    static func creationFlow(_ context: AppActionContext, startedByPerson: Bool = false, askedBy: CloudMachineCreateFlow.Asker? = nil) -> CloudCreationFlow {
         let cloud = context.services.cloud
         let windows = context.services.windows
         return CloudCreationFlow(

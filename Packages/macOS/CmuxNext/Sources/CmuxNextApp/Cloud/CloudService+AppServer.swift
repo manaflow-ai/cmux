@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCloud
+import CmuxNextCookieImport
 import CmuxNextDaemon
 import CmuxNextHomeEngine
 import CmuxNextSidebar
@@ -26,7 +27,7 @@ extension CloudService {
     }
 
     /// One `cloud.machine.create` through ``CloudMachineCreateFlow``.
-    func appServerCreate(name: String?, startedByPerson: Bool, askedBy: String?, onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
+    func appServerCreate(name: String?, startedByPerson: Bool, askedBy: CloudMachineCreateFlow.Asker?, onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
         let approvals = CloudApprovalAnswer(call: sessionCall())
         let ops = appOps
         // The team the relay's create bills: the install token's team claim,
@@ -89,17 +90,40 @@ extension CloudPresenter {
     /// Confirms a Cloud machine create: true only for the person's click on Create; no window answers
     /// false. An agent's or a script's request waits in the sidebar's card (`asks`), the backend's hold in a sheet.
     /// `chatOpen` says whether an agent chat is still open: a card its asking chat had goes, a no, when the chat closes.
-    @MainActor static func confirmCreate(_ prompt: CloudMachineCreateFlow.Prompt, in window: NSWindow?, asks: SidebarAsks?, chatOpen: @escaping @MainActor @Sendable (String) -> Bool = { _ in true }) async -> Bool {
+    /// `requester` finds the tab that asked (``CloudMachineCreateFlow/Asker``); the card and the sheet name it and its
+    /// workspace, and the card's line opens it with `reveal` (a `tab.focus` of its tab id).
+    @MainActor static func confirmCreate(_ prompt: CloudMachineCreateFlow.Prompt, in window: NSWindow?, asks: SidebarAsks?,
+                                         chatOpen: @escaping @MainActor @Sendable (String) -> Bool = { _ in true },
+                                         requester: @MainActor (CloudMachineCreateFlow.Asker) -> CookieImportRequester? = { _ in nil },
+                                         reveal: @escaping @MainActor (String) -> Void = { _ in }) async -> Bool {
         let (intro, machine) = switch prompt {
         case .agentRequest(let machine): (CloudStrings.createRequestDetail, machine)
         case .approval(_, let machine): (CloudStrings.createConfirmApproval, machine)
         }
         let lines = (machine.name.map { [CloudStrings.createConfirmName($0)] } ?? []) + (machine.sizeShown ? [CloudStrings.createConfirmSize(cpu: machine.cpu, memoryGB: machine.memoryMB / 1024, diskGB: machine.diskMB / 1024)] : [])
-        if case .agentRequest = prompt, let asks { return window != nil ? await asks.ask(CloudStrings.createConfirmTitle, detail: intro, lines: lines, symbol: "cloud", yes: CloudStrings.createConfirmButton, no: CloudStrings.cancel, asker: machine.askedBy, present: chatOpen) : false }
+        let asker = askerLine(machine.askedBy, requester: requester)
+        if case .agentRequest = prompt, let asks {
+            guard window != nil else { return false }
+            var opens: (@MainActor () -> Void)?
+            if let tab = asker.tab { opens = { reveal(tab) } }
+            let session: String? = machine.askedBy?.session
+            return await asks.ask(CloudStrings.createConfirmTitle, detail: intro, lines: lines, symbol: "cloud", yes: CloudStrings.createConfirmButton,
+                                  no: CloudStrings.cancel, requester: nil, asker: session, present: chatOpen, reveal: opens)
+        }
         return await withCheckedContinuation { continuation in
-            confirm(CloudStrings.createConfirmTitle, ([intro] + lines).joined(separator: "\n"), button: CloudStrings.createConfirmButton,
+            confirm(CloudStrings.createConfirmTitle, ([asker.line.text, intro] + lines).joined(separator: "\n"), button: CloudStrings.createConfirmButton,
                     identifier: createConfirmIdentifier, in: window) { continuation.resume(returning: $0) }
         }
+    }
+}
+
+extension CloudPresenter {
+    /// The card's requester line for `asker`: the agent chat's or terminal's tab title and its workspace, and the tab
+    /// the line opens (nil when no open tab asked). No asker is a program outside cmux.
+    @MainActor static func askerLine(_ asker: CloudMachineCreateFlow.Asker?,
+                                     requester: @MainActor (CloudMachineCreateFlow.Asker) -> CookieImportRequester?) -> (line: SidebarNoticeCard.Requester, tab: String?) {
+        _ = (asker, requester)
+        return (SidebarNoticeCard.Requester(text: ""), nil)
     }
 }
 

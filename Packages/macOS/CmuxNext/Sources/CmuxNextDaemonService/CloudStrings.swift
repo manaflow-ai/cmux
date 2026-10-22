@@ -51,9 +51,34 @@ public enum CloudStrings {
     public static var deleteSnapshot: String { String(localized: "cloud.button.deleteSnapshot", defaultValue: "Delete Snapshot", table: "Cloud", bundle: .module) }
     /// The native confirmation of a Cloud machine create (cx-t2rz).
     public static var createConfirmTitle: String { String(localized: "cloud.create.confirm.title", defaultValue: "Create a Cloud machine?", table: "Cloud", bundle: .module) }
-    /// The sidebar card of an agent's or a script's create (``createConfirmTitle`` above it).
+    /// The sidebar card of an agent's or a script's create (``createConfirmTitle`` above it); the
+    /// requester line above it says who asked (``createAskedByChat(_:in:)`` and the others).
     public static var createRequestDetail: String {
-        String(localized: "cloud.create.request.detail", defaultValue: "Asked by an agent or a script. It counts against your Cloud plan.", table: "Cloud", bundle: .module)
+        String(localized: "cloud.create.request.plan", defaultValue: "It counts against your Cloud plan.", table: "Cloud", bundle: .module)
+    }
+    /// The requester line of an agent chat's create: its tab title, then its workspace.
+    public static func createAskedByChat(_ chat: String, in workspace: String) -> String {
+        String(format: String(localized: "cloud.create.request.askedByChatIn", defaultValue: "Asked by %1$@ in %2$@", table: "Cloud", bundle: .module), chat, workspace)
+    }
+    /// The requester line of an agent chat's create whose workspace is unknown.
+    public static func createAskedByChat(_ chat: String) -> String {
+        String(format: String(localized: "cloud.create.request.askedByChat", defaultValue: "Asked by %@", table: "Cloud", bundle: .module), chat)
+    }
+    /// The requester line of a create from a terminal's cmux CLI: its tab title, then its workspace.
+    public static func createAskedByTerminal(_ terminal: String, in workspace: String) -> String {
+        String(format: String(localized: "cloud.create.request.askedByTerminalIn", defaultValue: "Asked from terminal “%1$@” in %2$@", table: "Cloud", bundle: .module), terminal, workspace)
+    }
+    /// The requester line of a create from a terminal whose workspace is unknown.
+    public static func createAskedByTerminal(_ terminal: String) -> String {
+        String(format: String(localized: "cloud.create.request.askedByTerminal", defaultValue: "Asked from terminal “%@”", table: "Cloud", bundle: .module), terminal)
+    }
+    /// The requester line when no agent chat or terminal named itself.
+    public static var createAskedByUnknown: String {
+        String(localized: "cloud.create.request.askedByUnknown", defaultValue: "Asked by a program outside cmux", table: "Cloud", bundle: .module)
+    }
+    /// The requester button's tooltip and VoiceOver label: it opens the tab that asked.
+    public static func createShowAsker(_ name: String) -> String {
+        String(format: String(localized: "cloud.create.request.showAsker", defaultValue: "Show “%@”", table: "Cloud", bundle: .module), name)
     }
     public static var createConfirmApproval: String {
         String(localized: "cloud.create.confirm.approval", defaultValue: "The machine counts against your Cloud plan. Click Create to approve it.", table: "Cloud", bundle: .module)

@@ -13,7 +13,12 @@ public final class SidebarAsks {
     private struct Ask {
         var card: SidebarNoticeCard
         var answer: CheckedContinuation<Bool, Never>
+        /// Opens who asked (the card's requester line); nil when nothing opens.
+        var reveal: (@MainActor () -> Void)?
     }
+
+    /// The action of the card's requester line: it opens who asked and answers nothing.
+    public static let revealAction = "ask.reveal"
 
     private var asks: [Ask] = []
 
@@ -25,9 +30,13 @@ public final class SidebarAsks {
     /// Shows `card` (a unique id; its prominent action is the yes) until the person answers.
     /// `asker` (an agent chat) is watched with `present` (observed): once the asker is gone, the
     /// card goes and the answer is false. An asker not present when asked (shown nowhere here) never expires it.
-    public func ask(_ card: SidebarNoticeCard, asker: String? = nil, present: @escaping @MainActor @Sendable (String) -> Bool = { _ in true }) async -> Bool {
+    /// `reveal` opens who asked: with it, the card's ``SidebarNoticeCard/requester`` line is a button
+    /// (``revealAction``) that runs it and leaves the question open.
+    public func ask(_ card: SidebarNoticeCard, asker: String? = nil, present: @escaping @MainActor @Sendable (String) -> Bool = { _ in true },
+                    reveal: (@MainActor () -> Void)? = nil) async -> Bool {
         var card = card
         card.awaitsAnswer = true
+        if reveal != nil { card.requester?.action = Self.revealAction }
         let id = card.id
         let watch = asker.flatMap { asker -> Task<Void, Never>? in
             guard present(asker) else { return nil }
@@ -39,26 +48,36 @@ public final class SidebarAsks {
         defer { watch?.cancel() }
         return await withTaskCancellationHandler {
             await withCheckedContinuation { answer in
-                if Task.isCancelled { answer.resume(returning: false) } else { asks.append(Ask(card: card, answer: answer)) }
+                if Task.isCancelled { answer.resume(returning: false) } else { asks.append(Ask(card: card, answer: answer, reveal: reveal)) }
             }
         } onCancel: {
             Task { @MainActor in self.answer(id, action: nil) }
         }
     }
 
-    /// Asks with a card of `yes` (prominent) and `no` buttons; the x is `no` too.
+    /// Asks with a card of `yes` (prominent) and `no` buttons; the x is `no` too. `requester` names
+    /// who asked and where; `reveal` opens it (see ``ask(_:asker:present:reveal:)``).
     public func ask(_ title: String, detail: String, lines: [String] = [], symbol: String? = nil, yes: String, no: String,
-                    asker: String? = nil, present: @escaping @MainActor @Sendable (String) -> Bool = { _ in true }) async -> Bool {
+                    requester: SidebarNoticeCard.Requester? = nil, asker: String? = nil,
+                    present: @escaping @MainActor @Sendable (String) -> Bool = { _ in true }, reveal: (@MainActor () -> Void)? = nil) async -> Bool {
         let actions = [SidebarNoticeCard.Action(id: "yes", title: yes, prominent: true), SidebarNoticeCard.Action(id: "no", title: no)]
-        return await ask(SidebarNoticeCard(id: "ask.\(UUID().uuidString)", symbol: symbol, title: title, detail: detail, lines: lines,
-                                           actions: actions, dismissLabel: no), asker: asker, present: present)
+        var card = SidebarNoticeCard(id: "ask.\(UUID().uuidString)", symbol: symbol, title: title, detail: detail, lines: lines,
+                                     actions: actions, dismissLabel: no)
+        card.requester = requester
+        return await ask(card, asker: asker, present: present, reveal: reveal)
     }
 
-    /// Answers the open question `id` with the button `action` (nil: the x).
+    /// Answers the open question `id` with the button `action` (nil: the x); ``revealAction``
+    /// opens who asked instead and leaves the question open.
     /// False when no open question has that id (the card belongs to another owner).
     @discardableResult
     public func answer(_ id: String, action: String?) -> Bool {
         guard let index = asks.firstIndex(where: { $0.card.id == id }) else { return false }
+        if action == Self.revealAction {
+            // The requester line opens who asked; the question stays open.
+            asks[index].reveal?()
+            return true
+        }
         let ask = asks.remove(at: index)
         ask.answer.resume(returning: ask.card.actions.contains { $0.id == action && $0.prominent })
         return true

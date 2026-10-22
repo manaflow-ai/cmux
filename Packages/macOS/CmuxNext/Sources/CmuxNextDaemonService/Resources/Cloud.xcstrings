@@ -8516,133 +8516,919 @@
         }
       }
     },
-    "cloud.create.request.detail": {
+    "cloud.create.request.plan": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Asked by an agent or a script. It counts against your Cloud plan."
+            "value": "It counts against your Cloud plan."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントまたはスクリプトからの要求です。Cloud プランの使用量に含まれます。"
+            "value": "Cloud プランの使用量に含まれます。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "طلبه وكيل أو برنامج نصي. يُحتسب ضمن خطة Cloud الخاصة بك."
+            "value": "يُحتسب ضمن خطة Cloud الخاصة بك."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zatražio ga je agent ili skripta. Računa se u vaš Cloud plan."
+            "value": "Računa se u vaš Cloud plan."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bedt om af en agent eller et script. Den tæller med i din Cloud-plan."
+            "value": "Den tæller med i din Cloud-plan."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Von einem Agenten oder Skript angefordert. Sie zählt zu deinem Cloud-Tarif."
+            "value": "Er zählt zu deinem Cloud-Tarif."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La pidió un agente o un script. Cuenta en tu plan de Cloud."
+            "value": "Cuenta para tu plan de Cloud."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Demandée par un agent ou un script. Elle compte dans votre forfait Cloud."
+            "value": "Elle est décomptée de votre forfait Cloud."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Richiesta da un agente o uno script. Conta nel tuo piano Cloud."
+            "value": "Rientra nel tuo piano Cloud."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ស្នើដោយភ្នាក់ងារ ឬស្គ្រីប។ វារាប់បញ្ចូលក្នុងគម្រោង Cloud របស់អ្នក។"
+            "value": "វារាប់បញ្ចូលក្នុងគម្រោង Cloud របស់អ្នក។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "에이전트나 스크립트가 요청했습니다. Cloud 요금제 사용량에 포함됩니다."
+            "value": "Cloud 요금제 사용량에 포함됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bedt om av en agent eller et skript. Den teller i Cloud-planen din."
+            "value": "Den teller mot Cloud-abonnementet ditt."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prośba agenta lub skryptu. Wlicza się do Twojego planu Cloud."
+            "value": "Wlicza się do Twojego planu Cloud."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pedida por um agente ou script. Conta no seu plano do Cloud."
+            "value": "Ela conta no seu plano Cloud."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Запрошена агентом или скриптом. Учитывается в вашем тарифе Cloud."
+            "value": "Она учитывается в вашем тарифе Cloud."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เอเจนต์หรือสคริปต์เป็นผู้ขอ นับรวมในแผน Cloud ของคุณ"
+            "value": "นับรวมในแผน Cloud ของคุณ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bir ajan veya betik istedi. Cloud planınızdan sayılır."
+            "value": "Cloud planınızdan düşülür."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Запит від агента або скрипта. Враховується у вашому тарифі Cloud."
+            "value": "Вона враховується у вашому тарифі Cloud."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Do một tác tử hoặc tập lệnh yêu cầu. Máy được tính vào gói Cloud của bạn."
+            "value": "Máy này được tính vào gói Cloud của bạn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "由智能体或脚本请求。会计入你的 Cloud 套餐。"
+            "value": "它计入你的 Cloud 套餐用量。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "由代理程式或指令碼要求。會計入你的 Cloud 方案。"
+            "value": "它會計入你的 Cloud 方案用量。"
+          }
+        }
+      }
+    },
+    "cloud.create.request.askedByChatIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Asked by %1$@ in %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ の %1$@ からの要求"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "طلبه %1$@ في %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatražio %1$@ u %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bedt om af %1$@ i %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angefragt von %1$@ in %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lo pidió %1$@ en %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Demandé par %1$@ dans %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Richiesto da %1$@ in %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្នើដោយ %1$@ ក្នុង %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%2$@의 %1$@이(가) 요청함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bedt om av %1$@ i %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prośba od %1$@ w %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pedido por %1$@ em %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запросил %1$@ в %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขอโดย %1$@ ใน %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%2$@ içindeki %1$@ istedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запитав %1$@ у %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Được yêu cầu bởi %1$@ trong %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "由 %2$@ 中的 %1$@ 请求"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "由 %2$@ 中的 %1$@ 要求"
+          }
+        }
+      }
+    },
+    "cloud.create.request.askedByChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Asked by %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ からの要求"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "طلبه %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatražio %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bedt om af %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angefragt von %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lo pidió %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Demandé par %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Richiesto da %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្នើដោយ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@이(가) 요청함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bedt om av %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prośba od %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pedido por %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запросил %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขอโดย %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ istedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запитав %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Được yêu cầu bởi %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "由 %@ 请求"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "由 %@ 要求"
+          }
+        }
+      }
+    },
+    "cloud.create.request.askedByTerminalIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Asked from terminal “%1$@” in %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ のターミナル「%1$@」からの要求"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "طُلب من الطرفية “%1$@” في %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatraženo iz terminala „%1$@“ u %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bedt om fra terminalen “%1$@” i %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angefragt vom Terminal „%1$@“ in %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pedido desde el terminal “%1$@” en %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Demandé depuis le terminal « %1$@ » dans %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Richiesto dal terminale “%1$@” in %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្នើពីទែមីណាល់ “%1$@” ក្នុង %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%2$@의 터미널 “%1$@”에서 요청함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bedt om fra terminalen «%1$@» i %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prośba z terminala „%1$@” w %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pedido do terminal “%1$@” em %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запрошено из терминала «%1$@» в %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขอจากเทอร์มินัล “%1$@” ใน %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%2$@ içindeki “%1$@” terminalinden istendi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запитано з термінала «%1$@» у %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Được yêu cầu từ terminal “%1$@” trong %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "由 %2$@ 中的终端“%1$@”请求"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "由 %2$@ 中的終端機「%1$@」要求"
+          }
+        }
+      }
+    },
+    "cloud.create.request.askedByTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Asked from terminal “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル「%@」からの要求"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "طُلب من الطرفية “%@”"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatraženo iz terminala „%@“"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bedt om fra terminalen “%@”"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angefragt vom Terminal „%@“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pedido desde el terminal “%@”"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Demandé depuis le terminal « %@ »"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Richiesto dal terminale “%@”"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្នើពីទែមីណាល់ “%@”"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "터미널 “%@”에서 요청함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bedt om fra terminalen «%@»"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prośba z terminala „%@”"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pedido do terminal “%@”"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запрошено из терминала «%@»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขอจากเทอร์มินัล “%@”"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” terminalinden istendi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запитано з термінала «%@»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Được yêu cầu từ terminal “%@”"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "由终端“%@”请求"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "由終端機「%@」要求"
+          }
+        }
+      }
+    },
+    "cloud.create.request.askedByUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Asked by a program outside cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 外のプログラムからの要求"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "طلبه برنامج خارج cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatražio program izvan cmuxa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bedt om af et program uden for cmux"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angefragt von einem Programm außerhalb von cmux"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lo pidió un programa fuera de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Demandé par un programme hors de cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Richiesto da un programma esterno a cmux"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្នើដោយកម្មវិធីនៅក្រៅ cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 외부 프로그램이 요청함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bedt om av et program utenfor cmux"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prośba od programu spoza cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pedido por um programa fora do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запросила программа вне cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขอโดยโปรแกรมภายนอก cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux dışındaki bir program istedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запитала програма поза cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Được yêu cầu bởi một chương trình bên ngoài cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "由 cmux 之外的程序请求"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "由 cmux 以外的程式要求"
+          }
+        }
+      }
+    },
+    "cloud.create.request.showAsker": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」を表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار “%@”"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži „%@“"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis “%@”"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„%@“ anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar “%@”"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher « %@ »"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra “%@”"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញ “%@”"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis «%@»"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż „%@”"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar “%@”"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показать «%@»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดง “%@”"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” öğesini göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показати «%@»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện “%@”"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示“%@”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示「%@」"
           }
         }
       }

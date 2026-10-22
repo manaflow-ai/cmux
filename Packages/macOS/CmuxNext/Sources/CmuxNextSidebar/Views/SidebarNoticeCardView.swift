@@ -31,6 +31,10 @@ final class SidebarNoticeCardView: NSView {
     let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 9 }, label: "")
     /// The text button that replaces the x when the notice names one (``SidebarNoticeCard/dismissTitle``).
     let dismissButton = SidebarCardTextButton()
+    /// Who asked and where (``SidebarNoticeCard/requester``) as a button that opens it.
+    let requesterButton = SidebarCardTextButton()
+    /// The requester line when nothing opens (a script outside cmux): plain text.
+    private let requesterLabel = ChromeLabel(labelWithString: "")
     /// The card's surface: the composer's, opaque under Reduce Transparency.
     let surface: CardSurfaceView
     /// The lines and buttons, flipped, over the surface.
@@ -54,7 +58,7 @@ final class SidebarNoticeCardView: NSView {
         wantsLayer = true
         addSubview(surface)
         addSubview(content)
-        for label in [eyebrowLabel, titleLabel, shortcutLabel] {
+        for label in [eyebrowLabel, titleLabel, shortcutLabel, requesterLabel] {
             label.lineBreakMode = .byTruncatingTail
             label.maximumNumberOfLines = 1
         }
@@ -74,7 +78,11 @@ final class SidebarNoticeCardView: NSView {
         closeButton.takesKeyFocus = true
         closeButton.onPress = { [weak self] in self?.closePressed() }
         dismissButton.onPress = { [weak self] in if let id = self?.notice?.id { self?.onDismiss?(id) } }
-        [eyebrowLabel, titleLabel, detailLabel, shortcutLabel, icon, spinner, closeButton, dismissButton].forEach(content.addSubview)
+        requesterButton.onPress = { [weak self] in
+            if let id = self?.notice?.id, let action = self?.notice?.requester?.action { self?.onAction?(id, action) }
+        }
+        [eyebrowLabel, titleLabel, requesterButton, requesterLabel, detailLabel, shortcutLabel, icon, spinner, closeButton, dismissButton].forEach(content.addSubview)
+        requesterButton.setAccessibilityIdentifier("cmux.sidebar.notice.requester")
         closeButton.setAccessibilityIdentifier("cmux.sidebar.notice.close")
         dismissButton.setAccessibilityIdentifier("cmux.sidebar.notice.dismiss")
         setAccessibilityElement(false)
@@ -111,6 +119,12 @@ final class SidebarNoticeCardView: NSView {
         eyebrowLabel.stringValue = notice.eyebrow ?? ""
         eyebrowLabel.isHidden = notice.eyebrow == nil
         titleLabel.stringValue = notice.title
+        let requester = notice.requester
+        requesterButton.isHidden = requester?.action == nil
+        requesterButton.configure(title: requester?.text ?? "", help: requester?.help)
+        requesterLabel.isHidden = requester == nil || requester?.action != nil
+        requesterLabel.stringValue = requester?.text ?? ""
+        requesterLabel.themedToolTip = requester?.text
         detailLabel.stringValue = notice.detail ?? ""
         detailLabel.isHidden = notice.detail == nil
         if previous?.lines != notice.lines {
@@ -226,7 +240,7 @@ final class SidebarNoticeCardView: NSView {
     static func changesMessage(from old: SidebarNoticeCard, to new: SidebarNoticeCard) -> Bool {
         let ticking = old.progress != nil && new.progress != nil && old.title == new.title
         return old.id != new.id || old.title != new.title || (old.detail != new.detail && !ticking) || old.symbol != new.symbol
-            || old.eyebrow != new.eyebrow || old.lines != new.lines || old.actions != new.actions
+            || old.eyebrow != new.eyebrow || old.lines != new.lines || old.actions != new.actions || old.requester != new.requester
             || (old.progress == nil) != (new.progress == nil)
     }
 
@@ -247,6 +261,7 @@ final class SidebarNoticeCardView: NSView {
         let line = lineHeight
         var height = padding + line.body + padding
         if notice.eyebrow != nil { height += line.caption }
+        if notice.requester != nil { height += Metrics.space1 + SidebarCardTextButton.height }
         if notice.detail != nil { height += Metrics.space1 + 2 * line.caption }
         if !notice.lines.isEmpty { height += Metrics.space1 + CGFloat(min(notice.lines.count, maxLines)) * line.caption }
         // Every loading stage keeps the bar's row (Lawrence 2026-10-20: "needs better loading
@@ -294,6 +309,15 @@ final class SidebarNoticeCardView: NSView {
                                    width: close, height: close)
         y += line.body
         let textWidth = max(0, b.width - pad - textX)
+        if notice?.requester != nil {
+            // The button's text lines up with the title's; its hover fill reaches into the inset.
+            let inset = Metrics.space1, rowHeight = SidebarCardTextButton.height
+            requesterButton.frame = NSRect(x: textX - inset, y: y + Metrics.space1,
+                                           width: min(requesterButton.fittingWidth, textWidth + inset), height: rowHeight)
+            requesterLabel.font = SidebarCardTextButton.font
+            requesterLabel.frame = NSRect(x: textX, y: y + Metrics.space1 + (rowHeight - line.caption) / 2, width: textWidth, height: line.caption)
+            y += Metrics.space1 + rowHeight
+        }
         if !detailLabel.isHidden {
             detailLabel.preferredMaxLayoutWidth = textWidth
             detailLabel.frame = NSRect(x: textX, y: y + Metrics.space1, width: textWidth, height: 2 * line.caption)
@@ -412,6 +436,7 @@ final class SidebarNoticeCardView: NSView {
             eyebrowLabel.textColor = Palette.textSecondary
             titleLabel.textColor = Palette.textPrimary
             detailLabel.textColor = Palette.textSecondary
+            requesterLabel.textColor = Palette.textSecondary
             for label in lineLabels { label.textColor = Palette.textSecondary }
             shortcutLabel.textColor = Palette.textTertiary
             icon.contentTintColor = Palette.textSecondary
@@ -444,7 +469,9 @@ final class SidebarNoticeCardView: NSView {
 
     /// Every line as shown, top to bottom.
     var shownText: [String] {
-        [eyebrowLabel, titleLabel, detailLabel].filter { !$0.isHidden }.map(\.stringValue) + actionButtons.map(\.title)
+        [eyebrowLabel, titleLabel].filter { !$0.isHidden }.map(\.stringValue)
+            + (requesterButton.isHidden ? [] : [requesterButton.title]) + (requesterLabel.isHidden ? [] : [requesterLabel.stringValue])
+            + [detailLabel].filter { !$0.isHidden }.map(\.stringValue) + actionButtons.map(\.title)
             + (shortcutLabel.isHidden ? [] : [shortcutLabel.stringValue])
     }
 }

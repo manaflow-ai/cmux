@@ -38,7 +38,13 @@ extension AppServices {
     /// Starts Cloud and keeps the registry context current.
     func startCloud() -> Task<Void, Never> {
         // An agent's request waits in the sidebar card; with the active window's sidebar hidden it takes the sheet, so it never waits unseen.
-        cloud.confirmCreate = { [weak self] in await CloudPresenter.confirmCreate($0, in: self?.windows.active?.window, asks: self?.windows.active?.state.sidebarHidden == false ? self?.machineAsks : nil, chatOpen: { [weak self] in self?.agentTabs.tab(showing: $0) != nil }) }
+        // The card names the chat or terminal that asked and its workspace; its line opens that tab (tab.focus, the person's).
+        cloud.confirmCreate = { [weak self] in
+            await CloudPresenter.confirmCreate($0, in: self?.windows.active?.window, asks: self?.windows.active?.state.sidebarHidden == false ? self?.machineAsks : nil,
+                                               chatOpen: { [weak self] in self?.agentTabs.tab(showing: $0) != nil },
+                                               requester: { [weak self] asker in self?.requester(session: asker.session, terminal: asker.terminal) },
+                                               reveal: { [weak self] tab in _ = self?.registry.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab), origin: .user)) })
+        }
         cloud.start()
         iphone.wire(auth: cloud.auth, daemon: daemon, acpmuxHost: { [weak self] in self?.agentTabs.host }, acpmuxEnvironment: QuitAgents.environment(self),
                     agentTabHost: { [weak self] in self?.agentTabs.localHost },
