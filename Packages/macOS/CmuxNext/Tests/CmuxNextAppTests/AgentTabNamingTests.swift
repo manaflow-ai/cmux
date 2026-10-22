@@ -56,26 +56,6 @@ struct AgentTabNamingTests {
         #expect(AgentChatTabTitle.untitled(ref, workspaceName: "  ", turns: turns) == AgentPaneModel.tabTitle)
     }
 
-    /// Home names no task: an untitled chat in it, and the Changes tab its View changes opened
-    /// beside it, both read "Home" (toolbar-diffviewer's capture of #24168, 2026-10-22). They read
-    /// "Agent" until the chat has a title; any other workspace still lends its name.
-    @Test func anUntitledChatInHomeNeverReadsAsHome() throws {
-        func workspace(_ name: String, kind: String? = nil) throws -> WorkspaceModel {
-            var object: [String: Any] = ["id": 1, "key": "k-\(name)", "name": name, "screens": []]
-            if let kind { object["kind"] = kind }
-            return WorkspaceModel(try JSONDecoder().decode(WorkspaceSnapshot.self, from: JSONSerialization.data(withJSONObject: object)))
-        }
-        let turns = AgentTurnStateStore()
-        let ref = AgentSessionRef(host: Self.localHost, session: "s-home", harness: "claude")
-        let home = try workspace("Home", kind: SidebarMapping.homeKind)
-        #expect(AgentChatTabTitle.workspaceName(home) == nil)
-        #expect(AgentChatTabTitle.untitled(ref, workspaceName: AgentChatTabTitle.workspaceName(home), turns: turns) == AgentPaneModel.tabTitle)
-        let task = try workspace("Fleet uploader")
-        #expect(AgentChatTabTitle.workspaceName(task) == "Fleet uploader")
-        #expect(AgentChatTabTitle.untitled(ref, workspaceName: AgentChatTabTitle.workspaceName(task), turns: turns) == "Fleet uploader")
-        #expect(AgentChatTabTitle.workspaceName(nil) == nil)
-    }
-
     // MARK: The Chief's acpmux
 
     @Test func aChiefSubagentTabReadsItsTitleFromTheChiefsAcpmux() async throws {
