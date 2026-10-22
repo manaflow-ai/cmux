@@ -2,7 +2,6 @@ import AppKit
 import CmuxNextActions
 import CmuxNextResources
 import Darwin
-import SwiftUI
 
 extension InternalPageID {
     static let taskManager = InternalPageID(rawValue: "task-manager")
@@ -91,7 +90,7 @@ final class TaskManagerPageService: InternalPageProvider {
         })
         self.model = model
         model.start()
-        return NSHostingView(rootView: TaskManagerView(model: model))
+        return TaskManagerView(model: model)
     }
 
     func tabClosed(_ key: String) {
