@@ -2,6 +2,7 @@
 import CmuxNextCompat
 import CmuxNextDesign
 import Foundation
+import Observation
 import Testing
 
 /// The custom sidebar is opt in and costs nothing until the user's own app implements
@@ -58,28 +59,23 @@ import Testing
 }
 
 /// An app supervisor that lists `apps` and records mounts.
+@Observable
 final class CustomSidebarTransport: AppsTransport {
-    let apps: [AppRecord]
+    @ObservationIgnored let apps: [AppRecord]
     var availability: AppsAvailability { .available(epoch: 1) }
-    var onEvent: ((AppsTransportEvent) -> Void)?
+    @ObservationIgnored var onEvent: ((AppsTransportEvent) -> Void)?
     private(set) var interfaces: [String] = []
-    private(set) var surfaces: [String] = []
-    private(set) var mountIDs: [String] = []
-    private let mounts: AsyncStream<String>
-    private let mounted: AsyncStream<String>.Continuation
-    private var iterator: AsyncStream<String>.Iterator?
+    @ObservationIgnored private(set) var surfaces: [String] = []
+    @ObservationIgnored private(set) var mountIDs: [String] = []
+    @ObservationIgnored private var taken = 0
 
-    init(apps: [AppRecord]) {
-        self.apps = apps
-        (mounts, mounted) = AsyncStream.makeStream(of: String.self)
-    }
+    init(apps: [AppRecord]) { self.apps = apps }
 
     /// The interface of the next mount the client sends.
     func nextMount() async -> String? {
-        var next = iterator ?? mounts.makeAsyncIterator()
-        let value = await next.next(isolation: #isolation)
-        iterator = next
-        return value
+        for await count in ObservationStream({ self.interfaces.count }) where count > taken { break }
+        taken += 1
+        return interfaces[taken - 1]
     }
 
     func start() {}
@@ -91,7 +87,6 @@ final class CustomSidebarTransport: AppsTransport {
         interfaces.append(interface)
         surfaces.append(context["surface"]?.stringValue ?? "")
         mountIDs.append(mountID)
-        mounted.yield(interface)
     }
     func unmount(mountID: String) async throws(AppsTransportError) {}
     func dispatch(mountID: String, node: String, event: String, payload: AppJSON) async throws(AppsTransportError) {}
