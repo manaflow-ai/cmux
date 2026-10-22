@@ -4,8 +4,9 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { SUBAGENTS } from "../subagents/subagentFold";
+import { childRows } from "../subagents/childRows";
 import type { PlayContext } from "../../../gallery/play";
-import type { AcpmuxActivity } from "../model";
+import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { workedTurnRows } from "../workedTurn";
 import { minutesAgo } from "../../../gallery/clock";
 import {
@@ -16,6 +17,46 @@ import {
 } from "../../../gallery/fixtures/toolImages";
 
 const prompt = "Add retries with backoff to the fetch helper";
+
+/// A turn's rows as the transcript maps its ACP updates (subagents/childRows.ts, the parent
+/// transcript's rules): Claude Code's ToolSearch, then a Read and a command, then the reply.
+function toolSearchTurn(): AcpmuxRow[] {
+  const call = (id: string, tool: string, title: string, kind: string, extra: Record<string, unknown> = {}) => ({
+    sessionUpdate: "tool_call",
+    toolCallId: id,
+    title,
+    kind,
+    status: "completed",
+    _meta: { claude: { tool } },
+    ...extra,
+  });
+  const updates = [
+    call("ts-search", "ToolSearch", "ToolSearch", "other", { rawInput: { query: "select:Grep" } }),
+    call("ts-read", "Read", "Read src/net/retry.ts", "read", {
+      locations: [{ path: "/Users/you/src/atlas-web/src/net/retry.ts" }],
+    }),
+    call("ts-test", "Bash", "bun test src/net", "execute", {
+      rawInput: { command: "bun test src/net" },
+      rawOutput: { exit_code: 0 },
+    }),
+    {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "The retry helper backs off and its tests pass." },
+    },
+  ];
+  const turn = childRows(
+    "gallery-toolsearch",
+    updates.map((update, index) => ({ event: { seq: index + 1, at: minutesAgo(1.9 - index * 0.2) }, update })),
+    new Map(),
+    1,
+  );
+  const toolCount = turn.reduce((sum, item) => sum + (item.kind === "activity" ? (item.toolCount ?? 0) : 0), 0);
+  return [
+    user("Find the retry helper and run its tests", 2, { id: "gallery-toolsearch-user" }),
+    ...turn,
+    summary(1.1, { id: "gallery-toolsearch-summary", status: "completed", toolCount, durationMs: 54_000 }),
+  ];
+}
 
 const selectionRows = [
   user("Select this prompt to copy it into a bug report", 5, { id: "gallery-selection-user" }),
@@ -806,18 +847,9 @@ export default agentPaneEntry({
       },
     },
     "toolsearch-hidden": {
-      note: "Play: the mock daemon's worked turn, opened. Claude Code's ToolSearch (it only loads deferred tools' schemas) draws no row and counts toward no summary; the fold lists the search, reads, edits and commands.",
-      ready: { transport: "mock" },
-      snapshot: chat([user(prompt, 2), assistant("Done.", 1), summary(0.9, { status: "completed" })]),
-      checks: mockDaemonFrames,
-      play: async (ctx) => {
-        // The mock daemon's chat replaces the stage's snapshot; open its fold once it is drawn.
-        await chatMenuReady(ctx);
-        await ctx.waitFor(() => ctx.document.body.textContent?.includes("Uploads now retry server errors"), {
-          capMs: 10_000,
-        });
-        await openWorked(ctx);
-      },
+      note: "A worked turn whose agent called Claude Code's ToolSearch (it only loads deferred tools' schemas) before a Read and a command, its fold open. The rows come from the transcript's own ACP-to-row mapping (childRows), so ToolSearch draws no row and the summary counts two calls.",
+      snapshot: chat(toolSearchTurn()),
+      play: openWorked,
     },
     "side-chat-acpmux": {
       note: "Play: New side chat (the chat menu's chat.side action) forks the chat, has acpmux tag the fork the chat's side chat on the pane's own connection (cx-jlzsf), then asks the app only to open it beside the chat.",
