@@ -129,7 +129,7 @@ final class ChatsOpenCoordinator {
         }
     }
 
-    /// The New Tab page `page` opens `seed`'s chat in its place (with the Debug toggle, beside it: NewTabPage.opensBeside);
+    /// The New Tab page `page` opens `seed`'s chat in its place (opted in, beside it: NewTabPage.opensBeside);
     /// the page closes once the chat's tab exists. False when the page is gone.
     private func replace(_ page: String, with seed: AgentPaneSeed) -> Bool {
         guard let services else { return false }
