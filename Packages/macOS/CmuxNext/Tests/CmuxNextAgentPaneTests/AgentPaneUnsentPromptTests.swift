@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import CmuxNextCompat
+import CmuxNextDesign
 @testable import CmuxNextAgentPane
 
 /// A prompt the person sent that acpmux never acknowledged survives the app's end (a crash, a
