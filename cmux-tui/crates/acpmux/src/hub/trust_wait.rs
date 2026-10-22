@@ -197,6 +197,34 @@ impl Hub {
             .unwrap_or_else(|e| Err(crate::trust::Failure::Record(e.to_string())))
     }
 
+    /// Whether a sub-session of `parent` in `cwd` starts restricted (`restricted.rs`), as its
+    /// chat runs, with no card and no trust walk (both would refuse the very folder that made the
+    /// chat restricted): `parent` is a restricted chat and not in a Web turn, `cwd` is its folder
+    /// or one under it, the person did not trust `cwd`, the harness is Claude Code as acpmux
+    /// runs it, and the setting is on.
+    pub(super) async fn restricted_subsession(
+        self: &Arc<Self>,
+        parent: &Arc<Session>,
+        cwd: &Path,
+        harness: &str,
+    ) -> bool {
+        let meta = parent.meta();
+        let Some(paths) = self.trust_gate() else { return false };
+        let own = std::fs::canonicalize(&meta.cwd).unwrap_or_else(|_| meta.cwd.clone());
+        // `web_turn` holds every restricted chat to the floor: the turn's own control says.
+        if !meta.restricted
+            || parent.turn().is_some_and(|t| t.control == Control::Web)
+            || !cwd.starts_with(&own)
+            || !self.restricted_harness(harness).await
+        {
+            return false;
+        }
+        let family = self.trust_family(harness).await;
+        let read = self.trust_level_of(&paths, &cwd.to_string_lossy(), &family).await;
+        read.is_ok_and(|read| read.level == Level::Untrusted)
+            && tokio::task::spawn_blocking(super::restricted::enabled).await.unwrap_or(false)
+    }
+
     /// Ok once `cwd` is trusted for an agent of `harness`: at once when it already is, else after
     /// the person answered the card this raises on `parent` (see the module docs). In a Web turn
     /// of `parent` an auto-trust rule is no answer. The Ok is whether a decision trusts the folder

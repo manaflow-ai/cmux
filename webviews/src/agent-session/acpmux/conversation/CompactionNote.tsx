@@ -5,7 +5,8 @@
 // background task's end (BackgroundTaskNote.tsx).
 //
 // A failover note says acpmux moved the chat onto its fallback harness after a usage limit, which
-// is otherwise invisible: the turn just goes on, answered by another harness.
+// is otherwise invisible: the turn just goes on, answered by another harness. A restricted chat
+// stays instead when its fallback cannot run restricted; the note says why the turn's limit error stands.
 //
 // A policy note says the chat's harness cannot keep its permission policy (acpmux
 // `policy_unenforced`), which is otherwise invisible too: the chat still names the policy while
@@ -51,7 +52,11 @@ export function FailoverNote({ failover }: { failover: AcpmuxFailover }) {
         <span className="cv-tool__icon">
           <ArrowRight />
         </span>
-        <span className="cv-tool__text">{t("failover.continued", { from: failover.from, to: failover.to })}</span>
+        <span className="cv-tool__text">
+          {failover.refused
+            ? t("failover.refusedRestricted", { to: failover.to })
+            : t("failover.continued", { from: failover.from, to: failover.to })}
+        </span>
       </div>
     </div>
   );

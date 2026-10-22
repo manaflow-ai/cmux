@@ -209,6 +209,12 @@ pub struct SessionMeta {
     /// its harness never spawns with a preset's args or system prompt.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub remote_origin: bool,
+    /// A restricted chat (`hub/restricted.rs`): Claude Code in a folder the person did not
+    /// trust, started without the folder's settings, hooks and MCP servers and asking before
+    /// every tool. Kept on respawn and resume; a fork, a handoff target, a side chat and a
+    /// sub-session take it from their chat. Cleared once the folder is trusted.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub restricted: bool,
     /// Per-session env (`session_env.rs`): allowlisted keys set by the unix
     /// socket on session/new or session/fork, applied over the preset env at
     /// every spawn. Never copied to a fork or a handoff.

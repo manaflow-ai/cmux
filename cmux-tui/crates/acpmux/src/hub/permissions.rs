@@ -414,6 +414,11 @@ impl Hub {
         // One harness-neutral copy of any questions, before rules and the
         // record see the request (questions.rs).
         super::questions::normalize(&mut request);
+        // A restricted chat asks every time: nothing it offers allows more than this call (its
+        // turns are held to the remote floor, so nothing answers by itself either).
+        if session.meta().restricted {
+            super::restricted::strip_lasting_allows(&mut request);
+        }
         let needs_person = super::questions::needs_person(&request);
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;

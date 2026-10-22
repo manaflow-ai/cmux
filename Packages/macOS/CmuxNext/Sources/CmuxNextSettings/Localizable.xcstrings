@@ -1,238 +1,266 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "settings.sidebar.style": {
+    "settings.agents.trust.restrictedChats": {
+      "comment": "Settings > Agents > Folder Trust: whether Not now leaves a restricted Claude Code chat (no project settings, hooks or MCP; asks before every tool) instead of a chat that sends no prompts",
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Sidebar Style"
+            "state": "needs_review",
+            "value": "محادثات مقيّدة في المجلدات غير الموثوقة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ograničeni razgovori u nepouzdanim folderima"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Begrænsede chats i mapper uden tillid"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Seitenleistenstil"
+            "state": "needs_review",
+            "value": "Eingeschränkte Chats in nicht vertrauenswürdigen Ordnern"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Style de la barre latérale"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "نمط الشريط الجانبي"
+            "value": "Restricted Chats in Untrusted Folders"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Estilo de la barra lateral"
+            "state": "needs_review",
+            "value": "Chats restringidos en carpetas sin confianza"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "側邊欄樣式"
+            "state": "needs_review",
+            "value": "Discussions restreintes dans les dossiers non approuvés"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "边栏样式"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사이드바 스타일"
+            "state": "needs_review",
+            "value": "Chat limitate nelle cartelle non attendibili"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーのスタイル"
+            "value": "信頼していないフォルダでの制限付きチャット"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែកដែលបានដាក់កំហិតក្នុងថតដែលមិនទុកចិត្ត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "신뢰하지 않는 폴더의 제한된 채팅"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Begrensede chatter i mapper uten tillit"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ograniczone czaty w niezaufanych folderach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chats restritos em pastas não confiáveis"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ограниченные чаты в недоверенных папках"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชทแบบจำกัดในโฟลเดอร์ที่ไม่เชื่อถือ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güvenilmeyen klasörlerde kısıtlı sohbetler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обмежені чати в недовірених папках"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trò chuyện bị hạn chế trong thư mục không tin cậy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "不受信任文件夹中的受限聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "不受信任資料夾中的受限聊天"
           }
         }
       }
     },
-    "settings.sidebar.style.help": {
+    "settings.agents.trust.restrictedChats.help": {
+      "comment": "Settings > Agents > Folder Trust: whether Not now leaves a restricted Claude Code chat (no project settings, hooks or MCP; asks before every tool) instead of a chat that sends no prompts",
       "extractionState": "manual",
       "localizations": {
-        "en": {
+        "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Rail shrinks the sidebar to a thin strip with a mark for each workspace. Point at the strip to open the full sidebar over your work."
+            "state": "needs_review",
+            "value": "بعد «ليس الآن»، يظل Claude Code يعمل في المجلد دون إعدادات المشروع أو الخطافات أو خوادم MCP، ويسأل قبل كل أداة. عند الإيقاف: تنتظر المحادثة حتى تثق بالمجلد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nakon Ne sada, Claude Code i dalje radi u folderu bez postavki projekta, hookova i MCP servera te pita prije svakog alata. Isključeno: razgovor čeka dok ne vjerujete folderu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Efter Ikke nu kører Claude Code stadig i mappen uden projektets indstillinger, hooks eller MCP-servere og spørger før hvert værktøj. Fra: chatten venter, til du stoler på mappen."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Leiste verkleinert die Seitenleiste auf einen schmalen Streifen mit einer Markierung pro Arbeitsbereich. Zeige auf den Streifen, um die ganze Seitenleiste über deiner Arbeit zu öffnen."
+            "state": "needs_review",
+            "value": "Nach „Nicht jetzt“ läuft Claude Code weiter im Ordner, ohne Projekteinstellungen, Hooks oder MCP-Server, und fragt vor jedem Werkzeug. Aus: Der Chat wartet, bis du dem Ordner vertraust."
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bande réduit la barre latérale à une fine bande avec une marque par espace de travail. Pointez sur la bande pour ouvrir la barre latérale complète par-dessus votre travail."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يقلّص الشريط الرفيع الشريط الجانبي إلى شريط ضيق فيه علامة لكل مساحة عمل. أشر إلى الشريط لفتح الشريط الجانبي كاملًا فوق عملك."
+            "value": "After Not now, Claude Code still runs in the folder without its project settings, hooks or MCP servers, and asks before every tool. Off: the chat waits until you trust the folder."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Riel reduce la barra lateral a una franja fina con una marca por cada espacio de trabajo. Apunta a la franja para abrir la barra lateral completa sobre tu trabajo."
+            "state": "needs_review",
+            "value": "Tras «Ahora no», Claude Code sigue funcionando en la carpeta sin sus ajustes de proyecto, hooks ni servidores MCP, y pregunta antes de cada herramienta. Desactivado: el chat espera hasta que confíes en la carpeta."
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "細條會把側邊欄縮成一條窄條，每個工作區一個標記。把指標移到窄條上，即可在工作上方開啟完整側邊欄。"
+            "state": "needs_review",
+            "value": "Après « Pas maintenant », Claude Code fonctionne toujours dans le dossier sans ses réglages de projet, hooks ni serveurs MCP, et demande avant chaque outil. Désactivé : la discussion attend que vous approuviez le dossier."
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "细条会把边栏缩成一条窄条，每个工作区一个标记。将指针移到窄条上，即可在工作上方打开完整边栏。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "레일은 사이드바를 작업 공간마다 표시가 있는 얇은 띠로 줄입니다. 띠를 가리키면 작업 위로 전체 사이드바가 열립니다."
+            "state": "needs_review",
+            "value": "Dopo Non ora, Claude Code continua a funzionare nella cartella senza impostazioni del progetto, hook o server MCP, e chiede prima di ogni strumento. Disattivato: la chat attende finché non ti fidi della cartella."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "レールはサイドバーを、ワークスペースごとに印のある細い帯に縮めます。帯にポインタを置くと、作業の上にサイドバー全体が開きます。"
-          }
-        }
-      }
-    },
-    "settings.choice.sidebarStandard": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Standard"
+            "value": "「後で」を選んでも、Claude Code はプロジェクトの設定、フック、MCP サーバーを読み込まずにそのフォルダで動作し、ツールごとに確認します。オフにすると、フォルダを信頼するまでチャットは待機します。"
           }
         },
-        "de": {
+        "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Normal"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Classique"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "قياسي"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Estándar"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "標準"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "标准"
+            "state": "needs_review",
+            "value": "បន្ទាប់ពី «មិនមែនឥឡូវ» Claude Code នៅតែដំណើរការក្នុងថត ដោយគ្មានការកំណត់គម្រោង hook ឬម៉ាស៊ីនមេ MCP ហើយសួរមុនរាល់ឧបករណ៍។ បិទ៖ ការជជែករង់ចាំរហូតដល់អ្នកទុកចិត្តថត។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "표준"
+            "state": "needs_review",
+            "value": "나중에를 선택해도 Claude Code는 프로젝트 설정, 훅, MCP 서버 없이 폴더에서 계속 실행되며 도구마다 묻습니다. 끄면 폴더를 신뢰할 때까지 채팅이 기다립니다."
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "標準"
-          }
-        }
-      }
-    },
-    "settings.choice.sidebarRail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rail"
+            "state": "needs_review",
+            "value": "Etter Ikke nå kjører Claude Code fortsatt i mappen uten prosjektinnstillinger, hooks eller MCP-servere, og spør før hvert verktøy. Av: chatten venter til du stoler på mappen."
           }
         },
-        "de": {
+        "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Leiste"
+            "state": "needs_review",
+            "value": "Po „Nie teraz” Claude Code nadal działa w folderze bez ustawień projektu, hooków i serwerów MCP oraz pyta przed każdym narzędziem. Wyłączone: czat czeka, aż zaufasz folderowi."
           }
         },
-        "fr": {
+        "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Bande"
+            "state": "needs_review",
+            "value": "Depois de Agora não, o Claude Code continua rodando na pasta sem as configurações do projeto, hooks ou servidores MCP, e pergunta antes de cada ferramenta. Desativado: o chat espera até você confiar na pasta."
           }
         },
-        "ar": {
+        "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "شريط رفيع"
+            "state": "needs_review",
+            "value": "После «Не сейчас» Claude Code продолжает работать в папке без настроек проекта, хуков и серверов MCP и спрашивает перед каждым инструментом. Выключено: чат ждёт, пока вы не доверите папку."
           }
         },
-        "es": {
+        "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Riel"
+            "state": "needs_review",
+            "value": "หลังจากเลือก ไม่ใช่ตอนนี้ Claude Code ยังทำงานในโฟลเดอร์โดยไม่มีการตั้งค่าโปรเจกต์ ฮุก หรือเซิร์ฟเวอร์ MCP และถามก่อนใช้ทุกเครื่องมือ ปิด: แชทจะรอจนกว่าคุณจะเชื่อถือโฟลเดอร์"
           }
         },
-        "zh-Hant": {
+        "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "細條"
+            "state": "needs_review",
+            "value": "Şimdi değil seçildikten sonra Claude Code klasörde proje ayarları, kancalar ve MCP sunucuları olmadan çalışmaya devam eder ve her araçtan önce sorar. Kapalı: sohbet, klasöre güvenene kadar bekler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Після «Не зараз» Claude Code і далі працює в папці без налаштувань проєкту, хуків і серверів MCP та питає перед кожним інструментом. Вимкнено: чат чекає, доки ви не довіритеся папці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sau Để sau, Claude Code vẫn chạy trong thư mục mà không có cài đặt dự án, hook hay máy chủ MCP, và hỏi trước mỗi công cụ. Tắt: cuộc trò chuyện chờ đến khi bạn tin cậy thư mục."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "细条"
+            "state": "needs_review",
+            "value": "选择“以后再说”后，Claude Code 仍会在该文件夹中运行，但不加载项目设置、钩子或 MCP 服务器，并在每次使用工具前询问。关闭时：聊天会等到你信任该文件夹。"
           }
         },
-        "ko": {
+        "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "레일"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "レール"
+            "state": "needs_review",
+            "value": "選擇「稍後再說」後，Claude Code 仍會在該資料夾中執行，但不載入專案設定、鉤子或 MCP 伺服器，並在每次使用工具前詢問。關閉時：聊天會等到你信任該資料夾。"
           }
         }
       }
@@ -64300,137 +64328,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "展開未變更的行"
-          }
-        }
-      }
-    },
-    "settings.diff.groupByKind": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Group Files by Kind"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ファイルを種類別にグループ化"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تجميع الملفات حسب النوع"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Grupiši datoteke po vrsti"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gruppér filer efter type"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dateien nach Art gruppieren"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Agrupar archivos por tipo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Grouper les fichiers par type"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Raggruppa i file per tipo"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ដាក់ជាក្រុមឯកសារតាមប្រភេទ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "파일을 종류별로 그룹화"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Grupper filer etter type"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Grupuj pliki według rodzaju"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Agrupar arquivos por tipo"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Группировать файлы по типу"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "จัดกลุ่มไฟล์ตามประเภท"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dosyaları türe göre grupla"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Групувати файли за типом"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nhóm tệp theo loại"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "按类型分组文件"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "按類型分組檔案"
           }
         }
       }
@@ -157159,6 +157056,373 @@
           "stringUnit": {
             "state": "translated",
             "value": "子工作階段中的代理程式提問時，啟動它的工作階段可以回答，回答會顯示是誰給的。權限要求一律等你處理。關閉：只有你回答。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.style": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar Style"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seitenleistenstil"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Style de la barre latérale"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نمط الشريط الجانبي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estilo de la barra lateral"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "側邊欄樣式"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "边栏样式"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 스타일"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのスタイル"
+          }
+        }
+      }
+    },
+    "settings.sidebar.style.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rail shrinks the sidebar to a thin strip with a mark for each workspace. Point at the strip to open the full sidebar over your work."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leiste verkleinert die Seitenleiste auf einen schmalen Streifen mit einer Markierung pro Arbeitsbereich. Zeige auf den Streifen, um die ganze Seitenleiste über deiner Arbeit zu öffnen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bande réduit la barre latérale à une fine bande avec une marque par espace de travail. Pointez sur la bande pour ouvrir la barre latérale complète par-dessus votre travail."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يقلّص الشريط الرفيع الشريط الجانبي إلى شريط ضيق فيه علامة لكل مساحة عمل. أشر إلى الشريط لفتح الشريط الجانبي كاملًا فوق عملك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riel reduce la barra lateral a una franja fina con una marca por cada espacio de trabajo. Apunta a la franja para abrir la barra lateral completa sobre tu trabajo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "細條會把側邊欄縮成一條窄條，每個工作區一個標記。把指標移到窄條上，即可在工作上方開啟完整側邊欄。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "细条会把边栏缩成一条窄条，每个工作区一个标记。将指针移到窄条上，即可在工作上方打开完整边栏。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "레일은 사이드바를 작업 공간마다 표시가 있는 얇은 띠로 줄입니다. 띠를 가리키면 작업 위로 전체 사이드바가 열립니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レールはサイドバーを、ワークスペースごとに印のある細い帯に縮めます。帯にポインタを置くと、作業の上にサイドバー全体が開きます。"
+          }
+        }
+      }
+    },
+    "settings.choice.sidebarStandard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Normal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classique"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قياسي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estándar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标准"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표준"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準"
+          }
+        }
+      }
+    },
+    "settings.choice.sidebarRail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rail"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leiste"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bande"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط رفيع"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riel"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "細條"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "细条"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "레일"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レール"
+          }
+        }
+      }
+    },
+    "settings.diff.groupByKind": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group Files by Kind"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ファイルを種類別にグループ化"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تجميع الملفات حسب النوع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupiši datoteke po vrsti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppér filer efter type"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dateien nach Art gruppieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agrupar archivos por tipo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grouper les fichiers par type"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Raggruppa i file per tipo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដាក់ជាក្រុមឯកសារតាមប្រភេទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "파일을 종류별로 그룹화"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupper filer etter type"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupuj pliki według rodzaju"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agrupar arquivos por tipo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Группировать файлы по типу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จัดกลุ่มไฟล์ตามประเภท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dosyaları türe göre grupla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Групувати файли за типом"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhóm tệp theo loại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按类型分组文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按類型分組檔案"
           }
         }
       }

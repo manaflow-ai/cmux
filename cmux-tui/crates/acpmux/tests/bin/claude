@@ -1,0 +1,4 @@
+#!/bin/sh
+# Claude Code for the restricted-chat tests: a restricted chat starts only a program named as
+# Claude Code's launchers are (`hub/restricted.rs` LAUNCHERS), never an interpreter.
+exec python3 "$(dirname "$0")/../fake_claude.py" "$@"
