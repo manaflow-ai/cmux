@@ -28,7 +28,9 @@ pub(super) const MIGRATING: &str = "ACPMUX_MIGRATING=";
 /// a socket always (a long one falls back to a path derived from the
 /// variable, not from the home). The unit's own drop-ins
 /// (`~/.config/systemd/user/<unit>.d/*.conf`, such as a memory limit) are
-/// copied; one named `10-migrated.conf` is refused. `daemon run` takes its listen address from `--listen`
+/// copied; one named `10-migrated.conf` is refused. Every later update
+/// script reads the carried pair back from the unit (`SERVICE_ENV`,
+/// `host_update.rs`). `daemon run` takes its listen address from `--listen`
 /// alone, so a `--listen` the home's config.json does not also name is
 /// refused rather than moved; `--log` is dropped, and any other argument is
 /// refused.
@@ -103,14 +105,16 @@ systemctl --user daemon-reload && systemctl --user enable --now "$u"
 /// other daemon. `dry` (the probe before an update) only checks the plan.
 /// It refuses (exit 3, [`REFUSED`]) before changing anything; once it
 /// changed something it prints [`MIGRATING`] and ends the script, with
-/// [`SYSTEMD_STARTED`] when `acpmux.service` started. A second run finds the
+/// [`SYSTEMD_STARTED`] when `acpmux.service` started (and the self-update
+/// timer installed beside it, `host_auto_update.rs`). A second run finds the
 /// daemon under `acpmux.service` and does nothing.
 pub(super) fn migrate(dry: bool) -> String {
     let apply = if dry {
         "rm -rf \"$t\"; exit 0\n".to_owned()
     } else {
         format!(
-            "{SYSTEMD_LINGERING} || refuse noLinger \"this user's systemd manager does not linger, so acpmux.service would stop at logout: run loginctl enable-linger, then run this again\"\n{MIGRATE_STOP}{STILL_RUNNING_CHECK}\n{MIGRATE_START}echo {SYSTEMD_STARTED}; exit 0\n"
+            "{SYSTEMD_LINGERING} || refuse noLinger \"this user's systemd manager does not linger, so acpmux.service would stop at logout: run loginctl enable-linger, then run this again\"\n{MIGRATE_STOP}{STILL_RUNNING_CHECK}\n{MIGRATE_START}{}echo {SYSTEMD_STARTED}; exit 0\n",
+            super::host_auto_update::install_script()
         )
     };
     format!(
