@@ -147,9 +147,12 @@ import Testing
         fixture.bridge.attach(to: fixture.router)
         defer { fixture.bridge.detach() }
         let (builds, generation) = (fixture.bridge.structureBuilds, fixture.router.snapshots.current.generation)
+        let reads = fixture.bridge.reasonReads
 
         for _ in 0..<5 { state.workspaces += 1 }
-        await fixture.settle()
+        // Wait for the re-read itself, so the checks below see it done.
+        await fixture.settle { fixture.bridge.reasonReads > reads }
+        #expect(fixture.bridge.reasonReads == reads + 1)
         #expect(fixture.bridge.structureBuilds == builds)
         #expect(fixture.router.snapshots.current.generation == generation)
         fixture.expectCurrent()
@@ -158,6 +161,32 @@ import Testing
         state.workspaces = 0
         await fixture.settle { fixture.router.catalog.resolve("splitRight")?.unavailableReason != nil }
         #expect(fixture.router.catalog.resolve("splitRight")?.unavailableReason == "no workspace")
+    }
+
+    /// A shortcut edit rebuilds the structure but keeps the live reason
+    /// observation instead of arming another next to it: after many such
+    /// edits, one binding change fires one reason observation, not one per edit.
+    @Test func structureRebuildsKeepOneReasonObservation() async {
+        let fixture = Fixture()
+        fixture.registry.bind("splitDown") {}
+        fixture.bridge.attach(to: fixture.router)
+        defer { fixture.bridge.detach() }
+        let reads = fixture.bridge.reasonReads
+
+        for key in ["1", "2", "3", "4", "5"] {
+            let builds = fixture.bridge.structureBuilds
+            fixture.registry.setShortcutOverride(Shortcut(key, modifiers: [.command, .option, .control]), for: "splitRight")
+            await fixture.settle { fixture.bridge.structureBuilds > builds }
+            fixture.expectCurrent()
+        }
+        #expect(fixture.bridge.reasonReads == reads)
+
+        let firings = fixture.bridge.reasonFirings
+        fixture.registry.bind("splitRight") {}
+        await fixture.settle { fixture.router.catalog.resolve("splitRight")?.isBound == true && fixture.bridge.reasonReads > reads }
+        await fixture.settle()
+        #expect(fixture.bridge.reasonFirings == firings + 1)
+        fixture.expectCurrent()
     }
 
     @Test func contextChangeUpdatesTheMaskWithoutARebuild() async {
@@ -183,6 +212,7 @@ import Testing
         fixture.registry.bind("splitDown") {}
         fixture.registry.setShortcutOverride(Shortcut("\\", modifiers: [.command]), for: "splitRight")
         fixture.registry.disabledFeatures = [.cloud]
+        await fixture.settle { fixture.bridge.structureBuilds > builds }
         await fixture.settle()
         #expect(fixture.bridge.structureBuilds == builds + 1)
         fixture.expectCurrent()
@@ -204,9 +234,20 @@ import Testing
         #expect(fixture.router.catalog.resolve("splitRight")?.isBound == true)
         fixture.expectCurrent()
 
+        // Work already queued when detach runs does nothing.
+        let queued = fixture.bridge.structureBuilds
+        fixture.registry.bind("splitDown") {}
+        fixture.bridge.detach()
+        await fixture.settle()
+        #expect(fixture.bridge.structureBuilds == queued)
+        fixture.bridge.attach(to: fixture.router)
+        #expect(fixture.router.catalog.resolve("splitDown")?.isBound == true)
+        fixture.expectCurrent()
+
         // One observation chain after re-attaching: a change builds once.
         let reattached = fixture.bridge.structureBuilds
-        fixture.registry.bind("splitDown") {}
+        fixture.registry.unbind("splitDown")
+        await fixture.settle { fixture.bridge.structureBuilds > reattached }
         await fixture.settle()
         #expect(fixture.bridge.structureBuilds == reattached + 1)
         fixture.expectCurrent()

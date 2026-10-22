@@ -36,8 +36,11 @@ public final class RegistryControlBridge: ControlActionExecutor {
     /// that is no longer current is ignored when it fires.
     private var structureArming = 0
     private var reasonsArming = 0
-    /// How many times the per-action info was built (tests).
+    /// How many times the per-action info was built, the reasons were read,
+    /// and a reason observation fired on the main actor (tests).
     private(set) var structureBuilds = 0
+    private(set) var reasonReads = 0
+    private(set) var reasonFirings = 0
 
     public init(registry: ActionRegistry) {
         self.registry = registry
@@ -115,13 +118,16 @@ public final class RegistryControlBridge: ControlActionExecutor {
     /// change there re-reads them.
     private func readObservingReasons(_ ids: [ActionID]) -> [String?] {
         reasonsArming += 1
+        reasonReads += 1
         let (epoch, arming) = (epoch, reasonsArming)
         return withObservationTracking {
             ids.map { registry.unavailableReason(for: $0) }
         } onChange: { [weak self] in
             // task-owner: observation re-arm; ends when its epoch or arming is not current (state-audit R1)
             Task { @MainActor in
-                guard let self, self.isObserving, epoch == self.epoch, arming == self.reasonsArming else { return }
+                guard let self else { return }
+                self.reasonFirings += 1
+                guard self.isObserving, epoch == self.epoch, arming == self.reasonsArming else { return }
                 self.reasonsAreStale = true
                 self.scheduleRefresh()
             }
