@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextSidebar
 
@@ -42,9 +43,10 @@ enum CloudCreationRows {
     /// (link or daemon gave up, the provider failed it) with its reason as
     /// the tooltip, so it keeps its header in the one list instead of
     /// "connecting" for ever.
-    static func machine(_ session: CloudMachineSession, compatibility: DaemonCompatibility?) -> SidebarMachine {
+    static func machine(_ session: CloudMachineSession, compatibility: DaemonCompatibility?, limits: CloudMachineLimits? = nil) -> SidebarMachine {
         var header = SidebarBridge.machine(for: session.daemon, name: session.machine.title, kind: .cloud, live: session.machine.status.isLive,
                              compatibility: compatibility)
+        header.cost = cost(session.machine, limits: limits)
         if let failure = session.stage.failure, header.status == .connecting || header.status == .offline {
             header.status = .failed
             header.detail = failure
@@ -66,6 +68,16 @@ enum CloudCreationRows {
         case .updated, .failed: return [detail, line].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
         case .cleared: return detail
         }
+    }
+
+    /// A Cloud machine's cost line from server facts: its rate, when it last
+    /// started (nil unless it is live, so a paused machine shows no running
+    /// cost) and the account's cap. Nil when the server sent none of them.
+    static func cost(_ machine: CloudMachine, limits: CloudMachineLimits?) -> SidebarMachine.Cost? {
+        let since = machine.status.isLive ? machine.runningSince : nil
+        let cap = limits.map { SidebarMachine.Cost.Cap(maxActiveVms: $0.maxActiveVms, running: $0.activeVmCount) }
+        guard machine.hourlyRateUsd != nil || since != nil || cap != nil else { return nil }
+        return SidebarMachine.Cost(hourlyRateUsd: machine.hourlyRateUsd, runningSince: since, cap: cap)
     }
 
     /// A Cloud creation's row (cx-lu8f): no workspace yet, so no daemon command and no context menu.

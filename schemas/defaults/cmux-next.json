@@ -558,7 +558,7 @@
     "setting.screenshots.folders": [],
     "setting.sessions.allowFullAccess": true,
     "setting.sessions.keepAwake": "pluggedIn",
-    "setting.sessions.promptSuggestions": false,
+    "setting.sessions.promptSuggestions": true,
     "setting.sessions.resumeAgents": true,
     "setting.shortcuts.showModifierHoldHints": true,
     "setting.sidebar.border": false,
