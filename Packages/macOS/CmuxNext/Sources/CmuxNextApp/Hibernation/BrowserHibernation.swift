@@ -370,9 +370,8 @@ final class BrowserHibernation {
             self.freezeProbing.remove(key)
             guard cache.browsers[key]?.tab === tab, cache.lifecycle.record(key)?.generation == generation,
                   cache.lifecycle.phase(key) == .mountedHidden, self.hiddenAt[key] != nil else { return }
-            if let used = self.agentUsedAt[key], (ContinuousClock.now - used).seconds < Self.agentGrace { return }
-            // It became a neighbor (or was hovered) while the probe ran.
-            if self.awakeNeighbors.contains(key) || self.hoverLeft(key, now: .now) != nil { return }
+            // An agent called it, or it became a neighbor (or was hovered) while the probe ran.
+            guard self.mayFreeze(key) else { return }
             let doubted = self.doubts(key, probe)
             if probe.capturing || probe.playingMedia || probe.webAudio || doubted {
                 self.freezeKeptAt[key] = .now
@@ -381,6 +380,14 @@ final class BrowserHibernation {
             }
             self.freeze(key, page)
         }
+    }
+
+    /// Freezing is on, no agent called the hidden page within `agentGrace`, and it is no
+    /// neighbor or hovered tab.
+    private func mayFreeze(_ key: String) -> Bool {
+        guard setting.freezeSeconds != nil else { return false }
+        if let used = agentUsedAt[key], (ContinuousClock.now - used).seconds < Self.agentGrace { return false }
+        return !frozen.contains(key) && !awakeNeighbors.contains(key) && hoverLeft(key, now: .now) == nil
     }
 
     private func freeze(_ key: String, _ page: any BrowserFreezing) {
@@ -466,7 +473,7 @@ final class BrowserHibernation {
             if let exemption {
                 self.exemptions[key] = exemption
                 // The probe thawed it; a page past its doubt freezes again at once (no replan would).
-                if exemption == .unanswered, !doubted, let page = self.freezer(tab), !self.frozen.contains(key) { self.freeze(key, page) }
+                if exemption == .unanswered, !doubted, self.mayFreeze(key), let page = self.freezer(tab) { self.freeze(key, page) }
                 return
             }
             // It became a neighbor or was hovered while the probe ran (the person's Hibernate Tab still applies).
