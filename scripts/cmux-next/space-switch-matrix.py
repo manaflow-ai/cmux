@@ -20,6 +20,10 @@ gives:
 
 Gate (--budget-ms, default one 120 Hz frame): e2e p95 under the budget, and no missed frames at p95.
 
+Fleet: cmux-ci run --class exclusive --measurement --label measure --key KEY --script scripts/measure/tab-switch.sh
+       --ref SHA --artifact artifacts/space-switch/space-switch.json --arg=--space-switch [--arg=--sizes=20,100]
+       (tab-switch-stages.py hands `--space-switch` to this script; the step builds the tagged app).
+
 Usage: space-switch-matrix.py --tag <tag> --app PATH [--spaces 5] [--sizes 20,100] [--browsers 3]
        [--switches 40] [--interval 0.9] [--json PATH] [--out DIR] [--budget-ms 8.33] [--profile SIZE]
 """
@@ -34,7 +38,7 @@ parser.add_argument("--browsers", type=int, default=3, help="Chromium tabs per s
 parser.add_argument("--switches", type=int, default=40)
 parser.add_argument("--interval", type=float, default=0.9, help="seconds between switches (past the 600 ms settle window)")
 parser.add_argument("--budget-ms", type=float, default=8.33)
-parser.add_argument("--json")
+parser.add_argument("--json", default="artifacts/space-switch/space-switch.json")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--profile", default="", help="sizes (comma list) that also run a Time Profiler pass")
 opts, _unknown = parser.parse_known_args()
@@ -335,6 +339,7 @@ def main():
         if result:
             report["scenarios"].append(result)
         if opts.json:
+            os.makedirs(os.path.dirname(os.path.abspath(opts.json)), exist_ok=True)
             with open(opts.json, "w") as handle:
                 json.dump(report, handle, indent=1)
     print("\n== summary (p50/p95; e2e = OS key event to the commit showing the new space)")

@@ -23,6 +23,11 @@ import argparse, glob, json, os, re, signal, socket, statistics, subprocess, sys
 
 # `--matrix`: every tab kind at 2/10/30/60 tabs with CPU and memory (tab-switch-matrix.py), through the
 # same fleet entry (scripts/measure/tab-switch.sh passes its arguments here).
+# `--space-switch`: space switches over 5 spaces of 20 and 100 workspaces (space-switch-matrix.py), through
+# the same fleet entry (scripts/measure/tab-switch.sh builds the tagged app).
+if "--space-switch" in sys.argv:
+    args = [a for a in sys.argv[1:] if a != "--space-switch"]
+    os.execv(sys.executable, [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "space-switch-matrix.py"), *args])
 if "--matrix" in sys.argv:
     os.execv(sys.executable, [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tab-switch-matrix.py"), *sys.argv[1:]])
 
