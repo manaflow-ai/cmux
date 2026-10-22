@@ -20,6 +20,10 @@ use crate::workspace_registry::{PersonalWorkspaceUpdate, ProfileInput, ProfileUp
 /// and `list-personal` groups.
 pub(crate) const WORKSPACE_GROUP_ICON_CAPABILITY: &str = "workspace-group-icon-v1";
 
+/// Advertises `reuse_existing` on `workspace_group.create`: find-or-create
+/// by name, so agents never make two groups of one name.
+pub(crate) const WORKSPACE_GROUP_REUSE_CAPABILITY: &str = "workspace-group-reuse-v1";
+
 /// Advertises `pinned` on `workspace_group.update`, `WorkspaceGroupSnapshot`
 /// and `list-personal` groups.
 pub(crate) const WORKSPACE_GROUP_PIN_CAPABILITY: &str = "workspace-group-pin-v1";
@@ -34,6 +38,11 @@ pub(crate) enum PersonalChange {
         collapsed: bool,
         room: Option<String>,
         index: Option<usize>,
+        /// `workspace-group-reuse-v1`: answer the group already named
+        /// `name` (trimmed, any case) instead of making a second one.
+        /// Omitted when false, so older mutation fingerprints keep their shape.
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        reuse_existing: bool,
     },
     GroupUpdate {
         group: String,
@@ -115,6 +124,19 @@ fn typed(error: anyhow::Error, scope: &str, id: &str) -> anyhow::Error {
     } else {
         error
     }
+}
+
+/// The personal group named `name` (trimmed, any case), in `room` when one
+/// is given (its id); the first in sidebar order.
+fn group_named(
+    tx: &Transaction<'_>,
+    name: &str,
+    room: Option<&str>,
+) -> anyhow::Result<Option<serde_json::Value>> {
+    let wanted = name.trim().to_lowercase();
+    Ok(personal::workspace_group_snapshots(tx, room)?.into_iter().find(|group| {
+        group["name"].as_str().is_some_and(|named| named.trim().to_lowercase() == wanted)
+    }))
 }
 
 pub(crate) fn all_groups(transaction: &Transaction<'_>) -> anyhow::Result<Vec<Value>> {
@@ -260,7 +282,10 @@ fn apply_personal_change(
     change: PersonalChange,
 ) -> anyhow::Result<StateChanges> {
     match change {
-        PersonalChange::GroupCreate { name, color, collapsed, room, index } => {
+        PersonalChange::GroupCreate { name, color, collapsed, room, index, reuse_existing } => {
+            if reuse_existing && let Some(value) = group_named(tx, &name, room.as_deref())? {
+                return Ok(StateChanges::new(value, Vec::new()));
+            }
             let group = personal::create_group(
                 tx,
                 room.as_deref(),

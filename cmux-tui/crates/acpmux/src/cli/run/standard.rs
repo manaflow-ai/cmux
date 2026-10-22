@@ -513,6 +513,24 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if args.detach || json_out {
                 return Ok(());
             }
+            let surface = chat_surface::choose(args.tui, args.gui, chat_surface::current());
+            if surface == chat_surface::ChatSurface::Gui {
+                // --group already showed it in the app's sidebar group.
+                if args.group.is_some() {
+                    return Ok(());
+                }
+                let title = launch.title.as_deref().unwrap_or(&name);
+                match launch::show_in_app(&id, title) {
+                    Ok(()) => {
+                        println!(
+                            "opened {name} in the cmux app; `acpmux attach {name}` or --tui opens the TUI"
+                        );
+                        return Ok(());
+                    }
+                    // No app to show it: the terminal TUI still works.
+                    Err(e) => eprintln!("acpmux: {e:#}; opening the TUI"),
+                }
+            }
             crate::tui::run(client, Some(id)).await
         }
         Command::Send {

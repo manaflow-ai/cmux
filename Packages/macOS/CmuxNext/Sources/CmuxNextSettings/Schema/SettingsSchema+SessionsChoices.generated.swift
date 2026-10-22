@@ -11,6 +11,14 @@ public nonisolated enum SessionKeepAwakeSetting: String, Sendable, Hashable, Cas
     case always
 }
 
+/// Where `acpmux new` (and agents that start chats with it) shows a new chat when it does not detach: the app's agent chat, or acpmux's terminal TUI. acpmux reads it at each new chat (cmux-tui/crates/acpmux/src/cli/run/chat_surface.rs); --tui and --gui win for one command.
+public nonisolated enum AgentChatSurfaceSetting: String, Sendable, Hashable, CaseIterable {
+    /// The app's agent chat, in a workspace of its own.
+    case gui
+    /// acpmux's TUI in the terminal that started the chat.
+    case tui
+}
+
 /// Idle system sleep stays off while phone access is on and the listener runs (KeepAwakeService). A sleeping Mac is unreachable until it wakes.
 public nonisolated enum PhoneKeepAwakeSetting: String, Sendable, Hashable, CaseIterable {
     /// The Mac sleeps on its usual schedule.

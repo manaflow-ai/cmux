@@ -10,6 +10,11 @@ by who is calling, not by what is possible.
 | An agent inside acpmux that wants a child (`cmux-subsessions` MCP) | `start_session {prompt, name, worktree: true}` | `send_message`, `wait_for_sessions`, `get_session` | `app_agent_open {session, group}` through the cmux MCP |
 | The cmux app or an agent with the cmux MCP | the app's own New Chat, or one of the two above | the chat pane | `app_agent_open` (`cmux agent open SESSION [--group G]`), or a tab of a pane: `app_agent_open_tab` (`cmux agent open-tab SESSION --target PANE`) |
 
+Without `-d`, `acpmux new` shows the new chat in the cmux app (GUI) by
+default (`cmux agent open`), or in acpmux's terminal TUI with `--tui` or the
+setting `agents.defaultChatSurface: "tui"`; `--gui` forces the app. When no
+app can show it, the TUI opens.
+
 ## The launcher: `acpmux new`
 
 ```bash

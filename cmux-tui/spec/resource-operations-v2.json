@@ -33438,6 +33438,14 @@
             },
             "description": "Position among all groups; defaults to the end."
           },
+          "reuse_existing": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "workspace-group-reuse-v1: true answers the group already named name (trimmed, any case; in room when given) and makes none, so a create by name is find-or-create. The result is that group, unchanged. False or absent always makes a new group."
+          },
           "expected_revision": {
             "required": false,
             "type": {

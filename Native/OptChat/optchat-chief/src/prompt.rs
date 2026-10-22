@@ -187,15 +187,24 @@ macro_rules! home_rule {
   check). The setting `show.afterReport` (default true) adds the block.
 - Sidebar groups: keep the sidebar sorted by topic. Each workspace you make
   or adopt (moved sessions, task workspaces) goes into a group named by its
-  topic (\"Agents & routing\", \"cmux-next app\"): reuse a matching group
-  (`cmux --json workspace group list`), or make one (`cmux workspace group
-  create --name NAME`) once two related workspaces have none, then `cmux
-  workspace group <group> add --workspace <ws_…>`. A subagent's workspace
+  topic (\"Agents & routing\", \"cmux-next app\"). Read the groups first
+  (`cmux --json workspace group list`) and reuse the matching one, never a
+  second group of the same name: `cmux workspace group NAME add --workspace
+  <ws_…>` finds the group by name (any case) and makes it only when none
+  has that name; `cmux workspace group create --name NAME` reuses one too.
+  `cmux --json workspace where` names the workspace and group you are in.
+  A subagent's workspace
   is named after its title and grouped by topic for you: start each spawn
   task with a `Title: <2-5 words>` line (never \"User (u…)\") and, to pick
   the group, a `Group: <name>` line. Home stays on top, ungrouped. Collapse a group
   whose work is done (`cmux workspace group <group> update --collapse`).
   Never close or rename the user's workspaces to group them.
+- Agent chats: open agent chats in the cmux app (GUI), not a terminal TUI:
+  `cmux agent open SESSION [--group G]` shows a session's chat. Do not start
+  an agent by typing `claude` or `codex` into a terminal, and do not open
+  acpmux's TUI (`acpmux attach`, `acpmux new` without `-d`), unless the user
+  asks for a terminal agent. The setting `agents.defaultChatSurface` (gui by
+  default, or tui) picks where `acpmux new` opens a chat.
 - Processes: signal only a process you started and still track (its pid
   from your own shell job, or its `_acpmux/process` id), never one found by
   name or command line: no `pkill`, `killall`, `kill $(pgrep ...)` or
@@ -494,13 +503,22 @@ report.
   tabs in your chat's pane, split down or add another column unless the
   user asks.
 - Sidebar groups: each workspace you make or adopt goes into a group named
-  by its topic (\"Agents & routing\", \"cmux-next app\"): reuse a matching
-  group (`cmux --json workspace group list`), or make one (`cmux workspace
-  group create --name NAME`) once two related workspaces have none, then
-  `cmux workspace group <group> add --workspace <ws_…>`. Home stays on
+  by its topic (\"Agents & routing\", \"cmux-next app\"). Read the groups
+  first (`cmux --json workspace group list`) and reuse the matching one,
+  never a second group of the same name: `cmux workspace group NAME add
+  --workspace <ws_…>` finds the group by name (any case) and makes it only
+  when none has that name; `cmux workspace group create --name NAME` reuses
+  one too. `cmux --json workspace where` names the workspace and group you
+  are in. Home stays on
   top, ungrouped. Collapse a group whose work is done (`cmux workspace
   group <group> update --collapse`). Never close or rename the user's
   workspaces to group them.
+- Agent chats: open agent chats in the cmux app (GUI), not a terminal TUI:
+  `cmux agent open SESSION [--group G]` shows a session's chat. Do not start
+  an agent by typing `claude` or `codex` into a terminal, and do not open
+  acpmux's TUI (`acpmux attach`, `acpmux new` without `-d`), unless the user
+  asks for a terminal agent. The setting `agents.defaultChatSurface` (gui by
+  default, or tui) picks where `acpmux new` opens a chat.
 - Processes: signal only a process you started and still track (its pid
   from your own shell job, or its `_acpmux/process` id), never one found by
   name or command line: no `pkill`, `killall`, `kill $(pgrep ...)` or

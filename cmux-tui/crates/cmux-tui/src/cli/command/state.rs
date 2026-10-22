@@ -44,6 +44,17 @@ impl Params {
         Ok(())
     }
 
+    /// `group` names a personal workspace group by id or name (any case);
+    /// a name no group has becomes a new group of that name.
+    fn group_or_create(&mut self, value: &str) -> Result<(), UsageError> {
+        if value.is_empty() || value.len() > 64 {
+            return Err(UsageError::new("group must contain 1 to 64 UTF-8 bytes"));
+        }
+        self.insert("group", Value::String(value.into()));
+        self.resolve.push(Resolve::GroupOrCreate { field: "group" });
+        Ok(())
+    }
+
     fn optional_state(
         &mut self,
         flags: &mut Flags,
@@ -398,6 +409,12 @@ pub(super) fn parse_workspace_group(
             if flags.boolean("collapse") {
                 params.insert("collapsed", Value::Bool(true));
             }
+            // Find-or-create by name (workspace-group-reuse-v1): agents file
+            // workspaces "into group N" from many processes, and a plain
+            // create made a second N each time one missed the other.
+            if !flags.boolean("allow-duplicate") {
+                params.insert("reuse_existing", Value::Bool(true));
+            }
             Op::WorkspaceGroupCreate
         }
         ["remove"] => {
@@ -406,8 +423,12 @@ pub(super) fn parse_workspace_group(
             Op::WorkspacePlace
         }
         [group, action] => {
-            let field = if *action == "add" { "group" } else { "workspace_group" };
-            params.state(field, group, Op::WorkspaceGroupList)?;
+            if *action == "add" {
+                // `add` makes the group when no group has that name.
+                params.group_or_create(group)?;
+            } else {
+                params.state("workspace_group", group, Op::WorkspaceGroupList)?;
+            }
             match *action {
                 "update" => {
                     insert_optional_string(&mut params.fields, flags, "name", "name");

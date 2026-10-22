@@ -336,6 +336,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             CommandPlan::RawCommand(command) => raw::run(global, command),
             CommandPlan::AgentMessage(plan) => agent_message::run_message(global, *plan),
             CommandPlan::AgentInbox(plan) => agent_message::run_inbox(global, plan),
+            CommandPlan::WorkspaceWhere => workspace_where::run(&global),
         },
         Err(failure) => {
             // Words the mux grammar does not know may name an app action

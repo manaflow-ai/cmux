@@ -59,6 +59,47 @@
           ]
         },
         {
+          "key": "agents.defaultChatSurface",
+          "note": "Where `acpmux new` (and agents that start chats with it) shows a new chat when it does not detach: the app's agent chat, or acpmux's terminal TUI. acpmux reads it at each new chat (cmux-tui/crates/acpmux/src/cli/run/chat_surface.rs); --tui and --gui win for one command.",
+          "title": {
+            "key": "settings.agents.defaultChatSurface",
+            "text": "Open New Agent Chats In"
+          },
+          "help": {
+            "key": "settings.agents.defaultChatSurface.help",
+            "text": "Where a new agent chat opens when an agent or a command starts one. The terminal view stays available with acpmux attach."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "gui",
+              "title": {
+                "key": "settings.choice.chatSurfaceGui",
+                "text": "cmux Chat"
+              },
+              "note": "The app's agent chat, in a workspace of its own."
+            },
+            {
+              "value": "tui",
+              "title": {
+                "key": "settings.choice.chatSurfaceTui",
+                "text": "Terminal"
+              },
+              "note": "acpmux's TUI in the terminal that started the chat."
+            }
+          ],
+          "default": "gui",
+          "keywords": [
+            "agents",
+            "chat",
+            "tui",
+            "terminal",
+            "gui",
+            "acpmux",
+            "open"
+          ]
+        },
+        {
           "key": "sessions.resumeAgents",
           "name": "resumeAgents",
           "note": "On: a terminal brought back after a crash or restart runs its agent's resume (claude --resume <id>, codex resume <id>) at the new shell's empty prompt. Off, or a settings file that does not parse: nothing runs, and the restored line shows the command. The daemon reads it at each respawn (cmux-tui-util user_settings::resume_agents). Commands other than agents never run again.",

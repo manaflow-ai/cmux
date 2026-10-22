@@ -80,6 +80,10 @@ pub(in crate::cli) enum Resolve {
     /// `field` names a state record (room or group) by id or exact name; a
     /// unique name becomes that record's id.
     StateName { field: &'static str, list: ResourceOperation },
+    /// `field` names a personal workspace group by id or name: an exact
+    /// name, else the one name equal in any case and trimmed; a name no
+    /// group has is created (`workspace_group.create {reuse_existing}`).
+    GroupOrCreate { field: &'static str },
     /// The request is a terminal's font zoom (`tab.update`). A browser tab's
     /// page zoom goes to the app instead (cli/resolve.rs).
     TabZoom { step: ZoomStep },

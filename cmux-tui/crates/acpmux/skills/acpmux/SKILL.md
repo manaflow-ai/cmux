@@ -138,6 +138,12 @@ one command; running it again reuses the session and worktree and sends nothing:
 acpmux new -n NAME --worktree REPO[@BASE] --prompt-file BRIEF.md --report-to ME --group "GROUP" -d
 ```
 
+Without `-d`, `acpmux new` opens the new chat in the cmux app (GUI) by
+default; `--tui` opens acpmux's terminal TUI instead, `--gui` forces the app,
+and the setting `agents.defaultChatSurface` (`gui` or `tui`) changes the
+default. When the app cannot show it, the TUI opens. `--group G` files the
+chat in sidebar group G, made only when no group has that name (any case).
+
 Never script `git worktree add` + `acpmux new` + `acpmux send` by hand. Which
 surface for what (CLI, `cmux-subsessions` MCP, cmux MCP): `cmux-tui/crates/acpmux/docs/agent-surfaces.md`
 in the cmux repository.

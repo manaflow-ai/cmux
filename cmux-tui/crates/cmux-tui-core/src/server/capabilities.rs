@@ -325,6 +325,7 @@ pub(super) fn advertised_capabilities(
         crate::state::personal_order::PERSONAL_MIXED_ORDER_CAPABILITY,
         crate::state::personal::WORKSPACE_GROUP_ICON_CAPABILITY,
         crate::state::personal::WORKSPACE_GROUP_PIN_CAPABILITY,
+        crate::state::personal::WORKSPACE_GROUP_REUSE_CAPABILITY,
         crate::state::screens::SCREEN_GROUP_ICON_CAPABILITY,
         crate::state::tabs::TAB_GROUP_ICON_CAPABILITY,
         crate::state::sidebar_layout_store::CAPABILITY,

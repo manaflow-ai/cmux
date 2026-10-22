@@ -1703,7 +1703,7 @@ interface CmuxGlobal {
   }
   workspace_group: {
     /** `workspace_group.create` (mutation, scope `workspace_group:write`) */
-    create: CmuxOp<{ machine?: string; session?: string; name: string; color?: string; collapsed?: boolean; room?: Cmux.StateId; index?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.WorkspaceGroupSnapshot>>
+    create: CmuxOp<{ machine?: string; session?: string; name: string; color?: string; collapsed?: boolean; room?: Cmux.StateId; index?: number; reuse_existing?: boolean; expected_revision?: string }, Cmux.MutationResult<Cmux.WorkspaceGroupSnapshot>>
     /** `workspace_group.delete` (mutation, scope `workspace_group:write`) */
     delete: CmuxOp<{ machine?: string; session?: string; workspace_group: Cmux.StateId; expected_revision?: string }, Cmux.MutationResult<Cmux.WorkspaceGroupDeleteResult>>
     /** `workspace_group.list` (read, scope `workspace_group:read`) */

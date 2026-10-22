@@ -976,9 +976,17 @@ pub struct NewArgs {
     pub effort: Option<String>,
     /// Optional first prompt.
     pub prompt: Vec<String>,
-    /// Do not open the TUI after creating.
+    /// Do not open the chat after creating.
     #[arg(long, short)]
     pub detach: bool,
+    /// Open the new chat in acpmux's terminal TUI, whatever
+    /// `agents.defaultChatSurface` says (default: the cmux app's chat).
+    #[arg(long, conflicts_with = "gui")]
+    pub tui: bool,
+    /// Open the new chat in the cmux app's agent chat (the default unless
+    /// `agents.defaultChatSurface` is `tui`).
+    #[arg(long)]
+    pub gui: bool,
     /// With a prompt: print only the final reply (implied by `acpmux run`).
     #[arg(long, short)]
     pub quiet: bool,

@@ -5,6 +5,9 @@ extension SessionSettings {
     /// `sessions.keepAwake`: Idle system sleep stays off while a local agent works (KeepAwakeService). The display can still sleep, and closing the lid still sleeps the Mac.
     public nonisolated static let keepAwakePath = ["sessions", "keepAwake"]
     public nonisolated static let keepAwakeDefault: SessionKeepAwakeSetting = .pluggedIn
+    /// `agents.defaultChatSurface`: Where `acpmux new` (and agents that start chats with it) shows a new chat when it does not detach: the app's agent chat, or acpmux's terminal TUI. acpmux reads it at each new chat (cmux-tui/crates/acpmux/src/cli/run/chat_surface.rs); --tui and --gui win for one command.
+    public nonisolated static let defaultChatSurfacePath = ["agents", "defaultChatSurface"]
+    public nonisolated static let defaultChatSurfaceDefault: AgentChatSurfaceSetting = .gui
     /// `sessions.resumeAgents`: On: a terminal brought back after a crash or restart runs its agent's resume (claude --resume <id>, codex resume <id>) at the new shell's empty prompt. Off, or a settings file that does not parse: nothing runs, and the restored line shows the command. The daemon reads it at each respawn (cmux-tui-util user_settings::resume_agents). Commands other than agents never run again.
     public nonisolated static let resumeAgentsPath = ["sessions", "resumeAgents"]
     public nonisolated static let resumeAgentsDefault = true
@@ -50,6 +53,19 @@ nonisolated enum SessionSettingsSchema {
                 ]),
                 default: .string(SessionSettings.keepAwakeDefault.rawValue),
                 keywords: ["sleep", "awake", "caffeinate", "battery", "power", "agents"]
+            ),
+            SettingDescriptor(
+                SessionSettings.defaultChatSurfacePath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.defaultChatSurface", "Open New Agent Chats In"),
+                help: SettingsText.keyed("settings.agents.defaultChatSurface.help", "Where a new agent chat opens when an agent or a command starts one. The terminal view stays available with acpmux attach."),
+                kind: .choice([
+                    SettingChoice(AgentChatSurfaceSetting.gui.rawValue, SettingsText.keyed("settings.choice.chatSurfaceGui", "cmux Chat")),
+                    SettingChoice(AgentChatSurfaceSetting.tui.rawValue, SettingsText.keyed("settings.choice.chatSurfaceTui", "Terminal")),
+                ]),
+                default: .string(SessionSettings.defaultChatSurfaceDefault.rawValue),
+                keywords: ["agents", "chat", "tui", "terminal", "gui", "acpmux", "open"]
             ),
             SettingDescriptor(
                 SessionSettings.resumeAgentsPath,

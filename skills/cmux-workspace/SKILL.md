@@ -77,11 +77,13 @@ cmux-next has no `identify` (outside the app), `new-split`, `new-pane`, `new-sur
 Keep the sidebar sorted by topic so the user is not overwhelmed. Each workspace you create or adopt (a subagent's, a moved session, a new task) goes into a group named by its topic, for example "Agents & routing" or "cmux-next app":
 
 ```bash
-cmux --json workspace group list                         # reuse a matching group
-cmux workspace group create --name "cmux-next app"       # once 2+ related workspaces have none
-cmux workspace group <group> add --workspace ws_…
+cmux --json workspace where                              # your workspace and its group
+cmux --json workspace group list                         # read the groups first; reuse a matching one
+cmux workspace group "cmux-next app" add --workspace ws_… # find-or-create: by name (any case), made only when missing
 cmux workspace group <group> update --collapse           # its work is done or stale
 ```
+
+Never make a second group of the same name. `workspace group <name> add` finds the group by name and makes it only when no group has that name, and `workspace group create --name N` also answers the group already named N (`--allow-duplicate` forces a new one; never use it for agent work). To put a new workspace next to yours, read `group.id` from `cmux --json workspace where` and add the workspace to that id.
 
 Home stays on top and ungrouped. Grouping never closes or renames the user's workspaces. Groups are personal: they live in this Mac's home session.
 

@@ -53,6 +53,8 @@ pub(super) enum CommandPlan {
     RawCommand(super::raw::RawCommandPlan),
     AgentMessage(Box<super::agent_message::MessagePlan>),
     AgentInbox(super::agent_message::InboxPlan),
+    /// `workspace where`: the caller's workspace and its sidebar group.
+    WorkspaceWhere,
 }
 
 #[derive(Clone, Debug)]
@@ -676,6 +678,7 @@ fn parse_workspace(
         return Ok(plan);
     }
     match refs.as_slice() {
+        ["where"] => Ok(CommandPlan::WorkspaceWhere),
         ["group", rest @ ..] => state::parse_workspace_group(rest, selectors, flags),
         ["placement", "list"] => {
             request(ResourceOperation::WorkspacePlacementList, selectors, flags, Map::new())

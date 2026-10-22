@@ -957,6 +957,7 @@ fn personal_change(
             collapsed: fields.get("collapsed").and_then(Value::as_bool).unwrap_or(false),
             room: string(fields, "room"),
             index: index(fields, "index"),
+            reuse_existing: fields.get("reuse_existing").and_then(Value::as_bool).unwrap_or(false),
         },
         Op::WorkspaceGroupUpdate => {
             require_any(

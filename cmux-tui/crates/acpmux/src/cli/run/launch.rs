@@ -294,15 +294,29 @@ fn workspace_key(id: &str) -> String {
 /// Shows session `id` in the cmux app's sidebar group `group` through the
 /// app's `agent open` action (`cmux agent open`), named `title`.
 pub(super) fn show_in_group(id: &str, title: &str, group: &str) -> Result<()> {
+    open_in_app(id, title, Some(group))
+}
+
+/// Shows session `id` in the cmux app's agent chat, in a workspace of its
+/// own and no group (the default surface of `acpmux new`).
+pub(super) fn show_in_app(id: &str, title: &str) -> Result<()> {
+    open_in_app(id, title, None)
+}
+
+fn open_in_app(id: &str, title: &str, group: Option<&str>) -> Result<()> {
     let key = workspace_key(id);
+    let mut args = vec!["agent", "open", id, "--name", title, "--key", &key];
+    if let Some(group) = group {
+        args.extend(["--group", group]);
+    }
     let out = std::process::Command::new("cmux")
-        .args(["agent", "open", id, "--name", title, "--key", &key, "--group", group])
+        .args(&args)
         .output()
-        .context("--group runs `cmux agent open`; no cmux CLI on PATH")?;
+        .context("showing a chat in the app runs `cmux agent open`; no cmux CLI on PATH")?;
     if !out.status.success() {
         bail!(
-            "the session runs, but the cmux app did not show it: `cmux agent open {id} --name {title:?} \
-             --key {key} --group {group:?}`: {}",
+            "the session runs, but the cmux app did not show it: `cmux {}`: {}",
+            args.join(" "),
             String::from_utf8_lossy(&out.stderr).trim()
         );
     }

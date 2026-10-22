@@ -43,14 +43,9 @@ fn an_ungrouped_workspace_answers_a_null_group() {
     assert_eq!(answer["source"], "current");
 }
 
-/// `cmux workspace where` (and its alias `cmux whereami`) is its own plan.
+/// `cmux workspace where` is its own plan.
 #[test]
 fn workspace_where_parses_to_its_plan() {
-    for words in [&["workspace", "where"][..], &["whereami"][..]] {
-        let args = words.iter().map(|word| (*word).to_string()).collect::<Vec<_>>();
-        assert!(
-            matches!(parse(&args, Surface::Cmux), Ok(CommandPlan::WorkspaceWhere)),
-            "{words:?}"
-        );
-    }
+    let args = ["workspace", "where"].map(str::to_string);
+    assert!(matches!(parse(&args, Surface::Cmux), Ok(CommandPlan::WorkspaceWhere)));
 }

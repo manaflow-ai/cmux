@@ -93,6 +93,14 @@ pub(super) fn apply(
                     params.insert(field.into(), Value::String(id));
                 }
             }
+            Resolve::GroupOrCreate { field } => {
+                let Some(value) = params.get(field).and_then(Value::as_str).map(str::to_owned)
+                else {
+                    continue;
+                };
+                let id = group_or_create(reader, &route, &value)?;
+                params.insert(field.into(), Value::String(id));
+            }
             Resolve::TabZoom { step } => {
                 // A `current` or named tab resolves through its ancestors.
                 let mut selector = route.clone();
@@ -331,7 +339,7 @@ fn next_event(events: &mut Reader, deadline: Instant) -> bool {
 }
 
 /// The workspace that holds `terminal`: terminal -> tab -> pane -> screen.
-fn caller_workspace(
+pub(super) fn caller_workspace(
     reader: &mut Reader,
     route: &Map<String, Value>,
     terminal: &str,
@@ -364,6 +372,56 @@ fn caller_workspace(
 /// `Some(id)` when `value` is not an id but the exact name of one record.
 /// An id, or a name nothing has, goes to the daemon unchanged, which reports
 /// `resource.not_found` for an unknown one.
+/// The id of the personal workspace group `value` names: its id, its exact
+/// name, else the one group whose trimmed name equals it in any case. A
+/// name no group has is created with `reuse_existing`, so two callers that
+/// race end with one group.
+fn group_or_create(
+    reader: &mut Reader,
+    route: &Map<String, Value>,
+    value: &str,
+) -> Result<String, Failure> {
+    let records = read(reader, ResourceOperation::WorkspaceGroupList, route.clone())?;
+    if let Some(id) = group_id(value, &records)? {
+        return Ok(id);
+    }
+    let mut params = route.clone();
+    params.insert("name".into(), Value::String(value.trim().to_string()));
+    params.insert("reuse_existing".into(), Value::Bool(true));
+    let key = super::wire::random_idempotency_key()
+        .map_err(|error| Failure::Transport(format!("cmux: {error}")))?;
+    let created = call(reader, ResourceOperation::WorkspaceGroupCreate, params, Some(&key))?;
+    created
+        .pointer("/value/id")
+        .or_else(|| created.get("id"))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| Failure::Transport("cmux: workspace_group.create named no group".into()))
+}
+
+/// [`state_id`] for groups, with a trimmed any-case name match after the
+/// exact one; `Some(value)` when `value` is a group's id.
+fn group_id(value: &str, records: &Value) -> Result<Option<String>, Failure> {
+    let list = records.as_array().map(Vec::as_slice).unwrap_or_default();
+    if list.iter().any(|record| record.get("id").and_then(Value::as_str) == Some(value)) {
+        return Ok(Some(value.to_string()));
+    }
+    if let Some(id) = state_id("group", value, records)? {
+        return Ok(Some(id));
+    }
+    let wanted = value.trim().to_lowercase();
+    Ok(list
+        .iter()
+        .find(|record| {
+            record
+                .get("name")
+                .and_then(Value::as_str)
+                .is_some_and(|name| name.trim().to_lowercase() == wanted)
+        })
+        .and_then(|record| record.get("id").and_then(Value::as_str))
+        .map(str::to_owned))
+}
+
 fn state_id(field: &str, value: &str, records: &Value) -> Result<Option<String>, Failure> {
     let records = records.as_array().map(Vec::as_slice).unwrap_or_default();
     if records.iter().any(|record| record.get("id").and_then(Value::as_str) == Some(value)) {

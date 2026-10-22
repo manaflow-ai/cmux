@@ -1002,7 +1002,7 @@ cmux tab group <group> update|add|move|split|column|new-workspace|ungroup|close|
 cmux screen group <group> update [--icon <icon>|--clear-icon] ...
 cmux tab group saved list | saved <saved> delete|reopen --pane <id>
 cmux workspace group list [--room <room>]
-cmux workspace group create --name <name> [--color <c>] [--room <room>] [--index <n>] [--collapse]
+cmux workspace group create --name <name> [--color <c>] [--room <room>] [--index <n>] [--collapse] [--allow-duplicate]
 cmux workspace group remove --workspace <ws>
 cmux workspace group <group> update|delete|move|add ...
 ```
@@ -1020,7 +1020,17 @@ group's) through `tab_group.update` and `screen_group.update`, and
 Workspace groups are personal state of the home session. `workspace group`
 uses the `workspace_group.*` resource operations, and `add`/`remove` use
 `workspace.place` with a workspace selector (`--workspace <ws>`). The shared
-workspace group commands are no longer used by the CLI. `workspace group <group> update --top-index <n>`
+workspace group commands are no longer used by the CLI. `workspace group create
+--name <name>` is find-or-create: it sends `reuse_existing` and answers the
+group already named `<name>` (trimmed, any case) instead of making a second
+one (`workspace-group-reuse-v1`); `--allow-duplicate` always makes a new
+group. `workspace group <group> add` takes the group's id or name (exact,
+else trimmed and any case) and creates the group when no group has that
+name. `workspace where` prints the caller's workspace (`id`, `name`, `key`)
+and the group that holds it (`group: {id, name}` or null) with `room_id` and
+`source`: the CLI's own terminal (`CMUX_TUI_TERMINAL_ID`), else the
+workspace an agent chat runs in (`CMUX_WORKSPACE_ID`), else the session's
+current workspace. `workspace group <group> update --top-index <n>`
 puts a group right before the personal workspace at placement index `<n>`;
 `--clear-top-index` puts it after every loose workspace
 (`personal-mixed-order-v1`). `workspace group <group> update --icon <icon>`

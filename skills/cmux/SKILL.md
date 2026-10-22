@@ -63,6 +63,8 @@ cmux workspace ws_… progress set 0.4 --label "3 of 8"
 cmux notify --title "Review ready" --body "PR #123"    # --desktop false: sidebar marker only
 ```
 
+Agent chats open in the cmux app (GUI), not in a terminal TUI: never start an agent by typing `claude` or `codex` into a terminal, and never open acpmux's TUI (`acpmux attach`, `acpmux new` without `-d`) unless the person asks for a terminal agent. The setting `agents.defaultChatSurface` (`gui`, the default, or `tui`) picks where `acpmux new` opens a chat. `cmux --json workspace where` names your workspace and its sidebar group; `cmux workspace group NAME add --workspace ws_…` files a workspace by group name and makes the group only when none has that name.
+
 To start another agent on a task and show it, use one command, `acpmux new -n NAME --worktree REPO@BASE --prompt-file BRIEF.md --report-to ME --group G -d` (the `acpmux` skill): it makes the worktree, starts the session, sends the brief and opens its chat in group G; running it again changes nothing.
 
 To open a link, the MCP tool `workspace_open_url` loads it on the workspace's right side, but it navigates a browser tab already there; `cmux browser profile open URL --profile default --background true` (MCP `browser_profile_open` with `activate: false`) adds a tab and keeps the pane's selected tab. `tab focus`, `workspace focus`, `agents tab select` and `focus: true` do move the person's focus: use them only when asked. `current` is the workspace the person looks at, not yours: from a cmux terminal `status set` without a selector targets that terminal's workspace, but an agent chat has no terminal, so name the workspace (`$CMUX_WORKSPACE_ID` when set).

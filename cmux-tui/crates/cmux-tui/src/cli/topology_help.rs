@@ -34,9 +34,11 @@ USAGE
   cmux workspace [<selector>] checklist update <item> [--text <text>] [--state todo|in_progress|done]
     [--index <n>] [--attachments-json <json-array>]
   cmux workspace [<selector>] checklist remove <item>
+  cmux workspace where
   cmux workspace placement list
   cmux workspace group list [--room <room>]
   cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse]
+    [--allow-duplicate]
   cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color]
     [--icon <icon>|--clear-icon] [--pinned true|false]
     [--room <room>] [--collapse|--expand] [--top-index <n>|--clear-top-index]

@@ -153,7 +153,7 @@ enum AgentSessionWorkspace {
     /// row it could not hold got a new group of that name each time (nine "GUI push · lanes", 2026-10-22).
     static func group(named name: String, accepting id: SidebarWorkspaceID, in sections: [CmuxNextSidebar.SidebarSection]) -> CmuxNextSidebar.GroupID? {
         for section in sections {
-            for case let .group(group) in section.nodes where group.name == name {
+            for case let .group(group) in section.nodes where sameGroupName(group.name, name) {
                 if SidebarEdits.canMove([id], toGroup: group.id, in: sections) { return group.id }
             }
         }
@@ -165,10 +165,17 @@ enum AgentSessionWorkspace {
     /// Only this Mac's rows: the chat opens on this Mac's daemon, so another machine's row is never reused.
     static func predecessor(named name: String, inGroup group: String, in sections: [CmuxNextSidebar.SidebarSection]) -> SidebarWorkspaceID? {
         for section in sections {
-            for case let .group(listed) in section.nodes where listed.name == group {
+            for case let .group(listed) in section.nodes where sameGroupName(listed.name, group) {
                 if let row = listed.workspaces.first(where: { $0.title == name && $0.machineID == .local }) { return row.id }
             }
         }
         return nil
+    }
+
+    /// Group names match trimmed and in any case: agents name one group "Agents & routing" and
+    /// "agents & routing ", and each spelling made a group of its own (2026-10-21).
+    static func sameGroupName(_ listed: String, _ wanted: String) -> Bool {
+        listed.trimmingCharacters(in: .whitespacesAndNewlines)
+            .caseInsensitiveCompare(wanted.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame
     }
 }
