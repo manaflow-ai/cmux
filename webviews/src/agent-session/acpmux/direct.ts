@@ -4989,55 +4989,52 @@ export class AcpmuxDirectClient {
     } finally {
       this.foldingBelow = undefined;
     }
-    // A compaction the page leaves running, or noted as failed while it may go on (a forced
-    // Stop), went on past its last record (an account switch's runs between turns): the held
-    // events' first compaction row is it if that started on time; else one still running never
-    // said how it ended and is noted as failed, as the next turn's start would.
-    const heldCompactions = [...held.values()]
-      .filter((row) => row.kind === "compaction")
-      .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
-    // A held row whose first record already says how it ended found no compaction open before it
-    // in the held events: reading the whole record, that end goes on the latest compaction still
-    // open (running, or noted as failed), however long after, and each later such end on the next
-    // one back (`compaction` above). The end goes on that row, where the compaction started, and
-    // the held row goes, so a page further back takes nothing more for it.
-    const endsFirst = (row: AcpmuxRow) => {
+    // The held events' compactions take up the ones the page left open, in order, as reading the
+    // whole record does (`compaction` above). One whose first record is a running note continues a
+    // compaction the page left running, or noted as failed while it may go on (a forced Stop, or an
+    // account switch's that runs between turns), if that was heard on time. One whose first record
+    // already says how it ended found nothing open in the held events, so it ends the latest
+    // compaction still open, however long after: the end goes on that row, where the compaction
+    // started, and the held row goes, so a page further back takes nothing more for it.
+    const opensRunning = (row: AcpmuxRow) => {
       const opening = this.events.find((event) => event.seq === row.seq);
-      return opening !== undefined && compactionOf(sessionUpdate(opening))?.state !== "running";
+      return opening !== undefined && compactionOf(sessionUpdate(opening))?.state === "running";
     };
-    for (const end of heldCompactions) {
-      if (!end.compaction || !endsFirst(end)) continue;
-      let open: AcpmuxRow | undefined;
-      for (const row of this.rows.values())
-        if (
+    const openRows = () =>
+      [...this.rows.values()].filter(
+        (row) =>
           row.kind === "compaction" &&
           !held.has(row.id) &&
-          (row.compaction?.state === "running" || row.compaction?.inferred === true) &&
-          (row.seq ?? 0) > (open?.seq ?? -1)
-        )
-          open = row;
-      if (!open) break;
-      this.rows.set(open.id, { ...open, version: open.version + 1, compaction: end.compaction });
-      held.delete(end.id);
-      this.rows.delete(end.id);
-    }
-    const heldCompaction = heldCompactions.find((row) => held.has(row.id) && !endsFirst(row));
-    for (const row of this.rows.values())
-      if (
-        row.kind === "compaction" &&
-        !held.has(row.id) &&
-        (row.compaction?.state === "running" ||
-          (row.compaction?.inferred === true && this.compactionHeardAt.has(row.id)))
-      ) {
-        const heard = this.compactionHeardAt.get(row.id) ?? -Infinity;
-        if (heldCompaction && heldCompaction.at - heard <= COMPACTION_REPEAT_WINDOW) this.rows.delete(row.id);
-        else if (row.compaction?.state === "running")
-          this.rows.set(row.id, {
-            ...row,
-            version: row.version + 1,
-            compaction: { ...row.compaction, state: "failed", inferred: true },
-          });
+          (row.compaction?.state === "running" || row.compaction?.inferred === true),
+      );
+    let continued = false;
+    for (const next of [...held.values()]
+      .filter((row) => row.kind === "compaction")
+      .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))) {
+      if (opensRunning(next)) {
+        if (continued) continue;
+        continued = true;
+        for (const row of openRows()) {
+          const heard = this.compactionHeardAt.get(row.id);
+          if (heard !== undefined && next.at - heard <= COMPACTION_REPEAT_WINDOW) this.rows.delete(row.id);
+        }
+        continue;
       }
+      const open = openRows().sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0))[0];
+      if (!open || !next.compaction) continue;
+      this.rows.set(open.id, { ...open, version: open.version + 1, compaction: next.compaction });
+      held.delete(next.id);
+      this.rows.delete(next.id);
+    }
+    // One still running that nothing continued never said how it ended: noted as failed, as the
+    // next turn's start would.
+    for (const row of openRows())
+      if (row.compaction?.state === "running")
+        this.rows.set(row.id, {
+          ...row,
+          version: row.version + 1,
+          compaction: { ...row.compaction, state: "failed", inferred: true },
+        });
     // A background shell the held events saw end while its call was not loaded ends on that call's
     // row now that this page brought it, and its own row goes.
     for (const row of held.values())
