@@ -3125,6 +3125,7 @@
 		D9CC43F1918BF45515A82D5B /* RemoteTmuxCredentialPromptAttachTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 634A42B871609F7C444A7DCB /* RemoteTmuxCredentialPromptAttachTests.swift */; };
 		2FAA10BC0D7B50DE57F507A4 /* RemoteTmuxError.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF44822DC080B2110CFECF88 /* RemoteTmuxError.swift */; };
 		3140E34B782A7A1EA69EFDB7 /* RemoteTmuxFindWindowCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 313060010F96B4360CE36B49 /* RemoteTmuxFindWindowCandidate.swift */; };
+		B001B258A11E47F7C9874188 /* RemoteTmuxFindWindowJumperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97D159248606553ED826D742 /* RemoteTmuxFindWindowJumperTests.swift */; };
 		7F8B27012E1569D911F4B01C /* RemoteTmuxFindWindowModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 362A4151C77FC10491DBC670 /* RemoteTmuxFindWindowModel.swift */; };
 		26BDAD23751115C632F51D38 /* RemoteTmuxFindWindowModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6587AABE1D1AB2515A66852 /* RemoteTmuxFindWindowModelTests.swift */; };
 		8590ED32F900D78F709B78A3 /* RemoteTmuxFindWindowOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE707A222EEA6EFB4413D9FA /* RemoteTmuxFindWindowOptions.swift */; };
@@ -7818,6 +7819,7 @@
 		634A42B871609F7C444A7DCB /* RemoteTmuxCredentialPromptAttachTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxCredentialPromptAttachTests.swift"; sourceTree = "<group>"; };
 		AF44822DC080B2110CFECF88 /* RemoteTmuxError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxError.swift; sourceTree = "<group>"; };
 		313060010F96B4360CE36B49 /* RemoteTmuxFindWindowCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxFindWindowCandidate.swift; sourceTree = "<group>"; };
+		97D159248606553ED826D742 /* RemoteTmuxFindWindowJumperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxFindWindowJumperTests.swift"; sourceTree = "<group>"; };
 		362A4151C77FC10491DBC670 /* RemoteTmuxFindWindowModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxFindWindowModel.swift; sourceTree = "<group>"; };
 		E6587AABE1D1AB2515A66852 /* RemoteTmuxFindWindowModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxFindWindowModelTests.swift"; sourceTree = "<group>"; };
 		FE707A222EEA6EFB4413D9FA /* RemoteTmuxFindWindowOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxFindWindowOptions.swift; sourceTree = "<group>"; };
@@ -14375,6 +14377,7 @@
 				E6587AABE1D1AB2515A66852 /* RemoteTmuxFindWindowModelTests.swift */,
 				DA25929499D9BD6D0BF990EF /* RemoteTmuxFindWindowSearchTests.swift */,
 				457ABBD6ACBA4EFADC328867 /* RemoteTmuxPaneTextReaderTests.swift */,
+				97D159248606553ED826D742 /* RemoteTmuxFindWindowJumperTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -19342,6 +19345,7 @@
 				B2FDE62450514C4C27FBD8F1 /* RemoteTmuxControlParserTests.swift in Sources */,
 				B0555301B0555301B0555301 /* RemoteTmuxControlStreamParserBudgetTests.swift in Sources */,
 				D9CC43F1918BF45515A82D5B /* RemoteTmuxCredentialPromptAttachTests.swift in Sources */,
+				B001B258A11E47F7C9874188 /* RemoteTmuxFindWindowJumperTests.swift in Sources */,
 				26BDAD23751115C632F51D38 /* RemoteTmuxFindWindowModelTests.swift in Sources */,
 				6F9C68DFF091A35C9106DFD0 /* RemoteTmuxFindWindowSearchTests.swift in Sources */,
 				C7836C811B244F7A31DE3C97 /* RemoteTmuxFullHistorySearchTests.swift in Sources */,

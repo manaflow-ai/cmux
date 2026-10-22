@@ -87,7 +87,7 @@ import Testing
         let pane = RemoteTmuxFindWindowSearchTests.pane(window: 1, name: "shell", order: 0)
         let model = RemoteTmuxFindWindowModel(environment: .init(
             candidates: { [pane] },
-            readText: { _ in RemoteTmuxPaneText(lines: ["shell output"], isTruncated: false) },
+            readText: { _ in RemoteTmuxPaneText(lines: ["shell output"], paneWidth: 80, isTruncated: false) },
             jump: { _ in }
         ))
         model.open()
@@ -100,6 +100,40 @@ import Testing
         model.query = "she(ll)"
         #expect(model.queryError == nil)
         try await waitUntil { !model.results.isEmpty }
+    }
+
+    @Test func theSlotClosesItsModelWhenAnotherOverlayTakesOver() {
+        let model = RemoteTmuxFindWindowModel(environment: .init(
+            candidates: { [] },
+            readText: { _ in nil },
+            jump: { _ in }
+        ))
+        var slot = RemoteTmuxFindWindowSlot()
+        slot.present(model)
+        model.open()
+        #expect(slot.activeModel(in: .findTmuxWindow) === model)
+        // The palette or the agent inbox opened over find-window must neither render
+        // nor route keys to it, before or after the slot hears of the change.
+        #expect(slot.activeModel(in: .palette) == nil)
+        #expect(slot.activeModel(in: .agentInbox) == nil)
+
+        slot.overlayDidChange(to: .palette)
+
+        #expect(!model.isOpen)
+        #expect(slot.activeModel(in: .findTmuxWindow) == nil)
+    }
+
+    @Test func presentingAgainClosesTheEarlierModel() {
+        let first = RemoteTmuxFindWindowModel(environment: .init(candidates: { [] }, readText: { _ in nil }, jump: { _ in }))
+        let second = RemoteTmuxFindWindowModel(environment: .init(candidates: { [] }, readText: { _ in nil }, jump: { _ in }))
+        var slot = RemoteTmuxFindWindowSlot()
+        slot.present(first)
+        first.open()
+
+        slot.present(second)
+
+        #expect(!first.isOpen)
+        #expect(slot.activeModel(in: .findTmuxWindow) === second)
     }
 
     private func waitUntil(_ condition: () -> Bool) async throws {
@@ -129,6 +163,6 @@ final class ReadGate {
 
     func release(_ id: RemoteTmuxFindWindowCandidate.ID, lines: [String]) {
         waiting.removeAll { $0 == id }
-        continuations.removeValue(forKey: id)?.resume(returning: RemoteTmuxPaneText(lines: lines, isTruncated: false))
+        continuations.removeValue(forKey: id)?.resume(returning: RemoteTmuxPaneText(lines: lines, paneWidth: 80, isTruncated: false))
     }
 }
