@@ -17,7 +17,7 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct CmdNRowSlotTests {
     @Test func cmdNDrawsTheNewRowOnlyAtItsSlot() async throws {
-        let launched = try await RapidWorkspaceCreateTests.launch()
+        let launched = try await RapidWorkspaceCreateTests.launch(sessionEvents: true)
         let services = launched.services
         // The slot named explicitly, so the base's default (`top`) does not decide the result: only the jump does.
         let url = launched.root.appendingPathComponent("cmux.json")
