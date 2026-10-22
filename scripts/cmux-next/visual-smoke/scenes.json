@@ -5,7 +5,9 @@
     "edge: share of pixels with a visible step to a neighbour on a 640-px grayscale copy; text and controls",
     "score about 0.02-0.08, an empty or flat area under 0.001. Changing a limit or a reference is a reviewed",
     "change to this folder: there is no switch that skips the gate.",
-    "min_ssim applies only when references/<scene>.png exists (32x20 grid; same layout ~0.97, another scene 0.3-0.7)."
+    "min_ssim applies only when references/<scene>.png exists (32x20 grid; same layout ~0.97, another scene 0.3-0.7).",
+    "distinct_from: a scene fails when its capture scores max_scene_ssim or more against a named scene's (same grid),",
+    "so a driver that never reached it and captured the previous scene again cannot pass."
   ],
   "defaults": {
     "min_size": [600, 400],
@@ -13,30 +15,34 @@
     "max_dark": 0.9,
     "max_flat": 0.99,
     "min_region_edge": 0.004,
-    "min_ssim": 0.75
+    "min_ssim": 0.75,
+    "max_scene_ssim": 0.9
   },
   "scenes": {
     "home": {
-      "what": "Home after launch: the left sidebar and the Home composer",
+      "what": "Home after launch: the left sidebar, the Home Chief chat and its composer, and Home's New Tab",
       "regions": {
         "sidebar": {"box": [0.01, 0.08, 0.17, 0.75], "min_edge": 0.006, "what": "the sidebar's Home, App Store and workspace rows"},
-        "main": {"box": [0.22, 0.06, 0.99, 0.85], "min_edge": 0.01, "what": "the Home conversation list and chat"},
-        "composer": {"box": [0.22, 0.7, 0.99, 1.0], "what": "the Home composer"}
+        "chief": {"box": [0.33, 0.1, 0.6, 0.88], "min_edge": 0.02, "what": "the Home Chief chat column"},
+        "composer": {"box": [0.33, 0.93, 0.6, 1.0], "what": "the Home composer under the Chief chat"},
+        "new_tab": {"box": [0.61, 0.1, 0.99, 0.35], "what": "Home's New Tab page: its folder picker and Ask anything field"}
       }
     },
     "composer": {
-      "what": "a new agent chat (palette.newAgentChat) with its composer",
+      "what": "a new agent chat (palette.newAgentChat) in a workspace that is not Home, with its composer",
+      "distinct_from": ["home"],
       "regions": {
         "sidebar": {"box": [0.01, 0.08, 0.17, 0.75], "min_edge": 0.006, "what": "the sidebar"},
-        "composer": {"box": [0.2, 0.6, 0.99, 1.0], "what": "the new chat's composer"}
+        "composer": {"box": [0.22, 0.3, 0.66, 1.0], "what": "the new chat's composer, left of the chat's Inspector"}
       }
     },
     "transcript": {
-      "what": "an agent chat with one answered turn (agent.openSessionWorkspace)",
+      "what": "an agent chat with one answered turn, in its own workspace (agent.openSessionWorkspace, then tab.focus)",
+      "distinct_from": ["home", "composer"],
       "regions": {
         "sidebar": {"box": [0.01, 0.08, 0.17, 0.75], "min_edge": 0.006, "what": "the sidebar, now listing the chat's workspace"},
-        "messages": {"box": [0.2, 0.08, 0.99, 0.7], "min_edge": 0.006, "what": "the prompt and the agent's reply"},
-        "composer": {"box": [0.2, 0.7, 0.99, 1.0], "what": "the chat's composer"}
+        "messages": {"box": [0.22, 0.08, 0.66, 0.75], "min_edge": 0.006, "what": "the prompt and the agent's reply, left of the chat's Inspector"},
+        "composer": {"box": [0.22, 0.75, 0.66, 1.0], "what": "the chat's composer"}
       }
     }
   }

@@ -283,6 +283,34 @@ def check_scene(name, spec, defaults, shot, reference=None, diff_path=None):
     return result
 
 
+def check_distinct(config, shots, results):
+    """Fail a scene whose capture matches another scene's (`distinct_from` in scenes.json):
+    the driver never reached it and captured the previous scene again. Same-grid SSIM at or
+    above max_scene_ssim is a match; two different scenes in one window score 0.3-0.8."""
+    grids = {}
+
+    def grid(name):
+        if name not in grids:
+            path = os.path.join(shots, f"{name}.png")
+            grids[name] = resize(load(path), *GRID) if os.path.exists(path) else None
+        return grids[name]
+    for name, spec in config["scenes"].items():
+        result = results[name]
+        limit = spec.get("max_scene_ssim", config["defaults"].get("max_scene_ssim", 0.9))
+        for other in spec.get("distinct_from", []):
+            if other not in config["scenes"]:
+                raise ValueError(f"scene {name}: distinct_from names unknown scene {other}")
+            a, b = grid(name), grid(other)
+            if a is None or b is None:
+                continue  # a missing capture already fails its own scene
+            score = ssim(a, b)
+            result["metrics"].setdefault("scene_ssim", {})[other] = score
+            if score >= limit:
+                result["failures"].append(f"looks the same as the {other} scene: SSIM {score} >= {limit}"
+                                          " (the driver did not reach this scene)")
+        result["ok"] = not result["failures"]
+
+
 def run(scenes_path, shots, references=None, report_path=None):
     with open(scenes_path) as f:
         config = json.load(f)
@@ -294,6 +322,7 @@ def run(scenes_path, shots, references=None, report_path=None):
         if reference and not os.path.exists(reference):
             reference = None
         results.append(check_scene(name, spec, defaults, shot, reference, os.path.join(shots, f"{name}-diff.png")))
+    check_distinct(config, shots, {r["scene"]: r for r in results})
     report = {"ok": all(r["ok"] for r in results), "scenes": results}
     if report_path:
         with open(report_path, "w") as f:
@@ -305,7 +334,7 @@ def markdown(report):
     lines = ["| Scene | Result | Window edge | Regions | Reference SSIM |", "| --- | --- | --- | --- | --- |"]
     for r in report["scenes"]:
         m = r["metrics"]
-        regions = ", ".join(f"{k} {v['edge']}" for k, v in m.items() if k not in ("window", "reference_ssim"))
+        regions = ", ".join(f"{k} {v['edge']}" for k, v in m.items() if k not in ("window", "reference_ssim", "scene_ssim"))
         lines.append(f"| {r['scene']} | {'ok' if r['ok'] else 'FAIL'} | {m.get('window', {}).get('edge', '-')} | "
                      f"{regions or '-'} | {m.get('reference_ssim', 'no reference')} |")
     for r in report["scenes"]:

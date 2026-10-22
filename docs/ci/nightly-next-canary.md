@@ -196,9 +196,19 @@ app's window (only the window, with `screencapture -l`) in three scenes:
 
 | Scene | How it gets there | What must be drawn |
 | --- | --- | --- |
-| `home` | `home.show` | the sidebar, the Home list and chat, the Home composer |
-| `composer` | `palette.newAgentChat` | the sidebar and the new chat's composer |
-| `transcript` | a test-agent turn, then `agent.openSessionWorkspace` | the sidebar, the prompt and reply, the composer |
+| `home` | `home.show` | the sidebar, the Chief chat and the Home composer under it, Home's New Tab |
+| `transcript` | a test-agent turn, `agent.openSessionWorkspace`, then `tab.focus` on its tab | the sidebar, the prompt and reply, the composer |
+| `composer` | `palette.newAgentChat` in the transcript's workspace | the sidebar and the new chat's composer |
+
+The driver captures them in that order. The transcript waits until the window
+shows the session's workspace and that pane's selected tab is the session's,
+no longer pending (`agent.openSessionWorkspace` itself switches nothing). The
+transcript and the new chat are in a workspace that is not Home, so no Chief
+column sits beside them, and their boxes stop left of the chat's Inspector:
+each box covers only the pane under test, so content beside an empty pane
+cannot pass it. A scene whose capture matches a scene it is `distinct_from`
+(32x20 SSIM at or above `max_scene_ssim`, 0.9) fails: the driver captured the
+previous scene again.
 
 `visual_check.py` judges each capture against `scenes.json`. It fails a scene
 when the window is smaller than 600x400, blank, one flat tone or mostly black,
@@ -236,7 +246,8 @@ A limit or a reference changes only in a reviewed pull request to
   checks the newest feed build against the new limits before it lands.
 
 `tests/test_nightly_next_visual_smoke.py` checks the judge on drawn, blank,
-black, collapsed, sidebar-less, transcript-less and shifted windows, and that
+black, collapsed, sidebar-less, transcript-less and shifted windows, on a scene
+that repeats another and on an empty chat beside a drawn Inspector, and that
 `nightly.yml` runs the gate before publication.
 
 ## How a cmux NEXT nightly is built and published

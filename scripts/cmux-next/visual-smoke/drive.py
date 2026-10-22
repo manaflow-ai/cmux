@@ -4,11 +4,18 @@ capture its window in each (smoke-signed-app-cli.sh --visual OUT runs it).
 
 Release control socket only (no debug.* method), like the canary checks:
 
-  home        `home.show`: the sidebar and the Home composer.
-  composer    `palette.newAgentChat`: a new agent chat's composer.
+  home        `home.show`: the sidebar, the Home Chief chat and its composer.
   transcript  a test-agent session with one answered turn (the canary's
               agent_turn, in the app's own acpmux), opened with
-              `agent.openSessionWorkspace`: the chat's transcript.
+              `agent.openSessionWorkspace`, then shown with `tab.focus`: the
+              chat's transcript in its own workspace (not Home, so no Chief
+              column beside it). The capture waits until the window shows that
+              workspace and its pane's selected tab is the session's, no
+              longer pending (openSessionWorkspace itself switches nothing).
+  composer    `palette.newAgentChat` in that workspace: a new chat's composer,
+              in the selected tab of a workspace that is not Home.
+
+Captured in that order (scenes.json lists home, composer, transcript).
 
 Each capture is the app's largest on-screen window alone (`screencapture -l`,
 its CGWindowID from the window list), so the menu bar, the Dock and a system
@@ -74,6 +81,41 @@ def capture(pid, path):
     return window["bounds"]
 
 
+def topology(socket_path):
+    return canary.snapshot(socket_path).get("topology") or {}
+
+
+def placed_tabs(topo):
+    """(workspace id, pane, tab) for every tab in every pane of the snapshot."""
+    for workspace in topo.get("workspaces") or []:
+        for screen in workspace.get("screens") or []:
+            for pane in screen.get("panes") or []:
+                for tab in pane.get("tabs") or []:
+                    yield workspace.get("id"), pane, tab
+
+
+def shown_tab(socket_path, matches):
+    """The (workspace, tab) the visible window shows when its tab matches: the window's selected
+    workspace holds it, its pane's selected tab is it, and its id is no longer `pending_`."""
+    topo = topology(socket_path)
+    window = next((w for w in topo.get("windows") or [] if w.get("visible") is True), None) or {}
+    for workspace, pane, tab in placed_tabs(topo):
+        if (matches(tab) and workspace == window.get("workspace") and pane.get("selected_tab") == tab.get("id")
+                and not str(tab.get("id", "")).startswith("pending_")):
+            return {"workspace": workspace, "pane": pane.get("id"), "tab": tab.get("id"), "kind": tab.get("kind")}
+    return None
+
+
+def where(socket_path):
+    """What the window shows now, for a failure message and drive.json."""
+    topo = topology(socket_path)
+    window = next((w for w in topo.get("windows") or [] if w.get("visible") is True), None) or {}
+    return {"window_workspace": window.get("workspace"), "focus": topo.get("focus"),
+            "tabs": [{"workspace": w, "pane": p.get("id"), "selected": p.get("selected_tab") == t.get("id"),
+                      "id": t.get("id"), "kind": t.get("kind"), "agent_session": t.get("agent_session")}
+                     for w, p, t in placed_tabs(topo)]}
+
+
 def act(socket_path, action, **args):
     params = {"action": action, "focus": True}
     if args:
@@ -105,6 +147,7 @@ def main(argv=None):
             entry["reached"] = reach()
             time.sleep(args.settle)  # a fixed paint allowance, not a poll
             entry["bounds"] = capture(args.pid, os.path.join(args.out, f"{name}.png"))
+            entry["shows"] = where(args.socket)
             entry["ok"] = True
             print(f"ok: {name} captured {entry['bounds']}")
         except (Failed, OSError, ValueError, subprocess.TimeoutExpired) as error:
@@ -120,25 +163,51 @@ def main(argv=None):
     if not window:
         print(f"FAIL: no visible window within {args.timeout:.0f}s", file=sys.stderr)
     else:
-        scene("home", lambda: act(args.socket, "home.show"))
-
-        def new_chat():
-            before = canary.tabs(canary.snapshot(args.socket))
-            run = act(args.socket, "palette.newAgentChat")
-            if not canary.wait(lambda: set(canary.tabs(canary.snapshot(args.socket))) - set(before), 20):
-                raise Failed("palette.newAgentChat ran but no new tab is in snapshot.get")
+        def home():
+            run = act(args.socket, "home.show")
+            log["home_workspace"] = (canary.visible_window(args.socket) or {}).get("workspace")
             return run
-        scene("composer", new_chat)
+        scene("home", home)
 
         def transcript():
             session = canary.agent_turn(args.acpmux_home, args.harness, args.cwd, args.timeout)
             run = act(args.socket, "agent.openSessionWorkspace", session=session)
-            shown = canary.wait(lambda: next((t for t in canary.tabs(canary.snapshot(args.socket)).values()
-                                              if t.get("agent_session") == session), None), 30)
-            if not shown:
-                raise Failed(f"agent.openSessionWorkspace ran but no tab shows session {session}")
-            return {"session": session, "run": run, "tab": shown.get("id")}
+            workspace = next((c for c in run.get("created") or [] if str(c).startswith("ws_")), None)
+
+            def placed():
+                return next((t for w, _, t in placed_tabs(topology(args.socket))
+                             if t.get("agent_session") == session and not str(t.get("id", "")).startswith("pending_")
+                             and (workspace is None or w == workspace)), None)
+            tab = canary.wait(placed, 30)
+            if not tab:
+                raise Failed(f"agent.openSessionWorkspace ran but no settled tab shows session {session}: "
+                             f"{json.dumps(where(args.socket))[:600]}")
+            # openSessionWorkspace selects the tab in its pane but switches no workspace: show it.
+            focus = Client(args.socket, timeout=60).call("tab.focus", {"tab": tab["id"], "focus": True})
+            if "error" in focus:
+                raise Failed(f"tab.focus {tab['id']}: {json.dumps(focus['error'])[:400]}")
+            shown = canary.wait(lambda: shown_tab(args.socket, lambda t: t.get("id") == tab["id"]), 20)
+            if not shown or shown["workspace"] == log.get("home_workspace"):
+                raise Failed(f"the window does not show session {session}'s tab {tab['id']} in its own workspace: "
+                             f"{json.dumps(where(args.socket))[:600]}")
+            return {"session": session, "run": run, **shown}
         scene("transcript", transcript)
+
+        def new_chat():
+            before = set(canary.tabs(canary.snapshot(args.socket)))
+            run = act(args.socket, "palette.newAgentChat")
+            shown = canary.wait(lambda: shown_tab(args.socket, lambda t: t.get("id") not in before), 20)
+            if not shown:
+                raise Failed(f"palette.newAgentChat ran but the window shows no new settled tab: "
+                             f"{json.dumps(where(args.socket))[:600]}")
+            if shown["workspace"] == log.get("home_workspace"):
+                raise Failed(f"palette.newAgentChat opened its chat in Home ({shown['workspace']}), beside the Chief column")
+            return {"run": run, **shown}
+        if log["scenes"].get("transcript", {}).get("ok"):
+            scene("composer", new_chat)
+        else:
+            log["scenes"]["composer"] = {"ok": False, "error": "needs the transcript scene's workspace"}
+            print("FAIL: composer: needs the transcript scene's workspace", file=sys.stderr)
 
     ok = bool(window) and all(s.get("ok") for s in log["scenes"].values())
     if not ok:

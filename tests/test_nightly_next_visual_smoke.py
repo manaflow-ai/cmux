@@ -92,6 +92,36 @@ def window(width=620, height=400, sidebar=True, main=True, composer=True, seed=0
     return c
 
 
+def scene_window(name, seed=0):
+    """A mock of each shipped scene at the real window's layout (scenes.json boxes): Home's
+    sidebar, Chief column with its composer and New Tab; a new chat (its composer, the
+    Inspector at the right); a chat with a prompt bubble, a reply and its composer."""
+    c = Canvas(620, 400)
+    c.rect((0, 0, 0.2, 1), PANEL)
+    c.text((0.01, 0.08, 0.19, 0.6), seed)
+
+    def composer(box):
+        c.rect(box, 200)
+        c.rect((box[0] + 0.005, box[1] + 0.01, box[2] - 0.005, box[3] - 0.01), WHITE)
+        c.text((box[0] + 0.01, box[1], box[0] + 0.2, box[3]), seed)
+    if name == "home":
+        c.text((0.34, 0.12, 0.59, 0.85), seed)  # the Chief chat
+        composer((0.34, 0.935, 0.59, 0.995))
+        composer((0.62, 0.15, 0.98, 0.3))  # New Tab's Ask anything
+    else:
+        c.rect((0.68, 0.06, 1, 1), PANEL)  # the chat's Inspector
+        c.text((0.69, 0.08, 0.99, 0.2), seed)
+        if name == "composer":
+            c.text((0.25, 0.6, 0.6, 0.66), seed)  # the new chat's folder line
+            composer((0.24, 0.68, 0.64, 0.85))
+        else:
+            c.rect((0.4, 0.1, 0.65, 0.2), 160)  # the prompt bubble, right-aligned
+            c.text((0.41, 0.11, 0.64, 0.19), seed)
+            c.text((0.23, 0.26, 0.64, 0.5), seed)  # the reply
+            composer((0.24, 0.82, 0.64, 0.95))
+    return c
+
+
 TINY_SCENES = {
     "defaults": {"min_size": [100, 60], "min_edge": 0.008, "max_dark": 0.9, "max_flat": 0.99,
                  "min_region_edge": 0.004, "min_ssim": 0.75},
@@ -200,12 +230,53 @@ class ShippedScenes(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             shots = Path(tmp)
             for name in config["scenes"]:
-                window(620, 400).save(shots / f"{name}.png")
+                scene_window(name).save(shots / f"{name}.png")
             report = vc.run(SMOKE / "scenes.json", shots, None, None)
             self.assertTrue(report["ok"], json.dumps(report, indent=1))
             Canvas(620, 400).save(shots / "transcript.png")
             report = vc.run(SMOKE / "scenes.json", shots, None, None)
             self.assertEqual([r["ok"] for r in report["scenes"]], [True, True, False])
+
+    def test_a_scene_that_repeats_another_fails(self):
+        # The driver never reached the transcript (its workspace was not selected), so the
+        # capture is the composer scene again: every region is drawn, but it must still fail.
+        config = json.loads((SMOKE / "scenes.json").read_text())
+        with tempfile.TemporaryDirectory() as tmp:
+            shots = Path(tmp)
+            for name in config["scenes"]:
+                scene_window(name).save(shots / f"{name}.png")
+            scene_window("composer", seed=3).save(shots / "transcript.png")
+            report = vc.run(SMOKE / "scenes.json", shots, None, None)
+            transcript = report["scenes"][2]
+            self.assertFalse(transcript["ok"], transcript)
+            self.assertTrue(any("looks the same as the composer scene" in f for f in transcript["failures"]),
+                            transcript["failures"])
+            self.assertEqual([r["ok"] for r in report["scenes"][:2]], [True, True])
+
+    def test_an_empty_chat_beside_a_drawn_inspector_fails(self):
+        # The boxes cover the pane under test only: the Inspector's (or a Chief column's)
+        # content beside an empty chat must not pass it.
+        config = json.loads((SMOKE / "scenes.json").read_text())
+        with tempfile.TemporaryDirectory() as tmp:
+            shots = Path(tmp)
+            for name in config["scenes"]:
+                scene_window(name).save(shots / f"{name}.png")
+            empty = Canvas(620, 400)
+            empty.rect((0, 0, 0.2, 1), PANEL)
+            empty.text((0.01, 0.08, 0.19, 0.6))
+            empty.rect((0.68, 0.06, 1, 1), PANEL)
+            empty.text((0.69, 0.08, 0.99, 0.9))
+            empty.save(shots / "transcript.png")
+            transcript = vc.run(SMOKE / "scenes.json", shots, None, None)["scenes"][2]
+            self.assertFalse(transcript["ok"], transcript)
+            self.assertTrue(any(f.startswith("messages is empty") for f in transcript["failures"]), transcript["failures"])
+            self.assertTrue(any(f.startswith("composer is empty") for f in transcript["failures"]), transcript["failures"])
+
+    def test_every_scene_must_differ_from_the_ones_before_it(self):
+        config = json.loads((SMOKE / "scenes.json").read_text())
+        names = list(config["scenes"])
+        for index, name in enumerate(names[1:], 1):
+            self.assertEqual(set(config["scenes"][name].get("distinct_from", [])), set(names[:index]), name)
 
 
 class Wiring(unittest.TestCase):
