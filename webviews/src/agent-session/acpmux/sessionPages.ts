@@ -13,15 +13,18 @@ const MAX_PAGES = 5000;
 type Request = (method: string, params: Record<string, unknown>) => Promise<any>;
 type Summary = { sessionId: string } & Record<string, any>;
 
-/** A page, and (a first page) the list it starts: its later pages end when a newer list starts. */
-export type SessionPage<S extends Summary> = { sessions: S[]; next?: string; run?: number };
+/** A page, and (a first page) the list it starts: its later pages end when a newer list starts.
+ * `tab`: a chat on another machine's wire names the session that machine's daemon attached as the
+ * tab's own (RemoteAcpmuxWire `tabSessionId`). */
+export type SessionPage<S extends Summary> = { sessions: S[]; next?: string; run?: number; tab?: string };
 
 function pageOf<S extends Summary>(reply: any): SessionPage<S> {
   const sessions = (Array.isArray(reply?.sessions) ? reply.sessions : []).filter(
     (session: any): session is S => typeof session?.sessionId === "string" && session.sessionId !== "",
   );
   const next = typeof reply?.nextCursor === "string" && sessions.length > 0 ? reply.nextCursor : undefined;
-  return { sessions, ...(next ? { next } : {}) };
+  const tab = typeof reply?.tabSessionId === "string" && reply.tabSessionId ? reply.tabSessionId : undefined;
+  return { sessions, ...(next ? { next } : {}), ...(tab ? { tab } : {}) };
 }
 
 /**

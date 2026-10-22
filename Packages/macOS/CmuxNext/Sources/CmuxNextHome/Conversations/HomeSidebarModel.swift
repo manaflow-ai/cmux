@@ -68,6 +68,11 @@ public struct HomeSidebarModel: Hashable, Sendable {
     /// The quiet line under the list (Cloud conversations not reachable), or nil.
     public var note: String? { HomeConversationStrings.cloudNote(cloudState) }
 
+    /// The conversations the list draws an unread dot on (unread messages or Mark as Unread),
+    /// pinned tiles first, without muted ones: what Home's unread indicator outside the list
+    /// (the sidebar's Home item, a Home tab, the Dock) counts. Read it from an unfiltered model.
+    public var unreadConversations: [ConversationID] { (pinned + rows).filter { $0.unread && !$0.isMuted }.map(\.id) }
+
     /// `unreadMarks`: conversations the user marked unread (Mark as Unread), shown unread until read.
     /// `chiefHarnesses`: each Chief's engine by participant id, for the rows' badges.
     /// `chiefAvatars`: each Chief's own avatar by participant id; a Chief not in it draws

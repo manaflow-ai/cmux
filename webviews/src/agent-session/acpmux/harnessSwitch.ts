@@ -790,6 +790,7 @@ export function applySwitch(
     handoff: undefined,
     commands: [],
     missingSession: undefined,
+    unavailable: undefined,
     missingReason: undefined,
   };
 }

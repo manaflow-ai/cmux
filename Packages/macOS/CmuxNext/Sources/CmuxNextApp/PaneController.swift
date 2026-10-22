@@ -208,6 +208,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
             item.title = page.title
             item.icon = page.icon
         }
+        // A Home tab dots while any Home conversation is unread, as the sidebar's Home item counts them.
+        if HomeService.isHomeTab(page: tab.page, app: tab.appTab?.app), !services.home.unreadConversations.isEmpty { item.isUnread = true }
         item.groupID = tab.tabGroup.map { TabGroupID($0.rawValue) }
         if !DesignSettings.shared.attention.showsOnTab { item.isUnread = false }
         item.isDormant = services.cache.dormantTabs.contains(tab.id)

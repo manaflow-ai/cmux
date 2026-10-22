@@ -85,8 +85,8 @@ extension NotificationCenterService {
 
     /// The badge count now: the store's unread tabs and Home's unread conversations.
     func currentUnreadCount() -> Int {
-        let rows = services?.home.homeStore.rows ?? []
-        return Self.unreadCount(services?.daemon.store, homeUnread: rows.filter { $0.unread > 0 }.map(\.id.rawValue))
+        let home = services?.home.unreadConversations ?? []
+        return Self.unreadCount(services?.daemon.store, homeUnread: home.map(\.rawValue))
     }
 
     /// Sets the Dock tile's unread count. Compares with the label it set

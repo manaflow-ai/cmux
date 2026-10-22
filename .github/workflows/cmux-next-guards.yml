@@ -343,6 +343,44 @@ jobs:
           fi
           python3 scripts/localization_catalog.py check "${args[@]}"
 
+  # No new committed generated files (Leo, 2026-10-21: "don't commit generatable stuff"): committed
+  # outputs conflict on every base move. scripts/ci/generated_files_guard.py reads its rules
+  # (scripts/ci/generated-files.json and its baseline) from the base, so a change cannot loosen them for
+  # itself; a generated file the base already tracks uncovered is a note, not this change's red.
+  generated-files:
+    name: cmux-next no new generated files
+    # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # A pull request's merge commit and its first parent (the base).
+          fetch-depth: 2
+
+      - name: The guard's own tests
+        run: python3 tests/test_generated_files_guard.py
+
+      - name: No new committed generated file against the base
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          base_ref=""
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            base_ref="$(git rev-parse HEAD^1)"
+          elif [[ "$BEFORE" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ ]] \
+            && git fetch --no-tags --depth=1 origin "$BEFORE"; then
+            base_ref="$BEFORE"
+          fi
+          if [[ -z "$base_ref" ]]; then
+            echo "::warning::no previous tip to compare with; nothing to check"
+            exit 0
+          fi
+          python3 scripts/ci/generated_files_guard.py check --repo . --base "$base_ref" --head HEAD
+
   # A red size cap, crash ratchet or page strings on a pull request into feat-cmux-next gets the same "red: <check>" comment as a
   # red web check (chief 2026-10-12): ci.yml calls this workflow after `web`; both callers update
   # one comment, recomputed from all check runs of the head commit.

@@ -109,6 +109,7 @@ import type { KeptAttachments } from "./composer/keptAttachments";
 import { ComposerPickers, PICKER_LABELS, type ComposerPermissionAccess } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
 import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
+import { ChatUnavailableState } from "./ChatUnavailableState";
 import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
 import { byRecentUse, parseProjectRepos, projectRows } from "./projectRepos";
@@ -360,7 +361,6 @@ import { FolderChoice, showsFolderChoice } from "./FolderChoice";
 import { type FolderAsk, StartFolderAsk, WorktreeFailure, confirmFolder, newWorktree, pickFolder } from "./startFolder";
 import { MissingFolder, chooseChatFolder } from "./missingFolder";
 import { LiveChatChoice } from "./LiveChatChoice";
-import { MissingChat } from "./MissingChat";
 import { WatchBanner } from "./WatchBanner";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
@@ -8075,14 +8075,6 @@ function AcpmuxPane() {
                 {!inspector.on && !summaryCard.column && summaryPanel}
                 {!diffView && checkpoints.review}
                 {/* The lines under the header drop in from the top (ui/popupSurface.css `data-enter`). */}
-                {snapshot.missingSession && (
-                  <MissingChat
-                    session={snapshot.missingSession}
-                    {...(machineName ? { machine: machineName } : {})}
-                    onResume={showAllChats}
-                    onClose={() => void callNative("pane.action", { id: "closeTab" }).catch(() => undefined)}
-                  />
-                )}
                 {snapshot.liveChat && (
                   <LiveChatChoice
                     {...snapshot.liveChat}
@@ -8120,6 +8112,15 @@ function AcpmuxPane() {
                     onReload={() =>
                       ignoreFailure(callNative("chat.handoff.get").then(() => setReviewReload((value) => value + 1)))
                     }
+                  />
+                ) : snapshot.unavailable ? (
+                  // The tab's chat is not here: which case it is, centered where the chat would be.
+                  <ChatUnavailableState
+                    unavailable={snapshot.unavailable}
+                    {...(machineName ? { machine: machineName } : {})}
+                    onRemove={() => runHeaderAction(HEADER_ACTIONS.close)}
+                    onReconnect={() => void directClient.current?.recheckMissing()}
+                    onResume={showAllChats}
                   />
                 ) : freshView && pastTurns && (!pastWaitsForTrust || trustAsk.ask) ? (
                   <PastChat turns={pastTurns} {...(githubRepository ? { githubRepository } : {})} />
