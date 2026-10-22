@@ -48,6 +48,10 @@ afterAll(() => {
 
 type Call = { method: string; params: Record<string, unknown> };
 
+/// The last test's teardown: a failed test never reaches its `done()`, and its chip must not stay
+/// on the page for the next one.
+let leftover: (() => Promise<void>) | undefined;
+
 async function renderChip(
   path: string,
   seed: Parameters<typeof import("../src/agent-session/acpmux/chips/linkStore").seedLinkStore>[0],
@@ -59,9 +63,12 @@ async function renderChip(
   const { PathChip } = await import("../src/agent-session/acpmux/chips/LinkChips");
   const { seedLinkStore, resetLinkStore } = await import("../src/agent-session/acpmux/chips/linkStore");
   const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
-  const rootElement = dom.window.document.getElementById("root")!;
+  await leftover?.();
+  const rootElement = dom.window.document.createElement("div");
+  dom.window.document.body.append(rootElement);
   const root = createRoot(rootElement);
   const calls: Call[] = [];
+  let unmounted = false;
   resetLinkStore();
   seedLinkStore(seed);
   setChipHost(async (method, params) => {
@@ -77,6 +84,14 @@ async function renderChip(
       </UiProvider>,
     );
   });
+  const teardown = async () => {
+    if (!unmounted) await act(async () => root.unmount());
+    unmounted = true;
+    rootElement.remove();
+    setChipHost(undefined);
+    leftover = undefined;
+  };
+  leftover = teardown;
   const chip = rootElement.querySelector<HTMLButtonElement>("button.cv-chip.is-path")!;
   return {
     act,
@@ -93,10 +108,11 @@ async function renderChip(
         });
       }
     },
-    done: async () => {
-      await act(async () => root.unmount());
-      setChipHost(undefined);
+    unmount: () => {
+      if (!unmounted) root.unmount();
+      unmounted = true;
     },
+    done: teardown,
   };
 }
 
@@ -161,27 +177,54 @@ test("a folder's card has its name and Open, and only asks whether the chat is o
   await view.done();
 });
 
-test("an image the host refuses keeps the plain file card: name, path and Open, no empty thumbnail", async () => {
+test("a host without link.preview keeps the plain file card and never asks for a thumbnail", async () => {
   const path = "/tmp/cmux-shots/before.png";
   const view = await renderChip(
     path,
     { paths: { [path]: { place: "outside", folder: false } }, policy: { outsideRoots: "open" } },
-    // The base host refuses an image outside the folders (until #23879); link.preview has no text.
-    () => undefined,
+    // A host that doesn't know link.preview refuses it; it would still draw the image if asked.
+    ({ method }) =>
+      method === "link.preview"
+        ? Promise.reject(
+            Object.assign(new Error("Unsupported agent pane request: link.preview"), { code: "unsupported" }),
+          )
+        : method === "image.load"
+          ? { src: PNG }
+          : undefined,
   );
   await view.act(async () => view.chip.focus());
   await view.until(() => view.card()?.querySelector(".cv-link-preview__open"));
   const card = view.card()!;
   expect(card.textContent).toContain("before.png");
   expect(card.textContent).toContain(path);
-  expect(card.querySelector("img")).toBeNull();
-  expect(card.querySelector("pre")).toBeNull();
-  expect(card.querySelector(".cv-path-preview__note")).toBeNull();
-  expect(card.querySelector(".cv-link-preview__open")).not.toBeNull();
-  expect(view.calls).toEqual([
-    { method: "link.preview", params: { path } },
-    { method: "image.load", params: { src: path } },
-  ]);
+  expect(card.querySelector("img, pre, .cv-path-preview__note")).toBeNull();
+  expect(view.calls).toEqual([{ method: "link.preview", params: { path } }]);
+  await view.done();
+});
+
+test("an image the host won't read as text still shows its thumbnail", async () => {
+  const path = "/Users/you/src/atlas-web/shots/after.png";
+  const refusal = Object.assign(new Error("not text"), { code: "link.path_invalid" });
+  const view = await renderChip(path, { paths: { [path]: { place: "root", folder: false } } }, ({ method }) =>
+    method === "link.preview" ? Promise.reject(refusal) : method === "image.load" ? { src: PNG } : undefined,
+  );
+  await view.act(async () => view.chip.focus());
+  await view.until(() => view.card()?.querySelector("img"));
+  expect(view.card()!.querySelector("img")?.getAttribute("src")).toBe(PNG);
+  await view.done();
+});
+
+test("an image the host refuses to draw keeps the plain file card, never an empty thumbnail", async () => {
+  const path = "/tmp/cmux-shots/before.png";
+  const view = await renderChip(path, { paths: { [path]: { place: "outside", folder: false } } }, ({ method }) =>
+    method === "image.load"
+      ? Promise.reject(Object.assign(new Error("outside"), { code: "link.path_outside_roots" }))
+      : {},
+  );
+  await view.act(async () => view.chip.focus());
+  await view.until(() => view.card()?.querySelector(".cv-link-preview__open"));
+  expect(view.card()!.querySelector("img, pre")).toBeNull();
+  expect(view.calls.map((call) => call.method)).toEqual(["link.preview", "image.load"]);
   await view.done();
 });
 
@@ -281,4 +324,77 @@ test("Open waits for the host's answer, so a remote card never flashes it", asyn
   await view.until(() => view.card()?.querySelector(".cv-link-preview__open"));
   expect(view.card()!.querySelector(".cv-link-preview__open")).not.toBeNull();
   await view.done();
+});
+
+/// A host answer the test settles by hand.
+function pending() {
+  let settle: (value: unknown) => void = () => {};
+  const promise = new Promise((resolve) => (settle = resolve));
+  return { promise, settle };
+}
+
+test("a card opened again shows nothing from the last hover until this hover's answer arrives", async () => {
+  const path = "/Users/you/shots/after.png";
+  let next: ReturnType<typeof pending> | undefined;
+  const view = await renderChip(path, { paths: { [path]: { place: "root", folder: false } } }, ({ method }) =>
+    method === "link.preview" ? (next ? next.promise : {}) : method === "image.load" ? { src: PNG } : undefined,
+  );
+  await view.act(async () => view.chip.focus());
+  await view.until(() => view.card()?.querySelector("img"));
+  await view.act(async () => view.chip.blur());
+  await view.until(() => !view.card());
+  // The chat turned remote in between: this hover's answer is still out.
+  next = pending();
+  await view.act(async () => view.chip.focus());
+  await view.until(() => view.calls.filter((call) => call.method === "link.preview").length === 2);
+  expect(view.card()!.querySelector("img, pre, .cv-link-preview__open")).toBeNull();
+  await view.act(async () => next!.settle({ remote: true }));
+  await view.until(() => view.card()?.querySelector(".cv-path-preview__note"));
+  expect(view.card()!.querySelector("img, .cv-link-preview__open")).toBeNull();
+  await view.done();
+});
+
+test("a host that never answers falls back to the plain file card", async () => {
+  const { setPathPreviewTimeout } = await import("../src/agent-session/acpmux/chips/PathHoverCard");
+  setPathPreviewTimeout(1);
+  const path = "/Users/you/shots/after.png";
+  const view = await renderChip(path, { paths: { [path]: { place: "root", folder: false } } }, ({ method }) =>
+    method === "link.preview" ? pending().promise : method === "image.load" ? { src: PNG } : undefined,
+  );
+  try {
+    await view.act(async () => view.chip.focus());
+    await view.until(() => view.card()?.querySelector(".cv-link-preview__open"));
+    expect(view.card()!.querySelector(".cv-link-preview__open")).not.toBeNull();
+    expect(view.card()!.querySelector("img, pre")).toBeNull();
+    expect(view.calls.map((call) => call.method)).toEqual(["link.preview"]);
+  } finally {
+    setPathPreviewTimeout(undefined);
+    await view.done();
+  }
+});
+
+test("hovering out or unmounting while the host is asked sends nothing more", async () => {
+  const path = "/Users/you/shots/after.png";
+  for (const leave of ["hover-out", "unmount"] as const) {
+    const answer = pending();
+    const view = await renderChip(path, { paths: { [path]: { place: "root", folder: false } } }, ({ method }) =>
+      method === "link.preview" ? answer.promise : method === "image.load" ? { src: PNG } : undefined,
+    );
+    await view.act(async () => view.chip.focus());
+    await view.until(() => view.calls.some((call) => call.method === "link.preview"));
+    if (leave === "hover-out") {
+      await view.act(async () => view.chip.blur());
+      await view.until(() => !view.card());
+    } else {
+      await view.act(async () => view.unmount());
+    }
+    // The late answer arrives, and its follow-ups (an image's thumbnail) would go out now.
+    await view.act(async () => {
+      answer.settle({});
+      await answer.promise;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(view.calls.map((call) => call.method)).toEqual(["link.preview"]);
+    await view.done();
+  }
 });
