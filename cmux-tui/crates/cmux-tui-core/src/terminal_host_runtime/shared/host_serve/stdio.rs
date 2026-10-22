@@ -42,9 +42,7 @@ pub fn serve_terminal_host_stdio(
     #[cfg(unix)]
     let (prepared, first) = if first.kind == MessageKind::Prepare {
         // A failed prepare only costs the head start: the Launch runs cold.
-        let prepared = super::super::codec::HostLaunch::decode(&first.payload)
-            .and_then(super::super::super::PreparedShell::start)
-            .ok();
+        let prepared = HostLaunch::decode(&first.payload).and_then(PreparedShell::start).ok();
         let bootstrap = read_frame(reader, adopt_launch::max_payload(adopt_fd))?
             .ok_or_else(|| anyhow::anyhow!("missing bootstrap frame"))?;
         (prepared, bootstrap)

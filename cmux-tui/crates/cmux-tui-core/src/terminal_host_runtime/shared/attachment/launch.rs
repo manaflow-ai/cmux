@@ -127,7 +127,7 @@ pub(crate) fn launch_terminal_host_from(
     terminal_id: TerminalId,
     standby: Option<StandbyTerminalHost>,
     workspace_key: &str,
-) -> anyhow::Result<HostAttachment> {
+) -> anyhow::Result<(HostAttachment, HostLaunch)> {
     let presentation = (default_colors, cell_pixels, kitty_graphics_limits);
     launch_terminal_host_seeded_in(
         options,

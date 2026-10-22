@@ -107,7 +107,7 @@ fn a_launch_that_finds_no_free_pty_drops_the_spares_until_one_succeeds() {
     std::thread::sleep(Duration::from_millis(100));
     assert!(!slot.has_spare(), "no spare while PTYs run out");
     let key: PrepareKey = (Some("/tmp".into()), None);
-    slot.prepare_for(key, crate::terminal_host_runtime::HostLaunch::stand_in_for_tests());
+    slot.prepare_for(key, HostLaunch::stand_in_for_tests());
     slot.refill(&pool);
     assert!(wait_for_spares(&slot, SPARES), "a successful launch makes spares worth keeping again");
 }
@@ -117,11 +117,11 @@ fn spares_prepared_for_another_launch_are_dropped() {
     let (slot, pool) = (slot(), TerminalWorkPool::default());
     let _ = slot.take(None);
     let here: PrepareKey = (Some("/tmp/here".into()), None);
-    slot.prepare_for(here.clone(), crate::terminal_host_runtime::HostLaunch::stand_in_for_tests());
+    slot.prepare_for(here.clone(), HostLaunch::stand_in_for_tests());
     slot.refill(&pool);
     assert!(wait_for_spares(&slot, SPARES));
     let elsewhere: PrepareKey = (Some("/tmp/elsewhere".into()), None);
-    slot.prepare_for(elsewhere, crate::terminal_host_runtime::HostLaunch::stand_in_for_tests());
+    slot.prepare_for(elsewhere, HostLaunch::stand_in_for_tests());
     assert!(!slot.has_spare(), "spares prepared for another launch are dropped");
 }
 

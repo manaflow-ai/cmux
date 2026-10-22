@@ -257,7 +257,7 @@ impl Drop for PreparedShell {
         drop(self.master.take());
         if let Some(mut child) = self.child.take() {
             let _ = child.kill();
-            let _ = std::thread::Builder::new().name("terminal-host-prepared-reap".into()).spawn(
+            let _ = thread::Builder::new().name("terminal-host-prepared-reap".into()).spawn(
                 move || {
                     let _ = child.wait();
                 },
@@ -321,9 +321,10 @@ fn run_shell_handoff(args: &[String]) -> anyhow::Result<()> {
             Ok(())
         }
         Some("--exec") => {
-            let argv = args.iter().skip(1).skip_while(|arg| *arg == "--").collect::<Vec<_>>();
+            let argv =
+                args.iter().skip(1).skip_while(|arg| arg.as_str() == "--").collect::<Vec<_>>();
             let (program, rest) = argv.split_first().context("no shell to exec")?;
-            let mut command = std::process::Command::new(program);
+            let mut command = Command::new(program);
             command.args(rest.iter().map(|arg| arg.as_str()));
             for (key, value) in &handoff.set {
                 command.env(key, value);
