@@ -81,6 +81,15 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
         return copy
     }
 
+    /// A copy that checks through `other`'s batch when both guard the same home, so one answer's
+    /// walks share their lookups; otherwise a batch of its own.
+    func batched(sharing other: AgentPaneProjectIcon) -> AgentPaneProjectIcon {
+        guard validator.home == other.validator.home else { return batched() }
+        var copy = self
+        copy.validator = other.validator
+        return copy
+    }
+
     /// True when `path` may be looked at: refused neither by its spelling nor by what it reaches.
     func allows(_ path: String) -> Bool {
         validator.refusal(path) == nil && !validator.reachesProtectedFolder(path)
@@ -198,7 +207,7 @@ actor AgentPaneProjectIcons {
     /// icon. Both nil keep the page's letters.
     func answer(for folder: String) async -> (src: String?, glyph: String?) {
         let reader = self.reader.batched()
-        let repos = self.repos.batched()
+        let repos = self.repos.batched(sharing: reader)
         let repo = reader.allows(folder) ? repos.repo(for: folder) : nil
         let root = repo.map(\.root).flatMap { $0 == folder ? nil : $0 }
         let glyph = reader.glyph(in: folder) ?? root.flatMap(reader.glyph(in:))

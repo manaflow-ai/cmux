@@ -55,7 +55,8 @@ public nonisolated struct ChatRootValidator: Sendable {
     /// The project pickers checked each of 40 folders' Git files this way, each check walking every
     /// folder from `/` twice, which held three cores for seconds on a loaded Mac (2026-10-21). Answers
     /// are the same as the validator's while the disk does not change; keep a batch only for one
-    /// answer, never across them.
+    /// answer, never across them. A folder swapped for a link during the answer is seen at its
+    /// first check: the same window an unbatched check has between checking a path and reading it.
     public func batch() -> ChatRootValidator {
         let lookups = BatchLookups()
         let readLink = readLink
@@ -89,23 +90,30 @@ public nonisolated struct ChatRootValidator: Sendable {
         let inode: UInt64
     }
 
-    /// The links and identities one ``batch()`` read, by path.
+    /// The links and identities one ``batch()`` read, by path. A lookup holds the lock while it
+    /// reads, so threads sharing a batch never read the same path twice. Past `limit` paths a
+    /// lookup reads without remembering, so a batch over a huge folder stays bounded.
     private final class BatchLookups: Sendable {
+        static let limit = 4096
         private let links = Mutex<[String: String?]>([:])
         private let identities = Mutex<[String: Identity?]>([:])
 
         func link(_ path: String, _ read: (String) -> String?) -> String? {
-            if let known = links.withLock({ $0[path] }) { return known }
-            let found = read(path)
-            links.withLock { $0[path] = found }
-            return found
+            links.withLock { known in
+                if let found = known[path] { return found }
+                let found = read(path)
+                if known.count < Self.limit { known[path] = found }
+                return found
+            }
         }
 
         func identity(_ path: String, _ read: (String) -> Identity?) -> Identity? {
-            if let known = identities.withLock({ $0[path] }) { return known }
-            let found = read(path)
-            identities.withLock { $0[path] = found }
-            return found
+            identities.withLock { known in
+                if let found = known[path] { return found }
+                let found = read(path)
+                if known.count < Self.limit { known[path] = found }
+                return found
+            }
         }
     }
 

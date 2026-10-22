@@ -68,6 +68,13 @@ nonisolated struct AgentPaneProjectRepoReader: Sendable {
         return copy
     }
 
+    /// A copy that checks through `icon`'s batch (``AgentPaneProjectIcon/batched(sharing:)``).
+    func batched(sharing icon: AgentPaneProjectIcon) -> AgentPaneProjectRepoReader {
+        var copy = self
+        copy.icon = self.icon.batched(sharing: icon)
+        return copy
+    }
+
     /// The `project.list` reply's `repos`, read off the main actor.
     static func replies(for folders: [String], reader: AgentPaneProjectRepoReader = .shared) async -> [String: Any] {
         await Task.detached(priority: .utility) {
