@@ -89,7 +89,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 
     func setVisible(_ visible: Bool) { tab.setContentVisible(visible) }
 
-    func setSeeThrough(_ seeThrough: Bool) {}
+    func setSeeThrough(_ seeThrough: Bool) { tab.pageSeeThrough = seeThrough }
 
     func close() {
         guard !closed else { return }
