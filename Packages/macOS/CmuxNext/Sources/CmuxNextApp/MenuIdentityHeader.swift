@@ -9,7 +9,8 @@ import CmuxNextDesign
 ///
 /// The field renames when Return is pressed or the menu closes with a changed name (Chrome keeps
 /// what you typed too), through the rename action with a `name` argument. A swatch runs its color
-/// choice as the color row did.
+/// choice as the color row did; a color row that can remove the color (the workspace's) leads with
+/// a no-color swatch (u9783).
 @MainActor
 enum MenuIdentityHeader {
     /// Puts the header at the top of `menu`. `rename` is the menu's rename action: given a `name`, its
@@ -27,6 +28,8 @@ enum MenuIdentityHeader {
         }
         guard renameIndex != nil || colorIndex != nil else { return }
         let choices = colorIndex.map { menu.items[$0].submenu?.items.filter { color(of: $0) != nil } ?? [] } ?? []
+        // The color row's Remove Color (u9783): the strip's first swatch, ringed while there is no color.
+        let clear = colorIndex.flatMap { menu.items[$0].submenu?.items.first { ActionRegistry.menuRun(of: $0).map { clearingColor.contains($0.id) } == true } }
         let colorTitle = colorIndex.map { menu.items[$0].title }
         for index in [renameIndex, colorIndex].compactMap({ $0 }).sorted(by: >) { menu.removeItem(at: index) }
         while menu.items.first?.isSeparatorItem == true { menu.removeItem(at: 0) }
@@ -39,13 +42,17 @@ enum MenuIdentityHeader {
         }
         // The group menu names its color (none for a custom `#RRGGBB` one); the workspace rows carry it as their state.
         let ringed = rename == "workspaceGroup.rename" ? current : choices.first { $0.state == .on }.flatMap(color(of:))
-        let strip = choices.isEmpty ? nil : MenuSwatchStrip(title: colorTitle ?? "", choices: choices, colors: choices.map(color(of:)), current: ringed)
+        let strip = choices.isEmpty ? nil : MenuSwatchStrip(title: colorTitle ?? "", choices: choices, colors: choices.map(color(of:)), current: ringed,
+                                                            clear: clear, isCleared: clear?.state == .on)
         let header = NSMenuItem()
         header.view = MenuIdentityHeaderView(field: field, strip: strip)
         if let colorTitle { header.setAccessibilityLabel(colorTitle) }
         menu.insertItem(header, at: 0)
         if menu.items.count > 1 { menu.insertItem(.separator(), at: 1) }
     }
+
+    /// The rows that take a color away (the workspace color row's Remove Color).
+    private static let clearingColor: Set<ActionID> = ["palette.resetWorkspaceColor"]
 
     /// The group color a menu row sets: a choices row's `color` argument (Set Workspace Color) or a
     /// group's per-color action (`workspaceGroup.color.<color>`).

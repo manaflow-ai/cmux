@@ -38,6 +38,10 @@ warnings only.
                  host-independent, blocks; the window's own later rows pass is not timed), and commits
                  in the first frame after it is drawn (late_vsyncs 0; a frame check). Press to drawn over
                  one frame is a warning; the reply (the daemon's confirm) is reported.
+  context_menu   at 150 workspaces, a workspace row's right-click menu built as the right-click builds it, unshown
+                 (debug.context_menu, 20 builds; u9786 "right click workspace also feels laggy"): it draws only the
+                 rows that show when it opens, none of its submenus' (host-independent, blocks). A median build
+                 over one frame is a warning.
   status         4 background workspaces print OSC 7501 progress 4 times a second for 5 s:
                  0 applies, 0 topology sends, 0 pane snapshots, 0 sidebar list reloads (I1-I3).
 
@@ -100,7 +104,9 @@ FRAME_BUDGET_MS = 1000 / 60
 TAB_APPLY_BUDGET_MS = 4
 # New workspace rows: press to drawn (main-thread work and hops), one 60 Hz frame.
 NEW_ROW_BUDGET_MS = FRAME_BUDGET_MS
-SCENARIOS = ["workspaces", "theme", "drag", "tabs", "split", "relaunch", "new_workspaces", "status"]
+# The workspaces a right-click menu is built among (u9786: "with 150+ workspaces").
+CONTEXT_MENU_WORKSPACES = 150
+SCENARIOS = ["workspaces", "theme", "drag", "tabs", "split", "relaunch", "new_workspaces", "context_menu", "status"]
 
 ROOT = os.path.abspath(os.path.join(HERE, "../.."))
 # The source guard's rule lives in check-perf-source-guard.py, which CI and the pre-push gate run alone.
@@ -769,6 +775,33 @@ class Gate:
                   f"every new workspace row commits in the first frame after it is drawn ({len(late)} later"
                   + (f": {[(r['workspaces_before'], round(r['apply_ms'], 1), int(r['late_vsyncs'])) for r in late][:6]} "
                      "(workspaces before, apply ms, frames missed)" if late else "") + ")", scenario)
+
+    def context_menu(self, scenario="context_menu"):
+        app, want = self.app, CONTEXT_MENU_WORKSPACES
+        before = set(app.workspace_ids())
+        for i in range(max(0, want - len(before))):
+            app.cli("workspace", "create", "--name", f"menu {i}")
+        ids = wait(lambda: (lambda w: w if len(w) >= want else None)(app.workspace_ids()), 180) or app.workspace_ids()
+        try:
+            if not check(len(ids) >= want, f"{len(ids)} workspaces open (want {want})", scenario):
+                return
+            app.settle()
+            target = ids[len(ids) // 2]
+            result = app.rpc("debug.context_menu", {"workspace": target, "count": 20}, timeout=120) or {}
+            report["phases"][scenario] = {"workspaces": len(ids), **result}
+            if not check(result.get("built") == 1, f"debug.context_menu built the menu of workspace {target}", scenario):
+                return
+            drawn, shown = int(result["drawn_rows"]), int(result["shown_rows"])
+            print(f"  workspace menu at {len(ids)} workspaces: build p50 {result['p50_ms']:.2f} / max {result['max_ms']:.2f} ms "
+                  f"(first {result['first_ms']:.2f} ms), {int(result['items'])} items, {drawn} row views drawn, {shown} shown", flush=True)
+            check(drawn <= shown, f"the workspace menu draws only the rows that show when it opens ({drawn} drawn, {shown} show)", scenario)
+            if result["p50_ms"] > FRAME_BUDGET_MS:
+                warn(f"workspace menu build p50 {result['p50_ms']:.2f} ms at {len(ids)} workspaces (over {FRAME_BUDGET_MS:.1f} ms)", scenario)
+        finally:
+            # The later scenarios run with the workspaces they had before this one.
+            for workspace in [w for w in app.workspace_ids() if w not in before]:
+                app.action("closeWorkspace", {"workspace": workspace})
+            wait(lambda: len(app.workspace_ids()) <= len(before), 120)
 
     def split(self, scenario="split"):
         app = self.app
