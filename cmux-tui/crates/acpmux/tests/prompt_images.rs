@@ -456,3 +456,159 @@ async fn a_queued_prompts_pasted_blocks_are_named_while_it_waits_and_once_it_run
     assert_eq!(sent["text"], "🦀 fix\na log");
     assert_eq!(sent["pasted"], range, "{sent}");
 }
+
+/// A store that counts the records it parses for a reader (`scan`, `scan_back`, `scan_kinds`,
+/// `events`); every other call goes to the store it wraps.
+struct Counting {
+    inner: Box<dyn acpmux::store::Store>,
+    parsed: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl Counting {
+    fn count(&self) {
+        self.parsed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl acpmux::store::Store for Counting {
+    fn list(&self) -> anyhow::Result<Vec<acpmux::store::SessionMeta>> {
+        self.inner.list()
+    }
+    fn load(&self, id: &str) -> anyhow::Result<Option<acpmux::store::SessionMeta>> {
+        self.inner.load(id)
+    }
+    fn save(&self, meta: &acpmux::store::SessionMeta) -> anyhow::Result<()> {
+        self.inner.save(meta)
+    }
+    fn append(&self, id: &str, record: &acpmux::store::EventRecord) -> anyhow::Result<()> {
+        self.inner.append(id, record)
+    }
+    fn events(
+        &self,
+        id: &str,
+        after: u64,
+        limit: usize,
+    ) -> anyhow::Result<Vec<acpmux::store::EventRecord>> {
+        let events = self.inner.events(id, after, limit)?;
+        self.parsed.fetch_add(events.len(), std::sync::atomic::Ordering::SeqCst);
+        Ok(events)
+    }
+    fn scan(
+        &self,
+        id: &str,
+        after: u64,
+        visit: &mut dyn FnMut(acpmux::store::EventRecord) -> bool,
+    ) -> anyhow::Result<()> {
+        self.inner.scan(id, after, &mut |rec| {
+            self.count();
+            visit(rec)
+        })
+    }
+    fn scan_back(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(acpmux::store::EventRecord) -> bool,
+    ) -> anyhow::Result<()> {
+        self.inner.scan_back(id, after, before, skip, &mut |rec| {
+            self.count();
+            visit(rec)
+        })
+    }
+    fn tail_after(&self, id: &str, after: u64) -> anyhow::Result<(u64, u64)> {
+        self.inner.tail_after(id, after)
+    }
+    fn scan_kinds(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(acpmux::store::EventRecord) -> bool,
+    ) -> anyhow::Result<()> {
+        self.inner.scan_kinds(id, kinds, &mut |rec| {
+            self.count();
+            visit(rec)
+        })
+    }
+    fn flush(&self) -> anyhow::Result<()> {
+        self.inner.flush()
+    }
+    fn delete(&self, id: &str) -> anyhow::Result<()> {
+        self.inner.delete(id)
+    }
+    fn session_dir(&self, id: &str) -> Option<PathBuf> {
+        self.inner.session_dir(id)
+    }
+    fn handoff_dir(&self) -> Option<PathBuf> {
+        self.inner.handoff_dir()
+    }
+    fn peer_cache_dir(&self) -> Option<PathBuf> {
+        self.inner.peer_cache_dir()
+    }
+}
+
+/// Reading a sent image back costs the records that can name it, newest first, not the whole
+/// chat (Leo, 2026-10-21: a pasted image showed as an empty box; reading one image of his 701 MB
+/// coordinator chat took 16.7 s, as `_acpmux/attachment` parsed every record from the first).
+#[tokio::test]
+async fn reading_a_sent_image_back_parses_only_the_records_that_can_name_it() {
+    let dir = store("image-read-cost");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "approve-all"
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Local;
+    let parsed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counting =
+        Counting { inner: acpmux::store::open(&cfg.store, &dir).unwrap(), parsed: parsed.clone() };
+    // A long chat: an image prompt early on, then thousands of the agent's own records.
+    let session = "01a1-image-read-cost";
+    let bytes = b"image-read-cost: a pasted screenshot";
+    let id = sha256_hex(bytes);
+    let attachments = root().join("home").join("attachments");
+    std::fs::create_dir_all(&attachments).unwrap();
+    std::fs::write(attachments.join(&id), bytes).unwrap();
+    let record = |seq: u64, dir: &str, kind: &str, msg: Value| acpmux::store::EventRecord {
+        seq,
+        at: seq,
+        dir: dir.into(),
+        kind: kind.into(),
+        msg,
+        host_seq: None,
+    };
+    use acpmux::store::Store as _;
+    counting
+        .append(
+            session,
+            &record(
+                1,
+                "mux",
+                "user_message",
+                json!({"text": "look", "images": [{"id": id, "mimeType": "image/png"}]}),
+            ),
+        )
+        .unwrap();
+    for seq in 2..=4000 {
+        let update = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": session,
+            "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "words "}}}});
+        counting.append(session, &record(seq, "in", "agent_message_chunk", update)).unwrap();
+    }
+    counting
+        .append(session, &record(4001, "mux", "user_message", json!({"text": "and now?"})))
+        .unwrap();
+    counting.flush().unwrap();
+    let hub = Hub::new(cfg, Box::new(counting));
+    parsed.store(0, std::sync::atomic::Ordering::SeqCst);
+    let image = hub.prompt_image(session, &id).unwrap();
+    use base64::Engine;
+    assert_eq!(image["data"], json!(base64::engine::general_purpose::STANDARD.encode(bytes)));
+    let cost = parsed.load(std::sync::atomic::Ordering::SeqCst);
+    assert!(cost <= 2, "reading one image parsed {cost} of the chat's 4001 records");
+    // An image the chat never sent is refused without reading its log.
+    parsed.store(0, std::sync::atomic::Ordering::SeqCst);
+    assert!(hub.prompt_image(session, &sha256_hex(b"never sent")).is_err());
+    assert_eq!(parsed.load(std::sync::atomic::Ordering::SeqCst), 0);
+}
