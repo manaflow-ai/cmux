@@ -74,6 +74,20 @@ export const journalNotes: ReleaseNotes[] = [
           },
         ),
         entry(
+          "group-band-color",
+          "improved",
+          "Group labels keep their band color",
+          "A group's label stays the color of its band when you rename it, collapse it or move it to another window, so the sidebar reads the same everywhere.",
+          {
+            media: {
+              kind: "image",
+              light: groupsLight,
+              dark: groupsDark,
+              alt: { en: "Workspace groups, each label in its band's color" },
+            },
+          },
+        ),
+        entry(
           "fast-tabs",
           "improved",
           "Faster browser tab switches",
