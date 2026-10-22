@@ -216,7 +216,11 @@ public final class WindowOverlayHost {
         // AppKit places its own children (the full screen titlebar); they are never re-added.
         let children = (window.childWindows ?? []).filter { !Self.isAppKitChrome($0) }
         guard let index = children.firstIndex(where: { $0 === panel }) else { return }
-        let visible = children.enumerated().filter { $0.element.isVisible || $0.element === panel }
+        // Parked panels (alpha 0, no mouse: divider catchers with no divider)
+        // draw and take nothing, so they never start a reorder. A reorder that
+        // runs anyway moves them too, so they are above the panel when they
+        // unpark on the next workspace switch (no second reorder then).
+        let visible = children.enumerated().filter { ($0.element.isVisible && !Self.isParked($0.element)) || $0.element === panel }
         let pageAbove = visible.contains { $0.offset > index && Self.isPageWindow($0.element) }
         let panelBelow = visible.contains { $0.offset < index && !Self.isPageWindow($0.element) && $0.element.level <= panel.level }
         guard pageAbove || panelBelow else { return }
@@ -229,6 +233,11 @@ public final class WindowOverlayHost {
             window.addChildWindow(child, ordered: .above)
         }
         onPanelChange?()
+    }
+
+    /// A spare pool panel that draws nothing and takes no mouse (`ParkablePanel`).
+    public static func isParked(_ child: NSWindow) -> Bool {
+        (child as? any ParkablePanel)?.isParked == true
     }
 
     /// Whether the panel is above every visible page window of the window.
@@ -304,4 +313,13 @@ public final class WindowOverlayHost {
         placeAgentCursor()
         onPanelChange?()
     }
+}
+
+/// A child panel a pool keeps attached while it has nothing to do
+/// (`DividerMouseCatchers`): while parked it draws nothing and takes no
+/// mouse, so `WindowOverlayHost.reassertOrder` never starts a reorder for it.
+/// Only pools conform; no other panel is skipped by alpha or mouse state.
+@MainActor
+public protocol ParkablePanel: NSPanel {
+    var isParked: Bool { get }
 }
