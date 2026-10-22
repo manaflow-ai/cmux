@@ -416,3 +416,19 @@ test("Next and Previous Bookmarked Prompt scroll to the bookmarked prompts after
     await view.unmount();
   }
 });
+
+test("the card draws outside the transcript scroller, whose edge mask would keep its blur from the rows", async () => {
+  const view = await mount(8);
+  try {
+    await act(async () => tick(3).focus());
+    expect(card()?.textContent).toContain("Question 3");
+    // The scroller masks its soft edges (conversation.css), and a masked ancestor is the card's
+    // backdrop root: inside it the glass showed the rows sharp through its tint (#23782).
+    expect(card()!.closest(".acpmux-scroll")).toBeNull();
+    expect(card()!.parentElement).toBe(view.scroller.parentElement);
+    // The rail keeps an anchor where the card's x and y count from.
+    expect(view.scroller.querySelector(".acpmux-minimap > .acpmux-minimap__anchor")).not.toBeNull();
+  } finally {
+    await view.unmount();
+  }
+});
