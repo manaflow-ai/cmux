@@ -22,6 +22,9 @@ public struct AgentPaneHeaderHooks {
     /// Shows subagent `agent` of session `session` in an agent pane right of the chat
     /// (``AgentSubagentPanes``), focused with `focus`; false when no pane opened.
     public var openSubagent: @MainActor (_ session: String, _ agent: String, _ focus: Bool) -> Bool
+    /// Shows the changes of session `session`'s turn holding `row`, at file `path`, in an agent pane
+    /// right of the chat (``AgentChangesPane``); false when no pane opened.
+    public var openChanges: @MainActor (_ session: String, _ row: String, _ path: String?) -> Bool
     /// Opens `viewer` (a background process's read-only terminal) in a tab beside the chat; false
     /// when no tab opened.
     public var openProcess: @MainActor (_ viewer: AgentPaneProcessViewer) -> Bool
@@ -55,6 +58,7 @@ public struct AgentPaneHeaderHooks {
                 openSide: @escaping @MainActor (String, String) -> Void = { _, _ in },
                 openTab: @escaping @MainActor (String, AgentForkDestination) -> Bool = { _, _ in false },
                 openSubagent: @escaping @MainActor (String, String, Bool) -> Bool = { _, _, _ in false },
+                openChanges: @escaping @MainActor (String, String, String?) -> Bool = { _, _, _ in false },
                 openProcess: @escaping @MainActor (AgentPaneProcessViewer) -> Bool = { _ in false },
                 newChat: @escaping @MainActor (String) -> Bool = { _ in false },
                 sideTabs: @escaping @MainActor () -> Bool? = { nil },
@@ -70,6 +74,7 @@ public struct AgentPaneHeaderHooks {
         self.openSide = openSide
         self.openTab = openTab
         self.openSubagent = openSubagent
+        self.openChanges = openChanges
         self.openProcess = openProcess
         self.newChat = newChat
         self.sideTabs = sideTabs
@@ -164,6 +169,13 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.subagentPane")
             }
             return AgentPaneReply.success(["opened": header.openSubagent(sessionId, agent, focus)])
+        case .changesPane(let row, let path):
+            // The chat's own turn, in a pane of its own; a refusal answers `opened: false`, and the
+            // page shows the changes in this pane instead.
+            guard let sessionId, newTab == nil, let header else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.changesPane")
+            }
+            return AgentPaneReply.success(["opened": header.openChanges(sessionId, row, path)])
         case .processTerminal(let call):
             return AgentPaneProcessViewer.open(call, in: self)
         case .chatTab(let chat, let destination):

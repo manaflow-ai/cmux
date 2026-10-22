@@ -62,6 +62,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .offerOpen: "offerOpen"
         case .asksOpen: "asksOpen"
         case .subagentPane: "subagentPane"
+        case .changesPane: "changesPane"
         case .processTerminal: "processTerminal"
         case .newChatHere: "newChatHere"
         case .checkpointAvailability: "checkpointAvailability"

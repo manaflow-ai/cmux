@@ -263,6 +263,13 @@ extension AgentPaneRequest {
             if let id = params?["subagent"] as? String, !id.isEmpty, id.count <= 256 {
                 self = .subagentPane(id, focus: params?["focus"] as? Bool == true)
             } else { self = .unsupported(method) }
+        case "chat.changesPane":
+            // A row id and a file the page shows first; both only go back to this chat's own page.
+            let path = params?["path"] as? String
+            if let row = params?["row"] as? String, !row.isEmpty, row.count <= 256, !row.contains("\n"),
+               path.map({ !$0.isEmpty && $0.count <= 4096 }) ?? true {
+                self = .changesPane(row: row, path: path)
+            } else { self = .unsupported(method) }
         case "chat.processTerminal":
             if let id = params?["toolCallId"] as? String, AgentPaneProcessViewer.isToken(id) { self = .processTerminal(toolCall: id) } else { self = .unsupported(method) }
         case "chat.newHere":

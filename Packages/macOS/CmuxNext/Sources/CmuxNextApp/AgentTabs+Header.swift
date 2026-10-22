@@ -36,7 +36,7 @@ extension AgentTabStore {
         }, openSide: { [weak self] chat, fork in // the tracker (AgentSidePanes) picks the side pane's tab or a new split; the app opens there
             guard let self else { return }; AgentSidePanes.chat(chat).open(fork, chat: resolve(provisional), pane: { [weak self] in self?.locate(self?.resolve($0) ?? $0).map { "\(ObjectIdentifier($0.daemon).hashValue):\($0.pane.rawValue)" } }) { [weak self] anchor, created, finished in
                 self?.openBeside(anchor ?? provisional, split: anchor == nil, main: provisional, open: { [weak self] pane, daemon in guard let self else { throw CancellationError() }; return try open(in: pane, of: daemon, session: fork) }, created: created, finished: { _ in finished() }) ?? false }
-        }, openTab: { [weak self] session, destination in self?.openFork(session, at: destination, beside: provisional) ?? false }, openSubagent: { [weak self] in self?.openSubagent($1, of: $0, focus: $2, beside: provisional) ?? false }, openProcess: { [weak self] viewer in guard let self else { return false }; return openProcess?(resolve(provisional), viewer) ?? false }, newChat: { [weak self] in self?.openNewTabColumn(beside: provisional, cwd: $0, split: false) ?? false }, sideTabs: { [weak self] in
+        }, openTab: { [weak self] session, destination in self?.openFork(session, at: destination, beside: provisional) ?? false }, openSubagent: { [weak self] in self?.openSubagent($1, of: $0, focus: $2, beside: provisional) ?? false }, openChanges: { [weak self] in self?.openChanges($1, at: $2, of: $0, beside: provisional) ?? false }, openProcess: { [weak self] viewer in guard let self else { return false }; return openProcess?(resolve(provisional), viewer) ?? false }, newChat: { [weak self] in self?.openNewTabColumn(beside: provisional, cwd: $0, split: false) ?? false }, sideTabs: { [weak self] in
             guard let self else { return nil }
             let chat = resolve(provisional)
             return toggles.sideTabs(chat: chat, store: lookup(chat)?.store, actions: actions) { [weak self] in
@@ -68,6 +68,18 @@ extension AgentTabStore {
         AgentSubagentPanes.session(session).open(agent, focus: focus, chat: provisional, hooks: .init(isOpen: { [weak self] in self?.locate($0) != nil }, focus: { [weak self] key, script in _ = self?.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: self?.resolve(key) ?? key), arguments: script ? ["focus": .bool(true)] : [:], origin: script ? .script : .user)) },
             place: { [weak self] anchor, down, created, finished in self?.openBeside(anchor, direction: down ? "down" : "right", origin: focus ? .user : .script, main: provisional, open: { [weak self] pane, daemon in guard let self else { throw CancellationError() }; return try open(in: pane, of: daemon, session: session) },
                 created: { [weak self] in created($0); self?.revealTurn(AgentSubagentPanes.reveal(agent), in: $0) }, finished: finished) ?? false }, again: { [weak self] request in _ = self?.openSubagent(request.agent, of: session, focus: request.focus, beside: request.chat) })) }
+    /// The changes of session `session`'s turn holding `row` (at file `path`) in a chat pane right of
+    /// the chat (``AgentChangesPane``): the open one shows that turn and takes focus, else one opens.
+    private func openChanges(_ row: String, at path: String?, of session: String, beside provisional: String) -> Bool {
+        let changes = AgentChangesPane.session(session), reveal = changes.reveal(row: row, path: path)
+        if let open = changes.tab(isOpen: { [weak self] in self?.locate($0) != nil }) {
+            revealTurn(reveal, in: open)
+            _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: resolve(open)), origin: .user))
+            return true
+        }
+        return openBeside(provisional, main: provisional, open: { [weak self] pane, daemon in guard let self else { throw CancellationError() }; return try open(in: pane, of: daemon, session: session) },
+                          created: { [weak self] key in changes.record(key); self?.revealTurn(reveal, in: key) })
+    }
     /// A tab in chat tab `provisional`'s pane, then moved to a new split on its right when `split`; else a tab there, focused when `created` is set.
     /// A split asked for chat `main` when that chat is its screen's main pane (``openInMainPane``) is a tab in the column on its right instead.
     @discardableResult
