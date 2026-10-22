@@ -521,6 +521,7 @@ button.acpmux-chat-inspector-port:hover,
 }
 /* Changes: a pull request per row, its menu at the end. */
 .acpmux-chat-inspector-pr {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 4px;
@@ -539,6 +540,17 @@ button.acpmux-chat-inspector-port:hover,
   color: inherit;
   text-decoration: none;
   cursor: default;
+}
+/* The row lights as a whole, so its gap and padding are the link's too (a click there was dead,
+   #24116's audit). The ⋯ button, positioned and later in the row, paints above it. */
+.acpmux-chat-inspector-pr__link::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+.acpmux-chat-inspector-pr__more {
+  position: relative;
 }
 .acpmux-chat-inspector-pr__link:focus-visible {
   outline: 1.5px solid var(--agent-text);
