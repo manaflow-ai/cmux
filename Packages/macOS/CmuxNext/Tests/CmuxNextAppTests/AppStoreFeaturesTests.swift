@@ -14,10 +14,10 @@ import Testing
 /// puts it back to off, and a card follows a write made anywhere else.
 @MainActor @Suite(.serialized) struct AppStoreFeaturesTests {
     /// Keys whose PR has not landed: the tab hides their cards until the schema lists them
-    /// (tabs.newTabWidgets.*, #22674 and #22775; the Priority view's key, lane priority-view).
+    /// (tabs.newTabWidgets.*, #22674 and #22775).
     static let pendingKeys: Set<String> = [
-        "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats", "tabs.newTabWidgets.modeSwitch",
-        "tabs.newTabWidgets.weather", "tabs.newTabWidgets.machines", "sidebar.priorityView.enabled",
+        "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats",
+        "tabs.newTabWidgets.weather", "tabs.newTabWidgets.machines",
     ]
 
     static func make(_ json: String = "{}", recommended: [String: JSONValue] = [:]) async throws -> (SettingsController, URL) {
@@ -63,6 +63,26 @@ import Testing
                         "\(feature.id) is on by default, so Remove could not turn it off")
             }
         }
+    }
+
+    /// The Appearance, Editor and Mac & Phone cards (and the off-by-default toggles beside them)
+    /// are landed keys, so the tab lists them, each under its own category chip.
+    @Test func theOffByDefaultSettingsHaveCardsInTheirCategories() throws {
+        let expected: [String: AppFeature.Category] = [
+            "appearance.ultraCompact": .appearance, "appearance.calm": .appearance,
+            "appearance.brailleStatus": .appearance, "appearance.runningCommands": .appearance,
+            "chief.suggestedTasks": .chief, "chief.githubFeed": .chief,
+            "editor.splitDiff": .editor, "editor.minimap": .editor,
+            "devices.phoneAccess": .devices, "devices.globalHotKey": .devices,
+        ]
+        let bridge = SettingsAppFeatures(settings: { nil })
+        for (id, category) in expected {
+            let feature = try Self.feature(id)
+            #expect(feature.category == category, "\(id) is under \(feature.category)")
+            #expect(bridge.isAvailable(feature), "\(feature.setting) is not in the schema")
+            #expect(!Self.pendingKeys.contains(feature.setting))
+        }
+        #expect(AppFeature.Category.allCases.allSatisfy { !AppsStrings.featureCategory($0).isEmpty })
     }
 
     /// The Chief Pet card's Settings… link opens Settings > Chief Pet (Settings on its key's rows);
@@ -162,11 +182,12 @@ import Testing
         let (settings, home) = try await Self.make()
         defer { try? FileManager.default.removeItem(at: home) }
         let bridge = SettingsAppFeatures(settings: { settings })
-        let newTabPlayer = try Self.feature("newTab.nowPlaying")
-        #expect(bridge.isOn(newTabPlayer), "on by default")
-        try await bridge.set(newTabPlayer, on: false)
-        #expect(settings.fileRoot.value(at: newTabPlayer.path) == .bool(false))
-        #expect(!bridge.isOn(newTabPlayer))
+        // The New Tab player was this test's feature until it went off by default (u8394).
+        let hoverCards = try Self.feature("sidebar.hoverCards")
+        #expect(bridge.isOn(hoverCards), "on by default")
+        try await bridge.set(hoverCards, on: false)
+        #expect(settings.fileRoot.value(at: hoverCards.path) == .bool(false))
+        #expect(!bridge.isOn(hoverCards))
     }
 
     /// Every card on its own key (the live toggle pass, 2026-10-21): pressing the card writes its
@@ -317,6 +338,39 @@ import Testing
         #expect(model.featureListings.map(\.id) == ["chief.pet"])
         model.query = "home.chiefPetEnabled"
         #expect(model.featureListings.map(\.id) == ["chief.pet"], "the key is searchable")
+    }
+
+    /// Discover lists cmux's own features under the apps, one section per category (Leo,
+    /// 2026-10-21: "WHY IS THERE STILL NOTHING IN THE APP STORE?"): an app category chip shows
+    /// only apps, a feature category chip only that section.
+    @Test func discoverListsEveryLandedFeatureByCategory() async throws {
+        let (settings, home) = try await Self.make()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let model = AppStoreModel(client: AppsClient(transport: FeaturesOfflineAppsTransport()))
+        #expect(model.discoverFeatureSections.isEmpty, "a store without settings lists no features")
+        let bridge = SettingsAppFeatures(settings: { settings })
+        model.features = bridge
+
+        let sections = model.discoverFeatureSections
+        #expect(sections.flatMap(\.features) == AppFeature.Category.allCases.flatMap { category in
+            AppFeature.catalog.filter { bridge.isAvailable($0) && $0.category == category }
+        }, "every landed feature, once, grouped by category in catalog order")
+        #expect(sections.map(\.category) == model.featureCategories)
+        #expect(sections.allSatisfy { section in section.features.allSatisfy { $0.category == section.category } })
+        #expect(model.discoverShowsListings)
+
+        model.featureCategory = .backgrounds
+        #expect(model.discoverFeatureSections.map(\.category) == [.backgrounds])
+        #expect(!model.discoverShowsListings, "a feature chip shows only its section")
+        model.open(appID: "anything")
+        #expect(model.featureCategory == nil && model.discoverShowsListings, "opening an app clears the feature chip")
+
+        model.featureCategory = nil
+        model.category = "tools"
+        #expect(model.discoverFeatureSections.isEmpty, "an app chip shows only apps")
+        model.category = nil
+        model.query = "chief pet"
+        #expect(model.discoverFeatureSections.flatMap(\.features).map(\.id) == ["chief.pet"], "the search filters the sections")
     }
 
     /// `cmux action run appStore.show --arg tab=features` (the tour, an agent, the palette).

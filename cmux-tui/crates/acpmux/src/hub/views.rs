@@ -429,6 +429,8 @@ impl Hub {
         json!({
             "version": VERSION,
             "build": BUILD,
+            // The protocol surfaces this build serves (`capabilities.rs`).
+            "capabilities": crate::capabilities::ids(),
             "pid": std::process::id(),
             // Its own executable, and whether it runs as `cmux-tui acp …`, so a
             // client (host enroll) tells which program runs it without scanning
