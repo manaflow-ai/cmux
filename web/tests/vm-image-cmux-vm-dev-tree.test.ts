@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { GUEST_DIR } from "../scripts/cmux-vm-image/bake";
-import { devTreeCommand, devTreeCredentialCheckCommand, devTreeLock, devTreeUserPaths, FIRST_BUILD } from "../scripts/cmux-vm-image/dev-tree";
+import { CREDENTIAL_FILES_CHECK, devTreeCommand, devTreeCredentialCheckCommand, devTreeLock, devTreeUserPaths, FIRST_BUILD } from "../scripts/cmux-vm-image/dev-tree";
 import { type FirstBuildReport, reportTable, summarize } from "../scripts/cmux-vm-image/first-build";
 import { DEFAULT_LOCK_PATH, LockError, readInputsLock, validateInputsLock } from "../scripts/cmux-vm-image/lock";
 import { secretScanCommand } from "../scripts/cmux-vm-image/smoke";
@@ -60,6 +60,11 @@ describe("the cmux dev tree (bake.ts --dev-tree)", () => {
     const result = await runChild("bash", ["-n", `${GUEST_DIR}/dev-tree.sh`], { timeout: 20_000 });
     expect(result.status).toBe(0);
     await bashSyntax(devTreeCredentialCheckCommand(tree));
+    // Each credential file is its own test: one present file fails the check whatever the others are.
+    expect(CREDENTIAL_FILES_CHECK.match(/test ! -e /g)).toHaveLength(3);
+    expect(devTreeCredentialCheckCommand(tree)).toContain(CREDENTIAL_FILES_CHECK);
+    await bashSyntax(CREDENTIAL_FILES_CHECK);
+    await bashSyntax(devTreeCommand(["update", tree.dir, "", ...tree.submodules]));
     await bashSyntax(devTreeCommand(["build", tree.dir, ...FIRST_BUILD]));
     const scan = secretScanCommand(devTreeUserPaths(tree));
     await bashSyntax(scan);

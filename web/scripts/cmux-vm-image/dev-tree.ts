@@ -33,13 +33,18 @@ export function devTreeUserPaths(tree: DevTreeLock): string[] {
   return [tree.dir, "/home/cmux/.cargo", "/home/cmux/.rustup", "/home/cmux/.cache/zig"];
 }
 
+const CREDENTIAL_FILES = ["/home/cmux/.git-credentials", "/home/cmux/.cargo/credentials", "/home/cmux/.cargo/credentials.toml"];
+
+/** No git or cargo credential file in the work home: each path is checked on its own. Runs with or without the tree. */
+export const CREDENTIAL_FILES_CHECK = CREDENTIAL_FILES.map((f) => `{ test ! -e ${sq(f)} || { echo 'credential file: ${f}'; false; }; }`).join(" && ");
+
 /** The checkout fetches from the public URL with no credential, and holds no identity. */
 export function devTreeCredentialCheckCommand(tree: DevTreeLock): string {
   const git = `runuser -u cmux -- git -C ${sq(tree.dir)}`;
   return [
     `test "$(${git} remote get-url origin)" = ${sq(tree.repo)}`,
     `! ${git} config --local --get-regexp '^(credential\\.|http\\..*extraheader|url\\..*insteadof|user\\.)'`,
-    "! ls /home/cmux/.git-credentials /home/cmux/.cargo/credentials /home/cmux/.cargo/credentials.toml 2>/dev/null",
+    CREDENTIAL_FILES_CHECK,
     "echo dev-tree-no-credentials",
   ].join(" && ");
 }
@@ -123,9 +128,9 @@ export async function setUpDevTree(vm: Vm, tree: DevTreeLock, ref: string, phase
   return head;
 }
 
-/** On a machine of an image with the tree: fast-forward to the branch head, then the first build. Returns the commit. */
-export async function updateDevTree(vm: Vm, tree: DevTreeLock, phases: Phases, log: Log): Promise<string> {
-  const head = await phase(vm, phases, log, "update", devTreeCommand(["update", tree.dir, ...tree.submodules]), 15 * MINUTE);
+/** On a machine of an image with the tree: fetch, fast-forward to `ref` (empty: the branch head), then the first build. Returns the commit. */
+export async function updateDevTree(vm: Vm, tree: DevTreeLock, ref: string, phases: Phases, log: Log): Promise<string> {
+  const head = await phase(vm, phases, log, "update", devTreeCommand(["update", tree.dir, ref, ...tree.submodules]), 15 * MINUTE);
   await firstBuild(vm, tree, phases, log);
   return head;
 }

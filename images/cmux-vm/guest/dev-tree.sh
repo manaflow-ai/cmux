@@ -7,7 +7,8 @@
 #   dev-tree.sh rust DIR URL SHA256 SIZE                 rustup-init (checked), the checkout's toolchain
 #   dev-tree.sh zig DIR                                  the checkout's Zig and ghostty-next's Zig packages
 #   dev-tree.sh build DIR COMMAND...                     the first build, in DIR/cmux-tui
-#   dev-tree.sh update DIR SUBMODULE...                  fast-forward to the branch head, then the submodules
+#   dev-tree.sh update DIR REF SUBMODULE...              fetch, fast-forward to REF (empty: the branch head),
+#                                                        then the submodules
 #   dev-tree.sh sizes DIR                                bytes per part, then the root file system's used bytes
 # The work user's scripts are single-quoted on purpose: as_user passes their arguments.
 # shellcheck disable=SC2016
@@ -66,8 +67,11 @@ case "$cmd" in
   update)
     as_user '
       cd "$1"
-      git pull -q --ff-only
-      for m in "${@:2}"; do git submodule update -q --init --filter=blob:none -- "$m"; done
+      git fetch -q origin
+      target="$2"
+      test -n "$target" || target="@{upstream}"
+      git merge -q --ff-only "$target"
+      for m in "${@:3}"; do git submodule update -q --init --filter=blob:none -- "$m"; done
       git log -1 --format=%H' "$@"
     ;;
   sizes)

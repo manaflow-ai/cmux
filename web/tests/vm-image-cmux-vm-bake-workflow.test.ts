@@ -57,7 +57,7 @@ async function runStep(name: string, inputs: Inputs, dir: string, snapshot = "sh
   writeFileSync(stub, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> "${path.join(dir, "bun.argv")}"\ncase "$1" in *bake.ts) echo "IMAGE_ID ${snapshot}";; esac\n`);
   chmodSync(stub, 0o755);
   const ctx = { inputs, out, snapshot };
-  const env: Record<string, string> = { PATH: `${bin}:${process.env.PATH}`, GITHUB_OUTPUT: path.join(dir, "github-output") };
+  const env: Record<string, string> = { PATH: `${bin}:${process.env.PATH}`, GITHUB_OUTPUT: path.join(dir, "github-output"), GITHUB_SHA: "0123456789abcdef0123456789abcdef01234567" };
   for (const [k, v] of Object.entries(job.env)) env[k] = evaluate(v, ctx);
   for (const [k, v] of Object.entries(step(name).env ?? {})) env[k] = evaluate(v, ctx);
   const result = await runChild("bash", ["-e", "-c", step(name).run!], { env, cwd: dir });
@@ -97,12 +97,15 @@ describe("cloud-vm-image-bake.yml", () => {
     expect(bake.argv.at(-1)).toBe(`../images/cmux-vm/bake.ts --tag ci-4242-1 --out-dir ${bake.out} --agent-tools --dev-tree`);
     const after = await runStep("First build after", inputs, dir);
     expect(after.result.status).toBe(0);
-    expect(after.argv.at(-1)).toBe(`../images/cmux-vm/first-build.ts --mode after --snapshot sh-test --tag ci-4242-1 --out-dir ${after.out}`);
+    expect(after.argv.at(-1)).toBe(`../images/cmux-vm/first-build.ts --mode after --snapshot sh-test --tag ci-4242-1 --ref 0123456789abcdef0123456789abcdef01234567 --out-dir ${after.out}`);
     writeFileSync(path.join(bake.out, "bake-cmuxnp-dev-vmimg-ci-4242-1.json"), JSON.stringify({ name: "cmuxnp-dev-vmimg-ci-4242-1", lockSha256: "f".repeat(64) }));
     writeFileSync(path.join(bake.out, "smoke-ci-4242-1.json"), JSON.stringify({ passed: true, checks: { a: { ok: true } } }));
     const candidate = await runStep("Dev channel candidate", inputs, dir);
     expect(candidate.result.status).toBe(0);
     expect(JSON.parse(readFileSync(path.join(bake.out, "channel-dev.json"), "utf8")).bake).toBe("images/cmux-vm/bake.ts --agent-tools --dev-tree (CI run 4242)");
+    // Both sides build the run's commit, and a dev tree snapshot is kept only when its first build passed (not skipped or cancelled).
+    expect(workflowText).toContain('first-build.ts --mode before --snapshot "$snapshot" --tag "$TAG" --ref "$GITHUB_SHA"');
+    expect(workflowText).toContain("steps.smoke.outcome == 'success' && (!inputs.dev_tree || steps.first_build.outcome == 'success') && '--keep-snapshot'");
   });
 
   test("no run script interpolates an expression (inputs reach scripts through env only)", () => {

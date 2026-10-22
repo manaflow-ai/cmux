@@ -137,7 +137,7 @@ jobs:
           SNAPSHOT: ${{ steps.bake.outputs.snapshot }}
         run: |
           set -euo pipefail
-          bun ../images/cmux-vm/first-build.ts --mode after --snapshot "$SNAPSHOT" --tag "$TAG" --out-dir "$OUT_DIR" | tee "$OUT_DIR/first-build-after.out"
+          bun ../images/cmux-vm/first-build.ts --mode after --snapshot "$SNAPSHOT" --tag "$TAG" --ref "$GITHUB_SHA" --out-dir "$OUT_DIR" | tee "$OUT_DIR/first-build-after.out"
 
       # The fields of a channels/dev.json history entry (promote.ts promotes only a
       # recorded snapshot_id with smoke PASSED, under --var <var>).
@@ -184,7 +184,7 @@ jobs:
         env:
           FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
           # Keep the snapshot only when its smoke (and a dev tree's first build) passed; a failed bake leaves nothing behind.
-          KEEP: ${{ inputs.keep_snapshot && inputs.mode == 'bake' && steps.smoke.outcome == 'success' && steps.first_build.outcome != 'failure' && '--keep-snapshot' || '' }}
+          KEEP: ${{ inputs.keep_snapshot && inputs.mode == 'bake' && steps.smoke.outcome == 'success' && (!inputs.dev_tree || steps.first_build.outcome == 'success') && '--keep-snapshot' || '' }}
         run: |
           if [ -f "$OUT_DIR/resources.tsv" ]; then
             # shellcheck disable=SC2086
@@ -203,7 +203,7 @@ jobs:
           retention-days: 30
 
   # Time to first build on new machines of the dev channel's image, which has no dev tree:
-  # clone, toolchains and a cold build (first-build.ts --mode before), while the bake runs.
+  # clone, toolchains and a cold build of this run's commit (first-build.ts --mode before), while the bake runs.
   first-build-before:
     if: inputs.mode == 'bake' && inputs.dev_tree
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -236,7 +236,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$OUT_DIR"
           snapshot="$(jq -r .snapshot_id ../images/cmux-vm/channels/dev.json)"
-          bun ../images/cmux-vm/first-build.ts --mode before --snapshot "$snapshot" --tag "$TAG" --out-dir "$OUT_DIR" | tee "$OUT_DIR/first-build-before.out"
+          bun ../images/cmux-vm/first-build.ts --mode before --snapshot "$snapshot" --tag "$TAG" --ref "$GITHUB_SHA" --out-dir "$OUT_DIR" | tee "$OUT_DIR/first-build-before.out"
 
       - name: Delete everything this run created
         if: always()

@@ -3,12 +3,15 @@
  * measured the same way on every `--dev-tree` bake (cloud-vm-image-bake.yml):
  *   before: machines of an image without the tree (the dev channel's): libclang from the live
  *           mirror, the clone, Zig, Rust, then `cargo build -p cmux-tui` (setUpDevTree)
- *   after:  machines of the new image: `git pull --ff-only` to the branch head, then the same build
+ *   after:  machines of the new image: fetch and fast-forward, then the same build
+ * Both sides build one commit: --ref (the workflow passes GITHUB_SHA, the commit the bake baked), or
+ * the branch head when omitted; a run that built another commit fails. At bake time the image already
+ * has that commit, so "after" is a new image's best case: an older image fetches and rebuilds what changed.
  * Every run is a fresh machine; its create to daemon ready (smoke.ts measureClone) and the root file
  * system's used bytes at create are recorded too. Every machine is deleted whatever happens.
  *
  * Usage (from web/):
- *   bun ../images/cmux-vm/first-build.ts --mode before|after --snapshot <sh-id> --tag <tag> [--runs 3] [--out-dir <dir>]
+ *   bun ../images/cmux-vm/first-build.ts --mode before|after --snapshot <sh-id> --tag <tag> [--ref <sha>] [--runs 3] [--out-dir <dir>]
  *   bun ../images/cmux-vm/first-build.ts --report <before.json> <after.json>
  * --report prints the Markdown table and needs no Freestyle access (nor web's dependencies: the
  * measuring modules load only for a measurement).
@@ -47,7 +50,7 @@ export function summarize(runs: readonly Run[]): FirstBuildReport["summary"] {
   };
 }
 
-async function timeRun(vm: Vm, vmId: string, mode: Mode, tree: DevTreeLock, createToReadyMs: number, log: (line: string) => void): Promise<Run> {
+async function timeRun(vm: Vm, vmId: string, mode: Mode, tree: DevTreeLock, ref: string, createToReadyMs: number, log: (line: string) => void): Promise<Run> {
   const { run } = await import("./guest");
   const { devTreePhase, devTreeSizes, setUpDevTree, updateDevTree, uploadDevTreeScript } = await import("./dev-tree");
   const { sq } = await import("./lock");
@@ -58,15 +61,16 @@ async function timeRun(vm: Vm, vmId: string, mode: Mode, tree: DevTreeLock, crea
   if (mode === "before") {
     const apt = `export DEBIAN_FRONTEND=noninteractive; apt-get update -q >/dev/null && apt-get install -y -q --no-install-recommends ${tree.aptRoots.map(sq).join(" ")} >/dev/null && echo apt-ok`;
     phasesMs.apt = (await devTreePhase(vm, "apt", apt, 20 * 60_000)).ms;
-    head = await setUpDevTree(vm, tree, "", phasesMs, log);
+    head = await setUpDevTree(vm, tree, ref, phasesMs, log);
   } else {
-    head = await updateDevTree(vm, tree, phasesMs, log);
+    head = await updateDevTree(vm, tree, ref, phasesMs, log);
   }
+  if (ref && head !== ref) throw new Error(`built ${head}, not ${ref}`);
   const totalMs = Object.values(phasesMs).reduce((a, b) => a + b, 0);
   return { vmId, createToReadyMs, rootUsedBytes, phasesMs, totalMs, head, bytes: await devTreeSizes(vm, tree) };
 }
 
-export async function measure(options: { mode: Mode; snapshotId: string; tag: string; runs: number; outDir: string }): Promise<FirstBuildReport> {
+export async function measure(options: { mode: Mode; snapshotId: string; tag: string; ref: string; runs: number; outDir: string }): Promise<FirstBuildReport> {
   const { measureClone } = await import("./smoke");
   const { deleteVm, freestyleClient, Ledger, run } = await import("./guest");
   const { readInputsLock, sq } = await import("./lock");
@@ -90,7 +94,7 @@ export async function measure(options: { mode: Mode; snapshotId: string; tag: st
     } else if (options.mode === "after" && !hasTree) {
       throw new Error(`the image has no ${tree.dir} (not a --dev-tree bake)`);
     } else {
-      const settled = await Promise.allSettled(clones.map((c, i) => timeRun(c.vm, c.vmId, options.mode, tree, c.readyMs, (line) => console.log(`[${options.mode}-${i + 1}] ${line}`))));
+      const settled = await Promise.allSettled(clones.map((c, i) => timeRun(c.vm, c.vmId, options.mode, tree, options.ref, c.readyMs, (line) => console.log(`[${options.mode}-${i + 1}] ${line}`))));
       for (const [i, s] of settled.entries()) {
         if (s.status === "fulfilled") report.runs.push(s.value);
         else report.failed.push(`${clones[i]!.vmId}: ${String(s.reason).slice(0, 2000)}`);
@@ -121,7 +125,7 @@ export function reportTable(before: FirstBuildReport, after: FirstBuildReport): 
       .map(([p, s]) => `${p} ${minutes(s.p50)}`)
       .join(", ") || "n/a";
   return [
-    `First build: \`${after.firstBuild}\`. Before: a fresh machine of \`${before.snapshotId}\` (no dev tree) sets up and builds; after: a fresh machine of \`${after.snapshotId}\` pulls to the branch head and builds.`,
+    `First build: \`${after.firstBuild}\`. Before: a fresh machine of \`${before.snapshotId}\` (no dev tree) sets up and builds; after: a fresh machine of \`${after.snapshotId}\` fetches and builds the same commit.`,
     "",
     "| | Before | After |",
     "| --- | --- | --- |",
@@ -152,9 +156,9 @@ export async function main(argv = process.argv): Promise<number> {
   const tag = argValue("--tag", argv);
   const runs = Number(argValue("--runs", argv) ?? 3);
   if ((mode !== "before" && mode !== "after") || !snapshotId?.startsWith("sh-") || !tag || !Number.isInteger(runs) || runs < 1) {
-    throw new Error("usage: first-build.ts --mode before|after --snapshot <sh-id> --tag <tag> [--runs 3] [--out-dir <dir>]");
+    throw new Error("usage: first-build.ts --mode before|after --snapshot <sh-id> --tag <tag> [--ref <sha>] [--runs 3] [--out-dir <dir>]");
   }
-  const report = await measure({ mode, snapshotId, tag, runs, outDir: path.resolve(argValue("--out-dir", argv) ?? `cmux-vm-image-out/${tag}`) });
+  const report = await measure({ mode, snapshotId, tag, ref: argValue("--ref", argv) ?? "", runs, outDir: path.resolve(argValue("--out-dir", argv) ?? `cmux-vm-image-out/${tag}`) });
   console.log(JSON.stringify(report.summary ?? report.skipped ?? report.error ?? null));
   for (const failure of report.failed) console.error(`FAILED ${failure}`);
   return report.error || report.failed.length > 0 ? 1 : 0;

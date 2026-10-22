@@ -29,7 +29,7 @@ import { CMUX_TUI_SESSION, cmuxTuiRunCommand } from "../../services/vms/drivers/
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
 import { DEVBOX_INSTANCE_ID_COMMAND, devboxIdleWakeupCheckCommand, devboxWaitForDaemonCommand } from "../devbox-image-common";
 import { GUEST_DIR, TEAM_FILES_ROOT, teamVmDirsCommand, TMP_LEFTOVERS } from "./bake";
-import { devTreeCredentialCheckCommand, devTreeUserPaths } from "./dev-tree";
+import { CREDENTIAL_FILES_CHECK, devTreeCredentialCheckCommand, devTreeUserPaths } from "./dev-tree";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, sleep, type Vm } from "./guest";
 import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
@@ -212,12 +212,12 @@ async function functionalChecks(vm: Vm, lock: InputsLock, report: Report): Promi
   const tmp = await run(vm, `${TMP_LEFTOVERS} ! -newer /etc/cmux/daemon-instance-id | head -20; echo "runtime: $(${TMP_LEFTOVERS} -newer /etc/cmux/daemon-instance-id | tr '\\n' ' ')"`);
   const leftovers = tmp.stdout.trim().split("\n").filter((line) => line && !line.startsWith("runtime:"));
   check(report, "tmp-empty", leftovers.length === 0, tmp.stdout.trim());
-  const secrets = await run(vm, secretScanCommand(lock.devTree ? devTreeUserPaths(lock.devTree) : []), 240_000);
+  // The scan skips the tree's directories only on an image that has the tree; its credential check runs instead.
+  const tree = lock.devTree && (await run(vm, `test -d ${sq(lock.devTree.dir)}`)).code === 0 ? lock.devTree : undefined;
+  const secrets = await run(vm, secretScanCommand(tree ? devTreeUserPaths(tree) : []), 240_000);
   check(report, "no-secrets", secrets.stdout.trim() === "", secrets.stdout.trim() || "no pattern matched");
-  if (lock.devTree) {
-    const tree = await run(vm, `if test -e ${sq(lock.devTree.dir)}; then ${devTreeCredentialCheckCommand(lock.devTree)}; else echo no-dev-tree; fi`);
-    check(report, "dev-tree-no-credentials", tree.code === 0, tree.stdout.trim() || tree.stderr.slice(-300));
-  }
+  const credentials = await run(vm, tree ? devTreeCredentialCheckCommand(tree) : `${CREDENTIAL_FILES_CHECK} && echo no-credential-files`);
+  check(report, tree ? "dev-tree-no-credentials" : "no-credential-files", credentials.code === 0, credentials.stdout.trim() || credentials.stderr.slice(-300));
   const programs = await run(vm, programChecksCommand(lock), 240_000);
   const problems = programProblems(lock, programs.stdout);
   const ran = programs.stdout.trim().split("\n");
