@@ -99,6 +99,9 @@ await requireBrowserLane("clickable-cursor-gallery.test.ts", async () => {
         ({ named, arrow }) => {
           const CLICKABLE =
             'button, a[href], [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"], summary, label[for], label:has(input[type="checkbox"], input[type="radio"]), select, input:is([type="checkbox"], [type="radio"], [type="button"], [type="submit"], [type="reset"], [type="color"], [type="file"])';
+          // A click there edits text, so the I-beam is right: a link in the Markdown editor (Cmd-click
+          // follows it) and a shortcut's when clause.
+          const EDITS = ".md-prose a, .md-prose .md-wikilink, .keys-when";
           const reactClick = (element: Element) => {
             const key = Object.keys(element).find((name) => name.startsWith("__reactProps$"));
             const props = key ? (element as unknown as Record<string, { onClick?: unknown }>)[key] : undefined;
@@ -121,12 +124,18 @@ await requireBrowserLane("clickable-cursor-gallery.test.ts", async () => {
           // stays enabled; a link in one still opens), inside a disabled button, aria-disabled or inert.
           const disabled = (element: Element) =>
             element.matches(":disabled") ||
-            element.closest('button:disabled, [aria-disabled="true"], [inert]') !== null ||
+            element.closest('[aria-disabled="true"], [inert]') !== null ||
+            element.parentElement?.closest(":disabled:not(fieldset)") != null ||
             labelOfDisabled(element);
-          const checked = all.filter((element) => drawn(element) && !disabled(element));
+          const shown = all.filter(drawn);
+          const checked = shown.filter((element) => !disabled(element));
+          // A disabled clickable never shows the hand (an aria-disabled group's buttons included).
+          const hands = shown
+            .filter((element) => disabled(element) && getComputedStyle(element).cursor === "pointer")
+            .map((element) => `${describe(element)} (disabled): pointer`);
           const arrows = checked
             .map((element) => ({ element, cursor: getComputedStyle(element).cursor }))
-            .filter(({ cursor }) => cursor === "default" || cursor === "auto")
+            .filter(({ element, cursor }) => cursor !== "pointer" && !(cursor === "text" && element.matches(EDITS)))
             .map(({ element, cursor }) => `${describe(element)}: ${cursor}`);
           const cursors = (map: Record<string, string>) =>
             Object.fromEntries(
@@ -137,7 +146,7 @@ await requireBrowserLane("clickable-cursor-gallery.test.ts", async () => {
             );
           return {
             count: checked.length,
-            arrows: [...new Set(arrows)],
+            arrows: [...new Set([...arrows, ...hands])],
             named: cursors(named),
             arrow: cursors(arrow),
           };

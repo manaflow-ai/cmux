@@ -98,6 +98,12 @@ const PANE = `
     <span data-expect="default" data-name="text in a disabled fieldset">Off</span>
     <a data-expect="pointer" data-name="link in a disabled fieldset" href="/help"><span data-expect="pointer" data-name="its words">Help</span></a>
   </fieldset>
+  <!-- What is disabled on its own inside that legend keeps the arrow, and so does an aria-disabled group. -->
+  <fieldset disabled>
+    <legend><button data-expect="default" data-name="disabled button in an enabled legend" type="button" disabled><span data-expect="default" data-name="its label">Off</span></button>
+      <fieldset disabled><input data-expect="default" data-name="box in a disabled fieldset in the legend" type="checkbox" /><span data-expect="default" data-name="text there">Off</span><a data-expect="pointer" data-name="link there" href="/help">Help</a></fieldset></legend>
+  </fieldset>
+  <div role="group" aria-disabled="true"><button data-expect="default" data-name="button in an aria-disabled group" type="button"><span data-expect="default" data-name="its words, too">Off</span></button></div>
   <!-- A locked choice keeps the arrow, but a link in its label still opens. -->
   <label data-expect="default" data-name="locked choice with a link"><input type="checkbox" disabled /><span data-expect="default" data-name="locked choice words">Locked</span> <a data-expect="pointer" data-name="help link in a locked choice" href="/help"><span data-expect="pointer" data-name="help link words">Help</span></a> <button data-expect="pointer" data-name="button in a locked choice" type="button">Why</button></label>
 </div>`;
