@@ -117,6 +117,18 @@ import Testing
         #expect(!control.canSlide, "a hidden switch slides")
     }
 
+    /// Installing… (disabled) is dimmer than Restart to Update, in the accent and in the neutral
+    /// primary: fading the translucent neutral fill to a fixed alpha made it about 4x as opaque.
+    @Test func aDisabledPrimaryButtonIsDimmerThanAnEnabledOne() {
+        let button = SidebarUpdateButton(frame: NSRect(x: 0, y: 0, width: 180, height: SidebarUpdateButton.height))
+        button.fixedStyle = .primary
+        button.configure(title: "Restart to Update", enabled: true, help: nil)
+        let enabled = button.fill.alphaComponent
+        button.configure(title: "Installing…", enabled: false, help: nil)
+        let disabled = button.fill.alphaComponent
+        #expect(disabled < enabled, "the disabled button (alpha \(disabled)) is not dimmer than the enabled one (\(enabled))")
+    }
+
     @Test func restartToUpdateIsThePrimaryButton() {
         #expect(SidebarTunables.updateCardButton.defaultValue == .primary)
         let button = SidebarUpdateButton(frame: NSRect(x: 0, y: 0, width: 180, height: SidebarUpdateButton.height))
