@@ -47,13 +47,22 @@ public final class RowSwipeActions {
         return root.subviews.contains { hasOpenListRow(in: $0) }
     }
 
+    /// A list's cells share one leading edge; the open row's cell is slid
+    /// off it (its layout attributes slide with it, so they cannot tell).
     private static func hasOpenRow(_ collection: UICollectionView) -> Bool {
-        for path in collection.indexPathsForVisibleItems {
-            guard let cell = collection.cellForItem(at: path),
-                  let laidOut = collection.layoutAttributesForItem(at: path)?.frame else { continue }
-            if isSlid(cell, from: laidOut) { return true }
-        }
-        return false
+        let cells = collection.visibleCells.filter { !$0.isHidden && $0.bounds.width > 1 }
+        return hasSlidCell(cells.map(\.frame.minX))
+    }
+
+    /// Whether any of these leading edges is off the one most cells share,
+    /// or left of the list's content (a lone open row).
+    static func hasSlidCell(_ edges: [CGFloat]) -> Bool {
+        guard let first = edges.first else { return false }
+        if edges.contains(where: { $0 < -0.5 }) { return true }
+        var counts: [CGFloat: Int] = [:]
+        for edge in edges { counts[(edge * 2).rounded() / 2, default: 0] += 1 }
+        let shared = counts.max { $0.value < $1.value || ($0.value == $1.value && $0.key > $1.key) }?.key ?? first
+        return edges.contains { abs($0 - shared) > 0.5 }
     }
 
     private static func hasOpenRow(_ table: UITableView) -> Bool {

@@ -1,5 +1,5 @@
 #if os(iOS)
-import CmuxMobileDesign
+@testable import CmuxMobileDesign
 import Testing
 import UIKit
 @testable import CmuxMobileShell
@@ -90,6 +90,17 @@ import UIKit
         rowPan.name = RowSwipeActions.panName
         #expect(drawer.gestureRecognizer(pan, shouldRequireFailureOf: rowPan))
         #expect(!drawer.gestureRecognizer(pan, shouldRequireFailureOf: UIPanGestureRecognizer()))
+    }
+
+    /// SwiftUI's List slides the open row's cell and its layout attributes
+    /// together (iOS 26.5: x = -242), so the cell is read against its siblings.
+    @Test func anOpenListCellIsTheOneOffTheSharedEdge() {
+        #expect(!RowSwipeActions.hasSlidCell([0, 0, 0, 0]))
+        #expect(RowSwipeActions.hasSlidCell([0, -242, 0, 0]))
+        #expect(RowSwipeActions.hasSlidCell([-242]), "a lone open row")
+        #expect(!RowSwipeActions.hasSlidCell([16, 16, 16]), "an inset list at rest")
+        #expect(RowSwipeActions.hasSlidCell([16, 16, -60, 16]))
+        #expect(!RowSwipeActions.hasSlidCell([]))
     }
 
     @Test func feedButtonsMatchListSwipeActions() {

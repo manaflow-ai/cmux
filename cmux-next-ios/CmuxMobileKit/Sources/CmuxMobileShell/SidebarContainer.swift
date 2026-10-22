@@ -121,6 +121,9 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
         pan.maximumNumberOfTouches = 1
         view.addGestureRecognizer(pan)
         view.addGestureRecognizer(EdgeSwipePriority())
+        // UIKit starts closing an open List row as the finger lands, before the pan asks to
+        // begin: whether a row was open is read at touch-down.
+        view.addGestureRecognizer(TouchDownProbe { [weak self] in self?.noteTouchDown() })
 
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]) { (self: Self, _) in
             self.strokeView.layer.borderColor = theme.colors.cardStroke.uiColor.resolvedColor(with: self.traitCollection).cgColor
@@ -326,9 +329,17 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
     /// Returns whether actions were open.
     private func closesOpenRowActions() -> Bool {
         let rows = RowSwipeActions.shared
-        guard rows.hasOpenRow || RowSwipeActions.hasOpenListRow(in: contentController.view) else { return false }
+        let listRowOpen = listRowOpenAtTouchDown || RowSwipeActions.hasOpenListRow(in: contentController.view)
+        guard rows.hasOpenRow || listRowOpen else { return false }
         rows.closeAll()
         return true
+    }
+
+    /// A `List` row was slid open when the current touch began.
+    private var listRowOpenAtTouchDown = false
+
+    private func noteTouchDown() {
+        listRowOpenAtTouchDown = !model.isOpen && RowSwipeActions.hasOpenListRow(in: contentController.view)
     }
 
     /// The drawer only opens from a tab root. Any navigation controller under
@@ -448,6 +459,25 @@ private final class EdgeSwipePriority: UIGestureRecognizer {
             }
             responder = current.next
         }
+    }
+}
+
+/// Reports each touch-down and fails at once: it never recognizes, delays
+/// or cancels touches.
+private final class TouchDownProbe: UIGestureRecognizer {
+    private let began: () -> Void
+
+    init(began: @escaping () -> Void) {
+        self.began = began
+        super.init(target: nil, action: nil)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        began()
+        state = .failed
     }
 }
 
