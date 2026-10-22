@@ -13,8 +13,21 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct NewTabStaysInItsPaneTests {
     @Test func cmdTInADockedChatsPaneAddsOneTabAfterTheSelectedOne() async throws {
+        try await addsOneTabAfterTheSelectedOneInADock(action: "newTab.default")
+    }
+
+    /// Option-click on the + (`StripNewTab.sameKindAction`, New <Kind> Tab) on a browser tab in the dock:
+    /// a browser tab in the dock, not in the strip column on its right.
+    @Test func optionPlusOnABrowserTabInADockAddsOneTabAfterTheSelectedOne() async throws {
+        try await addsOneTabAfterTheSelectedOneInADock(action: StripNewTab.sameKindAction)
+    }
+
+    /// Two browser tabs in an agent chat dock left of the main strip, the first selected; `action` runs on
+    /// the dock pane as the strip's + runs it (`StripNewTab.request`: a `.pane` target, origin `.user`).
+    private func addsOneTabAfterTheSelectedOneInADock(action: ActionID) async throws {
         try await PasswordManagerRouteTests.withApp { services, connection in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-new-tab-stays")
+            try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
             let window = try #require(services.windows.active)
             let strip = try #require(window.focusedPane)
             let store = services.daemon.store
@@ -48,7 +61,7 @@ struct NewTabStaysInItsPaneTests {
             let stripBefore = strip.orderedIDs.map(\.rawValue)
 
             let target = ActionTargetRef(kind: .pane, id: dockPane.paneKey)
-            #expect(services.registry.perform("newTab.default", invocation: ActionInvocation(target: target, origin: .user)))
+            #expect(services.registry.perform(action, invocation: ActionInvocation(target: target, origin: .user)))
 
             @MainActor func order() -> [String] { dockPane.orderedIDs.map(\.rawValue) }
             try await PasswordManagerRouteTests.until({ order().count == 3 && !order().contains(where: ProvisionalTab.isProvisional) },
