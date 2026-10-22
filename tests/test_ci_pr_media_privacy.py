@@ -1027,6 +1027,9 @@ class PublishWorkflowTests(unittest.TestCase):
     def test_only_the_action_in_the_pr_media_environment_reads_the_terms_secret(self) -> None:
         readers = set()
         for workflow, loaded in self.workflows():
+            with self.subTest(workflow=workflow):
+                # A workflow-level env reaches every job, so the terms are only ever read inside a job.
+                self.assertFalse(self.may_read_terms(self.text_of(loaded.get("env") or {})))
             for job_id, job in (loaded.get("jobs") or {}).items():
                 if not self.may_read_terms(self.text_of(job)):
                     continue
@@ -1152,6 +1155,9 @@ class PublishWorkflowTests(unittest.TestCase):
                 if uses.startswith("./.github/workflows/"):
                     todo.append((uses[2:].split("@")[0], True))
                 if job_id not in exempt:
+                    # Every job inherits the workflow's env.
+                    if doc.get("env"):
+                        job = {**job, "env": {**doc["env"], **(job.get("env") or {})}}
                     out.append((workflow, job_id, job))
         return out
 
@@ -1182,6 +1188,9 @@ class PublishWorkflowTests(unittest.TestCase):
                 "home": {"uses": "./.github/workflows/b2.yml", "secrets": "inherit"},
             }}),
             (".github/workflows/b2.yml", {"on": "workflow_call", "jobs": {"quiet": {"steps": []}}}),
+            (".github/workflows/f.yml", {True: {"issue_comment": None},
+                                         "env": {"TERMS": "${{ secrets.PR_MEDIA_PRIVATE_TERMS }}"},
+                                         "jobs": {"inherits": {"steps": [{"run": 'printf %s "$TERMS"'}]}}}),
             # The writer is exempt only when workflow_run fires it: not another job beside it, and not when an
             # untrusted event's workflow calls it.
             (".github/workflows/pr-media.yml", {True: {"workflow_run": None, "workflow_call": None}, "jobs": {
@@ -1193,6 +1202,7 @@ class PublishWorkflowTests(unittest.TestCase):
         self.assertEqual(found, [(".github/workflows/b.yml", "post")] + [
             (".github/workflows/d.yml", j) for j in ("all", "away", "case", "cond", "dyn", "fallback", "named", "open",
                                                      "output", "secret", "var")] + [
+            (".github/workflows/f.yml", "inherits"),
             (".github/workflows/pr-media.yml", "extra"), (".github/workflows/pr-media.yml", "extra"),
             (".github/workflows/pr-media.yml", "publish")])
 
