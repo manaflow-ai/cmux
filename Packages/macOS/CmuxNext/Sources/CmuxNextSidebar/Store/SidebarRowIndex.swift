@@ -183,7 +183,7 @@ nonisolated extension SidebarLayout {
     /// after the last group above them (Leo 2026-10-21). The one rule for every header kind.
     /// A remote group keeps it only while remote groups show (`sidebar.showRemoteGroups`, R2 of
     /// remote-groups-per-machine-DESIGN.md); hidden, its rows join the list like another computer's.
-    static func keepsHeaderInOneList(_ section: SidebarSection, options o: SidebarLayoutOptions) -> Bool {
+    static func keepsHeaderInOneList(_ section: SidebarSection, options o: SidebarLayoutOptions = SidebarLayoutOptions()) -> Bool {
         (section.isHostGroup && o.showsRemoteGroups) || section.machine?.id.isLocalChief == true
     }
 
