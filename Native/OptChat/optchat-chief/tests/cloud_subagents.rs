@@ -139,6 +139,20 @@ fn cloud_subagents_start_on_the_peer_and_take_no_local_slot() {
 }
 
 #[test]
+fn a_cloud_subagent_is_told_how_its_commits_land_without_a_git_credential() {
+    // The VM holds no GitHub credential: the subagent marks its worktree with
+    // `git config cmux.land BRANCH`, and the Chief host's pool tool (cmuxterm-hq
+    // tools/cloud-subagents deploy.sh land-requests) rebases and pushes it through
+    // the Mac when the VM pauses at the final report.
+    let text = cloud().task("a7", Some("~/fun/cmux"), "do it");
+    assert!(
+        text.contains("git -C /home/agent/work/a7 config cmux.land <branch>"),
+        "{text}"
+    );
+    assert!(text.contains("never a token"), "{text}");
+}
+
+#[test]
 fn the_cloud_folder_names_the_repo_of_a_mac_path() {
     use optchat_chief::subagents::cloud_repo;
     assert_eq!(cloud_repo(Some("~/fun/cmux")), Some("cmux".into()));
