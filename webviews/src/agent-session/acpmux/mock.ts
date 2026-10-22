@@ -215,6 +215,8 @@ export class MockAcpmuxSocket {
   private seq = 0;
   /// The images prompts sent, by id, as acpmux keeps them (`_acpmux/attachment`).
   private promptImages = new Map<string, { mimeType: string; data: string }>();
+  /// The attachments put ahead of their prompts (`_acpmux/attachment_put`), by id, with their chat.
+  private putAttachments = new Map<string, { sessionId: string; data: string }>();
   private turns = 0;
   private running?: { cancelled: boolean; target: string };
   /// Seeded sessions whose turn is still open (running, or waiting on a permission).
@@ -381,6 +383,7 @@ export class MockAcpmuxSocket {
             // The mock stands in for the local daemon, which names the app's connection local.
             acpmux: {
               origin: "local",
+              extensions: ["_acpmux/attachment_put"],
               operations: [FORK_OP, ...Object.values(HANDOFF_OPS)],
               handoff: { maxCapsuleBytes: 65536 },
             },
@@ -471,6 +474,11 @@ export class MockAcpmuxSocket {
       }
       case "_acpmux/events":
         return this.page(target, params);
+      case "_acpmux/attachment_put": {
+        const id = `put-${this.putAttachments.size + 1}`;
+        this.putAttachments.set(id, { sessionId: target, data: String(params.data ?? "") });
+        return { id };
+      }
       case "_acpmux/attachment": {
         // Only an image the session's own log names, as acpmux reads it.
         const id = String(params.id ?? "");
@@ -520,6 +528,20 @@ export class MockAcpmuxSocket {
         return { sessionId: created.sessionId };
       }
       case "session/prompt": {
+        // A block naming a put attachment gets its bytes back, as acpmux does; one this chat did
+        // not put refuses the prompt.
+        for (const block of Array.isArray(params.prompt) ? params.prompt : []) {
+          const uri = typeof block?.uri === "string" ? block.uri : "";
+          if (!uri.startsWith("acpmux-attachment:")) continue;
+          const put = this.putAttachments.get(uri.slice("acpmux-attachment:".length));
+          if (put?.sessionId !== target)
+            throw Object.assign(new Error("attachment is not kept for this chat"), {
+              code: -32602,
+              data: { reason: "attachment.missing" },
+            });
+          delete block.uri;
+          block.data = put.data;
+        }
         const text = String(params.prompt?.[0]?.text ?? "");
         const promptId = params._meta?.acpmux?.promptId;
         // acpmux keeps each image once and names it in the prompt's user_message.

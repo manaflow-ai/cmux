@@ -356,6 +356,78 @@ async fn a_queued_prompts_images_are_listed_and_read_back_before_it_runs() {
     assert_eq!(answer["result"]["stopReason"], "end_turn", "{answer}");
 }
 
+/// Images and PDFs go ahead of their prompt (`_acpmux/attachment_put`) and the prompt names them,
+/// so no prompt frame carries their bytes: a six-screenshot prompt passed the WebSocket frame
+/// limit and reset the chat's connection (2026-10-20). Another chat cannot name them.
+#[tokio::test]
+async fn an_attachment_put_ahead_goes_with_the_prompt_that_names_it() {
+    use base64::Engine;
+    let id = sha256_hex(&base64::engine::general_purpose::STANDARD.decode(PNG).unwrap());
+
+    let hub = hub(&store("attachment-put"));
+    let mut c = client(&hub);
+    let session = new_session(&mut c).await;
+    let other = new_session(&mut c).await;
+
+    let put = c
+        .call(
+            "_acpmux/attachment_put",
+            json!({"sessionId": session, "mimeType": "image/png", "data": PNG}),
+        )
+        .await;
+    assert_eq!(put["result"], json!({"id": id}), "{put}");
+    // Only what a prompt carries.
+    let refused = c
+        .call(
+            "_acpmux/attachment_put",
+            json!({"sessionId": session, "mimeType": "text/html", "data": PNG}),
+        )
+        .await;
+    assert!(refused.get("error").is_some(), "{refused}");
+
+    let named = |session: &str| {
+        json!({"sessionId": session, "prompt": [
+            {"type": "text", "text": "what is this"},
+            {"type": "image", "mimeType": "image/png", "uri": format!("acpmux-attachment:{id}"), "name": "shot.png"}
+        ]})
+    };
+    let reply = c.call("session/prompt", named(&session)).await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    // The prompt got the image's bytes back: acpmux keeps and names them as for an inline image.
+    let sent = user_messages(&mut c, &session).await;
+    assert_eq!(sent[0]["images"], json!([{"id": id, "mimeType": "image/png", "name": "shot.png"}]));
+    let read = c.call("_acpmux/attachment", json!({"sessionId": session, "id": id})).await;
+    assert_eq!(read["result"]["data"], json!(PNG), "{read}");
+
+    // Another chat never put it: its prompt is refused, not sent without the image.
+    let refused = c.call("session/prompt", named(&other)).await;
+    assert_eq!(refused["error"]["data"]["reason"], json!("attachment.missing"), "{refused}");
+    assert!(user_messages(&mut c, &other).await.is_empty());
+}
+
+/// A put attachment is read back whole in one reply (`_acpmux/attachment`), so it stays under the
+/// message bound with its base64: at most 10 MiB, the pane's per-file cap. A bigger one is
+/// refused alone, with a reason, before acpmux keeps it.
+#[tokio::test]
+async fn an_attachment_put_over_ten_mib_is_refused_with_a_reason() {
+    let hub = hub(&store("attachment-put-cap"));
+    let mut c = client(&hub);
+    let session = new_session(&mut c).await;
+    let base64_of = |bytes: usize| "A".repeat(bytes / 3 * 4);
+    let put =
+        |data: String| json!({"sessionId": session, "mimeType": "application/pdf", "data": data});
+
+    let fits = c.call("_acpmux/attachment_put", put(base64_of(10 << 20))).await;
+    assert!(fits["result"]["id"].is_string(), "a 10 MiB PDF was refused");
+    let refused = c.call("_acpmux/attachment_put", put(base64_of(11 << 20))).await;
+    assert_eq!(
+        refused["error"]["data"]["reason"],
+        json!("attachment.tooLarge"),
+        "{}",
+        refused["error"]
+    );
+}
+
 /// A text block the composer marks as pasted (`_meta.cmux.pasted`).
 fn pasted(text: &str) -> Value {
     json!({"type": "text", "text": text, "_meta": {"cmux": {"pasted": true}}})
