@@ -155,7 +155,18 @@ public final class HomeSidebarView: NSView {
             noteLabel.isHidden = model.note == nil
             needsLayout = true
         }
+        onContentChange()
     }
+
+    /// The list holds at most one conversation and nothing under it (no note, no Message Requests):
+    /// avatars only, it would be one avatar in an empty band (`HomeSidebarSplitView` folds it then).
+    /// The New Message draft row does not count: it comes and goes with the page.
+    public var holdsOneConversation: Bool {
+        model.pinned.count + model.rows.count <= 1 && noteLabel.isHidden && requestsButton.isHidden
+    }
+
+    /// ``holdsOneConversation`` may have changed (the split view lays out again).
+    var onContentChange: () -> Void = {}
 
     /// Shows or removes the New Message draft row (first under the pinned
     /// grid, no time, as in Messages).
@@ -228,6 +239,7 @@ public final class HomeSidebarView: NSView {
         if requestsButton.isHidden != (count == 0) {
             requestsButton.isHidden = count == 0
             needsLayout = true
+            onContentChange()
         }
     }
 
@@ -389,9 +401,11 @@ public final class HomeSidebarView: NSView {
     /// `JSONSerialization` graph: the list's `width` and the `header` (each frame as [x, y, width,
     /// height], `compact`, `buttonsCovered`, and `chatCompose`, the chat's compose button in window
     /// points from the top-left or NSNull while hidden); nil when `select` names no row, and
-    /// nothing changes then.
+    /// nothing changes then. `buttons` is the compose and Unread buttons' glyph state
+    /// (`HomeHeaderButton.debugState`) as the call found it (`before`) and after its layout.
     public func debugLook(width: Double?, select: Int?, unread: Bool?, search: Bool?) -> [String: Any]? {
         if let select, !model.rows.indices.contains(select) { return nil }
+        let before = [compose, unreadToggle].map(\.debugState)
         let split = superview as? HomeSidebarSplitView
         if let width { split?.setWidth(width) }
         if let select {
@@ -411,7 +425,8 @@ public final class HomeSidebarView: NSView {
         return ["width": Double(split?.sidebarWidth ?? bounds.width),
                 "header": ["search": frame(h.search), "filter": frame(h.filter), "compose": frame(h.compose),
                            "compact": h.compact, "buttonsCovered": h.buttonsCovered,
-                           "chatCompose": frame(chat)] as [String: Any]]
+                           "chatCompose": frame(chat)] as [String: Any],
+                "buttons": ["before": before, "after": [compose, unreadToggle].map(\.debugState)]]
     }
     #endif
 

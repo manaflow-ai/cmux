@@ -1,5 +1,7 @@
 import AppKit
+import CmuxNextDesign
 @testable import CmuxNextHome
+import CmuxTheme
 @testable import MessagesLabSidebar
 import Testing
 
@@ -69,5 +71,50 @@ struct HomeSidebarHeaderTests {
         home.unreadToggle.performClick(nil)
         #expect(home.list.controller.filter == .all)
         #expect(!home.unreadToggle.isOn)
+    }
+
+    /// live-qa on nightly 3a63d6d: in light mode the compose and filter glyphs did not draw at all.
+    /// A button has its glyph from the start and at its size as soon as the header sets its frame,
+    /// without waiting for the button's own layout pass.
+    @Test func theGlyphIsThereBeforeAnyLayout() throws {
+        let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
+        for button in [home.compose, home.unreadToggle] {
+            #expect(button.image != nil, "\(button.accessibilityIdentifier()) has no glyph before layout")
+            button.frame = NSRect(x: 0, y: 0, width: 28, height: 28)
+            #expect(button.glyphSize == 14, "the glyph waited for layout() to take the 28 pt button's size")
+            #expect(button.image != nil)
+        }
+    }
+
+    /// A light/dark switch of the scope the list draws in rebuilds each header glyph in the new
+    /// tint (the theme's secondary text): a new image, never the dark one left on screen.
+    @Test func theHeaderGlyphsAreRebuiltOnALightDarkSwitch() throws {
+        let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
+        let scope = ThemeScope(level: .room)
+        scope.root(home)
+        func paint(background: UInt32, foreground: UInt32) throws {
+            let input = ThemeInput(background: ThemeRGB(hex: background), foreground: ThemeRGB(hex: foreground))
+            scope.setOverride(try #require(ThemeSpec("Home Header Glyphs")), input: input, animated: false)
+            home.layoutSubtreeIfNeeded()
+            home.list.headerView.needsLayout = true
+            home.list.headerView.layoutSubtreeIfNeeded()
+        }
+        let buttons = [home.compose, home.unreadToggle]
+        try paint(background: 0x1C1C1F, foreground: 0xE6E6E6)
+        #expect(scope.tokens.isDark)
+        let dark = try buttons.map { button in (image: try #require(button.image), tint: try #require(button.glyphTint)) }
+
+        try paint(background: 0xFEFFFF, foreground: 0x1C1C1F)
+        #expect(!scope.tokens.isDark)
+        for (button, before) in zip(buttons, dark) {
+            let name = button.accessibilityIdentifier()
+            let image = try #require(button.image, "\(name) lost its glyph on the switch to light")
+            #expect(image !== before.image, "\(name) kept its dark glyph image")
+            let tint = try #require(button.glyphTint)
+            #expect(tint != before.tint, "\(name) kept its dark tint")
+            #expect(tint == button.performWithTheme { Palette.textSecondary })
+            #expect(button.contentTintColor == tint)
+            #expect(button.glyphSize == 14)
+        }
     }
 }
