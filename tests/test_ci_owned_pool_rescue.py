@@ -2733,5 +2733,58 @@ class Workflow(unittest.TestCase):
                              rescue.JOB_TIMEOUT_SECONDS - rescue.JOB_TIMEOUT_MARGIN_SECONDS)
 
 
+
+class BotRerunRouteTests(unittest.TestCase):
+    """Where the bot's re-run of failed jobs sends a leg still queued on an owned label.
+
+    queue_janitor.py's unclaimed-leg rule (run 39652497071's cmux-tui macOS leg, queued 18:25Z to 00:37Z on
+    glaeda-side-std-xcode-26.6) re-runs a run only when that re-run leaves the owned pool.
+    """
+
+    def test_a_side_lane_attempt_1_goes_to_its_blacksmith_default(self):
+        for path in (".github/workflows/cmux-tui.yml", ".github/workflows/remote-daemon.yml"):
+            with self.subTest(path=path):
+                self.assertTrue(rescue.bot_rerun_leaves_owned(path, 1))
+                self.assertTrue(rescue.bot_rerun_leaves_owned(path, 2))
+
+    def test_cmux_next_stays_on_the_minis_until_its_refusal_attempt(self):
+        path = rescue.CMUX_NEXT_WORKFLOW_PATH
+        self.assertFalse(rescue.bot_rerun_leaves_owned(path, 1))
+        self.assertFalse(rescue.bot_rerun_leaves_owned(path, rescue.REFUSAL_RESCUE_ATTEMPT - 1))
+        self.assertTrue(rescue.bot_rerun_leaves_owned(path, rescue.REFUSAL_RESCUE_ATTEMPT))
+
+    def test_ci_reuses_attempt_1s_owned_labels_on_attempt_2(self):
+        self.assertFalse(rescue.bot_rerun_leaves_owned(rescue.CI_WORKFLOW_PATH, 1))
+        self.assertTrue(rescue.bot_rerun_leaves_owned(rescue.CI_WORKFLOW_PATH, rescue.LAST_OWNED_ATTEMPT))
+
+    def test_dispatches_take_their_retry_label_except_an_e2e_ui_run(self):
+        self.assertTrue(rescue.bot_rerun_leaves_owned(rescue.IOS_TEST_WORKFLOW_PATH, 1))
+        # A UI run's retry_label stays on its owned pool, and the path cannot tell a UI run apart.
+        self.assertFalse(rescue.bot_rerun_leaves_owned(rescue.E2E_WORKFLOW_PATH, 1))
+
+    def test_an_unwatched_or_release_workflow_is_never_moved(self):
+        self.assertFalse(rescue.bot_rerun_leaves_owned(".github/workflows/unknown.yml", 1))
+        for path in rescue.UNRESCUED_WORKFLOW_PATHS:
+            with self.subTest(path=path):
+                self.assertFalse(rescue.bot_rerun_leaves_owned(path, 1))
+        self.assertFalse(rescue.bot_rerun_leaves_owned(rescue.NIGHTLY_WORKFLOW_PATH, 1))
+        # The autofix Mac exports keep their session or gui label on every attempt.
+        for path in rescue.OWNED_EVERY_ATTEMPT_PATHS:
+            with self.subTest(path=path):
+                self.assertIn(path, rescue.SIDE_WORKFLOW_PATHS)
+                self.assertFalse(rescue.bot_rerun_leaves_owned(path, 5))
+
+    def test_cmux_tui_macos_legs_take_blacksmith_on_any_later_attempt(self):
+        # The route bot_rerun_leaves_owned() relies on: every macOS runner expression in cmux-tui.yml takes
+        # CI_SIDE_LANE_RUNNER only on attempt 1 and falls back to a Blacksmith macOS label otherwise.
+        text = (ROOT / ".github/workflows/cmux-tui.yml").read_text(encoding="utf-8")
+        legs = [line for line in text.splitlines() if "vars.CI_SIDE_LANE_RUNNER" in line]
+        self.assertTrue(legs)
+        for line in legs:
+            with self.subTest(line=line.strip()[:60]):
+                self.assertIn("github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-", line)
+                self.assertIn("macos", line.rsplit("||", 1)[1])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
