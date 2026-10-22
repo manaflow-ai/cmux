@@ -72,11 +72,13 @@ extension AgentTabStore {
     /// the chat (``AgentChangesPane``): the open one shows that turn and takes focus, else one opens.
     private func openChanges(_ row: String, tool: String?, at path: String?, of session: String, beside provisional: String) -> Bool {
         let changes = AgentChangesPane.session(session), reveal = AgentChangesPane.reveal(session: session, row: row, tool: tool, path: path)
-        // The open changes tab, while it still shows this chat (a tab can move to another chat).
-        if let open = changes.tab(isOpen: { [weak self] key in
-            guard let self, locate(key) != nil else { return false }
+        // A tab shows this chat until it moves to another one.
+        let showsChat: @MainActor (String) -> Bool = { [weak self] key in
+            guard let self else { return false }
             return views[resolve(key)]?.model.sessionId.map { $0 == session } ?? true
-        }) {
+        }
+        // The open changes tab, while it still shows this chat.
+        if let open = changes.tab(isOpen: { [weak self] key in self?.locate(key) != nil && showsChat(key) }) {
             revealTurn(reveal, in: open)
             _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: resolve(open)), origin: .user))
             return true
@@ -84,7 +86,8 @@ extension AgentTabStore {
         // A tab already being made shows this request's turn once it exists.
         guard changes.begin(reveal) else { return true }
         let opened = openBeside(provisional, main: provisional, open: { [weak self] pane, daemon in guard let self else { throw CancellationError() }; return try open(in: pane, of: daemon, session: session) },
-                                created: { [weak self] key in self?.revealTurn(changes.made(key) ?? reveal, in: key) }, finished: { _ in changes.ended() })
+                                // A tab moved to another chat before it was made is an ordinary chat (``AgentChangesPane/left(_:isTab:)``).
+                                created: { [weak self] key in if showsChat(key) { self?.revealTurn(changes.made(key) ?? reveal, in: key) } else { changes.ended() } }, finished: { _ in changes.ended() })
         if !opened { changes.ended() }
         return opened
     }
