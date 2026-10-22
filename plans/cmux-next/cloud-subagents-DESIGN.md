@@ -275,3 +275,19 @@ delete waits for that push.
   after it is refused.
 - cmuxterm-hq `tools/cloud-subagents/deploy.test.ts`: names, sizes and
   grow-only resize, spend from the ledger, the budget guard, the unpushed check.
+
+### Proof (2026-10-22)
+
+- Base snapshot `sh-dd4deeb66bdd4d25be4f1473ad29195a`: 7.44 GB used of 16 GB
+  (cmux feat-cmux-next fe14026207, Claude Code 2.1.308).
+- `deploy.sh resume chief-sub-a9464 --size small`: VM up, on the tailnet and an
+  acpmux peer of the Mac in 7.1 s.
+- A real Claude Code session on that peer (`acpmux run --host chief-sub-a9464`)
+  made a worktree and committed; `deploy.sh land` pushed it plain to
+  feat-cmux-next as c54e51c9c1d (that file clashed in case with
+  cloud-subagents-PROOF.md and was removed again; its text is this section).
+- `deploy.sh disk`: 8.49 GB used, 1.05 GB its own (0.93 GB the worktree).
+- `deploy.sh destroy`: first refused (the VM's origin refs did not have the
+  Mac's push yet: the check now fetches first), then deleted the VM, the
+  peer and the tailnet device. Cost of the whole proof: 0.0077 USD.
+- Tests: red run 39725656487 (fails), green run 39725658965 (passes).
