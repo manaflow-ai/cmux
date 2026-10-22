@@ -50,11 +50,18 @@ const identity = async (b: ChiefBrainDO): Promise<Access> => {
 }
 
 /** Grants this Chief's identity VM `vm` as LINUX_USERS (once per VM). */
-export const grant = async (b: ChiefBrainDO, vm: string): Promise<void> => {
+export const grant = async (b: ChiefBrainDO, vm: string, retried = false): Promise<void> => {
   const a = await identity(b)
   if (a.granted.includes(vm)) return
   const res = await freestyle(b.doEnv, "POST", `/v5/identities/${encodeURIComponent(a.identity)}/permissions/vm`, { vmId: vm, allowedLinuxUsers: [...LINUX_USERS] })
   await drain(res)
+  // 404 on the grant: when the identity itself is gone at Freestyle (deleted outside the Worker), forget it and
+  // grant once on a new one; a missing VM leaves the identity alone.
+  if (res.status === 404 && !retried) {
+    const who = await freestyle(b.doEnv, "GET", `/v5/identities/${encodeURIComponent(a.identity)}`, undefined, 10_000).catch(() => null)
+    await drain(who)
+    if (who?.status === 404) return write(b, null), grant(b, vm, true)
+  }
   // 409: granted already (an earlier call whose answer was lost).
   if (!res.ok && res.status !== 409) throw new CcError(`grant: ${res.status}`)
   // Read again: only the identity this grant was made on records it, and nothing written meanwhile is lost.
@@ -107,6 +114,7 @@ export const execAs = async (b: ChiefBrainDO, vm: string, x: ExecIn, retried = f
   if ((res.status === 401 || res.status === 403) && !retried) {
     await drain(res)
     const a = read(b)
+    if (a?.token_id) await drain(await freestyle(b.doEnv, "DELETE", `/v5/identities/${encodeURIComponent(a.identity)}/tokens/${encodeURIComponent(a.token_id)}`).catch(() => null))
     if (a) write(b, { identity: a.identity, granted: a.granted.filter((v) => v !== vm) })
     return execAs(b, vm, x, true)
   }

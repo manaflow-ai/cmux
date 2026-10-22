@@ -130,6 +130,7 @@ const fakeCloud = (answer: (prompt: string, n: number) => string, during?: (s: S
       }
       const it = who ? identities.get(who) : undefined
       if (!it) return Response.json({ code: "NOT_FOUND", message: "no such identity" }, { status: 404 })
+      if (!kind && req.method === "GET") return Response.json({ id: who, managed: false })
       if (!kind && req.method === "DELETE") {
         identities.delete(who!)
         for (const t of tokens.values()) if (t.identity === who) t.revoked = true
@@ -785,6 +786,10 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
         seen.update = await call(s, { action: "update", id, name: "builder-2", idle_seconds: 900 })
         seen.exec = await call(s, { action: "exec", id, command: "printenv GREETING; cat", env: { GREETING: "hi" }, stdin: btoa("from stdin") })
         seen.badEnv = await call(s, { action: "exec", id, command: "true", env: { "1BAD": "x" } })
+        seen.bigStdin = await call(s, { action: "exec", id, command: "cat", stdin: "A".repeat(190_000) })
+        // The identity is deleted at Freestyle behind the Worker's back: the next exec makes a new one and works.
+        for (const k of [...cloud.identities.keys()]) cloud.identities.delete(k)
+        seen.afterLoss = await call(s, { action: "exec", id, command: "echo back" })
         seen.pause = await call(s, { action: "pause", id })
         seen.paused = await call(s, { action: "get", id })
         seen.start = await call(s, { action: "start", id })
@@ -797,13 +802,17 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
       }
     )
     const before = testEnv.CHIEF_CC_SANDBOX_CAPS
+    const beforeCap = testEnv.CHIEF_CC_SANDBOX_CAP
     const { token, chief } = await enabledChief("chief-cc-sandbox-life", "cc")
-    testEnv.CHIEF_CC_SANDBOX_CAPS = `agent_unrelated=9,${chief.id}=2`
+    // An empty per-Chief entry and an empty global value fall back to the default cap of 2 (never 0).
+    testEnv.CHIEF_CC_SANDBOX_CAPS = `agent_unrelated=9,${chief.id}=`
+    testEnv.CHIEF_CC_SANDBOX_CAP = ""
     try {
       expect((await send(token, chief.main_conversation, "l1", "lifecycle")).ok).toBe(true)
       await replies(token, chief.main_conversation, chief.id, 1)
     } finally {
       before === undefined ? delete testEnv.CHIEF_CC_SANDBOX_CAPS : (testEnv.CHIEF_CC_SANDBOX_CAPS = before)
+      beforeCap === undefined ? delete testEnv.CHIEF_CC_SANDBOX_CAP : (testEnv.CHIEF_CC_SANDBOX_CAP = beforeCap)
     }
     const id = seen.made.body.vm.id
     const made = cloud.made.find((m) => m.id === id)!
@@ -817,6 +826,11 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     expect(cloud.patches).toContainEqual({ vm: id, body: { displayName: "builder-2", idleTimeoutSeconds: 900 } })
     expect(seen.exec).toMatchObject({ status: 200, body: { exit: 0, stdout: "hi\nfrom stdin" } })
     expect(seen.badEnv.status).toBe(400)
+    expect(seen.bigStdin.status).toBe(400)
+    expect(seen.bigStdin.body.error).toMatch(/fs put/)
+    expect(seen.afterLoss).toMatchObject({ status: 200, body: { stdout: "back\n" } })
+    // Every new sandbox gets the chief user that exec --user chief runs as.
+    expect(cloud.execs.some((e) => e.vm === id && e.command === "id chief >/dev/null 2>&1 || useradd -m -s /bin/bash chief")).toBe(true)
     expect(seen.pause.body).toMatchObject({ state: "paused" })
     expect(seen.paused.body.vm.state).toBe("paused")
     expect(seen.start.body).toMatchObject({ state: "running" })
