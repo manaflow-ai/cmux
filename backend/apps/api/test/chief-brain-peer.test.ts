@@ -81,7 +81,7 @@ describe("Chief brain peer notes", { timeout: 120_000 }, () => {
     expect(sent.json.value).toEqual({ conversation: chief.main_conversation, queued: true })
     const [reply] = await chiefReplies(token, chief.main_conversation, chief.id, 1)
     expect(reply.parts[0].text).toContain("[chief:mac-chief] ping from the Mac Chief")
-    expect(reply.parts[0].text).toContain("hub post agent:mac-chief")
+    expect(reply.parts[0].text).toContain("not the person's word")
 
     // A retried forward with the same key queues nothing.
     expect((await http("POST", `/v1/chiefs/${chief.id}/peer`, token, note)).json.value.queued).toBe(false)
