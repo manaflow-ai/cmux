@@ -29,6 +29,8 @@ public nonisolated enum SidebarSectionsSetting {
     public static let detailedStatusIconsPath = ["sidebar", "detailedStatusIcons"]
     public static let showTimestampsPath = ["sidebar", "showTimestamps"]
     public static let showLocalMachinePath = ["sidebar", "showLocalMachine"]
+    /// `sidebar.showRemoteGroups` (remote-groups-per-machine-DESIGN.md R2).
+    public static let showRemoteGroupsPath = ["sidebar", "showRemoteGroups"]
     public static let groupHeaderMemberCountPath = ["sidebar", "groupHeader", "memberCount"]
     public static let groupHeaderUnreadCountPath = ["sidebar", "groupHeader", "unreadCount"]
 
@@ -68,6 +70,15 @@ public nonisolated enum SidebarSectionsSetting {
                                                    "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showLocalMachine),
                           keywords: ["sidebar", "machine", "computer", "this mac", "local", "icon", "color", "remote", "identity"])
+    }
+
+    static func showRemoteGroupsDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(showRemoteGroupsPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.showRemoteGroups", "Show Remote Groups"),
+                          help: SettingsText.keyed("settings.sidebar.showRemoteGroups.help",
+                                                   "Each remote group shows as its own section under the computer's icon and name. Off, its workspaces join the one list and still run on that computer."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showsRemoteGroups),
+                          keywords: ["sidebar", "remote", "group", "machine", "computer", "mac mini", "server", "cloud", "vm", "hide", "show"])
     }
 
     static func showTimestampsDescriptor(group: SettingText) -> SettingDescriptor {
@@ -268,6 +279,7 @@ public nonisolated enum SidebarSectionsSetting {
         result.detailedStatusIcons = flag(root, detailedStatusIconsPath, fallback: result.detailedStatusIcons, &diagnostics)
         result.showTimestamps = flag(root, showTimestampsPath, fallback: result.showTimestamps, &diagnostics)
         result.showLocalMachine = flag(root, showLocalMachinePath, fallback: result.showLocalMachine, &diagnostics)
+        result.showsRemoteGroups = flag(root, showRemoteGroupsPath, fallback: result.showsRemoteGroups, &diagnostics)
         result.groupHeaderMemberCount = flag(root, groupHeaderMemberCountPath, fallback: result.groupHeaderMemberCount, &diagnostics)
         result.groupHeaderUnreadCount = flag(root, groupHeaderUnreadCountPath, fallback: result.groupHeaderUnreadCount, &diagnostics)
         result.priorityViewEnabled = flag(root, SidebarPriorityViewSetting.enabledPath, fallback: result.priorityViewEnabled, &diagnostics)

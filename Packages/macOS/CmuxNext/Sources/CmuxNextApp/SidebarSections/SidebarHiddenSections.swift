@@ -74,6 +74,8 @@ enum SidebarHiddenSections {
         }
         let pieces: [(hide: ActionID, show: ActionID, path: [String], shown: @MainActor @Sendable () -> Bool, offered: @MainActor @Sendable (ActionTargetRef?) -> Bool)] = [
             ("sidebar.spaces.hide", "sidebar.spaces.show", SidebarSectionsSetting.showSpacesPath, { settings().showSpaces }, { _ in true }),
+            ("sidebar.remoteGroups.hide", "sidebar.remoteGroups.show", SidebarSectionsSetting.showRemoteGroupsPath,
+             { settings().showsRemoteGroups }, { _ in true }),
             ("sidebar.profileControl.hide", "sidebar.profileControl.show", SidebarSectionsSetting.showProfileControlPath,
              { settings().showProfileControl }, isProfileButton),
         ]

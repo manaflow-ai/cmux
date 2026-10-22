@@ -226,6 +226,20 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu],
                 surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 110)])
             ),
+            // Remote groups (remote-groups-per-machine-DESIGN.md R2, `sidebar.showRemoteGroups`): hidden,
+            // their workspaces join the one list; nothing disconnects.
+            ActionDescriptor(
+                id: "sidebar.remoteGroups.hide", title: t("action.sidebar.remoteGroups.hide", "Hide Remote Groups"),
+                keywords: ["sidebar", "remote", "group", "machine", "computer", "mac mini", "server", "cloud", "hide"],
+                category: .sidebar, symbol: "eye.slash", surfaces: [.palette, .keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 120), p(.sidebarSection, .view, 110)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.remoteGroups.show", title: t("action.sidebar.remoteGroups.show", "Show Remote Groups"),
+                keywords: ["sidebar", "remote", "group", "machine", "computer", "mac mini", "server", "cloud", "show", "unhide"],
+                category: .sidebar, symbol: "eye", surfaces: [.palette, .keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 120)])
+            ),
             // Leo (cx-wab7m): the bottom band's pieces hide the macOS way, Hide on the piece's
             // own menu and Show on the band's (`sidebar.showSpaces`, `sidebar.showProfileControl`).
             ActionDescriptor(

@@ -4,20 +4,22 @@ import CmuxNextIcons
 import QuartzCore
 
 final class SectionHeaderRowView: SidebarRowView {
+    /// A machine's form glyph (`SidebarMachineForm`: cloud, Mac mini, laptop, server) before the
+    /// name, in place of the old status dot; hidden when the machine has its own icon.
     private let glyph = DecorativeImageView()
+    /// The form `glyph` draws; nil while it is hidden (tests).
+    private(set) var leadingGlyph: IconName?
     /// The machine's own icon (`SidebarMachine.icon`) before the name; hidden without one.
     private let machineIcon = SidebarIconView()
     private let name = SidebarRowView.label(font: SidebarStyle.headerFont)
-    private let status = CALayer()
-    /// "Update needed" after the status dot, for a machine whose cmux-tui
-    /// is too old (the tooltip says why).
+    /// The machine's state in words after the name ("Offline", "Update needed"), never "Connected";
+    /// the tooltip says why.
     private let badge = SidebarRowView.label(font: SidebarStyle.headerFont)
     private var badgeText: String?
     private let chevron = DecorativeImageView()
     let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 }, label: Strings.newWorkspace)
-    /// The machine status dot's color, resolved in `updateLayer`.
-    private enum StatusTone { case success, attention, quiet, danger }
-    private var statusTone: StatusTone?
+    /// The machine is not connected: its glyph, icon and name draw dimmed.
+    private(set) var isDimmed = false
     private var collapsed = false
     /// No workspaces: nothing to fold, so hover shows no chevron (cx-odqn).
     private var isEmpty = false
@@ -29,7 +31,6 @@ final class SectionHeaderRowView: SidebarRowView {
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
-        layer?.addSublayer(status)
         [glyph, machineIcon, name, badge, chevron, addButton].forEach(addSubview)
         // The header's label and AXExpanded say what the glyph and chevron draw.
         addButton.onPress = { [weak self] in self?.onAdd?() }
@@ -68,33 +69,20 @@ final class SectionHeaderRowView: SidebarRowView {
         }
     }
 
-    /// The header's tooltip: what a bare status dot means in words ("Offline"). Where the words
-    /// already show beside the dot (a remote group, an update state) or no dot draws (This Mac),
-    /// only the detail an update state carries.
+    /// The header's tooltip: the state in words when no words show beside the name (a connected
+    /// machine other than This Mac); where the words show, or for This Mac, only the detail an
+    /// update state carries.
     static func statusToolTip(words: String, detail: String?, bareDot: Bool) -> String? {
         guard bareDot else { return detail }
         guard let detail, !detail.isEmpty else { return words }
         return words + " — " + detail
     }
 
-    /// The status text beside a machine header's dot. A remote group (remote-groups-DESIGN.md slice 5)
-    /// names every state, Connected and Offline included; another machine only what needs attention.
-    static func statusText(_ status: SidebarMachine.Status, hostGroup: Bool) -> String? {
-        switch status {
-        case .connected: hostGroup ? Strings.statusConnected : nil
-        case .connecting: hostGroup ? Strings.statusConnecting : nil
-        case .offline: hostGroup ? Strings.statusOffline : nil
-        case .updateAvailable: Strings.statusUpdateAvailable
-        case .reconnecting: Strings.statusReconnecting
-        case .updateRequired: Strings.statusUpdateRequired
-        case .installRequired: Strings.statusInstallRequired
-        case .installing: Strings.statusInstalling
-        case .authFailed: Strings.statusAuthFailed
-        case .unreachable: Strings.statusUnreachable
-        case .failed: Strings.statusFailed
-        case .paused: Strings.statusPaused
-        case .pausedIdle: Strings.statusPausedIdle
-        }
+    /// The words after a machine header's name. Minimal (remote-groups-per-machine-DESIGN.md R1): a
+    /// connected machine says nothing, and every other state says itself, remote group or not, now
+    /// that no status dot draws. `hostGroup` is kept for callers; both kinds follow one rule.
+    static func statusText(_ status: SidebarMachine.Status, hostGroup _: Bool) -> String? {
+        status == .connected ? nil : statusWords(status)
     }
 
     /// The header's tooltip: the status words or detail, then a Cloud
@@ -114,41 +102,31 @@ final class SectionHeaderRowView: SidebarRowView {
         cost = nil
         collapsed = row.isCollapsed
         isEmpty = content.isEmpty
-        let symbol: IconName
+        var symbol: IconName?
         var title: String
         var ownIcon: WorkspaceIcon?
+        var dimmed = false
         switch section.kind {
         case .pinned:
             symbol = .statePinned
             title = Strings.pinned
-            statusTone = nil
             badgeText = nil
             themedToolTip = nil
         case let .custom(custom):
             // A document section's own title (sidebar-v2); Pinned draws no header.
             symbol = custom.id == SidebarDocStore.pinnedSection ? .statePinned : .folder
             title = custom.title ?? ""
-            statusTone = nil
             badgeText = nil
             themedToolTip = nil
         case let .machine(machine):
-            switch machine.kind {
-            case .local: symbol = .machineLocal
-            case .cloud: symbol = .cloud
-            case .ssh, .server: symbol = .machineRemote
-            }
+            symbol = SidebarMachineForm(machine).icon
             title = machine.name
             ownIcon = machine.icon
-            switch (machine.kind, machine.status) {
-            case (.local, .connected): statusTone = nil
-            case (_, .connected), (_, .updateAvailable): statusTone = .success
-            case (_, .connecting), (_, .reconnecting), (_, .installing), (_, .installRequired): statusTone = .attention
-            case (_, .offline), (_, .paused), (_, .pausedIdle): statusTone = .quiet
-            case (_, .updateRequired), (_, .authFailed), (_, .unreachable), (_, .failed): statusTone = .danger
-            }
+            dimmed = machine.status != .connected && machine.status != .updateAvailable
             let words = Self.statusWords(machine.status)
             badgeText = Self.statusText(machine.status, hostGroup: section.isHostGroup)
-            statusTip = Self.statusToolTip(words: words, detail: machine.detail, bareDot: statusTone != nil && badgeText == nil)
+            let saysNothing = badgeText == nil && !(machine.kind == .local && machine.status == .connected)
+            statusTip = Self.statusToolTip(words: words, detail: machine.detail, bareDot: saysNothing)
             cost = machine.kind == .cloud ? machine.cost : nil
             themedToolTip = Self.machineToolTip(status: statusTip, cost: cost, now: Date())
             setAccessibilityLabel(machine.name + ", " + words)
@@ -159,7 +137,8 @@ final class SectionHeaderRowView: SidebarRowView {
         if row.titlesProjects {
             title = Strings.projects
             ownIcon = nil
-            statusTone = nil
+            symbol = nil
+            dimmed = false
             badgeText = nil
             statusTip = nil
             cost = nil
@@ -167,7 +146,11 @@ final class SectionHeaderRowView: SidebarRowView {
             setAccessibilityHelp(nil)
         }
         if section.machine == nil || row.titlesProjects { setAccessibilityLabel(title) }
-        glyph.image = NSImage.icon(symbol, size: .iconRowSize(forLabelPointSize: SidebarStyle.headerFont.pointSize))
+        // The pinned and custom headers keep text only; a machine draws its form unless it has its own icon.
+        if section.machine == nil || ownIcon != nil { symbol = nil }
+        leadingGlyph = symbol
+        isDimmed = dimmed
+        glyph.image = symbol.map { NSImage.icon($0, size: .iconRowSize(forLabelPointSize: SidebarStyle.headerFont.pointSize)) }
         machineIcon.configure(icon: ownIcon)
         name.setString(title)
         name.setFont(SidebarStyle.headerFont)
@@ -197,24 +180,15 @@ final class SectionHeaderRowView: SidebarRowView {
         performWithTheme {
             name.setColor(Palette.textTertiary)
             badge.setColor(Palette.textTertiary)
-            glyph.setTint(Palette.textSecondary)
+            glyph.setTint(Palette.textTertiary)
             chevron.setTint(Palette.textTertiary)
-            status.backgroundColor = statusTone.map(Self.color)?.cgColor
         }
-        status.isHidden = statusTone == nil
+        // Not connected: the machine's glyph, icon and name step back; the words say why.
+        let alpha: CGFloat = isDimmed ? 0.55 : 1
+        [glyph, machineIcon, name].forEach { $0.alphaValue = alpha }
         CATransaction.commit()
         // A click folds the section: hover shows the row's hover fill, like a workspace row (cx-qno.17).
         performWithTheme { paintFill(isHovered ? Palette.hoverFill : nil) }
-    }
-
-    // theme-scoped: called only inside performWithTheme
-    private static func color(_ tone: StatusTone) -> NSColor {
-        switch tone {
-        case .success: Palette.success
-        case .attention: Palette.attention
-        case .quiet: Palette.textTertiary
-        case .danger: Palette.danger
-        }
     }
 
     override func layout() {
@@ -223,14 +197,17 @@ final class SectionHeaderRowView: SidebarRowView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        // Quiet text header: no glyph, the name aligns with row titles.
-        glyph.isHidden = true
+        // A machine's icon leads the name: its own icon, else its form glyph (remote-groups-per-machine
+        // R1). Pinned and custom headers stay text only, the name aligned with row titles.
+        glyph.isHidden = leadingGlyph == nil
         name.isHidden = false
-        // A machine's own icon leads the name; without one the header stays text only.
         var nameX = SidebarStyle.horizontalInset
+        let side = Metrics.smallIconSize
         if !machineIcon.isHidden {
-            let side = Metrics.smallIconSize
             machineIcon.frame = NSRect(x: nameX, y: (b.height - side) / 2, width: side, height: side)
+            nameX += side + Metrics.space2
+        } else if !glyph.isHidden {
+            glyph.frame = NSRect(x: nameX, y: (b.height - side) / 2, width: side, height: side)
             nameX += side + Metrics.space2
         }
         var trailing = b.width - SidebarStyle.horizontalInset
@@ -253,12 +230,9 @@ final class SectionHeaderRowView: SidebarRowView {
         let nh = ceil(name.intrinsicContentSize.height)
         // The label cell draws inside its frame: the text starts where row titles do.
         name.frame = NSRect(x: nameX - SidebarStyle.labelCellPadding, y: (b.height - nh) / 2, width: nw, height: nh)
-        let dot = SidebarStyle.dotSize
-        status.frame = CGRect(x: name.frame.maxX + Metrics.space2, y: (b.height - dot) / 2, width: dot, height: dot)
-        status.cornerRadius = dot / 2
         badge.isHidden = badgeText == nil
         if !badge.isHidden {
-            let bx = status.frame.maxX + Metrics.space2
+            let bx = name.frame.maxX + Metrics.space2
             let bw = min(ceil(badge.attributedStringValue.size().width) + Metrics.space2, max(0, trailing - bx))
             let bh = ceil(badge.intrinsicContentSize.height)
             badge.frame = NSRect(x: bx, y: (b.height - bh) / 2, width: bw, height: bh)
@@ -279,14 +253,8 @@ final class SectionHeaderRowView: SidebarRowView {
     /// Whether the machine's own icon shows before the name (tests).
     var showsMachineIcon: Bool { !machineIcon.isHidden }
 
-    /// The form glyph before the name when the machine has no own icon (tests).
-    var leadingGlyph: IconName? { nil }
-
-    /// Whether the status color dot draws (tests).
-    var showsStatusDot: Bool { !status.isHidden }
-
-    /// Whether the icon and name draw dimmed (tests).
-    var isDimmed: Bool { false }
+    /// Whether a status color dot draws (tests): never; the machine's icon took its place.
+    var showsStatusDot: Bool { false }
 }
 
 // MARK: - Empty section drop zone

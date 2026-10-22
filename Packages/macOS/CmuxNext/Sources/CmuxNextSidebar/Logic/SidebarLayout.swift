@@ -227,7 +227,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             if section.machine?.id.isLocalChief == true && nodes.isEmpty && !gapHere { continue }
             // A remote group (remote-groups-DESIGN.md slice 4) and the Chief's workspaces are a section of
             // their own in one list too.
-            let flat = o.flattensMachines && section.machine != nil && !Self.keepsHeaderInOneList(section)
+            let flat = o.flattensMachines && section.machine != nil && !Self.keepsHeaderInOneList(section, options: o)
             if flat && nodes.isEmpty && !gapHere && (listsAnyMachineRow || shownEmptyMachine) { continue }
             if flat && nodes.isEmpty { shownEmptyMachine = true }
             // Consecutive computers in one list read as one list: no gap. A block brings its own padding.
@@ -249,11 +249,12 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             }
             // Headers stay for the pinned area and for one section per
             // computer (`sidebar.groupByComputer`, opt-in), never in one list.
-            let showsHeader = !isDocSection && (section.machine == nil || Self.keepsHeaderInOneList(section)
+            let showsHeader = !isDocSection && (section.machine == nil || Self.keepsHeaderInOneList(section, options: o)
                 || (!flat && (machineCount > 1 || o.showsSoleMachineHeader)))
             // The computer a row names in one list (never this Mac), with its
             // status when it cannot connect.
             let machineLabel = Self.machineLabel(section, options: o)
+            let marked = Self.marksMachine(section, options: o)
             // Without a header there is nothing to expand it from: a list the
             // old "Projects" header folded shows again.
             let collapsed = showsHeader && section.isCollapsed && !filtering
@@ -288,7 +289,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 openGapIfNeeded(section: section.id, group: nil, index: index)
                 switch entry.node {
                 case let .workspace(ws):
-                    var content = o.rowContent(ws, machine: machineLabel)
+                    var content = o.rowContent(ws, machine: machineLabel, marked: marked)
                     (content.treeDepth, content.treeFold, content.rollUp) = (tree.depth, tree.fold, tree.rollUp)
                     let h = m.height(for: content)
                     rows.append(SidebarRow(
@@ -348,7 +349,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                             return entry.children.first(where: { $0.id == member.id }).map { (i, $0) }
                         }
                         for (n, (childIndex, ws)) in kept.enumerated() {
-                            let content = o.rowContent(ws, machine: machineLabel)
+                            let content = o.rowContent(ws, machine: machineLabel, marked: marked)
                             let h = m.height(for: content)
                             rows.append(SidebarRow(key: .workspace(ws.id), y: y, height: h, section: section.id, group: group.id,
                                                    siblingIndex: childIndex, parentIndex: index, isLastInGroup: n == kept.count - 1,
@@ -383,7 +384,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                             y += h + m.rowSpacing
                             continue
                         }
-                        var content = o.rowContent(ws, machine: machineLabel)
+                        var content = o.rowContent(ws, machine: machineLabel, marked: marked)
                         content.treeDepth = depth
                         let h = m.height(for: content)
                         rows.append(SidebarRow(
