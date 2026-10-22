@@ -364,6 +364,16 @@ public final class HoverCardCoordinator {
                 return nil
             }
         }
+        // A left click on a card row that acts on it (a workspace card's tab, u9696): the row's
+        // action, then the card closes; the window under the card never sees the click.
+        if event.type == .leftMouseDown, let panel, machine.shownTarget != nil, panel.isShowingCard,
+           let body = panel.body as? HoverCardClickHandling {
+            let point = event.window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? currentPointer()
+            if panel.cardFrame.contains(point), body.hoverCardClick(atScreen: point) {
+                dismiss(.click)
+                return nil
+            }
+        }
         let reason: HoverDismissal = switch event.type {
         case .keyDown: .keyDown
         case .scrollWheel: .scrollWheel

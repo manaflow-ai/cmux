@@ -65,6 +65,10 @@ struct WorkspaceHoverCardContent: Equatable {
     var stats: String?
     /// The options the card was made with (its layout picks the card's width and history height).
     var options = WorkspaceHoverCardOptions()
+    /// The workspace's tabs in pane and tab order (u9696): the row's cached list as is, shared, not
+    /// copied. Empty for a workspace of one tab (the card already is that tab) and in the history
+    /// and minimal layouts.
+    var tabs: [SidebarTab] = []
 
     /// CPU of at least half a core, or memory of at least 1 GB, is worth a line.
     static let notableCPU = 0.5
@@ -87,6 +91,7 @@ struct WorkspaceHoverCardContent: Equatable {
             card.facts.insert(Fact(icon: .historyRecent, text: text, kind: sinceLookedKind), at: 0)
         }
         card.options = options
+        if workspace.tabs.count > 1 { card.tabs = workspace.tabs }
         var timeline = timeline
         // The newest wait, while the workspace still waits, says why (the row's own reason).
         if let first = timeline.first, first.kind == .waiting, first.text == nil, case .waiting = workspace.activity {
@@ -118,10 +123,12 @@ struct WorkspaceHoverCardContent: Equatable {
         case .log:
             // The history alone: only why the workspace waits stays above it.
             card.facts.removeAll { $0.kind != "needsInput" && $0.kind != sinceLookedKind }
+            card.tabs = []
             card.timeline = Array(shown.prefix(options.historyRows))
             if options.showsTimings { card.stats = stats(timeline, now: now) }
         case .minimal:
             card.facts.removeAll { $0.kind != "needsInput" && $0.kind != "task" && $0.kind != sinceLookedKind }
+            card.tabs = []
             if !card.facts.contains(where: { $0.kind == "task" }),
                let prompt = timeline.first(where: { $0.kind == .prompt && $0.text != nil })?.text {
                 card.facts.append(Fact(icon: .composerSend, text: prompt, lines: 2, kind: "task"))

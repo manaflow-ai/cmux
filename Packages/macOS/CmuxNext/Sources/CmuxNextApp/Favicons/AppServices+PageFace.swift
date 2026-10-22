@@ -29,6 +29,8 @@ extension AppServices {
         // The media hub's tab list version: a page made or closed later maps the row again.
         if tab.kind == .browser { _ = cache.pageRequests.media.tabsVersion }
         let audio = tab.kind != .browser ? nil : BrowserTabAudio.rowAudio(cache.existingBrowser(tab.id)?.tab.state)
-        return .init(title: names.label(workspace, front: tab, work: work), favicon: favicon, audio: audio)
+        // Observed per tab (`DormantTabs`): a page that sleeps or wakes maps its row again.
+        let hibernated = tab.kind == .browser && cache.dormantTabs.contains(tab.id)
+        return .init(title: names.label(workspace, front: tab, work: work), favicon: favicon, audio: audio, hibernated: hibernated)
     }
 }

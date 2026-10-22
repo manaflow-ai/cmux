@@ -31,11 +31,14 @@ public struct SidebarMapping {
         /// The page's sound (a browser tab playing sound or muted); the row
         /// merges its tabs' (`SidebarWorkspaceAudio.merge`).
         public var audio: SidebarWorkspaceAudio?
+        /// The page is hibernated (its renderer is gone until the tab shows again).
+        public var hibernated: Bool
 
-        public init(title: String? = nil, favicon: SidebarFavicon? = nil, audio: SidebarWorkspaceAudio? = nil) {
+        public init(title: String? = nil, favicon: SidebarFavicon? = nil, audio: SidebarWorkspaceAudio? = nil, hibernated: Bool = false) {
             self.title = title
             self.favicon = favicon
             self.audio = audio
+            self.hibernated = hibernated
         }
     }
 
@@ -116,9 +119,18 @@ public struct SidebarMapping {
                     newTabTitle: String = "", pageFace: (WorkspaceModel, TabModel, TabModel?) -> PageFace? = { _, _, _ in nil },
                     tabTitle: ((TabModel) -> String)? = nil, notificationText: (TabModel) -> String? = { _ in nil },
                     iconAsset: (String) -> SidebarFavicon? = { _ in nil }) -> SidebarWorkspace {
-        let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+        // Each tab with the index of its pane among the panes that hold tabs (the hover card's groups).
+        var tabs: [TabModel] = []
+        var panes: [UInt16] = []
+        var paneIndex: UInt16 = 0
+        for pane in workspace.screens.lazy.flatMap(\.panes) where !pane.tabs.isEmpty {
+            tabs += pane.tabs
+            panes += repeatElement(paneIndex, count: pane.tabs.count)
+            paneIndex &+= 1
+        }
         let unread = showsUnread ? workspace.unreadCount : 0
-        let indicator = StatusMapping.shared.summary(tabs: tabs, status: workspace.status)
+        let statuses = StatusMapping.shared.summaries(tabs: tabs, status: workspace.status)
+        let indicator = statuses.workspace
         let front = frontTab(workspace, selectedTab: selectedTab)
         let folder = folderTab(tabs)
         let work = front?.kind == .browser ? workTab(workspace, selectedTab: selectedTab) : nil
@@ -147,7 +159,7 @@ public struct SidebarMapping {
             pullRequest: Self.entry(Self.pullRequestKey, in: entries),
             lastActivity: lastActivity(tabs),
             rowKind: rowKind(tabs),
-            agentWorking: StatusMapping.shared.isWorking(tabs: tabs),
+            agentWorking: statuses.working,
             // A page in a split beside a chat or terminal leaves the row's icon to that work, as it
             // leaves its name (#22250; Leo 2026-10-21: "why did this turn into the githb favicon?").
             icon: Self.icon(color: workspace.color, icon: workspace.icon, asset: iconAsset)
@@ -162,12 +174,16 @@ public struct SidebarMapping {
             agentBrand: agentBrand(tabs),
             agentName: agentTab(tabs)?.agentName,
             progress: progress(workspace, tabs: tabs),
-            tabs: tabs.map { tab in
+            tabs: tabs.indices.map { index in
+                let tab = tabs[index]
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
                 let title = tabTitle?(tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle)
+                let face = browserFaces[tab.id]
                 return SidebarTab(id: TabID(tab.id), title: title,
                                   kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
-                                  brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon)
+                                  brand: tab.agentBrand, favicon: face?.favicon, state: statuses.tabs[index],
+                                  detail: isNewTabPage ? nil : Self.tabDetail(tab, shorten: shorten), pane: panes[index],
+                                  flags: Self.tabFlags(face))
             },
             muted: muted,
             // The store refuses every close of its home workspace (`home_not_closable`).

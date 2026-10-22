@@ -81,6 +81,14 @@ enum Strings {
     /// Status entries a row folds past its limit.
     static func statusMore(_ value: Int) -> String { String(localized: "sidebar.status.more", defaultValue: "\(value) more", bundle: .module) }
     static var unreadDot: String { String(localized: "sidebar.a11y.unreadDot", defaultValue: "Unread", bundle: .module) }
+    /// A pane's header in the workspace hover card's tab list ("Pane 2"), counted from 1.
+    static func paneHeader(_ number: Int) -> String {
+        String(localized: "sidebar.hoverCard.paneHeader", defaultValue: "Pane \(number)", bundle: .module)
+    }
+    /// A tab row's spoken page marks in the workspace hover card.
+    static var tabPlaying: String { String(localized: "sidebar.hoverCard.tabPlaying", defaultValue: "Playing sound", bundle: .module) }
+    static var tabMuted: String { String(localized: "sidebar.hoverCard.tabMuted", defaultValue: "Muted", bundle: .module) }
+    static var tabHibernated: String { String(localized: "sidebar.hoverCard.tabHibernated", defaultValue: "Hibernated", bundle: .module) }
     /// The bell-slash mark's tooltip on a muted workspace's row.
     static var notificationsMuted: String {
         String(localized: "sidebar.workspace.notificationsMuted", defaultValue: "Notifications muted", bundle: .module)

@@ -141,6 +141,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         let content = WorkspaceHoverCardContent.make(workspace, machine: machine, now: Date(), options: options, timeline: timeline,
                                                      looked: looked)
         body.configure(content)
+        body.onSelectTab = { [weak list] tab in list?.model.send(.selectTab(workspace: ws, tab: tab)) }
         body.setResources(resources.report)
         bodyID = id
         body.setCustom(customContent(for: ws, id: id, card: content.cardFacts))
@@ -282,6 +283,15 @@ final class WorkspaceHoverCardView: NSView {
     private let statsLabel = ChromeLabel(labelWithString: "")
     /// The scrollable history of prompts, waits and finished turns (u3320).
     let timeline = WorkspaceHoverCardTimelineView()
+    /// The tabs open in the workspace, each with its status (u9696).
+    private let tabsView = WorkspaceHoverCardTabsView(limit: WorkspaceHoverCardView.visibleTabLimit)
+    /// The tab list shows this many tabs, then how many more.
+    static let visibleTabLimit = 8
+    /// Selects a tab of the shown workspace (a click on its row in the tab list).
+    var onSelectTab: ((TabID) -> Void)? {
+        get { tabsView.onSelectTab }
+        set { tabsView.onSelectTab = newValue }
+    }
     /// The card's widest; the full history layout widens it.
     private var widthLimit: NSLayoutConstraint?
     private var width: CGFloat = WorkspaceHoverCardView.cardWidth
@@ -330,6 +340,7 @@ final class WorkspaceHoverCardView: NSView {
         statsLabel.lineBreakMode = .byTruncatingTail
         statsLabel.isHidden = true
         timeline.isHidden = true
+        tabsView.isHidden = true
 
         // Every icon sits on one column at the leading inset, its text beside it (the fact rows'
         // grid), so the kind icon leads the name instead of floating after it.
@@ -355,8 +366,8 @@ final class WorkspaceHoverCardView: NSView {
         customError.maximumNumberOfLines = 3
         customError.isHidden = true
         customSlot.isHidden = true
-        builtIn = [titleRow, activityRow, statsLabel, factsStack, timeline, resourceRow]
-        let stack = NSStackView(views: [customSlot, titleRow, activityRow, statsLabel, factsStack, timeline, resourceRow, customError])
+        builtIn = [titleRow, activityRow, statsLabel, factsStack, tabsView, timeline, resourceRow]
+        let stack = NSStackView(views: [customSlot, titleRow, activityRow, statsLabel, factsStack, tabsView, timeline, resourceRow, customError])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = Metrics.space3
@@ -375,6 +386,7 @@ final class WorkspaceHoverCardView: NSView {
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
             titleRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
             factsStack.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            tabsView.widthAnchor.constraint(equalTo: stack.widthAnchor),
             resourceRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
             kindIcon.widthAnchor.constraint(equalToConstant: Self.iconSize),
             kindIcon.heightAnchor.constraint(equalToConstant: Self.iconSize),
@@ -398,11 +410,21 @@ final class WorkspaceHoverCardView: NSView {
         if !activityRow.isHidden { lines.append(activityLabel.stringValue) }
         if !statsLabel.isHidden { lines.append(statsLabel.stringValue) }
         lines += factViews.filter { !$0.isHidden }.map(\.shownText)
+        lines += tabLines
         if !timeline.isHidden { lines += timeline.lines }
         if !resourceRow.isHidden { lines.append(resourceRow.shownText) }
         if !customError.isHidden { lines.append(customError.stringValue) }
         return lines
     }
+
+    /// The tab list's lines: pane headers, tab rows, the "more" row; empty while it is hidden.
+    var tabLines: [String] { tabsView.isHidden ? [] : tabsView.lines }
+
+    /// Row, header and "more" views the tab list has made (tests: a hover reuses them).
+    var tabRowViewsMade: Int { tabsView.viewsMade }
+
+    /// The `index`th shown tab row's frame on screen (tests).
+    func tabRowFrameOnScreen(at index: Int) -> CGRect? { tabsView.rowFrameOnScreen(at: index) }
 
     /// The card shows a running time (the status's or a command's): the controller ticks it.
     var isLive: Bool {
@@ -467,6 +489,8 @@ final class WorkspaceHoverCardView: NSView {
                                         after: row)
         }
         factsStack.isHidden = content.facts.isEmpty
+        tabsView.isHidden = content.tabs.isEmpty
+        if !content.tabs.isEmpty { tabsView.configure(content.tabs) }
         let log = content.options.layout == .log
         timeline.isHidden = content.timeline.isEmpty
         if !content.timeline.isEmpty {
@@ -582,6 +606,13 @@ extension WorkspaceHoverCardView: HoverCardTextReporting {
     var reportedLines: [String] { lines }
 }
 
+extension WorkspaceHoverCardView: HoverCardClickHandling {
+    /// A click on a tab's row selects that tab (u9696); anywhere else the card only closes.
+    func hoverCardClick(atScreen point: CGPoint) -> Bool {
+        customSlot.isHidden ? tabsView.click(atScreen: point) : false
+    }
+}
+
 extension WorkspaceHoverCardView {
     /// Recolors the labels in the card's theme scope; the panel runs it on
     /// adopt and on every change of that scope.
@@ -599,6 +630,7 @@ extension WorkspaceHoverCardView {
         // Claude desktop's session card), each row in its own theme tokens; no fill of its own,
         // the shared overlay glass shows.
         for row in factViews { row.applyColors() }
+        tabsView.applyColors()
         resourceRow.applyColors()
     }
 }
