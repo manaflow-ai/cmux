@@ -91,6 +91,31 @@ struct SleepyModeTests {
         #expect(!services.sleepyMode.consumesKeyDown())
     }
 
+    /// The scene is AppKit layers (plans/cmux-next/no-swiftui-DESIGN.md): no SwiftUI bridge, its
+    /// Lock Mac button locks, a click elsewhere wakes, and it shows how many agents work.
+    @Test func theSceneIsAppKitAndItsButtonLocks() throws {
+        _ = NSApplication.shared
+        var locks = 0, wakes = 0
+        let scene = SleepySceneView(workingAgents: { 2 }, wake: { wakes += 1 }, lockMac: { locks += 1 })
+        scene.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        scene.layoutSubtreeIfNeeded()
+        func all(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + all($0) } }
+        #expect(!hostsSwiftUI(scene))
+        let lock = try #require(all(scene).first { $0.accessibilityIdentifier() == "cmux.sleepy.lockMac" } as? NSButton)
+        lock.performClick(nil)
+        #expect(locks == 1 && wakes == 0)
+        let agents = all(scene).compactMap { $0.accessibilityIdentifier() == "cmux.sleepy.agents" ? $0.accessibilityLabel() : nil }
+        #expect(agents == [SleepyModeStrings.agentsWorking(2)])
+        let window = NSWindow(contentRect: scene.frame, styleMask: [.borderless], backing: .buffered, defer: true)
+        window.contentView = scene
+        let click = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: NSPoint(x: 20, y: 20), modifierFlags: [],
+                                                    timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                                                    eventNumber: 0, clickCount: 1, pressure: 1))
+        scene.mouseDown(with: click)
+        #expect(wakes == 1)
+        window.contentView = nil
+    }
+
     /// Turning it on twice holds once; turning it off twice is harmless.
     @Test func turningItOnTwiceHoldsOnce() {
         let keepAwake = FakeKeepAwake(), overlay = FakeOverlay()
@@ -111,4 +136,13 @@ struct SleepyModeTests {
         activity.end()
         #expect(!activity.isHolding)
     }
+}
+
+/// Whether `root`'s own view tree (not the inside of an AppKit control, whose private views on
+/// macOS 26 include hosting views of AppKit's own) holds a SwiftUI hosting bridge.
+@MainActor
+private func hostsSwiftUI(_ root: NSView) -> Bool {
+    if String(describing: type(of: root)).contains("Hosting") { return true }
+    if root is NSControl { return false }
+    return root.subviews.contains { hostsSwiftUI($0) }
 }
