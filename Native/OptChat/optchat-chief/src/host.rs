@@ -1286,6 +1286,18 @@ fn start(
             &h,
         ))) as Arc<dyn crate::cloud_vms::CloudVms>
     });
+    // Cloud subagents' own sandbox keys (agent_keys.rs): on when
+    // ~/.config/cmux/agent-issuer.json names an issuer credential.
+    let agent_keys: Option<Arc<dyn crate::agent_keys::AgentKeys>> =
+        env("HOME").and_then(
+            |h| match crate::agent_keys::Issuer::load(std::path::Path::new(&h)) {
+                Ok(issuer) => issuer.map(|i| Arc::new(i) as Arc<dyn crate::agent_keys::AgentKeys>),
+                Err(e) => {
+                    eprintln!("optchat-chief: agent keys: {e}");
+                    None
+                }
+            },
+        );
     let workspaces: Option<Arc<dyn crate::workspaces::Workspaces>> = if workspaces_off {
         None
     } else if crate::workspaces::AppWorkspaces::from_env(daemon_socket).is_some() {
@@ -1346,7 +1358,8 @@ fn start(
         ))
         // `control cloud PEER` sets a peer at run time with no env.
         .with_cloud_text(sub_text.clone())
-        .with_cloud_vms(cloud_vms.clone());
+        .with_cloud_vms(cloud_vms.clone())
+        .with_agent_keys(agent_keys.clone());
         let spawner = Arc::new(spawner);
         sub_starter = Some(spawner.queue_starter());
         spawner as Arc<dyn crate::tools::Orchestrator>
@@ -1541,6 +1554,7 @@ fn start(
     brain.set_sub_starter(sub_starter);
     let idle = brain.cloud_auto_pause_idle();
     brain.set_cloud_vms(cloud_vms, idle);
+    brain.set_agent_keys(agent_keys, crate::agent_keys::REVOKE_AFTER_DONE);
     // No cap on subagents at work unless OPTCHAT_MAX_LIVE_SUBAGENTS sets one.
     brain.set_max_live(crate::subagents::live_limit(
         env(crate::subagents::MAX_LIVE_ENV).as_deref(),

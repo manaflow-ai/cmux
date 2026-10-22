@@ -7,7 +7,7 @@ import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
-import type { IncomingPrompt } from "./conversation/incomingMessage";
+import type { IncomingMessage, IncomingPrompt } from "./conversation/incomingMessage";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
@@ -125,6 +125,9 @@ export type QueuedPrompt = {
   next?: boolean;
   sending?: boolean;
   images?: QueuedPromptImage[];
+  /// Another agent's message waiting here (direct.ts `queuedMessage`): its row draws as the
+  /// message's received line (ComposerQueue.tsx), not as the person's prompt.
+  message?: IncomingMessage;
 };
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
 /// A prompt's image as acpmux names it; `width`/`height` are its natural size when the record

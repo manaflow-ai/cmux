@@ -871,7 +871,11 @@ fn initialize(params: &Value, list_changed: bool, code_mode: bool) -> Value {
         "protocolVersion": version,
         "capabilities": {"tools": {"listChanged": list_changed}},
         "serverInfo": {"name": "cmux", "title": "cmux", "version": env!("CARGO_PKG_VERSION")},
-        "instructions": if code_mode { code_mode::INSTRUCTIONS } else { INSTRUCTIONS },
+        "instructions": format!(
+            "{} {}",
+            if code_mode { code_mode::INSTRUCTIONS } else { INSTRUCTIONS },
+            acpmux::agent_tools::ASKING_RULE
+        ),
     })
 }
 

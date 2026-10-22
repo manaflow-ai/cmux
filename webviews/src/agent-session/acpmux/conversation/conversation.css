@@ -2753,6 +2753,17 @@ button.cv-received__name:focus-visible {
   outline: 1.5px solid var(--agent-muted);
   outline-offset: 1px;
 }
+/* The head's "Open in tab" and "Open in" (OpenInMenu.tsx) read like Load preview and the link hover
+   card's actions: no outline, muted text, a background only under the pointer. */
+.acpmux-turn-preview-head .acpmux-review-changes {
+  padding: 0 6px;
+  box-shadow: none;
+  color: var(--agent-muted);
+}
+.acpmux-turn-preview-head .acpmux-review-changes:hover {
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  color: var(--agent-text);
+}
 
 /* A render card (RenderCard.tsx): a quiet head over the live frame, which takes its page's height. */
 .acpmux-render-card {

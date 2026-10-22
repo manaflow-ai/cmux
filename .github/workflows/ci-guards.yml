@@ -413,6 +413,7 @@ jobs:
           python3 scripts/whats-new/test_validate.py
           python3 scripts/whats-new/test_community.py
           python3 tests/test_cmux_next_release_notes.py
+          python3 tests/test_release_notes_pr_media.py
 
       - name: Test the server bootstrap candidate renderer
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
@@ -1369,6 +1370,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_ring.py
 
+      - name: Validate the cmux NEXT Edge feed composer
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_edge_feed.py
+
       - name: Validate the nightly-next canary mode and its one-week flip
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_canary_mode.py
@@ -1485,6 +1490,10 @@ jobs:
       - name: Validate fork runner routing
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fork_runner_routing.py
+
+      - name: Validate Linux compile jobs run on the 16 or 32 vCPU size
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_linux_compile_runners.py
 
       - name: Validate the macOS cross-compile shadow jobs stay compare-only
         if: ${{ !cancelled() && matrix.group == 'ci' }}
