@@ -84,6 +84,16 @@ import Testing
         #expect(remote.state.parents.isEmpty)
     }
 
+    /// A record that would close a loop (a caller recorded under its own descendant) is refused.
+    @Test func aRecordThatWouldMakeACycleIsRefused() {
+        let parents = AgentSessionParents(defaults: nil)
+        parents.record("a", of: "b")
+        parents.record("b", of: "c")
+        parents.record("c", of: "a")
+        parents.record("b", of: "a")
+        #expect(parents.parents == ["b": "a", "c": "b"])
+    }
+
     @Test func recordedParentsSurviveARelaunchAndKeepTheNewest() throws {
         let suite = "cmux.next.tests.lineage.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

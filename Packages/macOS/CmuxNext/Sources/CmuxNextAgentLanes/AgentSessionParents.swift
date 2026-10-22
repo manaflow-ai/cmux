@@ -32,16 +32,18 @@ public final class AgentSessionParents {
     public init(defaults: UserDefaults?) {
         self.defaults = defaults
         let saved = defaults?.data(forKey: Self.key).flatMap { try? JSONDecoder().decode([Saved].self, from: $0) } ?? []
-        for entry in saved.suffix(Self.limit) where Self.valid(entry.parent, of: entry.child) && parents[entry.child] == nil {
+        for entry in saved.suffix(Self.limit) where Self.valid(entry.parent, of: entry.child) && parents[entry.child] == nil
+            && !Self.descends(entry.parent, from: entry.child, in: parents) {
             order.append(entry.child)
             parents[entry.child] = entry.parent
         }
     }
 
-    /// Records `parent` as `child`'s lineage parent. Nil, empty or the child itself records nothing;
-    /// a later record for the same child replaces the earlier one.
+    /// Records `parent` as `child`'s lineage parent. Nil, empty, the child itself or one of the child's
+    /// own descendants (a cycle) records nothing; a later record for the same child replaces the earlier one.
     public func record(_ parent: String?, of child: String) {
-        guard let parent, Self.valid(parent, of: child), parents[child] != parent else { return }
+        guard let parent, Self.valid(parent, of: child), parents[child] != parent,
+              !Self.descends(parent, from: child, in: parents) else { return }
         var next = parents
         var order = order.filter { $0 != child }
         while order.count >= Self.limit, let oldest = order.first {
@@ -53,6 +55,17 @@ public final class AgentSessionParents {
         self.order = order
         parents = next
         save()
+    }
+
+    /// True when `session` is `root`'s child, a child's child, ... in `parents`.
+    private static func descends(_ session: String, from root: String, in parents: [String: String]) -> Bool {
+        var seen: Set<String> = []
+        var next = parents[session]
+        while let parent = next, seen.insert(parent).inserted {
+            if parent == root { return true }
+            next = parents[parent]
+        }
+        return false
     }
 
     private static func valid(_ parent: String, of child: String) -> Bool {
