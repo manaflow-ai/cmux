@@ -12,7 +12,7 @@ import Observation
 /// intents into daemon commands (SidebarBridge+Intents). Selection is
 /// client-local: it only changes which workspace this window shows.
 final class SidebarBridge {
-    let model = SidebarCollapsedSections(defaults: .standard).restoring(SidebarModel())
+    let model = SidebarCollapsedSections(defaults: .standard).restoring(SidebarModel()).followingVerticalTabs()
     let container: SidebarContainerView
     unowned let services: AppServices
     /// Weak: a daemon command's `Task` can outlive the window.

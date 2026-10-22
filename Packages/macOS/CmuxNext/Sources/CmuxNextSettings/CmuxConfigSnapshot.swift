@@ -196,6 +196,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var terminalFirst: Bool = TerminalFirstSetting.fallback
     /// `tabs.overflow`; shrink when unset or invalid.
     public var tabOverflow: TabOverflow = TabOverflowSetting.fallback
+    /// `tabs.verticalTabs`; off when unset or invalid.
+    public var verticalTabs: Bool = VerticalTabsSetting.fallback
+    /// `tabs.verticalTabsExpandOnHover`; on when unset or invalid.
+    public var verticalTabsExpandOnHover: Bool = VerticalTabsSetting.expandOnHoverFallback
     /// `tabs.swapCmdTAndCmdN`; off when unset or invalid.
     public var swapCmdTAndCmdN: Bool = SwapCmdTAndCmdNSetting.fallback
     /// `palette.scopes.<scope>.prefix`: user-assigned palette scope prefixes.
@@ -366,19 +370,13 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.diagnostics += Self.closeWarningDiagnostics(root) + Self.hideDockIconWithoutWindowsDiagnostics(root)
         snapshot.diagnostics += Self.globalHotKeyDiagnostics(root) + Self.startAgentGlobalHotKeyDiagnostics(root) + AgentPaneReplySetting.parse(root).1
         snapshot.diagnostics += [NewTabTemplate.parse(root).1, NewTabPosition.parse(root).1].compactMap(\.self) + NewTabWidgetSettings.diagnostics(root)
-        let (newTerminalOpensWorkspace, newTerminalOpensWorkspaceDiagnostic) = NewTerminalWorkspaceSetting.parse(root)
-        snapshot.newTerminalOpensWorkspace = newTerminalOpensWorkspace
-        if let newTerminalOpensWorkspaceDiagnostic { snapshot.diagnostics.append(newTerminalOpensWorkspaceDiagnostic) }
-        let (cmdWClosesPinnedTabs, cmdWClosesPinnedTabsDiagnostic) = CmdWClosesPinnedTabsSetting.parse(root)
-        snapshot.cmdWClosesPinnedTabs = cmdWClosesPinnedTabs
-        if let cmdWClosesPinnedTabsDiagnostic { snapshot.diagnostics.append(cmdWClosesPinnedTabsDiagnostic) }
-        let (terminalFirst, terminalFirstDiagnostic) = TerminalFirstSetting.parse(root)
-        snapshot.terminalFirst = terminalFirst
-        if let terminalFirstDiagnostic { snapshot.diagnostics.append(terminalFirstDiagnostic) }
+        snapshot.take(NewTerminalWorkspaceSetting.parse(root), \.newTerminalOpensWorkspace)
+        snapshot.take(CmdWClosesPinnedTabsSetting.parse(root), \.cmdWClosesPinnedTabs)
+        snapshot.take(TerminalFirstSetting.parse(root), \.terminalFirst)
         snapshot.take(TabOverflowSetting.parse(root), \.tabOverflow)
-        let (swapCmdTAndCmdN, swapCmdTAndCmdNDiagnostic) = SwapCmdTAndCmdNSetting.parse(root)
-        snapshot.swapCmdTAndCmdN = swapCmdTAndCmdN
-        if let swapCmdTAndCmdNDiagnostic { snapshot.diagnostics.append(swapCmdTAndCmdNDiagnostic) }
+        snapshot.take(VerticalTabsSetting.parse(root), \.verticalTabs)
+        snapshot.take(VerticalTabsSetting.parseExpandOnHover(root), \.verticalTabsExpandOnHover)
+        snapshot.take(SwapCmdTAndCmdNSetting.parse(root), \.swapCmdTAndCmdN)
         let (prefixes, prefixDiagnostics) = PaletteScopePrefixes.parse(root)
         snapshot.paletteScopePrefixes = prefixes
         snapshot.diagnostics += prefixDiagnostics

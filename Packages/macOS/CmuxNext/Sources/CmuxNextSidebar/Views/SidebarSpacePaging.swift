@@ -215,6 +215,7 @@ import QuartzCore
         model.sections = sections
         model.collapsedSections = Set(sections.filter(\.isCollapsed).map(\.id)) // as `SidebarModel(sections:)` sets them
         model.showWorkspaceTabs = host.model.showWorkspaceTabs
+        model.inWorkspaceTabs = host.model.inWorkspaceTabs
         model.collapsedWorkspaces = host.model.collapsedWorkspaces
         (model.workspaceRow, model.rowBadgeStyle) = (host.model.workspaceRow, host.model.rowBadgeStyle)
         (model.minimal, model.expanded) = (host.model.minimal, host.model.expanded)
