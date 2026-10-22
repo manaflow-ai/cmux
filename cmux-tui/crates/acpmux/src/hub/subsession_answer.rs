@@ -185,11 +185,8 @@ impl Hub {
             (option, harness_answers(question, answers))
         };
         self.receiver_check(caller, target).await?;
-        let control = if Self::web_turn(caller) || Self::web_turn(target) {
-            Control::Web
-        } else {
-            Control::Local
-        };
+        let control =
+            if Self::passes_on_web(caller, target) { Control::Web } else { Control::Local };
         let answered_by = json!({"session": caller.id, "name": caller.meta().name});
         let answerer = super::person::Answerer { ancestor: Some(&caller.id), ..Default::default() };
         self.respond_permission(

@@ -686,6 +686,8 @@ impl Hub {
                 depth,
                 offered: false,
             }),
+            // A restricted chat's sub-sessions run restricted too (`hub/restricted.rs`).
+            restricted: pm.restricted,
             ..Default::default()
         };
         let probe = self.new_session(request).await?;
@@ -793,7 +795,7 @@ impl Hub {
         // turn) prompts under the remote floor, and so does a prompt to a
         // session whose last turn was one: a family prompt never runs, or
         // lets the receiver run, below the floor (`remote_floor.rs`).
-        let web = Self::web_turn(from) || Self::web_turn(to);
+        let web = Self::passes_on_web(from, to);
         let stop = self.interrupt_once_queued(to, interrupt);
         let opts = PromptOptions {
             control: if web { Control::Web } else { Control::Local },

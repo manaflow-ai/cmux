@@ -23,6 +23,9 @@ export type FolderTrust = {
   auto?: string;
   via?: string;
   repo?: TrustRepo;
+  /// acpmux opens a restricted Claude Code chat in a folder the person did not trust (the
+  /// setting `agents.trust.restrictedChats`, acpmux `hub/restricted.rs`): Send stays on there.
+  restrictedChats?: boolean;
 };
 
 export type TrustSource = {
@@ -52,7 +55,15 @@ export function readTrust(value: unknown): FolderTrust | undefined {
     ...(repo && typeof repo.root === "string" && repo.root
       ? { repo: { root: repo.root, worktree: repo.worktree === true } }
       : {}),
+    ...(reply.restrictedChats === true ? { restrictedChats: true } : {}),
   };
+}
+
+/// Whether a chat with the agent `family` runs restricted in a folder the person did not trust:
+/// acpmux says it opens restricted chats, and the chat is Claude Code's or not started yet (acpmux
+/// refuses another agent's, and the pane then shows the refusal).
+export function restrictedChat(trust: FolderTrust, family?: string): boolean {
+  return trust.restrictedChats === true && (!family || family === "claude");
 }
 
 /// The folder's level for a chat with the agent `family`, as acpmux's trust gate reads it

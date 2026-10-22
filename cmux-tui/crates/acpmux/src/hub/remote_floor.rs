@@ -50,9 +50,28 @@ pub(crate) struct FloorState {
 }
 
 impl Hub {
+    /// Whether `session`'s turns are held to the floor: a remote device's
+    /// (`remote_turn`), or any turn of a restricted chat, where nothing
+    /// approves itself either (`restricted.rs`).
+    pub(super) fn web_turn(session: &Session) -> bool {
+        session.meta.lock().unwrap_or_else(|e| e.into_inner()).restricted
+            || Self::remote_turn(session)
+    }
+
+    /// Whether a prompt or an answer `from` passes on to `to` runs under the
+    /// floor (`Control::Web`): when a remote device drove either, or a
+    /// restricted chat passes it to one that is not. Between restricted chats
+    /// it is the Mac's own: the receiver holds itself to the floor, and a Web
+    /// one would be refused as a Claude session the Mac started
+    /// (`local_claude_refusal`).
+    pub(super) fn passes_on_web(from: &Session, to: &Session) -> bool {
+        let restricted = |s: &Session| s.meta.lock().unwrap_or_else(|e| e.into_inner()).restricted;
+        Self::remote_turn(from) || Self::remote_turn(to) || (restricted(from) && !restricted(to))
+    }
+
     /// Whether `session`'s current turn was started or steered by a remote
     /// device. A turn adopted after a restart keeps its recorded control.
-    pub(super) fn web_turn(session: &Session) -> bool {
+    fn remote_turn(session: &Session) -> bool {
         match session.turn() {
             Some(t) => t.control == Control::Web,
             None => session.floor.last_turn_web.load(Ordering::SeqCst),

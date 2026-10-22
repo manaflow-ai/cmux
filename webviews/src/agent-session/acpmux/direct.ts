@@ -2836,8 +2836,9 @@ export class AcpmuxDirectClient {
             text: translate("notice.forkFromTranscript", { harness }),
           });
         }
-      } else if (event.kind === "failover") {
+      } else if (event.kind === "failover" || event.kind === "failover_refused") {
         // acpmux moved the chat to its fallback harness (`hub/turns.rs`); the turn goes on there.
+        // Refused: a restricted chat stayed, since the fallback cannot run restricted (`hub/restricted.rs`).
         if (typeof msg.from === "string" && typeof msg.to === "string") {
           this.endAssistantSegment();
           this.streamingActivity = undefined;
@@ -2847,7 +2848,11 @@ export class AcpmuxDirectClient {
             version: 1,
             at: event.at,
             kind: "failover",
-            failover: { from: msg.from, to: msg.to },
+            failover: {
+              from: msg.from,
+              to: msg.to,
+              ...(event.kind === "failover_refused" ? { refused: "restricted" as const } : {}),
+            },
           });
         }
       } else if (event.kind === "policy_unenforced") {
@@ -3465,6 +3470,7 @@ export class AcpmuxDirectClient {
             steering: summary.steering === true,
             backgroundsWork: summary.backgroundsWork === true,
             queuePaused: summary.queuePaused === true,
+            ...(summary.restricted === true ? { restricted: true } : {}),
             ...(text(summary.watching) ? { watching: text(summary.watching) } : {}),
             ...(Array.isArray(summary.mcpServers) ? { mcpServers: summary.mcpServers } : {}),
             status: summary.status,
