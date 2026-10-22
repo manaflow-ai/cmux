@@ -94,13 +94,12 @@ public final class ThemedMenuRowView: NSView {
             NSAttributedString(string: item.state == .on ? "✓" : "–", attributes: [.font: font, .foregroundColor: ink])
                 .draw(at: NSPoint(x: Self.markX, y: titleY))
         }
-        var x = Self.titleX
+        let columns = Self.columns(of: item)
         if let image = item.image {
-            let rect = NSRect(x: x, y: titleY + (titleHeight - Self.imageSide) / 2, width: Self.imageSide, height: Self.imageSide)
+            let rect = NSRect(x: columns.icon, y: titleY + (titleHeight - Self.imageSide) / 2, width: Self.imageSide, height: Self.imageSide)
             Self.draw(image, in: rect, tint: image.isTemplate ? quiet : nil)
         }
-        // Titles line up whether or not their row has an icon, once any row of the menu has one.
-        if Self.hasIconColumn(item) { x += Self.imageSide + Self.gap }
+        let x = columns.text
         title.draw(at: NSPoint(x: x, y: titleY))
         if let subtitle { subtitle.draw(at: NSPoint(x: x, y: bounds.midY - subtitle.size().height)) }
 
@@ -282,9 +281,10 @@ public final class ThemedMenuRowView: NSView {
 
 extension ThemedMenuRowView {
     static let rowHeight: CGFloat = 22, subtitleRowHeight: CGFloat = 36
-    static let inset: CGFloat = 5, radius: CGFloat = 4
-    static let markX: CGFloat = 10, titleX: CGFloat = 22, imageSide: CGFloat = 16, gap: CGFloat = 6
-    static let trailing: CGFloat = 12, shortcutGap: CGFloat = 28
+    // The columns every menu shares (MenuMetrics, schemas/menu-metrics).
+    static let inset = MenuMetrics.highlightInset, radius = MenuMetrics.highlightRadius
+    static let markX = MenuMetrics.stateX, imageSide = MenuMetrics.iconSize
+    static let trailing = MenuMetrics.trailing, shortcutGap = MenuMetrics.shortcutGap
     /// The run-loop order of a chosen row's run; `NSMenu.afterThemedRowRuns` comes after it.
     static let pendingRunOrder = 0
     /// How long a release with no press on the row is ignored after the menu opens.
@@ -298,6 +298,19 @@ extension ThemedMenuRowView {
         return nil
     }
 
+    /// Where a row draws its icon and its title (MenuMetrics): titles line up whether or not their
+    /// row has an icon, once any row of the menu has one; a state column only in a menu with a
+    /// checkmark or dash, as native menus keep one.
+    public static func columns(of item: NSMenuItem) -> (icon: CGFloat, text: CGFloat) {
+        let state = hasStateColumn(item)
+        return (MenuMetrics.iconX(stateColumn: state), MenuMetrics.textX(iconColumn: hasIconColumn(item), stateColumn: state))
+    }
+
+    /// Whether `item`'s menu draws a state column: some row in it shows a checkmark or a dash.
+    static func hasStateColumn(_ item: NSMenuItem) -> Bool {
+        item.state != .off || item.menu?.items.contains { $0.state != .off } == true
+    }
+
     /// Whether `item`'s menu draws an icon column: some row in it has an image.
     static func hasIconColumn(_ item: NSMenuItem) -> Bool {
         item.image != nil || item.menu?.items.contains { $0.image != nil } == true
@@ -308,7 +321,7 @@ extension ThemedMenuRowView {
     static func width(of item: NSMenuItem) -> CGFloat {
         let font = font(of: item)
         func width(_ text: String, _ font: NSFont) -> CGFloat { NSAttributedString(string: text, attributes: [.font: font]).size().width }
-        var total = titleX + (hasIconColumn(item) ? imageSide + gap : 0)
+        var total = columns(of: item).text
         total += max(width(item.title, font), subtitle(of: item).map { width($0, subtitleFont) } ?? 0)
         let shortcut = shortcutText(of: item)
         if item.submenu != nil {

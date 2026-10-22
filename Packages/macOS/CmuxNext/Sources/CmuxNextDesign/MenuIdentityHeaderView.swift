@@ -1,18 +1,22 @@
 public import AppKit
 
 /// The name-and-colors header of a right-click menu (Chrome's tab-group menu): a name field over a
-/// row of color swatches, inset as the menu's rows are. The app's `MenuIdentityHeader` builds it
+/// row of color swatches, on the menu's row grid (MenuMetrics): the field's box on the rows'
+/// highlight edges, the first swatch on their icon column. The app's `MenuIdentityHeader` builds it
 /// from a menu's rename and color rows.
 public final class MenuIdentityHeaderView: NSView, ThemedMenuItemView {
     public let field: MenuNameField?
     public let strip: MenuSwatchStrip?
-    static let inset: CGFloat = 12, top: CGFloat = 6, fieldHeight: CGFloat = 24, gap: CGFloat = 4, minimumWidth: CGFloat = 240
+    static let top: CGFloat = 6, fieldHeight: CGFloat = 24, gap: CGFloat = 4, minimumWidth: CGFloat = 240
+    /// The field's box spans the rows' highlight; the strip starts where its first swatch sits on the icon column.
+    static var fieldX: CGFloat { MenuMetrics.highlightInset }
+    static var stripX: CGFloat { MenuMetrics.iconX - MenuSwatchStrip.ringRoom }
 
     public init(field: MenuNameField?, strip: MenuSwatchStrip?) {
         self.field = field
         self.strip = strip
         let height = Self.top + (field == nil ? 0 : Self.fieldHeight + Self.gap) + (strip == nil ? 0 : MenuSwatchStrip.height)
-        let width = max(Self.minimumWidth, (strip?.naturalWidth ?? 0) + 2 * Self.inset)
+        let width = max(Self.minimumWidth, Self.stripX + (strip?.naturalWidth ?? 0) + MenuMetrics.highlightInset)
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: height))
         // The menu widens the header to its widest row.
         autoresizingMask = .width
@@ -36,10 +40,10 @@ public final class MenuIdentityHeaderView: NSView, ThemedMenuItemView {
         var y = bounds.height - Self.top
         if let field {
             y -= Self.fieldHeight
-            field.frame = NSRect(x: Self.inset, y: y, width: bounds.width - 2 * Self.inset, height: Self.fieldHeight)
+            field.frame = NSRect(x: Self.fieldX, y: y, width: bounds.width - 2 * Self.fieldX, height: Self.fieldHeight)
             y -= Self.gap
         }
-        strip?.frame = NSRect(x: Self.inset, y: y - MenuSwatchStrip.height, width: bounds.width - 2 * Self.inset, height: MenuSwatchStrip.height)
+        strip?.frame = NSRect(x: Self.stripX, y: y - MenuSwatchStrip.height, width: bounds.width - Self.stripX - Self.fieldX, height: MenuSwatchStrip.height)
     }
 
     public override func viewDidMoveToWindow() {
@@ -147,9 +151,11 @@ public final class MenuSwatchStrip: NSView {
     private var hovered: Int?
     /// The scope of the view whose menu this is (`themeRows(in:)`); nil until a themed menu hands it.
     private var menuScope: ThemeScope?
-    static let diameter: CGFloat = 16, gap: CGFloat = 10, height: CGFloat = 30
+    static let diameter = MenuMetrics.iconSize, gap: CGFloat = 10, height: CGFloat = 30
+    /// Room before the first swatch for the hover and current rings (2.5 pt past the swatch).
+    public static let ringRoom: CGFloat = 3
 
-    var naturalWidth: CGFloat { CGFloat(choices.count) * (Self.diameter + Self.gap) - Self.gap + 6 }
+    var naturalWidth: CGFloat { CGFloat(choices.count) * (Self.diameter + Self.gap) - Self.gap + 2 * Self.ringRoom }
 
     /// One swatch per choice, drawn in `colors` (same order); `current` is ringed.
     public init(title: String, choices: [NSMenuItem], colors: [GroupColor?], current: GroupColor?) {
@@ -193,7 +199,7 @@ public final class MenuSwatchStrip: NSView {
     /// time: the header sets this view's frame by hand, so no layout pass is promised.
     private var swatches: [NSRect] {
         choices.indices.map { index in
-            NSRect(x: 3 + CGFloat(index) * (Self.diameter + Self.gap), y: (bounds.height - Self.diameter) / 2,
+            NSRect(x: Self.ringRoom + CGFloat(index) * (Self.diameter + Self.gap), y: (bounds.height - Self.diameter) / 2,
                    width: Self.diameter, height: Self.diameter)
         }
     }
