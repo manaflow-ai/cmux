@@ -20,14 +20,12 @@ impl SpawnedHostProcess {
     }
 
     /// The launch is committed: the host lives on its own. Reaping is
-    /// housekeeping after the ownership handoff. Failure to create this
-    /// helper cannot turn a committed live Surface into an error; dropping
-    /// Child leaves the independent host running.
+    /// housekeeping after the ownership handoff, done by the shared reaper
+    /// (`host_reaper.rs`), not a thread per host. A failure there cannot
+    /// turn a committed live Surface into an error; dropping Child leaves
+    /// the independent host running.
     pub(crate) fn commit(self) {
-        let mut child = self.into_child();
-        let _ = thread::Builder::new().name("terminal-host-reaper".into()).spawn(move || {
-            let _ = child.wait();
-        });
+        super::host_reaper::reap_when_exited(self.into_child());
     }
 
     /// Unix hosts leave the daemon's session and scope, never its job.

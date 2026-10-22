@@ -143,7 +143,12 @@ impl Surface {
             if let Some((offset, at_bottom)) = scroll_changed
                 && let Some(mux) = pty.mux.upgrade()
             {
-                mux.emit_terminal_scroll(pty.event_surface_id, offset, at_bottom);
+                pty.frame_requests.publish_scroll_now(
+                    &mux,
+                    pty.event_surface_id,
+                    offset,
+                    at_bottom,
+                );
             }
             pty.mark_output_dirty();
             return Ok(());

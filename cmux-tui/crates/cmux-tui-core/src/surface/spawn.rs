@@ -5,7 +5,6 @@
 
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
-use std::sync::mpsc::sync_channel;
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::Duration;
 
@@ -114,7 +113,7 @@ impl Surface {
         let mut mouse_encoders = MouseEncoders::new()?;
         mouse_encoders.sync_from_terminal(&term);
         let render_state = RenderState::new()?;
-        let (frame_requests, frame_rx) = sync_channel(1);
+        let frame_requests = Arc::new(FrameRequests::default());
         #[cfg(test)]
         let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
         let surface = Arc::new(Surface::Pty(PtySurface {
@@ -236,7 +235,7 @@ impl Surface {
             surface.kill();
             return Err(error);
         }
-        spawn_frame_producer(&surface, frame_rx)?;
+        spawn_frame_producer(&surface)?;
 
         // PTY reader: pty bytes -> terminal state -> SurfaceOutput events.
         let reader_thread =
@@ -370,6 +369,10 @@ impl Surface {
                         surface.publish_pending_directory();
                         surface.publish_pending_progress();
                         pty.stream_progress.notify();
+                        // Published by the frame lane, once per frame.
+                        if let Some((offset, at_bottom)) = scroll_changed {
+                            pty.frame_requests.defer_scroll(offset, at_bottom);
+                        }
                         pty.request_frame(generation);
                         // Mux events take `Mux::state`; publish them only after
                         // the terminal lock is released (see PtyTerminalRuntime).
@@ -378,11 +381,6 @@ impl Surface {
                             && let Some(mux) = mux.upgrade()
                         {
                             mux.emit_terminal_title(surface.id, title.into());
-                        }
-                        if let Some((offset, at_bottom)) = scroll_changed
-                            && let Some(mux) = mux.upgrade()
-                        {
-                            mux.emit_terminal_scroll(surface.id, offset, at_bottom);
                         }
                         if !terminal_notifications.is_empty()
                             && let Some(mux) = mux.upgrade()
