@@ -61,8 +61,8 @@ test("a paused queue shows nothing running while acpmux still lists it running",
     daemon.emit(id, { mux: "turn_error", msg: { error: "stream disconnected", turnId: "t-1" } });
     daemon.emit(id, { mux: "queue_paused", msg: { turnId: "t-1", held: ["p-2"] } });
     daemon.emit(id, { mux: "turn_result", msg: { status: "failed", errorText: "stream disconnected", turnId: "t-1" } });
-    // acpmux still lists the session as running when the queue's pause reaches the pane.
-    daemon.touch(id, { status: "running", queuePaused: true });
+    // acpmux still lists the session as running, with its failed turn, when the pause reaches the pane.
+    daemon.touch(id, { status: "running", queuePaused: true, turn: { turnId: "t-1" } });
     await until(() => view.shown.summary?.queuePaused === true);
     expect(view.shown.isWorking).toBe(false);
     // A turn that starts while the queue stays paused does work.
@@ -70,6 +70,25 @@ test("a paused queue shows nothing running while acpmux still lists it running",
     await until(() => view.shown.isWorking);
     daemon.emit(id, { mux: "turn_result", msg: { status: "failed", errorText: "usage limit reached", turnId: "t-2" } });
     daemon.touch(id, { status: "ready", queuePaused: true });
+    await until(() => !view.shown.isWorking);
+  } finally {
+    close();
+  }
+});
+
+test("a turn sent now while the queue stays paused shows running", async () => {
+  const { daemon, view, until, id, close } = await pane();
+  try {
+    daemon.emit(id, { mux: "queue_paused", msg: { turnId: "t-1", held: ["p-2"] } });
+    daemon.emit(id, { mux: "turn_result", msg: { status: "failed", errorText: "stream disconnected", turnId: "t-1" } });
+    daemon.touch(id, { status: "ready", queuePaused: true });
+    await until(() => view.shown.summary?.queuePaused === true);
+    expect(view.shown.isWorking).toBe(false);
+    // Its turn's start is not in this page: acpmux's summary names the turn that runs.
+    daemon.touch(id, { status: "running", queuePaused: true, turn: { turnId: "t-3" } });
+    await until(() => view.shown.isWorking);
+    // A summary naming no running turn is from before the failure.
+    daemon.touch(id, { status: "running", queuePaused: true, turn: null });
     await until(() => !view.shown.isWorking);
   } finally {
     close();

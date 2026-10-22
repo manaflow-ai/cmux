@@ -995,6 +995,9 @@ export class AcpmuxDirectClient {
   /// The prompt sent now whose turn ended (`continued`) and that has not run yet. It may never run:
   /// removed, withdrawn or refused, the turn it ended reads as ended again (``dropContinuation``).
   private awaiting?: string;
+  /// The turns this page saw end (`turn_result`): a summary that still names one as running was
+  /// read before it ended (``staleRun``).
+  private endedTurns = new Set<string>();
   /// Each steer's row by its promptId. A steer that reaches the agent as its turn ends runs as the
   /// next prompt with the same promptId, recorded again: that prompt's row replaces the steer's.
   private steerRows = new Map<string, string>();
@@ -1459,6 +1462,7 @@ export class AcpmuxDirectClient {
     this.waitingSteers = [];
     this.interrupting = undefined;
     this.awaiting = undefined;
+    this.endedTurns.clear();
     this.continuations.clear();
     this.steerRows.clear();
     this.promptsShown.clear();
@@ -1536,8 +1540,8 @@ export class AcpmuxDirectClient {
     this.rebuild();
     // After the replay, not before: a `session_changed` the tail holds would take the live state back.
     this.summary = { ...kept.summary, ...listed };
-    // A paused queue runs nothing, whatever status acpmux last listed (`isWorking`).
-    this.turnOpen = listed?.status === "running" && listed.queuePaused !== true;
+    // A paused queue's failed turn no longer runs, whatever status acpmux last listed (`staleRun`).
+    this.turnOpen = listed?.status === "running" && !this.staleRun(listed);
     // Only acpmux says what is pending (attach's `session.pending`): a replayed ask is history
     // here. The marks it left on its own rows (an edit "awaiting permission") stand until the
     // attach replays the page, as they do on a page whose decision it does not hold either.
@@ -2199,6 +2203,14 @@ export class AcpmuxDirectClient {
     this.emit("commands");
   }
 
+  /// A summary of a paused queue that says "running" from before its turn failed: it names no
+  /// running turn, or one this page saw end. A turn sent now while prompts stay held runs.
+  private staleRun(summary: Record<string, any>): boolean {
+    if (summary.queuePaused !== true) return false;
+    const turnId = summary.turn?.turnId;
+    return typeof turnId !== "string" || this.endedTurns.has(turnId);
+  }
+
   private sessionChanged(params: SessionChanged): void {
     // Only a purge carries the id alone; every other change carries the whole summary.
     const session = params?.session as SessionSummary | undefined;
@@ -2309,6 +2321,7 @@ export class AcpmuxDirectClient {
     this.waitingSteers = [];
     this.interrupting = undefined;
     this.awaiting = undefined;
+    this.endedTurns.clear();
     this.steerRows.clear();
     this.promptsShown.clear();
     this.firstSeq = undefined;
@@ -2810,6 +2823,7 @@ export class AcpmuxDirectClient {
           this.awaiting = this.interrupting;
         }
         if (event.kind === "turn_result") this.interrupting = undefined;
+        if (event.kind === "turn_result" && typeof msg.turnId === "string") this.endedTurns.add(msg.turnId);
         if (event.kind === "turn_result")
           this.rows.set(`summary-${event.seq}`, {
             id: `summary-${event.seq}`,
@@ -3254,9 +3268,8 @@ export class AcpmuxDirectClient {
       isWorking:
         this.replayThrough === undefined &&
         !this.stopGaveUp &&
-        // A paused queue runs nothing: acpmux may still list the session as running from before
-        // the failure, so only a turn that started since says it works.
-        (this.turnOpen || (summary?.status === "running" && summary.queuePaused !== true)),
+        // acpmux may still list a paused queue's session as running from before its turn failed.
+        (this.turnOpen || (summary?.status === "running" && !this.staleRun(summary))),
       ...(this.replayThrough === undefined && this.turnTokens ? { turnTokens: this.turnTokens } : {}),
       ...(this.replayThrough === undefined && this.turnOpen && this.silentTurn ? { silentTurn: true as const } : {}),
       // Only a peer runs on another clock; this computer's own sessions need no correction.
