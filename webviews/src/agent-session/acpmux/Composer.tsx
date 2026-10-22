@@ -438,7 +438,8 @@ export function Composer({
   // Settings > Agent Chat > Composer Style (chatDisplay.ts `composerStyle`): minimal, the default, or codex.
   const { composerStyle } = useChatDisplay();
   // Codex's style (composerStyle.css) keeps the controls in the box's own row, under the prompt, so
-  // only the minimal style (the default, Claude Code's) draws the quiet row under the box. The chips keep the plain look either way.
+  // only the minimal style (the default, Claude Code's) draws the quiet row under the box. The chips
+  // keep the plain look either way.
   const footBelow = plainFooter && composerStyle !== "codex";
   useRowFit(bar, footBelow);
   const usage = snapshot.summary?.usage;
