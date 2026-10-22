@@ -70,6 +70,10 @@ final class WindowManager {
     var closedDuringRestore: Set<String> = []
     /// True while `restore` runs.
     private(set) var restoring = false
+    /// The launch window the person closed before `restore` finished: the restore registers the
+    /// workspaces it would have shown under this id, which is in `closedDuringRestore`, so they
+    /// stay in a closed window. Nil once it finished.
+    var closedLaunchWindowID: String?
     /// The windows the previous launch left open, captured at restore (Restore Previous App
     /// Launch reopens those closed since); nil before restore and when nothing was saved.
     var previousLaunch: PreviousLaunch?
@@ -193,6 +197,7 @@ final class WindowManager {
         defer {
             restoring = false
             closedDuringRestore = []
+            closedLaunchWindowID = nil
         }
         registry.provisional = [:]
         DebugTimings.markLaunch("daemon_snapshot_loaded")
@@ -217,6 +222,8 @@ final class WindowManager {
                                             restoredAtMs: UInt64(max(0, Date().timeIntervalSince1970 * 1000)))
         }
         let adopted = adoptLaunchWindow(restoredRegistry, records: document.windows)
+        // The closed launch window stood for the saved window it would have become.
+        if closedLaunchWindowID != nil, let front = adoptableFront(restoredRegistry) { closedDuringRestore.insert(front) }
         for record in document.windows where states[record.id] == nil { states[record.id] = WindowState(record: record) }
         if !restoredRegistry.windows.isEmpty {
             registry.apply { registry in
@@ -270,13 +277,8 @@ final class WindowManager {
     /// state, so relaunch shows it without opening a second window. With
     /// nothing saved it stays the only window and receives every workspace.
     private func adoptLaunchWindow(_ restored: WindowRegistry, records: [WindowRecord]) -> WindowController? {
-        // The frontmost saved window that can show a workspace now; one whose
-        // workspaces are gone or still connecting would leave the launch
-        // window on screen with nothing to show.
         guard let launchID = launchWindowID, let launch = controller(for: launchID),
-              let front = restored.recency.first(where: { id in
-                  restored.window(id).map { $0.isOpen && hasMirroredWorkspace($0) } == true
-              }),
+              let front = adoptableFront(restored),
               let record = records.first(where: { $0.id == front }) else { return nil }
         launch.state.adopt(record)
         launchWindowID = front
@@ -287,6 +289,13 @@ final class WindowManager {
             launch.window?.setFrame(WindowPlacementFallback.visible(frame, display: restored.window(front)?.display), display: true)
         }
         return launch
+    }
+
+    /// The frontmost saved window that can show a workspace now; one whose
+    /// workspaces are gone or still connecting would leave the launch
+    /// window on screen with nothing to show.
+    private func adoptableFront(_ restored: WindowRegistry) -> String? {
+        restored.recency.first { id in restored.window(id).map { $0.isOpen && hasMirroredWorkspace($0) } == true }
     }
 
     // MARK: Controllers
@@ -390,7 +399,10 @@ final class WindowManager {
         if id == launchWindowID {
             // The unregistered launch window: nothing to hand over. It often wears the saved front
             // window's id, so the restore must not open that one again either.
-            if restoring || !restored { closedDuringRestore.insert(id) }
+            if restoring || !restored {
+                closedDuringRestore.insert(id)
+                closedLaunchWindowID = id
+            }
             launchWindowID = nil
             states[id] = nil
             return

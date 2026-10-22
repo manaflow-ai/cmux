@@ -363,7 +363,7 @@ extension WindowManager {
         for id in live where !held.contains(id) { quietClaims.remove(id) }
         let members = before.windows.flatMap(\.workspaceIDs)
         let dead = Set(members.filter(isDead))
-        let fallback = launchWindowID ?? UUID().uuidString.lowercased()
+        let fallback = launchWindowID ?? closedLaunchWindowID ?? UUID().uuidString.lowercased()
         transition(select: preferred) { registry in
             registry.reconcile(live: live, dead: dead, placements: placements, held: held, behind: behindWindows,
                                fallbackWindow: fallback)

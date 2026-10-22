@@ -70,7 +70,6 @@ struct BackgroundAccessoryPolicyTests {
                                                   timeout: .seconds(10))
             }
             services.daemon.shutdownConnection()
-            try? FileManager.default.removeItem(at: root)
         }
     }
 
@@ -81,6 +80,7 @@ struct BackgroundAccessoryPolicyTests {
         let policyBefore = app.activationPolicy()
         defer { app.setActivationPolicy(policyBefore) }
         let launch = try await Launch()
+        defer { try? FileManager.default.removeItem(at: launch.root) }
         let windows = launch.services.windows
         windows.restoreWhenLoaded()
         try #require(!windows.restored, "the restore finished before the launch window could close")
@@ -100,6 +100,7 @@ struct BackgroundAccessoryPolicyTests {
         let policyBefore = app.activationPolicy()
         defer { app.setActivationPolicy(policyBefore) }
         let launch = try await Launch()
+        defer { try? FileManager.default.removeItem(at: launch.root) }
         let services = launch.services
         let settings = launch.settings
         let configURL = launch.configURL
