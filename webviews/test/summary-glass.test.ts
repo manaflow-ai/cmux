@@ -30,7 +30,13 @@ await requireBrowserLane("summary-glass.test.ts", async () => {
     const srgb = color.match(/color\(srgb\s+([\d.e-]+)\s+([\d.e-]+)\s+([\d.e-]+)(?:\s*\/\s*([\d.e-]+))?\)/);
     if (srgb) return [Number(srgb[1]), Number(srgb[2]), Number(srgb[3]), srgb[4] === undefined ? 1 : Number(srgb[4])];
     const rgb = color.match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)/);
-    if (rgb) return [Number(rgb[1]) / 255, Number(rgb[2]) / 255, Number(rgb[3]) / 255, rgb[4] === undefined ? 1 : Number(rgb[4])];
+    if (rgb)
+      return [
+        Number(rgb[1]) / 255,
+        Number(rgb[2]) / 255,
+        Number(rgb[3]) / 255,
+        rgb[4] === undefined ? 1 : Number(rgb[4]),
+      ];
     throw new Error(`unparsed color ${color}`);
   }
   const over = (top: Rgba, under: Rgb): Rgb => [0, 1, 2].map((i) => top[i]! * top[3] + under[i]! * (1 - top[3])) as Rgb;
@@ -85,12 +91,16 @@ await requireBrowserLane("summary-glass.test.ts", async () => {
   async function popover(page: Page) {
     const raw = await page.evaluate(() => {
       const style = getComputedStyle(document.getElementById("popover")!);
-      return { fill: style.backgroundColor, backdrop: style.backdropFilter, ink: getComputedStyle(document.getElementById("title")!).color };
+      return {
+        fill: style.backgroundColor,
+        backdrop: style.backdropFilter,
+        ink: getComputedStyle(document.getElementById("title")!).color,
+      };
     });
     return { fill: parse(raw.fill), backdrop: raw.backdrop, ink: parse(raw.ink) };
   }
 
-  const windows = [
+  const windows: { name: string; attributes: Record<string, string> }[] = [
     { name: "an opaque window", attributes: {} },
     { name: "art under Plain glass", attributes: { "data-cmux-see-through": "", "data-glass": "plain" } },
     { name: "art under Lens glass", attributes: { "data-cmux-see-through": "", "data-glass": "lens" } },
