@@ -24,7 +24,7 @@ const controls = {
         { value: "fast", name: "Fast" },
       ],
     },
-    // Fast mode on: the bolt before the mic (FastToggle.tsx), a unit of the row's fit steps.
+    // Fast mode on: a checkbox row of the model button's menu (Leo 2026-10-20); the row draws no bolt.
     {
       id: "fast-mode",
       name: "Fast mode",
@@ -141,17 +141,20 @@ export function narrowProblems(document: Document): string[] {
           problems.push(`${name}: “${text.textContent.trim()}” is cut off`);
       }
     }
-  // Effort has no other control (the model picker has no effort row): it may shrink, never go.
-  for (const effort of document.querySelectorAll(".acpmux-effort"))
-    if (!visible(effort)) problems.push("the Effort chip is hidden");
-  // A wide pane collapses nothing: Effort/Fast and the model show in full (a size container that
+  // The effort is the model button's detail ("Opus 5.5  Medium", Leo 2026-10-20): it may shrink to
+  // its short name, never go.
+  for (const button of document.querySelectorAll(".acpmux-model .acpmux-picker-button")) {
+    const details = [...button.querySelectorAll(".acpmux-model-detail")];
+    if (details.length && !details.some(visible)) problems.push("the model button's effort is hidden");
+  }
+  // A wide pane collapses nothing: the model and its effort show in full (a size container that
   // measured a wide composer as narrow would hide them, Lawrence 2026-10-14 "lost effort"). At 600 px
-  // the chips still share the row, so the model name and Effort may end in an ellipsis there.
+  // the controls still share the row, so the model name and effort may end in an ellipsis there.
   if (view.innerWidth >= 700)
     // The row's wide forms (composerRowFit.ts): effort's level, and the model's name or its drawn
     // name without the vendor ("Opus 5.5"); the narrow forms are laid out of the row.
     for (const value of document.querySelectorAll(
-      ".acpmux-effort .acpmux-picker-button > span:not(.acpmux-fit-label), .acpmux-model-name:not([data-short]), .acpmux-model .acpmux-fit-label[data-fit-forms~='full']",
+      ".acpmux-model-detail:not(.acpmux-fit-label), .acpmux-model-name:not([data-short]), .acpmux-model .acpmux-fit-label[data-fit-forms~='full']",
     ))
       if (!visible(value) || value.scrollWidth > value.clientWidth + 1)
         problems.push(`“${value.textContent?.trim()}” is not shown in full in a wide pane`);
@@ -168,21 +171,8 @@ export function narrowProblems(document: Document): string[] {
       );
       if (!named) problems.push("the model is cut to its icon in a pane with room for its name");
     }
-  // The speed bolt leaves a chat's row after the model's name and before the mic (composerRowFit.ts
-  // speedHidden: a composer at or under 370 px, or a row too long for its width's steps).
-  for (const bolt of document.querySelectorAll<HTMLElement>(".acpmux-composer-bar .acpmux-fast")) {
-    const bar = bolt.closest<HTMLElement>(".acpmux-composer-bar")!;
-    const composer = bolt.closest<HTMLElement>(".acpmux-composer");
-    const pad = composer ? getComputedStyle(composer) : undefined;
-    const width =
-      composer && pad ? composer.clientWidth - parseFloat(pad.paddingLeft) - parseFloat(pad.paddingRight) : 0;
-    const mic = bar.querySelector(".acpmux-mic");
-    if (composer && width <= 370 && visible(bolt))
-      problems.push(`the speed bolt stays in a ${Math.round(width)} px composer`);
-    if (!visible(bolt) && bar.getAttribute("data-fit-model") !== "icon")
-      problems.push("the speed bolt left the row while the model still shows its name");
-    if (mic && !visible(mic) && visible(bolt)) problems.push("the mic left the row before the speed bolt");
-  }
+  // Fast mode is a row of the model button's menu, never a bolt in the composer (Leo 2026-10-20).
+  if (document.querySelector(".acpmux-fast")) problems.push("the composer draws a speed bolt");
   // The chips and the turn's controls share one line: Send never wraps under the pickers.
   for (const row of document.querySelectorAll(".acpmux-composer-bar, .nt-pickers")) {
     const chip = row.querySelector(".acpmux-chips > *");
@@ -196,7 +186,7 @@ export function narrowProblems(document: Document): string[] {
       problems.push(`${row.className.toString().split(" ")[0]}: Send wraps below the chips`);
   }
   // The turn's own controls never shrink: a squeezed Send is the first thing a narrow pane breaks.
-  for (const selector of [".acpmux-send", ".acpmux-cancel", ".acpmux-steer-now", ".acpmux-mic", ".acpmux-fast"])
+  for (const selector of [".acpmux-send", ".acpmux-cancel", ".acpmux-steer-now", ".acpmux-mic"])
     for (const control of document.querySelectorAll(selector)) {
       if (!visible(control)) continue;
       const rect = control.getBoundingClientRect();
@@ -223,6 +213,35 @@ const check: Play = async (ctx: PlayContext) => {
   const problems = narrowProblems(ctx.document);
   if (problems.length) throw new Error(problems.join("; "));
 };
+
+/// The model button's open menus (the compact one, its submenus, the full picker) inside the chat
+/// column: a chip near the column's edge never opens a menu past it, over the rail beside it or off
+/// the pane (the context-menus lane, 2026-10-20: "the model menu overflows the column").
+function menusLeaveColumn(document: Document): string[] {
+  const view = document.defaultView!;
+  const box = document.querySelector(".acpmux-main")?.getBoundingClientRect() ?? { left: 0, right: view.innerWidth };
+  const problems: string[] = [];
+  for (const menu of document.querySelectorAll(".acpmux-quick-menu, .acpmux-mp")) {
+    const rect = menu.getBoundingClientRect();
+    if (rect.width === 0) continue;
+    if (rect.left < box.left - 1 || rect.right > box.right + 1)
+      problems.push(
+        `the model menu leaves the chat column (${Math.round(rect.left)}–${Math.round(rect.right)} of ${Math.round(box.left)}–${Math.round(box.right)})`,
+      );
+  }
+  return problems;
+}
+
+/// Opens the model button's menu and checks that it keeps to the chat column.
+async function openModelMenu(ctx: PlayContext) {
+  await ctx.click({ role: "button", name: "Model" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu"));
+  // Base UI places and sizes the menu over a frame or two (its --available-width): wait for it to
+  // rest inside the column rather than read its first frame.
+  await ctx.waitFor(() => menusLeaveColumn(ctx.document).length === 0, { capMs: 1000 }).catch(() => undefined);
+  const problems = menusLeaveColumn(ctx.document);
+  if (problems.length) throw new Error(problems.join("; "));
+}
 
 export default agentPaneEntry({
   id: "agent-pane.narrow",
@@ -259,15 +278,28 @@ export default agentPaneEntry({
       play: check,
     },
     "model-menu": {
-      note: "Play: open the model picker from its chip (icon-only below 330px); it stays inside the pane, unclipped.",
+      note: "Play: open the model button's menu (icon-only below 330px); it stays inside the pane, unclipped, and inside a chat column narrower than the pane (200 px), its width giving way.",
       checks: {
         popupLayer: { value: true, reason: "A chip's menu renders inside the chip row; a clipping row hides it." },
       },
       snapshot: withControls(chat(finished)),
       play: async (ctx) => {
-        await ctx.click({ role: "button", name: "Model" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp"));
+        await openModelMenu(ctx);
         await check(ctx);
+        // Then a chat column narrower than the pane, as a docked rail beside it leaves it: 200 px at
+        // the pane's left, under the menu's 220 px floor and 300 px width. The menu gives way and
+        // keeps to the column, never past its edge.
+        await ctx.press("Escape");
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-quick-menu"));
+        const column = ctx.document.querySelector<HTMLElement>(".acpmux-main");
+        if (!column) throw new Error("no chat column");
+        column.style.flex = "0 0 200px";
+        await ctx.waitFor(() => column.getBoundingClientRect().width <= 201);
+        // The narrowing is the stage's, not a step's: let it paint before the next step measures shifts.
+        const view = ctx.document.defaultView!;
+        await new Promise((resolve) => view.requestAnimationFrame(() => view.requestAnimationFrame(resolve)));
+        await new Promise((resolve) => view.setTimeout(resolve, 0));
+        await openModelMenu(ctx);
       },
     },
     "access-menu": {
@@ -320,7 +352,7 @@ export default agentPaneEntry({
     "new-tab": {
       note: "The New Tab page with its composer and recent chats.",
       ready: {
-        newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude" },
+        newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude", template: "cards" },
         newSession: true,
       },
       snapshot: noChat([session({ sessionId: "older", title: "Add retry with exponential backoff to the uploader" })], {
@@ -335,7 +367,7 @@ export default agentPaneEntry({
     "new-tab-wide-type": {
       note: "The New Tab page with its letters spaced half a pixel wider, as Linux's fonts set them.",
       ready: {
-        newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude" },
+        newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude", template: "cards" },
         newSession: true,
       },
       snapshot: noChat([session({ sessionId: "older", title: "Add retry with exponential backoff to the uploader" })], {

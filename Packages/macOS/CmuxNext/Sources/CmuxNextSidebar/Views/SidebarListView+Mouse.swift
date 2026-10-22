@@ -30,7 +30,8 @@ extension SidebarListViewComponents {
         switch row.key {
         case let .workspace(id):
             SidebarGroupKeys(list: self).setFocus(nil)
-            guard !model.isPlaceholder(id) else {
+            // A control-click is a right-click: its menu (`menu(for:)`) neither selects nor switches.
+            guard !model.isPlaceholder(id), !flags.contains(.control) else {
                 self.press = nil
                 return
             }
@@ -49,7 +50,10 @@ extension SidebarListViewComponents {
                 // on mouse-up if no drag happens.
                 press.deferredClick = id
             } else {
-                model.click(id)
+                // Leo 2026-10-21: "MOUSE DOWN DRAGGING ON A WORKSPACE SHOULDN'T BE IMMEDIATELY FOCUSING". A press
+                // selects nothing; the release on this row navigates, a drag moves the row and leaves the shown
+                // workspace where it is (as `sidebar.multiView` did first, #23437).
+                press.clickOnRelease = id
             }
             // The fill moves now, on the two rows (a switch drew it already, `SidebarSameTurn`).
             if !patchSelection(from: oldItem, oldSelection: oldSelection) { reload(animated: true) }
@@ -69,7 +73,7 @@ extension SidebarListViewComponents {
                 press.activatedOnPress = true
                 model.send(.activateItem(id, opensWorkspace: event.modifierFlags.contains(.option)))
             }
-        case .section, .emptySection, .folder, .block:
+        case .section, .emptySection, .folder, .block, .doneFold, .showMore:
             break
         }
         self.press = press
@@ -107,6 +111,11 @@ extension SidebarListViewComponents {
         let point = convert(event.locationInWindow, from: nil)
         guard clickHit(at: point)?.key == press.key else { return syncRowStates() }
         switch press.key {
+        case let .workspace(id) where press.clickOnRelease == id:
+            let (oldItem, oldSelection) = (model.selectedItem, model.selection)
+            model.click(id)
+            if !patchSelection(from: oldItem, oldSelection: oldSelection) { reload(animated: true) }
+            return syncRowStates()
         case .workspace:
             // Mouse-down drew the click on the old and new rows (`patchSelection`) and moved no row: no layout here
             // (u2455: every click laid the whole list out and configured every row).
@@ -132,6 +141,10 @@ extension SidebarListViewComponents {
             // A link opens its page, a tab shows, an app opens, as in the band.
             guard !press.activatedOnPress else { break }
             model.send(.activateItem(LayoutItemID(item), opensWorkspace: event.modifierFlags.contains(.option)))
+        case let .doneFold(fold):
+            if openDoneFolds.remove(fold) == nil { openDoneFolds.insert(fold) }
+        case let .showMore(list):
+            if openShowMore.remove(list) == nil { openShowMore.insert(list) }
         case .emptySection, .folder, .block:
             break
         }

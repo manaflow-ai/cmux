@@ -58,12 +58,21 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// label with `progress` on. Nil when none of those is reported, so a
     /// quiet workspace keeps its one-line row.
     public var status: SidebarWorkspaceStatus?
+    /// The computer the workspace runs on, while the sidebar lists more than one (SidebarMachineMark).
+    public var machine: SidebarMachineMark?
     /// The session tree (`sidebar.sessionTree`): 1 under the workspace whose agent started this one's.
     public var treeDepth = 0
     /// The session tree: the Command-number that goes to the row (1 to 9), drawn as a keycap.
     public var keycap: Int?
     /// The session tree: the row's pull requests, a glyph and a count in their status color.
     public var pullRequests: SidebarPullRequestBadge?
+    /// The Priority view's chip (`SidebarWorkspace.agentChip`) when it asks for something
+    /// (`rowChip`), for the row's accessibility label. Never drawn: a row shows no status words
+    /// (Leo 2026-10-21); needs you is the badge's yellow dot.
+    public var chip: SidebarPriorityEntry.State?
+    /// What the working agent does now (`SidebarWorkspace.agentStep`), in place of the second
+    /// line's text: the row view draws it as "Now: …". Set only on a row that has a second line.
+    public var now: String?
 
     public init(icon: WorkspaceIcon? = nil, detail: String? = nil, tabCount: Int? = nil, badge: String? = nil,
                 activity: StatusIndicatorState = .idle, progress: SidebarProgress? = nil, showsWorking: Bool = false,
@@ -158,6 +167,16 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         formatter.maximumUnitCount = 1
         formatter.allowedUnits = [.day, .weekOfMonth, .month]
         return formatter.string(from: TimeInterval(days) * 86_400) ?? ""
+    }
+
+    /// The chip a row may draw: what asks for the user (needs you, failed, lost, Red CI). A finished
+    /// chat says nothing in words (Leo 2026-10-21, "WHO BROUGHT BACK THE DONE AND THE TIMERS"): its
+    /// unread dot is the cue. Working and idle never reach a row (`SidebarLaneStatus.chip`).
+    static func rowChip(_ state: SidebarPriorityEntry.State?) -> SidebarPriorityEntry.State? {
+        switch state {
+        case .needsYou?, .failed?, .lost?, .ciFailing?: state
+        case .done?, .working?, .idle?, nil: nil
+        }
     }
 
     /// How long a row has worked, in whole minutes ("4m", "1h 3m"); nil under a minute, so the

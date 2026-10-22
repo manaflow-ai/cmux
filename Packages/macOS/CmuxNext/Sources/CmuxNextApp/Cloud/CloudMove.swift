@@ -261,7 +261,7 @@ struct CloudMove {
         if let live = machines.cloud.first(where: { $0.daemon.connection != nil }) ?? machines.cloud.first {
             return try await connected(live, invocation)
         }
-        let created = try await services.cloud.createMachine(name: nil, startedByPerson: invocation.origin == .user)
+        let created = try await services.cloud.createMachine(name: nil, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession)
         return try await connected(created, invocation)
     }
 
@@ -292,7 +292,7 @@ struct CloudMove {
         }
         services.windows.reveal(workspaceID: workspace.rawValue)
         let tab = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)"
-        if let pane = await AgentSessionWorkspace.mirroredPane(of: workspace, in: daemon.store) {
+        if let pane = await daemon.store.firstPane(mirroring: workspace) {
             for window in services.windows.controllers { window.state.selection.select(tab, in: pane.id) }
         }
     }

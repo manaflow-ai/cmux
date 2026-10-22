@@ -104,6 +104,9 @@ await requireBrowserLane("diff-toolbar-narrow.test.ts", async () => {
       const page = await browser!.newPage({ viewport: { width, height: 600 } });
       await page.goto(`http://127.0.0.1:${port}/test/browser/diff-toolbar-narrow.html?picker`);
       await page.locator("#base-picker-button").waitFor();
+      // Jump-to-file comes once the patch's files are read, after the picker (DiffToolbar.tsx draws
+      // nothing with no files); the cell may clip it here, so it need only be in the page.
+      await page.locator("#jump-to-file-button").waitFor({ state: "attached" });
       const boxes = await page.evaluate(() => {
         const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
         const label = [...document.querySelectorAll("#base-picker-button .base-picker-label > *")]

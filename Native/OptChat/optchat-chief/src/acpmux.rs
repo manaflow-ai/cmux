@@ -794,7 +794,7 @@ pub fn sessions(client: &RpcClient) -> Result<Vec<SessionSummary>, String> {
         .collect())
 }
 
-/// `_acpmux/events` after `after`, every page.
+/// `_acpmux/events` after `after`, every page (`hasMore`: a page ends at the daemon's byte limit).
 pub fn events(client: &RpcClient, session: &str, after: u64) -> Result<Vec<AcpmuxEvent>, String> {
     const LIMIT: u64 = 10_000;
     let mut all: Vec<AcpmuxEvent> = Vec::new();
@@ -813,10 +813,10 @@ pub fn events(client: &RpcClient, session: &str, after: u64) -> Result<Vec<Acpmu
             .flatten()
             .filter_map(|e| serde_json::from_value(e.clone()).ok())
             .collect();
-        let full = page.len() as u64 >= LIMIT;
+        let more = result.get("hasMore") == Some(&json!(true)) || page.len() as u64 >= LIMIT;
         let last = page.iter().map(|e| e.seq).max().unwrap_or(cursor);
         all.extend(page);
-        if !full || last <= cursor {
+        if !more || last <= cursor {
             return Ok(all);
         }
         cursor = last;

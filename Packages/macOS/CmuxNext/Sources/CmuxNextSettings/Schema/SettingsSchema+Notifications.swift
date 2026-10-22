@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDesign
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -98,6 +99,18 @@ nonisolated enum NotificationSettingsSchema {
                 default: .string(defaults.dockBounce.rawValue), keywords: ["dock", "bounce", "attention", "badge"]
             ),
             SettingDescriptor(
+                ["notifications", "showPreviews"], section: .notifications, group: banners,
+                title: SettingsText.keyed("settings.notifications.showPreviews", "Show Message in Banners"),
+                help: SettingsText.keyed("settings.notifications.showPreviews.help",
+                                        "Whether a banner shows what the agent said, or only where and what state."),
+                kind: .choice([
+                    SettingChoice(NotificationPreviews.always.rawValue, SettingsText.keyed("settings.choice.previewsAlways", "Always")),
+                    SettingChoice(NotificationPreviews.whenUnlocked.rawValue, SettingsText.keyed("settings.choice.previewsWhenUnlocked", "When Unlocked")),
+                    SettingChoice(NotificationPreviews.never.rawValue, SettingsText.keyed("settings.choice.previewsNever", "Never")),
+                ]),
+                default: .string(defaults.showPreviews.rawValue), keywords: ["preview", "privacy", "message", "lock screen", "banner"]
+            ),
+            SettingDescriptor(
                 ["feed", "mirrorNotifications", "agents"], section: .notifications, group: feed,
                 title: SettingsText.keyed("settings.feed.mirrorAgents", "Copy Agent Notifications to the Feed"),
                 help: SettingsText.keyed("settings.feed.mirrorAgents.help",
@@ -163,6 +176,18 @@ nonisolated enum NotificationSettingsSchema {
                 ["notifications", "attention", "persist"], section: .notifications, group: ring,
                 title: SettingsText.keyed("settings.attention.persist", "Keep Ring Until Read"),
                 kind: .toggle, default: .bool(attention.persists)
+            ),
+            SettingDescriptor(
+                ["notifications", "attention", "flash"], section: .notifications, group: ring,
+                title: SettingsText.keyed("settings.attention.flash", "Flash the Pane When Read"),
+                help: SettingsText.keyed("settings.attention.flash.help",
+                                        "Clicking an unread pane, typing in it or jumping to it flashes its ring as it goes."),
+                kind: .toggle, default: .bool(attention.flashesOnRead), keywords: ["ring", "flash", "blink", "unread"]
+            ),
+            SettingDescriptor(
+                ["notifications", "attention", "flashOnTyping"], section: .notifications, group: ring,
+                title: SettingsText.keyed("settings.attention.flashOnTyping", "Flash When Typing Reads It"),
+                kind: .toggle, default: .bool(attention.flashesOnTyping), keywords: ["ring", "flash", "keystroke", "unread"]
             ),
             SettingDescriptor(
                 ["notifications", "attention", "showOnTab"], section: .notifications, group: ring,

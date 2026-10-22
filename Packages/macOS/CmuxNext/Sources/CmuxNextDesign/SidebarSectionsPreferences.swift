@@ -2,7 +2,8 @@
 /// `sidebar.topBandMaxShare`, `sidebar.bottomBandMaxShare`,
 /// `sidebar.pinnedBandsScroll`, `sidebar.showWorkspaceTabs` and
 /// `sidebar.workspaceRow.*`; plans/cmux-next/sidebar-sections.md 7).
-/// `sidebar.showChats` shows the device-wide All chats section (on by default, cx-xub5).
+/// `sidebar.showChats` lists every chat (All chats) on the New Tab page, where All chats moved
+/// from the sidebar (cx-n0i9); on by default (cx-xub5).
 /// `sidebar.minimalMode`: which pinned bands hide until the pointer is over
 /// the sidebar (R54).
 public nonisolated enum SidebarMinimalMode: String, Hashable, Sendable, CaseIterable {
@@ -53,8 +54,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var showProjects = true
     /// The Projects menu's Group By (`sidebar.groupBy`).
     public var groupBy: SidebarGroupBy = .none
-    /// Whether the device-wide All chats section is shown at the bottom of the
-    /// sidebar (Lawrence 2026-10-09: on by default); its header's Hide Section turns it off.
+    /// Show All Chats on New Tab: the New Tab page's Threads and Console styles list every
+    /// chat on this device; off, the recent chats only (Lawrence 2026-10-09: on by default). The
+    /// key keeps its `sidebar.` name from when All chats was a sidebar section (cx-n0i9).
     public var showChats = true
     /// The bottom band's pieces (cx-wab7m): each hides from its own right-click menu and comes
     /// back from the band's (`sidebar.showSpaces`: the spaces dots; `sidebar.showProfileControl`:
@@ -77,6 +79,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// age such as `3d`) on the name's line. Off by default (Lawrence 2026-10-19: "By default in the
     /// sidebar, we should never show timestamps"); the hover card keeps its times either way.
     public var showTimestamps = false
+    /// `sidebar.showLocalMachine`: with more than one machine listed, this Mac's workspace rows
+    /// carry its machine mark too. Off by default (Leo 2026-10-20): only another machine's rows
+    /// are marked, since that is the news; this Mac is where a row runs unless it says otherwise.
+    public var showLocalMachine = false
     /// `sidebar.groupHeader.memberCount`: a collapsed group's header shows how many workspaces it
     /// holds after its name. Off by default (Lawrence 2026-10-20: "All we care about is the
     /// loading"); the header shows only its loading spinner.

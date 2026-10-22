@@ -1,80 +1,99 @@
-// A message to another agent (tell-coordinator, cmux send, a mailbox write, SendMessage) as a
-// card: sender to recipient and how it went, the message's first line, and the whole message
-// once opened.
-import { useId, useLayoutEffect, useRef, useState } from "react";
+// A message to another agent (tell-coordinator, cmux send, a mailbox write, SendMessage) as one
+// collapsed line, the shared agent message row (AgentMessageRow.tsx) that a received message
+// draws too: the envelope, "Sent to <recipient>", the message's first line muted, and the chevron
+// (Leo 2026-10-21: "more collapsed from the start", as Claude draws its message rows). Opened, the
+// whole message in a glass card, then one status line with its glyph: Sending…, Sent, or Delivered
+// to <recipient> from the send's receipt ("delivered to leoli-24 (id 9defc4d0ed87)"), whose id is
+// never shown (#20456), and how it went out; then what else the send printed. Whether it is open
+// lasts across the virtualized transcript (transcriptDisclosure.tsx), and Find in Chat opens it.
+import { useMemo } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import type { AgentMessage } from "./agentMessages";
-import { ArrowRight, ChevronDown, ChevronRight, Envelope, Spinner } from "./icons";
+import { AgentMessageRow, messagePreview } from "./AgentMessageRow";
+import { useFindReveal } from "./chatFind";
+import { Check, DoubleCheck, Envelope, Spinner } from "./icons";
 import { isFailed, isRunning } from "./toolGroups";
+import { useTranscriptDisclosure } from "./transcriptDisclosure";
 
 export function MessageCard({ item, message }: { item: AcpmuxActivity; message: AgentMessage }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
   const tool = item.tool!;
+  const [open, setOpen] = useTranscriptDisclosure(`message:${tool.id}`);
+  useFindReveal(
+    useMemo(() => [item], [item]),
+    () => setOpen(true),
+  );
   const from = message.from ?? t("message.self");
   const to = message.to ?? t("message.unknown");
-  // Two lines show closed; a message that overflows them gets Show more. The first paint guesses
-  // (a third line, or ~140 characters); once laid out, the clamped body measures itself, again
-  // whenever its width changes. Open, the toggle stays for Show less.
-  const [long, setLong] = useState(() => message.text.split("\n").length > 2 || message.text.length > 140);
-  const body = useRef<HTMLDivElement>(null);
-  const bodyId = useId();
-  useLayoutEffect(() => {
-    const node = body.current;
-    if (!node || open) return;
-    const measure = () => setLong(node.scrollHeight > node.clientHeight + 1);
-    measure();
-    if (typeof ResizeObserver !== "function") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [open, message.text]);
   const failed = isFailed(tool);
-  // What the send printed (a delivery receipt, or why it failed), under the opened message.
+  const running = isRunning(tool);
   const output = tool.output?.replace(/\n$/, "");
+  const receipt = output && /^delivered to (\S+?)(?: \(id [^)]*\))?\s*$/im.exec(output);
+  // What else the send printed: its output without the receipt line, which the status line says.
+  const rest =
+    receipt && !failed
+      ? (output.slice(0, receipt.index) + output.slice(receipt.index + receipt[0].length)).trim()
+      : output;
+  const delivery = failed ? "failed" : running ? "sending" : receipt ? "delivered" : "sent";
+  const status =
+    delivery === "failed"
+      ? t("tools.failed")
+      : delivery === "sending"
+        ? t("message.sending")
+        : delivery === "delivered"
+          ? t("message.delivered", { to: receipt![1]! })
+          : t("message.sent");
+  const glyph =
+    delivery === "sending" ? (
+      <Spinner size={12} />
+    ) : delivery === "delivered" ? (
+      <DoubleCheck size={12} />
+    ) : delivery === "sent" ? (
+      <Check size={12} />
+    ) : null;
   return (
-    <div className={`cv-message${failed ? " is-failed" : ""}`}>
-      <button
-        type="button"
-        className="cv-message__head"
-        aria-expanded={open}
-        aria-controls={bodyId}
-        // The route reads as a sentence (the arrow is a glyph a screen reader skips); the message
-        // itself is the text below, outside the button, so it stays selectable.
-        aria-label={[t("message.label", { from, to }), failed ? t("tools.failed") : ""].filter(Boolean).join(". ")}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <span className="cv-message__route">
-          <span className="cv-tool__icon">{isRunning(tool) ? <Spinner size={16} /> : <Envelope />}</span>
-          <span className="cv-message__party">{from}</span>
-          <ArrowRight size={12} className="cv-message__arrow" />
-          <span className="cv-message__party is-to">{to}</span>
-          <span className="cv-message__via">{t(`message.channel.${message.channel}`)}</span>
-          {failed && <span className="cv-tool__failed">{t("tools.failed")}</span>}
-          <ChevronRight
-            size={14}
-            strokeWidth={1.2}
-            className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-          />
-        </span>
-      </button>
-      <div ref={body} id={bodyId} className={`cv-message__body${open ? "" : " is-clamped"}`}>
-        {message.text || t("message.noText")}
-      </div>
-      {long && (
-        <button
-          type="button"
-          className="cv-message__more"
-          aria-expanded={open}
-          aria-controls={bodyId}
-          onClick={() => setOpen((value) => !value)}
-        >
-          {t(open ? "message.less" : "message.more")}
-          <ChevronDown size={12} className={`cv-rotor${open ? " is-flipped" : ""}`} />
-        </button>
-      )}
-      {open && output && <pre className="cv-tool-output">{output}</pre>}
-    </div>
+    <AgentMessageRow
+      direction="sent"
+      className="cv-message"
+      attributes={{ "data-delivery": delivery }}
+      icon={running ? <Spinner size={16} /> : <Envelope />}
+      sentence={t(running ? "message.sendingTo" : "message.sentTo", { to: "\u0000" })}
+      name={to}
+      preview={messagePreview(message.text) || t("message.noText")}
+      // The route reads as a sentence; the message itself is in the card, outside the button, so
+      // it stays selectable.
+      label={[t("message.label", { from, to }), failed ? t("tools.failed") : ""].filter(Boolean).join(". ")}
+      open={open}
+      onToggle={() => setOpen((value) => !value)}
+      failed={failed}
+      live={running}
+      meta={
+        failed ? (
+          <span className="cv-command__meta cv-agentmsg__status">{t("tools.failed")}</span>
+        ) : delivery === "sending" ? undefined : (
+          <span className="cv-command__meta">
+            {delivery === "delivered" ? (
+              <DoubleCheck size={14} className="cv-command__ok" />
+            ) : (
+              <Check size={14} className="cv-command__ok" />
+            )}
+          </span>
+        )
+      }
+      body={message.text || t("message.noText")}
+      under={
+        <>
+          <div className="cv-agentmsg__under cv-message__receipt">
+            {glyph}
+            <span className="cv-agentmsg__status cv-message__status">{status}</span>
+            <span aria-hidden>·</span>
+            <span className="cv-message__via">{t(`message.channel.${message.channel}`)}</span>
+          </div>
+          {/* What else the send printed (a tool's own reply), and all of it when the send failed. */}
+          {rest && <pre className="cv-tool-output cv-agentmsg__output selectable">{rest}</pre>}
+        </>
+      }
+    />
   );
 }

@@ -2679,7 +2679,10 @@ pub(crate) fn prune_unchanged_resource_changes(
             }
             ResourceChange::UpsertTab(tab) => {
                 tab_parents.insert(tab.pane_id.to_string());
-                tab_parents.extend(resource_field_any(
+                // The pane a live tab moves out of; a retired tab that
+                // Reopen Closed makes again under its id left its old pane
+                // when it closed (the validator reads the live row too).
+                tab_parents.extend(live_resource_field(
                     transaction,
                     "resource_tabs",
                     "pane_id",
@@ -3593,7 +3596,7 @@ fn upsert_resource_terminal(
     {
         require_live_workspace(transaction, &terminal.workspace_key)?;
     }
-    let launch_spec = canonical_json(&terminal.launch_spec)?;
+    let launch_spec = canonical_json(&durable_launch_spec(terminal))?;
     if launch_spec.len() > MAX_LAUNCH_SPEC_BYTES {
         anyhow::bail!("terminal launch spec exceeds {MAX_LAUNCH_SPEC_BYTES} bytes");
     }
@@ -3647,7 +3650,7 @@ fn upsert_resource_terminal(
             terminal.lifecycle.as_str(),
             launch_spec,
             exit,
-            terminal.on_exit.as_str(),
+            terminal.on_exit.column(),
             revision,
             (terminal.lifecycle == TerminalLifecycle::Tombstoned).then_some(revision),
         ],

@@ -94,6 +94,36 @@ function smallFiles(count: number): string[] {
 }
 
 /**
+ * A big review (test/diff-paint-perf.test.ts): 2,000 TypeScript files of 100 lines with every
+ * fifth line changed (about 240,000 diff rows, 10 MB of patch), across 40 folders, ahead of
+ * one 1,500-line file rewritten end to end.
+ */
+function mixedPatch(): string {
+  const source = (file: number, k: number, changed: boolean) =>
+    k % 10 === 0
+      ? `export function handler_${file}_${k}(input: Request): Promise<Response> {`
+      : k % 10 === 9
+        ? "}"
+        : `  const value_${k} = await fetchThing("item-${file}-${k}", { retries: ${changed ? k + 1 : k}, timeout: ${k * 10} });`;
+  const files = Array.from({ length: 2_000 }, (_, index) =>
+    filePatch(
+      `packages/pkg${String(Math.floor(index / 50)).padStart(2, "0")}/src/module${String(index).padStart(4, "0")}.ts`,
+      100,
+      (k, changed) => source(index, k, changed),
+      (k) => k % 5 === 2,
+    ),
+  );
+  const rewritten = filePatch(
+    "packages/core/src/rewritten.ts",
+    1_500,
+    (k, changed) => `  const entry_${k} = ${changed ? `next(${k})` : `prev(${k})`};`,
+    () => true,
+  );
+  return [...files, rewritten].join("");
+}
+
+/**
+ * `?fixture=mixed`: mixedPatch above.
  * `?fixture=large`: five 20,000-line files rewritten (deferred, 1.6 MB of
  * patch each) ahead of 50 small files. `?fixture=huge`: one generated
  * 1,000,000-line bundle (about 60 MB of patch) ahead of 50 small files.
@@ -112,6 +142,7 @@ function fixturePatch(): string {
     );
     return [...rewritten, ...smallFiles(50)].join("");
   }
+  if (fixture === "mixed") return mixedPatch();
   if (fixture === "huge") {
     const bundle = addedFilePatch(
       "dist/generated/bundle.js",
@@ -136,6 +167,8 @@ config.textContent = JSON.stringify({
     layout: "unified",
     layoutSource: "explicit",
     labels: diffViewerLabelsFor("en"),
+    // cmux NEXT's default (state.ts defaultDiffViewerOptions); an embedded config starts with it off.
+    viewerOptions: { wordDiffs: true },
   },
 });
 document.head.append(config);

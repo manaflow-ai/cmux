@@ -6,6 +6,7 @@
 // Gated by the `agent.suggestedTasks` Debug toggle or the session-offer experiment (offersShown.ts).
 import { useId, useState } from "react";
 import { Icon } from "../icons/Icon";
+import { Bot } from "../conversation/icons";
 import { useT, type Translate } from "../i18n";
 import type { AcpmuxOfferResult, AcpmuxSessionOffer } from "../model";
 import { errorMessage } from "../transportErrors";
@@ -111,7 +112,7 @@ function withKey<T>(record: Record<string, T>, key: string, value: T | undefined
   return next;
 }
 
-/// "3 suggested tasks", or a lone offer's "Suggested chat".
+/// "3 suggested tasks", or a lone offer's "Suggested".
 function heading(t: Translate, offers: AcpmuxSessionOffer[], single: boolean): string {
   return single ? t("offer.label") : t("offer.tasks.count", { n: offers.length });
 }
@@ -264,7 +265,10 @@ function StartedTask({
 }
 
 /// The prompt that brought a started task's result back: "Received message from <title> ›",
-/// which opens that task's chat. The title keeps its place in the sentence in every language.
+/// which opens that task's chat. It draws as another agent's message line does
+/// (conversation/IncomingMessageCard.tsx): at the left with the agent's text, never the person's
+/// bubble, a small bot first and the task's title as a chip. The title keeps its place in the
+/// sentence in every language.
 export function ReceivedResult({
   result,
   onOpen,
@@ -277,6 +281,9 @@ export function ReceivedResult({
   return (
     <div className="acpmux-task-received">
       <button type="button" className="acpmux-task-received-line" onClick={() => onOpen(result.childSessionId)}>
+        <span className="acpmux-task-received-icon">
+          <Bot size={16} />
+        </span>
         {before}
         <span className="acpmux-task-received-title">{result.title}</span>
         {after}

@@ -14,7 +14,7 @@ struct WorkspaceTodoRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Button { actions.toggle(item.id) } label: {
                 Image(systemName: Self.symbol(item.state))
-                    .foregroundStyle(item.state == .done ? Color(nsColor: Palette.accent) : Color.secondary)
+                    .foregroundStyle(item.state == .done ? Color(nsColor: Palette.litGlyph) : Color.secondary)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(WorkspaceChecklistStrings.toggle)
