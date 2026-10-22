@@ -855,7 +855,11 @@ impl Mux {
                     let deadline = Instant::now() + STARTUP_READY_WAIT;
                     while !mux.server_lifecycle_ready()
                         && !mux.startup_adoptions_released.load(Ordering::Acquire)
-                        && !mux.terminal_adoptions_now.lock().recover_poison().contains(&terminal_id)
+                        && !mux
+                            .terminal_adoptions_now
+                            .lock()
+                            .recover_poison()
+                            .contains(&terminal_id)
                         && !mux.shutting_down.load(Ordering::Acquire)
                         && Instant::now() < deadline
                     {
