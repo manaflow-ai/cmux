@@ -1,6 +1,8 @@
 //! Request and notification handlers for one client connection.
 
 use super::*;
+use crate::no_panic::JsonExt;
+use crate::no_panic::LockExt;
 
 mod composer;
 mod events;
@@ -178,7 +180,7 @@ async fn dispatch_request(
     match m {
         method::INITIALIZE => {
             if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {
-                *conn.name.lock().unwrap() = name.to_owned();
+                *conn.name.lock_or_recover() = name.to_owned();
             }
             Ok(json!({
                 "protocolVersion": 1,
@@ -464,7 +466,7 @@ async fn dispatch_request(
             let meta = s.meta();
             let mut summary = hub.session_summary(&s);
             if let Some(w) = worktree {
-                summary["worktree"] = w;
+                summary.set("worktree", w);
             }
             Ok(json!({
                 "sessionId": s.id,
@@ -492,7 +494,7 @@ async fn dispatch_request(
                     && rec.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
                 {
                     let mut p = rec.msg.get("params").cloned().unwrap_or(json!({}));
-                    p["sessionId"] = Value::String(s.id.clone());
+                    p.set("sessionId", Value::String(s.id.clone()));
                     crate::hub::merge_mux_meta(
                         &mut p,
                         json!({"seq": rec.seq, "at": rec.at, "kind": rec.kind, "replay": true}),
@@ -807,8 +809,11 @@ async fn dispatch_request(
                         .map_err(|e| RpcError::invalid_params(format!("defaults: {e}")))?;
                     let entry = cfg.defaults.entry(family.clone()).or_default();
                     let mut merged = entry.clone();
+                    let Some(fields) = set.as_object() else {
+                        return Err(RpcError::invalid_params("defaults: set must be an object"));
+                    };
                     // A JSON null clears one field.
-                    for (k, v) in set.as_object().unwrap() {
+                    for (k, v) in fields {
                         if v.is_null() {
                             match k.as_str() {
                                 "model" => merged.model = None,
