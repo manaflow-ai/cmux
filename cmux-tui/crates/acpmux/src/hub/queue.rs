@@ -681,7 +681,7 @@ impl Hub {
         // it); a prompt queued after it keeps its place at the end.
         waiting.sort_by_key(|q| {
             let id = q.msg.get("promptId");
-            unstarted.key(id).unwrap_or_else(|| order.key(id))
+            unstarted.key(id, &order).unwrap_or_else(|| order.key(id))
         });
         // A prompt that left the queue for its turn runs first, as it would have.
         for id in unstarted.prompts() {

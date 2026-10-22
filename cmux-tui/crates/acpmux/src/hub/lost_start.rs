@@ -17,7 +17,7 @@
 use super::queue_waiting::{Order, Waiting};
 use crate::store::EventRecord;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 /// A prompt dequeued for a turn that has not started.
 struct Lost {
@@ -35,9 +35,9 @@ pub(super) struct Unstarted {
     open: bool,
     /// In the order they left the queue; `None` once settled or forgotten.
     lost: Vec<Option<Lost>>,
-    by_prompt: HashMap<String, Vec<usize>>,
-    by_turn: HashMap<String, Vec<usize>>,
-    by_start: HashMap<String, Vec<usize>>,
+    by_prompt: HashMap<String, BTreeSet<usize>>,
+    by_turn: HashMap<String, BTreeSet<usize>>,
+    by_start: HashMap<String, BTreeSet<usize>>,
 }
 
 impl Unstarted {
@@ -128,16 +128,17 @@ impl Unstarted {
         order.lead();
     }
 
-    /// The sort key of the prompt `prompt_id` if it is one of these: ahead of every other, in the
-    /// order they left the queue.
-    pub(super) fn key(&self, prompt_id: Option<&Value>) -> Option<(i64, u64)> {
+    /// The sort key of the prompt `prompt_id` if it is one of these: the last lead put it ahead
+    /// of every prompt placed before that lead, in the order they left the queue
+    /// (`Order::lead_key`).
+    pub(super) fn key(&self, prompt_id: Option<&Value>, order: &Order) -> Option<(i64, u64)> {
         let first = self.by_prompt.get(prompt_id.and_then(Value::as_str)?)?.first()?;
-        Some((i64::MIN, *first as u64))
+        Some(order.lead_key(*first as u64))
     }
 
     /// The slots of the prompt `prompt_id`.
     fn of_prompt(&self, prompt_id: Option<&str>) -> Vec<usize> {
-        prompt_id.and_then(|p| self.by_prompt.get(p)).cloned().unwrap_or_default()
+        prompt_id.and_then(|p| self.by_prompt.get(p)).into_iter().flatten().copied().collect()
     }
 
     fn push(&mut self, q: Lost) {
@@ -147,7 +148,7 @@ impl Unstarted {
             (&mut self.by_turn, &q.turn_id),
             (&mut self.by_start, &q.starts_in),
         ] {
-            index.entry(id.clone()).or_default().push(i);
+            index.entry(id.clone()).or_default().insert(i);
         }
         self.lost.push(Some(q));
     }
@@ -161,7 +162,7 @@ impl Unstarted {
             (&mut self.by_start, &q.starts_in),
         ] {
             if let Some(slots) = index.get_mut(id.as_str()) {
-                slots.retain(|&j| j != i);
+                slots.remove(&i);
                 if slots.is_empty() {
                     index.remove(id.as_str());
                 }

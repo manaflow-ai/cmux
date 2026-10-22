@@ -418,3 +418,22 @@ async fn a_long_log_of_unstarted_prompts_restores_in_time() {
         "restoring the queue of a log of {LONG_LOG_PROMPTS} unstarted prompts took {took:?} (bound {LONG_LOG_RESTORE_BOUND:?})"
     );
 }
+
+/// Prompts that left the queue for turns that never started go back in the order the last
+/// daemon's queue had them. Each went to the head as it left; one a daemon then held keeps the
+/// place it had there, and a prompt that left after that goes ahead of it.
+#[tokio::test]
+async fn unstarted_prompts_a_daemon_held_keep_their_place_in_the_restored_queue() {
+    let (ids, _) = restore_long_log("qheld", |record| {
+        for i in 0..4 {
+            record("queued", queued(i, &format!("prompt {i}")));
+        }
+        let dequeued = |i: usize| json!({"promptId": format!("p-{i}"), "turnId": format!("t-{i}")});
+        record("dequeued", dequeued(0));
+        record("dequeued", dequeued(1));
+        record("queue_paused", json!({"held": ["p-0"]}));
+        record("dequeued", dequeued(3));
+    })
+    .await;
+    assert_eq!(ids, ["p-1", "p-3", "p-0", "p-2"], "the restored queue is out of order");
+}

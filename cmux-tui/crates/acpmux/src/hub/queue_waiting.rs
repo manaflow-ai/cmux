@@ -113,7 +113,13 @@ impl Order {
     /// stays where the last lead put it: behind the ones that still lead, ahead of every prompt
     /// placed before that lead, in the order they left the queue.
     pub(super) fn keep_lead(&mut self, prompt_id: &str, slot: u64) {
-        self.place.insert(prompt_id.to_owned(), (-self.leads.max(1), slot));
+        self.place.insert(prompt_id.to_owned(), self.lead_key(slot));
+    }
+
+    /// Where the last lead put the `slot`-th prompt to leave the queue for a turn that has not
+    /// started: a later lead goes ahead of it, a reorder before it goes behind it.
+    pub(super) fn lead_key(&self, slot: u64) -> (i64, u64) {
+        (-self.leads, slot)
     }
 
     /// A prompt that left the queue for good: a copy queued again goes where its own records say.
