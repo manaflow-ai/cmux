@@ -93,6 +93,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// carry its machine mark too. Off by default (Leo 2026-10-20): only another machine's rows
     /// are marked, since that is the news; this Mac is where a row runs unless it says otherwise.
     public var showLocalMachine = false
+    /// `sidebar.showRemoteGroups`: each remote group (a machine section the person made with New
+    /// Remote Group) draws as a headed section of its own. Off, their workspaces join the one list
+    /// with their machine mark; nothing is removed (remote-groups-per-machine-DESIGN.md R2). On by default.
+    public var showsRemoteGroups = true
     /// `sidebar.groupHeader.memberCount`: a collapsed group's header shows how many workspaces it
     /// holds after its name. Off by default (Lawrence 2026-10-20: "All we care about is the
     /// loading"); the header shows only its loading spinner.

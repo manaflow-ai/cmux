@@ -278,6 +278,15 @@ final class SectionHeaderRowView: SidebarRowView {
 
     /// Whether the machine's own icon shows before the name (tests).
     var showsMachineIcon: Bool { !machineIcon.isHidden }
+
+    /// The form glyph before the name when the machine has no own icon (tests).
+    var leadingGlyph: IconName? { nil }
+
+    /// Whether the status color dot draws (tests).
+    var showsStatusDot: Bool { !status.isHidden }
+
+    /// Whether the icon and name draw dimmed (tests).
+    var isDimmed: Bool { false }
 }
 
 // MARK: - Empty section drop zone
