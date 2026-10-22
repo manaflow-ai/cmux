@@ -77,7 +77,7 @@ impl Hub {
         let input = call.get("rawInput")?;
         let target = text(input.get(spoken.target)?)?;
         let (actor, children) = {
-            let meta = session.meta.lock().unwrap();
+            let meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             let actor = live_tag(&meta, LABEL_TAG).unwrap_or_else(|| meta.name.clone());
             (actor, live_tag(&meta, CHILDREN_TAG))
         };
@@ -101,7 +101,7 @@ impl Hub {
     /// carries its live tags.
     fn child_label(&self, parent: &str, handle: &str) -> Option<String> {
         let local = self.sessions().iter().find_map(|s| {
-            let meta = s.meta.lock().unwrap();
+            let meta = s.meta.lock().unwrap_or_else(|e| e.into_inner());
             let mine = live_tag(&meta, PARENT_TAG).as_deref() == Some(parent)
                 && live_tag(&meta, HANDLE_TAG).as_deref() == Some(handle);
             if mine { live_tag(&meta, LABEL_TAG) } else { None }
