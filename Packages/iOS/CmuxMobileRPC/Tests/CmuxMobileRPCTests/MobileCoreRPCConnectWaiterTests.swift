@@ -235,8 +235,11 @@ import Testing
         let session = MobileCoreRPCSession(
             makeTransport: { transport },
             didReceiveConnectedCandidate: { _ in
+                diagTrace("hook enter")
                 await arrivals.arrive()
+                diagTrace("hook after barrier")
                 await cancellation.cancelWhenSet()
+                diagTrace("hook after cancel")
             }
         )
         let cancelled = try MobileCoreRPCClient.requestData(
@@ -266,9 +269,12 @@ import Testing
             )
         }
         await cancellation.set(cancelledTask)
+        diagTrace("box set")
         #expect(await transport.waitUntilConnectStarted())
 
+        diagTrace("connect started")
         await transport.releaseConnect()
+        diagTrace("released")
 
         do {
             _ = try await cancelledTask.value
@@ -277,12 +283,15 @@ import Testing
         } catch {
             Issue.record("Expected CancellationError, got \(error)")
         }
+        diagTrace("cancelled done")
         let data = try await survivingTask.value
+        diagTrace("surviving done")
         let response = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
         #expect(response["status"] == "ok")
         #expect(!(await transport.closed()))
         #expect(try await transport.sentRequests().map(\.id) == ["surviving-after-connect"])
         await session.tearDown(error: .connectionClosed)
+        diagTrace("teardown done")
     }
 
     @Test func cancelledPostConnectOnlyWaiterClosesTransport() async throws {
@@ -396,4 +405,8 @@ private actor ConnectedCandidateBarrier {
             waiters.append(continuation)
         }
     }
+}
+
+func diagTrace(_ message: String) {
+    FileHandle.standardError.write(Data("DIAG \(DispatchTime.now().uptimeNanoseconds / 1_000_000) \(message)\n".utf8))
 }
