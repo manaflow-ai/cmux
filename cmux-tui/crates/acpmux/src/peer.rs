@@ -308,6 +308,11 @@ impl Peer {
         self.attached.lock().unwrap().insert(session_id.to_owned())
     }
 
+    /// Undo `mark_attached` for an attach that may never have gone out.
+    pub fn unmark_attached(&self, session_id: &str) {
+        self.attached.lock().unwrap().remove(session_id);
+    }
+
     /// How many requests wait for the peer's answer now.
     pub async fn pending_requests(&self) -> usize {
         self.pending.lock().await.len()

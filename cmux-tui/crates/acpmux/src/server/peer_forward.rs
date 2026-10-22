@@ -160,6 +160,8 @@ async fn forward_inner(
                 tokio::select! {
                     _ = attach => {}
                     () = conn.closed() => {
+                        // Maybe never sent: the next prompt attaches again (attach is idempotent).
+                        peer.unmark_attached(&id);
                         return Err(RpcError::internal("the client closed the connection"));
                     }
                 }
