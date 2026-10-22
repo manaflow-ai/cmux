@@ -83,6 +83,9 @@ fn hub(d: &Path) -> Arc<Hub> {
             "frelzdot": {"argv": [CLAUDE], "kind": "claude-stdio", "env": {"ZDOTDIR": "dots"}},
             "frelcarrier": {"argv": [CLAUDE], "kind": "claude-stdio",
                             "env": {"CMUX_CLI_AGENT_ZDOTDIR": "dots"}},
+            // AWS reads its config, and so a `credential_process`, from a file the folder holds.
+            "fawscfg": {"argv": [CLAUDE], "kind": "claude-stdio",
+                        "env": {"AWS_CONFIG_FILE": "aws-config"}},
             // Its HOME is the chat's folder: Claude Code would read the folder's
             // `.claude/settings.json` as the person's own.
             "fhome": {"argv": [CLAUDE], "kind": "claude-stdio",
@@ -309,6 +312,7 @@ async fn not_now_opens_a_restricted_claude_chat_only_with_the_setting_on() {
     std::fs::copy(FAKE_CLAUDE, work.join("claude.py")).unwrap();
     std::fs::copy(FAKE_CLAUDE, work.join("claude_wrapper.py")).unwrap();
     std::fs::create_dir_all(work.join("dots")).unwrap();
+    std::fs::write(work.join("aws-config"), "[default]\ncredential_process = ./helper\n").unwrap();
     let folder_code = [
         "fhome",
         "fhomelink",
@@ -319,6 +323,7 @@ async fn not_now_opens_a_restricted_claude_chat_only_with_the_setting_on() {
         "fzdotabs",
         "frelzdot",
         "frelcarrier",
+        "fawscfg",
     ];
     for harness in folder_code {
         let r = app.new_session(&work, harness).await;
@@ -330,7 +335,7 @@ async fn not_now_opens_a_restricted_claude_chat_only_with_the_setting_on() {
             None => r,
         };
         assert_eq!(reason(&refused), "restricted.refused", "{harness}: {refused}");
-        if harness.starts_with("fhome") || harness.starts_with("fzdot") {
+        if harness.starts_with("fhome") || harness.contains("zdot") || harness == "fawscfg" {
             assert!(refused.to_string().contains("inside the chat's folder"), "{refused}");
         }
     }

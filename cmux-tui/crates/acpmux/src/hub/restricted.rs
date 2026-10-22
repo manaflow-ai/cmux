@@ -920,6 +920,18 @@ mod tests {
         let opts = format!("--rcfile \"{spaced_dots}/x\"");
         assert!(folder_env(&env(&[("TOOL_OPTS", &opts)]), &spaced).is_err());
         assert!(folder_env(&env(&[("ZDOTDIR", "./my dots")]), &spaced).is_err());
+        // A bare file name is a path when the key names one (`AWS_CONFIG_FILE`), not otherwise.
+        std::fs::write(chat.join("aws-config"), "").unwrap();
+        let path_keys =
+            ["AWS_CONFIG_FILE", "GOOGLE_APPLICATION_CREDENTIALS", "KUBECONFIG", "GNUPGHOME"];
+        for key in path_keys {
+            assert!(folder_env(&env(&[(key, "aws-config")]), &chat).is_err(), "{key}");
+        }
+        assert!(folder_env(&env(&[("AWS_CONFIG_FILE", "absent-config")]), &chat).is_ok());
+        assert!(folder_env(&env(&[("AWS_PROFILE", "aws-config")]), &chat).is_ok());
+        // The shell's own record of where it is names the folder without loading anything.
+        let here = chat.to_string_lossy().into_owned();
+        assert!(folder_env(&env(&[("PWD", &here), ("OLDPWD", &here)]), &chat).is_ok());
         for sibling in ["my chat2", "my chat backup/dots"] {
             let sibling = root.join(sibling).to_string_lossy().into_owned();
             assert!(folder_env(&env(&[("ZDOTDIR", &sibling)]), &spaced).is_ok(), "{sibling}");
