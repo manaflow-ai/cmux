@@ -66,12 +66,36 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     await page.evaluate((shown) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown), rows);
     await page.waitForSelector(".acpmux-minimap__tick");
     // To the top, where the later prompts are below and still mounted.
-    await page.evaluate(async () => {
+    await page.evaluate(() => {
       document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = 0;
-      await new Promise((resolve) => setTimeout(resolve, 300));
     });
+    await settled(page);
     return page;
   }
+
+  /// Until no animation is left running and the transcript has held its scroll position over three
+  /// painted frames.
+  const settled = (page: Page) =>
+    page.evaluate(async () => {
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const finite = () =>
+        document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity);
+      for (let tries = 0; tries < 20; tries++) {
+        await Promise.all(finite().map((animation) => animation.finished.catch(() => undefined)));
+        await new Promise<void>((resolve) => {
+          let last = -1;
+          let still = 0;
+          window.cmuxAfterPaint(() => {
+            still = node.scrollTop === last ? still + 1 : 0;
+            last = node.scrollTop;
+            if (still < 2) return true;
+            resolve();
+            return false;
+          });
+        });
+        if (finite().every((animation) => animation.playState !== "running")) return;
+      }
+    });
 
   /// Samples, after every painted frame for `ms` from now, the tick's bar width and the transcript's
   /// offset, with the time.
@@ -191,7 +215,9 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     });
     const point = await tickPoint(page, target);
     await page.mouse.move(point.x, point.y);
-    await page.waitForTimeout(400);
+    // The hover settles: the tick grown and, after the hover delay, its preview card open.
+    await page.locator(".acpmux-minimap__card").waitFor({ timeout: 5_000 });
+    await settled(page);
     const sampling = sample(page, 900);
     // The click, while the target's row is mounted (an unmounted one jumps at once, by design).
     const mounted = await page.evaluate((index) => {
@@ -235,7 +261,7 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     const page = await open(true);
     const point = await tickPoint(page, 9);
     await page.mouse.move(point.x, point.y);
-    await page.waitForTimeout(50);
+    await page.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
     const hovered = await page.evaluate(() => {
       const css = getComputedStyle(document.querySelector<HTMLElement>('[data-tick="9"] .acpmux-minimap__bar')!);
       return { duration: css.transitionDuration, width: 26 * new DOMMatrixReadOnly(css.transform).a };

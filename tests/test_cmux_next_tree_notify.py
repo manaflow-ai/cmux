@@ -10,6 +10,7 @@ dispatches cmux-next's same-tree mode for each run that is still current.
 
 from __future__ import annotations
 
+import http.client
 import io
 import json
 import sys
@@ -89,9 +90,14 @@ class FakeApi:
         return 204
 
 
-def run(api: FakeApi, state: str = "ready") -> int:
+def run(api: FakeApi, state: str = "ready", completion: dict | None = None) -> int:
+    """`completion` is the tree's completion.json on R2 (None: not published)."""
     return notify.notify(api, repo="o/r", key=KEY, state=state, reason="publish failed: u3",
-                         log=lambda _line: None)
+                         log=lambda _line: None, fetch_completion=lambda key: completion)
+
+
+def completion_json(key: str = KEY) -> dict:
+    return {"key": key, "binaries": {"cmux-tui-aarch64-apple-darwin": "f" * 64}}
 
 
 class Notify(unittest.TestCase):
@@ -173,6 +179,76 @@ class Notify(unittest.TestCase):
         self.assertEqual(body["inputs"]["same_tree_state"], "failed")
         self.assertIn("publish failed", body["inputs"]["same_tree_reason"])
         self.assertEqual(api.deleted, [])
+
+    def test_a_cancelled_run_of_a_published_tree_starts_the_tree_jobs(self):
+        """#23517: artifacts run 39630462696 ended cancelled (its notify-unpublished-tree job sent
+        --state failed) while tree 3a3a9fbf's completion.json was on R2. completion.json is written
+        last and once, so it, not the run's conclusion, says the tree is published."""
+        api = FakeApi([pr_marker()])
+        self.assertEqual(run(api, state="failed", completion=completion_json()), 1)
+        [body] = api.dispatched
+        self.assertEqual(body["inputs"]["same_tree_state"], "ready")
+        self.assertNotIn("publish failed", body["inputs"]["same_tree_reason"])
+        self.assertIn("completion.json", body["inputs"]["same_tree_reason"])
+        self.assertEqual(api.deleted, [100])
+
+    def test_a_cancelled_run_without_a_completion_record_still_reports_red(self):
+        api = FakeApi([pr_marker()])
+        self.assertEqual(run(api, state="failed", completion=None), 1)
+        [body] = api.dispatched
+        self.assertEqual(body["inputs"]["same_tree_state"], "failed")
+        self.assertEqual(api.deleted, [])
+
+    def test_a_completion_record_for_another_key_or_without_binaries_is_not_trusted(self):
+        for bad in (completion_json(key="e" * 40), {"key": KEY}, {"key": KEY, "binaries": ["x"]},
+                    ["not", "an", "object"]):
+            with self.subTest(completion=bad):
+                api = FakeApi([pr_marker()])
+                self.assertEqual(run(api, state="failed", completion=bad), 1)
+                [body] = api.dispatched
+                self.assertEqual(body["inputs"]["same_tree_state"], "failed")
+                self.assertEqual(api.deleted, [])
+
+    def test_a_ready_publish_does_not_read_the_completion_record(self):
+        def unexpected(_key):
+            raise AssertionError("a ready notify reads no completion.json")
+        api = FakeApi([push_marker()])
+        self.assertEqual(notify.notify(api, repo="o/r", key=KEY, state="ready", reason="",
+                                       log=lambda _line: None, fetch_completion=unexpected), 1)
+        [body] = api.dispatched
+        self.assertEqual(body["inputs"]["same_tree_state"], "ready")
+        self.assertEqual(api.deleted, [100])
+
+    def test_the_completion_record_is_read_from_the_tree_url(self):
+        """A 404 (or any read error) is no record: the failed state stands."""
+        seen = []
+
+        class Response(io.BytesIO):
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def urlopen(request, timeout):
+            seen.append(request.full_url)
+            if "missing" in seen[-1]:
+                raise notify.urllib.error.HTTPError(request.full_url, 404, "Not Found", {}, None)
+            if "truncated" in seen[-1]:  # the connection drops mid-body
+                raise http.client.IncompleteRead(b"{")
+            return Response(json.dumps(completion_json()).encode())
+
+        original = notify.urllib.request.urlopen
+        notify.urllib.request.urlopen = urlopen
+        try:
+            self.assertEqual(notify.fetch_completion(KEY), completion_json())
+            self.assertTrue(seen[-1].startswith(f"https://files.cmux.com/cmux-tui/tree/{KEY}/completion.json?"))
+            self.assertIsNone(notify.fetch_completion("missing"))
+            self.assertIsNone(notify.fetch_completion("truncated"))
+        finally:
+            notify.urllib.request.urlopen = original
 
     def test_a_malformed_marker_is_ignored(self):
         for bad in (push_marker(sha="not-a-sha"), push_marker(key="e" * 40), push_marker(tiers=["rm -rf"]),

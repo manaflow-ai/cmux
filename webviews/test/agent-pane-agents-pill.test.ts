@@ -323,7 +323,18 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
       ]);
       return box!.y - (latest!.y + latest!.height);
     };
-    for (let tries = 0; tries < 20 && (await clearance()) < 0; tries++) await page.waitForTimeout(50);
+    await page
+      .waitForFunction(
+        () => {
+          const rows = document.querySelectorAll(".acpmux-row");
+          const latest = rows[rows.length - 1]?.getBoundingClientRect();
+          const box = document.querySelector(".acpmux-agents-pill")?.getBoundingClientRect();
+          return !!latest && !!box && box.y - latest.bottom >= 0;
+        },
+        null,
+        { timeout: 5_000 },
+      )
+      .catch(() => {});
     expect(await clearance()).toBeGreaterThanOrEqual(0);
     await page.close();
     // No agent running: no pill.
@@ -418,7 +429,10 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     expect(await list(page).count()).toBe(0);
     push(finished("a1", "Reviewer"));
     push(finished("a2", "Tester"));
-    for (let tries = 0; tries < 50 && (await pill(page).count()) > 0; tries++) await page.waitForTimeout(100);
+    await pill(page)
+      .first()
+      .waitFor({ state: "detached", timeout: 5_000 })
+      .catch(() => {});
     expect(await pill(page).count()).toBe(0);
     await page.close();
   });

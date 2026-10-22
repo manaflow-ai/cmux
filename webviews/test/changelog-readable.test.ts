@@ -66,6 +66,26 @@ test("readable change titles", () => {
   // Product names are not code.
   expect(readableChange("fix: GitHub sign-in works on macOS with iCloud Keychain").internal).toBe(false);
   expect(readableChange("fix: the sidebar reads workspace.title again").internal).toBe(true);
+  // Agent plumbing and its tests never read as news (Leo 2026-10-21: "Ctrl-B after an adoption
+  // waits for the restored turn" and "… meets D13 first" were listed as Improved).
+  expect(readableChange("acpmux test: Ctrl-B after an adoption waits for the restored turn").internal).toBe(true);
+  expect(readableChange("acpmux test: a Web answer to a Claude chat's trust card meets D13 first").internal).toBe(true);
+  expect(
+    readableChange("fix(acpmux): a log read pages within a byte limit; raw Claude stream events are not logged")
+      .internal,
+  ).toBe(true);
+  expect(
+    readableChange("fix(cmux-git): a submodule whose .git points nowhere is skipped with newer git too").internal,
+  ).toBe(true);
+  expect(readableChange("fix(cmux-tui-core): a local app under a symlinked folder reloads on macOS").internal).toBe(
+    true,
+  );
+  // An agent chat change people see stays news; only its plumbing and tests are internal.
+  expect(readableChange("fix(acpmux): the queue band is glass and one tone with its fold").internal).toBe(false);
+  // A label that only names an app area stays news.
+  expect(readableChange("Agent chat: new lines in the composer leave the transcript's scrollbar still").internal).toBe(
+    false,
+  );
 });
 
 test("short titles end at the first clause, never inside one or on a joining word", () => {

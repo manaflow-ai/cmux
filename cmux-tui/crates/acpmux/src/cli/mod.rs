@@ -24,6 +24,7 @@ pub mod host_steps;
 pub mod hosts;
 pub mod orchestrate;
 pub mod output;
+pub mod pairing;
 pub mod process;
 pub mod route;
 pub mod run;

@@ -28,8 +28,10 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "queue_paused",
     "queue_resumed",
     "turn_started",
-    // The turn's agent has said nothing since its prompt (`silent_turn.rs`).
+    // The turn's agent has said nothing since its prompt, and then its model's first sign
+    // (`silent_turn.rs`).
     "turn_silent",
+    "turn_heard",
     "turn_result",
     "permission_request",
     "permission_auto",
@@ -38,6 +40,9 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "permission_chat_allowance",
     "message_superseded",
     "failover",
+    // A policy narrower than approve-all that the chat's harness cannot keep
+    // (`policy_mode.rs`): the chat says so where it happened.
+    "policy_unenforced",
     "forked",
     "imported",
     "session_offer",
@@ -315,5 +320,14 @@ mod transcript_kind_tests {
         for kind in ["stopped", "exited", "resumed", "reopened", "host_started", "host_ended"] {
             assert!(is_transcript(&mux(kind)), "{kind} is not a transcript record");
         }
+    }
+
+    /// A chat client notes a policy its harness cannot keep where it was
+    /// logged, as it notes a failover.
+    #[test]
+    fn an_unenforced_policy_is_a_transcript_record() {
+        assert!(is_transcript(&mux("policy_unenforced")));
+        let transcript = EventFilter::parse(Some(&json!(["transcript"]))).unwrap();
+        assert!(!transcript.surely_skips(b"mux", b"policy_unenforced"));
     }
 }

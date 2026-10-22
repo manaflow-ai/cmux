@@ -5,7 +5,7 @@
 import { afterEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { HoverGroup, HoverIntent } from "./hoverIntent";
-import { installTooltips, tooltipWidth } from "./titleTooltips";
+import { installTooltips, tooltipPosition, tooltipWidth } from "./titleTooltips";
 
 test("a tooltip for truncated text wraps up to its source's width, never narrower than the line", () => {
   // Untruncated: the standard tooltip width.
@@ -291,4 +291,15 @@ test("a tooltip near the right edge is measured at its full width, wherever the 
   } finally {
     proto.getBoundingClientRect = original;
   }
+});
+
+test("a top-side tooltip (a message's time) sits above its element, below only when there is no room above", () => {
+  const view = { width: 800, height: 600 };
+  const size = { width: 140, height: 22 };
+  const time = { left: 100, top: 300, width: 80, height: 24 };
+  // Centered on the time, 6px above it (as Claude's), and below by default.
+  expect(tooltipPosition(time, size, view, "top")).toEqual({ left: 70, top: 272 });
+  expect(tooltipPosition(time, size, view)).toEqual({ left: 70, top: 330 });
+  // At the pane's top edge: below.
+  expect(tooltipPosition({ ...time, top: 10 }, size, view, "top")).toEqual({ left: 70, top: 40 });
 });

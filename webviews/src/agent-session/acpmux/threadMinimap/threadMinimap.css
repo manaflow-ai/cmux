@@ -30,13 +30,15 @@
     opacity: 0;
   }
 }
+/* The list moves only under the rail's own control (it keeps the band in view, a scrub reaches past
+   an edge, a focused row scrolls in), never by the wheel: `overflow: hidden` still scrolls from
+   script and focus but draws no scroller, so the transcript's shared one is the only one on screen
+   (SCROLLBARS-THIN; #23285 left this list a second visible scroller). */
 .acpmux-minimap__list {
   display: flex;
   flex-direction: column;
   height: 100%;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  overflow: hidden;
 }
 /* A rail longer than its room fades 2.5rem at an edge with more rows past it. */
 .acpmux-minimap__list[data-fade-top] {
@@ -158,10 +160,15 @@
   max-width: calc(100vw - 16px);
   box-sizing: border-box;
   /* The edge is an inset shadow one device pixel wide (--cmux-hairline, #20713); appearance.borders
-     none clears it through --acpmux-minimap-rim. */
+     none clears it through --acpmux-minimap-rim. Glass, as the chat's other hover cards (the link
+     preview, the tooltips): the tooltip tint over the shared blur, never an opaque fill (Leo
+     2026-10-21). Reduce Transparency turns the tint into the solid popup surface and the blur off
+     (pages/shared/desktop.css). */
   padding: 8px;
   border-radius: 12px;
-  background: var(--acpmux-minimap-card);
+  background: var(--tooltip-tint, var(--surface-popup, var(--acpmux-minimap-card)));
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
   box-shadow:
     inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-minimap-rim, var(--acpmux-minimap-card-ring)),
     var(--elevation-2);
