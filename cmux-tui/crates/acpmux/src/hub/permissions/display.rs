@@ -130,3 +130,48 @@ fn one_line(text: &str) -> String {
     let cut: String = line.chars().take(PREVIEW_CHARS - 1).collect();
     format!("{}…", cut.trim_end())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::peer::PeerNotice;
+
+    /// A hub with peer `name` registered (its link never runs) that lists `sessions`.
+    fn hub_with_peer(name: &str, sessions: Vec<Value>) -> (Arc<Hub>, cmux_unix_socket::TestDir) {
+        let dir = cmux_unix_socket::short_test_dir("acpmux-pd");
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Local;
+        let store = crate::store::open(&cfg.store, dir.path()).unwrap();
+        let hub = Hub::new(cfg, store);
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer = crate::peer::Peer::new(name, "ws://127.0.0.1:9", None, None, tx);
+        hub.peers.lock().unwrap().insert(name.to_owned(), peer.clone());
+        hub.apply_peer_notice(name, peer.generation, PeerNotice::Sessions(sessions));
+        (hub, dir)
+    }
+
+    fn row(id: &str, tags: Value) -> Value {
+        json!({"sessionId": id, "name": id, "status": "idle", "turnCount": 1, "updatedAt": 5, "tags": tags})
+    }
+
+    /// A cloud subagent (optchat-chief `OPTCHAT_SUBAGENT_PEER`) runs on a
+    /// peer: its tags come with the peer's session list.
+    #[test]
+    fn a_child_on_a_peer_is_named_too() {
+        let (hub, _dir) = hub_with_peer(
+            "cloud-vm",
+            vec![
+                row(
+                    "m1",
+                    json!({"mux.parent": "optchat-chief:h0me", "mux.handle": "a12", "mux.label": "Nightly train"}),
+                ),
+                row(
+                    "m2",
+                    json!({"mux.parent": "optchat-chief:0ther", "mux.handle": "a13", "mux.label": "Not ours"}),
+                ),
+            ],
+        );
+        assert_eq!(hub.child_label("optchat-chief:h0me", "a12").as_deref(), Some("Nightly train"));
+        assert_eq!(hub.child_label("optchat-chief:h0me", "a13"), None, "another Chief's child");
+    }
+}
