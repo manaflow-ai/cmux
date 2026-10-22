@@ -169,7 +169,7 @@ def open_page():
     path = os.path.join(opts.out, "pane-perf-probe.html")
     open(path, "w").write(PROBE_PAGE)
     # The URL goes under `args` (a top-level `url` opens the New Tab page).
-    opened = action("openBrowser.chromium", {"url": pathlib.Path(path).as_uri()}, timeout=120)
+    opened = action("openBrowser.chromium", {"url": pathlib.Path(path).resolve().as_uri()}, timeout=120)  # --out may be relative
     if isinstance(opened, dict) and opened.get("error"):
         return f"openBrowser.chromium refused: {opened['error']}"
 
