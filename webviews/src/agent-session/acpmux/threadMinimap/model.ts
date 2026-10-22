@@ -91,49 +91,71 @@ export function railRoom(viewportHeight: number, foot = viewportHeight): { top: 
 }
 
 /// The rail's height for `count` rows in a window `windowHeight` tall: every row up to 64 rows or
-/// 70% of the window, after which the rows scroll. It never outgrows the room the transcript gives it
+/// 70% of the window, after which the rows scroll. It fits the room the transcript gives it
 /// (railRoom: its viewport less the mask's bands), so a short pane's rows all scroll into view and no
 /// tick sits under the transcript's fades (Leo 2026-10-22: "it wouldn't show the highlighted bottom
-/// ... it just didn't go to the bottom").
+/// ... it just didn't go to the bottom"). It is never shorter than the band, the `band` prompts on
+/// screen: in a pane too short for both, the mask's clearance gives way first, up to the whole view.
 export function railHeight(
   count: number,
   windowHeight: number,
   viewportHeight = windowHeight,
   foot = viewportHeight,
+  band = 1,
 ): number {
   const room = railRoom(viewportHeight, foot);
-  return Math.max(
-    0,
-    Math.min(
-      count * ROW_PITCH,
-      RAIL_MAX_ROWS * ROW_PITCH,
-      Math.floor(windowHeight * RAIL_MAX_SHARE),
-      // A transcript not measured yet (0) does not cap it.
-      viewportHeight > 0 ? Math.floor(room.bottom - room.top) : Infinity,
-    ),
+  const height = Math.min(
+    count * ROW_PITCH,
+    RAIL_MAX_ROWS * ROW_PITCH,
+    Math.floor(windowHeight * RAIL_MAX_SHARE),
+    // A transcript not measured yet (0) does not cap it.
+    viewportHeight > 0 ? Math.floor(room.bottom - room.top) : Infinity,
   );
+  const need = Math.min(count, Math.max(1, band)) * ROW_PITCH;
+  const view = viewportHeight > 0 ? Math.floor(Math.min(viewportHeight, foot)) : Infinity;
+  return Math.max(0, height >= need ? height : Math.min(need, view));
 }
 
 /// The rail's top in the transcript's viewport: centered on it, as the Codex rail is, then moved as
-/// little as it takes to keep the rail inside railRoom.
+/// little as it takes to keep the rail inside railRoom. A rail taller than that room (a tiny pane,
+/// railHeight) centers on it, inside the view.
 export function railTop(height: number, viewportHeight: number, foot = viewportHeight): number {
   const room = railRoom(viewportHeight, foot);
   const centered = Math.round((viewportHeight - height) / 2);
   if (viewportHeight <= 0) return centered;
-  return Math.max(room.top, Math.min(centered, Math.floor(room.bottom - height)));
+  if (room.bottom - height >= room.top) return Math.max(room.top, Math.min(centered, Math.floor(room.bottom - height)));
+  const view = Math.min(viewportHeight, foot);
+  return Math.max(0, Math.min(Math.round((room.top + room.bottom - height) / 2), Math.floor(view - height)));
 }
 
-/// The fade a rail longer than its room draws at an edge with more rows past it (2.5rem,
-/// threadMinimap.css `.acpmux-minimap__list[data-fade-*]`).
+/// The fade a rail longer than its room draws at an edge with more rows past it: 2.5rem
+/// (threadMinimap.css `.acpmux-minimap__list[data-fade-*]`), and at most a quarter of a short rail.
 export const RAIL_FADE = 40;
+export const railFade = (height: number) => Math.max(0, Math.min(RAIL_FADE, Math.floor(height / 4)));
+
+/// Which of the list's edge fades draw at offset `top`: an edge with more rows past it fades, unless
+/// the fade would lie over the band (the prompts on screen), which always draws in full ink.
+export function railFades(
+  band: { first: number; last: number },
+  count: number,
+  height: number,
+  top: number,
+): { top: boolean; bottom: boolean } {
+  const fade = railFade(height);
+  return {
+    top: top > 0 && band.first * ROW_PITCH - top >= fade,
+    bottom: count * ROW_PITCH - top - height > 1 && (band.last + 1) * ROW_PITCH - top <= height - fade,
+  };
+}
 
 /// Where the rail's list scrolls (its `scrollTop`) so the band, the prompts on screen (`first` to
 /// `last`), shows whole and clear of the fades: `current` while it already does; else the band's
 /// first row a third of the way down, as the Codex rail puts it, moved as little as it takes to show
-/// the whole band. A band taller than the rail shows its first row, or its last when it holds the
-/// chat's last prompt. A band that holds the chat's last prompt scrolls the list to its end, which
-/// draws no bottom fade, so at the bottom of the chat the bottom ticks show lit (Leo 2026-10-22: "it
-/// wouldn't show the highlighted bottom ... it just didn't go to the bottom").
+/// the whole band. In a rail too short for the band and the fades, the fades give way (railFades)
+/// and the band still shows whole. A band taller than the rail shows its first row, or its last when
+/// it holds the chat's last prompt. A band that holds the chat's last prompt scrolls the list to its
+/// end, which draws no bottom fade, so at the bottom of the chat the bottom ticks show lit (Leo
+/// 2026-10-22: "it wouldn't show the highlighted bottom ... it just didn't go to the bottom").
 export function railScrollTop(
   band: { first: number; last: number },
   count: number,
@@ -142,15 +164,19 @@ export function railScrollTop(
 ): number {
   const room = Math.max(0, count * ROW_PITCH - height);
   if (room === 0) return 0;
-  // The highest offset that keeps the band's first row below the top fade, and the lowest that
-  // keeps its last row above the bottom fade. An edge row of the list needs no clearance: the list
-  // at that end draws no fade there.
-  const highest = band.first * ROW_PITCH - (band.first > 0 ? RAIL_FADE : 0);
-  const lowest = (band.last + 1) * ROW_PITCH - height + (band.last < count - 1 ? RAIL_FADE : 0);
   const clamp = (value: number) => Math.max(0, Math.min(room, value));
+  // The offsets that show the band whole: with the fades clear of it (the inner pair), or at all.
+  // An edge row of the list needs no clearance: the list at that end draws no fade there.
+  const highest = band.first * ROW_PITCH;
+  const lowest = (band.last + 1) * ROW_PITCH - height;
   if (lowest > highest) return clamp(band.last >= count - 1 ? room : highest);
-  if (current >= lowest && current <= highest) return clamp(current);
-  return clamp(Math.min(highest, Math.max(lowest, band.first * ROW_PITCH - height / 3)));
+  if (band.last >= count - 1) return room;
+  const fade = railFade(height);
+  const clearHighest = highest - (band.first > 0 ? fade : 0);
+  const clearLowest = lowest + fade;
+  const [low, high] = clearLowest <= clearHighest ? [clearLowest, clearHighest] : [lowest, highest];
+  if (current >= low && current <= high) return clamp(current);
+  return clamp(Math.min(high, Math.max(low, band.first * ROW_PITCH - height / 3)));
 }
 
 /// The card's top for a row centered at `center`: centered on it, kept inside the viewport.

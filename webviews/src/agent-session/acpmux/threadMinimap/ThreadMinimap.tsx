@@ -30,6 +30,8 @@ import {
   MIN_PROMPTS,
   minimapTurns,
   RAIL_LEFT,
+  railFade,
+  railFades,
   railHeight,
   railScrollTop,
   railTop as railTopAt,
@@ -167,8 +169,10 @@ export function ThreadMinimap({
   const shift = restoring.current && restoring.current.from === seen ? restoring.current.by : 0;
   const top = (seen ?? scrollTop) + shift;
   const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight);
-  const shown = arm === "compact" && turns.length >= MIN_PROMPTS && gutter(width) >= MIN_GUTTER;
-  const height = railHeight(turns.length, windowHeight, viewportHeight, foot);
+  /// Never shorter than the prompts on screen, so the band always draws whole (model.ts railHeight).
+  const height = railHeight(turns.length, windowHeight, viewportHeight, foot, onScreen.last - onScreen.first + 1);
+  // A view with no room for a single row (the transcript is at least 96 px tall) draws no rail.
+  const shown = arm === "compact" && turns.length >= MIN_PROMPTS && gutter(width) >= MIN_GUTTER && height >= ROW_PITCH;
   const overflow = turns.length * ROW_PITCH > height;
 
   /// What the handlers below read: the turns and layout as of the last commit.
@@ -520,6 +524,7 @@ export function ThreadMinimap({
       event.currentTarget.releasePointerCapture(state.pointer);
   };
   const railTop = railTopAt(height, viewportHeight, foot);
+  const fades = railFades(onScreen, turns.length, height, listTop);
   // The previewed prompt stays lit while the pointer is on its card, as ChatGPT's rail does.
   const active = hovered ?? focused ?? (showCard ? cardRow : undefined);
   const cardMarked = cardTurn ? marks.has(cardTurn) : false;
@@ -552,8 +557,10 @@ export function ThreadMinimap({
         <div
           ref={list}
           className="acpmux-minimap__list"
-          data-fade-top={listTop > 0 || undefined}
-          data-fade-bottom={(overflow && listTop + height < turns.length * ROW_PITCH - 1) || undefined}
+          // The edge fades: 2.5rem, a quarter of a short rail, and never over the band (railFades).
+          data-fade-top={fades.top || undefined}
+          data-fade-bottom={(overflow && fades.bottom) || undefined}
+          style={{ "--acpmux-minimap-fade": `${railFade(height)}px` } as React.CSSProperties}
           onScroll={(event) => setListTop(event.currentTarget.scrollTop)}
           onPointerDown={(event) => {
             if (event.button !== 0 || event.pointerType === "touch") return;
