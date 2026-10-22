@@ -1590,6 +1590,10 @@ path = "tests/test_nightly_next_ring.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_edge_feed.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_canary_mode.py"
 lane = "linux-guard"
 
