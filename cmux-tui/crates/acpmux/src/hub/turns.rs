@@ -215,8 +215,7 @@ impl Hub {
         let m = session.meta();
         if !live {
             let cfg = self.config.read().await;
-            super::resolve::session_profile(&cfg, &m.harness, &m.cwd, m.remote_origin)
-                .map_err(RpcError::invalid_params)?;
+            super::resolve::session_profile_checked(&cfg, &m.harness, &m.cwd, m.remote_origin)?;
         }
         let text = prompt_text(&blocks);
         let running = session.turn();
@@ -282,6 +281,13 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        // A family prompt that waited is checked again: the receiver may ask
+        // less than its sender now (`subsession_guard.rs`).
+        if let Err(e) = self.family_dispatch_check(session, run.provenance.as_ref()).await {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            drop(guard);
+            return Err(e);
+        }
         // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
         let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control);
         if let Err(e) = self.start_turn(session, after_turn.as_deref(), turn) {
@@ -308,13 +314,20 @@ impl Hub {
         let mut blocks = blocks;
         {
             let mut m = session.meta.lock().unwrap();
-            m.last_prompt = Some(short_text(&text, 200));
+            // Another agent's message leaves its sender and words, not its envelope (`prompt_line.rs`).
+            let line = super::prompt_line::prompt_line(&text, client, provenance.as_ref());
+            m.last_prompt = Some(short_text(&line, 200));
             drafts::clear_sent_draft(&mut m, &text);
             super::titles::set_fallback_title(&mut m, &text);
             m.preview = Some(String::new());
             m.turn_count += 1;
         }
-        session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+        // A family prompt (`subsessions.rs`) never clears the floor a Web
+        // turn left: only a local turn the person or a client starts does.
+        let family = super::subsession_guard::is_family_prompt(run.provenance.as_ref());
+        if control == Control::Web || !family {
+            session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+        }
         self.reset_stream(session);
         let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
         let msg = crate::prompt_provenance::marked(msg, provenance.as_ref());
@@ -349,6 +362,12 @@ impl Hub {
         if let Err(e) =
             self.check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client).await
         {
+            self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
+            drop(guard);
+            return Err(e);
+        }
+        if let Err(e) = self.family_dispatch_check(session, run.provenance.as_ref()).await {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
             drop(guard);
             return Err(e);
@@ -672,7 +691,7 @@ impl Hub {
 
     /// A turn refused after it was accepted (dispatch check, remote floor): failed unstarted.
     fn refuse_started_turn(
-        &self,
+        self: &Arc<Self>,
         session: &Arc<Session>,
         prompt_id: &str,
         turn_id: &str,
@@ -704,7 +723,7 @@ impl Hub {
     /// A recorded prompt whose agent could not start: the turn ends failed, so every client
     /// sees the prompt settle instead of a turn that never starts.
     fn fail_unstarted_turn(
-        &self,
+        self: &Arc<Self>,
         session: &Arc<Session>,
         prompt_id: &str,
         turn_id: &str,
@@ -741,39 +760,6 @@ impl Hub {
         if matches!(queued, Ok(Ok(()))) {
             let _ = tokio::time::timeout(std::time::Duration::from_secs(5), handled).await;
         }
-    }
-
-    /// A bare "agent process closed" from a process that died while it
-    /// started (`initialize`, `session/new`): the same error with the last
-    /// stderr line that says why, once the inbound loop has taken what the
-    /// process printed. Any other error is returned as is.
-    pub(super) async fn explain_start_failure(session: &Session, mut e: RpcError) -> RpcError {
-        if e.message != "agent process closed" {
-            return e;
-        }
-        let last = || {
-            session
-                .stderr_tail
-                .lock()
-                .unwrap()
-                .iter()
-                .rev()
-                .map(|l| l.trim().to_owned())
-                .find(|l| explains_exit(l))
-        };
-        Self::drain_inbound(session).await;
-        let mut found = last();
-        if found.is_none() {
-            // The stderr reader can trail stdout's close by a moment: one
-            // bounded wait for its last lines, then the bare error.
-            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-            Self::drain_inbound(session).await;
-            found = last();
-        }
-        if let Some(line) = found {
-            e.message = format!("agent process closed ({}): {line}", session.meta().harness);
-        }
-        e
     }
 
     /// Keep the outcome of the last turn on the session (`lastTurn` in the
@@ -814,6 +800,8 @@ impl Hub {
         {
             return Err(super::start_mode::full_access_off());
         }
+        // Nor does a switch out of the mode a narrower policy needs (`policy_mode.rs`).
+        self.refuse_wider_mode(session, m, &params).await?;
         let child = self.child_for(session).await?;
         let sid = session
             .meta()
@@ -1001,14 +989,18 @@ impl Hub {
         Ok(())
     }
 
-    pub async fn set_policy(&self, session: &Arc<Session>, policy: PermissionPolicy) {
+    /// Sets `session`'s own policy; its mode follows (`follow_policy`), so a policy acpmux sets
+    /// itself (an aside's, a handoff target's) holds as one a client sets does.
+    pub async fn set_policy(self: &Arc<Self>, session: &Arc<Session>, policy: PermissionPolicy) {
         self.permission_policy_changed(session, |m| m.permission_policy = Some(policy.to_string()));
         self.append(session, "mux", "policy", json!({"policy": policy.to_string()}));
         self.save_meta(session);
+        self.follow_policy(session).await;
     }
 
     /// Stop the child. The log stays. `purge` also deletes the log.
     pub async fn kill(&self, session: &Arc<Session>, purge: bool) -> Result<(), RpcError> {
+        session.closing.store(true, Ordering::SeqCst);
         self.stop_auto_resume(session);
         self.revoke_permission_chat(session);
         self.cancel_pending_permissions(session);
@@ -1037,6 +1029,7 @@ impl Hub {
         crate::agent_tools::remove_mcp_config(&crate::config::home(), &session.id);
         if purge {
             session.purged.store(true, Ordering::SeqCst);
+            let replaced = session.replaced.load(Ordering::SeqCst);
             self.sessions.lock().unwrap().remove(&session.id);
             // Its temporary folder goes with it (`agent/session_tmp.rs`).
             #[cfg(unix)]
@@ -1053,12 +1046,24 @@ impl Hub {
                     at: now_ms(),
                     dir: "mux".into(),
                     kind: "purged".into(),
-                    msg: json!({"sessionId": session.id}),
+                    msg: if replaced {
+                        json!({"sessionId": session.id, "replaced": true})
+                    } else {
+                        json!({"sessionId": session.id})
+                    },
                     host_seq: None,
                 }),
                 remote: None,
             });
             self.store.delete(&session.id).map_err(|e| RpcError::internal(e.to_string()))?;
+            // The files dropped into the chat go with it (`file_uploads.rs`), unless the chat
+            // itself comes back under this id.
+            if !replaced {
+                let id = session.id.clone();
+                let _ =
+                    tokio::task::spawn_blocking(move || super::file_uploads::remove_session(&id))
+                        .await;
+            }
         }
         Ok(())
     }

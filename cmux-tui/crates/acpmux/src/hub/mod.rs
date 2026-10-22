@@ -51,6 +51,7 @@ mod policy_mode;
 mod pool;
 mod prompt_images;
 mod prompt_ledger;
+mod prompt_line;
 mod queue;
 mod queue_edit;
 pub use digest::declared_sender;
@@ -71,7 +72,7 @@ pub(crate) mod session_pages;
 mod settings_watch;
 mod silent_turn;
 pub use session::{Session, live_tags};
-pub(super) use session::{prompt_text, short_text};
+pub(super) use session::{newest_first, prompt_text, short_text};
 mod shutdown;
 mod spawn;
 mod start_defaults;
@@ -110,6 +111,7 @@ mod remote_sandbox;
 pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
 mod subsession_answer;
+mod subsession_guard;
 mod subsession_send;
 pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
@@ -199,6 +201,9 @@ pub struct TurnInfo {
     pub started_at: u64,
     pub client: String,
     pub prompt_preview: String,
+    /// `prompt_preview` masked before its cut, for the sub-session tools
+    /// (`subsession_row`): a secret across the cut leaves no head there.
+    pub masked_preview: String,
     /// Stable turn identifier, assigned when the prompt is accepted and
     /// carried by `queued`, `user_message`, `turn_started` and `turn_result`.
     pub turn_id: String,
@@ -209,11 +214,9 @@ pub struct TurnInfo {
     /// Who prompted (or steered) this turn. A Web turn never uses the chat
     /// allowance: each eligible permission in it still asks.
     pub control: Control,
-    /// What the turn does right now, one line: its latest tool call's title,
-    /// else its plan's step in progress (`activity.rs`). None until either.
-    pub activity: Option<String>,
-    /// Its plan's entry in progress, one line (`activity.rs`).
-    pub plan_step: Option<String>,
+    /// What the turn does right now: its latest tool call's title and its
+    /// plan's step in progress, raw and masked (`activity.rs`).
+    pub doing: activity::TurnActivity,
 }
 
 /// Options for `Hub::prompt_with`.
@@ -394,6 +397,8 @@ pub struct Hub {
     pub(super) trust_waits: trust_wait::Waits,
     /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
     pub(super) agent_pairs: agent_pairs::AgentPairs,
+    /// Pairing tickets and paired machines (`crate::pairing`).
+    pub pairing: Arc<crate::pairing::Pairing>,
 }
 
 impl Hub {
@@ -478,6 +483,7 @@ impl Hub {
             secrets: Default::default(),
             trust_waits: Default::default(),
             agent_pairs: Default::default(),
+            pairing: Default::default(),
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
@@ -718,6 +724,8 @@ impl Hub {
             fork_from: StdMutex::new(None),
             applied: StdMutex::new(session::Applied::default()),
             purged: AtomicBool::new(false),
+            replaced: AtomicBool::new(false),
+            closing: AtomicBool::new(false),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),
             hidden: std::sync::atomic::AtomicUsize::new(0),
@@ -726,6 +734,7 @@ impl Hub {
             append_errors: AtomicU64::new(0),
             last_progress: AtomicU64::new(0),
             heard: AtomicU64::new(0),
+            silent_turn: StdMutex::new(None),
             last_active: AtomicU64::new(self.clock_now()),
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
@@ -1176,22 +1185,6 @@ impl Hub {
     pub fn session_dir(&self, id: &str) -> Option<PathBuf> {
         self.store.session_dir(id)
     }
-}
-
-/// `sessions` newest first. Each session's `updated_at` is read once: other tasks move it at any
-/// time (every logged event), and a key that is read again on each comparison is not a total order,
-/// which makes Rust's sort panic (the Chief daemon, 2026-10-14). Ties keep the session id order, so
-/// the list is the same for the same values.
-fn newest_first(sessions: Vec<Arc<Session>>) -> Vec<Arc<Session>> {
-    let mut keyed: Vec<_> = sessions
-        .into_iter()
-        .map(|s| {
-            let at = s.meta.lock().unwrap_or_else(|e| e.into_inner()).updated_at;
-            (at, s)
-        })
-        .collect();
-    keyed.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
-    keyed.into_iter().map(|(_, s)| s).collect()
 }
 
 /// Add `fields` under `_meta.acpmux` of an object, keeping any `_meta` the

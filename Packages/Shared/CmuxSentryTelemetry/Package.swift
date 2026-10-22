@@ -82,3 +82,10 @@ let package = Package(
         ),
     ]
 )
+
+#if os(Linux)
+// sentry-cocoa is Apple-only: Linux builds the scrubber and its tests alone.
+package.products.removeAll { $0.name == "CmuxSentryReporting" }
+package.targets.removeAll { $0.name == "CmuxSentryReporting" || $0.name == "CmuxSentryReportingTests" }
+package.dependencies.removeAll()
+#endif
