@@ -446,8 +446,10 @@ enum SidebarDraw {
         return (n, b)
     }
     /// The width a tile name bitmap is drawn for: 0 when the name fits (natural width), else the room.
-    static func tileNameKeyWidth(natural: CGFloat, tileWidth: CGFloat) -> CGFloat {
-        natural <= tileWidth - 8 ? 0 : (tileWidth - 8).rounded(.down)
+    /// `unread`: the room leaves space for the dot before the name (`tileLabel`).
+    static func tileNameKeyWidth(natural: CGFloat, tileWidth: CGFloat, unread: Bool = false) -> CGFloat {
+        let room = tileWidth - 8 - (unread ? tileDotDiameter + tileDotGap : 0)
+        return natural <= room ? 0 : room.rounded(.down)
     }
     /// The width a bubble is drawn for: 0 when the preview fits on one line, else the bubble's room.
     static func tileBubbleKeyWidth(natural: CGFloat, tileWidth: CGFloat) -> CGFloat {
@@ -509,20 +511,32 @@ enum SidebarDraw {
         return CGRect(x: (c.x - d / 2).rounded(), y: (c.y - d / 2).rounded(), width: d, height: d)
     }
 
-    /// The 12 pt unread dot on the tile's leading edge, left of the avatar, and below the bubble
-    /// (`bubble`, nil: none) so a wide bubble never covers it (cmux-next's rule, 2026-10-08).
-    static func tileUnreadDot(_ m: SidebarMetrics, bubble: CGRect?) -> CGRect {
-        if m.compact { // cmux: the compact list's tile dot sits where a row's dot sits (tile coordinates)
-            let d = SidebarMetrics.dotDiameter
-            let x0 = m.tileRect(0).minX
-            return CGRect(x: m.dotCenterX - x0 - d / 2, y: (m.tileHeight / 2 - d / 2).rounded(), width: d, height: d)
-        }
-        let d: CGFloat = 12
+    /// The pinned tile's unread dot: the row dot's size, this far before the name.
+    static let tileDotDiameter: CGFloat = SidebarMetrics.dotDiameter
+    static let tileDotGap: CGFloat = 4
+
+    /// The name's frame and the unread dot's (nil: read) under the avatar (tile coordinates).
+    /// Messages' pinned grid: the dot sits inline before the name ("• Instinct") and the pair is
+    /// centred, so the dot never meets the bubble over the avatar's top, its tail or the avatar
+    /// (the user, 2026-10-21: the old dot at the avatar's upper left overlapped the bubble's tail).
+    /// `nameWidth`: the name bitmap's width in points. Not for the compact list (no names).
+    static func tileLabel(_ m: SidebarMetrics, nameWidth nw: CGFloat, unread: Bool) -> (name: CGRect, dot: CGRect?) {
         let ar = tileAvatar(m)
-        let cx = max(d / 2 + 1, ar.minX - d / 2 - 1)
-        var cy = ar.midY - ar.height * 0.25
-        if let bubble { cy = max(cy, bubble.maxY + d / 2 + 3) }
-        return CGRect(x: cx - d / 2, y: cy - d / 2, width: d, height: d)
+        let y = ar.maxY + SidebarMetrics.pinNameGap
+        let lead = unread ? tileDotDiameter + tileDotGap : 0
+        let x0 = max(4, ((m.tileWidth - lead - nw) / 2).rounded())
+        let name = CGRect(x: x0 + lead, y: y, width: nw, height: SidebarMetrics.pinNameHeight)
+        guard unread else { return (name, nil) }
+        // Centred on the name's lowercase letters (11 pt font, baseline 11 pt in the 16 pt line).
+        let d = tileDotDiameter
+        return (name, CGRect(x: x0, y: (y + 7 - d / 2).rounded(), width: d, height: d))
+    }
+
+    /// The compact list's tile dot: where a row's dot sits (tile coordinates; no names there).
+    static func compactTileUnreadDot(_ m: SidebarMetrics) -> CGRect {
+        let d = SidebarMetrics.dotDiameter
+        let x0 = m.tileRect(0).minX
+        return CGRect(x: m.dotCenterX - x0 - d / 2, y: (m.tileHeight / 2 - d / 2).rounded(), width: d, height: d)
     }
 }
 
