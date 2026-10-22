@@ -91,7 +91,7 @@ test("Stop says it is stopping until the turn ends", async () => {
   }
 });
 
-test("a Stop sent before its turn's late turn_started keeps saying it is stopping", async () => {
+test("a Stop sent before its turn opens here keeps saying it is stopping through that opening", async () => {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const socket = new MockAcpmuxSocket(() => Promise.resolve());
@@ -117,12 +117,13 @@ test("a Stop sent before its turn's late turn_started keeps saying it is stoppin
   const id = mockHost.sessionId!;
   try {
     await until(() => view.shown.summary !== undefined);
-    // acpmux records the prompt (which opens the turn) before the agent's turn_started.
+    // acpmux lists the chat running before its prompt (which opens the turn here) and the agent's
+    // turn_started arrive: a Stop then is for the turn those open.
     daemon.touch(id, { status: "running" });
-    daemon.emit(id, { mux: "user_message", msg: { text: "go" } });
     await until(() => view.shown.isWorking);
     await client.cancel();
     await until(() => view.shown.stopping === true);
+    daemon.emit(id, { mux: "user_message", msg: { text: "go" } });
     daemon.emit(id, { mux: "turn_started" });
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(view.shown.isWorking).toBe(true);
