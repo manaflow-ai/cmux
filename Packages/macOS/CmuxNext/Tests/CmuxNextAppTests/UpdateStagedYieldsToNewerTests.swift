@@ -10,15 +10,39 @@ import Testing
 /// item on the ring cancels the staged installer and starts Sparkle's background check, which
 /// downloads and stages the newer build for the card.
 @MainActor @Suite(.serialized) struct UpdateStagedYieldsToNewerTests {
-    /// A feed whose fetches the test counts.
+    /// A feed whose fetches the test counts; with `held`, each fetch waits for ``release()``.
     final class CountingFeed: AppcastFetching, @unchecked Sendable {
         private let lock = NSLock()
         private var count = 0
+        private var waiting: [CheckedContinuation<Void, Never>] = []
+        private var released = 0
         let xml: String
-        init(xml: String) { self.xml = xml }
+        let held: Bool
+        init(xml: String, held: Bool = false) {
+            self.xml = xml
+            self.held = held
+        }
         var fetches: Int { lock.withLock { count } }
+        /// Lets one held fetch (the oldest, or the next one to start) return.
+        func release() {
+            let next: CheckedContinuation<Void, Never>? = lock.withLock {
+                guard !waiting.isEmpty else { released += 1; return nil }
+                return waiting.removeFirst()
+            }
+            next?.resume()
+        }
         func fetch(_ url: URL) async throws -> Data {
             lock.withLock { count += 1 }
+            if held {
+                await withCheckedContinuation { continuation in
+                    let go: Bool = lock.withLock {
+                        if released > 0 { released -= 1; return true }
+                        waiting.append(continuation)
+                        return false
+                    }
+                    if go { continuation.resume() }
+                }
+            }
             return Data(xml.utf8)
         }
     }
@@ -27,7 +51,7 @@ import Testing
     @MainActor final class FakeSparkle {
         var staged: String? = "300"
         var cancels = 0
-        var backgroundChecks = 0
+        var backgroundChecks = 0  // checks started to stage the newer build
     }
 
     static let now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -41,10 +65,14 @@ import Testing
         return formatter.string(from: now.addingTimeInterval(-minutesAgo * 60))
     }
 
-    /// Nightly 300 (the staged build) and, when given, a Dev build 500 published `devMinutesAgo` ago.
-    static func feed(devMinutesAgo: Double? = 600) -> String {
+    /// Nightly 300 (the staged build) and, when given, a Dev build 500 published `devMinutesAgo`
+    /// ago, listing deltas or not.
+    static func feed(devMinutesAgo: Double? = 600, devDeltas: Bool = false) -> String {
+        let deltas = devDeltas
+            ? #"<sparkle:deltas><enclosure url="https://example.invalid/d.delta" sparkle:version="500" sparkle:deltaFrom="300"/></sparkle:deltas>"#
+            : ""
         let dev = devMinutesAgo.map {
-            "<item><title>dev</title><sparkle:version>500</sparkle:version><pubDate>\(pubDate(minutesAgo: $0))</pubDate><sparkle:channel>cmux-next-dev</sparkle:channel></item>"
+            "<item><title>dev</title><sparkle:version>500</sparkle:version><pubDate>\(pubDate(minutesAgo: $0))</pubDate>\(deltas)<sparkle:channel>cmux-next-dev</sparkle:channel></item>"
         } ?? ""
         return """
         <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel><title>cmux NEXT</title>
@@ -62,14 +90,14 @@ import Testing
     }
 
     /// A NIGHTLY on build 100 following `ring`, with build 300 staged ("Update Ready").
-    static func make(ring: String, feed xml: String = feed(), replaceable: Bool = true,
+    static func make(ring: String, feed xml: String = feed(), held: Bool = false, replaceable: Bool = true,
                      checkAutomatically: Bool = true) -> Harness {
         let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.next.staged-yields", shortVersion: "1.0.0", build: "100",
                                            minimumSystemVersion: nil,
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml", hasPublicKey: true)
         let defaults = UserDefaults(suiteName: "UpdateStagedYieldsToNewerTests.\(UUID().uuidString)")!
         let clock = ManualClock()
-        let feed = CountingFeed(xml: xml)
+        let feed = CountingFeed(xml: xml, held: held)
         let sparkle = FakeSparkle()
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false },
                                      prober: UpdateProber(fetcher: feed, architecture: .arm64), defaults: defaults,
@@ -79,7 +107,7 @@ import Testing
         updater.stagedBuild = { sparkle.staged }
         updater.cancelStaged = { sparkle.cancels += 1; return true }
         updater.stagedRefresh.replaceable = { replaceable }
-        updater.stagedRefresh.checkInBackground = { sparkle.backgroundChecks += 1 }
+        updater.stagedRefresh.startCheck = { sparkle.backgroundChecks += 1 }
         updater.stagedRefresh.deltaWindow = 45 * 60
         updater.configure(checkAutomatically: checkAutomatically, checkInterval: interval, downloadAutomatically: true, ring: ring)
         updater.start()
@@ -167,14 +195,77 @@ import Testing
         #expect(h.sparkle.cancels == 0)
     }
 
-    /// A build that lists no deltas yet waits out the delta window (Sparkle would hold it once
-    /// and the card would be empty until the next check); the next interval takes it.
-    @Test func aFreshDevBuildWaitsForItsDeltas() async throws {
+    /// A scheduled swap waits for the deltas nightly-next lists minutes after a build's full
+    /// archive, as Sparkle's scheduled check does; a build that lists them, or a check the person
+    /// asked for, swaps at once.
+    @Test func aFreshDevBuildWithNoDeltasWaitsForTheNextScheduledCheck() async throws {
         let h = Self.make(ring: "dev", feed: Self.feed(devMinutesAgo: 10))
         try await h.clock.waitForSleeper()
         h.clock.advance(by: .seconds(Self.interval))
         try await settle(h, fetches: 1)
         #expect(h.sparkle.cancels == 0, "a build whose deltas may still come replaced the staged one")
+        #expect(h.updater.stagedRefresh.timer.isScheduled, "the next scheduled check was not armed")
+    }
+
+    @Test func aFreshDevBuildThatListsDeltasSwapsAtOnce() async throws {
+        let h = Self.make(ring: "dev", feed: Self.feed(devMinutesAgo: 10, devDeltas: true))
+        try await h.clock.waitForSleeper()
+        h.clock.advance(by: .seconds(Self.interval))
+        try await settle(h, fetches: 1)
+        #expect(h.sparkle.cancels == 1)
+        #expect(h.sparkle.backgroundChecks == 1)
+    }
+
+    @Test func aCheckThePersonAskedForTakesAFreshBuildAtOnce() async throws {
+        let h = Self.make(ring: "dev", feed: Self.feed(devMinutesAgo: 10))
+        h.updater.checkForUpdates()
+        try await settle(h, fetches: 1)
+        #expect(h.sparkle.cancels == 1)
+    }
+
+    /// A probe of the old ring in flight when the person picks Dev is not taken as Dev's answer:
+    /// Dev is read when it ends, and its newer build replaces the staged one.
+    @Test func aRingPickedWhileAProbeRunsReadsTheNewRing() async throws {
+        let h = Self.make(ring: "nightly", held: true)
+        h.updater.checkForUpdates()
+        try #require(await eventually { h.feed.fetches == 1 })
+        h.updater.follow(ring: "dev")
+        h.feed.release()
+        try #require(await eventually { h.feed.fetches == 2 }, "the Dev ring was never read")
+        h.feed.release()
+        try #require(await eventually { h.sparkle.backgroundChecks == 1 }, "the newer Dev build was not staged")
+        #expect(h.sparkle.cancels == 1)
+    }
+
+    /// The reverse: a Dev probe in flight when the person goes back to Nightly does not cancel the
+    /// staged build for a Dev build Nightly does not offer.
+    @Test func leavingDevWhileAProbeRunsKeepsTheStagedBuild() async throws {
+        let h = Self.make(ring: "dev", held: true)
+        h.updater.checkForUpdates()
+        try #require(await eventually { h.feed.fetches == 1 })
+        h.updater.follow(ring: "nightly")
+        h.feed.release()
+        try #require(await eventually { h.feed.fetches == 2 }, "the Nightly ring was never read")
+        h.feed.release()
+        try await settle(h, fetches: 2)
+        #expect(h.sparkle.cancels == 0, "a Dev build replaced the staged one after Nightly was picked")
+    }
+
+    /// Turning automatic checks off ends the pending probe; a new interval counts from the change.
+    @Test func aScheduleChangeReplacesThePendingProbe() async throws {
+        let h = Self.make(ring: "dev")
+        #expect(h.updater.stagedRefresh.timer.isScheduled)
+        h.updater.configure(checkAutomatically: false, checkInterval: Self.interval, downloadAutomatically: true)
+        #expect(!h.updater.stagedRefresh.timer.isScheduled, "automatic checks are off but a probe is still pending")
+        h.updater.configure(checkAutomatically: true, checkInterval: Self.interval * 2, downloadAutomatically: true)
+        #expect(h.updater.stagedRefresh.timer.isScheduled, "turning checks back on armed no probe while an update waits")
+        try await h.clock.waitForSleeper()
+        h.clock.advance(by: .seconds(Self.interval))
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(h.feed.fetches == 0, "the old interval's deadline still fired")
+        h.clock.advance(by: .seconds(Self.interval))
+        try await settle(h, fetches: 1)
+        #expect(h.sparkle.cancels == 1)
     }
 
     @Test func automaticChecksOffMeansNoScheduledProbe() async throws {

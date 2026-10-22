@@ -14,28 +14,33 @@ import Foundation
 /// probes the feed (the read-only probe, filtered by the ring as Sparkle filters) once per
 /// `updates.checkIntervalSeconds`, and at once when the person checks or picks a ring. When the
 /// ring has a strictly newer build, it cancels the staged installer (Skip on Sparkle's held reply,
-/// which records no skipped version and touches no file of the person's) and starts Sparkle's
-/// background check, which downloads the newer build and stages it for the card.
+/// which records no skipped version and touches no file of the person's) and starts a check
+/// through this app's driver (``UpdateController/checkForUpdates()``, never Sparkle's silent
+/// driver), which downloads the newer build and stages it, replaceable again, for the card. If
+/// that download fails, nothing is staged until Sparkle's next scheduled check (its timer
+/// restarts when the session ends), which stages the newest build again.
 ///
 /// Never during an install: only the Update Ready phase arms or runs it, and a click to install
 /// ends it. Stop condition and cleanup: the one-shot ``timer`` is armed only in Update Ready with
 /// `updates.checkAutomatically` on, and is cancelled when the phase leaves it (install, relaunch,
-/// swap, cancel); one probe runs at a time, and the next waits a whole interval. The timer cancels
-/// its sleep when this object goes; a probe in flight ends with its 15-second fetch deadline.
+/// swap, cancel) or the schedule changes; one probe runs at a time, and the next waits a whole
+/// interval. The timer cancels its sleep when this object goes; a probe in flight ends with its
+/// 15-second fetch deadline.
 @MainActor
 final class StagedUpdateRefresh {
     /// Whether this app's driver holds the staged installer and found updates download by
     /// themselves; nil reads the driver (``UpdateController/canCancelStagedUpdate``).
     var replaceable: (() -> Bool)?
-    /// Sparkle's scheduled background check; nil runs the driver's (``UpdateController/checkInBackground()``).
-    var checkInBackground: (() -> Void)?
-    /// How long a fresh update that lists no deltas waits for them; nil reads the driver's
-    /// ``UpdateController/pendingDeltaWindow``.
+    /// Starts the check that stages the newer build; nil runs the driver's ``UpdateController/checkForUpdates()``.
+    var startCheck: (() -> Void)?
+    /// How long a fresh update that lists no deltas waits for them before a scheduled swap; nil reads
+    /// the driver's ``UpdateController/pendingDeltaWindow``.
     var deltaWindow: TimeInterval?
-    /// `updates.checkAutomatically` and `updates.checkIntervalSeconds`.
-    var schedule: (automatic: Bool, interval: TimeInterval) = (true, 3600)
-    /// The probe in flight, if any.
+    /// `updates.checkAutomatically` and `updates.checkIntervalSeconds` (``reschedule(automatic:interval:updater:)``).
+    private(set) var schedule: (automatic: Bool, interval: TimeInterval) = (true, 3600)
+    /// The probe in flight, if any, the ring it reads and whether the person asked for it.
     private(set) var task: Task<Void, Never>?
+    private var probing: (ring: UpdateRing, asked: Bool)?
     let timer: DemandTimer
 
     init(clock: any Clock<Duration>) {
@@ -45,6 +50,14 @@ final class StagedUpdateRefresh {
     /// Follows the flow's phase: an update waiting arms the next probe; anything else ends it.
     func follow(_ phase: UpdateIndicatorPhase, updater: UpdaterService) {
         guard case .ready = phase else { return timer.cancel() }
+        arm(updater)
+    }
+
+    /// A changed schedule replaces the pending deadline: off ends it, a new interval counts from now.
+    func reschedule(automatic: Bool, interval: TimeInterval, updater: UpdaterService) {
+        guard schedule.automatic != automatic || schedule.interval != interval else { return }
+        schedule = (automatic, interval)
+        timer.cancel()
         arm(updater)
     }
 
@@ -59,14 +72,20 @@ final class StagedUpdateRefresh {
     }
 
     /// Probes the ring for a build newer than the staged one, and swaps it in. Joins a probe in
-    /// flight; nil when nothing waits that this app can replace (then nothing is read).
+    /// flight (one of another ring is read again when it ends); nil when nothing waits that this
+    /// app can replace (then nothing is read).
     @discardableResult
     func run(reason: String, updater: UpdaterService) -> Task<Void, Never>? {
-        if let task { return task }
+        let asked = reason != "scheduled check"
+        if let task {
+            if asked { probing?.asked = true }
+            return task
+        }
         guard case .ready = updater.flow.phase, !updater.flow.installRequested, updater.disabledReason == nil,
               isReplaceable(updater), let staged = updater.stagedBuild(), !staged.isEmpty else { return nil }
         timer.cancel()
         updater.log.append("\(reason) while build \(staged) waits: looking for a newer \(updater.ring.rawValue) build")
+        probing = (updater.ring, asked)
         let probe = updater.probe()
         let task = Task { [weak self, weak updater] in
             let failure = await probe.value
@@ -84,18 +103,27 @@ final class StagedUpdateRefresh {
     }
 
     private func finish(staged: String, failure: String?, updater: UpdaterService) {
+        let probed = probing
         task = nil
-        guard let newer = newerBuild(than: staged, failure: failure, updater: updater) else { return arm(updater) }
+        probing = nil
+        if let probed, probed.ring != updater.ring {
+            // The person picked another ring while this probe read the old one: read the new one.
+            if run(reason: "\(updater.ring.rawValue) ring picked", updater: updater) == nil { arm(updater) }
+            return
+        }
+        guard let newer = newerBuild(than: staged, failure: failure, asked: probed?.asked ?? false, updater: updater) else {
+            return arm(updater)
+        }
         guard updater.cancelStaged() else {
             updater.log.append("build \(newer) is newer than staged build \(staged), but no installer was held to cancel")
             return arm(updater)
         }
         updater.log.append("build \(newer) on the \(updater.ring.rawValue) ring is newer than staged build \(staged): staging it instead")
-        if let checkInBackground { checkInBackground() } else { updater.controller?.checkInBackground() }
+        if let startCheck { startCheck() } else { updater.controller?.checkForUpdates() }
     }
 
     /// The build to stage instead of `staged`, or nil (the reason is logged).
-    private func newerBuild(than staged: String, failure: String?, updater: UpdaterService) -> String? {
+    private func newerBuild(than staged: String, failure: String?, asked: Bool, updater: UpdaterService) -> String? {
         guard failure == nil else { return nil }
         // The person installed, or another build was staged, while the probe ran.
         guard case .ready = updater.flow.phase, !updater.flow.installRequested,
@@ -105,11 +133,11 @@ final class StagedUpdateRefresh {
             updater.log.append("staged build \(staged) is the newest \(updater.ring.rawValue) build")
             return nil
         }
-        // Sparkle's scheduled check holds a fresh build that lists no deltas yet once (PendingDeltaWait):
-        // swapping now would leave nothing staged until the next check, so this waits an interval too.
-        if let window = deltaWindow ?? updater.controller?.pendingDeltaWindow, let date = item.date,
-           abs(updater.now().timeIntervalSince(date)) < window {
-            updater.log.append("build \(item.version) is fresh and its deltas may still come: next check")
+        // As Sparkle's scheduled check does (PendingDeltaWait), a scheduled swap waits for the deltas
+        // nightly-next lists minutes after a build's full archive; the next probe is an interval later.
+        if !asked, !item.listsDeltas, let window = deltaWindow ?? updater.controller?.pendingDeltaWindow,
+           let date = item.date, abs(updater.now().timeIntervalSince(date)) < window {
+            updater.log.append("build \(item.version) lists no deltas yet: the next scheduled check takes it")
             return nil
         }
         return item.version

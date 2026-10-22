@@ -158,7 +158,7 @@ extension UpdaterService {
             controller?.idleInstallWaitCap = .seconds(idleInstall.maxWait)
         }
         downloadSetting = (downloadAutomatically, metered)
-        stagedRefresh.schedule = (checkAutomatically, checkInterval)
+        stagedRefresh.reschedule(automatic: checkAutomatically, interval: checkInterval, updater: self)
         if automaticUpdates != downloadAutomatically { automaticUpdates = downloadAutomatically }
         guard let controller else { return }
         controller.setSchedule(automaticChecks: checkAutomatically, interval: checkInterval)
