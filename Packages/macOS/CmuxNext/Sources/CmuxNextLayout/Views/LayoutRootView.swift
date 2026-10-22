@@ -336,8 +336,14 @@ public final class LayoutRootView: NSView {
                 view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, attention: snapshot.attention,
                                   animated: chromeAnimated && !structureChanged, flashAnimated: chromeAnimated)
             } else if chromeChanged {
+                // A focus move alone changes the chrome of two panes, the one left and the one focused: every
+                // other pane keeps its ring, dim and tab emphasis (O(2), not O(panes); speed-of-sound 3.2).
+                let focusMoveOnly = previous.map {
+                    !sharedChanged && $0.dimsInactive == snapshot.dimsInactive && $0.attention == snapshot.attention
+                } ?? false
                 view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, attention: snapshot.attention,
-                                  animated: chromeAnimated)
+                                  animated: chromeAnimated,
+                                  only: focusMoveOnly ? Set([previous?.focused, snapshot.focused].compactMap { $0 }) : nil)
             }
             // A changed layout or focus reaches the scroll reducer: it anchors
             // the camera on layout changes, reveals focus, and springs back
