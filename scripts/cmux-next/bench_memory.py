@@ -406,6 +406,8 @@ def control_socket(bundle: str, pid: int, dirs: list[str]) -> str | None:
     cmux on this Mac may bind one meanwhile. (lsof shows the app's bind
     path, not the name it is reached by.)"""
     for directory in dirs:
+        if not os.path.isdir(directory):
+            continue
         for name in os.listdir(directory):
             path = os.path.join(directory, name)
             if name.startswith("cmux") and name.endswith(".sock") and App(bundle, path).identify().get("pid") == pid:
@@ -476,11 +478,16 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None):
             pid = next((p for p, _, cmd in process_table() if is_binary(cmd, binary)), None)
             # Only a socket the launched app itself holds: another cmux on
             # this Mac may bind one meanwhile.
-            path = control_socket(bundle, pid, ["/tmp", env["TMPDIR"]]) if pid else None
+            # A DEV build binds its socket in <HOME>/.local/state/cmux (build_names.py), linked from /tmp
+            # only when that path fits; look in all three.
+            path = control_socket(bundle, pid, [os.path.join(home, ".local", "state", "cmux"), "/tmp", env["TMPDIR"]]) if pid else None
             if path:
                 return pid, path, scratch
             time.sleep(1)  # test script: waiting for the launched app's socket
-        raise SystemExit("bench-memory: the launched app opened no socket within 90 s")
+        state = os.path.join(home, ".local", "state", "cmux")
+        seen = sorted(os.listdir(state)) if os.path.isdir(state) else []
+        raise SystemExit(f"bench-memory: the launched app opened no socket within 90 s "
+                         f"(app pid {pid or 'none: it did not start'}; {state}: {seen})")
     except BaseException:
         end_bundle(bundle)
         shutil.rmtree(scratch, ignore_errors=True)
