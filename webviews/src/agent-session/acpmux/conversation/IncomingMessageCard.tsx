@@ -11,6 +11,12 @@
 // answers in place: the answer goes to the sending chat in the message's thread
 // (AcpmuxDirectClient.reply), from an editor under the card. An open reply and its draft last
 // while the page does too; closing the message closes the reply and keeps the draft.
+//
+// Opening and closing move only what is under the line (Leo 2026-10-21: "just expand the area at
+// the bottom and you're in the same place"): the line, and Details for its envelope, are anchored
+// collapses (useAnchoredCollapse.ts), so the line the reader clicked stays on its pixel while a cut
+// card slides open to its whole height or back (fold.ts `playResize`) and Details folds in or out in
+// height and opacity. Under Reduce Motion they change at once.
 import { useContext, useId, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { useT, type StringKey } from "../i18n";
 import { RECEIVED_LINES, type PromptImage } from "../model";
@@ -20,6 +26,8 @@ import { FindReveal } from "./chatFind";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { Bot, ChevronRight, TerminalSquare } from "./icons";
 import { Markdown } from "./Markdown";
+import { playResize } from "./fold";
+import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { AgentMark, agentBrand } from "../../shared/AgentMark";
 import { useSenderChat } from "../subagents/subsessions";
 
@@ -67,11 +75,20 @@ export function IncomingMessageLine({
     else opened.delete(key);
     setOpen(next);
   };
+  // Only the reader's own clicks play the motion; Find opening a message for its match does not.
+  const played = useRef(false);
+  const animates = () => played.current;
+  // The line holds still while the card under it opens or closes; its `present` and `bodyProps` are
+  // Details' row, which shows only while the card is open.
+  const card = useAnchoredCollapse({ open, onOpenChange: show, animates });
+  // The text's height as drawn when the reader clicked, which its resize starts from.
+  const textFrom = useRef<number | undefined>(undefined);
   const toggleButton = useRef<HTMLButtonElement>(null);
   const bodyId = useId();
   const rawId = useId();
   // The prompt as the agent got it (cmux's envelope around the message) waits behind Details.
   const [details, setDetails] = useState(false);
+  const envelope = useAnchoredCollapse({ open: details, onOpenChange: setDetails, animates });
   // Find in Chat opens a closed message that holds its match, as a folded thought opens; a match
   // only in the envelope (Find searches the whole prompt) opens Details too.
   const reveal = useContext(FindReveal);
@@ -80,6 +97,8 @@ export function IncomingMessageLine({
   const inRaw = Boolean(needle && !inText && message.raw.toLocaleLowerCase().includes(needle));
   useLayoutEffect(() => {
     if (!inText && !inRaw) return;
+    played.current = false;
+    textFrom.current = undefined;
     show(true);
     if (inRaw) setDetails(true);
     reveal?.repaint();
@@ -105,6 +124,17 @@ export function IncomingMessageLine({
     return () => observer.disconnect();
   }, [message.text]);
   const cut = long && !open;
+  // A reader's click: the motion plays, from the text's height now.
+  const byReader = () => {
+    played.current = true;
+    textFrom.current = textBox.current?.getBoundingClientRect().height;
+  };
+  useLayoutEffect(() => {
+    const node = textBox.current;
+    const from = textFrom.current;
+    textFrom.current = undefined;
+    if (node && from !== undefined) playResize(node, from);
+  }, [open]);
   // A sub-session family's sender says who it is to this chat.
   const from = message.relation ? t(RELATION_LABEL[message.relation], { name: message.name }) : message.name;
   const label = t("message.label", { from, to: t("message.self") });
@@ -128,7 +158,10 @@ export function IncomingMessageLine({
   };
   const editing = reply === "open" || reply === "failed";
   // Reply opens the message too, so the editor sits under what it answers.
+  // It opens without holding the line: the reader asked to type, so the view follows the editor as
+  // before rather than keeping the line, which left a long message's editor below the view.
   const startReply = () => {
+    byReader();
     setFocusEditor(true);
     show(true);
     setReply("open");
@@ -136,20 +169,22 @@ export function IncomingMessageLine({
   // Closing the message closes its reply too, draft kept; the focus goes to the chevron, so it
   // is not lost with the editor.
   const toggle = () => {
+    byReader();
     if (open && editing) {
       setReply("closed");
       requestAnimationFrame(() => toggleButton.current?.focus());
     }
-    show(!open);
+    card.toggle();
   };
   const openCut = (event: MouseEvent) => {
     if ((event.target as Element).closest("a, button, input, label, summary, video, audio, [role=button]")) return;
     if (getSelection()?.isCollapsed === false) return;
-    show(true);
+    byReader();
+    card.setOpen(true);
   };
   return (
     <div className="cv-received" data-open={open || undefined}>
-      <div className="cv-received__line">
+      <div ref={card.headerRef} className="cv-received__line">
         <span className="cv-received__icon">
           {agentBrand(sender.harness) ? <AgentMark agent={sender.harness} size={14} /> : <Bot size={16} />}
         </span>
@@ -201,23 +236,31 @@ export function IncomingMessageLine({
           {message.text ? <Markdown githubRepository={githubRepository}>{message.text}</Markdown> : t("message.noText")}
         </div>
       </div>
-      {open && raw !== undefined && (
-        <div className="cv-received__details">
-          <button
-            type="button"
-            className="cv-received__more"
-            aria-expanded={details}
-            aria-controls={details ? rawId : undefined}
-            onClick={() => setDetails((value) => !value)}
-          >
-            {t("message.details")}
-            <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${details ? " is-open" : ""}`} />
-          </button>
-          {details && (
-            <pre id={rawId} className="cv-tool-output selectable">
-              {raw}
-            </pre>
-          )}
+      {card.present && raw !== undefined && (
+        <div {...card.bodyProps}>
+          <div className="cv-received__details">
+            <button
+              ref={envelope.headerRef}
+              type="button"
+              className="cv-received__more"
+              aria-expanded={details}
+              aria-controls={details ? rawId : undefined}
+              onClick={() => {
+                played.current = true;
+                envelope.toggle();
+              }}
+            >
+              {t("message.details")}
+              <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${details ? " is-open" : ""}`} />
+            </button>
+            {envelope.present && (
+              <div {...envelope.bodyProps}>
+                <pre id={rawId} className="cv-tool-output selectable">
+                  {raw}
+                </pre>
+              </div>
+            )}
+          </div>
         </div>
       )}
       {replies && editing && (
