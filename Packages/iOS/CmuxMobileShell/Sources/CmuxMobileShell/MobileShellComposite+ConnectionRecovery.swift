@@ -53,7 +53,10 @@ extension MobileShellComposite {
     /// Foreground, network, presence, liveness, and stream-failure recovery all
     /// enter the same owner. Foreground starts with a positive-liveness probe;
     /// a failed probe promotes that exact attempt to one stored-Mac redial.
-    func recoverForegroundConnectionIfNeeded(resyncAfterHealthy: Bool) {
+    func recoverForegroundConnectionIfNeeded(
+        resyncAfterHealthy: Bool,
+        preservingLocalHistory: Bool = false
+    ) {
         guard connectionState == .connected,
               let client = remoteClient,
               pairedMacStore != nil else { return }
@@ -65,7 +68,8 @@ extension MobileShellComposite {
             trigger: .foreground,
             expectedClient: client,
             probeCurrentConnection: true,
-            resyncAfterHealthy: resyncAfterHealthy
+            resyncAfterHealthy: resyncAfterHealthy,
+            preservingLocalHistory: preservingLocalHistory
         )
     }
 
@@ -297,13 +301,15 @@ extension MobileShellComposite {
         trigger: RecoveryTrigger,
         expectedClient: MobileCoreRPCClient?,
         probeCurrentConnection: Bool,
-        resyncAfterHealthy: Bool
+        resyncAfterHealthy: Bool,
+        preservingLocalHistory: Bool = false
     ) {
         startConnectionRecovery(
             trigger: trigger,
             expectedClient: expectedClient,
             probeCurrentConnection: probeCurrentConnection,
             resyncAfterHealthy: resyncAfterHealthy,
+            preservingLocalHistory: preservingLocalHistory,
             preclaimedAttempt: nil
         )
     }
@@ -313,6 +319,7 @@ extension MobileShellComposite {
         expectedClient: MobileCoreRPCClient?,
         probeCurrentConnection: Bool,
         resyncAfterHealthy: Bool,
+        preservingLocalHistory: Bool = false,
         preclaimedAttempt: MobileConnectionRecoveryOwner.Attempt?
     ) {
         guard pairedMacStore != nil else {
@@ -390,7 +397,8 @@ extension MobileShellComposite {
                         if resyncAfterHealthy {
                             self.resyncTerminalOutput(
                                 reason: "connectionRecovery.\(trigger)",
-                                restartEventStream: true
+                                restartEventStream: true,
+                                preservingLocalHistory: preservingLocalHistory
                             )
                         } else {
                             // Retaining the terminal subscription must not
@@ -419,7 +427,8 @@ extension MobileShellComposite {
                         if resyncAfterHealthy {
                             self.resyncTerminalOutput(
                                 reason: "connectionRecovery.\(trigger).transportAlive",
-                                restartEventStream: true
+                                restartEventStream: true,
+                                preservingLocalHistory: preservingLocalHistory
                             )
                         } else {
                             self.scheduleNotificationReconcile(client: expectedClient)
