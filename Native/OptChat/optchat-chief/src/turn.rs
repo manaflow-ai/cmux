@@ -387,15 +387,6 @@ pub fn run_with_drafts(
     draft: &dyn Fn(crate::draft::Draft),
     run: &dyn Fn(crate::run::RunUpdate),
 ) -> TurnOutcome {
-    // Stopped before it began (a retry after the owner's message or
-    // chief.stop): no new session or prompt.
-    if interrupt.is_set() {
-        return TurnOutcome {
-            error: stop_error("cancelled"),
-            cancelled: true,
-            ..TurnOutcome::default()
-        };
-    }
     let scope = serde_json::json!({"turn": start.key});
     let began = Instant::now();
     // The limit covers the session's start too: a harness that never
@@ -423,6 +414,19 @@ pub fn run_with_drafts(
     };
     if let Some(old) = &start.retire {
         let _ = agents.end_session(old);
+    }
+    // Stopped before it began (the owner's message or chief.stop, or a
+    // retry after one): no session or prompt; a kept session it would have
+    // reused is ended.
+    if interrupt.is_set() {
+        if let Some(r) = start.reuse.as_ref().and_then(Reuse::take) {
+            let _ = agents.end_session(&r.kept.session);
+        }
+        return TurnOutcome {
+            error: stop_error("cancelled"),
+            cancelled: true,
+            ..TurnOutcome::default()
+        };
     }
     // The kept session, while acpmux still has it and nothing waits in it.
     let reused = start.reuse.as_ref().and_then(Reuse::take).and_then(|r| {

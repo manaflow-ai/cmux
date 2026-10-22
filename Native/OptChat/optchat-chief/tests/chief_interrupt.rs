@@ -233,6 +233,12 @@ fn busy_chief_stops_for_a_message_before_its_session_starts() {
             h.brain.step(input);
         }
     }
+    // The runner is past its start: it looks the session name up just
+    // before `session/new`, which `slow_session` holds for 500 ms.
+    while h.agents.inner.lock().unwrap().finds.is_empty() {
+        assert!(Instant::now() < deadline, "the runner never started");
+        std::thread::sleep(Duration::from_millis(5));
+    }
     h.say("user_local", "use the other branch");
     h.agents.wait_cancels(1);
     h.agents.hold(false);
