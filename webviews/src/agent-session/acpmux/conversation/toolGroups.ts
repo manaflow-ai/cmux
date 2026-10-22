@@ -1,7 +1,7 @@
 // A run of tool calls split into what the transcript draws: consecutive calls of one kind
 // under one line ("Ran 3 commands", "Read 4 files", "Edited App.tsx +12 -3"), messages to
 // other agents and calls to the cmux-subsessions tools as cards, and everything else as its own row.
-import type { AcpmuxActivity } from "../model";
+import { pathKey, type AcpmuxActivity } from "../model";
 import type { Translate } from "../i18n";
 import { agentMessage, type AgentMessage } from "./agentMessages";
 import { mcpCall, mcpKey } from "./mcpCalls";
@@ -97,14 +97,15 @@ export function isFailed(tool: Tool): boolean {
   return tool.status === "failed" || (tool.exitCode !== undefined && tool.exitCode !== 0);
 }
 
-/// The distinct files a run of reads opened, by their locations, or one per call without any.
+/// The distinct files a run of reads opened, by their locations (model.ts `pathKey`), or one per
+/// call without any.
 function readCount(items: readonly AcpmuxActivity[]): number {
   const paths = new Set<string>();
   let unnamed = 0;
   for (const item of items) {
     const locations = item.tool?.locations ?? [];
     if (!locations.length) unnamed++;
-    for (const location of locations) paths.add(location.path);
+    for (const location of locations) paths.add(pathKey(location));
   }
   return paths.size + unnamed;
 }

@@ -50,7 +50,9 @@
         "0012_cmux_vm_uncommitted_creations.sql": "323a62e96f1c62d72f8ba6f26d7f5499d48846abfd909c6ad7e0bc86fff9ad86",
         "0013_cmux_vm_device_overlay_policy.sql": "544c9e92cb0750c08a63546a1e16da2fd17a4b9ebb3a3d00409198dc617bd5b5",
         "0014_cmux_vm_overlay_servers.sql": "f21124a605b9c811c6b379aaa5b5c371b46f279bafd8629ee8d06b18cc10c383",
-        "0015_cmux_vm_overlay_server_codes.sql": "a0a7c6fcb425f8d64a319730ad2a523bf0b91b77ac0a956dc0966e90153ecb51"
+        "0015_cmux_vm_overlay_server_codes.sql": "a0a7c6fcb425f8d64a319730ad2a523bf0b91b77ac0a956dc0966e90153ecb51",
+        "0016_cmux_vm_agent_keys.sql": "558b159aafaf1c7f64d4436b646e239c28e7f3f482b2046f81a03d9b27f86360",
+        "0017_cmux_vm_client_session_index.sql": "219a97ca929c141b59ffb9e820e76b4051ce0b72b45dc8e40a3f8eb06ad9c882"
       }
     },
     "backend": {

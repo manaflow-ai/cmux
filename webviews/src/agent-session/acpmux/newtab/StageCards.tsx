@@ -148,7 +148,7 @@ export function SuggestionsCard({
           <Tooltip
             key={card.sessionId}
             side="top"
-            className="ui-card nt-hovercard"
+            className="ui-card ui-glass nt-hovercard"
             label={
               <span className="nt-hovercard-body">
                 <span className="nt-hovercard-title">{card.title}</span>

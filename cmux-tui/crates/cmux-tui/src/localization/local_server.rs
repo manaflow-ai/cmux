@@ -68,12 +68,39 @@ pub(crate) struct LocalServerMessages {
     pub suggestion: &'static str,
     pub unexpected_after_stop: &'static str,
     pub stop_timeout: &'static str,
+    /// `--restore-wait-seconds` is not a whole number of seconds in range.
+    pub stop_restore_wait_invalid: &'static str,
+    /// Progress while `server stop` waits for an owner that holds its
+    /// connections unanswered (it restores its session): `{waited}`, `{limit}`.
+    pub stop_waiting_restoring: &'static str,
+    /// Progress while `server stop` waits for an owner that restored but
+    /// reports `lifecycle_ready: false`: `{waited}`, `{limit}`.
+    pub stop_waiting_starting: &'static str,
+    /// `server stop` gave up on an owner still restoring: `{seconds}`, `{command}`.
+    pub stop_gave_up_restoring: &'static str,
+    /// `server stop` gave up on an owner still finishing its startup:
+    /// `{seconds}`, `{command}`.
+    pub stop_gave_up_starting: &'static str,
     pub all_sessions_agent_refused: &'static str,
 }
 
 impl LocalServerMessages {
     pub(crate) fn owner_spawn_failed(&self) -> String {
         self.owner_spawn_failed.to_string()
+    }
+
+    /// The progress line of a stop that waits `waited` of `limit` seconds
+    /// for a restoring owner (`starting`: it restored and finishes startup).
+    pub(crate) fn stop_waiting(&self, starting: bool, waited: u64, limit: u64) -> String {
+        let text = if starting { self.stop_waiting_starting } else { self.stop_waiting_restoring };
+        text.replace("{waited}", &waited.to_string()).replace("{limit}", &limit.to_string())
+    }
+
+    /// Why a stop gave up after `seconds` on a restoring owner, and the
+    /// `command` that retries with a longer wait.
+    pub(crate) fn stop_gave_up(&self, starting: bool, seconds: u64, command: &str) -> String {
+        let text = if starting { self.stop_gave_up_starting } else { self.stop_gave_up_restoring };
+        text.replace("{seconds}", &seconds.to_string()).replace("{command}", command)
     }
 
     pub(crate) fn unknown_scope(&self, scope: &str, suggestion: Option<&str>) -> String {
@@ -112,7 +139,7 @@ pub(super) const ENGLISH: LocalServerMessages = LocalServerMessages {
     status_help: "USAGE\n  cmux daemon status [--session <name>] [--socket <path>]\n",
     stats_help: "USAGE\n  cmux daemon stats [--session <name>] [--socket <path>]\n\nReport where the daemon spends its time: registry lock waits and holders,\njournal writer batch sizes and commit latency, and connection admission.\nUse --json for the exact `server-stats` object.\n",
     stats_unsupported: "this server does not support server-stats: it is an older build than this CLI. `cmux daemon status` still works; do not stop the server for stats, that ends its terminals.",
-    stop_help: "USAGE\n  cmux daemon stop [--session <name>] [--socket <path>] [--force] [--end-terminals]\n\nStopping an absent server succeeds. Durable session topology is preserved.\n--end-terminals ends every terminal and removes its tabs first (test teardown).\n",
+    stop_help: "USAGE\n  cmux daemon stop [--session <name>] [--socket <path>] [--force] [--end-terminals]\n    [--restore-wait-seconds <n>]\n\nStopping an absent server succeeds. Durable session topology is preserved.\n--end-terminals ends every terminal and removes its tabs first (test teardown).\nA server that is still restoring its session is stopped when the restore ends;\nthe stop waits up to --restore-wait-seconds (default 120, at most 3600) and\nshows its progress on stderr.\n",
     reload_config_help: "USAGE\n  cmux daemon reload-config [--session <name>] [--socket <path>]\n",
     running: "local server is running",
     started: "local server started",
@@ -160,6 +187,11 @@ pub(super) const ENGLISH: LocalServerMessages = LocalServerMessages {
     suggestion: "Did you mean `{candidate}`?",
     unexpected_after_stop: "local server sent unexpected data after accepting shutdown",
     stop_timeout: "timed out waiting for the local server to stop",
+    stop_restore_wait_invalid: "--restore-wait-seconds must be a whole number of seconds from 1 to 3600",
+    stop_waiting_restoring: "cmux: the local server is restoring its session; the stop waits for the restore to end ({waited} s of up to {limit} s)",
+    stop_waiting_starting: "cmux: the local server restored its session and is finishing its startup; the stop waits for it ({waited} s of up to {limit} s)",
+    stop_gave_up_restoring: "the local server did not stop: after {seconds} s it is still restoring its session (registry and terminal hosts) or too busy to answer. Its client log under the session state directory shows what the restore waits for. To wait longer, run: {command}",
+    stop_gave_up_starting: "the local server did not stop: it restored its session, but after {seconds} s it is still finishing its startup. To wait longer, run: {command}",
     all_sessions_agent_refused: "--all-sessions is refused for an agent caller ({marker} is set); drop --all-sessions to list this session",
 };
 
@@ -181,7 +213,7 @@ pub(super) const JAPANESE: LocalServerMessages = LocalServerMessages {
     status_help: "使用方法\n  cmux daemon status [--session <名前>] [--socket <パス>]\n",
     stats_help: "使用方法\n  cmux daemon stats [--session <名前>] [--socket <パス>]\n\nデーモンの時間の使われ方を報告します: レジストリロックの待機と保持元、\nジャーナルライターのバッチサイズとコミット遅延、接続の受け入れ状況。\n正確な `server-stats` オブジェクトは --json で取得できます。\n",
     stats_unsupported: "このサーバーは server-stats に対応していません。この CLI より古いビルドです。`cmux daemon status` は使えます。統計のためにサーバーを停止しないでください (ターミナルが終了します)。",
-    stop_help: "使用方法\n  cmux daemon stop [--session <名前>] [--socket <パス>] [--force] [--end-terminals]\n\nサーバーが存在しない場合も成功します。永続セッションの構成は保持されます。\n--end-terminals は先にすべてのターミナルを終了し、そのタブを削除します (テストの後始末用)。\n",
+    stop_help: "使用方法\n  cmux daemon stop [--session <名前>] [--socket <パス>] [--force] [--end-terminals]\n    [--restore-wait-seconds <秒数>]\n\nサーバーが存在しない場合も成功します。永続セッションの構成は保持されます。\n--end-terminals は先にすべてのターミナルを終了し、そのタブを削除します (テストの後始末用)。\nセッションを復元中のサーバーは、復元の完了後に停止します。停止は最大 --restore-wait-seconds 秒\n(既定 120、最大 3600) 待ち、その進行状況を標準エラー出力に表示します。\n",
     reload_config_help: "使用方法\n  cmux daemon reload-config [--session <名前>] [--socket <パス>]\n",
     running: "ローカルサーバーは実行中です",
     started: "ローカルサーバーを起動しました",
@@ -229,5 +261,10 @@ pub(super) const JAPANESE: LocalServerMessages = LocalServerMessages {
     suggestion: "`{candidate}` のことですか？",
     unexpected_after_stop: "停止を受理した後にローカルサーバーが予期しないデータを送信しました",
     stop_timeout: "ローカルサーバーの停止待機がタイムアウトしました",
+    stop_restore_wait_invalid: "--restore-wait-seconds には 1 から 3600 までの整数の秒数を指定してください",
+    stop_waiting_restoring: "cmux: ローカルサーバーがセッションを復元しています。停止は復元の完了を待っています ({waited} 秒 / 最大 {limit} 秒)",
+    stop_waiting_starting: "cmux: ローカルサーバーはセッションを復元し、起動を完了しています。停止はその完了を待っています ({waited} 秒 / 最大 {limit} 秒)",
+    stop_gave_up_restoring: "ローカルサーバーは停止していません: {seconds} 秒後もセッション (レジストリとターミナルホスト) を復元中か、応答できないほど混雑しています。復元が何を待っているかは、セッション状態ディレクトリのクライアントログで確認できます。さらに待つには次を実行してください: {command}",
+    stop_gave_up_starting: "ローカルサーバーは停止していません: セッションは復元しましたが、{seconds} 秒後も起動を完了していません。さらに待つには次を実行してください: {command}",
     all_sessions_agent_refused: "エージェントからの呼び出しでは --all-sessions を使えません ({marker} が設定されています)。このセッションを一覧するには --all-sessions を外してください",
 };

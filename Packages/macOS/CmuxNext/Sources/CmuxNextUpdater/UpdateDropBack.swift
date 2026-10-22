@@ -38,6 +38,13 @@ public struct UpdateDropBack {
         }
     }
 
+    /// The question asked before a person's rollback runs: `updates.rollback` is destructive (it
+    /// quits and relaunches), so the App's destructive confirmation asks this for the palette and
+    /// the menu, and the pulled-build banner's Roll Back asks it through that same presenter.
+    public static var confirmation: (title: String, body: String, button: String) {
+        (UpdaterStrings.rollbackConfirmTitle, UpdaterStrings.rollbackConfirmBody, UpdaterStrings.pulledRollBack)
+    }
+
     /// Starts the helper that reopens `app` once this process exits, then quits (the relaunch
     /// hook already recorded "keep sessions").
     public static func relaunchAfterExit(_ app: URL) {
