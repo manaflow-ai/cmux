@@ -212,7 +212,7 @@ pub(crate) fn spawn(
     if descriptor_limit < 3 {
         bail!("failed to determine the process descriptor limit");
     }
-    let descriptor_cleanup = DescriptorCleanup::new(descriptor_limit);
+    let mut descriptor_cleanup = DescriptorCleanup::new(descriptor_limit);
     unsafe {
         process.pre_exec(move || {
             for signal in [
@@ -247,7 +247,7 @@ pub(crate) fn spawn(
                 return Err(io::Error::last_os_error());
             }
             crate::open_files::restore_open_file_limit_in_child()?;
-            mark_inherited_descriptors_close_on_exec(&descriptor_cleanup)?;
+            mark_inherited_descriptors_close_on_exec(&mut descriptor_cleanup)?;
             Ok(())
         });
     }
@@ -256,7 +256,10 @@ pub(crate) fn spawn(
     Ok(Box::new(child))
 }
 
-fn mark_inherited_descriptors_close_on_exec(cleanup: &DescriptorCleanup) -> io::Result<()> {
+/// Mark every inherited descriptor above stderr close-on-exec in a forked
+/// child. Returns how many descriptor numbers it examined one by one (0 when
+/// a kernel fast path did it).
+fn mark_inherited_descriptors_close_on_exec(cleanup: &mut DescriptorCleanup) -> io::Result<usize> {
     // `Command::spawn` installs a private CLOEXEC pipe so the child can
     // report pre-exec and exec failures. Closing every descriptor here would
     // close that pipe and make a failed exec look successful. Marking the
@@ -276,7 +279,7 @@ fn mark_inherited_descriptors_close_on_exec(cleanup: &DescriptorCleanup) -> io::
             )
         };
         if result == 0 {
-            return Ok(());
+            return Ok(0);
         }
         let error = io::Error::last_os_error();
         if !matches!(
@@ -291,7 +294,7 @@ fn mark_inherited_descriptors_close_on_exec(cleanup: &DescriptorCleanup) -> io::
             // through exec. Do not retry close after EINTR because the fd may
             // already have been reused.
             unsafe { libc::close(directory_fd) };
-            return result;
+            return result.map(|()| 0);
         }
         // Never turn an adversarial or unusually large descriptor limit into
         // hundreds of thousands of syscalls in the post-fork child. Returning
@@ -330,14 +333,14 @@ fn open_child_proc_descriptor_directory() -> io::Result<RawFd> {
     }
 }
 
-fn mark_descriptors_close_on_exec_individually(descriptor_limit: RawFd) -> io::Result<()> {
+fn mark_descriptors_close_on_exec_individually(descriptor_limit: RawFd) -> io::Result<usize> {
     for descriptor in 3..descriptor_limit {
         match mark_descriptor_close_on_exec(descriptor) {
             Err(error) if error.raw_os_error() == Some(libc::EBADF) => {}
             result => result?,
         }
     }
-    Ok(())
+    Ok(usize::try_from(descriptor_limit.saturating_sub(3)).unwrap_or(0))
 }
 
 fn mark_descriptor_close_on_exec(descriptor: RawFd) -> io::Result<()> {
@@ -673,8 +676,8 @@ mod linux_tests {
         let _inherited = unsafe { File::from_raw_fd(descriptor) };
         install_close_range_openat_and_fcntl_eperm_filter();
 
-        let cleanup = DescriptorCleanup::new(1_048_576);
-        let error = mark_inherited_descriptors_close_on_exec(&cleanup)
+        let mut cleanup = DescriptorCleanup::new(1_048_576);
+        let error = mark_inherited_descriptors_close_on_exec(&mut cleanup)
             .expect_err("oversized descriptor table should fail before an individual scan");
         assert_eq!(error.raw_os_error(), Some(libc::EOVERFLOW));
     }
@@ -706,7 +709,7 @@ mod linux_tests {
         let descriptor = unsafe { libc::fcntl(source.as_raw_fd(), libc::F_DUPFD, 200) };
         assert!(descriptor >= 200);
         let inherited = unsafe { File::from_raw_fd(descriptor) };
-        let cleanup = DescriptorCleanup::new(unsafe { libc::getdtablesize() });
+        let mut cleanup = DescriptorCleanup::new(unsafe { libc::getdtablesize() });
         let mut child_ready = [-1; 2];
         let mut parent_ready = [-1; 2];
         assert_eq!(unsafe { libc::pipe2(child_ready.as_mut_ptr(), libc::O_CLOEXEC) }, 0);
@@ -733,7 +736,7 @@ mod linux_tests {
                 }
             }
             let marked =
-                mark_inherited_descriptors_close_on_exec(&cleanup).is_ok_and(|()| unsafe {
+                mark_inherited_descriptors_close_on_exec(&mut cleanup).is_ok_and(|_| unsafe {
                     let flags = libc::fcntl(descriptor, libc::F_GETFD);
                     flags != -1 && flags & libc::FD_CLOEXEC != 0
                 });
@@ -927,5 +930,62 @@ mod input_queue_tests {
             got.extend_from_slice(&buffer[..n]);
         }
         assert_eq!(&got[1021..], WHEEL_UP, "the wheel report arrived changed");
+    }
+}
+
+/// A new terminal's post-fork descriptor cleanup costs what the process has
+/// open, not its descriptor limit (new-terminal-100x): the daemon and host
+/// raise the soft limit to 65,536, and one `fcntl` per possible descriptor
+/// took about 14 ms of every terminal's launch on a fleet M4 Pro.
+#[cfg(all(test, target_vendor = "apple"))]
+mod descriptor_cleanup_tests {
+    use std::fs::File;
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    use super::{DescriptorCleanup, mark_inherited_descriptors_close_on_exec};
+
+    #[test]
+    fn cleanup_examines_the_open_descriptors_not_the_whole_limit() {
+        let source = File::open("/dev/null").unwrap();
+        let high = unsafe { libc::fcntl(source.as_raw_fd(), libc::F_DUPFD, 200) };
+        assert!(high >= 200);
+        let _inherited = unsafe { File::from_raw_fd(high) };
+        let mut cleanup = DescriptorCleanup::new(65_536);
+        let mut report = [-1; 2];
+        assert_eq!(unsafe { libc::pipe(report.as_mut_ptr()) }, 0);
+        let child = unsafe { libc::fork() };
+        assert!(child >= 0);
+        if child == 0 {
+            // Only raw syscalls from here: the parent may have other threads.
+            let code: u8 = match mark_inherited_descriptors_close_on_exec(&mut cleanup) {
+                Ok(examined) => {
+                    let flags = unsafe { libc::fcntl(high, libc::F_GETFD) };
+                    if flags == -1 || flags & libc::FD_CLOEXEC == 0 {
+                        2
+                    } else if examined > 1_000 {
+                        3
+                    } else {
+                        0
+                    }
+                }
+                Err(_) => 4,
+            };
+            unsafe {
+                libc::write(report[1], (&raw const code).cast(), 1);
+                libc::_exit(0);
+            }
+        }
+        unsafe { libc::close(report[1]) };
+        let mut code = 255_u8;
+        assert_eq!(unsafe { libc::read(report[0], (&raw mut code).cast(), 1) }, 1);
+        let mut status = 0;
+        assert_eq!(unsafe { libc::waitpid(child, &mut status, 0) }, child);
+        unsafe { libc::close(report[0]) };
+        assert_ne!(code, 2, "the inherited descriptor {high} was left open across exec");
+        assert_ne!(code, 4, "the descriptor cleanup failed");
+        assert_eq!(
+            code, 0,
+            "the cleanup examined every descriptor number up to the 65,536 limit one by one"
+        );
     }
 }
