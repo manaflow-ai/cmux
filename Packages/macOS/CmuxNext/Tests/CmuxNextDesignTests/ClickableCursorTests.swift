@@ -143,8 +143,9 @@ struct ClickableCursorTests {
         }
     }
 
-    /// Static guard: the shared clickable buttons and SwiftUI button styles of other modules use
-    /// the shared cursor. A new shared button or style belongs on this list.
+    /// Static guard: the shared clickable buttons and SwiftUI button styles of modules this test
+    /// target cannot import use the shared cursor (the browser's buttons are checked by behavior
+    /// in `OmnibarPointerButtonTests`). A new shared button or style belongs on this list.
     @Test func theSharedButtonsAndStylesElsewhereUseTheClickableCursor() throws {
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -156,8 +157,6 @@ struct ClickableCursorTests {
             ("CmuxNextAgentQuestion/AgentQuestionPillButton.swift", "class AgentQuestionPillButton: ClickableButton"),
             ("CmuxNextTerminal/TerminalRestartButton.swift", "class TerminalRestartButton: ClickableButton"),
             ("CmuxNextTerminal/TerminalRetryButton.swift", "class TerminalRetryButton: ClickableButton"),
-            ("CmuxNextBrowser/UI/ChromeButtons.swift", "class ChromeIconButton: ClickableButton"),
-            ("CmuxNextBrowser/UI/ChromeButtons.swift", "class ChromeTextButton: ClickableButton"),
             ("CmuxNextTabs/NewTabButtonView.swift", "ClickableButton.cursorRect(of: self)"),
             ("CmuxNextDesign/GlassButtonStyle.swift", ".clickableCursor()"),
             ("CmuxNextFeed/Views/FeedButtonStyle.swift", ".clickableCursor()"),

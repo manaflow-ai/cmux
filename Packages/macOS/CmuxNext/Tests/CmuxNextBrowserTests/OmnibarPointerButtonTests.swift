@@ -49,11 +49,51 @@ struct OmnibarPointerButtonTests {
         withExtendedLifetime(host) {}
     }
 
+    /// Back runs out of history under a still pointer while a Chromium page has the key: the
+    /// row's cursor follows the button at once (no move, no key window to rebuild cursor rects).
+    @Test func aButtonDisabledOrEnabledUnderTheStillPointerChangesTheRowsCursor() {
+        let button = ChromeIconButton(icon: .navPreviousMatch, label: "Back", action: nil, target: nil, toolbar: true)
+        let host = row(with: button)
+        host.row.setCursor(at: windowPoint(atCenterOf: button))
+        #expect(host.row.trackedCursor == .pointingHand)
+        button.isEnabled = false
+        #expect(host.row.trackedCursor == .arrow)
+        button.isEnabled = true
+        #expect(host.row.trackedCursor == .pointingHand)
+        withExtendedLifetime(host) {}
+    }
+
+    @Test func aButtonChangingStateWithNoPointerOverTheRowSetsNoCursor() {
+        let button = ChromeIconButton(icon: .navPreviousMatch, label: "Back", action: nil, target: nil, toolbar: true)
+        let host = row(with: button)
+        button.isEnabled = false
+        button.isEnabled = true
+        #expect(host.row.trackedCursor == nil)
+        withExtendedLifetime(host) {}
+    }
+
+    @Test func aPinnedExtensionButtonShowsThePointingHand() {
+        let button = ExtensionActionButton(actionID: "test-extension")
+        let host = row(with: button)
+        #expect(OmnibarPointer.cursor(atWindowPoint: windowPoint(atCenterOf: button), in: host.row) == .pointingHand)
+        withExtendedLifetime(host) {}
+    }
+
+    @Test func theBookmarkStarShowsThePointingHand() {
+        let star = BookmarkStarButton(frame: .zero)
+        star.state = .off
+        let host = row(with: star)
+        #expect(OmnibarPointer.cursor(atWindowPoint: windowPoint(atCenterOf: star), in: host.row) == .pointingHand)
+        withExtendedLifetime(host) {}
+    }
+
     @Test func theChromeButtonsAreClickableButtons() {
         let icon: NSButton = ChromeIconButton(icon: .navPreviousMatch, label: "Back", action: nil, target: nil)
         let text: NSButton = ChromeTextButton(title: "Retry", prominent: false, action: nil, target: nil)
         #expect(icon is ClickableButton)
         #expect(text is ClickableButton)
+        let extensionButton: NSButton = ExtensionActionButton(actionID: "test-extension")
+        #expect(extensionButton is ClickableButton)
         #expect(OmnibarPointer.cursor(.button) == .pointingHand)
         #expect(OmnibarPointer.cursor(.control) == .arrow)
     }
