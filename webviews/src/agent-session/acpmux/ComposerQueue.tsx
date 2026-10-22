@@ -28,6 +28,10 @@
 //
 // After a failed turn acpmux pauses the queue: a note above the rows says so, with Resume.
 //
+// Prompts the pane holds for the folder's trust answer (trustHeld.ts) come last, under "Waiting
+// for folder trust": they can be edited and deleted, and go in order after Trust; acpmux does not
+// have them yet, so they cannot steer, move or open a side chat.
+//
 // A long queue folds (Leo, 2026-10-14): past three queued prompts it shows the next two and one
 // "N more queued" row, which opens the whole list in place and closes it back ("Show less"). The
 // fold is a button (aria-expanded) under the list, outside its scrolling, so ↑ from the prompt
@@ -303,7 +307,7 @@ export function ComposerQueue({
   const sideChat =
     onSideChat &&
     ((entry: QueuedEntry) =>
-      entry.images?.length ? undefined : () => act(entry.id, () => onSideChat(entry.id, entry.prompt)));
+      entry.images?.length || entry.held ? undefined : () => act(entry.id, () => onSideChat(entry.id, entry.prompt)));
   // A prompt sent now stays in place: to an agent that cannot steer acpmux marks it next
   // (`queue_order`), so its row reads Steering until it runs; to an agent that steers it leaves
   // once acpmux takes it (`dequeued`). Hiding it as leaving showed nothing until it ran (live run
@@ -316,7 +320,8 @@ export function ComposerQueue({
     onChange &&
     ((entry: QueuedEntry, index: number) => {
       const to = shown[index] && queue.findIndex((q) => q.id === shown[index].id);
-      if (to === undefined || to < 0) return;
+      // A held prompt is the pane's, not in acpmux's queue: nothing moves to its place.
+      if (to === undefined || to < 0 || shown[index].held) return;
       // A move into the folded part opens the queue, so the moved row stays in sight.
       if (folded && index >= visible.length) unfold(true);
       refocus.current = entry.id;
@@ -363,7 +368,7 @@ export function ComposerQueue({
     } else if (event.key === "Enter" && plain && onChange) {
       done();
       setEditing(entry.id);
-    } else if ((event.key === "ArrowUp" || event.key === "ArrowDown") && event.altKey && move) {
+    } else if ((event.key === "ArrowUp" || event.key === "ArrowDown") && event.altKey && move && !entry.held) {
       done();
       move(entry, index + (event.key === "ArrowUp" ? -1 : 1));
     } else if ((event.key === "ArrowUp" || event.key === "ArrowDown") && plain) {
@@ -401,7 +406,7 @@ export function ComposerQueue({
     onSelect,
   });
   const menu = (entry: QueuedEntry, index: number): ContextMenuItem[] => [
-    ...(sendNow
+    ...(sendNow && !entry.held
       ? [
           {
             id: "steer",
@@ -412,7 +417,7 @@ export function ComposerQueue({
         ]
       : []),
     ...(onChange ? [item("edit", t("composer.queueEditMessage"), "↩", () => setEditing(entry.id))] : []),
-    ...(move
+    ...(move && !entry.held
       ? [
           {
             ...item("up", t("composer.queueMoveUp"), "⌥↑", () => move(entry, index - 1)),
@@ -421,7 +426,7 @@ export function ComposerQueue({
           },
           {
             ...item("down", t("composer.queueMoveDown"), "⌥↓", () => move(entry, index + 1)),
-            disabled: index === shown.length - 1,
+            disabled: index === shown.length - 1 || Boolean(shown[index + 1]?.held),
           },
         ]
       : []),
@@ -441,7 +446,7 @@ export function ComposerQueue({
     const side = sideChat?.(entry);
     return (
       <span className="acpmux-queued-actions">
-        {sendNow && (
+        {sendNow && !entry.held && (
           <button
             type="button"
             className="acpmux-queued-action acpmux-queued-steer"
@@ -525,7 +530,7 @@ export function ComposerQueue({
           <span className="acpmux-queued-mark" aria-hidden="true">
             {index + 1 - steering}
           </span>
-          <span className="acpmux-hidden-label">{t("composer.queued")}</span>
+          <span className="acpmux-hidden-label">{t(entry.held ? "composer.heldForTrust" : "composer.queued")}</span>
         </>
       )}
       {editing === entry.id ? (
@@ -615,7 +620,8 @@ export function ComposerQueue({
               <button
                 type="button"
                 className="acpmux-queue-resume"
-                onClick={() => void onChange(queue[0].id, { op: "resume" })}
+                // acpmux's first prompt: a held one (trustHeld.ts) is not acpmux's to resume.
+                onClick={() => void onChange((queue.find((row) => !row.held) ?? queue[0]).id, { op: "resume" })}
               >
                 {t("composer.queueResume")}
               </button>
@@ -625,11 +631,17 @@ export function ComposerQueue({
         {/* One flat keyed list: a row keeps its element (and focus) when a row before it leaves. */}
         {visible.flatMap((entry, index) => [
           // "Queued" heads the prompts that wait for the turn, under any sent now.
-          index === steering && (
+          index === steering && !entry.held && (
             <li key="queued" className="acpmux-queue-header" aria-hidden="true">
               <span className="acpmux-queued-kind">{t("composer.queued")}</span>
               {/* Held by a paused queue, the prompts wait for Resume, not for the turn. */}
               <span>{t(paused ? "composer.queueHeld" : "composer.queueAfterTurn")}</span>
+            </li>
+          ),
+          // The prompts the folder's trust holds, under their own header.
+          entry.held && !visible[index - 1]?.held && (
+            <li key="held" className="acpmux-queue-header" aria-hidden="true">
+              <span className="acpmux-queued-kind">{t("composer.heldForTrust")}</span>
             </li>
           ),
           // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- A row takes focus from ↑ on the prompt and has its keys (edit, move, send now, remove); its buttons do the same by pointer.

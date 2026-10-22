@@ -25,8 +25,8 @@ export const WAITING_LABEL: Record<WaitingOn, StringKey> = {
 };
 
 /// The first ask the person must answer, in the order the bottom stack shows them: the trust
-/// question holds every other ask (useFolderTrustAsk.ts `holdsAsks`), so it comes first. A model
-/// that has said nothing comes after every ask: what the person can answer goes first.
+/// question heads it, the chat's other asks under it. A model that has said nothing comes after
+/// every ask: what the person can answer goes first.
 export function waitingOn(asks: {
   trust?: FolderTrustAsk;
   permission: boolean;
@@ -44,18 +44,13 @@ export function waitingOn(asks: {
   return undefined;
 }
 
-/// The chat's asks as App.tsx has them, read as the line's wait. Only asks the stack draws count
-/// (the trust question holds the others out of it), only open ones (answered permission groups stay
-/// listed as receipts; a card at work asks nothing), and trust only while no turn runs: it holds
-/// new prompts, not a turn already going. acpmux sends an agent's question (AskUserQuestion, Codex
+/// The chat's asks as App.tsx has them, read as the line's wait. Only open asks count (answered
+/// permission groups stay listed as receipts; a card at work asks nothing), and trust only while no
+/// turn runs: it holds new prompts, not a turn already going. acpmux sends an agent's question (AskUserQuestion, Codex
 /// user input) as a permission request, so the pending ask that carries one is a question, never
 /// "allow this?" (Leo, 2026-10-21, in a Full access chat).
 export function chatWaitsOn(chat: {
   trust?: FolderTrustAsk;
-  /// The trust question holds the chat's other asks (useFolderTrustAsk.ts `holdsAsks`).
-  holdsAsks: boolean;
-  /// Trust's read is in flight or its answer blocks Send (`blocked`): a secret waits behind it.
-  trustBlocks: boolean;
   isWorking: boolean;
   /// The pending ask on the chat's own card, when one is open: a tool's permission, or a question
   /// when it carries one (direct.ts `permissionFromMessage`, question/model.ts `questionFromPermission`).
@@ -66,17 +61,15 @@ export function chatWaitsOn(chat: {
   /// The running turn's model has said nothing since its prompt (`AcpmuxSnapshot.silentTurn`).
   silent?: boolean;
 }): WaitingOn | undefined {
-  const shown = !chat.holdsAsks;
   const ask = chat.individualPermission;
   const asksQuestion = ask?.question !== undefined;
   return waitingOn({
     trust: chat.isWorking ? undefined : chat.trust,
     permission:
-      shown &&
-      ((ask !== undefined && !asksQuestion) ||
-        (chat.permissionGroups ?? []).some((group) => group.state === "pending" || group.state === "collecting")),
-    secret: shown && !chat.trustBlocks && chat.secret,
-    question: shown && (asksQuestion || chat.cards.some((card) => card.state === "ask")),
+      (ask !== undefined && !asksQuestion) ||
+      (chat.permissionGroups ?? []).some((group) => group.state === "pending" || group.state === "collecting"),
+    secret: chat.secret,
+    question: asksQuestion || chat.cards.some((card) => card.state === "ask"),
     model: chat.isWorking && chat.silent === true,
   });
 }

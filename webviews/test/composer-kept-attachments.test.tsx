@@ -344,3 +344,17 @@ test("a page going away sends a write still resting", async () => {
   });
   expect(store.writes.map((write) => write.attachments.map((chip) => chip.id))).toEqual([["shot-1"]]);
 });
+
+test("chips that come back past the composer's cap are never cut", async () => {
+  // Prompts a folder's trust held come back together when the app quits (trustHeld.ts): two with
+  // six screenshots each are twelve chips, in the woken page and in the chat's kept chips.
+  const store = new Host();
+  const twelve = Array.from({ length: 12 }, (_, index) => screenshot(index + 1));
+  store.chats.set("chat-a", twelve);
+  const reopened = await openPage("chat-a", store);
+  expect(shown(reopened)).toHaveLength(12);
+  closePage();
+  const woken = await openPage("chat-b", store);
+  act(() => woken.current!.wake({ attachments: twelve }));
+  expect(shown(woken)).toHaveLength(12);
+});

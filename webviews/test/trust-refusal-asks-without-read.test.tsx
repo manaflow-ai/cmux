@@ -94,3 +94,21 @@ test("a trust.untrusted refusal shows Don't trust when the folder's read does no
   expect(latest!.ask).toMatchObject({ cwd: peerFolder, state: "decided", level: "untrusted" });
   expect(latest!.blocked?.reason).toBe("trust.notTrustedNoPrompts");
 });
+
+test("a refusal whose prompt the pane's hold took replaces the start a refused chat.new kept", async () => {
+  // A new chat's send: acpmux refuses its start (client.create keeps a re-run of the start), then
+  // the pane puts the prompt into its hold, whose flush starts the chat after Trust (trustHeld.ts).
+  // The pane's refusal passes a step that does nothing (App.tsx `heldGoesAfterTrust`): Trust then
+  // starts no second chat beside the hold's own send.
+  const { source } = slowPeer();
+  await open(source, "new-chat-start");
+  await readGivesUp();
+  let starts = 0;
+  await act(async () => {
+    latest!.refused({ reason: "trust.pending", cwd: peerFolder }, () => starts++);
+    latest!.refused({ reason: "trust.pending", cwd: peerFolder }, () => undefined);
+  });
+  await readGivesUp();
+  await act(async () => latest!.trust());
+  expect(starts).toBe(0);
+});

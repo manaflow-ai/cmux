@@ -131,8 +131,9 @@ export const COMPOSER_LABELS = {
 
 /// What the pane can do to the composer from outside it.
 export type ComposerHandle = {
-  /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest.
-  restore(text: string, attachments: ComposerAttachment[]): void;
+  /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest
+  /// (`behind`: after them).
+  restore(text: string, attachments: ComposerAttachment[], behind?: boolean): void;
   /// Adds a chip after the ones held, leaving the prompt as typed (the floating chat's Include
   /// focused tab); one with the same id is replaced. Nothing changes when it holds the most it can.
   attach(attachment: ComposerAttachment): void;
@@ -505,20 +506,27 @@ export function Composer({
   useImperativeHandle(
     handle,
     () => ({
-      restore(restoredText, restoredAttachments) {
-        // What comes back goes first; what was typed or attached since stays after it.
+      restore(restoredText, restoredAttachments, behind = false) {
+        // What comes back goes first; what was typed or attached since stays after it. `behind`:
+        // it goes after what is there (prompts sent after one already given back).
         const typed = field.current?.value() ?? "";
-        const next = typed.trim() ? `${restoredText}\n\n${typed}` : restoredText;
+        const next = !typed.trim()
+          ? restoredText
+          : behind
+            ? `${typed}\n\n${restoredText}`
+            : `${restoredText}\n\n${typed}`;
         if (field.current) field.current.type(next);
         else {
           setText(next);
           setCaret(next.length);
         }
         if (restoredAttachments.length)
-          setAttachments((current) => [
-            ...restoredAttachments,
-            ...current.filter((attachment) => !restoredAttachments.some((back) => back.id === attachment.id)),
-          ]);
+          setAttachments((current) => {
+            const others = current.filter(
+              (attachment) => !restoredAttachments.some((back) => back.id === attachment.id),
+            );
+            return behind ? [...others, ...restoredAttachments] : [...restoredAttachments, ...others];
+          });
       },
       attach(attachment) {
         // A pick past the most the composer holds says so, as a dropped file does.
@@ -557,10 +565,13 @@ export function Composer({
       }),
       wake(state) {
         const back = state.attachments ?? [];
+        // Chips that come back are never cut, as `restore` never cuts them (prompts a folder's trust
+        // held come back together on quit, trustHeld.ts): past the cap no new chip attaches.
         if (back.length)
-          setAttachments((current) =>
-            [...back, ...current.filter((chip) => !back.some((kept) => kept.id === chip.id))].slice(0, MAX_ATTACHMENTS),
-          );
+          setAttachments((current) => [
+            ...back,
+            ...current.filter((chip) => !back.some((kept) => kept.id === chip.id)),
+          ]);
         if (state.shell) {
           setShell(true);
           setShellText(state.shellText ?? "");

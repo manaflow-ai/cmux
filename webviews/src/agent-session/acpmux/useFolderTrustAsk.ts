@@ -31,8 +31,9 @@ export function answerFolder(ask: { cwd: string; repo?: TrustRepo }, scope: "rep
   return scope === "repo" && ask.repo ? ask.repo.root : ask.cwd;
 }
 
-/// Why Send is off; no `reason` while the folder's trust is still being read. `shownAbove`: the
-/// question over the card already says it, so the card draws no caption (Send's tooltip keeps it).
+/// Why Send is off (Composer `blocked`), or why the folder's trust holds prompts (useFolderTrustAsk
+/// `blocked`); no `reason` while the folder's trust is still being read. `shownAbove`: the question
+/// over the card already says it, so the card draws no caption (Send's tooltip keeps it).
 export type SendBlock = { reason?: StringKey; shownAbove?: boolean };
 
 /// The last answer read for each folder, kept for the next chat there (another tab, workspace, or
@@ -122,7 +123,8 @@ function sameAsk(left: FolderTrustAsk | undefined, right: FolderTrustAsk | undef
 
 /// The trust question for the chat in `cwd`, asked as soon as the folder is known (a new chat
 /// before its first prompt). No prompt goes while it is open or after Don't trust: `blocked`
-/// says why, and acpmux refuses the prompt too (`trust_gate.rs`). Another chat or folder asks
+/// says why, and acpmux refuses the prompt too (`trust_gate.rs`). Send stays on: a prompt sent
+/// meanwhile waits in the pane and goes after Trust (trustHeld.ts). Another chat or folder asks
 /// again; Trust's answer goes once the user sends their next prompt (`prompts` grows), and
 /// Don't trust's stays with its Undo.
 ///
@@ -309,10 +311,6 @@ export function useFolderTrustAsk(
 
   return {
     ask,
-    /// The trust question or Don't trust holds the chat's other asks (permission, secret, tool
-    /// cards): one question at a time. A read in flight asks nothing, so it holds nothing; the asks
-    /// keep their place while it reads (a chat switch), and only Send waits.
-    holdsAsks: Boolean(blocked?.reason),
     trusted,
     /// Where the folder's answer lives (its repository, a parent folder), for the trusted grant.
     scope,

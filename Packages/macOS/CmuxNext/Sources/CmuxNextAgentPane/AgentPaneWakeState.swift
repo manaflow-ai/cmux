@@ -17,6 +17,9 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
     /// The transcript rested at its latest message. With neither this nor ``scrollAnchor`` its
     /// place is unknown (never shown, or a subagent's view was open): the kept anchor stands.
     public var atLatest: Bool?
+    /// The page holds or sends prompts waiting for a folder trust answer (webviews trustHeld.ts),
+    /// each with its send's gesture ticket, which ends with the page: it is not let go.
+    public var holdsPrompts: Bool?
 
     public nonisolated struct Attachment: Codable, Sendable, Equatable {
         public var id: String
@@ -38,17 +41,18 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
     }
 
     public init(attachments: [Attachment]? = nil, shell: Bool? = nil, shellText: String? = nil,
-                scrollAnchor: AgentPaneScrollAnchor? = nil, atLatest: Bool? = nil) {
+                scrollAnchor: AgentPaneScrollAnchor? = nil, atLatest: Bool? = nil, holdsPrompts: Bool? = nil) {
         self.attachments = attachments
         self.shell = shell
         self.shellText = shellText
         self.scrollAnchor = scrollAnchor
         self.atLatest = atLatest
+        self.holdsPrompts = holdsPrompts
     }
 
     /// Nothing to hand back.
     public var isEmpty: Bool {
-        (attachments ?? []).isEmpty && shell != true && scrollAnchor == nil && atLatest != true
+        (attachments ?? []).isEmpty && shell != true && scrollAnchor == nil && atLatest != true && holdsPrompts != true
     }
 
     /// The page's `pane.wakeState` answer; empty when the page has no such action (an older page)
@@ -68,10 +72,28 @@ extension AgentPaneView {
     /// Asks the page what it holds that acpmux does not, before it lets go. Nil when it does not
     /// answer within `limit`; empty when it holds nothing.
     public func wakeState(limit: Duration = .seconds(1)) async -> AgentPaneWakeState? {
-        await agentPaneFirst(within: limit) { [weak self] in
-            guard let self else { return nil }
-            let script = "const read = window.cmuxAcpmuxActions?.['pane.wakeState']; return read ? await read({}) : null;"
-            let value = try? await self.callPageScript(script)
+        await AgentPaneWakeState.read(self, limit: limit, ask: "{}")
+    }
+}
+
+extension AgentPaneWakeState {
+    /// `view`'s wake state as the app quits: the page puts prompts it holds for a folder trust
+    /// answer into its drafts (webviews trustHeld.ts) instead of asking to stay.
+    public static func quitting(_ view: AgentPaneView, limit: Duration) async -> AgentPaneWakeState? {
+        await read(view, limit: limit, ask: "{quitting: true}")
+    }
+
+    /// The tab closes: the page puts prompts it holds for a folder trust answer into their chats'
+    /// drafts while its bridge still answers. Done when it answered or `limit` passed.
+    public static func releaseHeldPrompts(in view: AgentPaneView, limit: Duration = .milliseconds(400)) async {
+        _ = await read(view, limit: limit, ask: "{closing: true}")
+    }
+
+    static func read(_ view: AgentPaneView, limit: Duration, ask: String) async -> AgentPaneWakeState? {
+        await agentPaneFirst(within: limit) { [weak view] in
+            guard let view else { return nil }
+            let script = "const read = window.cmuxAcpmuxActions?.['pane.wakeState']; return read ? await read(\(ask)) : null;"
+            let value = try? await view.callPageScript(script)
             return AgentPaneWakeState(page: value)
         }
     }

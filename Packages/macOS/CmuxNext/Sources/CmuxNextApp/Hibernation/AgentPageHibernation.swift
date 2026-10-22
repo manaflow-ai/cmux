@@ -209,6 +209,12 @@ final class AgentPageHibernation {
                 logger.info("agent page \(key, privacy: .public) kept: no wake state in time")
                 return
             }
+            // A page holding prompts for a folder trust answer stays: each keeps its send's gesture
+            // ticket, which ends with the page (webviews trustHeld.ts). The next plan asks again.
+            if wake?.holdsPrompts == true {
+                logger.info("agent page \(key, privacy: .public) kept: holds prompts for a trust answer")
+                return
+            }
             // The page may have shown, changed or got busy (a turn started) while it was asked
             // for its frame or the frame was encoded: then it stays, and the next plan decides.
             guard isDue(key, view, in: tabs) else { return replan() }

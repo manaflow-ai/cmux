@@ -134,6 +134,8 @@ export type QueuedPrompt = {
   next?: boolean;
   sending?: boolean;
   images?: QueuedPromptImage[];
+  /// Not acpmux's: the pane holds it until the folder is trusted (trustHeld.ts).
+  held?: boolean;
   /// Another agent's message waiting here (direct.ts `queuedMessage`): its row draws as the
   /// message's received line (ComposerQueue.tsx), not as the person's prompt.
   message?: IncomingMessage;
