@@ -54,11 +54,9 @@ jobs:
               Packages/Shared/CmuxTheme
               Packages/iOS/CmuxMobilePairedMac
               Packages/iOS/CmuxMobileShellModel
-          # CmuxMobileRPC builds on Linux but its tests stall there (about 20
-          # never finish, one ordering test fails); it stays on macOS until
-          # that is fixed.
-          - group: network
-            packages: Packages/Shared/CmuxAPIClient
+          # Not here yet: CmuxMobileRPC builds on Linux but about 20 of its tests
+          # never finish there and one ordering test fails; CmuxAPIClient doesn't
+          # build on feat-cmux-next (its generated client lacks subscriptionPlanId).
           # The SDK's other suites sign in against a local Stack backend; these
           # run on URLProtocol fixtures (auth-refresh-tests.yml's filter, plus
           # the publishable-key suite).
