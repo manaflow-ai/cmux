@@ -81,6 +81,7 @@ extension SidebarListViewComponents {
         defer { lastDragWorkMs = (CACurrentMediaTime() - started) * 1000 }
         if SidebarListPinDrop.holds(self, drag, at: windowPoint) { return }
         if offerHandoff(drag, windowPoint: windowPoint) { return }
+        if holdsDragOut(drag, windowPoint: windowPoint) { return }
         drag.lastWindowPoint = windowPoint
         let point = convert(windowPoint, from: nil)
         // The lifted row follows the pointer vertically; x stays locked. A tile has neighbours beside it: it follows both ways.
@@ -109,6 +110,7 @@ extension SidebarListViewComponents {
         guard let drag else { return }
         autoscroll.stop()
         if SidebarListPinDrop.finish(self, drag) { return }
+        if finishDragOut(drag) { return }
         if let items = drag.docItems, let doc = model.docDrag {
             guard let target = drag.docTarget else { return cancelDrag() }
             // The list keeps the drop's look until the move lands; the card settles into the slot it shows.

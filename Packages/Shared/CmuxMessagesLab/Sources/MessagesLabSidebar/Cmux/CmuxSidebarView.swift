@@ -115,6 +115,9 @@ public final class CmuxSidebarView: NSView {
     /// there). The host changes its order and calls `show` before returning, so the tiles land
     /// from where they were drawn. A tile dragged onto the list goes to `onSetPinned(false, _)`.
     public var onPlacePinned: (String, Int) -> Void = { _, _ in }
+    /// A row or tile drag left the list sideways (the conversation's id, the pointer on screen): true takes
+    /// it over (cmux: the Chief dragged into the app's sidebar); the list puts the drag back and stops.
+    public var onDragOut: (String, CGPoint) -> Bool = { _, _ in false }
     /// Mark as Read (true) on an unread conversation, Mark as Unread (false) on a read one.
     public var onSetRead: (Bool, String) -> Void = { _, _ in }
     /// Host items for a conversation's context menu after Pin and Read (MessagesLab v1.1
@@ -331,7 +334,7 @@ public struct CmuxSidebarSearchSection: Hashable, Sendable {
 /// The controller's data source, delegate and search provider (it holds them weakly).
 @MainActor
 private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurrency SidebarDelegate, @preconcurrency SidebarSearchProvider,
-    @preconcurrency SidebarPinPlacing {
+    @preconcurrency SidebarPinPlacing, @preconcurrency SidebarDragOutHandling {
     weak var owner: CmuxSidebarView?
 
     func sidebarSnapshot(_ sidebar: SidebarController) -> ConversationListSnapshot {
@@ -343,6 +346,9 @@ private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurre
     func sidebar(_ sidebar: SidebarController, setPinned pinned: Bool, for id: ConversationID) { owner?.onSetPinned(pinned, id) }
     func sidebar(_ sidebar: SidebarController, setRead read: Bool, for id: ConversationID) { owner?.onSetRead(read, id) }
     func sidebar(_ sidebar: SidebarController, place id: ConversationID, at index: Int) { owner?.onPlacePinned(id, index) }
+    func sidebar(_ sidebar: SidebarController, dragOut id: ConversationID, at screenPoint: CGPoint) -> Bool {
+        owner?.onDragOut(id, screenPoint) ?? false
+    }
     // v1.2: MessagesLab's own tile reorder reports its drop here; the same placement as a pin drag.
     func sidebar(_ sidebar: SidebarController, movePinned id: ConversationID, to index: Int) { owner?.onPlacePinned(id, index) }
     // Pin, and Mark as Read on an unread conversation or Mark as Unread on a read one (the

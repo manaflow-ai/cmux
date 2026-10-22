@@ -14,7 +14,8 @@ extension SidebarModel {
         // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         Task { [weak self] in
             for await (items, placed) in ObservationStream({ [weak self] in
-                (Self.topItems(chief: chief), self?.layout.firstItem(with: .builtIn(.chief)) != nil)
+                // Placed in a band, or listed in a group or a machine list (a Chief dragged there).
+                (Self.topItems(chief: chief), self.map { $0.layout.firstItem(with: .builtIn(.chief)) != nil || $0.listsItem(with: .builtIn(.chief)) } ?? false)
             }) {
                 guard let self else { return }
                 if transientTopItems != items { transientTopItems = items }

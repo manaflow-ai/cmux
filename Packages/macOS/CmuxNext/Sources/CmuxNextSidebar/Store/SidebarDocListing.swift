@@ -174,9 +174,34 @@ extension SidebarModel {
         }
         return nil
     }
+
+    /// Whether the list draws a document item showing `ref` as a row (in a group or a machine list), which
+    /// the bands' `layout` does not hold.
+    public func listsItem(with ref: LayoutItemRef) -> Bool {
+        sections.contains { $0.nodes.contains { $0.listedItems.contains { $0.ref == ref } } }
+    }
+
+    /// The built-ins the list draws as rows (in a group or a machine list), as layout items the App
+    /// describes with their band look (`itemInfo`).
+    public var listedBuiltIns: [LayoutItem] {
+        sections.flatMap { $0.nodes.flatMap(\.listedItems) }.filter { $0.ref.builtIn != nil }
+            .map { LayoutItem(id: LayoutItemID($0.id), ref: $0.ref, label: $0.title) }
+    }
 }
 
 extension SidebarDocStore {
+    /// The document's item `id` at any depth (in a group or a machine section too), as a layout item.
+    public func placedItem(_ id: LayoutItemID) -> LayoutItem? {
+        records.items[id.rawValue].map { LayoutItem(id: id, ref: SidebarDocProjection.ref($0.body, id: $0.id)) }
+    }
+
+    /// The first document item (by id) showing `ref` at any depth, as a layout item.
+    public func placedItem(with ref: LayoutItemRef) -> LayoutItem? {
+        records.items.values.sorted { $0.id < $1.id }.lazy
+            .first { SidebarDocProjection.ref($0.body, id: $0.id) == ref }
+            .map { LayoutItem(id: LayoutItemID($0.id), ref: ref) }
+    }
+
     /// Stores the page icon address `known` gives for each url item (an open
     /// tab's favicon, learned by the App's favicon store) on the item, once
     /// per address: `item.update {patch: {icon_url}}`, no undo step.
