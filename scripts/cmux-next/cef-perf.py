@@ -29,6 +29,7 @@ parser.add_argument("--tabs", default="2,10,30")
 parser.add_argument("--rounds", type=int, default=3)
 parser.add_argument("--idle", type=float, default=10.0)
 parser.add_argument("--scroll", type=float, default=4.0)
+parser.add_argument("--sample", action="store_true", help="profile the main thread (/usr/bin/sample) over drags at the largest tab count")
 parser.add_argument("--json")
 parser.add_argument("--out", default="/tmp")
 opts, _unknown = parser.parse_known_args()
@@ -249,6 +250,58 @@ def switch_tabs(count):
             "kinds": sorted({s.get("kind", "?") for s in rows})}
 
 
+def profile_drags(count, repeats=4):
+    """Samples the app (1 ms) over `repeats` divider drags; prints the main thread's heaviest symbols
+    (inclusive samples of frames named like cmux, CEF, AppKit or Core Animation code)."""
+    path = os.path.join(opts.out, f"sample-drag-{count}.txt")
+    seconds = repeats * 2 + 2
+    sampler = subprocess.Popen(["/usr/bin/sample", str(app.pid), str(seconds), "1", "-mayDie", "-file", path],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(0.5)  # test harness: the sampler attaches
+    for _ in range(repeats):
+        drag()
+    sampler.wait(timeout=seconds + 60)
+    try:
+        text = open(path, errors="replace").read()
+    except OSError:
+        print("  (no sample)", flush=True)
+        return
+    import re
+    graph = text.split("Call graph:", 1)[-1]
+    lines = graph.splitlines()
+    start = next((i for i, l in enumerate(lines) if "com.apple.main-thread" in l), None)
+    if start is None:
+        print("  (no main thread in the sample)", flush=True)
+        return
+    node = re.compile(r"^([ +!:|]*)(\d+) (.*)$")
+    head = node.match(lines[start])
+    total, base = int(head.group(2)), len(head.group(1))
+    best = {}
+    path_symbols = []
+    for line in lines[start + 1:]:
+        m = node.match(line)
+        if not m:
+            continue
+        depth = len(m.group(1))
+        if depth <= base:
+            break
+        while path_symbols and path_symbols[-1][0] >= depth:
+            path_symbols.pop()
+        symbol = re.sub(r"\s+\(in [^)]*\).*$", "", m.group(3)).strip()[:140]
+        if all(sym != symbol for _, sym in path_symbols):
+            best[symbol] = best.get(symbol, 0) + int(m.group(2))
+        path_symbols.append((depth, symbol))
+    print(f"\n== sample: {repeats} drags, {count} tabs, main thread {total} samples (1 ms each); heaviest inclusive symbols", flush=True)
+    keys = ("CmuxNext", "CEF", "cef", "Cmux", "NSView", "NSWindow", "CA::", "layout", "Layout", "postNotification", "NSNotification")
+    shown = 0
+    for symbol, samples in sorted(best.items(), key=lambda kv: -kv[1]):
+        if any(k in symbol for k in keys):
+            print(f"  {samples:>6} {100.0 * samples / max(total, 1):5.1f}%  {symbol}", flush=True)
+            shown += 1
+            if shown >= 45:
+                break
+
+
 def build(count, base):
     action("workspace.newAtBottom", settle=1.5)
     for index in range(count):
@@ -322,6 +375,8 @@ def main():
                 print(f"CEF-PERF {count:>2} tabs #{index} {name:<6} " + json.dumps(result), flush=True)
                 report["runs"].append({"tabs": count, "round": index, "step": name, **result})
             time.sleep(0.5)  # test harness: idle between rounds
+        if opts.sample and count == max(int(v) for v in opts.tabs.split(",")):
+            profile_drags(count)
         # The scroll page last: it keeps the browser busy until the workspace closes.
         action("openBrowser.chromium", {"url": f"{base}scroll"}, timeout=120)
         time.sleep(2.0)  # test harness: the page loads and starts scrolling
