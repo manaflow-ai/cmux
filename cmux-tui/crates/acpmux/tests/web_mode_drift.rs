@@ -201,7 +201,8 @@ async fn web_control_ends_when_the_harness_leaves_the_asking_table_by_itself() {
         assert_eq!(r["error"]["data"]["mode"], json!("bypassPermissions"), "{m}: {r}");
     }
     // A deny only narrows: no asking rule holds it (here: no such group).
-    let deny = json!({"sessionId": s, "groupId": "g", "revision": 1, "decisionKey": "k", "decision": "deny"});
+    let deny = json!({"sessionId": s, "groupId": "g", "revision": 1, "decisionKey": "k",
+                      "decision": "deny"});
     let r = web.call("_acpmux/permission_group_respond", deny).await;
     let why = r["error"]["data"]["reason"].as_str().unwrap_or_default();
     assert!(!why.starts_with("remote."), "{r}");

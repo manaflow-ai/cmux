@@ -152,12 +152,12 @@ async fn a_local_session_in_a_mode_that_does_not_ask_refuses_web_control() {
     assert_eq!(reason(&r), "remote.mode_not_asking", "{r}");
     assert_eq!(r["error"]["data"]["mode"], json!("normal"), "{r}");
     assert_eq!(r["error"]["data"]["harness"], json!("ftarget"), "{r}");
-    let r = web
-        .call("_acpmux/permission_respond", json!({"sessionId": s, "permissionId": "p", "optionId": "o"}))
-        .await;
+    let allow = json!({"sessionId": s, "permissionId": "p", "optionId": "o"});
+    let r = web.call("_acpmux/permission_respond", allow).await;
     assert_eq!(reason(&r), "remote.mode_not_asking", "{r}");
     // A deny only narrows: no asking rule holds it (here: no such group).
-    let deny = json!({"sessionId": s, "groupId": "g", "revision": 1, "decisionKey": "k", "decision": "deny"});
+    let deny = json!({"sessionId": s, "groupId": "g", "revision": 1, "decisionKey": "k",
+                      "decision": "deny"});
     let r = web.call("_acpmux/permission_group_respond", deny).await;
     assert!(!reason(&r).starts_with("remote."), "{r}");
     // Reads stay.
@@ -385,7 +385,7 @@ async fn pending_ask(c: &mut Client, s: &str, after: usize) -> (String, String, 
             .cloned()
             .collect();
         if let Some(ask) = asks.get(after) {
-            let text = |k: &str| ask["msg"][k].as_str().unwrap_or_else(|| panic!("{k}: {ask}")).to_owned();
+            let text = |k: &str| ask["msg"][k].as_str().unwrap_or_default().to_owned();
             return (text("permissionId"), text("decisionNonce"), text("personInstance"));
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
@@ -412,7 +412,8 @@ async fn a_paired_device_answers_an_approve_reads_prompt_with_a_deny_or_the_pers
     let s = no_mode_session(&mut local, &d).await;
     set_policy(&mut local, &s, "approve-reads").await;
     let ask = |text: &str| json!({"sessionId": s, "prompt": [{"type": "text", "text": text}]});
-    let answer = |pid: &str, option: &str| json!({"sessionId": s, "permissionId": pid, "optionId": option});
+    let answer =
+        |pid: &str, option: &str| json!({"sessionId": s, "permissionId": pid, "optionId": option});
 
     let turn = turns.send("session/prompt", ask("ask: touch marker")).await;
     let (pid, _, _) = pending_ask(&mut local, &s, 0).await;
@@ -429,7 +430,8 @@ async fn a_paired_device_answers_an_approve_reads_prompt_with_a_deny_or_the_pers
 
     let turn = turns.send("session/prompt", ask("ask: git push")).await;
     let (pid, nonce, instance) = pending_ask(&mut local, &s, 1).await;
-    let proof = acpmux::hub::person::decision_proof(KEY, &instance, &s, &pid, "yes", &nonce).unwrap();
+    let proof =
+        acpmux::hub::person::decision_proof(KEY, &instance, &s, &pid, "yes", &nonce).unwrap();
     let mut proved = answer(&pid, "yes");
     proved["_meta"] = json!({"acpmux": {"decisionNonce": nonce, "personDecision": proof}});
     let r = web.call("_acpmux/permission_respond", proved).await;

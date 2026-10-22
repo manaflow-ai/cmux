@@ -490,19 +490,26 @@ async fn a_peer_chats_deny_goes_through_under_approve_reads_and_its_read_refuses
     // The turn runs on B (an agent there started it); A's app sees its ask.
     let mut turns = plain(b.clone()).await;
     turns.next += 1;
-    let prompt = json!({"sessionId": remote_id, "prompt": [{"type": "text", "text": "ask: touch marker"}]});
-    turns.tx.send(Message::request(turns.next, method::SESSION_PROMPT, prompt).to_line()).await.unwrap();
+    let text = json!([{"type": "text", "text": "ask: touch marker"}]);
+    let prompt = Message::request(
+        turns.next,
+        method::SESSION_PROMPT,
+        json!({"sessionId": remote_id, "prompt": text}),
+    );
+    turns.tx.send(prompt.to_line()).await.unwrap();
     let mut app = client(a.clone()).await;
     let mut read = Value::Null;
     for _ in 0..500 {
-        read = app.call(method::MUX_PERMISSION_GROUPS, json!({"sessionId": remote_id})).await.unwrap();
+        let key = json!({"sessionId": remote_id});
+        read = app.call(method::MUX_PERMISSION_GROUPS, key).await.unwrap();
         if read["groups"].as_array().into_iter().flatten().any(|g| g["state"] == "pending") {
             break;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     assert_eq!(read["allowRefused"], "permission.person_required", "{read}");
-    let group = read["groups"].as_array().unwrap().iter().find(|g| g["state"] == "pending").unwrap();
+    let groups = read["groups"].as_array().unwrap();
+    let group = groups.iter().find(|g| g["state"] == "pending").unwrap();
     let answer = |decision: &str| {
         json!({"sessionId": remote_id, "groupId": group["groupId"], "revision": group["revision"],
                "decisionKey": format!("k-{decision}"), "decision": decision})
@@ -511,7 +518,8 @@ async fn a_peer_chats_deny_goes_through_under_approve_reads_and_its_read_refuses
     let r = app.call(method::MUX_PERMISSION_GROUP_RESPOND, answer("deny")).await;
     assert!(r.is_ok(), "a deny through the peer: {r:?}");
     for _ in 0..500 {
-        let events = cb.call(method::MUX_EVENTS, json!({"sessionId": remote_id, "limit": 500})).await.unwrap();
+        let key = json!({"sessionId": remote_id, "limit": 500});
+        let events = cb.call(method::MUX_EVENTS, key).await.unwrap();
         if events.to_string().contains("chose no") {
             return;
         }
