@@ -8,7 +8,7 @@ pull request on every push, and from 2026-10-19 for an unlabeled one whose
 Swift UI change a specific tour covered. Since 2026-10-21 (Leo: only on a merge
 or on demand) it runs for a push to feat-cmux-next (a merge), a dispatch, and
 the `labeled` event that adds `media-tour`. No push of a pull request starts a
-run, labeled or not; to tour a newer head, re-add the label or dispatch. A
+run, labeled or not; to tour a newer head, re-add the label. A
 label event for another label starts no job and cancels no tour.
 
 This evaluates the workflow's own trigger, concurrency and job conditions for

@@ -4,7 +4,7 @@
 A tour holds an owned Mac's gui runner for up to two hours, so a pull request tours once,
 when someone adds the `media-tour` label, and never on its own: no tour is picked from the
 changed paths, and a later push of a labeled pull request does not tour again. To tour a
-newer head, remove and re-add the label, dispatch the workflow, or run `cmux-ci capture`.
+newer head, remove and re-add the label or run `cmux-ci capture`.
 `no-media-tour` always wins."""
 
 from pathlib import Path
