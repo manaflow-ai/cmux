@@ -31,4 +31,16 @@ import Testing
         #expect(AgentChatJump.decide(lane: Self.lane("s1", workspace: "gone"), shownIn: nil,
                                      hasWorkspace: { _ in false }) == .openInFocusedPane(session: "s1"))
     }
+
+    /// The window can show the workspace before its panes mount. The jump used to give up there
+    /// ("no pane") and the chat never opened.
+    @Test func aWorkspaceWithNoPaneYetWaitsForOne() {
+        #expect(AgentChatJump.PaneWait.decide(showing: "ws-1", workspaceID: "ws-1", hasPane: false) == .wait)
+        #expect(AgentChatJump.PaneWait.decide(showing: "ws-1", workspaceID: "ws-1", hasPane: true) == .open)
+    }
+
+    @Test func theWaitEndsWhenTheWindowLeavesTheWorkspace() {
+        #expect(AgentChatJump.PaneWait.decide(showing: "ws-2", workspaceID: "ws-1", hasPane: true) == .stop)
+        #expect(AgentChatJump.PaneWait.decide(showing: nil, workspaceID: "ws-1", hasPane: false) == .stop)
+    }
 }
