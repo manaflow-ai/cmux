@@ -52,6 +52,7 @@ import Testing
         let sidebar = SidebarView(model: SidebarModel(sections: Self.sections), design: Self.showingPullRequests())
         sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
         sidebar.layoutSubtreeIfNeeded()
+        sidebar.renderNow() // the design's row settings reach the model
         sidebar.list.reload(animated: false)
         sidebar.list.rowViews.values.forEach { $0.layoutSubtreeIfNeeded() }
         let parent = try #require(sidebar.list.rowViews[.workspace(Self.chief)] as? WorkspaceRowView)
@@ -160,5 +161,10 @@ import Testing
         sections.workspaceRow = .defaults
         sections.workspaceRow.base.shown.insert(.pullRequest)
         #expect(SidebarSessionTreeFeed.readsBadges(sections))
+        // On in the base set but off for every kind: no row shows one.
+        for kind in WorkspaceRowKind.allCases {
+            sections.workspaceRow.overrides[kind] = WorkspaceRowOverride(elements: [.pullRequest: false])
+        }
+        #expect(!SidebarSessionTreeFeed.readsBadges(sections))
     }
 }

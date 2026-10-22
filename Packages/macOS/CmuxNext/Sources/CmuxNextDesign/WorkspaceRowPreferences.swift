@@ -72,8 +72,8 @@ public nonisolated struct WorkspaceRowPreferences: Hashable, Sendable {
         return WorkspaceRowElements(shown: shown, secondLineOrder: change.secondLineOrder ?? base.secondLineOrder)
     }
 
-    /// Whether a row of some kind shows `element`: the base set or any kind's override turns it on.
+    /// Whether a row of some kind shows `element`, with that kind's override.
     public func showsAnywhere(_ element: WorkspaceRowElement) -> Bool {
-        base.shows(element) || overrides.values.contains { $0.elements[element] == true }
+        WorkspaceRowKind.allCases.contains { resolved(for: $0).shows(element) }
     }
 }
