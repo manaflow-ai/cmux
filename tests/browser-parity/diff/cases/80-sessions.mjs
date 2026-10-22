@@ -11,8 +11,12 @@ export default [
     id: "tabs.claim-other-workspace",
     members: ["reference-b:BrowserUser.claimTab", "reference-b:BrowserUser.openTabs"],
     appOnly: true,
-    // A browser tab the user has open in another workspace: listed with
-    // tabs.list({ all: true }), claimed with tabs.use(id), then driven.
+    // A browser tab the user has open in another workspace. A session acts
+    // in its own workspace: tabs.list({ all: true }) does not list a user's
+    // tab of another workspace, and tabs.use(id) refuses it (a person must
+    // grant such a tab, and cmux has no such grant yet). The user's tab of
+    // the session's own workspace is claimed by tabs.attach. `known` proves
+    // the id names the tab, so the refusal is not a wrong id.
     custom: {
       async cmux(ctx) {
         const url = `${ctx.origins.primary}/diff/lab.html?claim=${Date.now()}`;
@@ -20,16 +24,22 @@ export default [
         const wsRef = (ws.out.match(/workspace:\d+|[0-9A-F]{8}-[0-9A-F-]{27}/i) || [])[0];
         if (!wsRef) return { error: `new-workspace printed no id: ${ws.out.trim()} ${ws.err.trim()}`.slice(0, 300) };
         try {
-          await ctx.cli(["new-surface", "--type", "browser", "--workspace", wsRef, "--url", url, "--focus", "false"]);
-          const r = await ctx.repl(ctx.wrap({ path: null, code: `let row;
-for (let i = 0; i < 50 && !row; i++) { row = (await tabs.list({ all: true })).find((t) => t.url === ${JSON.stringify(url)}); if (!row) await sleep(100); }
-const own = (await tabs.list()).some((t) => t.url === ${JSON.stringify(url)});
-const p = await tabs.use(row.id);
-await p.locator("#counter").click();
-return { listedAll: !!row, inOwnList: own, otherWorkspace: !!row.workspace, count: await p.locator("#counter").innerText() };` }));
-          return r.value ?? r;
+          const made = await ctx.cli(["--json", "--id-format", "uuids", "new-surface", "--type", "browser", "--workspace", wsRef, "--url", url, "--focus", "false"]);
+          let id = null;
+          try {
+            id = JSON.parse(made.out).surface_id ?? null;
+          } catch {}
+          if (!id) return { error: `new-surface printed no surface id: ${made.out.trim()} ${made.err.trim()}`.slice(0, 300) };
+          // The id names the user's tab: the older socket methods reach it.
+          const known = (await ctx.cli(["browser", id, "eval", "1"])).code === 0;
+          const r = await ctx.repl(ctx.wrap({ path: null, code: `const mine = (t) => t.id === ${JSON.stringify(id)} || t.url === ${JSON.stringify(url)};
+const listedAll = (await tabs.list({ all: true })).some(mine);
+const inOwnList = (await tabs.list()).some(mine);
+const used = await E(() => tabs.use(${JSON.stringify(id)}));
+return { listedAll, inOwnList, useRefused: !!used.error && /No open tab|in another workspace/.test(used.error) };` }));
+          return r.value ? { known, ...r.value } : r;
         } finally {
-          await ctx.cli(["workspace-action", "--action", "close", "--workspace", wsRef]);
+          await ctx.cli(["workspace", "close", "--workspace", wsRef, "--force"]);
         }
       },
       async "reference-b"({ c, origins }) {
@@ -40,7 +50,66 @@ return { listedAll: !!row, inOwnList: own, otherWorkspace: !!row.workspace, coun
     },
     na: { "reference-a": "Reference A has no user-tab claim; attachBrowserTab is covered by tabs.attach" },
     compare: ["listedAll", "count"],
-    expect: { listedAll: true, inOwnList: false, otherWorkspace: true, count: "Count 1" },
+    better: {
+      "reference-b": {
+        reason: "a session stays inside its workspace: a user's tab of another workspace is neither listed nor attachable without a person's grant, where reference B lets an agent claim any user tab",
+        check: (c) => c.known === true && c.listedAll === false && c.inOwnList === false && c.useRefused === true,
+      },
+    },
+    expect: { known: true, listedAll: false, inOwnList: false, useRefused: true },
+  },
+  {
+    id: "tabs.legacy-socket-refused",
+    edge: "legacy-socket-refused",
+    appOnly: true,
+    // The older browser.* socket methods (`cmux browser <surface> eval`,
+    // `click` and the rest) carry no session, so no ownership check or
+    // secret masking: they are refused every tab a session drives (one it
+    // opened, a user's tab it drives with tabs.use()), with an error that
+    // names `cmux browser repl`. A user's tab no session drives stays
+    // theirs, also once the session that drove it ends, and the tab list
+    // still shows a session's tab. The user's tab opens in the caller's
+    // workspace, the one the session binds to.
+    custom: {
+      async cmux(ctx) {
+        const url = `${ctx.origins.primary}/diff/lab.html?legacy=${Date.now()}`;
+        const legacy = async (surface, ...argv) => {
+          const r = await ctx.cli(["browser", surface, ...argv]);
+          const text = `${r.out}\n${r.err}`;
+          if (r.code === 0) return "ok";
+          return /browser REPL session/.test(text) && /cmux browser repl/.test(text) ? "refused" : `failed: ${text.trim().slice(0, 200)}`;
+        };
+        const S = ctx.session("legacy");
+        let user = null;
+        let workspace = null;
+        try {
+          await ctx.cli(["new-surface", "--type", "browser", "--url", url, "--focus", "false"]);
+          const opened = await ctx.repl(ctx.wrap({ path: null, code: `const own = await tabs.open(U("/diff/lab.html"));
+let row;
+for (let i = 0; i < 50 && !row; i++) { row = (await tabs.list({ all: true })).find((t) => t.url === ${JSON.stringify(url)}); if (!row) await sleep(100); }
+return { own: own.id, user: row ? row.id : null, workspace: row ? row.workspace : null };` }), { session: S });
+          const own = opened.value?.own;
+          user = opened.value?.user ?? null;
+          workspace = opened.value?.workspace ?? null;
+          if (!own || !user) return { error: JSON.stringify(opened).slice(0, 300) };
+          const userBefore = await legacy(user, "eval", "document.title");
+          const ownEval = await legacy(own, "eval", "document.title");
+          const ownClick = await legacy(own, "click", "#counter");
+          const ownSnapshot = await legacy(own, "snapshot");
+          const listing = await ctx.cli(["browser", own, "tab", "list", "--json", "--id-format", "both"]);
+          const listed = listing.code === 0 && listing.out.toLowerCase().includes(String(own).toLowerCase());
+          const used = await ctx.repl(ctx.wrap({ path: null, code: `const p = await tabs.use(${JSON.stringify(user)}); return await p.title();` }), { session: S });
+          const userDriven = await legacy(user, "eval", "document.title");
+          await ctx.cli(["browser", "repl", "reset", S]);
+          const userAfter = await legacy(user, "eval", "document.title");
+          return { userBefore, ownEval, ownClick, ownSnapshot, listed, used: typeof used.value === "string", userDriven, userAfter };
+        } finally {
+          if (user && workspace) await ctx.cli(["close-surface", "--workspace", workspace, "--surface", user]);
+        }
+      },
+    },
+    scope: { "reference-a": "Reference A has no second client protocol beside its REPL", "reference-b": "Reference B has no second client protocol beside its REPL" },
+    expect: { userBefore: "ok", ownEval: "refused", ownClick: "refused", ownSnapshot: "refused", listed: true, used: true, userDriven: "refused", userAfter: "ok" },
   },
   {
     id: "edge.sessions-two-tabs",
@@ -72,19 +141,17 @@ return { listedAll: !!row, inOwnList: own, otherWorkspace: !!row.workspace, coun
         const B = ctx.session("same-b");
         const opened = await ctx.repl(ctx.wrap({ path: null, code: `const p = await tabs.open(U("/diff/lab.html")); return p.id;` }), { session: A });
         const id = opened.value;
-        const b1 = await ctx.repl(ctx.wrap({ path: null, code: `globalThis.shared = await tabs.use(${JSON.stringify(id)}); await shared.locator("#counter").click(); return await shared.locator("#counter").innerText();` }), { session: B });
+        // Another session lists the tab as A's and cannot drive it.
+        const b1 = await ctx.repl(ctx.wrap({ path: null, code: `const row = (await tabs.list({ all: true })).find((t) => t.id === ${JSON.stringify(id)}); const used = await E(() => tabs.use(${JSON.stringify(id)})); return { owned: !!(row && row.ownedBy), refused: !!used.error && /belongs to the REPL session/.test(used.error) };` }), { session: B });
+        // A still drives it; concurrent calls of the one session both land.
+        const both = await Promise.all([0, 1].map(() => ctx.repl(ctx.wrap({ path: null, code: `await page.locator("#counter").click(); return true;` }), { session: A })));
         const a1 = await ctx.repl(ctx.wrap({ path: null, code: `return await page.locator("#counter").innerText();` }), { session: A });
-        // Both sessions click at once: both clicks land, neither is lost.
-        const both = await Promise.all([A, B].map((s) => ctx.repl(ctx.wrap({ path: null, code: `await page.locator("#counter").click(); return true;` }), { session: s })));
-        const a2 = await ctx.repl(ctx.wrap({ path: null, code: `return await page.locator("#counter").innerText();` }), { session: A });
-        // The owner closes the tab; the other session's page reports closed.
         await ctx.repl(ctx.wrap({ path: null, code: `await page.close(); return true;` }), { session: A });
-        const b2 = await ctx.repl(ctx.wrap({ path: null, code: `return await E(() => shared.title());` }), { session: B });
-        return { bSaw: b1.value, aSaw: a1.value, concurrent: both.every((r) => r.value === true), after: a2.value, closedForB: b2.value?.error ? { error: b2.value.error } : "open" };
+        return { listedAsOther: b1.value?.owned, refused: b1.value?.refused, concurrent: both.every((r) => r.value === true), after: a1.value };
       },
     },
     na: { "reference-a": "Reference A has no named sessions; a one-shot run cannot share a tab with another session", "reference-b": "Reference B's REPL is one session per conversation" },
-    expect: { bSaw: "Count 1", aSaw: "Count 1", concurrent: true, after: "Count 3", closedForB: { error: "closed" } },
+    expect: { listedAsOther: true, refused: true, concurrent: true, after: "Count 2" },
   },
   {
     id: "edge.web-process-crash",

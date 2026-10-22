@@ -121,4 +121,8 @@ struct BrowserReplDomainPolicyTests {
             try store.set(name: "bad", value: "not base32!", domains: ["example.com"], totp: true, title: "t")
         }
     }
+
+}
+
+extension BrowserReplDomainPolicyTests {
 }

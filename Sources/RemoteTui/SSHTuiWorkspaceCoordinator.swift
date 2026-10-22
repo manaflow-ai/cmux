@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import CmuxCloud
 import CmuxCloudTui
 import CmuxCore
@@ -11,6 +12,7 @@ private let sshTuiWorkspaceLogger = Logger(subsystem: "com.cmuxterm.app", catego
 @MainActor
 final class SSHTuiWorkspaceCoordinator {
     private let catalog: SurfaceCatalog
+    private let sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore
     private let clientURL: () -> URL?
     private let paths: CloudTuiClientPaths
     private var attempts: [UUID: Task<Void, Never>] = [:]
@@ -32,9 +34,16 @@ final class SSHTuiWorkspaceCoordinator {
         let backoff: SSHTuiAttachBackoff?
     }
 
-    init(catalog: SurfaceCatalog, clientURL: @escaping () -> URL?, paths: CloudTuiClientPaths,
-         retryPolicy: SSHTuiAttachRetryPolicy = .standard, clock: any Clock<Duration> = ContinuousClock()) {
+    init(
+        catalog: SurfaceCatalog,
+        clientURL: @escaping () -> URL?,
+        paths: CloudTuiClientPaths,
+        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore? = nil,
+        retryPolicy: SSHTuiAttachRetryPolicy = .standard,
+        clock: any Clock<Duration> = ContinuousClock()
+    ) {
         self.catalog = catalog
+        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore ?? SSHClipboardWriteTrustStore(defaults: .standard)
         self.clientURL = clientURL
         self.paths = paths
         self.retryPolicy = retryPolicy
@@ -216,7 +225,10 @@ final class SSHTuiWorkspaceCoordinator {
         let links = SSHTuiLinkManager(connection: connection, clientURL: clientURL, paths: paths,
                                      isEnabled: { ManagedRemoteConnectionsPolicy.isEnabled },
                                      agentHookProviders: { SSHTuiConnection.agentHookProviders(defaults: .standard) })
-        let provider = CmuxTuiSurfaceProvider(summary: .ssh(connection), links: links, catalog: catalog)
+        let provider = CmuxTuiSurfaceProvider(
+            summary: .ssh(connection), links: links, catalog: catalog,
+            sshClipboardWriteTrustStore: sshClipboardWriteTrustStore
+        )
         catalog.register(provider)
         return provider
     }

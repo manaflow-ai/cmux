@@ -928,6 +928,7 @@ struct ContentView: View {
     @State private var displayAccessibility = DisplayAccessibilityOptions.current
     @AppStorage(TitlebarControlsStyle.storageKey) private var titlebarControlsStyleRawValue = TitlebarControlsStyle.defaultRawValue
     @AppStorage(RightSidebarWidthSettings.maxWidthKey) private var rightSidebarMaxWidthSetting = RightSidebarWidthSettings.noOverrideValue
+    @AppStorage(RightSidebarWidthSettings.minimumWidthKey) private var rightSidebarMinimumWidthSetting = RightSidebarWidthSettings.minimumWidth
     @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidthSetting = SessionPersistencePolicy.defaultMinimumSidebarWidth
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
@@ -993,6 +994,10 @@ struct ContentView: View {
     @State private var titlebarText: String = ""
     @State private var isFullScreen: Bool = false
     @State private var observedWindowReference = WeakWindowReference()
+    /// `chief.enabled`, read synchronously (the View menu reads the same key) so a
+    /// disabled Chief never flashes its Home row at launch.
+    @AppStorage(ChiefCatalogSection().enabled.userDefaultsKey)
+    private var chiefEnabled = ChiefCatalogSection().enabled.defaultValue
     var observedWindow: NSWindow? { observedWindowReference.window }
     @State private var workspaceSwitchPortalSignalRouter = WorkspaceSwitchPortalSignalRouter()
     @State private var sidebarRenderWorkerClient: RenderWorkerClient?
@@ -1320,11 +1325,16 @@ struct ContentView: View {
         return CGFloat(width)
     }
 
+    private var rightSidebarConfiguredMinimumWidth: CGFloat {
+        CGFloat(RightSidebarWidthSettings.sanitizedMinimumWidth(rightSidebarMinimumWidthSetting))
+    }
+
     private func normalizedRightSidebarWidth(_ candidate: CGFloat, availableWidth: CGFloat? = nil) -> CGFloat {
         Self.clampedRightSidebarWidth(
             candidate,
             availableWidth: resolvedRightSidebarAvailableWidth(availableWidth),
             configuredMaximumWidth: rightSidebarConfiguredMaximumWidth,
+            configuredMinimumWidth: rightSidebarConfiguredMinimumWidth,
             contentMinimumWidth: fileExplorerState.modeBarMinimumWidth
         )
     }
@@ -1820,17 +1830,22 @@ struct ContentView: View {
         }
         let mountedWorkspaceIdSet = Set(presentationMountedIds)
         let mountedWorkspaces = tabManager.tabs.filter { mountedWorkspaceIdSet.contains($0.id) }
+        // Chief Home covers the content area without unmounting workspaces:
+        // terminals live in the window portal above SwiftUI, so the selected
+        // workspace must also report itself hidden and input-inactive.
+        let isShowingWorkspaces = sidebarSelectionState.selection != .home
 
         return ZStack {
             ZStack {
                 ForEach(mountedWorkspaces) { tab in
                     let isSelectedWorkspace = selectedWorkspaceId == tab.id
+                    let isPresentedWorkspace = isSelectedWorkspace && isShowingWorkspaces
                     // Never retain a live source workspace as a loading cover:
                     // that makes mount ownership depend on a later frame signal.
                     WorkspaceContentView(
                         workspace: tab,
-                        isWorkspaceVisible: isSelectedWorkspace,
-                        isWorkspaceInputActive: isSelectedWorkspace,
+                        isWorkspaceVisible: isPresentedWorkspace,
+                        isWorkspaceInputActive: isPresentedWorkspace,
                         rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus,
                         isFullScreen: isFullScreen,
                         workspacePortalPriority: isSelectedWorkspace ? 2 : 0,
@@ -2316,6 +2331,13 @@ struct ContentView: View {
     }
 
     @MainActor private func updateTitlebarText() {
+        // Chief Home names itself, as a workspace does; the hidden workspace's title stays out.
+        if sidebarSelectionState.selection == .home {
+            if titlebarText != ChiefStrings.chiefName {
+                titlebarText = ChiefStrings.chiefName
+            }
+            return
+        }
         guard let selectedId = tabManager.selectedTabId,
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
             if !titlebarText.isEmpty {
@@ -2440,7 +2462,9 @@ struct ContentView: View {
     }
 
     private var focusedDirectory: String? {
-        guard let selectedId = tabManager.selectedTabId,
+        // Chief Home has no folder: the hidden workspace's directory is not draggable from its titlebar.
+        guard sidebarSelectionState.selection != .home,
+              let selectedId = tabManager.selectedTabId,
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
             return nil
         }
@@ -2628,6 +2652,7 @@ struct ContentView: View {
         )
 
         view = AnyView(view.onAppear {
+            ChiefHomeNavigation.restoreConversations(in: tabManager)
             sidebarState.installVisibilityWillChangeHandler(ownerId: windowId) { isVisible in
                 if !isVisible {
                     restoreMainPanelFocusAfterAppKitSidebarHiddenIfNeeded()
@@ -2747,6 +2772,11 @@ struct ContentView: View {
             }
             reconcileMountedWorkspaceIds(selectedId: authoritativeSelection)
             AppDelegate.shared?.syncBonsplitTabShortcutHintEligibility(in: observedWindow)
+            // Any workspace switch (shortcut, palette, socket, notification
+            // open, new workspace) leaves Chief Home for the workspace.
+            if sidebarSelectionState.selection == .home {
+                sidebarSelectionState.selection = .tabs
+            }
             guard let authoritativeSelection else { return }
             if selectedTabIds.count <= 1 {
                 selectedTabIds = [authoritativeSelection]
@@ -2755,6 +2785,40 @@ struct ContentView: View {
                 }
             }
             updateTitlebarText()
+        })
+
+        view = AnyView(view.onChange(of: sidebarSelectionState.selection) { _, newValue in
+            if newValue == .home {
+                ChiefHomeNavigation(sidebarSelectionState: sidebarSelectionState, tabManager: tabManager).open()
+            }
+            updateTitlebarText()
+        })
+
+        view = AnyView(view.onChange(of: ChiefService.shared.conversations.map { $0.id.rawValue + ":" + $0.title }) { _, _ in
+            ChiefHomeNavigation.restoreConversations(in: tabManager)
+        })
+
+        view = AnyView(view.onChange(of: chiefEnabled) { _, enabled in
+            if enabled {
+                AppDelegate.shared?.startChiefIfEnabled()
+                _ = ChiefHomeNavigation.ensureHome(in: tabManager)
+            } else {
+                ChiefHomeNavigation(sidebarSelectionState: sidebarSelectionState, tabManager: tabManager).leave()
+            }
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .cmuxOpenChiefHome)) { notification in
+            guard ChiefHomeNavigation.notification(
+                notification, targets: observedWindow, sidebarSelectionState: sidebarSelectionState
+            ) else { return }
+            ChiefHomeNavigation(sidebarSelectionState: sidebarSelectionState, tabManager: tabManager).open()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .cmuxToggleChiefHome)) { notification in
+            guard ChiefHomeNavigation.notification(
+                notification, targets: observedWindow, sidebarSelectionState: sidebarSelectionState
+            ) else { return }
+            ChiefHomeNavigation(sidebarSelectionState: sidebarSelectionState, tabManager: tabManager).toggle()
         })
 
         view = AnyView(view.onChange(of: showModifierHoldHints) { _, _ in
@@ -2821,8 +2885,13 @@ struct ContentView: View {
             refreshCommandPaletteForkableAgentAvailabilityAfterSharedIndexChange(notification)
         })
 
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
-            sidebarSelectionState.selection = .tabs
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { notification in
+            // The post is app-wide; only a workspace of this window leaves its Chief Home.
+            let focusedTabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID
+            if sidebarSelectionState.selection != .home
+                || focusedTabId.map({ id in tabManager.tabs.contains { $0.id == id } }) ?? true {
+                sidebarSelectionState.selection = .tabs
+            }
             scheduleTitlebarTextRefresh()
         })
 
@@ -3316,6 +3385,14 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: rightSidebarMaxWidthSetting) { _, _ in
+            clampRightSidebarWidthIfNeeded()
+            if rightSidebarVisible {
+                schedulePortalGeometrySynchronize()
+            }
+            updateSidebarResizerBandState()
+        })
+
+        view = AnyView(view.onChange(of: rightSidebarMinimumWidthSetting) { _, _ in
             clampRightSidebarWidthIfNeeded()
             if rightSidebarVisible {
                 schedulePortalGeometrySynchronize()
@@ -11539,26 +11616,14 @@ struct VerticalTabsSidebar: View, Equatable {
             )
         }
         let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
-        let groups = tabManager.workspaceGroups.map { group in
-            CustomSidebarGroupSnapshot(
-                id: group.id,
-                name: group.name,
-                isCollapsed: group.isCollapsed,
-                isPinned: group.isPinned,
-                anchorWorkspaceId: group.anchorWorkspaceId,
-                customColor: group.customColor,
-                iconSymbol: group.iconSymbol
-            )
-        }
-        let snapshot = CustomSidebarContextSnapshot(
+        return ContentView.customSidebarDataContext(
             workspaces: workspaces,
-            groups: groups,
+            workspaceGroups: tabManager.workspaceGroups,
             selectedWorkspaceId: selectedId,
             selectedWorkspaceTitle: selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? "",
             totalUnreadCount: unreadSnapshot.totalUnreadCount,
             now: now
         )
-        return CustomSidebarDataContextBuilder().dataContext(for: snapshot)
     }
 
     @AppStorage("sidebarMatchTerminalBackground")
@@ -12034,7 +12099,8 @@ struct VerticalTabsSidebar: View, Equatable {
             guard isPresented else { return }
             guard let workspaceId = notification.userInfo?[WorkspaceTodoActions.workspaceIdUserInfoKey] as? UUID,
                   tabManager.tabs.contains(where: { $0.id == workspaceId }) else { return }
-            if WorkspaceTodoFeature.checklistStyle == .popover {
+            let checklistStyle = WorkspaceTodoFeature.checklistStyle
+            if checklistStyle == .popover {
                 checklistPopoverWorkspaceId = workspaceId
             } else {
                 expandedChecklistWorkspaceIds.insert(workspaceId)
@@ -12043,7 +12109,9 @@ struct VerticalTabsSidebar: View, Equatable {
         }
         .onChange(of: dragState.draggedTabId) { newDraggedTabId in
 #if DEBUG
-            cmuxDebugLog("sidebar.dragState.sidebar tab=\(sidebarShortTabId(newDraggedTabId))")
+            let shortDraggedTabID = sidebarShortTabId(newDraggedTabId)
+            let dragStateLogMessage = "sidebar.dragState.sidebar tab=" + shortDraggedTabID
+            cmuxDebugLog(dragStateLogMessage)
 #endif
             guard newDraggedTabId == nil else { return }
             dragAutoScrollController.stop()
@@ -16223,18 +16291,26 @@ struct TabItemView: View, Equatable {
     }
 
     private var selectedWorkspaceBackgroundNSColor: NSColor {
+        selectedWorkspaceBackgroundNSColor(isEmphasized: true)
+    }
+
+    private func selectedWorkspaceBackgroundNSColor(isEmphasized: Bool) -> NSColor {
         sidebarSelectedWorkspaceBackgroundNSColor(
             for: colorScheme,
             sidebarSelectionColorHex: sidebarSelectionColorHex,
             activeTabIndicatorStyle: activeTabIndicatorStyle,
             subtleSelection: settings.subtleSelection,
+            isEmphasized: isEmphasized,
             accent: settings.accentColor
         )
     }
 
-    private func selectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
+    private func selectedWorkspaceForegroundNSColor(
+        opacity: CGFloat,
+        isEmphasized: Bool = true
+    ) -> NSColor {
         sidebarSelectedWorkspaceForegroundNSColor(
-            on: selectedWorkspaceBackgroundNSColor,
+            on: selectedWorkspaceBackgroundNSColor(isEmphasized: isEmphasized),
             opacity: opacity
         )
     }
@@ -16310,9 +16386,15 @@ struct TabItemView: View, Equatable {
             : .primary
     }
 
-    private func activeSecondaryColor(_ opacity: Double = 0.75) -> Color {
+    private func activeSecondaryColor(
+        _ opacity: Double = 0.75,
+        isEmphasized: Bool = true
+    ) -> Color {
         usesInvertedActiveForeground
-            ? Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: CGFloat(opacity)))
+            ? Color(nsColor: selectedWorkspaceForegroundNSColor(
+                opacity: CGFloat(opacity),
+                isEmphasized: isEmphasized
+            ))
             : .secondary
     }
 
@@ -16619,43 +16701,12 @@ struct TabItemView: View, Equatable {
             )
             remoteWorkspaceSection(snapshot: workspaceSnapshot)
 
-            if detailVisibility.showsMetadata {
-                let metadataEntries = workspaceSnapshot.metadataEntries
-                let metadataBlocks = workspaceSnapshot.metadataBlocks
-                if !metadataEntries.isEmpty {
-                    SidebarMetadataRows(
-                        entries: metadataEntries,
-                        isActive: usesInvertedActiveForeground,
-                        activeForegroundColor: activeSecondaryColor(0.95),
-                        activeSecondaryForegroundColor: activeSecondaryColor(0.65),
-                        fontScale: fontScale,
-                        onFocus: { updateSelection() }
-                    )
-                    .transition(.opacity)
+            if selectionChromeTracksWindowActivation {
+                SidebarSelectionWindowActivationReader { isEmphasized in
+                    metadataAndLogRows(snapshot: workspaceSnapshot, isEmphasized: isEmphasized)
                 }
-                if !metadataBlocks.isEmpty {
-                    SidebarMetadataMarkdownBlocks(
-                        blocks: metadataBlocks,
-                        isActive: usesInvertedActiveForeground,
-                        activeForegroundColor: activeSecondaryColor(0.8),
-                        activeSecondaryForegroundColor: activeSecondaryColor(0.65),
-                        fontScale: fontScale,
-                        onFocus: { updateSelection() }
-                    )
-                    .transition(.opacity)
-                }
-            }
-
-            if detailVisibility.showsLog, let latestLog = workspaceSnapshot.latestLog {
-                HStack(alignment: .center, spacing: 4) {
-                    CmuxSystemSymbolImage(magnified: logLevelIcon(latestLog.level), pointSize: scaledFontSize(8), tint: logLevelColor(latestLog.level, isActive: usesInvertedActiveForeground))
-                    Text(latestLog.message)
-                        .font(magnifiedFont(scaledFontSize(10)))
-                        .foregroundColor(activeSecondaryColor(0.8))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .transition(.opacity)
+            } else {
+                metadataAndLogRows(snapshot: workspaceSnapshot, isEmphasized: true)
             }
 
             if detailVisibility.showsProgress, let progress = workspaceSnapshot.progress {
@@ -17040,6 +17091,7 @@ struct TabItemView: View, Equatable {
             sidebarSelectionColorHex: sidebarSelectionColorHex,
             subtleSelection: settings.subtleSelection,
             brightenInDarkMode: settings.brightenInDarkMode,
+            unselectedFillOpacity: settings.unselectedFillOpacity,
             isEmphasized: isEmphasized,
             increaseContrast: colorSchemeContrast == .increased,
             accent: settings.accentColor
@@ -17102,6 +17154,76 @@ struct TabItemView: View, Equatable {
         }
     }
 
+    @ViewBuilder
+    private func metadataAndLogRows(
+        snapshot workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot,
+        isEmphasized: Bool
+    ) -> some View {
+        let detailVisibility = visibleAuxiliaryDetails
+        let selectedBackground = selectedWorkspaceBackgroundNSColor(isEmphasized: isEmphasized)
+        let selectedForeground = selectedWorkspaceForegroundNSColor(
+            opacity: 1,
+            isEmphasized: isEmphasized
+        )
+
+        if detailVisibility.showsMetadata {
+            let metadataEntries = workspaceSnapshot.metadataEntries
+            let metadataBlocks = workspaceSnapshot.metadataBlocks
+            if !metadataEntries.isEmpty {
+                SidebarMetadataRows(
+                    entries: metadataEntries,
+                    isActive: usesInvertedActiveForeground,
+                    selectedBackground: selectedBackground,
+                    selectedForeground: selectedForeground,
+                    activeSecondaryForegroundColor: activeSecondaryColor(
+                        0.65,
+                        isEmphasized: isEmphasized
+                    ),
+                    fontScale: fontScale,
+                    onFocus: { updateSelection() }
+                )
+                .transition(.opacity)
+            }
+            if !metadataBlocks.isEmpty {
+                SidebarMetadataMarkdownBlocks(
+                    blocks: metadataBlocks,
+                    isActive: usesInvertedActiveForeground,
+                    activeForegroundColor: activeSecondaryColor(
+                        0.8,
+                        isEmphasized: isEmphasized
+                    ),
+                    activeSecondaryForegroundColor: activeSecondaryColor(
+                        0.65,
+                        isEmphasized: isEmphasized
+                    ),
+                    fontScale: fontScale,
+                    onFocus: { updateSelection() }
+                )
+                .transition(.opacity)
+            }
+        }
+
+        if detailVisibility.showsLog, let latestLog = workspaceSnapshot.latestLog {
+            HStack(alignment: .center, spacing: 4) {
+                CmuxSystemSymbolImage(
+                    magnified: logLevelIcon(latestLog.level),
+                    pointSize: scaledFontSize(8),
+                    tint: logLevelColor(
+                        latestLog.level,
+                        isActive: usesInvertedActiveForeground,
+                        isEmphasized: isEmphasized
+                    )
+                )
+                Text(latestLog.message)
+                    .font(magnifiedFont(scaledFontSize(10)))
+                    .foregroundColor(activeSecondaryColor(0.8, isEmphasized: isEmphasized))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .transition(.opacity)
+        }
+    }
+
     private func logLevelIcon(_ level: SidebarLogLevel) -> String {
         switch level {
         case .info: return "circle.fill"
@@ -17112,28 +17234,26 @@ struct TabItemView: View, Equatable {
         }
     }
 
-    private func logLevelColor(_ level: SidebarLogLevel, isActive: Bool) -> Color {
+    private func logLevelColor(
+        _ level: SidebarLogLevel,
+        isActive: Bool,
+        isEmphasized: Bool
+    ) -> Color {
+        let fallback: NSColor
         if isActive {
-            switch level {
-            case .info:
-                return activeSecondaryColor(0.5)
-            case .progress:
-                return activeSecondaryColor(0.8)
-            case .success:
-                return activeSecondaryColor(0.9)
-            case .warning:
-                return activeSecondaryColor(0.9)
-            case .error:
-                return activeSecondaryColor(0.9)
-            }
+            let opacity: CGFloat = level == .info ? 0.5 : (level == .progress ? 0.8 : 0.9)
+            fallback = selectedWorkspaceForegroundNSColor(opacity: opacity, isEmphasized: isEmphasized)
+        } else {
+            fallback = SidebarAppearanceColorResolver().resolvedColor(.secondaryLabelColor, for: colorScheme)
         }
-        switch level {
-        case .info: return .secondary
-        case .progress: return settings.accentColor.color
-        case .success: return .green
-        case .warning: return .orange
-        case .error: return .red
-        }
+        return Color(nsColor: sidebarLogPresentationNSColor(
+            level: level,
+            isActive: isActive,
+            colorScheme: colorScheme,
+            accent: settings.accentColor,
+            selectedBackground: selectedWorkspaceBackgroundNSColor(isEmphasized: isEmphasized),
+            fallback: fallback
+        ))
     }
 
     private func shortenPath(_ path: String, home: String) -> String {
@@ -17324,7 +17444,8 @@ extension String {
 private struct SidebarMetadataRows: View {
     let entries: [SidebarStatusEntry]
     let isActive: Bool
-    let activeForegroundColor: Color
+    let selectedBackground: NSColor
+    let selectedForeground: NSColor
     let activeSecondaryForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
@@ -17338,7 +17459,8 @@ private struct SidebarMetadataRows: View {
                 SidebarMetadataEntryRow(
                     entry: entry,
                     isActive: isActive,
-                    activeForegroundColor: activeForegroundColor,
+                    selectedBackground: selectedBackground,
+                    selectedForeground: selectedForeground,
                     fontScale: fontScale,
                     onFocus: onFocus
                 )
@@ -17378,7 +17500,8 @@ private struct SidebarMetadataRows: View {
 private struct SidebarMetadataEntryRow: View {
     let entry: SidebarStatusEntry
     let isActive: Bool
-    let activeForegroundColor: Color
+    let selectedBackground: NSColor
+    let selectedForeground: NSColor
     let fontScale: CGFloat
     let onFocus: () -> Void
     @Environment(\.colorScheme) private var colorScheme
@@ -17423,13 +17546,15 @@ private struct SidebarMetadataEntryRow: View {
 
     private var foregroundColor: Color {
         let explicit = cmuxAccent.statusEntryColor(hex: entry.color, isDark: colorScheme == .dark)
-        if isActive, explicit != nil {
-            return activeForegroundColor
-        }
-        if let explicit {
-            return Color(nsColor: explicit)
-        }
-        return isActive ? activeForegroundColor.opacity(0.84) : .secondary
+        let fallback = isActive
+            ? selectedForeground.withAlphaComponent(explicit == nil ? 0.95 * 0.84 : 1)
+            : NSColor.secondaryLabelColor
+        return Color(nsColor: sidebarStatusPresentationNSColor(
+            explicit: explicit,
+            isActive: isActive,
+            selectedBackground: selectedBackground,
+            fallback: fallback
+        ))
     }
 
     private var iconView: AnyView? {
@@ -18394,4 +18519,6 @@ private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
 enum SidebarSelection {
     case tabs
     case notifications
+    /// Chief Home fills the content area; workspaces stay mounted but hidden and input-inactive.
+    case home
 }

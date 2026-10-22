@@ -23,6 +23,7 @@ extension SurfaceCatalog {
     /// cached value. A requested launch directory or a stale graph with no accepted cwd remains
     /// unavailable.
     func resourceForPresentation(_ resource: SurfaceResource) -> SurfaceResource {
+        if resource.kind == .browser { return resourceWithCloudBrowserDocument(resource) }
         // Cloud VM freshness is tracked in `cloudStateObservations`; device
         // mirrors receive their directory from the synced workspace record and
         // intentionally have no CloudVM observation to consult.

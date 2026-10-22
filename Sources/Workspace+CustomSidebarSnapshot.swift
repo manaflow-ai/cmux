@@ -11,6 +11,7 @@ extension Workspace {
         unreadCount: Int
     ) -> CustomSidebarWorkspaceSnapshot {
         let focusedPanelId = focusedPanelId
+        let displayTitle = customTitle ?? title
         let firstBranch = sidebarGitBranchesInDisplayOrder().first
         let progress = self.progress.map {
             CustomSidebarWorkspaceSnapshot.Progress(value: $0.value, label: $0.label)
@@ -24,7 +25,7 @@ extension Workspace {
         }
         return CustomSidebarWorkspaceSnapshot(
             id: id,
-            title: customTitle ?? title,
+            title: displayTitle,
             isSelected: id == selectedId,
             isPinned: isPinned,
             index: index,
@@ -47,8 +48,20 @@ extension Workspace {
             remote: remote,
             agents: customSidebarAgentSnapshots(),
             groupId: groupId,
-            taskStatus: effectiveTaskStatus.rawValue
+            taskStatus: effectiveTaskStatus.rawValue,
+            emoji: Self.customSidebarLeadingEmoji(in: displayTitle)
         )
+    }
+
+    /// Returns the first grapheme when a workspace display title starts with
+    /// an emoji. The custom-sidebar context keeps the full title and exposes
+    /// this optional projection so a sidebar can render the emoji separately.
+    private static func customSidebarLeadingEmoji(in title: String) -> String? {
+        guard let first = title.first,
+              first.unicodeScalars.contains(where: { $0.properties.isEmojiPresentation }) else {
+            return nil
+        }
+        return String(first)
     }
 
     /// At most this many agent sessions are projected per workspace; the
