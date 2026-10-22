@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 22526ef27362464ad1798ceadf7ab3b0225cd784acc1dcc13419362378a066bc. */
+/* cmux-tui mux protocol 12, IR d7bec72ab83f28d7ea3e1396a463faa265e759b913e276c625a1ad436cb8603e. */
 
 
 import type * as T from "./types.js";
@@ -488,6 +488,11 @@ export type ScreenRenamedEvent = { event: "screen-renamed" } & {
   "workspace": T.Id;
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ScriptConfigChangedEvent = { event: "script-config-changed" } & {
+  "generation": bigint;
+};
+
 /** Protocol v6; emission: emitted; streams: subscribe, attach-byte, attach-render, attach-browser. */
 export type ScrollChangedEvent = { event: "scroll-changed" } & {
   "at_bottom": boolean;
@@ -776,6 +781,7 @@ export type KnownCmuxEvent =
   | ScreenChangedEvent
   | ScreenClosedEvent
   | ScreenRenamedEvent
+  | ScriptConfigChangedEvent
   | ScrollChangedEvent
   | SettingsChangedEvent
   | SizeStateEvent
@@ -857,6 +863,7 @@ export type KnownSubscribeEvent =
   | ScreenChangedEvent
   | ScreenClosedEvent
   | ScreenRenamedEvent
+  | ScriptConfigChangedEvent
   | ScrollChangedEvent
   | SettingsChangedEvent
   | SizeStateEvent

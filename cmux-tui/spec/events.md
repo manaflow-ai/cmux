@@ -44,7 +44,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `history-changed` | subscribe | none | protocol 12; capability `history-v1` |
 | `settings-changed` | subscribe | machine settings | protocol 12; capability `settings-v1` |
 | `keybindings-changed` | subscribe | machine keybindings | protocol 12; capability `keybindings-v1` |
-| `script-config-changed` | subscribe | session | protocol 12 additive extension; with the `script-*` commands |
+| `script-config-changed` | subscribe | session | protocol 12 additive extension; capability `script-config-v1` |
 | `conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
 | `conversation-typing` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
 | `conversation-inbox-changed` | subscribe | `conversation`, `participant` | protocol 12 additive extension; capability `conversation-inbox-state-v1` |
@@ -481,7 +481,7 @@ refetch `keybindings.get`.
 | --- | --- |
 | event | `script-config-changed` |
 | status | implemented |
-| since | protocol 12 additive extension; with the `script-*` commands |
+| since | protocol 12 additive extension; capability `script-config-v1` |
 
 Published after a `script-config-reload` applied: every config script in
 `scripts/` beside the settings file ran, and the user actions, key bindings,

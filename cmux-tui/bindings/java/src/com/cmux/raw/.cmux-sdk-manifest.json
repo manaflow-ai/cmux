@@ -1252,8 +1252,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "de7b15646b536b4cf64aecda4ae9b5a5ed52d53a4690c04630f9d7dc0d3bddef",
-      "size": 18270
+      "sha256": "5b84826c3a32966f4a172874ef0a9c9db1511c6683bf674544270822be607335",
+      "size": 18496
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -2087,8 +2087,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "f10a21a929a1c847d5b74228ee478237b3fca90a1b9157a06df06f0c57c8c6dc",
-      "size": 7486
+      "sha256": "1e95130cf106a5681394c59fbb6b09cbb8f18346c35e4c72663d6bf72d3a9de4",
+      "size": 7572
     },
     {
       "path": "ProtocolEvent.java",
@@ -2414,6 +2414,11 @@
       "path": "ScreenRenamedEvent.java",
       "sha256": "ad4366f673bf36a82bca8bd0dd3869553dd5fe65b93950d2f3a14c52f3344e81",
       "size": 3684
+    },
+    {
+      "path": "ScriptConfigChangedEvent.java",
+      "sha256": "22d49e12755d6fbe19163425e269df8402d5bc7424df30b5a5b18c681d7cbc52",
+      "size": 2466
     },
     {
       "path": "ScrollChangedEvent.java",
@@ -3357,7 +3362,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "22526ef27362464ad1798ceadf7ab3b0225cd784acc1dcc13419362378a066bc",
+  "ir_sha256": "d7bec72ab83f28d7ea3e1396a463faa265e759b913e276c625a1ad436cb8603e",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

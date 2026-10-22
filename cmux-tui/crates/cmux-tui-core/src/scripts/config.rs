@@ -29,6 +29,8 @@ const INIT_FILE: &str = "init.js";
 const SCRIPTS_DIR: &str = "scripts";
 /// The error code of an action run before any config loaded.
 pub(crate) const NOT_LOADED: &str = "script.config_not_loaded";
+/// `script-config-*`, `script-action-run` and `script-config-changed`.
+pub(crate) const SCRIPT_CONFIG_CAPABILITY: &str = "script-config-v1";
 
 /// `scripts/` beside the settings file (`CMUX_NEXT_CONFIG_FILE` moves it,
 /// like keybindings.json).

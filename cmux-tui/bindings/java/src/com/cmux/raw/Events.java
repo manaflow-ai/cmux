@@ -71,6 +71,7 @@ public final class Events {
     public static final EventMetadata SCREEN_CHANGED = new EventMetadata("screen-changed", 12, "screen-metadata-v1", List.of("subscribe-deltas"), true);
     public static final EventMetadata SCREEN_CLOSED = new EventMetadata("screen-closed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata SCREEN_RENAMED = new EventMetadata("screen-renamed", 7, null, List.of("subscribe-deltas"), true);
+    public static final EventMetadata SCRIPT_CONFIG_CHANGED = new EventMetadata("script-config-changed", 12, "script-config-v1", List.of("subscribe"), true);
     public static final EventMetadata SCROLL_CHANGED = new EventMetadata("scroll-changed", 6, null, List.of("subscribe", "attach-byte", "attach-render", "attach-browser"), true);
     public static final EventMetadata SETTINGS_CHANGED = new EventMetadata("settings-changed", 12, "settings-v1", List.of("subscribe"), true);
     public static final EventMetadata SIZE_STATE = new EventMetadata("size-state", 12, "shared-sizing-v1", List.of("subscribe", "attach-byte", "attach-render"), true);
@@ -162,6 +163,7 @@ public final class Events {
         values.put("screen-changed", SCREEN_CHANGED);
         values.put("screen-closed", SCREEN_CLOSED);
         values.put("screen-renamed", SCREEN_RENAMED);
+        values.put("script-config-changed", SCRIPT_CONFIG_CHANGED);
         values.put("scroll-changed", SCROLL_CHANGED);
         values.put("settings-changed", SETTINGS_CHANGED);
         values.put("size-state", SIZE_STATE);

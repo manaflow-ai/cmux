@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '22526ef27362464ad1798ceadf7ab3b0225cd784acc1dcc13419362378a066bc'
+IR_SHA256 = 'd7bec72ab83f28d7ea3e1396a463faa265e759b913e276c625a1ad436cb8603e'
 
 
 @dataclass(frozen=True)
@@ -3881,6 +3881,7 @@ EVENTS = {
     'screen-changed': EventMetadata('screen-changed', 12, 'screen-metadata-v1', ('subscribe-deltas',), 'emitted'),
     'screen-closed': EventMetadata('screen-closed', 7, None, ('subscribe-deltas',), 'emitted'),
     'screen-renamed': EventMetadata('screen-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
+    'script-config-changed': EventMetadata('script-config-changed', 12, 'script-config-v1', ('subscribe',), 'emitted'),
     'scroll-changed': EventMetadata('scroll-changed', 6, None, ('subscribe', 'attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
     'settings-changed': EventMetadata('settings-changed', 12, 'settings-v1', ('subscribe',), 'emitted'),
     'size-state': EventMetadata('size-state', 12, 'shared-sizing-v1', ('subscribe', 'attach-byte', 'attach-render'), 'emitted'),
