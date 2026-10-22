@@ -88,6 +88,36 @@ export function railHeight(count: number, windowHeight: number, viewportHeight =
   );
 }
 
+/// The fade a rail longer than its room draws at an edge with more rows past it (2.5rem,
+/// threadMinimap.css `.acpmux-minimap__list[data-fade-*]`).
+export const RAIL_FADE = 40;
+
+/// Where the rail's list scrolls (its `scrollTop`) so the band, the prompts on screen (`first` to
+/// `last`), shows whole and clear of the fades: `current` while it already does; else the band's
+/// first row a third of the way down, as the Codex rail puts it, moved as little as it takes to show
+/// the whole band. A band taller than the rail shows its first row, or its last when it holds the
+/// chat's last prompt. A band that holds the chat's last prompt scrolls the list to its end, which
+/// draws no bottom fade, so at the bottom of the chat the bottom ticks show lit (Leo 2026-10-22: "it
+/// wouldn't show the highlighted bottom ... it just didn't go to the bottom").
+export function railScrollTop(
+  band: { first: number; last: number },
+  count: number,
+  height: number,
+  current: number,
+): number {
+  const room = Math.max(0, count * ROW_PITCH - height);
+  if (room === 0) return 0;
+  // The highest offset that keeps the band's first row below the top fade, and the lowest that
+  // keeps its last row above the bottom fade. An edge row of the list needs no clearance: the list
+  // at that end draws no fade there.
+  const highest = band.first * ROW_PITCH - (band.first > 0 ? RAIL_FADE : 0);
+  const lowest = (band.last + 1) * ROW_PITCH - height + (band.last < count - 1 ? RAIL_FADE : 0);
+  const clamp = (value: number) => Math.max(0, Math.min(room, value));
+  if (lowest > highest) return clamp(band.last >= count - 1 ? room : highest);
+  if (current >= lowest && current <= highest) return clamp(current);
+  return clamp(Math.min(highest, Math.max(lowest, band.first * ROW_PITCH - height / 3)));
+}
+
 /// The card's top for a row centered at `center`: centered on it, kept inside the viewport.
 export function cardOffset(center: number, cardHeight: number, viewportHeight: number): number {
   const top = center - cardHeight / 2;

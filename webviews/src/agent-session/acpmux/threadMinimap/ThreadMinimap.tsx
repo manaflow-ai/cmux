@@ -31,6 +31,7 @@ import {
   minimapTurns,
   RAIL_LEFT,
   railHeight,
+  railScrollTop,
   ROW_PITCH,
   ROW_WIDTH,
   SETTLE_FRAMES,
@@ -104,8 +105,8 @@ export function ThreadMinimap({
   placed?: React.MutableRefObject<(() => void) | undefined>;
 }) {
   const t = useT();
-  /// The full-height map (ScrollMap.tsx), the compact Codex rail below, or none (`off`, the
-  /// default: the turn steps below still run), read once per pane.
+  /// The compact Codex rail below (the wave, the default), the full-height map (ScrollMap.tsx), or
+  /// none (`off`: the turn steps below still run), read once per pane.
   const [arm] = useState(() => experimentArm(threadMinimapLayout));
   const full = arm === "full";
   const marks = usePromptMarks(sessionId);
@@ -414,16 +415,20 @@ export function ThreadMinimap({
       };
   });
 
-  // A rail longer than its room keeps the first prompt on screen in view while the reader scrolls.
+  // A rail longer than its room keeps the whole band (the prompts on screen) in view and clear of
+  // its fades while the reader scrolls, and reaches its end with the chat's: at the bottom of the
+  // chat the last ticks show lit (railScrollTop). It used to keep only the band's first row in view,
+  // so the rows below it, the bottom of the chat among them, could stay under the bottom fade or
+  // past the rail's end.
   useLayoutEffect(() => {
     const node = list.current;
     // The commit that added older turns placed the list itself, around the band.
     if (!node || !overflow || hovered !== undefined || focused !== undefined || holding.current) return;
-    const rowTop = onScreen.first * ROW_PITCH;
-    if (rowTop >= node.scrollTop && rowTop + ROW_PITCH <= node.scrollTop + height) return;
-    node.scrollTop = Math.max(0, rowTop - height / 3);
+    const next = railScrollTop({ first: onScreen.first, last: onScreen.last }, turns.length, height, node.scrollTop);
+    if (Math.abs(next - node.scrollTop) < 0.5) return;
+    node.scrollTop = next;
     setListTop(node.scrollTop);
-  }, [onScreen.first, overflow, height, hovered, focused]);
+  }, [onScreen.first, onScreen.last, turns.length, overflow, height, hovered, focused]);
 
   /// The rows' actions: stable for the memoized rows, reading the latest state through `live`.
   const actions = useMemo<TickActions>(
