@@ -106,9 +106,10 @@ public struct BrowserRecordUpdate: Equatable, Sendable {
     public var isEmpty: Bool { !hasRecordFields && !hasStateFields }
 }
 
-/// Writes a live page's record back to its daemon tab, debounced: page
-/// changes restart the delay, so a burst of navigation events sends one
-/// command after it settles. A failed send keeps the old record, so the
+/// Writes a live page's record back to its daemon tab, throttled: the first
+/// page change opens one `delay` window and its end writes the latest state,
+/// so a burst of navigation events sends one command, and a page that never
+/// settles (a ticking title) still writes once per window. A failed send keeps the old record, so the
 /// next change retries the full difference. The copy follows the daemon:
 /// each change of the tab's daemon record (`daemonRecord`, another client,
 /// a restore, this writer's own echo) re-bases it, so a difference is always
