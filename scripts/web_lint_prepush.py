@@ -112,9 +112,10 @@ SCRIPT_PACKAGES = (
     ScriptPackage(
         directory="cmux-tui/frontends/web",
         triggers=("cmux-tui/frontends/web/", "config/vite-plus/", f"{TUI_BINDINGS.directory}/"),
+        # Every file input of the bindings build (manifest, lockfiles, tsconfig) picks code the build runs;
+        # its source folders are only compiled.
         executed=("cmux-tui/frontends/web/", "config/vite-plus/",
-                  *(f"{TUI_BINDINGS.directory}/{name}" for name in ("package.json", "package-lock.json",
-                                                                    "tsconfig.json"))),
+                  *(f"{TUI_BINDINGS.directory}/{name}" for name in TUI_BINDINGS.inputs if not name.endswith("/"))),
         builds=(TUI_BINDINGS,),
     ),
 )
