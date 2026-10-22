@@ -138,7 +138,24 @@
              fg.setFill()
              UIBezierPath(ovalIn: CGRect(x: body.minX + 8, y: body.midY - 11, width: 22, height: 22)).fill()
              let tri = UIBezierPath()
-@@ -456,7 +469,7 @@
+@@ -444,19 +457,18 @@
+             tri.close()
+             (p.outgoing ? Fixture.outgoing : Fixture.incoming).setFill()
+             tri.fill()
+-            fg.withAlphaComponent(0.85).setFill()
+-            for i in 0..<30 {
+-                let v = 0.25 + 0.75 * abs(sin(Double(i) * 1.7) * cos(Double(i) * 0.45))
+-                let h = CGFloat(v) * 18
+-                UIBezierPath(roundedRect: CGRect(x: body.minX + 38 + CGFloat(i) * 3.6, y: body.midY - h / 2, width: 2, height: max(2, h)),
+-                             cornerRadius: 1).fill()
++            // cmux: the recording's own levels (VoiceMemoLevels, flat until they load); the
++            // played part is drawn over them by HomeAudio while it plays.
++            fg.withAlphaComponent(VoiceMemoLevels.restAlpha).setFill()
++            for bar in VoiceMemoLevels.barRects(VoiceMemoLevels.load(a.asset), body: body) {
++                UIBezierPath(roundedRect: bar, cornerRadius: 1).fill()
+             }
+             let d = Format.duration(a.durationSeconds ?? 0)
+             TextDraw.line(d, font: HomeFonts.monospacedDigit(ofSize: 11, weight: .regular), color: fg, x: body.maxX - 36, // HomeFonts (cx-qpqs)
                            baseline: body.midY + 4, in: ctx)
          default:
              fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
@@ -147,7 +164,7 @@
              let icon = CGRect(x: body.minX + 10, y: body.minY + 10, width: 28, height: 36)
              if a.kind == "contact" {
                  UIColor(white: 0.55, alpha: 1).setFill()
-@@ -563,103 +576,72 @@
+@@ -563,103 +575,72 @@
          }
      }
  
@@ -291,28 +308,28 @@
              ctx.fill(thumb)
              if case let .link(_, _, _, image?, _) = pv.part, let img = Images.load(image) {
                  let s = max(thumb.width / img.size.width, thumb.height / img.size.height)
-@@ -668,16 +650,11 @@
+@@ -668,16 +649,11 @@
              }
              ctx.restoreGState()
              let (title, sub) = pv.lines
 -            TextDraw.line(title, font: ThreadPreview.titleFont, color: PreviewStyle.title, x: box.minX + 39, baseline: box.minY + 21, in: ctx)
 -            TextDraw.line(sub, font: ThreadPreview.subFont, color: PreviewStyle.subtitle, x: box.minX + 39, baseline: box.minY + 34, in: ctx)
--        }
++            TextDraw.line(title, font: ThreadPreview.titleFont, color: ink, x: box.minX + 39, baseline: box.minY + 21, in: ctx)
++            TextDraw.line(sub, font: ThreadPreview.subFont, color: ink.withAlphaComponent(0.7), x: box.minX + 39, baseline: box.minY + 34, in: ctx)
+         }
 -        if pv.count >= 2 {
 -            let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
 -            let s = Strings.replies(pv.count)
 -            let w = TextDraw.width(s, font: f, kern: RowDraw.captionKern)
 -            TextDraw.line(s, font: f, color: PreviewStyle.repliesBlue, x: rightEdge - 6 - w, baseline: box.maxY + (pv.isText ? 13.75 : 12.75), in: ctx,
 -                          kern: RowDraw.captionKern)
-+            TextDraw.line(title, font: ThreadPreview.titleFont, color: ink, x: box.minX + 39, baseline: box.minY + 21, in: ctx)
-+            TextDraw.line(sub, font: ThreadPreview.subFont, color: ink.withAlphaComponent(0.7), x: box.minX + 39, baseline: box.minY + 34, in: ctx)
-         }
+-        }
 +        ctx.endTransparencyLayer()
 +        ctx.restoreGState()
      }
  
      private static func fillBubble(_ ctx: CGContext, _ shape: UIBezierPath, outgoing: Bool, windowY: CGFloat) {
-@@ -1146,7 +1123,11 @@
+@@ -1146,7 +1122,11 @@
  enum BubbleView {
      static func drawBubble(_ ctx: CGContext, body: CGRect, lines: [String], outgoing: Bool, tail: Bool, windowY: CGFloat = 0,
                             cornersOf frame: CGSize? = nil, circularEnds: Bool = false) {
@@ -325,7 +342,7 @@
          if outgoing {
              if windowY.isNaN { return }     // filled by the row's gradient layer
              ctx.saveGState()
-@@ -1161,18 +1142,9 @@
+@@ -1161,18 +1141,9 @@
      }
  }
  
