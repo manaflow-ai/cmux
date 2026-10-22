@@ -129,8 +129,9 @@ nonisolated extension ActionSurfaceCatalog {
         // A Files row: open it, make an item beside it, rename it, copy where it is, trash it.
         // Open With becomes the row's apps submenu (FileExplorerOpenWithMenu).
         "fileExplorerOpenInCmux": [p(.fileExplorerRow, .navigate, 0)],
-        "fileExplorerOpenWith": [p(.fileExplorerRow, .navigate, 1)],
-        "fileExplorerReveal": [p(.fileExplorerRow, .navigate, 2)],
+        "fileExplorerOpenAsText": [p(.fileExplorerRow, .navigate, 1)],
+        "fileExplorerOpenWith": [p(.fileExplorerRow, .navigate, 2)],
+        "fileExplorerReveal": [p(.fileExplorerRow, .navigate, 3)],
         "fileExplorerNewFile": [p(.fileExplorerRow, .create, 0)],
         "fileExplorerNewFolder": [p(.fileExplorerRow, .create, 1)],
         "fileExplorerRename": [p(.fileExplorerRow, .identity, 0)],

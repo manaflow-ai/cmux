@@ -1590,6 +1590,14 @@ impl Orchestrator for Spawner {
             .map_err(|_| "the Chief host is stopping".to_owned())?
     }
 
+    fn transcript(&self, n: u32, before: Option<u64>) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::Transcript { n, before, reply })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
     fn reply(&self, id: u64, text: &str) -> Result<String, String> {
         let (reply, answer) = channel();
         self.to_brain(Input::Reply {
