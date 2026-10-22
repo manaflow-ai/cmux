@@ -38,7 +38,7 @@ extension SidebarGroupLine {
         for row in rows {
             switch row.key {
             case let .group(id): headers.append((id, row))
-            case .workspace, .tab, .item: if let group = row.group { last[group] = row }
+            case .workspace, .tab, .item, .emptyGroup: if let group = row.group { last[group] = row }
             default: break
             }
         }
