@@ -148,7 +148,10 @@ enum DebugWindowSnapshot {
             let reactPages = PageRegistry.shownChromiumPages(in: window)
             for (page, rect) in reactPages {
                 guard let image = await page.chromiumImage() else { pagesFailed += 1; continue }
-                layers.append(.page(image, rect))
+                // Its window's holes too (a pane's tab strip over a chat that shares the row).
+                let tab = (page.chromiumPage as? CEFPageChromiumPage)?.tab
+                let holes = tab.map { tab in tab.pageWindowHoles.map { tab.contentView.convert($0, to: nil) } } ?? []
+                layers.append(.page(image, rect, holes: holes))
             }
             if let panels = window.childWindowsSnapshot(includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
                 layers.append(.window(panels))
