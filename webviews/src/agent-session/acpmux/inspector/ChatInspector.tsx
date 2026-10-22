@@ -6,7 +6,7 @@
 // - Environment: the machine, the folder, the repository, the branch or worktree (EnvironmentSection).
 // - Context: how much of the context window the chat used, with a bar; open, the token counts.
 // - Connectors: the MCP servers its harness loaded, with how many need reconnecting.
-// - Changes: the pull requests it opened or touched (ChangesSection).
+// - Changes: the pull requests it opened, touched or named, in any repository (ChangesSection).
 // - Servers: the dev servers it runs in the background (ServersSection).
 // - Subagents: an avatar row with live counts that opens into the list: the harness's subagents and
 //   the chats its agent started, a Cloud VM's or another machine's included (SubagentsSection).
@@ -46,7 +46,7 @@ import { sessionSummary, type SessionSummary, type SummaryBackgroundTask } from 
 import { waitingSubagents } from "../summary/SubagentStatusList";
 import type { TurnFile } from "../diff";
 import type { StartedSession } from "../started/startedSessions";
-import { ChangesSection, headerStatus, type InspectorPullRequestStatus } from "./ChangesSection";
+import { ChangesSection, headerStatus, visibleChanges, type InspectorPullRequestStatus } from "./ChangesSection";
 import { ContextSection } from "./ContextSection";
 import { EnvironmentSection } from "./EnvironmentSection";
 import { InspectorSection } from "./InspectorSection";
@@ -281,7 +281,7 @@ function InspectorPresence({
   const push = pushes(placement, paneWidth, width);
   const tabRowHeight = useTabRow().height;
   const rows = snapshot.rows;
-  const made = useMemo(() => (drawn ? sessionSummary(rows) : undefined), [drawn, rows]);
+  const made = useMemo(() => (drawn ? sessionSummary(rows, repository ?? null) : undefined), [drawn, rows, repository]);
   const links = useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]);
   const artifacts = useMemo(() => (drawn ? chatGallery(rows).length : 0), [drawn, rows]);
   const views = subagents?.views;
@@ -497,7 +497,7 @@ export function ChatInspector({
     onRevealed?.();
   }, [revealed, onRevealed]);
   const scheduled = made?.scheduled ?? [];
-  const pullRequests = made?.pullRequests ?? [];
+  const pullRequests = visibleChanges(made?.pullRequests ?? [], statuses);
   const outputs = (made?.outputs ?? []) as readonly TurnFile[];
   const mcp = summary?.mcpServers ?? [];
   const reconnect = mcp.filter((server) => server.status === "failed").length;
