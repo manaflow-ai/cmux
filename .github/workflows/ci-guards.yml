@@ -679,6 +679,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
 
+      - name: Validate the starved fleet runner label alert
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_starved_labels.py
+
       - name: Validate pull request macOS pool choice
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_runner_pool.py
