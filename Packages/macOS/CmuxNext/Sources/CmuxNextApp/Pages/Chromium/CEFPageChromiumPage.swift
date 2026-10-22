@@ -25,6 +25,12 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 
     var contentView: NSView { tab.contentView }
 
+    /// The tab's holes for native UI (`CEFTab.occlusionRects`, `contentView` coordinates).
+    var occlusionRects: [CGRect] {
+        get { tab.occlusionRects }
+        set { if tab.occlusionRects != newValue { tab.occlusionRects = newValue } }
+    }
+
     var onEvent: ((PageChromiumEvent) -> Void)? {
         didSet { listen() }
     }
@@ -82,6 +88,8 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     func setFocused(_ focused: Bool) { tab.setFocused(focused) }
 
     func setVisible(_ visible: Bool) { tab.setContentVisible(visible) }
+
+    func setSeeThrough(_ seeThrough: Bool) { tab.pageSeeThrough = seeThrough }
 
     func close() {
         guard !closed else { return }

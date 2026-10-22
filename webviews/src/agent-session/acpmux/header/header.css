@@ -1,17 +1,16 @@
-/* The chat header's tools (header/ChatHeaderTools.tsx): 26px-tall small-radius buttons on the summary button's hover, press and focus steps, and the "..." menu (src/ui Menu) on the menu surface.
-   Buttons sit flush on a 24px pitch, as in a macOS or Codex toolbar: a 15px glyph leaves 9px between glyphs. */
-.acpmux-header-tools{flex:none;display:flex;align-items:center;gap:0}
-.acpmux-header-tool-group{display:flex;align-items:center;gap:0;min-width:0}
-.acpmux-header-separator{flex:none;width:.5px;height:16px;margin:0 4px;border:0;background:var(--agent-border);}
-.acpmux-header-tool{flex:none;display:inline-flex;align-items:center;justify-content:center;height:26px;padding:0;border:0;border-radius:6px;background:none;color:inherit;font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
-.acpmux-header-tool{width:24px}
+/* The chat header's tools (header/ChatHeaderTools.tsx), as Claude Code desktop's top strip draws them (Leo 2026-10-21:
+   "why do you still have this spacing and these separators"): 24px square buttons on a 26px pitch with no separators,
+   one 16px glyph size (HEADER_GLYPH), a soft neutral tint on hover and while a toggle's panel is open, nothing on press
+   (composer-no-hover-highlight). The "..." menu (src/ui Menu) sits on the menu surface. */
+.acpmux-header-tools{flex:none;display:flex;align-items:center;gap:2px}
+.acpmux-header-tool-group{display:flex;align-items:center;gap:2px;min-width:0}
+.acpmux-header-tool{flex:none;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:6px;background:none;color:inherit;font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-header-tool:disabled{color:var(--agent-muted)}
 .acpmux-header-tool:not(:disabled):hover,.acpmux-header-tool[data-popup-open]{background:color-mix(in srgb,currentColor 8%,transparent)}
-.acpmux-header-tool:not(:disabled):active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
 .acpmux-header-tool:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
-/* On: a toggle whose panel is open (aria-pressed, cx-00n1), tinted like the composer's Plan toggle. */
-.acpmux-header-tool[aria-pressed=true]{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 16%,transparent);color:var(--agent-lit-glyph,var(--agent-accent,var(--agent-text)))}
-.acpmux-header-tool[aria-pressed=true]:not(:disabled):hover{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 22%,transparent)}
+/* On: a toggle whose panel is open (aria-pressed, cx-00n1), Claude's soft rounded tint in the text's own color. */
+.acpmux-header-tool[aria-pressed=true]{background:color-mix(in srgb,var(--agent-text) 11%,transparent);color:var(--agent-text)}
+.acpmux-header-tool[aria-pressed=true]:not(:disabled):hover{background:color-mix(in srgb,var(--agent-text) 14%,transparent)}
 .ui-popup.acpmux-chat-menu-popover{width:256px;max-height:var(--available-height,min(540px,70vh));overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);transform-origin:var(--transform-origin);color:var(--agent-text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);line-height:var(--text-control--line-height);-webkit-user-select:none;user-select:none;cursor:default;outline:none}
 .ui-menu-item.acpmux-chat-menu-item{display:flex;align-items:center;gap:8px;width:100%;min-height:var(--ui-row-height);height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius);color:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-chat-menu-item>svg{flex:none;color:var(--agent-muted)}
@@ -42,7 +41,9 @@
 /* The Environment line (EnvironmentLine.tsx): machine · folder · branch in the status slot, as quiet
    as the status label; each name ends in an ellipsis before the line could size the slot. */
 .acpmux-env-line{position:absolute;inset:0 auto 0 0;display:flex;align-items:center;gap:5px;max-width:100%;box-sizing:border-box;margin:0;padding:0 6px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);white-space:nowrap;overflow:hidden;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
-.acpmux-env-line>svg{flex:none}
+/* The glyph and the names center on one line: a block glyph, and a line box tall enough for descenders. */
+.acpmux-env-line>svg{flex:none;display:block}
+.acpmux-env-line>span{line-height:16px}
 .acpmux-env-line__machine,.acpmux-env-line__folder,.acpmux-env-line__branch{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .acpmux-env-line__machine{flex:0 1000 auto}
 .acpmux-env-line__folder{flex:0 1 auto}
@@ -51,8 +52,9 @@
 button.acpmux-env-line:hover{background:var(--acpmux-menu-hover);color:var(--agent-text)}
 button.acpmux-env-line:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
 /* In the pane's tab row it leads the tools: in the row's flow, never wider than a few tabs. */
-.acpmux-env-line.acpmux-env-line--compact{position:static;inset:auto;flex:0 1 auto;max-width:220px;height:26px;padding:0 4px}
-.acpmux-handoff-header-tools{flex:none}
+.acpmux-env-line.acpmux-env-line--compact{position:static;inset:auto;flex:0 1 auto;max-width:220px;height:24px;margin-right:4px;padding:0 4px}
+/* The tools after the Environment line (App.tsx): the Needs you inbox and the header tools on the same pitch. */
+.acpmux-header .acpmux-handoff-header-tools{flex:none;gap:2px}
 @media (prefers-reduced-motion:no-preference){.ui-popup.acpmux-chat-menu-popover{animation:ui-popup-open var(--ui-popup-open) ease-out}}
 /* The right-click menu host (cx-00n1): no box of its own, so the tools keep their row. */
 .acpmux-header-customize{display:contents}

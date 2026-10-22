@@ -56,12 +56,13 @@ await requireBrowserLane("agent-pane-mode-keys.test.ts", async () => {
     updatedAt: START,
     modes: {
       currentModeId: "default",
+      // As acpmux reports a Claude chat (claude_stdio MODES): Claude Code's own five.
       availableModes: [
-        { id: "default", name: "Ask permissions", description: "Ask before edits and commands" },
-        { id: "acceptEdits", name: "Accept edits", description: "Edit files without asking" },
-        { id: "plan", name: "Plan mode", description: "Read and plan, no edits" },
-        { id: "dontAsk", name: "Don't ask", description: "Run allowed tools without asking" },
-        { id: "bypassPermissions", name: "Bypass permissions", description: "Run everything without asking" },
+        { id: "auto", name: "Auto", description: "Claude handles permission decisions" },
+        { id: "default", name: "Manual", description: "Always ask before making changes" },
+        { id: "acceptEdits", name: "Accept edits", description: "Automatically accept all file edits" },
+        { id: "plan", name: "Plan", description: "Create a plan before making changes" },
+        { id: "bypassPermissions", name: "Bypass permissions", description: "Accepts all permissions" },
       ],
     },
   };
@@ -144,7 +145,7 @@ await requireBrowserLane("agent-pane-mode-keys.test.ts", async () => {
     await page.locator(".acpmux-access-trigger").click();
     const menu = page.locator(".acpmux-access-menu");
     await menu.waitFor();
-    // Plan mode is its own toggle; the permission modes are numbered in their order.
+    // Claude Code's Mode menu: its five modes, Plan among them, numbered in its order.
     const rows = await menu
       .locator(".acpmux-access-item")
       .evaluateAll((items) =>
@@ -154,17 +155,18 @@ await requireBrowserLane("agent-pane-mode-keys.test.ts", async () => {
         ]),
       );
     expect(rows).toEqual([
-      ["Ask permissions", "1"],
-      ["Accept edits", "2"],
-      ["Don't ask", "3"],
-      ["Bypass permissions", "4"],
+      ["Auto", "1"],
+      ["Manual", "2"],
+      ["Accept edits", "3"],
+      ["Plan", "4"],
+      ["Bypass permissions", "5"],
     ]);
     await page.keyboard.press("3");
     await page.waitForFunction(() => document.querySelector(".acpmux-access-menu") === null, undefined, {
       timeout: 5_000,
     });
     expect(calls.filter((call) => call.method === "session/set_mode").map((call) => call.params.modeId)).toEqual([
-      "dontAsk",
+      "acceptEdits",
     ]);
     // A number with no mode in its place does nothing.
     await page.locator(".acpmux-access-trigger").click();
@@ -182,7 +184,7 @@ await requireBrowserLane("agent-pane-mode-keys.test.ts", async () => {
     await page.close();
   });
 
-  test("the trigger and every menu row draw the mode's own shield", async () => {
+  test("the trigger draws the mode's own shield; Claude Code's menu rows draw none", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(CHAT));
     await page.getByText("Retry added.").waitFor();
@@ -202,14 +204,16 @@ await requireBrowserLane("agent-pane-mode-keys.test.ts", async () => {
           item.querySelector("[data-shield]")?.getAttribute("data-shield"),
         ]),
       );
+    // As Claude Code's own Mode menu: the name and description, no icon column.
     expect(rows).toEqual([
-      ["Ask permissions", "check"],
-      ["Accept edits", "plain"],
-      ["Don't ask", "plain"],
-      ["Bypass permissions", "alert"],
+      ["Auto", undefined],
+      ["Manual", undefined],
+      ["Accept edits", undefined],
+      ["Plan", undefined],
+      ["Bypass permissions", undefined],
     ]);
-    // Picking full access puts the same warning shield on the trigger.
-    await page.keyboard.press("4");
+    // Picking full access puts the warning shield on the trigger.
+    await page.keyboard.press("5");
     await page.waitForFunction(() => document.querySelector(".acpmux-access-menu") === null, undefined, {
       timeout: 5_000,
     });

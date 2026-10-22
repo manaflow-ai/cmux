@@ -2,8 +2,8 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// The very subtle machine label of a tab whose terminal runs on another
-/// machine (plans/cmux-next/data-model.md 1.2b).
+/// The small machine label of a tab whose terminal runs on another machine (plans/cmux-next/data-model.md
+/// 1.2b), in the machine's color (MachineColor), as its sidebar rows and the composer's chip draw it.
 extension TabCell {
     func updateMachineBadge() {
         guard let badge = item.machineBadge, !badge.isEmpty else {
@@ -21,7 +21,7 @@ extension TabCell {
         }()
         label.font = Typography.caption
         label.string = badge
-        themeScope.perform { label.foregroundColor = Palette.textTertiary.cgColor }
+        themeScope.perform { [name = item.machineName ?? badge] in label.foregroundColor = MachineColor(name: name).color.cgColor }
     }
 
     /// Places the machine badge at the end of the title area when the title

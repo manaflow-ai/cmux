@@ -492,6 +492,12 @@ impl Hub {
                         remote: Some(RemoteRef { peer: peer.clone(), summary }),
                     });
                 }
+                // A prompt this daemon forwarded was taken (`outbox.rs` `PeerAccepts`).
+                PeerNotice::Notification { method: m, params }
+                    if m == method::MUX_PROMPT_ACCEPTED =>
+                {
+                    self.peer_accepts.accepted(&peer, &params);
+                }
                 PeerNotice::Notification { method: m, params } if m == "_acpmux/lagged" => {
                     let ids: Vec<String> = self
                         .remote_sessions

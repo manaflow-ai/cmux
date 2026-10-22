@@ -21,6 +21,7 @@ pub mod agent_displays;
 pub mod agent_host;
 pub mod agent_tools;
 pub mod byo_endpoint;
+pub mod capabilities;
 pub mod catalog;
 pub mod chats;
 pub mod claude_auth;
@@ -54,9 +55,11 @@ pub mod login_env;
 pub mod mailbox;
 pub mod native;
 pub mod offer_mcp;
+pub(crate) mod opencode_ask;
 #[cfg(windows)]
 mod owner_only;
 pub mod pairing;
+pub mod path_canon;
 pub mod peer;
 pub mod peer_link;
 #[cfg(not(unix))]
