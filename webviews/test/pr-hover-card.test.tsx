@@ -196,6 +196,7 @@ test("an inline link opens the same card: favicon, page title, host, the address
   await act(async () => element.querySelector<HTMLElement>("a.cv-chip")!.focus());
   const card = element.querySelector<HTMLElement>(".cv-link-preview")!;
   expect(card.classList.contains("acpmux-pr-card")).toBe(false);
+  expect(card.classList.contains("ui-glass")).toBe(true);
   expect(card.querySelector(".cv-link-preview__icon img")).not.toBeNull();
   expect(card.querySelector(".cv-link-preview__site")?.textContent).toBe("Example Guide");
   expect(card.querySelector(".cv-link-preview__target")?.textContent).toBe(
@@ -225,9 +226,13 @@ test("the card's chrome is quiet: borderless buttons, no divider, no underline, 
   expect(rule(".cv-link-preview .acpmux-open-in")).toContain("box-shadow:none");
   expect(rule(".cv-link-preview__head")).not.toContain("border");
   expect(rule(".acpmux-pr-card__lines:not(:disabled)")).not.toContain("text-decoration");
-  // Glass: the tooltip's tint and blur (opaque only under Reduce Transparency, via the tokens).
-  expect(rule(".cv-link-preview")).toContain("background:var(--tooltip-tint");
-  const glass = rule(".cv-link-preview.ui-card");
-  expect(glass).toContain("background:var(--tooltip-tint");
-  expect(glass).toContain("backdrop-filter:var(--tooltip-blur");
+  // Glass: the shared liquid glass (.ui-glass) paints the card, so the card itself sets no fill;
+  // plain glass and Reduce Transparency get the tooltip's tint and blur through the glass tokens.
+  const card = rule(".cv-link-preview");
+  expect(card).not.toContain("background");
+  expect(card).not.toContain("box-shadow");
+  expect(rule(".cv-link-preview.ui-card")).toContain("--glass-elevation:");
+  const fallback = rule(':root:not([data-glass="lens"], [data-glass="spectrum"]) .cv-link-preview.ui-card.ui-glass');
+  expect(fallback).toContain("--glass-tint:var(--tooltip-tint");
+  expect(fallback).toContain("--glass-backdrop:var(--tooltip-blur");
 });
