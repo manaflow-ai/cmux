@@ -116,8 +116,10 @@ enum NewWorkspacePlacements {
     /// `rule` when `connection`'s daemon places a create by it (`workspace-create-current-v1`), recording
     /// `key` in ``placedByDaemon``; nil for an older daemon, which ignores the fields, so the app still
     /// sends its own placement afterwards.
-    static func sending(_ rule: NewWorkspaceDefaultSlot?, key: WorkspaceKey, on connection: DaemonConnection) -> NewWorkspaceDefaultSlot? {
-        guard let rule, connection.identity?.supports(DaemonCapabilities.shared.workspaceCreateCurrent) == true else { return nil }
+    static func sending(_ rule: NewWorkspaceDefaultSlot?, key: WorkspaceKey, on connection: DaemonConnection) async -> NewWorkspaceDefaultSlot? {
+        guard let rule else { return nil }
+        // Read before the create goes out: the window places the workspace only once the daemon lists it.
+        guard await connection.identity?.supports(DaemonCapabilities.shared.workspaceCreateCurrent) == true else { return nil }
         placedByDaemon.insert(key.rawValue)
         return rule
     }

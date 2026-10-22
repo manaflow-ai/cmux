@@ -62,7 +62,7 @@ enum WorkspaceCreation {
         repair: EmptyWorkspaceRepair,
         terminal: (WorkspaceKey) async throws -> T
     ) async throws -> T {
-        let sent = NewWorkspacePlacements.sending(rule, key: key, on: connection)
+        let sent = await NewWorkspacePlacements.sending(rule, key: key, on: connection)
         return try await repair.populating(key) {
             try await withTerminal(
                 key, createWorkspace: { _ = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key, placesBySetting: sent != nil, current: sent?.current.map { WorkspaceKey(rawValue: $0) }, placement: sent?.placement.rawValue) },
@@ -85,7 +85,7 @@ enum WorkspaceCreation {
         repair: EmptyWorkspaceRepair,
         firstTab: (WorkspaceMutationResult) async throws -> T
     ) async throws -> T {
-        let sent = NewWorkspacePlacements.sending(rule, key: key, on: connection)
+        let sent = await NewWorkspacePlacements.sending(rule, key: key, on: connection)
         return try await repair.populating(key) {
             var created: WorkspaceMutationResult?
             return try await withTerminal(
