@@ -47,6 +47,14 @@ const ALLOWED_EVENTS: ReadonlySet<string> = new Set([
   "ios_purchase_pending",
   "ios_restore_started",
   "ios_restore_completed",
+  // Server-configured paywall experiments (services/billing/paywall). Paywall
+  // and purchase events carry paywall_experiment, paywall_variant,
+  // paywall_layout, paywall_config_source and entry_point.
+  "ios_paywall_cta_tapped",
+  "ios_paywall_dismissed",
+  "ios_upgrade_entry_viewed",
+  "ios_trial_offer_shown",
+  "ios_trial_attest_failed",
   // StoreKit catalog and purchase delivery (CmuxMobileBilling)
   "ios_products_loaded",
   "ios_products_failed",
@@ -122,6 +130,13 @@ export const ANONYMOUS_SAFE_PROPERTIES: ReadonlySet<string> = new Set([
   "app_version",
   "build_number",
   "storekit_environment",
+  // Experiment arm and placement: which copy was shown, not who saw it.
+  "paywall_experiment",
+  "paywall_variant",
+  "paywall_layout",
+  "paywall_config_source",
+  "entry_point",
+  "trial",
 ]);
 
 export type IosAnalyticsChannel = "production" | "beta" | "dev" | "third_party" | "unknown";

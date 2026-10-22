@@ -36,6 +36,10 @@
       "schedule": "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
     },
     {
+      "path": "/api/cron/paywall-optimizer",
+      "schedule": "17 14 * * *"
+    },
+    {
       "path": "/api/cron/billing-reconcile",
       "schedule": "23 * * * *"
     },
