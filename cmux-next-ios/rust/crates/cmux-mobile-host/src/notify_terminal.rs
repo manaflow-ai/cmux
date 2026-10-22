@@ -14,6 +14,10 @@
 //! - the second of an agent hook's and the terminal's own notification on the
 //!   same tab within `ECHO_WINDOW` (Codex posts both for one event);
 //! - a kind no phone wants (`Wants`).
+//!
+//! A terminal agent's question (an agent hook's notification carrying the daemon's
+//! `question`: Claude Code AskUserQuestion, Codex `request_user_input`) pushes as kind
+//! `question` with its options, as an acpmux question does.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
@@ -122,6 +126,29 @@ impl TerminalClassifier {
             .as_ref()
             .map(|p| p.workspace_id.clone())
             .or_else(|| text("workspace_id").map(|w| label(w, 128)));
+        // A terminal agent's question (an agent hook only; a program's output never makes
+        // one): the same questions the acpmux path sends, so the phone answers it alike.
+        let questions = (source == "agent")
+            .then(|| event.get("question"))
+            .flatten()
+            .map(terminal_questions)
+            .unwrap_or_default();
+        if !questions.is_empty() {
+            return Some(NotifyEvent {
+                event_id: format!("n-{id}"),
+                kind: "question".into(),
+                agent: Some(agent.into()),
+                place: place.as_ref().map(|p| p.workspace.clone()),
+                workspace: place.as_ref().map(|p| p.workspace.clone()),
+                workspace_id,
+                tab_id: place.map(|p| p.tab_id),
+                notification_id: Some(id.to_string()),
+                title: Some(questions[0].question.clone()),
+                questions,
+                state: Some("waiting".into()),
+                ..NotifyEvent::default()
+            });
+        }
         Some(NotifyEvent {
             event_id: format!("n-{id}"),
             kind: "terminal".into(),
@@ -138,6 +165,18 @@ impl TerminalClassifier {
             ..NotifyEvent::default()
         })
     }
+}
+
+/// The questions of the daemon's `question` (`{harness, questions}`, the tool's input), read
+/// by the parser the acpmux path uses: as a Claude AskUserQuestion or a Codex request.
+fn terminal_questions(question: &Value) -> Vec<cmux_mobile_link::api::NotifyQuestion> {
+    let meta = match question.get("harness").and_then(Value::as_str) {
+        Some("codex") => serde_json::json!({"codex": {}}),
+        _ => serde_json::json!({"claude": {"tool": "AskUserQuestion"}}),
+    };
+    let request = serde_json::json!({"toolCall": {"_meta": meta, "rawInput": {
+        "questions": question.get("questions").cloned().unwrap_or(Value::Null)}}});
+    crate::notify_content::questions(&request)
 }
 
 /// The agent an agent hook names first in its title ("Codex needs approval").
