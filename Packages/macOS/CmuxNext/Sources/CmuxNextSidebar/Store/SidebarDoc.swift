@@ -114,7 +114,8 @@ public nonisolated struct SidebarDocItem: Hashable, Sendable, Identifiable {
     public var createdMs: UInt64?
 
     public init(id: String, section: String, parent: String? = nil, body: SidebarDocBody, showsLabel: Bool = true, span: Int? = nil,
-                label: String? = nil, iconURL: String? = nil, pinnedInGroup: Bool = false) {
+                label: String? = nil, iconURL: String? = nil, pinnedInGroup: Bool = false, createdMs: UInt64? = nil) {
+        self.createdMs = createdMs
         self.iconURL = iconURL
         self.pinnedInGroup = pinnedInGroup && parent != nil
         self.id = id

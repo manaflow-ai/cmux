@@ -129,7 +129,12 @@ pub(crate) fn clear_dirty(transaction: &Transaction<'_>) -> anyhow::Result<()> {
 /// Apply one op to the running document; a refusal is logged and skipped
 /// (an old write the document cannot follow, for example a group of two
 /// machines, leaves the document as it was).
-fn try_apply(batch: &mut Batch<'_>, op: Op) {
+fn try_apply(batch: &mut Batch<'_>, mut op: Op) {
+    // A workspace joining the document records when (the one list orders by it).
+    cmux_layout_reducer::sidebar_doc::created::stamp_created(
+        std::slice::from_mut(&mut op),
+        cmux_layout_reducer::sidebar_doc::created::now_ms(),
+    );
     let mut mint = mint_item_id;
     if let Err(refusal) = batch.apply(std::slice::from_ref(&op), &mut mint) {
         eprintln!("cmux-tui: sidebar doc does not follow an old write ({refusal})");

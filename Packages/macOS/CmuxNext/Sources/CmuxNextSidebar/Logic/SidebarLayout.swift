@@ -165,6 +165,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         let lastMachine = sections.lastIndex { $0.machine != nil }
 
         var firstSection = true, statusShown = false
+        // The headerless computer sections one list interleaves by creation time (`mergeOneList`).
+        var flatSections = Set<SectionID>()
         for (sectionIndex, section) in sections.enumerated() {
             if let lastMachine, sectionIndex > lastMachine { chats.placeEarlier(&y) }
             // Group by Status lays every computer's rows out once, in place of their sections (`SidebarLayout+Status`).
@@ -228,6 +230,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             // A remote group (remote-groups-DESIGN.md slice 4) and the Chief's workspaces are a section of
             // their own in one list too.
             let flat = o.flattensMachines && section.machine != nil && !Self.keepsHeaderInOneList(section, options: o)
+            if flat { flatSections.insert(section.id) }
             if flat && nodes.isEmpty && !gapHere && (listsAnyMachineRow || shownEmptyMachine) { continue }
             if flat && nodes.isEmpty { shownEmptyMachine = true }
             // Consecutive computers in one list read as one list: no gap. A block brings its own padding.
@@ -450,6 +453,16 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         }
         chats.placeEarlier(&y)
         y += m.bottomPadding
+        if flatSections.count > 1 {
+            var created: [WorkspaceID: UInt64] = [:]
+            for section in sections where flatSections.contains(section.id) {
+                for node in section.nodes { if case let .workspace(ws) = node, let time = ws.createdMs { created[ws.id] = time } }
+            }
+            if !created.isEmpty {
+                mergeOneList(&rows, flat: flatSections, created: created, gap: o.gap, gapY: &gapY,
+                             gapShift: gapHeight + m.rowSpacing, metrics: m)
+            }
+        }
         var layout = SidebarLayout(
             rows: rows, totalHeight: y, gapY: gapY,
             gapHeight: gapY == nil ? 0 : gapHeight,
