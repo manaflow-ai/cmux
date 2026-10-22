@@ -176,7 +176,10 @@ test("a git scope reads each file's kind from the repository's top, not the fold
   await settle();
   try {
     const blocks = [...container.querySelectorAll<HTMLElement>(".acpmux-diff-file")];
-    expect(blocks.map((block) => block.querySelector(".acpmux-fh-name")?.textContent)).toEqual(["src/a.ts", "README.md"]);
+    expect(blocks.map((block) => block.querySelector(".acpmux-fh-name")?.textContent)).toEqual([
+      "src/a.ts",
+      "README.md",
+    ]);
     expect(blocks.map((block) => block.querySelector(".acpmux-fh-kind")?.textContent ?? "")).toEqual(["", "Docs"]);
     expect(container.querySelector(".acpmux-diff-no-tests")?.textContent).toBe("Code changed with no test.");
   } finally {

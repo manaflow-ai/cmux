@@ -198,8 +198,7 @@ export function DiffPanel({
         ? "empty"
         : load.state;
   // Code changed and no test did: the pull request card's warning, in its words.
-  const noTests =
-    !scopeState && missingTests(files.map((file) => ({ path: kindPath(scope, file) })));
+  const noTests = !scopeState && missingTests(files.map((file) => ({ path: kindPath(scope, file) })));
   const [layout, setLayout] = useState<DiffLayout>(() => (stored(LAYOUT_KEY) === "split" ? "split" : "unified"));
   const [wrap, setWrap] = useState(() => stored(WRAP_KEY) === "on");
   const [showTree, setShowTree] = useState(() => stored(TREE_KEY) !== "off");
