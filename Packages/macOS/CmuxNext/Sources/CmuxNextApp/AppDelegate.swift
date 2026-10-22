@@ -65,6 +65,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("did_finish_launching_start")
         DebugTimings.install()
         defer { DebugTimings.markLaunch("did_finish_launching_end") }
+        // No system caret bubble over cmux's own native text fields (before any field edits).
+        NativeCaretAccessory.install()
         // Every window, shell or auxiliary, opens by one placement rule.
         WindowPlacement.noActivate = environment.noActivate
         WindowPlacement.testScreen = environment.testWindow?.screen
@@ -95,6 +97,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A main-thread hang still running after 2 s goes to crash reporting with its stack.
         let reporter = services.crashReporting.reporter
         control.watchdog.onHang = { reporter.reportHang(duration: $0.duration, addresses: $0.addresses, otherThreads: $0.otherThreads.map { ($0.name, $0.addresses) }) }
+        // And to a file per hang (~/Library/Logs/<bundle id>/hangs), listed in Debug Settings > Hangs.
+        control.watchdog.episodes = HangFileTunables.recorder(bundleID: Bundle.main.bundleIdentifier)
         // Shorter lag spikes (250 ms and up, rate-limited) go there too, once they end.
         let lagSpikes = LagSpikeReporter(reporter: reporter)
         lagSpikes.setContextProvider {
@@ -327,6 +331,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
                 control.registerCloudMethods(services)
                 control.registerAccountsMethods(services)
+                control.registerBillingMethods(services)
                 control.registerRemoteMethods(services)
                 control.registerMobileMethods(services)
                 control.registerUpdateMethods(services.updater, services: services)
