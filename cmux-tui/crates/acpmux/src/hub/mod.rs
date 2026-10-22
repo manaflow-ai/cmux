@@ -94,6 +94,7 @@ pub use new_request::{
 pub use paging::{EventFilter, EventPage, MAX_PAGE_BYTES, page_bytes};
 pub use spawn::expand_env_value;
 pub mod approvers;
+mod own_host;
 mod peer_cache;
 mod peer_lease;
 pub use peer_lease::PeerLease;
@@ -113,6 +114,7 @@ pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
 mod subsession_answer;
 mod subsession_guard;
+mod subsession_runs;
 mod subsession_send;
 pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
@@ -407,6 +409,8 @@ pub struct Hub {
     pub(super) offers: offers::Offers,
     /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
     pub(super) subsessions: subsessions::Index,
+    /// Run slots of each session's sub-sessions (`subsession_runs.rs`).
+    pub(super) subsession_runs: Arc<subsession_runs::Runs>,
     /// Automatic continuations waiting to fire, by chat (`auto_resume.rs`).
     pub(super) auto_resumes: auto_resume::Pending,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
@@ -502,6 +506,7 @@ impl Hub {
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
             offers: Default::default(),
             subsessions: Default::default(),
+            subsession_runs: Default::default(),
             auto_resumes: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
@@ -778,8 +783,7 @@ impl Hub {
         newest_first(v)
     }
 
-    /// Resolve by id, exact name, or unique prefix of either.
-    pub fn resolve(&self, key: &str) -> Result<Arc<Session>, RpcError> {
+    fn resolve_here(&self, key: &str) -> Result<Arc<Session>, RpcError> {
         let sessions = self.sessions.lock().unwrap();
         // A qualified id is authoritative for new routing. The old bare id,
         // name and prefix forms below remain compatible.
