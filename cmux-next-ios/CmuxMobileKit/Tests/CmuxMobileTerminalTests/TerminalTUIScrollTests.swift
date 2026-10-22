@@ -58,7 +58,8 @@ import Testing
 
     @Test func aFlingDecaysAndEnds() throws {
         var momentum = try #require(TerminalTUIMomentum(velocityY: -1200))
-        let first = try #require(momentum.step(dt: 1.0 / 60))
+        let step = momentum.step(dt: 1.0 / 60)
+        let first = try #require(step)
         #expect(first.momentum == .began)
         // Upward fling: newer content, so a wheel down (negative dy).
         #expect(first.dy < 0)
