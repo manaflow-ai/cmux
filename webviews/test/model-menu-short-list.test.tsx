@@ -111,9 +111,18 @@ type Mount = {
   model?: string;
   effort?: string;
   fast?: boolean;
+  /** What the profile declares for a model it lists (acpmux's `efforts`, `fast`), by id. */
+  declared?: Record<string, { efforts?: string[]; fast?: boolean }>;
 };
 
-async function mount({ harness, family, model = "claude-opus-5-5", effort = "medium", fast = false }: Mount) {
+async function mount({
+  harness,
+  family,
+  model = "claude-opus-5-5",
+  effort = "medium",
+  fast = false,
+  declared = {},
+}: Mount) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
@@ -160,7 +169,14 @@ async function mount({ harness, family, model = "claude-opus-5-5", effort = "med
       isWorking: false,
       queue: [],
       canLoadOlder: false,
-      catalog: [{ id: harness, name: "Claude Code", family, models: CLAUDE_CODE_MODELS }],
+      catalog: [
+        {
+          id: harness,
+          name: "Claude Code",
+          family,
+          models: CLAUDE_CODE_MODELS.map((choice) => ({ ...choice, ...declared[choice.id] })),
+        },
+      ],
       summary: { sessionId: "s1", harness, family, model: state.model, turnCount: 12, configOptions },
     } as unknown as Snapshot;
     const picker = usePickerCatalog(
@@ -292,4 +308,20 @@ test("the Fast mode row says whether it is on", async () => {
   if (!menu()) await open();
   expect(fast().getAttribute("aria-checked")).toBe("true");
   expect(fast().querySelector(".acpmux-quick-value")?.textContent).toBe("On");
+});
+
+// Codex review at 87da5d12: a profile that declares no levels for `opus` (efforts: []) left the chat
+// on claude-opus-5-5, the same model, with an Effort row offering every level the session lists, so
+// a pick sent a level the profile said the model does not take.
+test("a model its profile declares with no effort levels shows no Effort row, though the session lists levels", async () => {
+  const { sent } = await mount({ harness: "claude-sr2", family: "claude-sr2", declared: { opus: { efforts: [] } } });
+  await open();
+  const rows = [...menu()!.querySelectorAll<HTMLElement>("[role^=menuitem]")];
+  expect(
+    rows.find((item) => label(item).startsWith("Effort")),
+    rows.map(rowText).join(", "),
+  ).toBeUndefined();
+  expect(rows.map(label), "the running model is still the checked row").toContain("Opus 5.5");
+  expect(menu()!.querySelector('[role="menuitemradio"][aria-checked="true"]')?.textContent).toContain("Opus 5.5");
+  expect(sent).toEqual([]);
 });
