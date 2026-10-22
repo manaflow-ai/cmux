@@ -29,8 +29,8 @@ extension SidebarGroupLine {
     /// Every open group in `rows` with shown members: its line from just
     /// under the header bar, rounded off there (cg-design-judge 2026-10-14: a
     /// line under the bar cut its rounded corner), to the last member row's
-    /// bottom, rounded off just above it, in the members'
-    /// gutter (`SidebarStyle.groupGutter`), so no row fill covers it
+    /// bottom, rounded off just above it, just left of the members' rows
+    /// (`SidebarStyle.groupLineX`), so no row fill covers it
     /// (cx-q5jw: straight and unbroken, Edge style). `frame` places a row.
     static func lines(_ rows: [SidebarRow], colors: [GroupID: SidebarGroup], frame: (SidebarRow) -> CGRect) -> [SidebarGroupLine] {
         var headers: [(GroupID, SidebarRow)] = []
@@ -49,7 +49,8 @@ extension SidebarGroupLine {
             // The header's bar fills its row: the line starts just under it.
             let top = head.maxY + Metrics.space1, bottom = tail.maxY - Metrics.space1
             guard bottom > top else { return nil }
-            return SidebarGroupLine(group: id, frame: CGRect(x: head.minX + SidebarStyle.groupBarX, y: top, width: width, height: bottom - top),
+            let x = SidebarStyle.groupLineX(membersMinX: tail.minX)
+            return SidebarGroupLine(group: id, frame: CGRect(x: x, y: top, width: width, height: bottom - top),
                                     color: colors[id]?.tint ?? .palette(end.groupColor ?? .grey))
         }
     }

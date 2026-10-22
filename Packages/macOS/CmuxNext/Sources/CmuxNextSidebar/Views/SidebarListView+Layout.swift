@@ -100,14 +100,14 @@ extension SidebarListViewComponents {
         return o
     }
     func frame(for row: SidebarRow) -> NSRect {
-        // Group members start right of their group's line (`SidebarStyle.groupGutter`).
         // A block's region draws its own insets, as the band did.
         if case .block = row.key { return NSRect(x: 0, y: row.y, width: bounds.width, height: row.height) }
-        // One gutter per group level (`SidebarRow.depth`): a nested group's header and members move in
-        // with it (remote-groups-DESIGN.md slice 2).
+        // A top-level group's rows keep the ungrouped rows' left edge; its line sits in the inset
+        // beside them (`SidebarStyle.groupLineX`). A nested group's header and members step in one
+        // gutter per level below the top (remote-groups-DESIGN.md slice 2).
         let gutter: CGFloat = switch row.key {
-        case .workspace, .tab, .item, .doneFold: row.group == nil ? 0 : SidebarStyle.groupGutter * CGFloat(max(1, row.depth))
-        case .group: SidebarStyle.groupGutter * CGFloat(row.depth)
+        case .workspace, .tab, .item, .doneFold: row.group == nil ? 0 : SidebarStyle.groupOffset(depth: row.depth)
+        case .group: SidebarStyle.groupOffset(depth: row.depth)
         default: 0
         }
         // Rows end `rowTrailingTrim` short of the list's right inset, so a row's pill never runs to

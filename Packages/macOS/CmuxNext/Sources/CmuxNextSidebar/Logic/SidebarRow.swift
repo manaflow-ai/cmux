@@ -58,7 +58,8 @@ public nonisolated struct SidebarRow: Hashable, Sendable {
     /// A workspace row's tab disclosure; nil when `sidebar.showWorkspaceTabs` is off.
     public var tabDisclosure: SidebarTabDisclosure? = nil
     /// Group levels the row sits in (remote-groups-DESIGN.md slice 2): 0 at the top level, a group
-    /// header its group's level, a member one more. The list indents each level by one gutter.
+    /// header its group's level, a member one more. The list indents each level below the first by one
+    /// gutter (`SidebarStyle.groupOffset`).
     public var depth: Int = 0
     /// What a workspace row draws (`WorkspaceRowContent`); nil for other rows.
     public var content: WorkspaceRowContent? = nil
