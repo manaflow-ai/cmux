@@ -47,6 +47,7 @@ const KINDS: Record<NeedsYouKind, StringKey> = {
   verify: "needsYou.kind.verify",
   held: "needsYou.kind.held",
   input: "needsYou.kind.input",
+  tab: "needsYou.kind.tab",
 };
 
 const CHIEF_AVATAR = new URL("../mascots/ChiefMascotOrb.png", import.meta.url).href;
@@ -282,15 +283,18 @@ function NeedsYouRow({
               ))}
             </fieldset>
           )}
-          <button
-            type="button"
-            className="acpmux-needs-you-ask-about"
-            aria-expanded={asking}
-            onClick={() => setAsking((open) => !open)}
-          >
-            <Icon name="agent.question" size={13} />
-            {t("needsYou.askAbout")}
-          </button>
+          {/* A marked tab names no chat to ask about: Go to is its one action. */}
+          {item.kind !== "tab" && (
+            <button
+              type="button"
+              className="acpmux-needs-you-ask-about"
+              aria-expanded={asking}
+              onClick={() => setAsking((open) => !open)}
+            >
+              <Icon name="agent.question" size={13} />
+              {t("needsYou.askAbout")}
+            </button>
+          )}
         </div>
       )}
       {failed && <p className="acpmux-needs-you-error">{t("needsYou.answerFailed")}</p>}
@@ -350,6 +354,13 @@ function SideQuestion({ item, ask, onAsked }: { item: NeedsYouItem; ask: NeedsYo
 }
 
 function Avatar({ item }: { item: NeedsYouItem }) {
+  // A marked tab is in a workspace, not a chat: the workspace glyph, by its title.
+  if (item.kind === "tab")
+    return (
+      <span className="acpmux-needs-you-avatar">
+        <Icon name="workspace" size={12} />
+      </span>
+    );
   if (item.who.chief)
     return (
       <img
