@@ -12,8 +12,11 @@ Release control socket only (no debug.* method), like the canary checks:
               column beside it). The capture waits until the window shows that
               workspace and its pane's selected tab is the session's, no
               longer pending (openSessionWorkspace itself switches nothing).
-  composer    `palette.newAgentChat` in that workspace: a new chat's composer,
-              in the selected tab of a workspace that is not Home.
+  composer    `palette.newAgentChat` on that pane: a new chat tab's composer,
+              in a workspace that is not Home.
+
+The smoke gives the app a settings file where a chat's Inspector pushes the
+chat aside rather than lying over it, so each chat is drawn whole.
 
 Captured in that order (scenes.json lists home, composer, transcript).
 
@@ -116,8 +119,10 @@ def where(socket_path):
                      for w, p, t in placed_tabs(topo)]}
 
 
-def act(socket_path, action, **args):
+def act(socket_path, action, target=None, **args):
     params = {"action": action, "focus": True}
+    if target:
+        params["target"] = target
     if args:
         params["args"] = args
     reply = Client(socket_path, timeout=60).call("action.run", params)
@@ -195,7 +200,10 @@ def main(argv=None):
 
         def new_chat():
             before = set(canary.tabs(canary.snapshot(args.socket)))
-            run = act(args.socket, "palette.newAgentChat")
+            # Targeted at the transcript's pane, a new chat opens as a tab there (an untargeted
+            # Cmd-I docks a narrow chat at the left of the screen instead).
+            pane = log["scenes"]["transcript"]["reached"]["pane"]
+            run = act(args.socket, "palette.newAgentChat", target=f"pane:{pane}")
             shown = canary.wait(lambda: shown_tab(args.socket, lambda t: t.get("id") not in before), 20)
             if not shown:
                 raise Failed(f"palette.newAgentChat ran but the window shows no new settled tab: "

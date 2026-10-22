@@ -233,6 +233,11 @@ if [[ -n "$VISUAL_OUT" ]]; then
   # One window size on every runner (inside a 1024x768 display's visible
   # frame), so captures compare with the references (TestWindowPlacement).
   launch_env+=(CMUX_NEXT_TEST_WINDOW_SCREEN=0 "CMUX_NEXT_TEST_WINDOW_FRAME=0,0,1000,640")
+  # A scratch settings file (never the runner's): a chat's Inspector, open
+  # on a first chat, pushes the chat aside instead of lying over it, so the
+  # chat the smoke checks is drawn whole beside it.
+  printf '%s\n' '{"agentPane": {"display": {"inspector": {"placement": "push"}}}}' >"$WORK_DIR/cmux-next.json"
+  launch_env+=("CMUX_NEXT_CONFIG_FILE=$WORK_DIR/cmux-next.json")
 fi
 : >"$CRASH_MARKER"
 env -u CMUX_WORKSPACE_ID -u CMUX_SURFACE_ID -u CMUX_TAB_ID -u CMUX_PANEL_ID \

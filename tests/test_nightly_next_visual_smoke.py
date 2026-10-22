@@ -238,20 +238,20 @@ class ShippedScenes(unittest.TestCase):
             self.assertEqual([r["ok"] for r in report["scenes"]], [True, True, False])
 
     def test_a_scene_that_repeats_another_fails(self):
-        # The driver never reached the transcript (its workspace was not selected), so the
-        # capture is the composer scene again: every region is drawn, but it must still fail.
+        # The driver never reached the new chat (it captures it after the transcript), so the
+        # capture is the transcript scene again: every region is drawn, but it must still fail.
         config = json.loads((SMOKE / "scenes.json").read_text())
         with tempfile.TemporaryDirectory() as tmp:
             shots = Path(tmp)
             for name in config["scenes"]:
                 scene_window(name).save(shots / f"{name}.png")
-            scene_window("composer", seed=3).save(shots / "transcript.png")
+            scene_window("transcript", seed=3).save(shots / "composer.png")
             report = vc.run(SMOKE / "scenes.json", shots, None, None)
-            transcript = report["scenes"][2]
-            self.assertFalse(transcript["ok"], transcript)
-            self.assertTrue(any("looks the same as the composer scene" in f for f in transcript["failures"]),
-                            transcript["failures"])
-            self.assertEqual([r["ok"] for r in report["scenes"][:2]], [True, True])
+            composer = report["scenes"][1]
+            self.assertFalse(composer["ok"], composer)
+            self.assertTrue(any("looks the same as the transcript scene" in f for f in composer["failures"]),
+                            composer["failures"])
+            self.assertEqual([r["ok"] for r in report["scenes"]], [True, False, True])
 
     def test_an_empty_chat_beside_a_drawn_inspector_fails(self):
         # The boxes cover the pane under test only: the Inspector's (or a Chief column's)
@@ -272,11 +272,11 @@ class ShippedScenes(unittest.TestCase):
             self.assertTrue(any(f.startswith("messages is empty") for f in transcript["failures"]), transcript["failures"])
             self.assertTrue(any(f.startswith("composer is empty") for f in transcript["failures"]), transcript["failures"])
 
-    def test_every_scene_must_differ_from_the_ones_before_it(self):
+    def test_every_pair_of_scenes_must_differ(self):
         config = json.loads((SMOKE / "scenes.json").read_text())
         names = list(config["scenes"])
-        for index, name in enumerate(names[1:], 1):
-            self.assertEqual(set(config["scenes"][name].get("distinct_from", [])), set(names[:index]), name)
+        pairs = {frozenset((name, other)) for name, spec in config["scenes"].items() for other in spec.get("distinct_from", [])}
+        self.assertEqual(pairs, {frozenset((a, b)) for i, a in enumerate(names) for b in names[i + 1:]})
 
 
 class Wiring(unittest.TestCase):

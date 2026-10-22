@@ -29,16 +29,16 @@
       }
     },
     "composer": {
-      "what": "a new agent chat (palette.newAgentChat) in a workspace that is not Home, with its composer",
-      "distinct_from": ["home"],
+      "what": "a new agent chat tab (palette.newAgentChat on the transcript's pane), with its composer",
+      "distinct_from": ["home", "transcript"],
       "regions": {
         "sidebar": {"box": [0.01, 0.08, 0.17, 0.75], "min_edge": 0.006, "what": "the sidebar"},
-        "composer": {"box": [0.22, 0.3, 0.66, 1.0], "what": "the new chat's composer, left of the chat's Inspector"}
+        "composer": {"box": [0.22, 0.3, 0.66, 1.0], "what": "the new chat's composer, left of its Inspector"}
       }
     },
     "transcript": {
       "what": "an agent chat with one answered turn, in its own workspace (agent.openSessionWorkspace, then tab.focus)",
-      "distinct_from": ["home", "composer"],
+      "distinct_from": ["home"],
       "regions": {
         "sidebar": {"box": [0.01, 0.08, 0.17, 0.75], "min_edge": 0.006, "what": "the sidebar, now listing the chat's workspace"},
         "messages": {"box": [0.22, 0.08, 0.66, 0.75], "min_edge": 0.006, "what": "the prompt and the agent's reply, left of the chat's Inspector"},
