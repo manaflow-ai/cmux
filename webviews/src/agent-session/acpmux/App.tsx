@@ -4945,8 +4945,8 @@ function AcpmuxPane() {
       setAutoOpenSubagents,
     ],
   );
-  // The Inspector (Debug Settings `agent.inspector`): its toggle at the header's end, the panel
-  // beside or over the chat. On, it takes the summary card's place.
+  // The Inspector (Debug Settings `agent.inspector`): its toggle the first of the header's
+  // top-right icons, the panel beside or over the chat. On, it takes the summary card's place.
   const inspectorSummary = snapshot.summary;
   const inspectorLocal =
     inspectorSummary !== undefined &&
@@ -7960,7 +7960,6 @@ function AcpmuxPane() {
                         {snapshot.summary?.enforcement ? handoffLabels.nativePolicy : handoffLabels.unverified}
                       </span>
                     )}
-                    <NeedsYouButton items={needsYou.items} mode={needsYou.mode} actions={needsYou.actions} />
                     <ChatHeaderTools
                       tabTools={!quick}
                       pullRequestChip={!readOnlySubagent}
@@ -8028,6 +8027,7 @@ function AcpmuxPane() {
                         );
                       }}
                       inspector={inspector.button}
+                      inbox={<NeedsYouButton items={needsYou.items} mode={needsYou.mode} actions={needsYou.actions} />}
                       summary={inspector.on ? null : <SummaryButton card={summaryCard} />}
                       menu={chatMenu}
                       onMenuOpen={readTabState}
