@@ -387,3 +387,14 @@ test("a lost prompt the host sent after all leaves the composer; the person's ow
   // Sent already: the composer is empty, nothing to take out.
   expect(withoutRestored({ text: "", attachmentIds: [] }, [go], 0)).toBeUndefined();
 });
+
+test("a prompt still in its chat's saved draft keeps its provenance once the host sends it after all", () => {
+  const kept = lostDrafts<{ promptId: string; text: string; inDraft?: boolean; delivered?: boolean }>();
+  kept.hold("a", { promptId: "p1", text: "continue", inDraft: true });
+  kept.hold("a", { promptId: "p2", text: "and test it" });
+  kept.drop("p1");
+  kept.drop("p2");
+  // The one handed back goes; the one in the saved draft stays, marked delivered.
+  expect(kept.take("a")).toEqual([{ promptId: "p1", text: "continue", inDraft: true, delivered: true }]);
+  expect(kept.take("a")).toEqual([]);
+});

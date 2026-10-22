@@ -125,17 +125,21 @@ export function lostPromptSlot() {
 
 /// Lost prompts that came back while the pane showed another chat, by chat. Each goes back into
 /// the composer, with its "Not sent", only once the pane shows its own chat again: in another
-/// chat's composer, the next Send would run it there.
-export function lostDrafts<Draft extends { promptId: string }>() {
+/// chat's composer, the next Send would run it there. `inDraft`: the prompt never left the composer,
+/// so it is in its chat's saved draft already and only its provenance waits.
+export function lostDrafts<Draft extends { promptId: string; inDraft?: boolean; delivered?: boolean }>() {
   const kept = new Map<string, Draft[]>();
   return {
     hold(sessionId: string, draft: Draft): void {
       kept.set(sessionId, [...(kept.get(sessionId) ?? []), draft]);
     },
-    /// The host sent `promptId` again after all: its draft never comes back, in any chat.
+    /// The host sent `promptId` again after all: its draft never comes back, in any chat. One in its
+    /// chat's saved draft stays, marked delivered, so that chat's next send leaves it out.
     drop(promptId: string): void {
       for (const [sessionId, drafts] of kept) {
-        const left = drafts.filter((draft) => draft.promptId !== promptId);
+        const left = drafts.flatMap((draft) =>
+          draft.promptId !== promptId ? [draft] : draft.inDraft ? [{ ...draft, delivered: true }] : [],
+        );
         if (left.length > 0) kept.set(sessionId, left);
         else kept.delete(sessionId);
       }

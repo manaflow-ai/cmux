@@ -5629,6 +5629,8 @@ function AcpmuxPane() {
       text: string;
       attachments: ComposerAttachment[];
       notice: string;
+      inDraft?: boolean;
+      delivered?: boolean;
     }>();
     /// Lost prompts put back in their chat's composer with a "Not sent", by prompt id, until the
     /// chat's next send takes the draft with it. `delivered`: the host sent it again after all.
@@ -5839,15 +5841,18 @@ function AcpmuxPane() {
                 const shown = directClient.current;
                 for (const draft of backHere) {
                   // The composer may still hold the chat shown before: it goes in once this one is.
-                  if (draft.text || draft.attachments.length > 0)
+                  // One that never left the composer is in this chat's saved draft already.
+                  if (!draft.inDraft && (draft.text || draft.attachments.length > 0))
                     restorePrompt(draft.text, draft.attachments, next.summary?.sessionId);
-                  const noticeId = shown?.notice(draft.notice);
-                  if (noticeId && next.summary)
+                  // Sent after all: no "Not sent", but this chat's next send leaves it out.
+                  const noticeId = draft.delivered ? "" : shown?.notice(draft.notice);
+                  if (noticeId !== undefined && next.summary)
                     restoredLost.set(draft.promptId, {
                       sessionId: next.summary.sessionId,
                       text: draft.text,
                       attachments: draft.attachments,
                       noticeId,
+                      ...(draft.delivered ? { delivered: true } : {}),
                     });
                 }
               });
@@ -6083,9 +6088,11 @@ function AcpmuxPane() {
             } else
               lostDraftsKept.hold(lost.sessionId, {
                 promptId: lost.promptId,
-                text: released ? text : "",
-                attachments: released ? attachments : [],
+                text,
+                attachments,
                 notice,
+                // Still in the composer as sent, which saves it as its chat's draft on the switch.
+                ...(released ? {} : { inDraft: true }),
               });
             throw released && error && typeof error === "object" ? Object.assign(error, { handedBack: true }) : error;
           };
