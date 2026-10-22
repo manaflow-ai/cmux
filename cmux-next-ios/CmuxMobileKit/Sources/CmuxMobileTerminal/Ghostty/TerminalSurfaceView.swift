@@ -621,8 +621,9 @@ final class TerminalSurfaceView: UIView {
             case .type(let draft):
                 perform([.text(draft)])
             case .enter where submit.delaysEnter:
+                let wait = submit.enterWait ?? ComposerSubmit.enterDelay
                 Task { @MainActor [weak self] in
-                    try? await ContinuousClock().sleep(for: ComposerSubmit.enterDelay)
+                    try? await ContinuousClock().sleep(for: wait)
                     self?.sendKey(usage: TerminalHIDUsage.enter)
                 }
             case .enter:

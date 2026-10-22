@@ -19,6 +19,20 @@ public struct ComposerSubmit: Equatable, Sendable {
     /// Time between the paste and its Return: the paste leaves in its own
     /// write and a program reading in bursts sees Return after it, not in it.
     public static let enterDelay: Duration = .milliseconds(60)
+    /// Time between typed text and its Return: past the window in which an
+    /// agent's paste-burst detection (Codex: about 120 ms after a burst of
+    /// unbracketed characters) takes Return for a newline (Codex QA F1),
+    /// should one run on the alternate screen.
+    public static let typedEnterDelay: Duration = .milliseconds(250)
+
+    /// The wait before Return: after a paste, after typed text, or none.
+    public var enterWait: Duration? {
+        switch steps.first {
+        case .paste: Self.enterDelay
+        case .type: Self.typedEnterDelay
+        case .enter, nil: nil
+        }
+    }
 
     public let steps: [Step]
 
@@ -51,8 +65,6 @@ public struct ComposerSubmit: Equatable, Sendable {
         return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    /// Whether Return waits for `enterDelay` (it follows a paste).
-    public var delaysEnter: Bool {
-        steps.first.map { if case .enter = $0 { false } else { true } } ?? false
-    }
+    /// Whether Return waits (it follows a paste or typed text: `enterWait`).
+    public var delaysEnter: Bool { enterWait != nil }
 }

@@ -10,12 +10,27 @@ after it and what was re-verified.
 | Item | Status | Change |
 | --- | --- | --- |
 | less: phone kept the first page while the Mac's less scrolled | Fixed, re-verified PASS | `TerminalRowShift`: the alternate screen's margins are the Mac's rows (7d72cac3147, f00e536ac39) |
-| F1 taps never click | Fixed, see re-verify below | A tap in an app that asked for the mouse is a left click at that cell (`TerminalSurfaceView.click`, `ghostty_surface_mouse_button`), then focuses the terminal as before. Tests `aTapIsAClickWhenTheAppAskedForTheMouse`, `aTapSendsNothingWithoutMouseReporting` |
+| F1 taps never click | Fixed, re-verified PASS | A tap in an app that asked for the mouse is a left click at that cell (`TerminalSurfaceView.click`, `ghostty_surface_mouse_button`), then focuses the terminal as before. Tests `aTapIsAClickWhenTheAppAskedForTheMouse`, `aTapSendsNothingWithoutMouseReporting` |
 | Drag-select inside a mouse-mode app | By design | One finger is the trackpad: a drag is the wheel (T-SCROLL-12). Selection is the long press (iOS text selection), which works in every TUI |
-| N1 composer Send in vim normal mode inserted `:q` | Fixed, see re-verify below | In a full-screen app a one-line draft is typed, not pasted (`ComposerSubmit(fullScreenApp:)`); several lines stay one bracketed paste. Test `aFullScreenAppGetsAOneLineDraftTyped` |
+| N1 composer Send in vim normal mode inserted `:q` | Fixed, re-verified PASS | In a full-screen app a one-line draft is typed, not pasted (`ComposerSubmit(fullScreenApp:)`), and Return follows 250 ms later, past an agent's paste-burst window should one run on the alternate screen (Codex QA F1: Return within about 120 ms of typed text became a newline). Several lines stay one bracketed paste. Test `aFullScreenAppGetsAOneLineDraftTyped`. A one-line Send to Codex on the alternate screen is UNVERIFIED: Codex was not logged in on the rig mini |
 | F2 hardware arrows, PgUp/PgDn, Home/End, forward Delete | UNVERIFIED, no change | They go through `UIKeyCommand`s (`navigationKeyCommands`, returned by `keyCommands`), which repeat when held; AXe's injected key events may not reach key commands. Needs a real Bluetooth keyboard on a device; no code change without that evidence |
 | F3 OSC 8 links not tappable | Not done here: needs a trust decision | Opening a URL that a remote program printed is a trust policy change (on the Mac Ghostty asks for Cmd-click). Recommendation posted to manaflow-ai/cmux#13742; no behavior change in this PR |
 | Key bar has no PgUp/PgDn, Home/End, F-keys | Not offered (product scope) | The joystick gives arrows; hardware F-keys work |
+
+## Re-verify (e03153ad391)
+
+Same rig, a Demo build of e03153ad391a3da609d683104e2d8599f3a72d29. The Mac's screen is the oracle.
+
+| Check | Result | Mac side | Evidence |
+| --- | --- | --- | --- |
+| Tap three lines in vim `mouse=a` | PASS | ruler 1,1 → 10,7 → 23,7 → 34,7, each the tapped row | frames/rv-vim-tap*-after.png, videos/rv-vim.mp4 |
+| Tap htop's CPU% header | PASS | sort PID → CPU% | frames/rv-htop-after-tap.png |
+| Tap the other tmux pane (mouse on) | PASS | active pane 1 → 0 → 1 | frames/rv-tmux-after-tap-left.png, videos/rv-tmux.mp4 |
+| Composer `:q` + Send in vim normal mode | PASS | vim quit; no `:q` in the file | frames/rv-vimq-after-send.png |
+| Tap in the shell focuses the terminal | PASS | composer reads "Typing into terminal" | frames/rv-shelltap-after-tap.png |
+| Long press → Copy in less | PASS | pasteboard "15" | frames/rv-lesscopy-menu.png |
+| Drag in htop scrolls | PASS | first process row changed | frames/rv-htop-after-drag.png |
+| Multi-line composer Send into Claude Code | PASS | one prompt, submitted, answered | frames/rv-claudeml-answer.png |
 
 ## First run (7d72cac3147)
 
