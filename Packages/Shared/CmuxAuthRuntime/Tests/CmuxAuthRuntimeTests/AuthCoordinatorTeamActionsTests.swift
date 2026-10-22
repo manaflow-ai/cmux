@@ -57,6 +57,19 @@ struct AuthCoordinatorTeamActionsTests {
         #expect(await client.lastSelectedTeamID == created.id)
     }
 
+    /// A successful create remains selectable when the follow-up read fails.
+    @Test func creatingTeamSurvivesFailedMembershipRefresh() async throws {
+        let (coordinator, client) = try await makeSignedInCoordinator()
+        await client.setThrowOnListTeams(AuthClientError.userUnavailable)
+
+        let created = try await coordinator.createTeam(displayName: "Recovered Team")
+
+        #expect(await client.teamCreateCount == 1)
+        #expect(coordinator.availableTeams.contains { $0.id == created.id })
+        #expect(coordinator.resolvedTeamID == created.id)
+        #expect(await client.lastSelectedTeamID == created.id)
+    }
+
     @Test func stalledCreateTimesOutInsteadOfLeavingThePickerFrozen() async throws {
         let clock = ManualTestClock()
         let client = FakeAuthClient(user: CMUXAuthUser(
