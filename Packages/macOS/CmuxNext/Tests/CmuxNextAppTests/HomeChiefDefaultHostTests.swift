@@ -176,6 +176,25 @@ struct HomeChiefDefaultHostTests {
         #expect(home.waitingHomeAsk == true)
     }
 
+    /// A sign-out drops the account's Hosted Chief even with no Chief tab check to read again
+    /// (`ensure_home` failed, or the daemon has no conversation tabs): Home's Chief is this Mac's again.
+    @Test func aSignOutWithoutAChiefTabDropsTheHostedChief() async {
+        let home = HomeChiefDefaultTests.services().home
+        let starts = Self.recordStarts(home)
+        var account: String? = "user_a"
+        home.cloudAccount = { account }
+        home.localChiefRunning = false
+        home.cloudChiefsRead = { HomeCloudChiefs(hosted: HomeChiefDefaultTests.hosted) }
+        await home.settleCloudChiefsWithoutTab()
+        #expect(home.cloudChief == HomeChiefDefaultTests.hosted)
+        account = nil
+        home.noteCloudAccount(nil)
+        await home.settleCloudChiefsWithoutTab()
+        #expect(home.cloudChief == nil, "signed out: no cloud Chief")
+        home.ensureLocalBrain(asked: true, for: nil)
+        #expect(starts.value == [true], "Home's Chief is this Mac's again")
+    }
+
     // MARK: The running state follows the brain keeper
 
     @Test func theKeepersReportChangesTheDefaultChief() {
