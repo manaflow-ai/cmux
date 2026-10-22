@@ -1,6 +1,6 @@
 import type { AcpmuxRow } from "../model";
 import { childRows, type ChildEntry } from "./childRows";
-import { isPlumbingCall } from "../hiddenTools";
+import { isPlumbingCall, isPlumbingName } from "../hiddenTools";
 
 /// The transcript row of a batch of subagents (SubagentGroup.tsx).
 export const SUBAGENTS = "subagents";
@@ -226,7 +226,9 @@ export class SubagentFold {
       agent.task = text(change.task) ?? agent.task;
       agent.kind = text(change.kind) ?? agent.kind;
     }
-    agent.action = text(change.action) ?? agent.action;
+    // Claude's progress names its last tool when it has no summary: plumbing is never what it does.
+    const action = text(change.action);
+    if (action && !isPlumbingName(action)) agent.action = action;
     agent.tokens = count(change.tokens) ?? agent.tokens;
     agent.toolUses = count(change.toolUses) ?? agent.toolUses;
     if (change.background === true) agent.background = true;

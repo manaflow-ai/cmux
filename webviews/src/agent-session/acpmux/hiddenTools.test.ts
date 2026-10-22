@@ -88,12 +88,36 @@ async function turnRows(): Promise<{ mixed: Row[]; only: Row[]; split: Row[]; ot
       ...call("bash-1", "Bash", "bun test src/net", "execute"),
       say("The retry tests pass."),
     ),
-    ...turn(ONLY, ...toolSearch("search-2"), ...toolSearch("search-3", "failed"), say("Loaded.")),
+    ...turn(
+      ONLY,
+      say("Loading the tools. "),
+      ...toolSearch("search-2"),
+      ...toolSearch("search-3", "failed"),
+      say("Loaded."),
+    ),
     // A page that starts between a ToolSearch call and its result: only the result is here.
     ...turn(
       SPLIT,
       toolSearch("search-4")[1],
       { update: { sessionUpdate: "tool_call_update", toolCallId: "search-5", status: "failed" } },
+      // A failed ToolSearch's result keeps its error text and still names no tool.
+      {
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "search-6",
+          status: "failed",
+          content: [{ type: "content", content: { type: "text", text: "No matching deferred tools found" } }],
+        },
+      },
+      // A real edit whose start is on the older page still shows the file it changed.
+      {
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "edit-0",
+          status: "completed",
+          content: [{ type: "diff", path: "/repo/src/net/retry.ts", oldText: "a", newText: "b" }],
+        },
+      },
       ...call("read-2", "Read", "Read retry.ts", "read"),
       say("Read it."),
     ),
@@ -162,13 +186,16 @@ test("a turn of ToolSearch, Read and Bash draws Read and Bash, and counts two ca
   // Only ToolSearch, done or failed: no activity row at all, so nothing folds into "Worked for".
   expect(only.filter((row) => row.kind === "activity")).toEqual([]);
   expect(only.find((row) => row.kind === "turnSummary")?.toolCount).toBe(0);
-  expect(only.filter((row) => row.kind === "assistant").map((row) => row.text)).toEqual(["Loaded."]);
+  // The reply a hidden call sits in reads on as one message.
+  expect(only.filter((row) => row.kind === "assistant").map((row) => row.text)).toEqual(["Loading the tools. Loaded."]);
 });
 
 test("a hidden call's result on a page without its call draws no row named by its id", async () => {
   const { split } = await turnRows();
-  expect(titles(split)).toEqual(["Read retry.ts"]);
-  expect(split.find((row) => row.kind === "turnSummary")?.toolCount).toBe(1);
+  // Empty, bare-failed and error-text results of calls on an older page draw nothing; an edit's
+  // result still shows the file it changed.
+  expect(titles(split)).toEqual(["edit-0", "Read retry.ts"]);
+  expect(split.find((row) => row.kind === "turnSummary")?.toolCount).toBe(2);
 });
 
 test("the ACP adapter's ToolSearch is hidden too; another tool titled ToolSearch is not", async () => {
@@ -206,6 +233,8 @@ test("a subagent calling ToolSearch never shows it as what the subagent is doing
   feed({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Audit" }] });
   for (const step of call("r-2", "Read", "Read retry.ts", "read")) feed(step.update, { subagent: "a" });
   for (const step of toolSearch("s-3")) feed(step.update, { subagent: "a" });
+  // Claude's progress with no summary names its last tool.
+  feed({ sessionUpdate: "subagent_progress" }, { subagents: [{ id: "a", action: "ToolSearch" }] });
   const audit = fold.takeRows().flatMap((row) => row.subagents ?? []);
   expect(audit.map((agent) => agent.action)).toEqual(["Read retry.ts"]);
 });

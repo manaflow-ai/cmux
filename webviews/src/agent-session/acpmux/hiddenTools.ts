@@ -15,22 +15,22 @@ export function isPlumbingCall(update: any): boolean {
   return typeof tool === "string" && PLUMBING_TOOLS.has(tool);
 }
 
-/// Whether a `tool_call_update` for a call this view never saw has nothing a row could show: no
-/// title, kind, input, output, place, diff, image or text. Such a row would read as its raw call
-/// id. It is what a page that starts between a call and its result holds for a hidden call:
-/// acpmux sends ToolSearch's result (its schemas are `tool_reference` blocks, no text) and a
-/// withdrawn call's failure without the tool's name.
+/// Whether a tool name (Claude's `last_tool_name` in a subagent's progress) is plumbing.
+export function isPlumbingName(name: unknown): boolean {
+  return typeof name === "string" && PLUMBING_TOOLS.has(name.trim());
+}
+
+/// Whether a `tool_call_update` for a call this view never saw has nothing a row could stand on:
+/// no title, name or kind, and no file it touched (a place, a diff) or image. Its row would be
+/// titled with the raw call id over at most some text. It is what a page that starts between a
+/// call and its result holds: acpmux sends a result (ToolSearch's included, an error's text too)
+/// without the tool's name, so a hidden call's result cannot be told from another's. A subagent's
+/// view already drops every such update (subagents/childRows.ts); the parent keeps only those
+/// that carry a file change or an image.
 export function showsNothing(update: any): boolean {
   if (update?.title || update?.name || update?.kind) return false;
-  if (update?.rawInput !== undefined || update?.rawOutput !== undefined) return false;
   if (Array.isArray(update?.locations) && update.locations.length) return false;
   const content = update?.content;
-  if (content === undefined || content === null) return true;
-  if (!Array.isArray(content)) return false;
-  return content.every(
-    (part: any) =>
-      part?.type === "content" &&
-      part.content?.type === "text" &&
-      (typeof part.content.text !== "string" || !part.content.text.trim()),
-  );
+  if (!Array.isArray(content)) return true;
+  return !content.some((part: any) => part?.type === "diff" || part?.content?.type === "image");
 }
