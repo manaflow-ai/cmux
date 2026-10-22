@@ -162,7 +162,7 @@ def atom_value(atom: str, context: dict):
         actual = "skipped"
     else:
         return None
-    return (actual == literal) == (op == "==")
+    return (actual.lower() == literal.lower()) == (op == "==")
 
 
 def value(text: str, context: dict):
@@ -234,14 +234,13 @@ def trigger_problem(workflow: dict):
             return f"pull_request trigger branches {config['branches']} do not admit {BASE}"
         if last_match(BASE, config.get("branches-ignore") or []) is True:
             return f"pull_request trigger branches-ignore {config['branches-ignore']} excludes {BASE}"
-        for key, admitted in (("paths", True), ("paths-ignore", False)):
-            if key not in config:
-                continue
-            patterns = [str(p) for p in config[key] or []]
-            # A witness path from each pattern (and one no pattern names) must survive the list.
-            samples = [re.sub(r"[?+\[\]]", "", p.lstrip("!").replace("**", "x/x").replace("*", "x"))
-                       for p in patterns] + ["zz-unnamed/x"]
-            if not any((last_match(sample, patterns) is True) == admitted for sample in samples):
+        # The last matching pattern decides: refuse only a list after whose last match-all
+        # closing pattern nothing reopens (a positive in paths, a negation in paths-ignore).
+        for key, closing in (("paths", "!"), ("paths-ignore", "")):
+            patterns = [str(p) for p in config.get(key) or []]
+            ends = [i for i, p in enumerate(patterns) if p in (closing + "**", closing + "**/*")]
+            tail = patterns[ends[-1] + 1:] if ends else (None if key == "paths-ignore" else patterns)
+            if key in config and tail is not None and not [p for p in tail if p.startswith("!") != (key == "paths")]:
                 return f"pull_request trigger {key} {patterns} admit no path"
     except re.error as error:
         return f"pull_request trigger pattern cannot be checked ({error}); simplify it"
@@ -270,10 +269,11 @@ def pr_routes(workflows: dict) -> dict:
               if EVENT in triggers(workflow) and trigger_problem(workflow) is None}
     caller, job_id, guards = GUARDS_SCRIPT_ROUTE
     skipped = skipped_jobs(workflows[caller], {}) if caller in routes else {job_id: "no route"}
-    steps = (jobs(workflows.get(caller) or {}).get(job_id) or {}).get("steps") or []
+    job = jobs(workflows.get(caller) or {}).get(job_id) or {}
     if job_id not in skipped and guards in workflows and any(
             "guards-local.sh" in str(step.get("run")) and "--feat-routes" in str(step.get("run"))
-            and can_hold(step.get("if"), {"skipped": skipped}) for step in steps):
+            and can_hold(step.get("if"), {"skipped": skipped, "matrix": row}) for step in job.get("steps") or []
+            for row in matrix_rows(job, {}) or [None]):
         groups = detect_linux_guard_changes.FEAT_ALWAYS + detect_linux_guard_changes.FEAT_ROUTED
         routes[guards] = [{"linux_guard_tests": "true", "linux_guard_test_groups": json.dumps(list(groups))}]
     queue = [(name, inputs) for name in sorted(routes) for inputs in routes[name]]
