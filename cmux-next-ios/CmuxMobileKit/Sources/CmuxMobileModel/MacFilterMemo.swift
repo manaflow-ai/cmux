@@ -1,4 +1,3 @@
-import CmuxMobileModel
 import Foundation
 
 /// The Workspaces toolbar's per-Mac text, computed once per change instead of

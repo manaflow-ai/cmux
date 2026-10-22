@@ -23,6 +23,8 @@ public final class AcpmuxHub {
     @ObservationIgnored public var macLink: (any MacLink)?
 
     @ObservationIgnored private var connection: AcpmuxConnection?
+    /// Callers of `waitUntilReady` (a Feed answer whose Mac's link is opening).
+    @ObservationIgnored private var readyWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     @ObservationIgnored private var pumpTask: Task<Void, Never>?
     @ObservationIgnored private var sources: [String: WeakSource] = [:]
     /// Watch-level events for the Feed: `(sessionId, notification)`.
@@ -112,6 +114,9 @@ public final class AcpmuxHub {
             sessions = next
             isReady = true
             lastError = nil
+            let waiters = readyWaiters
+            readyWaiters = [:]
+            for waiter in waiters.values { waiter.resume(returning: true) }
             log.info("acpmux ready, \(next.count, privacy: .public) sessions")
             for entry in sources.values { entry.source?.linkUp() }
             onWatchEvent?(.sessionsLoaded(Array(next.values)))
@@ -143,6 +148,33 @@ public final class AcpmuxHub {
                 onWatchEvent?(.permissionPending(sessionID: session.id, permissionID: id, request: request))
             }
         }
+    }
+
+    /// Waits until a channel is bound and watched (`isReady`), for at most
+    /// `timeout` on `clock`. False on timeout or cancellation.
+    public func waitUntilReady(timeout: Duration, clock: any Clock<Duration>) async -> Bool {
+        if isReady { return true }
+        let id = UUID()
+        let timer = Task { @MainActor [weak self] in
+            try? await clock.sleep(for: timeout)
+            self?.resumeWaiter(id, false)
+        }
+        defer { timer.cancel() }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if isReady || Task.isCancelled {
+                    continuation.resume(returning: isReady)
+                } else {
+                    readyWaiters[id] = continuation
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.resumeWaiter(id, false) }
+        }
+    }
+
+    private func resumeWaiter(_ id: UUID, _ ready: Bool) {
+        readyWaiters.removeValue(forKey: id)?.resume(returning: ready)
     }
 
     public func request(_ method: String, _ params: JSONValue) async throws -> JSONValue {

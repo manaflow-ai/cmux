@@ -12,6 +12,10 @@ private let theme = CmuxMobileTheme.standard
 struct AgentConversation: Identifiable, Hashable {
     let workspaceID: String
     let tabID: String
+    /// The Mac the workspace is on.
+    let macID: String
+    /// The agent and, with several Macs, the Mac ("Codex · Aziz's MacBook Pro").
+    let subtitle: String
     /// The row's title: the workspace ("cmux"); a workspace's second and
     /// later agent tabs add the agent ("cmux · Codex").
     let title: String
@@ -46,6 +50,11 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     let sources: ChiefSources
     let leading: Leading
     let open: (HomeConversationRoute) -> Void
+    /// The Mac filter, shared with Workspaces (remembered per team).
+    let macFilter: MacFilter
+    /// Live: choosing a Mac links it and moves the Mac Chief to it, as on Workspaces.
+    let selectMac: ((String) -> Void)?
+    @State private var macText = MacFilterMemo()
     @State private var query = ""
     @State private var filter: Filter = .all
     @State private var unread: Set<String> = []
@@ -68,23 +77,34 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     }
 
     /// `open` pushes a conversation New Message opened onto Home's stack.
-    public init(store: AppStore, sources: ChiefSources = .shared,
+    public init(store: AppStore, sources: ChiefSources = .shared, macFilter: MacFilter = MacFilter(),
+                selectMac: ((String) -> Void)? = nil,
                 open: @escaping (HomeConversationRoute) -> Void,
                 @ToolbarContentBuilder leading: () -> Leading) {
         self.store = store
         self.sources = sources
+        self.macFilter = macFilter
+        self.selectMac = selectMac
         self.open = open
         self.leading = leading()
+    }
+
+    /// The listed Macs (a computer registered twice shows once: ``MacRoster``).
+    private var macs: [MacDevice] { MacRoster(store.activeTeam?.macs ?? [], now: MinuteClock.shared.now).visible }
+
+    private var labels: HomeMacLabels {
+        HomeMacLabels(macs: macs, scope: macFilter.scope(in: store.activeTeam))
     }
 
     /// The default Chief: compose, New Message and the first pin.
     private var session: ChiefSession { sources.primary }
 
     private var agents: [AgentConversation] {
+        let labels = labels
         var all: [AgentConversation] = []
-        for workspace in store.activeWorkspaces {
+        for workspace in store.activeWorkspaces where labels.includes(macID: workspace.macID) {
             for tab in workspace.tabs where tab.kind == .agent {
-                all.append(conversation(tab, in: workspace))
+                all.append(conversation(tab, in: workspace, labels: labels))
             }
         }
         return all
@@ -92,16 +112,18 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
             .sorted { $0.date > $1.date }
     }
 
-    private func conversation(_ tab: WorkspaceTab, in workspace: Workspace) -> AgentConversation {
+    private func conversation(_ tab: WorkspaceTab, in workspace: Workspace, labels: HomeMacLabels) -> AgentConversation {
         let chat = AgentSessionDirectory.shared.existingStore(id: tab.id, macID: workspace.macID)
         let lastTurn = chat?.turns.last
         let answer: String? = lastTurn.map { $0.lastAnswerMarkdown ?? $0.prompt }
         let agentTabs = workspace.tabs.filter { $0.kind == .agent }
+        let harness = tab.harness ?? "claude"
         return AgentConversation(
-            workspaceID: workspace.id, tabID: tab.id,
+            workspaceID: workspace.id, tabID: tab.id, macID: workspace.macID,
+            subtitle: labels.subtitle(harness: harness, macID: workspace.macID),
             title: Self.title(of: tab, in: workspace.title, agentIDs: agentTabs.map(\.id)),
             name: tab.title, workspaceTitle: workspace.title,
-            harness: tab.harness ?? "claude",
+            harness: harness,
             preview: Self.plain(answer ?? tab.subtitle ?? ""),
             date: lastTurn?.promptAt ?? workspace.lastActivityAt,
             needsYou: workspace.needsAttention && tab.id == agentTabs.first?.id
@@ -123,13 +145,29 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         }
         guard passesFilter else { return false }
         if query.isEmpty { return true }
-        let haystack = "\(conversation.name) \(conversation.workspaceTitle) \(conversation.preview)"
+        let haystack = "\(conversation.name) \(conversation.workspaceTitle) \(conversation.subtitle) \(conversation.preview)"
         return haystack.localizedCaseInsensitiveContains(query)
     }
 
     /// Chief's pin follows the filter too (SPEC 1.6): Unread while it has
     /// unread messages, Needs You while it waits on the user.
-    private var showsChief: Bool { shows(session) || sources.secondary.map(shows) == true }
+    private var showsChief: Bool { showsPrimary || macChief.map(shows) == true }
+
+    /// The first pin: the Cloud Chief (on no Mac) always; the Mac Chief only
+    /// when it runs on the filter's Mac.
+    private var showsPrimary: Bool {
+        shows(session) && (sources.isCloudReady || labels.showsMacChief(macID: session.macID))
+    }
+
+    /// The Mac Chief beside the Cloud Chief, when the filter's Mac is its Mac.
+    private var macChief: ChiefSession? {
+        sources.secondary.flatMap { labels.showsMacChief(macID: $0.macID) ? $0 : nil }
+    }
+
+    /// Under a pin's name: "Cloud", or the Mac the Chief runs on.
+    private func detail(_ chief: ChiefSession, place: ChiefRoute.Place) -> String? {
+        labels.chiefDetail(place: place, macID: chief.macID, macName: chief.macName)
+    }
 
     private func shows(_ session: ChiefSession) -> Bool {
         let passesFilter: Bool = switch filter {
@@ -149,14 +187,15 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         List {
             if showsChief {
                 HStack(alignment: .bottom, spacing: 0) {
-                    if shows(session) {
+                    if showsPrimary {
                         PinnedGrid(session: session, route: ChiefRoute(place: sources.primaryPlace), name: primaryName,
+                                   detail: detail(session, place: sources.primaryPlace),
                                    identifier: "home.chief", cloud: sources.isCloudReady ? sources : nil,
                                    newChief: newChiefAction)
                     }
-                    if let mac = sources.secondary, shows(mac) {
-                        PinnedGrid(session: mac, route: ChiefRoute(place: .mac), name: String(localized: "Mac Chief"),
-                                   identifier: "home.chief.mac")
+                    if let mac = macChief, shows(mac) {
+                        PinnedGrid(session: mac, route: ChiefRoute(place: .mac), name: String(localized: "Chief"),
+                                   detail: detail(mac, place: .mac), identifier: "home.chief.mac")
                     }
                 }
                 .listRowInsets(EdgeInsets())
@@ -208,6 +247,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     MessagesRow(
                         title: conversation.title,
                         agent: conversation.title.hasSuffix("· \(conversation.name)") ? nil : conversation.name,
+                        subtitle: conversation.subtitle,
                         preview: conversation.preview,
                         stamp: stamp.string(for: conversation.date),
                         isUnread: unread.contains(conversation.id),
@@ -268,12 +308,16 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     Picker("Filter", selection: $filter) {
                         ForEach(Filter.allCases) { Text($0.title).tag($0) }
                     }
+                    if macs.count > 1 { macSection }
                 } label: {
                     // A Label, not a bare Image: the bar then hosts a native button whose touch
                     // area covers the whole 44 pt glass circle (a bare Image label was 36 pt).
-                    Label("Filter", systemImage: filter == .all ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
+                    Label("Filter", systemImage: filter == .all && labels.scope == .all
+                        ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
                 }
                 .accessibilityLabel("Filter")
+                .accessibilityIdentifier("home.filter")
+                .accessibilityValue(filterValue)
                 // Compose opens the Chief conversation with the keyboard up
                 // (SPEC 1.4): the phone cannot create conversations, so
                 // every other recipient is already a row here, and Chief
@@ -308,6 +352,52 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         }
         .animation(theme.motion.smooth.animation, value: filter)
         .animation(theme.motion.smooth.animation, value: deleted)
+    }
+
+    /// The filter menu's Macs, as on Workspaces: All Macs, then each Mac
+    /// (online first) with its presence and link line.
+    @ViewBuilder private var macSection: some View {
+        let entries = macText.entries(MacFilterMemo.Input(macs: macs, connection: store.macConnection,
+                                                          linkStatus: store.macLinkStatus, live: store.tracksMacData,
+                                                          now: MinuteClock.shared.now))
+        Section("Macs") {
+            Toggle(isOn: chosen(.all)) {
+                Label("All Macs", systemImage: "square.stack.3d.up")
+            }
+            .accessibilityIdentifier("home.filter.all")
+            ForEach(entries) { mac in
+                Toggle(isOn: chosen(.mac(mac.id))) {
+                    Text(mac.title)
+                    Text(mac.detail)
+                    Image(systemName: "desktopcomputer")
+                }
+                .accessibilityIdentifier("home.filter.\(mac.id)")
+            }
+        }
+    }
+
+    /// "All Conversations, All Macs", or the chosen Mac, for VoiceOver and the rig.
+    private var filterValue: String {
+        let mac = labels.scope.macID.flatMap { labels.macName($0) } ?? String(localized: "All Macs")
+        let conversations = switch filter {
+        case .all: String(localized: "All Conversations")
+        case .unread: String(localized: "Unread")
+        case .needsYou: String(localized: "Needs You")
+        }
+        return "\(conversations), \(mac)"
+    }
+
+    /// On for the chosen Mac scope; turning one on chooses it.
+    private func chosen(_ value: MacScope) -> Binding<Bool> {
+        Binding(get: { labels.scope == value }, set: { if $0 { selectScope(value) } })
+    }
+
+    private func selectScope(_ value: MacScope) {
+        guard let team = store.activeTeam, value != labels.scope else { return }
+        theme.haptics.selection()
+        withAnimation(theme.motion.smooth.animation) { macFilter.select(value, in: team.id) }
+        // The chosen Mac is linked and focused, so its Mac Chief is the one shown.
+        if let id = value.macID, macs.contains(where: { $0.id == id && $0.isOnline }) { selectMac?(id) }
     }
 
     /// The first pin's name: the Cloud Chief's own name once it is the default.
@@ -374,6 +464,8 @@ struct PinnedGrid: View {
     /// Which Chief the pin opens.
     var route = ChiefRoute()
     var name = String(localized: "Chief")
+    /// Where this Chief runs, under its name: "Cloud" or its Mac.
+    var detail: String?
     var identifier = "home.chief"
     /// The Cloud Chief's pin: its menu lists the account's other chiefs.
     var cloud: ChiefSources?
@@ -428,6 +520,7 @@ struct PinnedGrid: View {
     private var previewText: String { plainPreview(session.preview) }
 
     private var accessibilityLabel: Text {
+        let name = detail.map { "\(self.name), \($0)" } ?? self.name
         if session.isWorking { return Text("\(name), typing") }
         if showsPreview { return Text("\(name), \(previewText)") }
         return Text("\(name), pinned")
@@ -472,6 +565,14 @@ struct PinnedGrid: View {
                         .accessibilityLabel("Alerts hidden")
                 }
             }
+            if let detail {
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(theme.colors.label2.color)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: 150)
+            }
         }
         .frame(minWidth: 110)
     }
@@ -486,6 +587,8 @@ struct MessagesRow<Avatar: View>: View {
     /// The agent, for VoiceOver (F5): the avatar mark says it to the eye
     /// only. nil when the title already names it ("cmux · Codex").
     var agent: String?
+    /// The agent and its Mac ("Codex · Aziz's MacBook Pro"), under the title.
+    var subtitle: String?
     let preview: String
     let stamp: String
     let isUnread: Bool
@@ -521,7 +624,7 @@ struct MessagesRow<Avatar: View>: View {
         var parts: [String] = []
         if isUnread { parts.append(String(localized: "Unread")) } else if needsYou { parts.append(String(localized: "Needs you")) }
         parts.append(title)
-        if let agent { parts.append(agent) }
+        if let subtitle { parts.append(subtitle) } else if let agent { parts.append(agent) }
         parts.append(stamp)
         if !preview.isEmpty { parts.append(preview) }
         if isMuted { parts.append(String(localized: "Alerts hidden")) }
@@ -547,6 +650,16 @@ struct MessagesRow<Avatar: View>: View {
 
     private var titleText: some View {
         Text(title).font(.body.weight(.semibold))
+    }
+
+    @ViewBuilder private var subtitleText: some View {
+        if let subtitle, !subtitle.isEmpty {
+            Text(subtitle)
+                .font(.subheadline)
+                .foregroundStyle(theme.colors.label.color)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
     }
 
     private var dateAndChevron: some View {
@@ -577,6 +690,7 @@ struct MessagesRow<Avatar: View>: View {
                 Spacer(minLength: 4)
                 dateAndChevron
             }
+            subtitleText
             previewText(lines: 2)
         }
     }
@@ -587,6 +701,7 @@ struct MessagesRow<Avatar: View>: View {
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
             dateAndChevron
+            subtitleText
             Text(preview.isEmpty ? " " : preview)
                 .font(.subheadline)
                 .foregroundStyle(theme.colors.label2.color)

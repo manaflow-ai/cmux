@@ -1,7 +1,6 @@
-import CmuxMobileModel
 import Foundation
 import Testing
-@testable import CmuxMobileWorkspaces
+@testable import CmuxMobileModel
 
 /// verify/perf-latency.md: the Workspaces toolbar's Mac names and Filter rows
 /// are computed once per change, not on every body pass.

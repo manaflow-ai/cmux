@@ -149,6 +149,8 @@ public final class LiveCoordinator {
     /// the new team's Mac and failed, or reached the wrong one.
     @ObservationIgnored private var feedTeamID: String?
     @ObservationIgnored var feedSavePending = false
+    /// The Feed's answers (`FeedStore.actions` is weak: this keeps them alive).
+    @ObservationIgnored var feedActions: MultiMacFeedActions?
     /// How long a connected Mac may take to send its workspace list before
     /// the list says it could not load them (with Retry), instead of a
     /// skeleton that never ends.
@@ -209,7 +211,9 @@ public final class LiveCoordinator {
             self?.scheduleFeedSave(archive)
             for session in self?.sessions.values ?? [:].values { session.terminalFeed.itemsChanged(items) }
         }
-        feedStore.actions = MultiMacFeedActions(coordinator: self)
+        let feedActions = MultiMacFeedActions(coordinator: self)
+        self.feedActions = feedActions
+        feedStore.actions = feedActions
         feedStore.syncState = .connecting
         store.workspaces = []
         store.tracksMacData = true
