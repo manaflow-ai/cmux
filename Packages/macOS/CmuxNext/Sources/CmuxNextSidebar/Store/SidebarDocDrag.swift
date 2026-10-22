@@ -59,6 +59,8 @@ public struct SidebarDocDrag {
                          blocks: [String: SidebarRegionLayout] = [:]) -> (SidebarDragGeometry, [String: SidebarRow]) {
         var slots: [SidebarDragGeometry.Slot] = []
         var rows: [String: SidebarRow] = [:]
+        // The group header open at each depth, so a subgroup's slot names the group it sits in.
+        var headerAtDepth: [Int: GroupID] = [:]
         for row in layout.rows {
             guard let section = section(row.section) else { continue }
             let frame = CGRect(x: 0, y: row.y, width: width, height: row.height)
@@ -67,7 +69,14 @@ public struct SidebarDocDrag {
                 guard let id = item(row.key) else { continue }
                 var parent: String?
                 var kind = SidebarDragGeometry.Slot.Kind.row
-                if case .group = row.key { kind = .group } else { parent = row.group.flatMap { item(.group($0)) } }
+                if case let .group(group) = row.key {
+                    kind = .group
+                    headerAtDepth = headerAtDepth.filter { $0.key < row.depth }
+                    headerAtDepth[row.depth] = group
+                    parent = row.depth > 0 ? headerAtDepth[row.depth - 1].flatMap { item(.group($0)) } : nil
+                } else {
+                    parent = row.group.flatMap { item(.group($0)) }
+                }
                 slots.append(.init(key: id, item: id, section: section, parent: parent, frame: frame, kind: kind))
                 rows[id] = row
             case .section, .emptySection:
