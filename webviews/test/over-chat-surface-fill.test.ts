@@ -62,7 +62,12 @@ test("no surface over the chat fills with the page color, which is clear in a tr
       if (!named.some((name) => surfaces.has(name))) continue;
       // Only the surface's own fill: a descendant (a row, a tab) lies on the surface, not over the chat.
       const subject = selector.split(",").some((part) => {
-        const last = part.trim().split(/\s+|>|~|\+/).filter(Boolean).at(-1) ?? "";
+        const last =
+          part
+            .trim()
+            .split(/\s+|>|~|\+/)
+            .filter(Boolean)
+            .at(-1) ?? "";
         return (last.match(/\.[a-z][\w-]*/g) ?? []).some((name) => surfaces.has(name.slice(1)));
       });
       if (!subject) continue;
