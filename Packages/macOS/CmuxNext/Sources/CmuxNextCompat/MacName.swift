@@ -10,7 +10,7 @@ public struct MacName: Sendable {
 
     /// The user-visible computer name (System Settings > General > Sharing),
     /// from the local configuration store, read off the main actor. Falls
-    /// back to the kernel host name, then "Mac".
+    /// back to the host name, then "Mac".
     public func computerName() async -> String {
         await Self.resolve {
             SCDynamicStoreCopyComputerName(nil, nil) as String?
@@ -23,7 +23,7 @@ public struct MacName: Sendable {
     /// name are told apart by the name their owner gave them.
     public func displayName() async -> String {
         let computer = await computerName()
-        return Self.displayName(computer: computer, localHost: nil, kernel: kernelHostName())
+        return Self.displayName(computer: computer, localHost: await Self.localHostName(), kernel: kernelHostName())
     }
 
     /// `displayName()`'s pick from the names already read.
@@ -32,9 +32,11 @@ public struct MacName: Sendable {
         return isDefaultName(computer) && !host.isEmpty && !isDefaultName(host) ? host : computer
     }
 
-    /// The host name to show from the names already read.
+    /// The host name to show from the names already read: the local host
+    /// name, else the kernel's.
     nonisolated static func hostName(localHost: String?, kernel: String) -> String {
-        kernel
+        let local = localHost?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return local.isEmpty ? kernel : local
     }
 
     /// Whether `name` looks like a name macOS made up: one that names the
@@ -48,8 +50,20 @@ public struct MacName: Sendable {
     /// Runs `read` off the main actor (it may do IPC) and applies the fallbacks.
     @concurrent private static func resolve(_ read: @Sendable () -> String?) async -> String {
         if let name = read()?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return name }
-        let host = MacName().kernelHostName()
+        let host = MacName().hostName()
         return host.isEmpty ? "Mac" : host
+    }
+
+    /// This Mac's stable host name: the local (Bonjour) host name its owner
+    /// set in Sharing ("cosmic-gray"), else the kernel host name, which DHCP
+    /// or reverse DNS can rename ("dhcp-10-0-1-5"). A configd read, no DNS.
+    public nonisolated func hostName() -> String {
+        Self.hostName(localHost: SCDynamicStoreCopyLocalHostName(nil) as String?, kernel: kernelHostName())
+    }
+
+    /// The local host name, read off the main actor (it is IPC).
+    @concurrent private static func localHostName() async -> String? {
+        SCDynamicStoreCopyLocalHostName(nil) as String?
     }
 
     /// `cmux-<host>`, as the old app named its Cloud link device (moved from
