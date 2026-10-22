@@ -19,7 +19,8 @@
 //!   unasked inside Claude's own sandbox, and the process is never given
 //!   `--allow-dangerously-skip-permissions`. It runs in Normal or Plan only (`MODES`).
 //! - A profile argv that already shapes any of that is refused (`remote_sandbox::refused_arg`).
-//!   The program is looked up on the absolute folders of PATH and never inside the chat's folder.
+//!   The program is looked up on the absolute folders of PATH and never inside the chat's folder,
+//!   and no argument of the profile's names a path there (an interpreter's script).
 //! - git, which Claude Code runs in the folder, gets `core.fsmonitor=false` and
 //!   `core.hooksPath=/dev/null` through `GIT_CONFIG_COUNT` (other git config in the folder,
 //!   such as a filter driver, still applies: see the PR's risks).
@@ -187,6 +188,30 @@ fn frozen_program(program: &str, cwd: &Path) -> Result<String, String> {
         return Err(format!("{} is inside the chat's folder", real.display()));
     }
     Ok(found.to_string_lossy().into_owned())
+}
+
+/// Refuses an argument of the profile's own `args` (a flag's `=value` too) that names a path
+/// inside the chat's folder `cwd`: absolute, or relative and there, since Claude Code starts in
+/// it. `frozen_program` checks only the program, and an interpreter (`node`, `python3`) runs
+/// the script it is given before anything asks. Allowed when `cwd` holds the person's home.
+fn folder_args(args: &[String], cwd: &Path) -> Result<(), String> {
+    let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+    if held_home(&cwd).is_some() {
+        return Ok(());
+    }
+    let words = args.iter().flat_map(|a| [Some(a.as_str()), a.split_once('=').map(|(_, v)| v)]);
+    for word in words.flatten().filter(|w| !w.is_empty()) {
+        let path = Path::new(word);
+        let inside = if path.is_absolute() {
+            resolved(path).starts_with(&cwd)
+        } else {
+            cwd.join(path).symlink_metadata().is_ok()
+        };
+        if inside {
+            return Err(format!("{word} is inside the chat's folder"));
+        }
+    }
+    Ok(())
 }
 
 /// Refuses `mode` for a restricted chat unless it asks (`MODES`): `Hub::set_mode` and the
@@ -555,7 +580,9 @@ impl Hub {
         }
         let refused = |why: String| self.refuse_start(session, why);
         self.refuse_unrestricted_start(session, &profile)?;
-        let mut plan = command_line(own_argv(&profile.argv, &meta.tools), plan).map_err(refused)?;
+        let own = own_argv(&profile.argv, &meta.tools);
+        folder_args(own.get(1..).unwrap_or_default(), &meta.cwd).map_err(refused)?;
+        let mut plan = command_line(own, plan).map_err(refused)?;
         plan.program = frozen_program(&plan.program, &meta.cwd).map_err(refused)?;
         for &(key, under) in SETTINGS_ROOTS {
             let own = profile.env.get(key).map(|v| env_refs_read(key, v)).transpose();
@@ -711,6 +738,26 @@ mod tests {
         if account_home().is_some() {
             assert!(frozen_program(&program.to_string_lossy(), Path::new("/")).is_ok());
         }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_profile_argument_inside_the_chat_folder_is_refused() {
+        let root = std::env::temp_dir().join(format!("restricted-args-{}", std::process::id()));
+        let (chat, elsewhere) = (root.join("chat"), root.join("elsewhere"));
+        std::fs::create_dir_all(&chat).unwrap();
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::write(chat.join("cli.js"), "").unwrap();
+        let args = |a: &[&str]| a.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
+        let script = chat.join("cli.js").to_string_lossy().into_owned();
+        assert!(folder_args(&args(&[&script]), &chat).is_err());
+        assert!(folder_args(&args(&["cli.js"]), &chat).is_err());
+        assert!(folder_args(&args(&[&format!("--require={script}")]), &chat).is_err());
+        let missing = chat.join("later.js").to_string_lossy().into_owned();
+        assert!(folder_args(&args(&[&missing]), &chat).is_err());
+        let ok = args(&["--model", "opus", "--verbose", &elsewhere.to_string_lossy()]);
+        assert!(folder_args(&ok, &chat).is_ok());
+        assert!(folder_args(&args(&[&script]), &elsewhere).is_ok());
         let _ = std::fs::remove_dir_all(&root);
     }
 
