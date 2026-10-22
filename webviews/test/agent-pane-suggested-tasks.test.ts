@@ -620,6 +620,10 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
         timeout: 5_000,
       });
       expect(await toggle.getAttribute("aria-expanded")).toBe("true");
+      // It slides open to its whole height (fold.ts playResize): read it once the slide is over.
+      await card
+        .locator(".cv-received__text")
+        .evaluate((el) => Promise.all(el.getAnimations().map((animation) => animation.finished)));
       expect(await card.locator(".cv-received__text").evaluate((el) => el.clientHeight)).toBeGreaterThan(cutHeight * 2);
       // The chevron cuts it again.
       await toggle.click();
