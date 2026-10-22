@@ -72,7 +72,9 @@ extension KeyRouter {
         guard decide(event, focus: focus, keyWindow: kind, facts: facts) == .typeAhead else {
             guard waiting else { return false }
             if event.keyCode == Self.deleteKeyCode {
-                typeAhead.deleteBackward(surface: surface)
+                // A Delete while the taken text is being inserted, with nothing queued after it, is
+                // for that text: it goes to the page once the text landed (it was dropped before).
+                typeAhead.deleteBackward(surface: surface, delivering: deliveringTypeAhead == surface)
                 decided.add(event)
                 return true
             }
@@ -93,14 +95,19 @@ extension KeyRouter {
     nonisolated static let deleteKeyCode: UInt16 = 51
 
     /// Delivers the queued text, one insertion at a time; keys typed while
-    /// one is delivered follow it.
+    /// one is delivered follow it. Deletes typed while it was on its way go
+    /// right after it, before any text queued later.
     func flushTypeAhead(_ surface: String, into readiness: PageInputReadiness) {
         guard deliveringTypeAhead == nil, let text = typeAhead.take(surface: surface, now: .now) else { return }
         deliveringTypeAhead = surface
-        // task-owner: one queued insertion into the page; the next flush runs after it
+        // task-owner: one queued insertion into the page, then its Deletes; the next flush runs after it
         Task { [weak self, weak readiness] in
             guard let readiness else { return }
             _ = await readiness.insert(text)
+            // Ends when no Delete came in during the last edit; each pass sends what came before it.
+            while let self, case let deletes = self.typeAhead.takeDeletes(), deletes > 0 {
+                _ = await readiness.deleteBackward(deletes)
+            }
             guard let self else { return }
             deliveringTypeAhead = nil
             flushTypeAhead(surface, into: readiness)

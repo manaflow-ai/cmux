@@ -1,4 +1,5 @@
 public import WebKit
+import CmuxNextSettings
 
 /// Whether a page's document can take typing yet (spec app-screens.md
 /// section 3, R59): a user script reports `false` when a document starts
@@ -29,7 +30,24 @@ public final class PageInputReadiness {
     private weak var webView: WKWebView?
     /// Types into a page another engine shows (a Chromium page, ``PageWebView``); nil types into the
     /// attached web view.
-    var inserter: ((String) async -> Bool)?
+    var editor: ((Edit) async -> Bool)?
+
+    /// One edit of the focused editable element: queued text, or Deletes typed while it was on its way.
+    public enum Edit: Equatable, Sendable {
+        case insert(String)
+        case deleteBackward(Int)
+
+        /// The script body that makes this edit (`editable` and the element check come first).
+        var script: String {
+            switch self {
+            case .insert(let text):
+                "return document.execCommand('insertText', false, \(JSONValue.string(text).compactText));"
+            case .deleteBackward(let count):
+                // One `delete` per key, as the keys would: each is an input event the page's handlers see.
+                "for (let i = 0; i < \(max(0, count)); i += 1) { if (!document.execCommand('delete', false)) { return false; } } return true;"
+            }
+        }
+    }
 
     /// Installs the script and its message handler on `configuration`
     /// before its web view loads anything.
@@ -82,10 +100,31 @@ public final class PageInputReadiness {
     /// input events reach the page's own handlers). Returns whether an
     /// editable element had focus.
     public func insert(_ text: String) async -> Bool {
-        if let inserter { return await inserter(text) }
+        await apply(.insert(text))
+    }
+
+    /// Deletes `count` characters before the caret of the focused editable element, one Delete
+    /// each: the Deletes typed while queued text was still being inserted (``insert(_:)``).
+    public func deleteBackward(_ count: Int) async -> Bool {
+        guard count > 0 else { return true }
+        return await apply(.deleteBackward(count))
+    }
+
+    private func apply(_ edit: Edit) async -> Bool {
+        if let editor { return await editor(edit) }
         guard let webView else { return false }
-        let inserted = try? await webView.callAsyncJavaScript(Self.insertScript, arguments: ["text": text], in: nil, contentWorld: .page)
-        return inserted as? Bool == true
+        let done = try? await webView.callAsyncJavaScript(Self.editScript(edit), arguments: [:], in: nil, contentWorld: .page)
+        return done as? Bool == true
+    }
+
+    /// A function body that makes `edit` in the focused editable element; false when none has focus.
+    static func editScript(_ edit: Edit) -> String {
+        """
+        \(editable)
+        const el = document.activeElement;
+        if (!editable(el)) { return false; }
+        \(edit.script)
+        """
     }
 
     static let editable = """
@@ -158,13 +197,6 @@ public final class PageInputReadiness {
           // The pointer left the page: no element is under it.
           document.addEventListener('pointerout', (event) => { if (!event.relatedTarget) { pointer = null; check(); } }, options);
           window.addEventListener('blur', () => { pointer = null; check(); });
-        """
-
-    static let insertScript = """
-        \(editable)
-        const el = document.activeElement;
-        if (!editable(el)) { return false; }
-        return document.execCommand('insertText', false, text);
         """
 
     /// Holds the readiness weakly (the user content controller retains its handlers).
