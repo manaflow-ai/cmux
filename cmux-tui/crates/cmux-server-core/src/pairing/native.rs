@@ -141,10 +141,6 @@ impl Grant {
         nonce: [u8; 16],
         sign: impl FnOnce(&[u8]) -> Result<String, String>,
     ) -> Result<Value, String> {
-        if at == 0 || at > 9_007_199_254_740_991 {
-            return Err(INVALID.into());
-        }
-        let nonce = URL_SAFE_NO_PAD.encode(nonce);
         let (purpose, target, wg, name) = if enroll {
             (
                 "enroll-overlay-server",
@@ -155,15 +151,12 @@ impl Grant {
         } else {
             ("overlay-server-policy", self.wire.device_id.as_str(), "", String::new())
         };
-        let message = format!(
-            "cmux-mesh-v1\n{purpose}\n{target}\n{wg}\n{}\n{name}\n{at}\n{nonce}",
-            self.wire.binding.install_public_key
-        );
-        let signature = URL_SAFE_NO_PAD.decode(sign(message.as_bytes())?).map_err(|_| INVALID)?;
-        if signature.len() != 64 {
-            return Err(INVALID.into());
-        }
-        let mut body = json!({"signedAt":at,"nonce":nonce,"signature":STANDARD.encode(signature)});
+        let mut body = signed_proof(
+            [purpose, target, wg, &self.wire.binding.install_public_key, &name],
+            at,
+            nonce,
+            sign,
+        )?;
         if enroll {
             body["code"] = self.wire.code.clone().into();
             body["name"] = self.wire.binding.name.clone().into();
@@ -214,6 +207,28 @@ pub struct Registration {
     install_public_key: String,
 }
 impl Registration {
+    /// A fresh policy proof for this saved identity. The consumer forwards it
+    /// once to Native, directly or through the authenticated backend.
+    pub fn policy_proof(
+        &self,
+        at: u64,
+        nonce: [u8; 16],
+        sign: impl FnOnce(&[u8]) -> Result<String, String>,
+    ) -> Result<Value, String> {
+        if !opaque(&self.device, "dev_")
+            || !STANDARD.decode(&self.install_public_key).is_ok_and(|p| {
+                p.len() == 65 && p[0] == 4 && STANDARD.encode(p) == self.install_public_key
+            })
+        {
+            return Err(INVALID.into());
+        }
+        signed_proof(
+            ["overlay-server-policy", &self.device, "", &self.install_public_key, ""],
+            at,
+            nonce,
+            sign,
+        )
+    }
     pub fn matches_keys(&self, jwk: &Value, wg: &str) -> bool {
         origin(&self.origin)
             && opaque(&self.mesh, "mesh_")
@@ -225,4 +240,22 @@ impl Registration {
     pub fn public_status(&self) -> Value {
         json!({"state":"registered","tenant":self.tenant,"mesh":self.mesh,"device":self.device})
     }
+}
+
+fn signed_proof(
+    lines: [&str; 5],
+    at: u64,
+    nonce: [u8; 16],
+    sign: impl FnOnce(&[u8]) -> Result<String, String>,
+) -> Result<Value, String> {
+    if at == 0 || at > 9_007_199_254_740_991 {
+        return Err(INVALID.into());
+    }
+    let nonce = URL_SAFE_NO_PAD.encode(nonce);
+    let message = format!("cmux-mesh-v1\n{}\n{at}\n{nonce}", lines.join("\n"));
+    let signature = URL_SAFE_NO_PAD.decode(sign(message.as_bytes())?).map_err(|_| INVALID)?;
+    if signature.len() != 64 {
+        return Err(INVALID.into());
+    }
+    Ok(json!({"signedAt":at,"nonce":nonce,"signature":STANDARD.encode(signature)}))
 }
