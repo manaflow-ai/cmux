@@ -39,4 +39,37 @@ struct AppWindowImage {
         if let floating = window.floatingWindowsSnapshot() { layers.append(.window(floating.image)) }
         return WindowImageLayer.composite(base: base, window: window, layers: layers) ?? base
     }
+
+    /// The window for an agent or a script, with every browser page and chat masked
+    /// (``ScreenshotMask``): the window alone, without its child and floating windows (an
+    /// overlay, hover card, drag ghost or menu can show a page) and without Chromium's browser
+    /// pages (their pixels are only in their child windows), then the app's own Chromium pages
+    /// painted in, then the masks on top. It fails closed: a mask that cannot be painted, or a
+    /// window that keeps animating or resizing, refuses the capture instead of giving its pixels.
+    /// - Returns: The image and how many areas it masks.
+    /// - Throws: ``WindowScreenshotFailure`` or ``ScreenshotMask/Failure``.
+    static func maskedCapture(_ window: NSWindow) async throws -> (image: CGImage, masked: Int) {
+        for _ in 0..<ScreenshotMask.attempts {
+            let sampler = ScreenshotMask.Sampler(window: window)
+            defer { sampler.stop() }
+            await ScreenshotMask.waitToSettle()
+            let base = try await window.screenshotImage(includeChild: { _ in false })
+            var layers: [WindowImageLayer] = []
+            for (page, rect) in PageRegistry.shownChromiumPages(in: window) where !ScreenshotMask.isCovered(page) {
+                guard let image = await page.chromiumImage() else { continue }
+                layers.append(.page(image, rect))
+            }
+            // The last reading follows the last await, so nothing changes before the paint.
+            sampler.stop()
+            let mask = sampler.mask
+            guard mask.isSettled else { continue }
+            layers += mask.regions.map(WindowImageLayer.mask)
+            guard let image = WindowImageLayer.composite(base: base, window: window, layers: layers) else {
+                if mask.regions.isEmpty { return (base, 0) }
+                throw ScreenshotMask.Failure.unmaskable
+            }
+            return (image, mask.regions.count)
+        }
+        throw ScreenshotMask.Failure.unsettled
+    }
 }

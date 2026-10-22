@@ -374,22 +374,17 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 keywords: ["id", "ref"], category: .tab, symbol: "number.circle", surfaces: [.palette, .contextMenu],
                 targets: [.tab], cliName: "tab copy-identifiers"
             ),
-            // A PNG of the tab's content, never changing focus or selection
-            // (ScreenshotHandlers): Copy menu and palette; automation is refused.
-            {
-                var screenshot = ActionDescriptor(
-                    id: "tab.screenshot",
-                    title: String(localized: "action.tab.screenshot", defaultValue: "Screenshot Tab", bundle: .module),
-                    keywords: ["screenshot", "capture", "image", "png", "picture"], category: .tab, symbol: "camera",
-                    surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.screenshotOut], targets: [.tab],
-                    cliName: "tab screenshot",
-                    surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ActionSurfaceCatalog.p(.tab, .inspect, 510, folder: .copy)])
-                )
-                // A tab can be a browser. Automation must use the browser host's guarded
-                // capture, which masks cross-session secrets before it returns pixels.
-                screenshot.isPersonOnly = true
-                return screenshot
-            }(),
+            // A PNG of the tab's content as on screen, never changing focus or selection
+            // (ScreenshotHandlers): Copy menu, palette and automation. An agent's or a
+            // script's capture comes back with every browser page and agent chat masked.
+            ActionDescriptor(
+                id: "tab.screenshot",
+                title: String(localized: "action.tab.screenshot", defaultValue: "Screenshot Tab", bundle: .module),
+                keywords: ["screenshot", "capture", "image", "png", "picture"], category: .tab, symbol: "camera",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.screenshotOut], targets: [.tab],
+                cliName: "tab screenshot",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ActionSurfaceCatalog.p(.tab, .inspect, 510, folder: .copy)])
+            ),
             ActionDescriptor(
                 id: "palette.copyPaneID",
                 title: String(localized: "action.palette.copyPaneID", defaultValue: "Copy Pane ID", bundle: .module),

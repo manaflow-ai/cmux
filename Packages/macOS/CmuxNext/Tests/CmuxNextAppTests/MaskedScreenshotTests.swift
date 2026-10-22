@@ -1,0 +1,225 @@
+import AppKit
+import CmuxNextActions
+@testable import CmuxNextApp
+import CmuxNextBrowser
+import CmuxNextDesign
+import Testing
+import WebKit
+
+/// Agents and scripts screenshot windows, panes and tabs (Leo 2026-10-21: before/after
+/// captures of the real app), but a browser page's pixels reach automation only through the
+/// browser host's guarded capture, which hides secrets. Their capture
+/// (`AppWindowImage.maskedCapture`, `ScreenshotMask`) masks every browser page area and chat.
+/// The window here shows a green native view beside a browser pane whose page area is red (a
+/// stand-in for the page's pixels): the person's raw capture shows the red, the agent's shows
+/// the mask over the whole page area, no red pixel anywhere, and the green untouched.
+@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct MaskedScreenshotTests {
+    static let green = NSColor(srgbRed: 0, green: 1, blue: 0, alpha: 1).cgColor
+    static let red = NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1).cgColor
+
+    struct Fixture {
+        let window: NSWindow
+        let plain: NSView
+        let chrome: BrowserChromeView
+        let page: WebKitTab
+
+        /// The page area in window coordinates.
+        var pageRect: NSRect { chrome.pageArea.convert(chrome.pageArea.bounds, to: nil) }
+
+        func close() {
+            window.orderOut(nil)
+            window.close()
+            page.close()
+        }
+    }
+
+    /// Whether AppKit can put a window on screen here (a fleet worker at the login window cannot).
+    static func hostShowsWindows() -> Bool {
+        _ = NSApplication.shared
+        guard NSScreen.main != nil else { return false }
+        let probe = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 8, height: 8), styleMask: [.borderless], backing: .buffered, defer: false)
+        probe.isReleasedWhenClosed = false
+        defer { probe.close() }
+        probe.orderFrontRegardless()
+        return probe.isVisible && probe.windowNumber > 0
+    }
+
+    func fixture(onScreen: Bool = true) -> Fixture {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 160, y: 160, width: 480, height: 240), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 240))
+        content.wantsLayer = true
+        let plain = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 240))
+        plain.wantsLayer = true
+        plain.layer?.backgroundColor = Self.green
+        let page = WebKitEngine().makeWebKitTab()
+        let chrome = BrowserChromeView(tab: page)
+        chrome.frame = NSRect(x: 240, y: 0, width: 240, height: 240)
+        content.addSubview(plain)
+        content.addSubview(chrome)
+        window.contentView = content
+        if onScreen { window.orderFrontRegardless() }
+        content.layoutSubtreeIfNeeded()
+        // The page's own pixels: red over the whole page area.
+        let pixels = NSView(frame: chrome.pageArea.bounds)
+        pixels.autoresizingMask = [.width, .height]
+        pixels.wantsLayer = true
+        pixels.layer?.backgroundColor = Self.red
+        chrome.pageArea.addSubview(pixels)
+        content.displayIfNeeded()
+        CATransaction.flush()
+        return Fixture(window: window, plain: plain, chrome: chrome, page: page)
+    }
+
+    /// An image's pixels as sRGB RGBA bytes.
+    struct Pixels {
+        typealias RGBA = (red: Int, green: Int, blue: Int, alpha: Int)
+        let width: Int
+        let height: Int
+        private let bytes: [UInt8]
+
+        init(_ image: CGImage) {
+            width = image.width
+            height = image.height
+            var bytes = [UInt8](repeating: 0, count: width * height * 4)
+            let (width, height) = (width, height)
+            bytes.withUnsafeMutableBytes { buffer in
+                let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                        space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+                context?.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            }
+            self.bytes = bytes
+        }
+
+        /// The pixel at column `x` and row `y` counted from the bottom.
+        func at(x: Int, y: Int) -> RGBA {
+            let index = ((height - 1 - y) * width + x) * 4
+            return (Int(bytes[index]), Int(bytes[index + 1]), Int(bytes[index + 2]), Int(bytes[index + 3]))
+        }
+
+        /// The pixel at `point` (bottom-left origin, points) of an image of an area `size` points large.
+        func at(_ point: CGPoint, size: CGSize) -> RGBA {
+            let scale = CGFloat(width) / size.width
+            return at(x: min(width - 1, Int(point.x * scale)), y: min(height - 1, Int(point.y * scale)))
+        }
+
+        /// Every pixel inside `rect` (window points) of an image of a window `size` points large.
+        func all(in rect: NSRect, size: CGSize) -> [RGBA] {
+            let scale = CGFloat(width) / size.width
+            let xs = Int((rect.minX * scale).rounded(.up))..<min(width, Int((rect.maxX * scale).rounded(.down)))
+            let ys = Int((rect.minY * scale).rounded(.up))..<min(height, Int((rect.maxY * scale).rounded(.down)))
+            return xs.flatMap { x in ys.map { y in at(x: x, y: y) } }
+        }
+
+        var everyPixel: [RGBA] { (0..<width).flatMap { x in (0..<height).map { y in at(x: x, y: y) } } }
+    }
+
+    static func isRed(_ pixel: Pixels.RGBA) -> Bool { pixel.red > 180 && pixel.green < 90 && pixel.blue < 90 && pixel.alpha > 200 }
+    static func isGreen(_ pixel: Pixels.RGBA) -> Bool { pixel.green > 180 && pixel.red < 90 && pixel.blue < 90 && pixel.alpha > 200 }
+    /// `WindowImageLayer.maskColor`: opaque sRGB mid gray.
+    static func isMask(_ pixel: Pixels.RGBA) -> Bool {
+        [pixel.red, pixel.green, pixel.blue].allSatisfy { (125...130).contains($0) } && pixel.alpha == 255
+    }
+
+    /// The person's raw capture of the window once the window server shows the page's red.
+    private func rawCapture(_ fixture: Fixture) async throws -> CGImage {
+        let deadline = ContinuousClock.now + .seconds(5)
+        let center = CGPoint(x: fixture.pageRect.midX, y: fixture.pageRect.midY)
+        while true {
+            let image = try await fixture.window.screenshotImage(includeChild: { _ in false })
+            if Self.isRed(Pixels(image).at(center, size: fixture.window.frame.size)) || ContinuousClock.now > deadline { return image }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+    }
+
+    @Test(.enabled("this host puts windows on screen") { await MaskedScreenshotTests.hostShowsWindows() })
+    func anAgentsCaptureRunsAndMasksThePageAreaWhole() async throws {
+        let fixture = fixture()
+        defer { fixture.close() }
+        let size = fixture.window.frame.size
+        let page = fixture.pageRect
+        let raw = Pixels(try await rawCapture(fixture))
+        #expect(Self.isRed(raw.at(CGPoint(x: page.midX, y: page.midY), size: size)), "the raw capture shows the page: there is something to mask")
+
+        let (image, masked) = try await AppWindowImage.maskedCapture(fixture.window)
+        let shot = Pixels(image)
+        #expect(masked >= 1)
+        #expect(shot.width == raw.width && shot.height == raw.height)
+        let inPage = shot.all(in: page, size: size)
+        #expect(!inPage.isEmpty)
+        #expect(inPage.allSatisfy(Self.isMask), "every pixel of the page area is masked")
+        #expect(!shot.everyPixel.contains(where: Self.isRed), "no pixel of the page survives anywhere")
+        let native = shot.all(in: fixture.plain.frame.insetBy(dx: 2, dy: 2), size: size)
+        #expect(!native.isEmpty)
+        #expect(native.allSatisfy(Self.isGreen), "pixels outside browser pages are left as they are")
+    }
+
+    /// The screen lags the view tree: a page shown for one run loop turn while the capture
+    /// runs, then hidden again before its end, is still masked (the mask is every reading's).
+    @Test func aPageShownForOneTurnDuringTheCaptureIsStillMasked() {
+        let fixture = fixture(onScreen: false)
+        defer { fixture.close() }
+        fixture.chrome.isHidden = true
+        let sampler = ScreenshotMask.Sampler(window: fixture.window)
+        defer { sampler.stop() }
+        #expect(sampler.mask.regions.isEmpty)
+        fixture.chrome.isHidden = false
+        sampler.sample()
+        fixture.chrome.isHidden = true
+        sampler.stop()
+        #expect(ScreenshotMask.read(fixture.window).regions.isEmpty)
+        #expect(sampler.mask.regions.contains(fixture.pageRect))
+    }
+
+    /// A web view outside any browser chrome (no app page holds it) is masked too, and a page
+    /// whose pixels are not where its frame says (a transform or an animation) refuses the
+    /// capture instead of masking the wrong place.
+    @Test func aStrayWebViewIsMaskedAndAMovingPageIsUnsettled() {
+        let fixture = fixture(onScreen: false)
+        defer { fixture.close() }
+        let stray = WKWebView(frame: NSRect(x: 10, y: 10, width: 50, height: 50))
+        fixture.plain.addSubview(stray)
+        let mask = ScreenshotMask.read(fixture.window)
+        #expect(mask.regions.contains(stray.convert(stray.bounds, to: nil)))
+        #expect(mask.regions.contains(fixture.pageRect))
+        #expect(mask.isSettled)
+        fixture.chrome.pageArea.layer?.transform = CATransform3DMakeTranslation(12, 0, 0)
+        #expect(!ScreenshotMask.read(fixture.window).isSettled)
+    }
+
+    /// A mask covers whole pixels and one more on each side at a fractional scale, so no pixel
+    /// of what it covers blends into its edge.
+    @Test func aMaskCoversWholePixelsAtAFractionalScale() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let context = try #require(CGContext(data: nil, width: 300, height: 150, bitsPerComponent: 8, bytesPerRow: 1200,
+                                             space: try #require(CGColorSpace(name: CGColorSpace.sRGB)),
+                                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(Self.red)
+        context.fill(CGRect(x: 0, y: 0, width: 300, height: 150))
+        let base = try #require(context.makeImage())
+        // 1.5 pixels per point: x 15.3 to 45.75 and y 15.3 to 45.75 pixels.
+        let rect = NSRect(x: 10.2, y: 10.2, width: 20.3, height: 20.3)
+        let image = try #require(WindowImageLayer.composite(base: base, window: window, layers: [.mask(rect)]))
+        let pixels = Pixels(image)
+        for x in 14...46 { for y in 14...46 { #expect(Self.isMask(pixels.at(x: x, y: y)), "(\(x), \(y))") } }
+        #expect(Self.isRed(pixels.at(x: 12, y: 30)))
+        #expect(Self.isRed(pixels.at(x: 48, y: 30)))
+        #expect(Self.isRed(pixels.at(x: 30, y: 48)))
+    }
+
+    /// Only a person's own run in the app gets raw pixels; a socket run claiming `user` does not.
+    @Test func onlyAPersonsRunInTheAppIsRaw() {
+        var claimed = ActionInvocation(origin: .user)
+        claimed.viaControlSocket = true
+        #expect(!ScreenshotHandlers.isPersonsRun(claimed))
+        #expect(ScreenshotHandlers.isPersonsRun(ActionInvocation()))
+        for origin in [ActionOrigin.cli, .mcp, .script, .remote, .page] {
+            #expect(!ScreenshotHandlers.isPersonsRun(ActionInvocation(origin: origin)))
+        }
+    }
+}

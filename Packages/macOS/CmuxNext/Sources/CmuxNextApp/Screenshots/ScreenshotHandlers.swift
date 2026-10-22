@@ -22,6 +22,13 @@ import Foundation
 /// PNG fits one answer), `width` and `height` (pixels), `scale` (pixels per
 /// point) and `method` (`window` or `page`). A person's run (palette, menu)
 /// also copies the image.
+///
+/// An agent's or a script's run (anything the control socket carries, whatever
+/// origin it claims) gets the window with every browser page area and every
+/// chat masked in gray (``AppWindowImage/maskedCapture(_:)``, ``ScreenshotMask``),
+/// and `masked`, how many areas the image covers. Page pixels reach automation
+/// only through the browser host's guarded capture (`cmux browser page
+/// screenshot`), so a browser tab no window shows is refused to it.
 enum ScreenshotHandlers {
     /// The capture gave no image; the message says why.
     static let unavailableCode = "screenshot.unavailable"
@@ -33,7 +40,7 @@ enum ScreenshotHandlers {
             let output = try ScreenshotOutput(invocation)
             guard let window = try context.window(invocation).window else { throw ActionFailure(message: ScreenshotStrings.notOnScreen) }
             start(output: output, invocation: invocation, context: context) {
-                try await shown(window, crop: nil, services: context.services)
+                try await shown(window, crop: nil, masked: !isPersonsRun(invocation), services: context.services)
             }
         })
         registry.bind("pane.screenshot", run: { invocation in
@@ -48,7 +55,7 @@ enum ScreenshotHandlers {
             }
             let view = pane.view
             start(output: output, invocation: invocation, context: context) {
-                try await shown(window, crop: view, services: context.services)
+                try await shown(window, crop: view, masked: !isPersonsRun(invocation), services: context.services)
             }
         })
         registry.bind("tab.screenshot", run: { invocation in
@@ -58,7 +65,7 @@ enum ScreenshotHandlers {
                !controller.view.contentHost.isHiddenOrHasHiddenAncestor {
                 let view = controller.view.contentHost
                 start(output: output, invocation: invocation, context: context) {
-                    try await shown(window, crop: view, services: context.services)
+                    try await shown(window, crop: view, masked: !isPersonsRun(invocation), services: context.services)
                 }
                 return
             }
@@ -66,10 +73,19 @@ enum ScreenshotHandlers {
             guard tab.kind == .browser else {
                 throw ActionFailure(message: tab.kind == .pty ? ScreenshotStrings.terminalNotShown : ScreenshotStrings.tabNotShown)
             }
+            // Off screen a browser tab is all page, which a masked capture would cover whole.
+            guard isPersonsRun(invocation) else { throw ActionFailure(message: ScreenshotStrings.pageNeedsGuardedCapture) }
             start(output: output, invocation: invocation, context: context) {
                 try await offscreenPage(tab, services: context.services)
             }
         })
+    }
+
+    /// Whether `invocation` is a person's own run in this app (palette, menu, keyboard), the
+    /// only one that gets raw pixels. A run the control socket carries is automation even when
+    /// it claims the `user` origin.
+    static func isPersonsRun(_ invocation: ActionInvocation) -> Bool {
+        invocation.origin == .user && !invocation.viaControlSocket
     }
 
     /// The tab the run names (target or `tab` argument, in any workspace),
@@ -89,25 +105,34 @@ enum ScreenshotHandlers {
         return (tab, pane)
     }
 
-    /// One capture: the image, its scale (pixels per point) and how it was made.
+    /// One capture: the image, its scale (pixels per point), how it was made and, for
+    /// automation, how many areas it masks (nil: a person's raw capture).
     struct Capture {
         let image: CGImage
         let scale: Double
         let method: String
+        var masked: Int?
     }
 
-    /// `window` as on screen, cropped to `crop`'s frame when given.
-    private static func shown(_ window: NSWindow, crop view: NSView?, services: AppServices) async throws -> Capture {
-        let full = try await AppWindowImage(services: services).capture(window)
+    /// `window` as on screen, cropped to `crop`'s frame when given; `masked` for automation.
+    private static func shown(_ window: NSWindow, crop view: NSView?, masked: Bool, services: AppServices) async throws -> Capture {
+        let shot: (image: CGImage, masked: Int?)
+        if masked {
+            let result = try await AppWindowImage.maskedCapture(window)
+            shot = (result.image, result.masked)
+        } else {
+            shot = (try await AppWindowImage(services: services).capture(window), nil)
+        }
+        let full = shot.image, count = shot.masked
         let size = window.frame.size
         let scale = size.width > 0 ? Double(full.width) / size.width : Double(window.backingScaleFactor)
-        guard let view else { return Capture(image: full, scale: scale, method: "window") }
+        guard let view else { return Capture(image: full, scale: scale, method: "window", masked: count) }
         // The view may have left the window while the capture ran.
         guard view.window === window,
               let cropped = full.cropped(toWindowRect: view.convert(view.bounds, to: nil), windowSize: size) else {
             throw ActionWorkFailure(code: unavailableCode, reason: ScreenshotStrings.outsideWindow)
         }
-        return Capture(image: cropped, scale: scale, method: "window")
+        return Capture(image: cropped, scale: scale, method: "window", masked: count)
     }
 
     /// A browser tab no window shows, rendered by its engine in the
@@ -138,7 +163,7 @@ enum ScreenshotHandlers {
     private static func start(output: ScreenshotOutput, invocation: ActionInvocation, context: AppActionContext,
                               capture: @escaping @MainActor () async throws -> Capture) {
         let services = context.services
-        let byPerson = invocation.origin == .user
+        let byPerson = isPersonsRun(invocation)
         // task-owner: the action run; a capturing caller awaits it through the registry.
         let task: ActionResultWork = Task { @MainActor in
             do {
@@ -146,6 +171,8 @@ enum ScreenshotHandlers {
             } catch let failure as ActionWorkFailure {
                 return .failure(failure)
             } catch let failure as WindowScreenshotFailure {
+                return .failure(ActionWorkFailure(code: unavailableCode, reason: ScreenshotStrings.reason(failure)))
+            } catch let failure as ScreenshotMask.Failure {
                 return .failure(ActionWorkFailure(code: unavailableCode, reason: ScreenshotStrings.reason(failure)))
             } catch {
                 return .failure(ActionWorkFailure(code: unavailableCode, reason: String(describing: error)))
@@ -169,6 +196,7 @@ enum ScreenshotHandlers {
         var result: [String: ActionResultValue] = [
             "width": .int(image.width), "height": .int(image.height), "scale": .double(capture.scale), "method": .string(capture.method),
         ]
+        if let masked = capture.masked { result["masked"] = .int(masked) }
         do {
             switch output {
             case .inline where png.count <= AppBrowserPage.inlinePNGLimit:

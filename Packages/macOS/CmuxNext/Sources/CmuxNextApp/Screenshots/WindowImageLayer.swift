@@ -10,6 +10,13 @@ enum WindowImageLayer {
     case page(CGImage, NSRect, holes: [NSRect] = [])
     /// A window server image of child windows, the size of the window.
     case window(CGImage)
+    /// An opaque ``maskColor`` fill over a rectangle in window coordinates, widened to whole
+    /// pixels and one more on each side, so no pixel of what it covers shows at its edge
+    /// (an agent's capture of a browser page or chat, `ScreenshotMask`).
+    case mask(NSRect)
+
+    /// What a mask paints: an opaque mid gray, the same in light and dark windows.
+    static let maskColor = CGColor(srgbRed: 0.5, green: 0.5, blue: 0.5, alpha: 1)
 
     /// `base` (an image of `window`) with `layers` painted over it, bottom first; nil without layers.
     static func composite(base: CGImage, window: NSWindow, layers: [WindowImageLayer]) -> CGImage? {
@@ -48,6 +55,19 @@ enum WindowImageLayer {
                 context.restoreGState()
             case .window(let image):
                 context.draw(image, in: whole)
+            case .mask(let rect):
+                let area = CGRect(x: rect.minX * scaleX, y: rect.minY * scaleY, width: rect.width * scaleX, height: rect.height * scaleY)
+                guard area.width > 0, area.height > 0 else { continue }
+                let left = (area.minX - 1).rounded(.down), bottom = (area.minY - 1).rounded(.down)
+                let pixels = CGRect(x: left, y: bottom, width: (area.maxX + 1).rounded(.up) - left,
+                                    height: (area.maxY + 1).rounded(.up) - bottom).intersection(whole)
+                guard !pixels.isEmpty else { continue }
+                context.saveGState()
+                context.setShouldAntialias(false)
+                context.setBlendMode(.copy)
+                context.setFillColor(maskColor)
+                context.fill(pixels)
+                context.restoreGState()
             }
         }
         return context.makeImage()
