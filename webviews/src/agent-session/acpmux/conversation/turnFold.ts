@@ -22,7 +22,7 @@ export const TURN_FOLD_GHOST = "acpmux-row--fold-ghost";
 /// A row as the transcript places it: its id and top (layout px), by index.
 export type PlacedRows = {
   ids: readonly string[];
-  tops: readonly number[];
+  tops: ArrayLike<number>;
   /// How far the rows are drawn below their places (VirtualTranscript `lift`) less the offset.
   shift: number;
 };

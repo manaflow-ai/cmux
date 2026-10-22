@@ -255,7 +255,7 @@ const holdFoldHalfway = (ctx: PlayContext) => {
 
 /// Clicks "Worked for" so it ends `expanded`, and holds its fold halfway.
 const toggleWorkedHalfway = async (ctx: PlayContext, expanded: boolean) => {
-  const line = ctx.find({ selector: ".cv-worked" });
+  const line = ctx.find({ selector: ".cv-worked" }) as HTMLElement;
   // A plain click: a play step waits for the page to settle, which would let the fold finish.
   line.click();
   await ctx.waitFor(() => line.getAttribute("aria-expanded") === String(expanded));

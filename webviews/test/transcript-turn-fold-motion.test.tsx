@@ -151,8 +151,6 @@ function mount(initial: Set<string>) {
 }
 const line = (index: number) =>
   dom.window.document.querySelector<HTMLElement>(`[data-row-id="${workedId(index)}"] button.cv-worked`)!;
-const latest = () =>
-  parseFloat(dom.window.document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height) - VIEWPORT;
 
 const thread = () => dom.window.document.querySelector<HTMLElement>(".acpmux-thread")!;
 const spacerHeight = () => parseFloat(dom.window.document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height);
