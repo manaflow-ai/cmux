@@ -43,7 +43,10 @@ public final class DesktopWallpaperWatch {
         init(picture: DesktopPicture, dark: Bool) {
             self.picture = picture
             self.dark = dark
-            modified = picture.reportedURL.flatMap { try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate }
+            // A fresh stat each time: the URL's own resource values can be a cached copy from before the overwrite.
+            modified = picture.reportedURL.flatMap { url in
+                url.isFileURL ? (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date : nil
+            }
         }
 
         static func == (lhs: Reading, rhs: Reading) -> Bool {
