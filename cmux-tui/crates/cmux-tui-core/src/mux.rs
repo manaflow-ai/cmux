@@ -290,6 +290,7 @@ pub(crate) mod creating_input;
 mod loss_causes;
 mod orphan_hosts;
 mod pending_terminals;
+mod startup_adoption_gate;
 mod terminal_adoption;
 pub(crate) mod terminal_archive;
 mod terminal_catalog_index;
@@ -692,6 +693,8 @@ pub struct Mux {
     agent_cli_job_execution: Mutex<()>,
     resource_creation_active: AtomicBool,
     terminal_adoptions: Mutex<HashSet<String>>,
+    /// Turns of a start's first adoption attempts (mux/startup_adoption_gate.rs).
+    startup_adoption_gate: startup_adoption_gate::StartupAdoptionGate,
     /// Restored tab names, by tab slot, for terminals that adopt after the
     /// start: the surface takes its tab's name when it arrives. A leaf lock.
     restored_tab_names: Mutex<HashMap<SurfaceId, String>>,

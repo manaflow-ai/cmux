@@ -347,6 +347,11 @@ impl Mux {
         self.mark_unadoptable_terminal_hosts(&options, &mut handled_terminals)?;
         // The threads start after this pass: their registry commits would
         // otherwise queue each read above behind them (745 ms for 60 hosts).
+        // The workspace the user sees adopts first (startup_adoption_gate.rs).
+        let visible = self.with_state(|state| {
+            state.workspaces.get(state.active_workspace).map(|workspace| workspace.key.clone())
+        });
+        deferred.sort_by_key(|(record, _)| Some(&record.workspace_key) != visible.as_ref());
         for (record, record_path) in deferred {
             self.schedule_terminal_adoption_after(
                 options.clone(),
@@ -830,6 +835,8 @@ impl Mux {
         }
         let cleanup_id = terminal_id.clone();
         let mux = self.clone();
+        // A start's adoption (no first delay) takes a turn for its first attempt.
+        let ticket = first_delay.is_zero().then(|| self.startup_adoption_gate.ticket());
         let spawn_result = std::thread::Builder::new()
             .name(format!("terminal-adopt-{terminal_id}"))
             .spawn(move || {
@@ -847,9 +854,29 @@ impl Mux {
                         std::thread::sleep(Duration::from_millis(5));
                     }
                 }
+                let mut turn = ticket.and_then(|ticket| {
+                    mux.startup_adoption_gate
+                        .turn(ticket, || mux.shutting_down.load(Ordering::Acquire))
+                });
+                // Test seam: a slow first attempt, held inside its turn (debug only).
+                #[cfg(debug_assertions)]
+                if turn.is_some()
+                    && let Some(ms) = std::env::var("CMUX_TUI_TEST_ADOPT_TURN_DELAY_MS")
+                        .ok()
+                        .and_then(|value| value.parse::<u64>().ok())
+                {
+                    std::thread::sleep(Duration::from_millis(ms.min(5_000)));
+                }
+                let mut first_attempt = true;
                 let mut delay = first_delay;
                 let mut refusals = pending_terminals::RefusalStreak::default();
                 loop {
+                    // Only the first attempt holds the turn: a retry waits on its
+                    // own backoff without blocking the next host.
+                    if !std::mem::take(&mut first_attempt) {
+                        turn = None;
+                    }
+                    let _ = &turn;
                     if mux.shutting_down.load(Ordering::Acquire) {
                         break;
                     }
