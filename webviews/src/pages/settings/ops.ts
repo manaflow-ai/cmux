@@ -106,6 +106,8 @@ export type HostLists = {
   iphone?: IPhoneHostState | null;
   /** Settings › Import: the import suggestion cards, every text localized by the host (ui/ImportCards.tsx parses it). */
   import_suggestions?: unknown;
+  /** Settings > Chief > Voice input: the Debug toggle home.voiceInput; null where it does not exist (Release). */
+  voice_input?: { on: boolean } | null;
   /**
    * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Each carries its
    * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`, `yours`, `apple`, `video`) and
@@ -421,6 +423,44 @@ export type MutationResult = { value: { keys: string[] }; revision: string; repl
 
 type Mutation<P> = P & { idempotency_key: string; if_revision?: string };
 
+/** One build on a channel's track (Settings > Updates, Channels). Every text and link is the host's. */
+export type ChannelBuild = {
+  build: string;
+  version: string;
+  date: string;
+  commit: string | null;
+  commit_url: string | null;
+  /** GitHub's compare from the installed build's commit; null for that build or an unknown commit. */
+  compare_url: string | null;
+  health: "promoted" | "held" | "pulled" | "pending";
+  health_title: string;
+  pulled_reason: string | null;
+  /** This Mac runs it ("You Are Here"). */
+  installed: boolean;
+  /** This Mac kept a copy for rollback. */
+  kept: boolean;
+  prs: { number: number; url: string }[];
+};
+
+/** One release channel's recent builds, newest first. */
+export type ChannelTrack = {
+  ring: "stable" | "nightly" | "canary" | "dev";
+  title: string;
+  followed: boolean;
+  release_url: string | null;
+  /** The empty track's line; null when it has builds. */
+  empty: string | null;
+  builds: ChannelBuild[];
+};
+
+/** Settings > Updates' Channels card (`cmux.settings.channels.state`). */
+export type ChannelsState = {
+  title: string;
+  installed: string;
+  labels: { you_are_here: string; following: string; kept: string; compare: string; commit: string; release: string };
+  tracks: ChannelTrack[];
+};
+
 /** Every op the page calls: params and result. */
 export type SettingsOps = {
   "cmux.settings.list": [{ section?: string }, ListRow[]];
@@ -430,12 +470,16 @@ export type SettingsOps = {
   "cmux.settings.reset_all": [Mutation<object>, MutationResult];
   /** Native: spaces, machines and browser profiles from the app's live stores. */
   "cmux.settings.host.lists": [Record<string, never>, HostLists];
+  /** Native: every release channel's recent builds, read on demand (Settings > Updates). */
+  "cmux.settings.channels.state": [Record<string, never>, ChannelsState];
   /** Native: Settings > Mobile's Remove: the phone leaves the account's devices (the person's gesture only). */
   "cmux.settings.mobile.remove_phone": [{ id: string }, Record<string, never>];
   /** Native: after the owner removed this Mac, allow iPhone connections again (a new device; the person's gesture only). */
   "cmux.settings.mobile.allow_again": [Record<string, never>, Record<string, never>];
   /** A phone's pairing request: Allow or Don't Allow (the person's own gesture only). */
   "cmux.settings.mobile.answer_pair": [{ id: string; allow: boolean }, Record<string, never>];
+  /** Native: Settings > Chief > Voice input's switch writes home.voiceInput (the person's gesture only). */
+  "cmux.settings.voice_input.set": [{ on: boolean }, Record<string, never>];
   /** Native: the Accounts part (providers, linked accounts, forms). */
   "cmux.settings.accounts.state": [Record<string, never>, AccountsState];
   /** Native: one Accounts gesture; a failed Keychain save answers its message. */
