@@ -143,6 +143,38 @@ class Marker:
             raise TimeoutError("marker shell never started") from None
 
 
+def disk_load(root, writers, stop):
+    """Background disk churn like the agents and daemons on a busy Mac: each
+    writer appends 256 KiB and flushes it (F_FULLFSYNC on macOS) in a loop."""
+    import fcntl
+    full = getattr(fcntl, "F_FULLFSYNC", None)
+    chunk = os.urandom(256 * 1024)
+
+    def run(k):
+        path = os.path.join(root, f"load-{k}.bin")
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        written = 0
+        try:
+            while not stop.is_set():
+                os.write(fd, chunk)
+                written += len(chunk)
+                if full is not None:
+                    fcntl.fcntl(fd, full)
+                else:
+                    os.fsync(fd)
+                if written > 64 * 1024 * 1024:
+                    os.ftruncate(fd, 0)
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    written = 0
+        finally:
+            os.close(fd)
+
+    threads = [threading.Thread(target=run, args=(k,), daemon=True) for k in range(writers)]
+    for t in threads:
+        t.start()
+    return threads
+
+
 def host_pids(daemon_pid):
     out = subprocess.run(["pgrep", "-P", str(daemon_pid), "-f", "__terminal-host"],
                          capture_output=True, text=True).stdout
@@ -184,9 +216,12 @@ def main():
     ap.add_argument("--max-p50-ms", type=float, default=None,
                     help="gate: exit 1 when any exec p50 is above this many ms")
     ap.add_argument("--spans", action="store_true", help="set CMUX_TUI_DEBUG_SPANS and keep the file")
+    ap.add_argument("--disk-load", type=int, default=0,
+                    help="background writers that write and F_FULLFSYNC in a loop (a busy Mac's disk)")
     args = ap.parse_args()
 
     root = tempfile.mkdtemp(prefix="tc-", dir=args.root_dir)
+    stop_load = threading.Event()
     sock = os.path.join(root, "s.sock")
     home = os.path.join(root, "home")
     state = os.path.join(root, "state")
@@ -236,6 +271,9 @@ def main():
                 raise RuntimeError("daemon socket never appeared")
             time.sleep(0.1)
 
+        if args.disk_load:
+            disk_load(root, args.disk_load, stop_load)
+            result["disk_load"] = args.disk_load
         base = must(c.call("new-workspace", name="base", cols=120, rows=40), "new-workspace")
         base_pane, _ = pane_of(c, base["surface"])
         marker.wait(time.perf_counter())
@@ -294,6 +332,7 @@ def main():
             c.call("close-surface", surface=d["surface"])
         c.close()
     finally:
+        stop_load.set()
         # Hosts outlive a SIGTERM; end them with the daemon, also on errors.
         try:
             ident = result["identify"]
