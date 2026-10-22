@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextSettings
@@ -14,7 +15,8 @@ import CmuxNextSidebar
 /// Undo brings them all back (`WorkspaceGroupClose.offerUndo`), as the other bulk closes do.
 @MainActor
 enum WorkspaceSelectionClose {
-    /// Rows whose batch close has started and not ended: a second press sends nothing for them.
+    /// Rows whose batch close has started and not ended, the offline ones until their machine took them
+    /// too: a second press (this batch, or Close Workspace on the row the window keeps) sends nothing.
     private(set) static var running: Set<String> = []
 
     /// Closes the workspaces `ids` that window `state` lists.
@@ -58,45 +60,58 @@ enum WorkspaceSelectionClose {
                     return nil
                 }
             }
-            // Closed another way while the question was up (the CLI, another window): nothing to send.
+            // Closed another way while the question was up (the CLI, another window): nothing to send, and
+            // its row is no longer closing.
             let batch = zip(members, terminals).filter { services.workspace(id: $0.0.0.id) != nil }
+            let sent = Set(batch.map { $0.0.0.id })
+            for id in hidden where !sent.contains(id) { ClosingWorkspaces.shared.end(id, refused: false, in: nil) }
             let live = batch.filter { $0.0.1.isLive }, offline = batch.filter { !$0.0.1.isLive }
+            let outcome = Outcome()
             // A machine that is not connected (a paused Cloud VM): its closes wait for it outside the
             // window's lane, so later creates and closes never wait for it (WorkspaceCloseFlow).
-            for (member, terminals) in offline {
-                // task-owner: one close that waits for its machine (WorkspaceCloseFlow's offline close)
-                Task { @MainActor in
-                    let failure = await send(member, terminals: terminals, waits: true, services)
-                    ClosingWorkspaces.shared.end(member.0.id, refused: failure != nil, in: controller?.window)
-                }
+            // task-owner: one close each that waits for its machine; awaited below, before the undo toast.
+            let waiting = offline.map { pair in
+                Task { @MainActor in await settle([(pair.0, await send(pair.0, terminals: pair.1, waits: true, services))], in: controller?.window) }
             }
-            return await WorkspaceLanes.shared.run(in: window) {
+            let failure = await WorkspaceLanes.shared.run(in: window) {
                 // task-owner: one close request each, all sent now; awaited right below.
                 let started = live.map { pair in
                     Task { @MainActor in (pair.0, await send(pair.0, terminals: pair.1, waits: false, services)) }
                 }
                 var results: [(WorkspaceBulkClose.Member, ActionWorkFailure?)] = []
                 for task in started { results.append(await task.value) }
-                // Closes that went through stay hidden until each store has applied their events.
-                var daemons: [ObjectIdentifier: DaemonService] = [:]
-                for (member, failure) in results where failure == nil { daemons[ObjectIdentifier(member.1)] = member.1 }
-                for daemon in daemons.values {
-                    if let connection = daemon.connection { await daemon.store.applied(through: await connection.eventSequence()) }
-                }
-                let refused = results.filter { $0.1 != nil }
-                for (member, failure) in results {
-                    // One refusal toast for the batch, not one per row.
-                    let says = failure != nil && member.0.id == refused.first?.0.0.id
-                    ClosingWorkspaces.shared.end(member.0.id, refused: failure != nil, in: says ? controller?.window : nil)
-                }
-                let closed = results.filter { $0.1 == nil }.map { $0.0.0.name }
-                if closed.count > 1, let undoWindow {
-                    WorkspaceGroupClose.offerUndo("workspaces-closed", WorkspaceBulkClose.closedToast(closed.count), groups: [(nil, closed)],
-                                                  after: seen, in: undoWindow, services)
-                }
-                return refused.first?.1
+                outcome.closed += await settle(results, in: controller?.window)
+                return results.first { $0.1 != nil }?.1
             }.value
+            for task in waiting { outcome.closed += await task.value }
+            // Every row of the batch that closed, the offline ones too: one toast, one Undo.
+            if outcome.closed.count > 1, let undoWindow {
+                WorkspaceGroupClose.offerUndo("workspaces-closed", WorkspaceBulkClose.closedToast(outcome.closed.count), groups: [(nil, outcome.closed)],
+                                              after: seen, in: undoWindow, services)
+            }
+            return failure
         })
+    }
+
+    /// The names a batch closed, collected from inside and outside the window's lane.
+    @MainActor private final class Outcome {
+        var closed: [String] = []
+    }
+
+    /// Ends the closes of `results`: one that went through stays hidden until its store has applied its
+    /// events (the row is gone there); a refusal lists its row again, with one toast in `window` for all
+    /// of them. Returns the names that closed.
+    private static func settle(_ results: [(WorkspaceBulkClose.Member, ActionWorkFailure?)], in window: NSWindow?) async -> [String] {
+        var daemons: [ObjectIdentifier: DaemonService] = [:]
+        for (member, failure) in results where failure == nil { daemons[ObjectIdentifier(member.1)] = member.1 }
+        for daemon in daemons.values {
+            if let connection = daemon.connection { await daemon.store.applied(through: await connection.eventSequence()) }
+        }
+        let firstRefused = results.first { $0.1 != nil }?.0.0.id
+        for (member, failure) in results {
+            ClosingWorkspaces.shared.end(member.0.id, refused: failure != nil, in: member.0.id == firstRefused ? window : nil)
+        }
+        return results.filter { $0.1 == nil }.map { $0.0.0.name }
     }
 
     /// One workspace's close on its own machine (`waits`: until that machine connects).
