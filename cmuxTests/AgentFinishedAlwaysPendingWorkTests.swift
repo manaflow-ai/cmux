@@ -38,6 +38,14 @@ extension AgentNotificationRegressionTests {
         #expect(delivered == 2, "the settled Stop of the same turn did not notify")
     }
 
+    /// Claude's hooks carry no turn id. A reply to a prompt sent while the background
+    /// work still runs, which ends with work pending again, is its own notification,
+    /// and so is the Stop once everything is done (reported by jacob-carlborg).
+    @Test func alwaysNotifiesEachReplyWithoutATurnID() async throws {
+        let delivered = try await deliveriesAfterPendingCompletion(mode: "always", repliesWithoutTurnIDs: true)
+        #expect(delivered == 3, "a reply without a turn id was taken for a repeat of the earlier one")
+    }
+
     /// Runs one Claude turn that stops with background work pending through the
     /// live journal consumer, with Agent Finished set to `mode`, and counts the
     /// notifications delivered to the pane. `thenFinishWork` adds the turn Claude
@@ -45,7 +53,8 @@ extension AgentNotificationRegressionTests {
     private func deliveriesAfterPendingCompletion(
         mode: String,
         thenFinishWork: Bool = false,
-        thenSettleSameTurn: Bool = false
+        thenSettleSameTurn: Bool = false,
+        repliesWithoutTurnIDs: Bool = false
     ) async throws -> Int {
         // A private suite, so suites that write the same setting to
         // `UserDefaults.standard` cannot change it mid-test.
@@ -70,7 +79,7 @@ extension AgentNotificationRegressionTests {
         var deliveries = 0
         fixture.store.configureNotificationDeliveryHandlerForTesting { _, _, _ in deliveries += 1 }
 
-        func draft(_ kind: AgentJournalEventKind, at time: Int64, turn: String,
+        func draft(_ kind: AgentJournalEventKind, at time: Int64, turn: String?,
                    pendingWork: Bool = false, completes: Bool = false) -> AgentJournalEventDraft {
             AgentJournalEventDraft(kind: kind, occurredAtMs: time, source: "claude", agentKey: "claude_code",
                 sessionId: "session", workspaceId: fixture.source.id.uuidString,
@@ -80,6 +89,20 @@ extension AgentNotificationRegressionTests {
                     notification: completes
                         ? AgentJournalNotification(title: "Claude Code", subtitle: "", body: "Done", category: "turn-complete")
                         : nil))
+        }
+        if repliesWithoutTurnIDs {
+            for draft in [
+                draft(.sessionStarted, at: 1, turn: nil),
+                draft(.turnStarted, at: 2, turn: nil),
+                draft(.turnCompleted, at: 3, turn: nil, pendingWork: true, completes: true),
+                draft(.turnStarted, at: 4, turn: nil),
+                draft(.turnCompleted, at: 5, turn: nil, pendingWork: true, completes: true),
+                draft(.turnCompleted, at: 6, turn: nil, completes: true),
+            ] { center.observe(draft) }
+            _ = await center.admitNotification(AgentJournalEventDraft(kind: .stateChanged, occurredAtMs: 0,
+                source: "barrier", agentKey: "barrier", unattributedReason: "test-barrier"))
+            TerminalMutationBus.shared.drainForTesting()
+            return deliveries
         }
         var drafts = [
             draft(.sessionStarted, at: 1, turn: "turn-1"),

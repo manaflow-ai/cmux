@@ -31,12 +31,12 @@ struct AgentNotificationReconcilerTests {
 
         var always = AgentNotificationReconciler()
         _ = always.apply(event(1, .turnStarted, source: "claude", notify: false), deliversPendingCompletions: true)
-        let pending = always.apply(event(2, .turnCompleted, source: "claude", pending: true),
+        let pending = always.apply(event(2, .turnCompleted, source: "claude", pending: true, nativeID: "stop-1"),
                                    deliversPendingCompletions: true)
         #expect(pending.disposition == .accepted)
         let identity = try #require(pending.identity)
-        // A Stop that still has work pending repeats the same completion.
-        let repeated = always.apply(event(3, .turnCompleted, source: "claude", pending: true),
+        // A redelivered copy of the same pending Stop is the same notification.
+        let repeated = always.apply(event(3, .turnCompleted, source: "claude", pending: true, nativeID: "stop-1"),
                                     deliversPendingCompletions: true)
         #expect(repeated.identity == identity)
         // The next turn is a new completion.
@@ -75,6 +75,23 @@ struct AgentNotificationReconcilerTests {
         let released = always.apply(event(4, .childCompleted, source: "claude", request: "child", notify: false),
                                     deliversPendingCompletions: true)
         #expect(try #require(released.identity) == stop.identity)
+    }
+
+    /// Claude's hooks carry no turn id, and a prompt sent while the session is still
+    /// running does not advance its turn. Each reply that ends with background work
+    /// pending is still its own notification under Always, and so is the final Stop.
+    @Test func eachPendingReplyWithoutATurnIDIsItsOwnNotificationUnderAlways() throws {
+        var always = AgentNotificationReconciler()
+        _ = always.apply(event(1, .turnStarted, source: "claude", turn: nil, notify: false), deliversPendingCompletions: true)
+        let first = always.apply(event(2, .turnCompleted, source: "claude", turn: nil, pending: true),
+                                 deliversPendingCompletions: true)
+        _ = always.apply(event(3, .turnStarted, source: "claude", turn: nil, notify: false), deliversPendingCompletions: true)
+        let second = always.apply(event(4, .turnCompleted, source: "claude", turn: nil, pending: true),
+                                  deliversPendingCompletions: true)
+        let last = always.apply(event(5, .turnCompleted, source: "claude", turn: nil), deliversPendingCompletions: true)
+        #expect([first, second, last].map(\.disposition) == [.accepted, .accepted, .accepted])
+        let identities = try [first, second, last].map { try #require($0.identity) }
+        #expect(Set(identities).count == 3)
     }
 
     /// An open blocking request is its own notification; a pending completion does not
