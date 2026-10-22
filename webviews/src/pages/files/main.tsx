@@ -8,6 +8,7 @@ import table from "./generated/strings.json";
 import { FilesPage } from "./FilesPage";
 import { MockFilesProvider } from "./mockProvider";
 import { FilesStore } from "./store";
+import "../../ui/popupSurface.css";
 import "../shared/pageBase.css";
 import "./styles.css";
 

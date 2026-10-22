@@ -1465,8 +1465,19 @@ body[data-loading="true"] #status::before {
   padding: 4px;
   border: 1px solid var(--cmux-diff-border);
   border-radius: 7px;
-  background: var(--cmux-diff-solid-bg);
+  /* The toolbar menus' glass (.toolbar-menu); solid under Reduce Transparency. */
+  background: color-mix(in srgb, var(--cmux-diff-solid-bg) 70%, transparent);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
   box-shadow: var(--elevation-2);
+}
+:root[data-reduce-transparency] .file-tree-context-menu {
+  background: var(--cmux-diff-solid-bg);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .file-tree-context-menu {
+    background: var(--cmux-diff-solid-bg);
+  }
 }
 .file-review-controls {
   display: inline-flex;
@@ -1626,6 +1637,16 @@ svg[data-icon-fill] {
   /* Glass: the chrome lift over the window's backdrop, blurred where a menu or the narrow files
      panel passes under it (--surface-blur is none under Reduce Transparency). */
   background: var(--cmux-diff-chrome-lift);
+}
+/* The frost is a layer under the bar's content, not the bar: an element with a backdrop-filter is a
+   backdrop root, so the "..." menu that hangs out of the bar blurred only the bar, and the diff read
+   sharp through it. #toolbar is a stacking context (z-index 50), so the layer stays under the bar. */
+#toolbar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: var(--layer-backdrop);
+  pointer-events: none;
   -webkit-backdrop-filter: var(--surface-blur);
   backdrop-filter: var(--surface-blur);
 }
@@ -1741,9 +1762,39 @@ svg[data-icon-fill] {
   padding: 6px;
   border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
   border-radius: 12px;
-  background: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
+  /* Menu glass, as every menu: the solid fill at 70% over a blur of the diff under it. Reduce
+     Transparency: the solid fill (--surface-blur is none there). */
+  --toolbar-menu-solid: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
+  background: color-mix(in srgb, var(--toolbar-menu-solid) 70%, transparent);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
   box-shadow: var(--elevation-2);
   color: var(--cmux-diff-fg);
+}
+:root[data-reduce-transparency] .toolbar-menu {
+  background: var(--toolbar-menu-solid);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .toolbar-menu {
+    background: var(--toolbar-menu-solid);
+  }
+}
+/* The source menu's frost is a layer under its rows, as the bar's (#toolbar::after): its submenu
+   sits outside it, and a menu with a backdrop-filter of its own would be the submenu's backdrop
+   root. Only this menu: it never scrolls, so the layer covers it whole. */
+.toolbar-menu.source-menu {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.toolbar-menu.source-menu::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: var(--layer-backdrop);
+  border-radius: inherit;
+  pointer-events: none;
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
 }
 .toolbar-menu-section {
   display: flex;
@@ -2021,8 +2072,20 @@ svg[data-icon-fill] {
 /* The base picker popover uses the toolbar menu surface. */
 .base-picker-popover {
   border-radius: 8px;
-  background: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
+  /* The toolbar menus' glass (.toolbar-menu). */
+  --toolbar-menu-solid: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
+  background: color-mix(in srgb, var(--toolbar-menu-solid) 70%, transparent);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
   box-shadow: var(--elevation-2);
+}
+:root[data-reduce-transparency] .base-picker-popover {
+  background: var(--toolbar-menu-solid);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .base-picker-popover {
+    background: var(--toolbar-menu-solid);
+  }
 }
 .base-picker-search {
   padding: 9px 12px;

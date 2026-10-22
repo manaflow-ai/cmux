@@ -52,14 +52,37 @@
   --acpmux-menu-press: color-mix(in srgb, var(--agent-text) 20%, var(--acpmux-base));
 }
 
+/* The card's frost is a layer under its content (::after), not the card itself: an element with a
+   backdrop-filter is a backdrop root, so the menus that open from inside the card (the `/` and `@`
+   lists, the + menu, the model menu in the card's row) blurred only the card, and the transcript
+   read sharp through them. The card is a stacking context, so the layer stays under its content,
+   at the sticky layer, above the slash list's old level (3, as the thread minimap), so nothing in
+   the transcript draws over the lists. */
+.ui-glass.acpmux-composer-box {
+  z-index: var(--layer-sticky);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.acpmux-composer-box::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: var(--layer-backdrop);
+  border-radius: inherit;
+  pointer-events: none;
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  backdrop-filter: var(--glass-backdrop);
+}
 /* Reduce Transparency makes the card opaque, and an opaque card blurs nothing it can show (glass is
    never opaque, accent-glass-invariants.test.ts). */
-:root[data-reduce-transparency] .acpmux-composer-box {
+:root[data-reduce-transparency] .acpmux-composer-box,
+:root[data-reduce-transparency] .acpmux-composer-box::after {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
 @media (prefers-reduced-transparency: reduce) {
-  .acpmux-composer-box {
+  .acpmux-composer-box,
+  .acpmux-composer-box::after {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }

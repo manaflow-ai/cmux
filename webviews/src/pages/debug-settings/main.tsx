@@ -13,6 +13,7 @@ import table from "./generated/strings.json";
 import { DebugSettingsPage } from "./DebugSettingsPage";
 import { MockDebugTunablesProvider } from "./mockProvider";
 import { DebugSettingsStore } from "./store";
+import "../../ui/popupSurface.css";
 import "../shared/pageBase.css";
 import "./styles.css";
 

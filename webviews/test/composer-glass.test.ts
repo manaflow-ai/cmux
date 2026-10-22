@@ -91,9 +91,14 @@ await requireBrowserLane("composer-glass.test.ts", async () => {
   async function look(page: Page, id: string, field?: string): Promise<Look> {
     const raw = await page.evaluate(
       ([id, field]) => {
-        const style = getComputedStyle(document.getElementById(id!)!);
+        const element = document.getElementById(id!)!;
+        const style = getComputedStyle(element);
         const ink = field ? getComputedStyle(document.getElementById(field)!).color : "rgb(0, 0, 0)";
-        return { fill: style.backgroundColor, backdrop: style.backdropFilter, shadow: style.boxShadow, ink };
+        // The card's frost is a layer under its content (composerStates.css, ::after), so the menus
+        // that open from inside the card can blur the transcript; the card itself blurs nothing.
+        const own = style.backdropFilter;
+        const backdrop = own && own !== "none" ? own : getComputedStyle(element, "::after").backdropFilter;
+        return { fill: style.backgroundColor, backdrop, shadow: style.boxShadow, ink };
       },
       [id, field],
     );
