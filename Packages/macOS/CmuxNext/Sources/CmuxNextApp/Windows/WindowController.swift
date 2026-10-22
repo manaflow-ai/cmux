@@ -253,7 +253,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         content = controller
         // One synchronous swap: the old view leaves (its panes stay mounted, paused) and the new
         // one draws in the same frame, its sidebar row already listed (a listed one pays no walk of every row) and selected.
-        sidebar.sameTurn.syncNow(rows: controller !== kept && !sidebar.model.lists(SidebarWorkspaceID(workspace.id)))
+        // A space switch lists another space's rows even for a parked (kept) workspace (space-switch-100x).
+        let otherSpace = sidebar.model.activeProfileID?.rawValue != state.profileID.rawValue
+        sidebar.sameTurn.syncNow(rows: otherSpace || (controller !== kept && !sidebar.model.lists(SidebarWorkspaceID(workspace.id))))
         root.show(controller.contentView)
         arrangeOnScreen() // with `sidebar.multiView`, the workspaces shown beside it
         // The workspace's theme first, so the chrome repaints once: only the room's own views (sidebar,

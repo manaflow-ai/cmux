@@ -41,6 +41,10 @@ extension WindowManager {
         let remembered = state.profileWorkspaces[profile].flatMap { visible.contains($0) ? $0 : nil }
         state.enterProfile(profile)
         select(remembered ?? visible.first, in: state)
+        // The window swaps its content now, not on its observation hop (I6, as `show(workspaceID:in:)`):
+        // the swap syncs the sidebar in the same turn (`SidebarSameTurn`), so the new space's rows and its
+        // workspace reach the screen in one commit instead of a frame or two apart (space-switch-100x).
+        controller(for: state.id)?.showWorkspace(requested: state.workspaceID)
     }
 
     /// Next (+1) or previous (-1) profile of the local daemon, clamped at
