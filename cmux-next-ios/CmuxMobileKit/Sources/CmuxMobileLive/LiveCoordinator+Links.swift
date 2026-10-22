@@ -53,7 +53,17 @@ extension LiveCoordinator {
             guard let self, let session else { return }
             self.apply(tree, session: session)
         }
-        session.workspaces.onNotification = { [weak session] in session?.terminalFeed.notificationPosted() }
+        session.terminalFeed.send = { [weak session] surface, text, paste, expectForeground, connection in
+            // A Feed reply into a terminal agent: this connection's channel only, and only while
+            // that program is still the terminal's foreground one (the daemon checks it).
+            guard let session, session.workspaces.connectionSerial == connection, let client = session.workspaces.daemon else {
+                throw LinkError(code: "no-link", message: "Not connected to the Mac")
+            }
+            return try await client.request("send", params: [
+                "surface": surface, "text": text, "paste": paste, "expect_foreground": expectForeground,
+            ])
+        }
+        session.workspaces.onNotification = { [weak session] post in session?.terminalFeed.notificationPosted(post) }
         session.acpmux.onWatchEvent = { [weak session] event in
             guard let session else { return }
             session.feed.handle(event, sessions: session.acpmux.sessions)
@@ -79,6 +89,11 @@ extension LiveCoordinator {
     /// The session for a Mac id, when it has one.
     func session(macID: String?) -> MacSession? {
         macID.flatMap { sessions[$0] }
+    }
+
+    /// The terminal agents' Feed of the Mac `macID` (a Feed item's own Mac; never another's).
+    public func terminalFeed(macID: String?) -> TerminalFeed? {
+        session(macID: macID)?.terminalFeed
     }
 
     /// The session of the Mac that shows `tabID`: `macID` when given, else the

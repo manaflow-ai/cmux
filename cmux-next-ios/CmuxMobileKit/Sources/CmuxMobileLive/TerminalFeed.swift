@@ -16,6 +16,15 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "feed")
 /// read on connect (history) and again whenever the daemon posts a
 /// notification or a tab's unread marker changes (live, and the Mac's reads).
 /// Agent chat tabs are left to `LiveFeed`, which has their full turns.
+///
+/// The ledger is durable and holds only the title and body ("Claude
+/// finished", "Bash"). An agent's prompt and its whole answer, or a failed
+/// turn's error text, ride on the live `notification` event alone (memory
+/// only on the Mac; `NotificationPost`), so the card shows what a GUI chat's
+/// does: the prompt as the quote bubble and the answer as its body. A reply
+/// typed on that card goes into the terminal's agent (`reply`), only while
+/// that event is still the terminal's newest and its agent waits there
+/// (cmux-next-ios/SECURITY.md "Feed reply to a terminal agent").
 @MainActor
 public final class TerminalFeed {
     /// One `list-notifications` row.
@@ -56,6 +65,22 @@ public final class TerminalFeed {
     /// so a read or a read mark never crosses to another Mac or connection.
     /// Parameters are integers only (`limit`, `surface`).
     public var request: (@MainActor (_ command: String, _ params: [String: Int], _ connection: Int) async throws -> Data)?
+    /// Writes `text` into the terminal of `surface` on the Mac's `daemon`
+    /// channel of `connection` (`send`, pasted or typed), only while
+    /// `expectForeground` is still its foreground program (checked by the
+    /// daemon right before the write). Throws like `request`.
+    public var send: (@MainActor (_ surface: Int, _ text: String, _ paste: Bool, _ expectForeground: String, _ connection: Int) async throws -> Data)?
+
+    /// A terminal agent's texts from a live `notification` event (memory only).
+    public struct Texts: Hashable, Sendable {
+        public var prompt: String?
+        public var message: String?
+
+        public init(prompt: String? = nil, message: String? = nil) {
+            self.prompt = prompt
+            self.message = message
+        }
+    }
 
     private(set) var macID = ""
     private var connection: Int?
@@ -81,6 +106,12 @@ public final class TerminalFeed {
     private var generation = 0
     /// The Mac has no notification ledger (an older cmux): not asked again on this connection.
     private var unsupported = false
+    /// Each ledger row's texts from its live event (this Mac, this launch).
+    private var texts: [String: Texts] = [:]
+    private var textOrder: [String] = []
+    /// Texts from an event without a ledger id (an older Mac), by surface,
+    /// for the next new row there.
+    private var unclaimed: [Int: Texts] = [:]
 
     public init(store: FeedStore) {
         self.store = store
@@ -95,6 +126,11 @@ public final class TerminalFeed {
     /// on): a new connection reads the ledger (history); a changed unread
     /// marker reads it again (a new notification, or a read on the Mac).
     public func treeChanged(_ tree: DaemonTree, macID: String, connection: Int) {
+        if macID != self.macID {
+            texts = [:]
+            textOrder = []
+            unclaimed = [:]
+        }
         if connection != self.connection || macID != self.macID {
             self.connection = connection
             self.macID = macID
@@ -138,8 +174,18 @@ public final class TerminalFeed {
         if !hydrated || changed { Task { await refresh() } }
     }
 
-    /// The daemon posted a notification.
-    public func notificationPosted() {
+    /// The daemon posted a notification: keeps an agent's texts for its row, then reads the ledger.
+    public func notificationPosted(_ post: NotificationPost = NotificationPost()) {
+        let kept = Texts(prompt: post.prompt, message: post.message ?? post.preview)
+        if post.source == nil || post.source == "agent", kept.prompt != nil || kept.message != nil {
+            if let id = post.id {
+                if texts.updateValue(kept, forKey: id) == nil { textOrder.append(id) }
+                // As many as the ledger read holds, and some.
+                while textOrder.count > Self.limit * 2 { texts[textOrder.removeFirst()] = nil }
+            } else if let surface = post.surface {
+                unclaimed[surface] = kept
+            }
+        }
         Task { await refresh() }
     }
 
@@ -245,12 +291,25 @@ public final class TerminalFeed {
             guard let place = places[surface] else { continue }
             guard place.tab.kind == .terminal else { continue }
             let harness = place.tab.harness ?? harnesses[surface] ?? Self.harness(title: entry.title) ?? "terminal"
-            var item = Self.item(entry, id: id, harness: harness, workspace: place.workspace, tab: place.tab)
-            if known == nil, hydrated, !historyIDs.contains(entry.id) { fresh.append(item) } else {
+            let isFresh = known == nil && hydrated && !historyIDs.contains(entry.id)
+            if isFresh, texts[entry.id] == nil, entry.source == "agent", let kept = unclaimed.removeValue(forKey: surface) {
+                if texts.updateValue(kept, forKey: entry.id) == nil { textOrder.append(entry.id) }
+            }
+            var item = Self.item(entry, id: id, harness: harness, workspace: place.workspace, tab: place.tab,
+                                 texts: texts[entry.id])
+            if texts[entry.id] == nil, let known, Self.isRicher(known, than: item) {
+                // Shown with its texts before (this launch, or the archive): a later read of the
+                // thin ledger row keeps them.
+                item.kind = known.kind
+                item.markdown = known.markdown
+                item.quote = known.quote
+            }
+            if isFresh { fresh.append(item) } else {
                 if let known {
                     item.createdAt = known.createdAt
                     // Unchanged: no merge (each one rewrites and saves the Feed).
-                    if known.kind == item.kind, known.markdown == item.markdown, known.agentName == item.agentName,
+                    if known.kind == item.kind, known.markdown == item.markdown, known.quote == item.quote,
+                       known.agentName == item.agentName,
                        known.harness == item.harness, known.workspaceID == item.workspaceID,
                        known.workspaceTitle == item.workspaceTitle, known.tabID == item.tabID { continue }
                 }
@@ -305,17 +364,122 @@ public final class TerminalFeed {
         return places
     }
 
-    static func item(_ entry: Entry, id: String, harness: String, workspace: Workspace, tab: WorkspaceTab) -> FeedItem {
+    static func item(_ entry: Entry, id: String, harness: String, workspace: Workspace, tab: WorkspaceTab,
+                     texts: Texts? = nil) -> FeedItem {
         let agentName = harness == "terminal" ? "Terminal" : DaemonTree.agentName(harness)
-        let kind = kind(entry)
+        var kind = kind(entry)
+        var markdown = text(entry, agentName: agentName, kind: kind)
+        if let message = texts?.message {
+            switch kind {
+            // The answer itself, as a GUI chat's finished turn shows it.
+            case .finished: kind = .response; markdown = message
+            // What went wrong, under what failed ("Reported an error: Bash").
+            case .failed: markdown += "\n\n" + fenced(message)
+            default: break
+            }
+        }
         var item = FeedItem(
             id: id, kind: kind, workspaceID: workspace.id, tabID: tab.id, agentName: agentName, harness: harness,
-            workspaceTitle: workspace.title, markdown: text(entry, agentName: agentName, kind: kind), quote: nil,
+            workspaceTitle: workspace.title, markdown: markdown, quote: texts?.prompt.map { FeedItem.Quote($0) },
             createdAt: entry.createdAt
         )
         item.opensTerminal = true
         item.macID = workspace.macID.isEmpty ? nil : workspace.macID
         return item
+    }
+
+    /// `text` as a code block (error text is not markdown): a fence longer than any run of
+    /// backticks inside it.
+    static func fenced(_ text: String) -> String {
+        var longest = 0
+        var run = 0
+        for character in text {
+            run = character == "`" ? run + 1 : 0
+            longest = max(longest, run)
+        }
+        let fence = String(repeating: "`", count: max(3, longest + 1))
+        return "\(fence)\n\(text)\n\(fence)"
+    }
+
+    /// `known` came with its texts (an answer, a quote) and `item` is the same row without them.
+    static func isRicher(_ known: FeedItem, than item: FeedItem) -> Bool {
+        guard known.quote != nil || known.markdown != item.markdown else { return false }
+        switch (known.kind, item.kind) {
+        case (.response, .finished), (.finished, .finished), (.failed, .failed), (.needsInput, .needsInput): return true
+        default: return false
+        }
+    }
+
+    // MARK: Reply
+
+    /// Types `text` into the terminal agent of `itemID` and submits it (pasted,
+    /// then Return as its own key, as the Mac's reply banner does). Nil when it
+    /// went in, else why not, in words for the card.
+    ///
+    /// Only into the waiting agent that posted the event: the event must still
+    /// be its terminal's newest, the terminal must still run that agent, at its
+    /// prompt (not working, not showing an approval or a question), and its
+    /// foreground program must be the agent, not a shell
+    /// (the daemon checks that again right before each write, so text never
+    /// lands in a shell that took the terminal back).
+    public func reply(itemID: String, text: String) async -> String? {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return "Type a reply first." }
+        guard let request, let send, let connection, let tree, !macID.isEmpty else { return "Not connected to the Mac." }
+        guard let entry = entries.first(where: { Self.itemID(macID: macID, entry: $0.id) == itemID }), let surface = entry.surface else {
+            return "This event is no longer on the Mac. Open the terminal to reply."
+        }
+        let newest = entries.filter { $0.surface == surface && !isEcho($0) }.max { $0.createdAt < $1.createdAt }
+        guard newest?.id == entry.id else { return "The agent has posted since. Reply to its newest event, or open the terminal." }
+        guard let tab = Self.places(tree)[surface]?.tab, tab.kind == .terminal, let harness = tab.harness else {
+            return "The agent is no longer running in that terminal."
+        }
+        if let item = store.item(id: itemID), item.harness != "terminal", item.harness != harness {
+            return "Another agent runs in that terminal now. Open it to reply."
+        }
+        // Only at the agent's prompt: text typed while it works, or into an approval or a
+        // question on its screen, would answer something else.
+        switch tab.agentStatus {
+        case .working: return "The agent is still working. Reply when it finishes, or open the terminal."
+        case .waiting: return "The agent is waiting for an answer in the terminal. Open it to answer."
+        case nil: break
+        }
+        do {
+            let info = try WorkspaceSync.check(try await request("process-info", ["surface": surface], connection))
+            let data = info["data"] as? [String: Any] ?? info
+            guard let program = Self.runningProgram(foreground: data["foreground_executable"] as? String,
+                                                    command: data["command"] as? String) else {
+                return "Only a shell runs in that terminal now, so the reply was not sent."
+            }
+            _ = try WorkspaceSync.check(try await send(surface, text, true, program, connection))
+            _ = try WorkspaceSync.check(try await send(surface, "\r", false, program, connection))
+        } catch let error as DaemonReplyError {
+            log.error("terminal reply refused: \(error.message, privacy: .public)")
+            return error.message.contains("foreground changed")
+                ? "The agent left that terminal, so the reply was not sent." : "The Mac refused the reply: \(error.message)"
+        } catch {
+            log.error("terminal reply failed: \(String(describing: error), privacy: .public)")
+            return "Couldn't reach the Mac. The reply was not sent."
+        }
+        return nil
+    }
+
+    /// Interactive shells a terminal idles in (as the Mac's `process-info` reading).
+    static let shells: Set<String> = ["zsh", "bash", "fish", "sh", "dash", "ksh", "tcsh", "csh", "nu", "xonsh", "elvish", "pwsh", "login"]
+
+    /// The foreground program when it is not the terminal's own shell, else nil.
+    static func runningProgram(foreground: String?, command: String?) -> String? {
+        func basename(_ path: String) -> String {
+            let name = path.split(separator: "/").last.map(String.init) ?? path
+            return name.hasPrefix("-") ? String(name.dropFirst()) : name
+        }
+        guard let foreground, !foreground.isEmpty else { return nil }
+        let executable = basename(foreground)
+        if shells.contains(executable) { return nil }
+        if let command, let spawned = command.split(separator: " ").first.map({ basename(String($0)) }),
+           spawned == executable, shells.contains(spawned) { return nil }
+        // The daemon compares the name it reads (`foreground_executable`), as sent.
+        return foreground
     }
 
     /// Errors fail; an approval, a question or a plan review waits for input

@@ -25,6 +25,7 @@ struct FeedCell: View {
     /// whose refusal (the Mac's reason) shows under the reply instead of a silent "You replied".
     @State private var replyFailure: String?
     @State private var replyChat: AgentChatStore?
+    @State private var sendingToTerminal = false
     @FocusState private var replyFocused: Bool
     @State private var copied = false
     #if DEBUG
@@ -95,6 +96,18 @@ struct FeedCell: View {
                 }
                 if !item.replies.isEmpty {
                     replies
+                }
+                if sendingToTerminal {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Typing into the terminal…")
+                    }
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("feed.reply.sending")
+                    .transition(.opacity)
                 }
                 if let failure = replyFailure ?? replyChat?.clientError {
                     Text(failure)
@@ -333,7 +346,9 @@ struct FeedCell: View {
 
     private var replies: some View {
         VStack(alignment: .trailing, spacing: 4) {
-            Text("You replied").font(.caption).foregroundStyle(.tertiary)
+            // A terminal agent's reply went into its terminal on the Mac.
+            Text(item.opensTerminal ? "Sent to the terminal" : "You replied").font(.caption).foregroundStyle(.tertiary)
+                .accessibilityIdentifier("feed.reply.sent")
             ForEach(Array(item.replies.enumerated()), id: \.offset) { _, reply in
                 Text(reply)
                     .font(.subheadline)
@@ -374,6 +389,10 @@ struct FeedCell: View {
         let text = replyText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         replyFailure = nil
+        if item.opensTerminal {
+            sendTerminalReply(text)
+            return
+        }
         let sent = FeedRouting.shared.sendPrompt?(item, text) ?? .failed("Open this chat to reply.")
         withAnimation(.cmuxMobileSnappy) {
             switch sent {
@@ -389,10 +408,36 @@ struct FeedCell: View {
         replyFocused = false
     }
 
+    /// A terminal agent's reply: typed into its terminal on the Mac, then shown
+    /// under the card as sent (or why it was not).
+    private func sendTerminalReply(_ text: String) {
+        let item = item
+        let store = store
+        replyText = ""
+        replyFocused = false
+        withAnimation(.cmuxMobileSnappy) {
+            replying = false
+            sendingToTerminal = true
+        }
+        Task { @MainActor in
+            let refusal = await FeedRouting.shared.replyToTerminal?(item, text) ?? "Open the terminal to reply."
+            withAnimation(.cmuxMobileSnappy) {
+                sendingToTerminal = false
+                if let refusal {
+                    replyFailure = refusal
+                    replyText = text
+                } else {
+                    store.reply(item.id, text: text)
+                }
+            }
+        }
+    }
+
     private var footer: some View {
         HStack(spacing: 0) {
-            // A terminal agent takes its input in the terminal (Open), not as a new prompt.
-            if !item.opensTerminal {
+            // A terminal agent's question or approval is answered in its terminal (Open); its
+            // finished turn or error takes a reply, typed into that terminal's agent.
+            if item.takesReply {
                 footerButton("bubble.left", "Reply") {
                     withAnimation(.cmuxMobileSmooth) { replying.toggle() }
                     replyFocused = replying
@@ -540,6 +585,9 @@ public final class FeedRouting {
         case failed(String)
     }
     var sendPrompt: ((FeedItem, String) -> ReplyOutcome)?
+    /// Reply to a terminal agent's event: typed into that terminal's agent on
+    /// its Mac (nil: sent; else why not). Set by the shell.
+    public var replyToTerminal: ((FeedItem, String) async -> String?)?
     /// Opens a terminal agent's tab on the Workspaces tab (set by the shell).
     public var openTerminal: ((FeedItem) -> Void)?
     /// Clear All Notifications on the linked Mac (nil: no Mac can clear now).

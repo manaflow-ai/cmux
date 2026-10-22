@@ -83,6 +83,13 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
         self.createdAt = createdAt
     }
 
+    /// The card takes a typed reply: a chat's events, and a terminal agent's
+    /// finished turn or error (typed into that terminal); a terminal agent's
+    /// question or approval is answered in the terminal.
+    public var takesReply: Bool {
+        !opensTerminal || kind != .needsInput
+    }
+
     public var needsYou: Bool {
         guard resolution == nil else { return false }
         switch kind {
