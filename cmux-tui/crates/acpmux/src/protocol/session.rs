@@ -334,7 +334,54 @@ pub struct LastTurn {
     pub error_source: Option<String>,
     /// Why a turn ended without an answer, e.g. `outcome_unknown`.
     pub detail: Option<String>,
+    /// What kind of failure a failed turn was (`recovery.rs`): `disk.full`, `disk.low`,
+    /// `peer.unreachable`, `tailscale.down`, `daemon.restarting`, `spawn.failed` or
+    /// `agent.exited`. A client treats a kind it does not know as a plain error. The same key
+    /// is on a request's error `data` and on the `turn_error` and `turn_result` records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_kind: Option<String>,
+    /// One sentence saying what to do about the failure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<ErrorDetails>,
     pub ended_at: u64,
+}
+
+/// The facts of a typed failure (`errorKind`); only the keys that apply are present.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorDetails {
+    /// The folder whose disk is full or low.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub free_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_bytes: Option<u64>,
+    /// The peer, by its name in `acpmux host ls`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer: Option<String>,
+    /// When the peer last answered (RFC 3339).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_seen_at: Option<String>,
+    /// Whether Tailscale shows the peer online; absent without a `tailscale` CLI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tailscale_online: Option<bool>,
+    /// The program that could not start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signal: Option<String>,
+    /// The message is held in the durable outbox and goes when the peer or daemon is back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queued: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_after_ms: Option<u64>,
 }
 
 /// Also the page fields of `_acpmux/watch` (`hub::session_pages`).
