@@ -8,8 +8,10 @@
 //! every readable profile of the browser (or the one named) into one
 //! "Imported from ..." folder on the Bookmarks Bar per profile, tagged with
 //! `source_key` `<browser id>/<profile folder>`. The state is
-//! `bookmark.list`: a folder of that browser there (of that profile, when
-//! one is named) is `ok` and nothing runs; otherwise setup imports, reads
+//! `bookmark.list` once the app has loaded it: a folder of that browser
+//! there (when a profile is named, of a source key the app's
+//! `bookmark.importSources` gives for it; titles are localized) is `ok`
+//! and nothing runs; otherwise setup imports, reads
 //! the list again, and the undo removes each folder the run added
 //! (`cmux bookmark remove --target bookmark:<id>`). A folder of the same
 //! source the app refreshes in place instead is named in `after.refreshed`
@@ -52,6 +54,10 @@ const PERSON: &str = "History and passwords come in only when the person runs Im
 
 /// The reason the consent panel shows when the agent gives none.
 const DEFAULT_REASON: &str = "cmux setup browser-import: use your sign-ins in cmux's browser";
+
+/// How long `bookmark.list` may say it is still loading: reads and the pause between them.
+const LOAD_READS: usize = 20;
+const LOAD_PAUSE: std::time::Duration = std::time::Duration::from_millis(100);
 
 const COOKIES_UNDO_NOTE: &str = "Imported cookies have no undo: clearing the browser profile's \
                                  cookies would clear every cookie, not only the imported ones";
@@ -204,7 +210,16 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
     // The profile the app chose for this run; every later call names it, so
     // a tab focused in between cannot move the import elsewhere.
     let profile = listed["profile"].as_str().unwrap_or("default").to_owned();
-    let before = imported(&listed, Some(&id), source);
+    // A named profile is the folders of the source keys the app's import
+    // would use: the app matches the name, and folder titles are localized.
+    let keys = match source.map(|source| import_sources(global, &id, source)).transpose() {
+        Ok(Some(keys)) if keys.is_empty() => {
+            return needs_user(report, no_bookmarks(browser, "no browser profile matches."));
+        }
+        Ok(keys) => keys,
+        Err(action) => return needs_user(report, action),
+    };
+    let before = imported(&listed, Some(&id), keys.as_deref());
     report["before"] = json!({"profile": profile, "folders": before});
     if !before.is_empty() {
         report["after"] = report["before"].clone();
@@ -264,16 +279,7 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
                 "url": Value::Null,
             })
         } else {
-            let why = failure.as_deref().unwrap_or("no bookmarks came in.");
-            json!({
-                "kind": "browser",
-                "text": format!(
-                    "cmux found no bookmarks to import from {browser:?}: {why} Check the name with \
-                     the person, or run the command to show them the browsers cmux found"
-                ),
-                "command": PICKER,
-                "url": Value::Null,
-            })
+            no_bookmarks(browser, failure.as_deref().unwrap_or("no bookmarks came in."))
         };
         return needs_user(report, action);
     }
@@ -311,6 +317,19 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
     report
 }
 
+/// What the person does when `browser` has nothing to import, and `why`.
+fn no_bookmarks(browser: &str, why: &str) -> Value {
+    json!({
+        "kind": "browser",
+        "text": format!(
+            "cmux found no bookmarks to import from {browser:?}: {why} Check the name with the \
+             person, or run the command to show them the browsers cmux found"
+        ),
+        "command": PICKER,
+        "url": Value::Null,
+    })
+}
+
 /// The undo of one imported folder.
 fn remove(folder: &str) -> String {
     format!("cmux bookmark remove --target bookmark:{folder}")
@@ -341,7 +360,16 @@ fn cookies(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value) -
     );
     let mut arguments = Map::new();
     arguments.insert("from".into(), json!(browser));
-    arguments.insert("reason".into(), json!(args.reason.as_deref().unwrap_or(DEFAULT_REASON)));
+    arguments.insert(
+        "reason".into(),
+        json!(
+            args.reason
+                .as_deref()
+                .map(str::trim)
+                .filter(|r| !r.is_empty())
+                .unwrap_or(DEFAULT_REASON)
+        ),
+    );
     if let Some(domain) = &args.domain {
         arguments.insert("domain".into(), json!(domain));
     }
@@ -424,19 +452,48 @@ fn registry_id(browser: &str) -> String {
 }
 
 /// The app's `bookmark.list` of `profile` (None: the profile the app picks).
+/// Until the app has its stored bookmarks it answers an empty list with
+/// `loaded` false, which would put folders already there in the undo: read
+/// again for a moment, then say to run it again.
 fn list(global: &GlobalArgs, profile: Option<&str>) -> Result<Value, Value> {
     let params = match profile {
         Some(profile) => json!({"profile": profile}),
         None => json!({}),
     };
-    app_call(global, "bookmark.list", params, READ_TIMEOUT).map_err(|error| app_problem(&error))
+    for _ in 0..LOAD_READS {
+        let listed = app_call(global, "bookmark.list", params.clone(), READ_TIMEOUT)
+            .map_err(|error| app_problem(&error))?;
+        if listed["loaded"] != false {
+            return Ok(listed);
+        }
+        std::thread::sleep(LOAD_PAUSE);
+    }
+    Err(json!({
+        "kind": "wait",
+        "text": "cmux is still loading its bookmarks; run `cmux setup browser-import` again in a \
+                 few seconds",
+        "command": Value::Null,
+        "url": Value::Null,
+    }))
+}
+
+/// The source keys (`<browser id>/<profile folder>`) of the profiles
+/// `bookmark.importFromBrowser` would import for `browser` and `source`.
+fn import_sources(global: &GlobalArgs, browser: &str, source: &str) -> Result<Vec<String>, Value> {
+    let params = json!({"browser": browser, "source": source});
+    let found = app_call(global, "bookmark.importSources", params, READ_TIMEOUT)
+        .map_err(|error| app_problem(&error))?;
+    Ok(found["sources"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|row| row["source_key"].as_str().map(str::to_owned))
+        .collect())
 }
 
 /// The imported folders of `bookmark.list`: of one browser id or of all,
-/// and of one profile when `source` names it, by its folder (`source_key`
-/// `<id>/<folder>`) or the name the folder's title shows ("Imported from
-/// Google Chrome (Work)").
-fn imported(listed: &Value, browser: Option<&str>, source: Option<&str>) -> Vec<Value> {
+/// and only those of `keys` (source keys) when given.
+fn imported(listed: &Value, browser: Option<&str>, keys: Option<&[String]>) -> Vec<Value> {
     listed["bookmarks"]
         .as_array()
         .into_iter()
@@ -444,12 +501,8 @@ fn imported(listed: &Value, browser: Option<&str>, source: Option<&str>) -> Vec<
         .filter(|node| node["kind"] == "folder")
         .filter_map(|node| {
             let key = node["source_key"].as_str()?;
-            let (id, folder) = key.split_once('/').unwrap_or((key, ""));
-            let title = node["title"].as_str().unwrap_or_default().to_lowercase();
-            let profile = source.is_none_or(|source| {
-                folder.eq_ignore_ascii_case(source)
-                    || title.ends_with(&format!("({})", source.to_lowercase()))
-            });
+            let id = key.split_once('/').map_or(key, |(id, _)| id);
+            let profile = keys.is_none_or(|keys| keys.iter().any(|k| k == key));
             (profile && browser.is_none_or(|browser| id.eq_ignore_ascii_case(browser))).then(|| {
                 json!({"id": node["id"], "title": node["title"], "source_key": key, "browser": id})
             })

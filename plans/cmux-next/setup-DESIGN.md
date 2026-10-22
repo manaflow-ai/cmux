@@ -313,8 +313,15 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    "Imported from <Browser> (<profile name>)". The check is per browser: a
    browser any profile of which was imported counts as done (`ok`, nothing
    runs); import another profile with `--browser ID:PROFILE`, which is
-   `ok` only when that profile's folder is there (matched by folder or by
-   the name in the title). A dry run is `planned` with the `undo`
+   `ok` only when that profile's folder is there: setup asks the app's
+   `bookmark.importSources {browser, source}` for the source keys the
+   import would use (the app matches the profile's folder or name) and
+   looks for those, never at the title, which is localized and the person
+   may rename; a profile the app does not find is `needs_user` (`kind`
+   `browser`). `bookmark.list` answers `loaded` false with an empty list
+   until the app has the stored bookmarks; setup reads again for up to 2
+   seconds, then is `needs_user` (`kind` `wait`), so folders already there
+   never count as new. A dry run is `planned` with the `undo`
    `cmux bookmark remove --target bookmark:FOLDER_ID`. Otherwise setup runs
    `bookmark.importFromBrowser {browser, source?, profile}` (`profile` is
    the cmux browser profile `bookmark.list` answered for) and reads the
@@ -322,8 +329,9 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    that were not there before and the `undo` `cmux bookmark remove --target
    bookmark:<id>` for each; the person's own folders and other imports
    never enter it. The app replaces a folder of the same `source_key` in
-   place (same id, new title and children), as when the named profile no
-   longer matches a folder the person renamed: such folders, whose title or
+   place (same id, new title and children), as when the browser's
+   profiles changed between `bookmark.importSources` and the import: such
+   folders, whose title or
    children changed, are in `after.refreshed`, and an answer that the
    import ran with no new folder is `changed` with `undo` null and a `note`
    that the folder was refreshed in place and the Undo on the app's toast
