@@ -11,6 +11,12 @@ final class RightSidebarView: NSView {
     private var buttons: [RightSidebarMode: NSButton] = [:]
     private var views: [RightSidebarMode: NSView] = [:]
     private(set) var shownMode: RightSidebarMode?
+    /// The grab strip on the edge facing the content.
+    let resizeHandle = NSView()
+    /// A section button's alpha while its section is not shown.
+    static let idleButtonAlpha: CGFloat = 1
+    /// The section bar's buttons, by section.
+    var barButtons: [RightSidebarMode: NSButton] { buttons }
     /// The window's top row (traffic lights, the tab strip's height): the bar starts under it.
     var topInset: CGFloat = 0 { didSet { if topInset != oldValue { needsLayout = true } } }
     private let barHeight: CGFloat = 28

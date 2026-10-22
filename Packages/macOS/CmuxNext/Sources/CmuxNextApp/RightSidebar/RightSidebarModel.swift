@@ -6,8 +6,10 @@ import Observation
 @MainActor
 @Observable
 final class RightSidebarModel {
-    /// The sidebar's width while it shows.
+    /// The sidebar's width on a first show.
     static let width: CGFloat = 300
+    /// The widths a drag can reach.
+    static let widthRange: ClosedRange<CGFloat> = 200...560
     static let visibleKey = "rightSidebar.visible"
     static let modeKey = "rightSidebar.mode"
 
@@ -17,6 +19,8 @@ final class RightSidebarModel {
     private(set) var mode: RightSidebarMode {
         didSet { if mode != oldValue { defaults.set(mode.rawValue, forKey: Self.modeKey) } }
     }
+    /// The sidebar's width while it shows.
+    private(set) var width: CGFloat = RightSidebarModel.width
     // UserDefaults is documented thread-safe; it is only read and written here.
     @ObservationIgnored private let defaults: UserDefaults
 
