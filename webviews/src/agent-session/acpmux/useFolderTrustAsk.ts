@@ -147,9 +147,10 @@ export function useFolderTrustAsk(
   /// The folder acpmux named in a trust refusal for this chat, and the prompt to send after Trust.
   const [refusal, setRefusal] = useState<{ sessionId?: string; cwd?: string }>();
   const resend = useRef<(() => void) | undefined>(undefined);
-  /// What acpmux's last trust refusal for this chat said of its folder: the question draws from it
-  /// when the folder's read gets no answer in time (a peer's folder, read over the peer link).
-  const refusedTrust = useRef<{ sessionId?: string; cwd: string; level: TrustLevel } | undefined>(undefined);
+  /// What acpmux's last trust refusal said of each chat's folder, until an answer there: the
+  /// question draws from it when the folder's read gets no answer in time (a peer's folder, read
+  /// over the peer link) or disagrees with acpmux's gate. Kept per chat, so a chat switch keeps it.
+  const refusedTrust = useRef(new Map<string | undefined, { cwd: string; level: TrustLevel }>());
   const { sessionId, family, prompts } = chat;
   const cwd = chat.cwd ?? (refusal && refusal.sessionId === sessionId ? refusal.cwd : undefined);
   // The chat a reply belongs to; a late reply for another one is dropped.
@@ -218,7 +219,7 @@ export function useFolderTrustAsk(
       // A folder the pane can't read is not asked about (a known answer stays); acpmux still
       // refuses its prompts, and once it has, its refusal draws the question (for the folder it
       // named, which can be another spelling of the chat's).
-      const said = refusedTrust.current?.sessionId === current.current.sessionId ? refusedTrust.current : undefined;
+      const said = refusedTrust.current.get(current.current.sessionId);
       if (!trust) {
         if (said) {
           const shown = shownTrust({ cwd: said.cwd, level: said.level }, said.cwd, familyNow.current, canAnswer);
@@ -229,10 +230,11 @@ export function useFolderTrustAsk(
       }
       const read = shownTrust(trust, cwd, familyNow.current, canAnswer);
       // acpmux refused since nobody answered, and its gate is the authority: a read that shows no
-      // question (an auto-trust rule, another spelling of the folder) still shows the refusal's.
+      // question (an auto-trust rule) still shows the refusal's, and one for another spelling of
+      // the folder asks about the folder acpmux named, which is the one its gate checks.
       // Leo 2026-10-21: the pane said only "Not sent: trust.pending", with no Trust button to clear it.
       const forced =
-        said && !read.ask
+        said && (!read.ask || said.cwd !== cwd)
           ? shownTrust(
               { cwd: said.cwd, level: said.level, ...(said.cwd === cwd && trust.repo ? { repo: trust.repo } : {}) },
               said.cwd,
@@ -280,7 +282,7 @@ export function useFolderTrustAsk(
       const stillHere = () => current.current.sessionId === asked.sessionId && current.current.cwd === chatCwd;
       try {
         await source.set(recorded, level);
-        refusedTrust.current = undefined;
+        refusedTrust.current.delete(asked.sessionId);
         for (const key of new Set([asked.cwd, recorded])) answers.current.set(key, (answers.current.get(key) ?? 0) + 1);
         // Undo leaves each agent's own level to answer: the next read says which.
         const where = { ...(repo ? { repo } : {}), ...(recorded !== asked.cwd ? { via: recorded } : {}) };
@@ -356,9 +358,12 @@ export function useFolderTrustAsk(
         const named = said.cwd;
         if (named) setRefusal({ sessionId, cwd: named });
         const refusedFolder = named ?? cwd;
-        refusedTrust.current = refusedFolder
-          ? { sessionId, cwd: refusedFolder, level: said.reason === "trust.untrusted" ? "untrusted" : "unknown" }
-          : undefined;
+        if (refusedFolder)
+          refusedTrust.current.set(sessionId, {
+            cwd: refusedFolder,
+            level: said.reason === "trust.untrusted" ? "untrusted" : "unknown",
+          });
+        else refusedTrust.current.delete(sessionId);
         // acpmux says the folder is not trusted now: its record is stale, and Send waits for the read.
         for (const folder of [named, cwd]) if (typeof folder === "string" && folder) rememberTrust(folder, undefined);
         lastRead.current = undefined;

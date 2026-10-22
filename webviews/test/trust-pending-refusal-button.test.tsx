@@ -93,12 +93,13 @@ function trustButton() {
   return buttons.find((button) => button.textContent === "Trust folder");
 }
 
-async function refusedThenTrusted(read: () => Promise<unknown>, cwd: string, sessionId: string) {
+/// `named`: the folder acpmux's refusal names, which can be another spelling of the chat's `cwd`.
+async function refusedThenTrusted(read: () => Promise<unknown>, cwd: string, sessionId: string, named = cwd) {
   const trust = source(read);
   await act(async () => root.render(<Pane trust={trust.source} sessionId={sessionId} cwd={cwd} />));
   let resent = 0;
   await act(async () => {
-    shown!.refused(pending(cwd), () => {
+    shown!.refused(pending(named), () => {
       resent += 1;
     });
   });
@@ -110,7 +111,7 @@ async function refusedThenTrusted(read: () => Promise<unknown>, cwd: string, ses
   await act(async () => {
     button!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
   });
-  expect(trust.sets).toEqual([[cwd, "trusted"]]);
+  expect(trust.sets).toEqual([[named, "trusted"]]);
   expect(resent).toBe(1);
   expect(shown!.blocked).toBeUndefined();
 }
@@ -129,4 +130,9 @@ test("trust.pending shows Trust folder when the folder's trust can't be read", a
     cwd,
     "chat-unreadable",
   );
+});
+
+test("trust.pending for another spelling of the folder trusts the folder acpmux named", async () => {
+  const cwd = "/Users/you/src/link";
+  await refusedThenTrusted(async () => ({ cwd, level: "unknown" }), cwd, "chat-link", "/Users/you/src/real");
 });
