@@ -30,9 +30,7 @@ const minimap = schema.rows.find((row) => row.key === MINIMAP_KEY);
 describe("the Chat Minimap row is the experiment's arms", () => {
   test("a choice of every arm, and no other value", () => {
     expect(minimap?.kind).toBe("choice");
-    expect((minimap?.choices ?? []).map((choice) => choice.value).sort()).toEqual(
-      armIds(threadMinimapLayout).sort(),
-    );
+    expect((minimap?.choices ?? []).map((choice) => choice.value).sort()).toEqual(armIds(threadMinimapLayout).sort());
   });
 
   test("its default is the experiment's default arm", () => {

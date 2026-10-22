@@ -17835,15 +17835,39 @@
     },
     {
       "accepts" : [
-        true,
-        false
+        "compact",
+        "full",
+        "off"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatMinimapRail",
+            "text" : "Rail"
+          },
+          "value" : "compact"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatMinimapFull",
+            "text" : "Full Map"
+          },
+          "value" : "full"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        }
+      ],
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : "off",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.agentChat",
@@ -17851,7 +17875,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.display.minimap.help",
-        "text" : "A map of the whole chat down its edge, every message at its place, with a box for what is on screen. Off shows the prompt rail."
+        "text" : "What runs down the chat's edge: the rail, one tick per prompt; the full map, every message at its place with a box for what is on screen; or nothing."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.display.minimap",
@@ -17862,13 +17886,20 @@
         "display",
         "reading",
         "minimap",
+        "thread minimap",
         "map",
         "overview",
         "scroll",
         "vscode",
-        "rail"
+        "rail",
+        "tick",
+        "ticks",
+        "wave",
+        "prompt rail",
+        "scroll rail",
+        "prompts"
       ],
-      "kind" : "toggle",
+      "kind" : "choice",
       "page_hidden" : false,
       "path" : [
         "agentPane",
@@ -17876,9 +17907,9 @@
         "minimap"
       ],
       "refuses" : [
-        "true",
+        "__not_a_choice__",
         1,
-        null
+        true
       ],
       "section" : "appearance",
       "summary" : null,

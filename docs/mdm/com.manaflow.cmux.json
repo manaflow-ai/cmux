@@ -58,10 +58,15 @@
       "type" : "string"
     },
     "agentPane.display.minimap" : {
-      "default" : false,
-      "description" : "A map of the whole chat down its edge, every message at its place, with a box for what is on screen. Off shows the prompt rail.",
+      "default" : "off",
+      "description" : "What runs down the chat's edge: the rail, one tick per prompt; the full map, every message at its place with a box for what is on screen; or nothing.",
+      "enum" : [
+        "compact",
+        "full",
+        "off"
+      ],
       "title" : "Chat Minimap",
-      "type" : "boolean"
+      "type" : "string"
     },
     "agentPane.display.width" : {
       "default" : 800,
