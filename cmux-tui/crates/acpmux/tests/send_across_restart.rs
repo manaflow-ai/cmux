@@ -97,12 +97,22 @@ fn a_send_during_a_daemon_handover_waits_for_the_next_daemon_and_is_delivered() 
     assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
 
     let started = Instant::now();
-    let send = cli_command(&dir, &["send", "--no-wait", "lane", "across the handover"])
+    let mut send = cli_command(&dir, &["send", "--no-wait", "lane", "across the handover"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    std::thread::sleep(Duration::from_millis(1500));
+    // Until the daemon the send started has found the lock taken, or the send has given up.
+    let tried = Instant::now();
+    while !fs::read_to_string(dir.join("daemon.log"))
+        .unwrap_or_default()
+        .contains("another acpmux daemon holds")
+        && send.try_wait().unwrap().is_none()
+    {
+        assert!(tried.elapsed() < Duration::from_secs(10), "the send started no daemon");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    std::thread::sleep(Duration::from_millis(500));
     // The old daemon exits.
     // SAFETY: as above.
     unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) };
