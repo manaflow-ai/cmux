@@ -79,6 +79,20 @@ extension AIProvider {
         }
     }
 
+    /// Whether ``signOutPlan`` removes the sign-in `source` names: only the
+    /// CLI's own sign-in, its file (`~/.codex/auth.json`,
+    /// `~/.claude/.credentials.json`) or its Keychain item. A Codex
+    /// config.toml provider, a Claude settings.json key or helper, or an API
+    /// key saved in `.claude.json` stays after the logout, so it offers none.
+    public func signOutRemoves(_ source: DetectionSource) -> Bool {
+        switch (self, source) {
+        case (.codex, .file(let path)): (path as NSString).lastPathComponent == "auth.json"
+        case (.claude, .file(let path)): (path as NSString).lastPathComponent == ".credentials.json"
+        case (.codex, .keychain), (.claude, .keychain): true
+        default: false
+        }
+    }
+
     public var codeRouterLink: CodeRouterLinkKind {
         switch self {
         case .codex: .codexOAuth

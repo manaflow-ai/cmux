@@ -26,6 +26,29 @@ import Testing
         #expect(AIProvider.openAI.signOutPlan == .none)
     }
 
+    @Test func onlyTheSignInTheLogoutRemovesOffersSignOut() {
+        #expect(AIProvider.codex.signOutRemoves(.file("~/.codex/auth.json")))
+        #expect(AIProvider.codex.signOutRemoves(.keychain("Codex Auth")))
+        #expect(!AIProvider.codex.signOutRemoves(.providerConfig("~/.codex/config.toml")))
+        #expect(AIProvider.claude.signOutRemoves(.file("~/.claude/.credentials.json")))
+        #expect(AIProvider.claude.signOutRemoves(.keychain("Claude Code-credentials")))
+        // A settings.json key or helper and a saved API key outlive `claude auth logout`.
+        #expect(!AIProvider.claude.signOutRemoves(.file("~/.claude/settings.json")))
+        #expect(!AIProvider.claude.signOutRemoves(.file("~/.claude.json")))
+        #expect(!AIProvider.copilot.signOutRemoves(.file("~/.config/github-copilot/apps.json")))
+    }
+
+    @Test func aClaudeSettingsHelperHasNoSignOut() async {
+        let services = MockAccountsServices()
+        services.detections.removeAll { $0.provider == .claude }
+        services.detections.append(ProviderDetection(provider: .claude, status: .signedIn, detail: "apiKeyHelper",
+                                                     sources: [.file("~/.claude/settings.json")]))
+        let model = await refreshed(services)
+        #expect(row(model, .claude)?.buttons.map(\.id).contains("signOut") == false)
+        model.signOut(.claude)
+        #expect(!services.calls.contains("signOut:claude"))
+    }
+
     @Test func aPlanTypesItsLineOrOpensItsPage() throws {
         var lines: [String] = [], pages: [URL] = []
         let page = try #require(URL(string: "https://console.anthropic.com/settings/keys"))

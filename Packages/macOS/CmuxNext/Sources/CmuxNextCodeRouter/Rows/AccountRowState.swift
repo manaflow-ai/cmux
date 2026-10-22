@@ -112,12 +112,13 @@ public struct AccountRowState: Sendable, Equatable {
 
     public var canReauthenticate: Bool { provider.reauthPlan != .none }
 
-    /// Sign Out runs the provider's logout: only for a sign-in the CLI
-    /// saved (a file or the Keychain). A shell variable is not the CLI's to
-    /// remove; ``shellVariableInUse`` names it instead.
+    /// Sign Out runs the provider's logout: only for a sign-in the logout
+    /// removes, the CLI's own file or Keychain item
+    /// (``AIProvider/signOutRemoves(_:)``). A shell variable is not the CLI's
+    /// to remove; ``shellVariableInUse`` names it instead.
     public var canSignOut: Bool {
         guard provider.signOutPlan != .none, status == .signedIn || status == .expired else { return false }
-        return detection?.sources.contains { !$0.isEnvironment } == true
+        return detection?.sources.contains(where: provider.signOutRemoves) == true
     }
 
     /// The shell variable the sign-in comes from (`$CLAUDE_CODE_OAUTH_TOKEN`),
