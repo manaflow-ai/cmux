@@ -305,6 +305,13 @@ mod tests {
         restored.restore(previous.snapshot());
         restored.keep_output_of(&previous);
         assert_eq!(restored.last_output(), Some(7_000));
+        // The output was already published: no push now, and the next one
+        // still waits a whole interval from 7_000.
+        assert!(!restored.take_change());
+        restored.note_output(7_000 + OUTPUT_PUBLISH_INTERVAL_MS - 1);
+        assert!(!restored.take_change());
+        restored.note_output(7_000 + OUTPUT_PUBLISH_INTERVAL_MS);
+        assert!(restored.take_change());
     }
 
     #[test]
