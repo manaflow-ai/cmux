@@ -11,6 +11,12 @@ nonisolated extension ActionSurfaceCatalog {
 
     static let layoutPlacements: [ActionID: [ContextMenuPlacement]] = [
         "newTab": [p(.sidebarBackground, .create, 0)],
+        // The tab bar's empty area (the strip's or the vertical list's; Edge's and Chrome's vertical-tab
+        // menus): Cmd-T's New Tab, Reopen Closed Tab, Bookmark All Tabs, Move All Tabs to a New
+        // Workspace; the vertical tabs rows (VerticalTabsActionCatalog); Task Manager.
+        "newTab.default": [p(.tabStrip, .create, 0)],
+        "reopenClosedBrowserPanel": [p(.tabStrip, .create, 1, label: VerticalTabsActionCatalog.reopenClosedTabLabel)],
+        "palette.openTaskManager": [p(.tabStrip, .view, 100)],
         "newBrowserWorkspace": [p(.sidebarBackground, .create, 3)],
         "openFolder": [p(.sidebarBackground, .create, 4)],
         "palette.openFolderInVSCodeInline": [p(.workspaceRow, .create, 100, folder: .new)],
@@ -93,7 +99,8 @@ nonisolated extension ActionSurfaceCatalog {
         "workspaceGroup.sortByDirectory": [p(.workspaceGroup, .move, 322, folder: .move, label: ObjectMenuLabels.sortByDirectory)],
         "workspace.copyPath": [p(.workspaceRow, .inspect, 404, folder: .copy)],
         "workspace.mergeInto": [p(.workspaceRow, .move, 211, folder: .move)],
-        "pane.moveToNewWorkspace": [p(.pane, .move, 300, folder: .move)],
+        "pane.moveToNewWorkspace": [p(.pane, .move, 300, folder: .move),
+                                    p(.tabStrip, .create, 3, label: VerticalTabsActionCatalog.moveAllTabsToNewWorkspaceLabel)],
         "pane.moveToNewWindow": [p(.pane, .move, 305, folder: .move)],
         "newWorkspaceGroup": [p(.sidebarBackground, .create, 5)],
         "groupSelectedWorkspaces": [p(.workspaceRow, .organize, 205, folder: .group)],

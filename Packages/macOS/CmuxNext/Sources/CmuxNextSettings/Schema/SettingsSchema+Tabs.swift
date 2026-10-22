@@ -82,6 +82,31 @@ nonisolated enum TabSettingsSchema {
         )
     }
 
+    /// `tabs.verticalTabs` and `tabs.verticalTabsExpandOnHover`: tabs as a vertical list in every workspace
+    /// (a workspace's own choice wins, from the tab list's menu), and a collapsed list widening on hover.
+    static func verticalTabs(group: SettingText) -> [SettingDescriptor] {
+        [
+            SettingDescriptor(
+                VerticalTabsSetting.configPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.tabs.verticalTabs", "Use Vertical Tabs for All Workspaces"),
+                help: SettingsText.keyed("settings.tabs.verticalTabs.help",
+                                         "Show every workspace's tabs as a list beside its panes instead of a strip above them. Turn vertical tabs on or off for one workspace from its tab bar's menu."),
+                kind: .toggle,
+                default: .bool(VerticalTabsSetting.fallback),
+                keywords: ["vertical", "tabs", "list", "side", "sidebar", "edge", "chrome", "horizontal", "strip", "workspace"]
+            ),
+            SettingDescriptor(
+                VerticalTabsSetting.expandOnHoverPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.tabs.verticalTabsExpandOnHover", "Expand Collapsed Vertical Tabs on Hover"),
+                help: SettingsText.keyed("settings.tabs.verticalTabsExpandOnHover.help",
+                                         "When the vertical tab list is collapsed to icons, show the titles while the pointer is over it."),
+                kind: .toggle,
+                default: .bool(VerticalTabsSetting.expandOnHoverFallback),
+                keywords: ["vertical", "tabs", "collapse", "collapsed", "expand", "hover", "icons", "auto"]
+            ),
+        ]
+    }
+
     /// `tabs.swapCmdTAndCmdN`: Cmd-T opens a workspace and Cmd-N a tab.
     static func swapCmdTAndCmdN(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(

@@ -1,242 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "settings.sidebar.style": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sidebar Style"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seitenleistenstil"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Style de la barre latérale"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "نمط الشريط الجانبي"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Estilo de la barra lateral"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "側邊欄樣式"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "边栏样式"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사이드바 스타일"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイドバーのスタイル"
-          }
-        }
-      }
-    },
-    "settings.sidebar.style.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rail shrinks the sidebar to a thin strip with a mark for each workspace. Point at the strip to open the full sidebar over your work."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Leiste verkleinert die Seitenleiste auf einen schmalen Streifen mit einer Markierung pro Arbeitsbereich. Zeige auf den Streifen, um die ganze Seitenleiste über deiner Arbeit zu öffnen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bande réduit la barre latérale à une fine bande avec une marque par espace de travail. Pointez sur la bande pour ouvrir la barre latérale complète par-dessus votre travail."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يقلّص الشريط الرفيع الشريط الجانبي إلى شريط ضيق فيه علامة لكل مساحة عمل. أشر إلى الشريط لفتح الشريط الجانبي كاملًا فوق عملك."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Riel reduce la barra lateral a una franja fina con una marca por cada espacio de trabajo. Apunta a la franja para abrir la barra lateral completa sobre tu trabajo."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "細條會把側邊欄縮成一條窄條，每個工作區一個標記。把指標移到窄條上，即可在工作上方開啟完整側邊欄。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "细条会把边栏缩成一条窄条，每个工作区一个标记。将指针移到窄条上，即可在工作上方打开完整边栏。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "레일은 사이드바를 작업 공간마다 표시가 있는 얇은 띠로 줄입니다. 띠를 가리키면 작업 위로 전체 사이드바가 열립니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "レールはサイドバーを、ワークスペースごとに印のある細い帯に縮めます。帯にポインタを置くと、作業の上にサイドバー全体が開きます。"
-          }
-        }
-      }
-    },
-    "settings.choice.sidebarStandard": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Standard"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Normal"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Classique"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "قياسي"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Estándar"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "標準"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "标准"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "표준"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "標準"
-          }
-        }
-      }
-    },
-    "settings.choice.sidebarRail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rail"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Leiste"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bande"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "شريط رفيع"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Riel"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "細條"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "细条"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "레일"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "レール"
-          }
-        }
-      }
-    },
     "settings.updates.idleInstallMaxWait": {
       "extractionState": "manual",
       "localizations": {
@@ -83780,6 +83544,530 @@
         }
       }
     },
+    "settings.tabs.verticalTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Vertical Tabs for All Workspaces"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدام علامات التبويب العمودية لكل مساحات العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristi vertikalne tabove za sve radne prostore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug lodrette faner i alle arbejdsområder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vertikale Tabs für alle Arbeitsbereiche verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar pestañas verticales en todos los espacios de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser les onglets verticaux pour tous les espaces de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa schede verticali per tutti gli spazi di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのワークスペースで垂直タブを使用"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើថេបបញ្ឈរសម្រាប់កន្លែងធ្វើការទាំងអស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 워크스페이스에 세로 탭 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk loddrette faner i alle arbeidsområder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Używaj pionowych kart we wszystkich obszarach roboczych"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar Abas Verticais em Todos os Espaços de Trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вертикальные вкладки во всех рабочих пространствах"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้แท็บแนวตั้งในทุกพื้นที่ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tüm Çalışma Alanlarında Dikey Sekmeleri Kullan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вертикальні вкладки в усіх робочих просторах"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng tab dọc cho mọi không gian làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在所有工作区使用垂直标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在所有工作區使用垂直標籤頁"
+          }
+        }
+      }
+    },
+    "settings.tabs.verticalTabs.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show every workspace's tabs as a list beside its panes instead of a strip above them. Turn vertical tabs on or off for one workspace from its tab bar's menu."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اعرض علامات تبويب كل مساحة عمل كقائمة بجانب أجزائها بدلاً من شريط فوقها. شغّل علامات التبويب العمودية أو أوقفها لمساحة عمل واحدة من قائمة شريط علامات التبويب الخاص بها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži kartice svakog radnog prostora kao listu pored njegovih panela umjesto trake iznad njih. Uključi ili isključi vertikalne kartice za jedan radni prostor iz menija njegove trake kartica."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis hvert arbejdsområdes faner som en liste ved siden af dets ruder i stedet for en bjælke over dem. Slå lodrette faner til eller fra for ét arbejdsområde fra menuen i dets fanelinje."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt die Tabs jedes Arbeitsbereichs als Liste neben seinen Bereichen statt als Leiste darüber. Vertikale Tabs für einen einzelnen Arbeitsbereich im Menü seiner Tableiste ein- oder ausschalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra las pestañas de cada espacio de trabajo como una lista junto a sus paneles en lugar de una barra encima. Activa o desactiva las pestañas verticales de un espacio de trabajo desde el menú de su barra de pestañas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche les onglets de chaque espace de travail sous forme de liste à côté de ses panneaux au lieu d'une barre au-dessus. Activez ou désactivez les onglets verticaux d'un seul espace de travail depuis le menu de sa barre d'onglets."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra le schede di ogni area di lavoro come elenco accanto ai suoi riquadri invece che come barra sopra di essi. Attiva o disattiva le schede verticali per una sola area di lavoro dal menu della sua barra delle schede."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各ワークスペースのタブを、上部のバーではなくペインの横にリストとして表示します。1つのワークスペースだけ垂直タブをオンまたはオフにするには、そのタブバーのメニューを使います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញផ្ទាំងរបស់កន្លែងធ្វើការនីមួយៗជាបញ្ជីនៅក្បែរផ្ទាំងរងរបស់វា ជំនួសឱ្យរបារនៅខាងលើ។ បើក ឬបិទផ្ទាំងបញ្ឈរសម្រាប់កន្លែងធ្វើការមួយពីម៉ឺនុយរបារផ្ទាំងរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 워크스페이스의 탭을 위쪽 막대 대신 패널 옆의 목록으로 표시합니다. 워크스페이스 하나만 세로 탭을 켜거나 끄려면 해당 탭 막대의 메뉴를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis fanene i hvert arbeidsområde som en liste ved siden av rutene i stedet for en linje over dem. Slå loddrette faner av eller på for ett arbeidsområde fra menyen i fanelinjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuje karty każdego obszaru roboczego jako listę obok jego paneli zamiast paska nad nimi. Włącz lub wyłącz pionowe karty dla jednego obszaru roboczego w menu jego paska kart."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra as abas de cada espaço de trabalho como uma lista ao lado dos painéis, em vez de uma barra acima deles. Ative ou desative as abas verticais de um espaço de trabalho pelo menu da barra de abas dele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать вкладки каждого рабочего пространства списком рядом с его панелями, а не полосой над ними. Включить или выключить вертикальные вкладки для одного рабочего пространства можно в меню его панели вкладок."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงแท็บของแต่ละพื้นที่ทำงานเป็นรายการข้างบานหน้าต่าง แทนแถบด้านบน เปิดหรือปิดแท็บแนวตั้งสำหรับพื้นที่ทำงานเดียวได้จากเมนูของแถบแท็บนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her çalışma alanının sekmelerini üstte bir şerit yerine bölmelerinin yanında liste olarak gösterir. Tek bir çalışma alanı için dikey sekmeleri sekme çubuğunun menüsünden açın veya kapatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати вкладки кожного робочого простору списком поруч із його панелями замість смуги над ними. Увімкнути чи вимкнути вертикальні вкладки для одного робочого простору можна в меню його панелі вкладок."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiển thị các tab của mỗi không gian làm việc thành danh sách bên cạnh các ngăn thay vì một thanh phía trên. Bật hoặc tắt tab dọc cho một không gian làm việc từ menu thanh tab của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将每个工作区的标签页显示为窗格旁的列表，而不是上方的标签栏。要只为一个工作区打开或关闭垂直标签页，请使用其标签栏的菜单。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將每個工作區的標籤頁顯示為窗格旁的列表，而不是上方的標籤列。要只為一個工作區開啟或關閉垂直標籤頁，請使用其標籤列的選單。"
+          }
+        }
+      }
+    },
+    "settings.tabs.verticalTabsExpandOnHover": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expand Collapsed Vertical Tabs on Hover"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توسيع علامات التبويب العمودية المطوية عند التمرير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proširi skupljene vertikalne kartice pri prelasku mišem"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udvid sammenklappede lodrette faner ved hover"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eingeklappte vertikale Tabs beim Darüberfahren ausklappen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expandir pestañas verticales contraídas al pasar el puntero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Développer les onglets verticaux réduits au survol"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espandi le schede verticali compresse al passaggio del puntatore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "折りたたんだ垂直タブをホバー時に展開"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពង្រីកផ្ទាំងបញ្ឈរដែលបានបង្រួម នៅពេលដាក់ទស្សន៍ទ្រនិចលើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "접힌 세로 탭을 마우스를 올리면 펼치기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utvid sammenslåtte loddrette faner ved peking"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozwijaj zwinięte pionowe karty po najechaniu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expandir abas verticais recolhidas ao passar o ponteiro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разворачивать свёрнутые вертикальные вкладки при наведении"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขยายแท็บแนวตั้งที่ยุบไว้เมื่อวางเมาส์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daraltılmış dikey sekmeleri üzerine gelince genişlet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розгортати згорнуті вертикальні вкладки під час наведення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở rộng tab dọc đã thu gọn khi di chuột"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "悬停时展开已折叠的垂直标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "懸停時展開已收合的垂直標籤頁"
+          }
+        }
+      }
+    },
+    "settings.tabs.verticalTabsExpandOnHover.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When the vertical tab list is collapsed to icons, show the titles while the pointer is over it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند طي قائمة علامات التبويب العمودية إلى أيقونات، اعرض العناوين أثناء وجود المؤشر فوقها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada je lista vertikalnih kartica skupljena na ikone, prikaži naslove dok je pokazivač iznad nje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når listen med lodrette faner er klappet sammen til ikoner, vises titlerne, mens markøren er over den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ist die vertikale Tabliste auf Symbole eingeklappt, werden die Titel angezeigt, solange der Zeiger darüber ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando la lista de pestañas verticales está contraída a iconos, muestra los títulos mientras el puntero está sobre ella."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lorsque la liste des onglets verticaux est réduite aux icônes, affiche les titres tant que le pointeur la survole."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando l'elenco delle schede verticali è compresso alle icone, mostra i titoli mentre il puntatore è sopra di esso."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "垂直タブのリストをアイコンだけに折りたたんでいるとき、ポインタを重ねている間はタイトルを表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេលបញ្ជីផ្ទាំងបញ្ឈរត្រូវបានបង្រួមជារូបតំណាង បង្ហាញចំណងជើងខណៈពេលទស្សន៍ទ្រនិចនៅលើវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세로 탭 목록이 아이콘으로 접혀 있을 때, 포인터를 올려 둔 동안 제목을 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når listen med loddrette faner er slått sammen til ikoner, vises titlene mens pekeren er over den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy lista pionowych kart jest zwinięta do ikon, pokazuje tytuły, dopóki wskaźnik jest nad nią."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando a lista de abas verticais está recolhida em ícones, mostra os títulos enquanto o ponteiro estiver sobre ela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда список вертикальных вкладок свёрнут до значков, показывать названия, пока над ним находится указатель."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อรายการแท็บแนวตั้งยุบเหลือแต่ไอคอน ให้แสดงชื่อขณะที่ตัวชี้อยู่เหนือรายการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikey sekme listesi simgelere daraltıldığında, işaretçi üzerindeyken başlıkları gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли список вертикальних вкладок згорнуто до значків, показувати назви, поки над ним вказівник."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi danh sách tab dọc được thu gọn thành biểu tượng, hiển thị tiêu đề trong lúc con trỏ nằm trên đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "垂直标签页列表折叠为图标时，指针停留在其上方期间显示标题。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "垂直標籤頁列表收合為圖示時，指標停留在其上方期間顯示標題。"
+          }
+        }
+      }
+    },
     "settings.choice.newTabPositionEnd": {
       "extractionState": "manual",
       "localizations": {
@@ -158343,6 +158631,242 @@
           "stringUnit": {
             "state": "translated",
             "value": "對話標題列的徽章顯示代理在等你處理的數量；點按即可列出每個請求及其回答。新的代理標籤頁。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.style": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar Style"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seitenleistenstil"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Style de la barre latérale"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نمط الشريط الجانبي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estilo de la barra lateral"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "側邊欄樣式"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "边栏样式"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 스타일"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのスタイル"
+          }
+        }
+      }
+    },
+    "settings.sidebar.style.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rail shrinks the sidebar to a thin strip with a mark for each workspace. Point at the strip to open the full sidebar over your work."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leiste verkleinert die Seitenleiste auf einen schmalen Streifen mit einer Markierung pro Arbeitsbereich. Zeige auf den Streifen, um die ganze Seitenleiste über deiner Arbeit zu öffnen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bande réduit la barre latérale à une fine bande avec une marque par espace de travail. Pointez sur la bande pour ouvrir la barre latérale complète par-dessus votre travail."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يقلّص الشريط الرفيع الشريط الجانبي إلى شريط ضيق فيه علامة لكل مساحة عمل. أشر إلى الشريط لفتح الشريط الجانبي كاملًا فوق عملك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riel reduce la barra lateral a una franja fina con una marca por cada espacio de trabajo. Apunta a la franja para abrir la barra lateral completa sobre tu trabajo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "細條會把側邊欄縮成一條窄條，每個工作區一個標記。把指標移到窄條上，即可在工作上方開啟完整側邊欄。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "细条会把边栏缩成一条窄条，每个工作区一个标记。将指针移到窄条上，即可在工作上方打开完整边栏。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "레일은 사이드바를 작업 공간마다 표시가 있는 얇은 띠로 줄입니다. 띠를 가리키면 작업 위로 전체 사이드바가 열립니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レールはサイドバーを、ワークスペースごとに印のある細い帯に縮めます。帯にポインタを置くと、作業の上にサイドバー全体が開きます。"
+          }
+        }
+      }
+    },
+    "settings.choice.sidebarStandard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Normal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classique"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قياسي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estándar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标准"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표준"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準"
+          }
+        }
+      }
+    },
+    "settings.choice.sidebarRail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rail"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leiste"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bande"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط رفيع"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riel"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "細條"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "细条"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "레일"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レール"
           }
         }
       }

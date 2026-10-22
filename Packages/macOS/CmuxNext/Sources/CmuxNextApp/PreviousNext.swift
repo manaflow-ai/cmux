@@ -89,7 +89,7 @@ extension PreviousNext {
         guard model.showWorkspaceTabs else { return SidebarNavigation.step(by: offset, services) }
         let settings = SidebarNavigation.settings(services)
         let stops = rowStops(model.itemOrder.items(settings.stepping)) { id in
-            model.collapsedWorkspaces.contains(id) ? [] : (model.workspace(id)?.tabs ?? []).map(\.id)
+            model.collapsedWorkspaces.contains(id) || model.inWorkspaceTabs.contains(id) ? [] : (model.workspace(id)?.tabs ?? []).map(\.id)
         }
         let selected = SidebarNavigation.selectedItem(page: window.state.page, workspace: window.state.workspaceID,
                                                       layout: model.layout, room: window.state.profileID.rawValue,
