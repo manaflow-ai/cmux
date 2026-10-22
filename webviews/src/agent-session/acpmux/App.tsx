@@ -454,8 +454,9 @@ declare global {
       /// Claude Code desktop's in-session status (the live plan card, the recap card) on or off: the
       /// Debug Settings toggle `agent.sessionStatus`, off by default (sessionStatus.ts).
       applySessionStatus?(on: boolean): void;
-      /// Suggested tasks on or off (the Debug toggle `agent.suggestedTasks`, DEV and NIGHTLY, on by
-      /// default): an agent's offers draw as the suggested tasks card (offer/offersShown.ts).
+      /// Suggested tasks on or off (Settings > Suggest Follow-Up Tasks, on by default, or the Debug
+      /// toggle `agent.suggestedTasks` forcing them on): an agent's offers draw as the suggested tasks
+      /// card (offer/offersShown.ts).
       applySuggestedTasks?(on: boolean): void;
       applyHeaderState?(state: unknown): void;
       /// The pane's tab row the header's tools may sit in (header/tabRow.ts).

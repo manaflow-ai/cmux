@@ -3876,7 +3876,7 @@ export class AcpmuxDirectClient {
     const shown = this.queue.filter((entry) => !entry.id.startsWith(OFFER_RESULT_PROMPT));
     return shown.length === this.queue.length ? this.queue : shown;
   }
-  /// The `agent.suggestedTasks` Debug toggle turned on or off: offers draw or go at once.
+  /// Suggested tasks turned on or off (`sessions.promptSuggestions` or the Debug tunable): offers draw or go at once.
   suggestedTasksChanged(): void {
     if (!this.selectedSessionId || this.events.length === 0) return;
     this.rebuildKeepingLiveState();
