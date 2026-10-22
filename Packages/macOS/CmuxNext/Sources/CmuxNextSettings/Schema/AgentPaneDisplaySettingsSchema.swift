@@ -4,7 +4,11 @@ import CoreGraphics
 /// the same kind of rows the Markdown viewer has, under `agentPane.display`. The chat page reads the
 /// same names and ranges (webviews/src/agent-session/acpmux/chatDisplay.ts `CHAT_DISPLAY`), and its
 /// ··· menu's Text & Width popover writes them. `inspector.placement` is where the chat's Inspector
-/// opens (webviews/src/agent-session/acpmux/inspector/ChatInspector.tsx).
+/// opens (webviews/src/agent-session/acpmux/inspector/ChatInspector.tsx). `composer.style` is how
+/// every composer lays out its controls (webviews composerStyle.css): `minimal`, Claude Code's, the
+/// default, or `codex`, ChatGPT's Codex desktop layout; the composer's style dots write it (Leo
+/// 2026-10-21: "we can have the alt composer like chatgpt styled but for now just have "minimal" be
+/// the claude thing").
 ///
 /// The font, code font and code size have no value of their own by default: the chat then follows
 /// the Markdown viewer's (`markdown.font.preset`, `markdown.code.family`, `markdown.code.scale`),
@@ -70,6 +74,14 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                     SettingChoice("overlay", SettingsText.keyed("settings.choice.agentChatInspectorOverlay", "Overlay")),
                 ]),
                 .string("overlay"), ["inspector", "panel", "side", "right", "overlay", "push", "details"]),
+            row(["composer", "style"], SettingsText.keyed("settings.agentPane.display.composerStyle", "Composer Style"),
+                help: SettingsText.keyed("settings.agentPane.display.composerStyle.help",
+                                         "Minimal keeps the mode and model in a quiet row under the box. Codex puts the folder and computer above the box and every control in one row inside it."),
+                .choice([
+                    SettingChoice("minimal", SettingsText.keyed("settings.choice.agentChatComposerMinimal", "Minimal")),
+                    SettingChoice("codex", SettingsText.keyed("settings.choice.agentChatComposerCodex", "Codex")),
+                ]),
+                .string("minimal"), ["composer", "style", "layout", "codex", "chatgpt", "claude", "minimal", "prompt"]),
         ]
     }
 }
