@@ -331,7 +331,7 @@ button.acpmux-chat-inspector-port:hover,
   font-size: var(--text-detail);
   cursor: default;
 }
-.acpmux-chat-inspector-link:hover {
+.acpmux-chat-inspector-link:hover:not(:disabled) {
   color: var(--agent-text);
   text-decoration: underline;
 }
