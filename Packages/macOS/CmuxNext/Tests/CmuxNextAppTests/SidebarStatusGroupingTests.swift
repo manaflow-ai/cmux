@@ -26,8 +26,8 @@ import Testing
             redraw()
         }
 
-        static func sections(_ rows: [SidebarWorkspace]) -> [SidebarSection] {
-            [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: rows.map { .workspace($0) })]
+        static func sections(_ rows: [SidebarWorkspace]) -> [CmuxNextSidebar.SidebarSection] {
+            [CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: rows.map { .workspace($0) })]
         }
 
         /// What the sidebar does after a change: it reads its settings (the Debug toggle included) and lays out again.
@@ -174,7 +174,8 @@ import Testing
         o.foldsDone = true
         o.grouping.setByStatus(true)
         let keys = SidebarLayout.make(sections: Sidebar.sections(rows), metrics: .standard, options: o).rows.map(\.key)
-        #expect(keys == [.status(.working)] + rows.map { .workspace($0.id) }, "\(keys)")
+        let expected: [SidebarRowKey] = [.status(.working)] + rows.map { SidebarRowKey.workspace($0.id) }
+        #expect(keys == expected, "\(keys)")
         #expect(!keys.contains { if case .showMore = $0 { true } else { false } })
     }
 
