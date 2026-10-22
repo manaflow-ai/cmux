@@ -84,29 +84,30 @@ def run_queued_sessions(cli: str, socket_path: str, env: dict[str, str], root: P
         return "\n".join(lines)
 
     child_script = root / "child.sh"
-    child_script.write_text("export CMUX_CLAUDE_HEADLESS=1\n" + enqueue("child") + "\n")
+    child_script.write_text("set -e\nexport CMUX_CLAUDE_HEADLESS=1\n" + enqueue("child") + "\n")
     parent_script = root / "parent.sh"
     parent_script.write_text(
-        "export CMUX_CLAUDE_HEADLESS=0\n" + enqueue("parent")
+        "set -e\nexport CMUX_CLAUDE_HEADLESS=0\n" + enqueue("parent")
         + f"\n(exec -a claude /bin/bash '{child_script}')\n"
     )
     lone_script = root / "lone.sh"
-    lone_script.write_text("export CMUX_CLAUDE_HEADLESS=1\n" + enqueue("lone") + "\n")
+    lone_script.write_text("set -e\nexport CMUX_CLAUDE_HEADLESS=1\n" + enqueue("lone") + "\n")
     tree_env = {key: value for key, value in env.items() if key != "CMUX_CLAUDE_PID"}
     for script in (parent_script, lone_script):
         done = root / (script.stem + ".done")
         # Detached from this test's processes, so its top is reparented to launchd.
         # The `claude` process is an inner subshell, so the outer one is left to mark
-        # the script done; an `exec` there would replace it before the `touch`.
+        # the script done; an `exec` there would replace it before the `touch`. A
+        # failed hook stops the script (`set -e`) and leaves no marker.
         subprocess.run(
-            ["/bin/bash", "-c", f"( (exec -a claude /bin/bash '{script}'); touch '{done}' ) </dev/null >/dev/null 2>&1 &"],
+            ["/bin/bash", "-c", f"( (exec -a claude /bin/bash '{script}') && touch '{done}' ) </dev/null >/dev/null 2>&1 &"],
             env=tree_env, check=True,
         )
         deadline = time.monotonic() + 60
         while time.monotonic() < deadline and not done.exists():
             time.sleep(0.05)
         if not done.exists():
-            raise RuntimeError(f"{script.name} did not finish within 60 seconds")
+            raise RuntimeError(f"{script.name} failed or did not finish within 60 seconds")
     return " ".join(
         f"{name}: {(root / (name + '.out')).read_text().strip()!r}"
         for name in ("parent", "child", "lone") if (root / (name + ".out")).exists()
