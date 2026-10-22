@@ -529,7 +529,10 @@ async fn surface_over(transport: Transport, video_lane: bool) {
         file_roots: Vec::new(),
         acpmux: AcpmuxTarget::Fixed { url: "ws://127.0.0.1:1/".into(), token: None },
         browser: cmux_mobile_host::browser::BrowserConfig::default(),
-        surface: cmux_mobile_host::surface::SurfaceConfig::new(Some(fake_surface_source::launcher(inputs.clone())), 2),
+        surface: cmux_mobile_host::surface::SurfaceConfig::new(
+            Some(fake_surface_source::launcher(inputs.clone())),
+            2,
+        ),
         chief_socket: None,
         agent_tab_host: None,
         uploads_dir: sockets.path().join("uploads"),
@@ -593,7 +596,9 @@ async fn surface_over(transport: Transport, video_lane: bool) {
     stream.send_input(pointer("down", 0.5, 0.25), true).unwrap();
     stream.send_input(pointer("move", 0.5, 0.5), true).unwrap();
     stream.send_input(pointer("up", 0.5, 0.75), true).unwrap();
-    stream.send_input(r#"{"e":"ime_commit","surface":0,"text":"héllo","replacement":null}"#.into(), true).unwrap();
+    stream
+        .send_input(r#"{"e":"ime_commit","surface":0,"text":"héllo","replacement":null}"#.into(), true)
+        .unwrap();
     stream.send_input(r#"{"e":"key","surface":0,"down":true,"code":"Enter","key":"Enter","text":"\r","unmodified_text":"\r","modifiers":0,"repeat":false,"location":0,"edit_commands":[]}"#.into(), true).unwrap();
     stream.send_input(r#"{"e":"button","surface":0,"button":"home"}"#.into(), true).unwrap();
     use serde_json::json;
@@ -603,7 +608,8 @@ async fn surface_over(transport: Transport, video_lane: bool) {
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
-    let lines: Vec<serde_json::Value> = inputs.lock().unwrap().iter().filter(|l| l["t"] != "visible").cloned().collect();
+    let lines: Vec<serde_json::Value> =
+        inputs.lock().unwrap().iter().filter(|l| l["t"] != "visible").cloned().collect();
     assert_eq!(
         lines,
         vec![

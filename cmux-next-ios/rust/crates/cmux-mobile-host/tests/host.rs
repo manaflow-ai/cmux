@@ -184,7 +184,10 @@ async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixtur
             Some(fake_rb_host::launcher(Arc::clone(&browser_launches))),
             4,
         ),
-        surface: cmux_mobile_host::surface::SurfaceConfig::new(Some(fake_surface_source::launcher(Arc::clone(&surface_inputs))), 4),
+        surface: cmux_mobile_host::surface::SurfaceConfig::new(
+            Some(fake_surface_source::launcher(Arc::clone(&surface_inputs))),
+            4,
+        ),
     };
     let mut services = services;
     let mac_id = uuid::Uuid::new_v4().to_string();
@@ -361,10 +364,11 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
     let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(value["link"], 2);
     assert!(value["hostd"].is_string());
-    // This fixture has a browser host: a phone may offer browser tabs.
+    // This fixture has a browser host and a simulator surface source: a phone
+    // may offer browser tabs and stream phone tabs.
     assert_eq!(
         value["capabilities"],
-        serde_json::json!(["removal-v1", "browser-stream-v1", "browser-video-track-v1"])
+        serde_json::json!(["removal-v1", "browser-stream-v1", "browser-video-track-v1", "surface-stream-v1"])
     );
 
     // daemon: allowed lines reach the socket, denied ones are answered locally,
@@ -727,7 +731,9 @@ async fn surface_video(kind: TransportKind) {
     let Some(cmux_mobile_link::media::MediaLane::In(lane)) = link.media() else { panic!("no media lane") };
     let mut frames = lane.subscribe().await;
     // Not a phone tab, not a tab of this Mac, not a tab key: refused before any source starts.
-    for (tab, code) in [("s9", "forbidden"), ("s13", "forbidden"), ("s14", "forbidden"), ("../x", "bad_request")] {
+    for (tab, code) in
+        [("s9", "forbidden"), ("s13", "forbidden"), ("s14", "forbidden"), ("../x", "bad_request")]
+    {
         let mut channel = link.open("surface", serde_json::json!({"tab": tab})).await.unwrap();
         assert_eq!(close_reason(&mut channel).await.0, code, "{tab}");
     }
@@ -776,18 +782,26 @@ async fn surface_video(kind: TransportKind) {
         }
     }
     for _ in 0..200 {
-        if fake_surface_source::has(&fixture.surface_inputs, "visible", "visible", &serde_json::json!(false)) {
+        if fake_surface_source::has(&fixture.surface_inputs, "visible", "visible", &serde_json::json!(false))
+        {
             break;
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
-    assert!(fake_surface_source::has(&fixture.surface_inputs, "visible", "visible", &serde_json::json!(false)));
+    assert!(fake_surface_source::has(
+        &fixture.surface_inputs,
+        "visible",
+        "visible",
+        &serde_json::json!(false)
+    ));
     // A navigation on a surface never reaches its source.
     sim.send(phone_rb(serde_json::json!({"t": "rb.navigate", "url": "https://example.org/"}))).await.unwrap();
     // A second viewer of the same surface replaces the first.
     let _second = link.open("surface", serde_json::json!({"tab": "s12"})).await.unwrap();
     assert_eq!(close_reason(&mut sim).await.0, "replaced");
-    assert!(!fixture.surface_inputs.lock().unwrap().iter().any(|line| line.to_string().contains("example.org")));
+    assert!(
+        !fixture.surface_inputs.lock().unwrap().iter().any(|line| line.to_string().contains("example.org"))
+    );
     link.close("done");
 }
 

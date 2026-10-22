@@ -73,7 +73,11 @@ async fn session(mut stream: TcpStream, secret: &str, inputs: Inputs) {
             },
         }
     }
-    if stream.write_all(&SourceFrame::Json(json!({"t": "size", "width": 390, "height": 844})).encode()).await.is_err() {
+    if stream
+        .write_all(&SourceFrame::Json(json!({"t": "size", "width": 390, "height": 844})).encode())
+        .await
+        .is_err()
+    {
         return;
     }
     let mut painted = 0u32;
