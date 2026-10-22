@@ -68,6 +68,10 @@ window.heap=new Uint8Array({heap}*1048576);for(let i=0;i<heap.length;i+=4096)hea
 let k=0;setInterval(()=>{{document.getElementById('t').textContent=++k}},250);
 </script></body></html>"""
 
+# One second of silence as a WAV data URI, looped: a page that plays media (it must never hibernate).
+AUDIO = ("<audio id=a muted autoplay loop src='data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA='>"
+         "</audio><script>document.getElementById('a').play().catch(()=>{})</script>")
+
 # The state each page gets, and what a woken page must show again.
 SCROLL_Y = 4000
 FORM = {"name": "Ada Lovelace", "notes": "first line\nsecond line", "agree": True, "size": "l"}
@@ -82,8 +86,13 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802
         url = urlparse(self.path)
-        number = parse_qs(url.query).get("n", ["0"])[0]
-        body = PAGE.format(n=number, article=ARTICLE * 60, heap=self.heap_mb).encode()
+        query = parse_qs(url.query)
+        number = query.get("n", ["0"])[0]
+        body = PAGE.format(n=number, article=ARTICLE * 60, heap=self.heap_mb)
+        if query.get("audio") == ["1"]:
+            # A muted looping element plays without a gesture; the probe counts muted media as playing.
+            body = body.replace("</body>", AUDIO + "</body>")
+        body = body.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -380,21 +389,33 @@ def pressure(app, sock, engines, ports, count, open_tab, front, opened_extra) ->
         print("PERF-HIBERNATE-PRESSURE skipped: no passwordless sudo", flush=True)
         return {"skipped": "no sudo"}
     tabs = [t for engine in engines for t in (open_tab(engine, page_url(engine, 100 + i, ports)) for i in range(count)) if t]
-    opened_extra.extend(tabs)
+    # Pages that play media must outlive any pressure (smarter hibernation, msg 9103).
+    playing = [t for engine in engines for t in [open_tab(engine, page_url(engine, 900, ports) + "&audio=1")] if t]
+    opened_extra.extend(tabs + playing)
     app.run("tab.focus", target=front)
     time.sleep(35)  # test script: agent grace after the script calls
     before = hibernation(sock).get("hibernated_total") or 0
     started = time.monotonic()
     simulator = subprocess.Popen(["sudo", "-n", "memory_pressure", "-S", "-l", "critical", "-s", "20"],
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    slept = wait_for(lambda: set(tabs) <= set(hibernation(sock).get("hibernated") or []) and time.monotonic(), 30, 0.1)
+    # Pages go a few per pass (HibernationPlanner.Pace), so allow about 1 s per page.
+    ever_playing: set[str] = set()
+
+    def all_asleep():
+        asleep = set(hibernation(sock).get("hibernated") or [])
+        ever_playing.update(asleep & set(playing))
+        return set(tabs) <= asleep and time.monotonic()
+
+    slept = wait_for(all_asleep, max(30, 1.5 * len(tabs)), 0.1)
     status = hibernation(sock)
     simulator.wait(timeout=60)
     result = {"tabs": len(tabs), "seconds": round(slept - started, 2) if slept else None,
               "hibernated": (status.get("hibernated_total") or 0) - before, "pressure_seen": status.get("pressure"),
-              "exemptions": status.get("exemptions")}
+              "exemptions": status.get("exemptions"),
+              "playing_tabs": len(playing), "playing_hibernated": sorted(ever_playing)}
     print(f"PERF-HIBERNATE-PRESSURE tabs={result['tabs']} all_hibernated_s={result['seconds']} "
-          f"hibernated={result['hibernated']} exemptions={json.dumps(result['exemptions'] or {})}", flush=True)
+          f"hibernated={result['hibernated']} playing_hibernated={len(ever_playing)}/{len(playing)} "
+          f"exemptions={json.dumps(result['exemptions'] or {})}", flush=True)
     return result
 
 
