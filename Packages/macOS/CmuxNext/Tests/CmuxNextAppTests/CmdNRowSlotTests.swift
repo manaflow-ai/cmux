@@ -78,11 +78,11 @@ struct CmdNRowSlotTests {
 /// the top first and then moves it down and kind of flashes my sidebar". The daemon's create puts a
 /// new workspace first below Home; the app then moved it into the group, right below the current one:
 /// two orders, two animations. Every layout the list applies must show the new row only below the
-/// current workspace, inside its group.
+/// current workspace, inside its group (the app's one move into the group lands under the pending row).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct CmdNInGroupRowSlotTests {
     @Test func cmdNInAGroupDrawsTheNewRowOnlyBelowTheCurrentOne() async throws {
-        let launched = try await RapidWorkspaceCreateTests.launch()
+        let launched = try await RapidWorkspaceCreateTests.launch(sessionEvents: true)
         let services = launched.services
         let url = launched.root.appendingPathComponent("cmux.json")
         try Data(#"{"workspaces":{"newPlacement":"top"}}"#.utf8).write(to: url)
@@ -115,15 +115,13 @@ struct CmdNInGroupRowSlotTests {
         let loose = seeded.filter { $0 != home }
         try #require(loose.count >= 3, "rows before grouping: \(seeded)")
         let members = Array(loose.prefix(2))
-        // One document change, as the sidebar's New Group sends it; a refusal throws its message here.
+        // The sidebar's New Group of both; a refusal shows in the message below.
         let doc = try #require(SidebarDocStore.current)
-        await RapidWorkspaceCreateTests.wait(within: .seconds(20)) { members.allSatisfy { SidebarDocWiring.item(workspace: $0, services.machines) != nil } }
-        let items = try members.map { try #require(SidebarDocWiring.item(workspace: $0, services.machines), "no document item for \($0)") }
         var refused: [String] = []
         let previousRefused = doc.onRefused
         doc.onRefused = { refused.append($0); previousRefused($0) }
         defer { doc.onRefused = previousRefused }
-        try doc.sendChecked(ops: [["op": "group.create", "id": GroupID.make().rawValue, "name": "grp", "color": "blue", "items": items]], title: "New Group")
+        controller.sidebar.groupFlow.newGroup(of: members.map(SidebarWorkspaceID.init), name: "grp", byUser: false)
         // A member of a group: the slot below it resolves inside that group (as `NewWorkspaceDefaultSlot` reads it).
         func group(of id: String) -> GroupID? {
             let sections = SidebarRowSection.withoutPlaceholders(controller.sidebar.model.sections)
@@ -168,14 +166,12 @@ struct CmdNInGroupRowSlotTests {
                 return "@\(frame.firstIndex(of: id) ?? -1)\(pending)\(provisional)\(item)\(placing)"
             }.joined(separator: ","))
         }
-        let intentBefore = SidebarDocStore.current?.lastIntentKey
         _ = services.registry.perform("newTab")
         await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { settled(before.count + 1) && rows(list.displayed).count > before.count }
         // A late reorder (the item's arrival, a placement echo) would draw within this; test-only wait.
         try? await Task.sleep(for: .seconds(1))
         list.onApply = nil
         let after = rows(list.displayed)
-        let intentAfter = SidebarDocStore.current?.lastIntentKey
         await launched.stop()
 
         let created = try #require(after.first { !before.contains($0) }, "the new row: \(after)")
@@ -183,6 +179,5 @@ struct CmdNInGroupRowSlotTests {
         #expect(after == Array(before[...at]) + [created] + before[(at + 1)...], "rows \(before) became \(after)")
         let elsewhere = frames.filter { frame in frame.contains(created) && frame.firstIndex(of: created) != frame.firstIndex(of: anchor).map { $0 + 1 } }
         #expect(elsewhere.isEmpty, "frames that drew the new row away from its slot below \(anchor): \(elsewhere.count) of \(frames.count): \(tags)")
-        #expect(intentAfter == intentBefore, "the app sent its own sidebar move for the new workspace (a second state change)")
     }
 }
