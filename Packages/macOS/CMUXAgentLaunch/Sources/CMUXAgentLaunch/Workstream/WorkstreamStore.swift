@@ -351,6 +351,13 @@ public final class WorkstreamStore {
     /// applied them (latest version of an item wins on restart).
     private var persistenceTail: Task<Void, Never>?
     private var revisionPersistenceTail: Task<Void, Never>?
+    /// Journal and sidecar writes queued but not yet finished.
+    private var queuedPersistenceWrites = 0
+
+    /// Whether a journal or revision write is still in flight. App quit
+    /// checks this synchronously and, when it is true, waits for
+    /// ``flushPersistence()`` before letting AppKit terminate.
+    public var hasPendingPersistenceWrites: Bool { queuedPersistenceWrites > 0 }
     private var pendingPersistedRevision: Int?
 
     private func persistRevision() {
@@ -359,8 +366,10 @@ public final class WorkstreamStore {
         pendingPersistedRevision = revision
         guard !alreadyScheduled else { return }
         let previous = revisionPersistenceTail
+        queuedPersistenceWrites += 1
         revisionPersistenceTail = Task { [weak self, persistence] in
             await previous?.value
+            defer { self?.queuedPersistenceWrites -= 1 }
             guard let value = self?.pendingPersistedRevision else { return }
             self?.pendingPersistedRevision = nil
             do {
@@ -376,9 +385,11 @@ public final class WorkstreamStore {
     private func persist(_ item: WorkstreamItem) {
         guard let persistence else { return }
         let previous = persistenceTail
-        persistenceTail = Task { [persistence, item] in
+        queuedPersistenceWrites += 1
+        persistenceTail = Task { [weak self, persistence, item] in
             await previous?.value
             try? await persistence.append(item)
+            self?.queuedPersistenceWrites -= 1
         }
     }
 
