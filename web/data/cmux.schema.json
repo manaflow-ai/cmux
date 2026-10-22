@@ -2633,6 +2633,7 @@
               "closeTab",
               "closeOtherTabsInPane",
               "closeWorkspace",
+              "togglePinnedWorkspace",
               "newWorkspaceGroup",
               "groupSelectedWorkspaces",
               "toggleFocusedWorkspaceGroupCollapsed",
