@@ -25,7 +25,8 @@ const record = (steps: Step[], from = 1) =>
   }));
 
 /// A daemon over a fake socket: attach answers with `history`'s newest `page` events; `push` sends live ones.
-function fakeDaemon(history: ReturnType<typeof record>, page = history.length) {
+/// An older read answers with at most `older` events, newest first, and says whether more are left.
+function fakeDaemon(history: ReturnType<typeof record>, page = history.length, older = Infinity) {
   let socket: any;
   const session = {
     sessionId: CHAT,
@@ -51,8 +52,10 @@ function fakeDaemon(history: ReturnType<typeof record>, page = history.length) {
       case "_acpmux/events": {
         const before = params?.beforeSeq ?? Infinity;
         const after = params?.afterSeq ?? 0;
-        const events = history.filter((event) => event.seq > after && event.seq < before);
-        return { events, hasMore: false, more: false, lastSeq: history.at(-1)?.seq ?? 0 };
+        const found = history.filter((event) => event.seq > after && event.seq < before);
+        const events = before === Infinity ? found : found.slice(-older);
+        const more = events.length < found.length;
+        return { events, hasMore: more, more, lastSeq: history.at(-1)?.seq ?? 0 };
       }
       default:
         return null;
@@ -493,11 +496,11 @@ test("one compaction is one row after its events reach the pane again", async ()
   expect(spinners(rows())).toBe(1);
   daemon.push(events.slice(3));
   expect(compactions()).toEqual([[3, "completed"]]);
-  // A resubscribe sends what the pane already has again, with the same seqs.
+  // The same events delivered live again keep their seqs.
   daemon.push(events);
   expect(compactions()).toEqual([[3, "completed"]]);
   expect(spinners(rows())).toBe(0);
-  // A reconnect attaches afresh: the whole record, or a page that starts among the running notes.
+  // A fresh client attaches: the whole record, or a page that starts among the running notes.
   const again = await connect(fakeDaemon(events));
   expect(
     again
@@ -568,4 +571,46 @@ test("a compaction whose end alone is on the newer page is one row, however late
   const { client, rows } = await connect(fakeDaemon(events, 3));
   await client.loadOlder();
   expect(compactions(rows())).toEqual(["completed"]);
+});
+
+// Review of #24296 (Claude): the end the newer page held kept its own row, so the next older page
+// let it take a second compaction, one that never said how it ended. Paged reads draw what the
+// whole record draws.
+test("a compaction's end on a newer page takes only its own compaction from the pages further back", async () => {
+  const steps: Step[] = [
+    ["mux", "user_message", { text: "a" }],
+    ["mux", "turn_started", {}],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    ["mux", "turn_result", { status: "completed" }],
+    ["mux", "user_message", { text: "b" }],
+    ["mux", "turn_started", {}],
+    ["mux", "turn_result", { status: "completed" }],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running", reason: "account_switch" })],
+    ["mux", "user_message", { text: "c" }],
+    ["mux", "turn_started", {}],
+    [
+      "in",
+      "compaction",
+      update({
+        sessionUpdate: "compaction",
+        state: "completed",
+        reason: "account_switch",
+        preTokens: 58163,
+        postTokens: 20129,
+      }),
+    ],
+  ];
+  const events = record(steps);
+  events[10]!.at = events[7]!.at + 91_000;
+  const compactions = (rows: AcpmuxRow[]) =>
+    rows.filter((row) => row.kind === "compaction").map((row) => [row.seq, row.compaction?.state]);
+  const whole = await connect(fakeDaemon(events));
+  expect(compactions(whole.rows())).toEqual([
+    [3, "failed"],
+    [8, "completed"],
+  ]);
+  const { client, rows } = await connect(fakeDaemon(events, 3, 4));
+  await client.loadOlder();
+  await client.loadOlder();
+  expect(compactions(rows())).toEqual(compactions(whole.rows()));
 });
