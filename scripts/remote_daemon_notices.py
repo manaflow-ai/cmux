@@ -60,10 +60,21 @@ REVIEW = THIRD_PARTY / "review.json"
 LICENSE_NAME = re.compile(r"^(LICEN[CS]E|COPYING|NOTICE|PATENTS|UNLICENSE)([._-].*)?$", re.I)
 NOTICE_NAME = re.compile(r"^(NOTICE|PATENTS)([._-].*)?$", re.I)
 SPDX_TEMPLATES = THIRD_PARTY / "spdx-templates"
-# What the copyright part of a template may hold: a license title, then copyright lines.
-TITLE = re.compile(r"^(the )?[a-z0-9 .-]{0,30}licen[cs]e( \([a-z0-9 .-]{1,20}\))?( version [0-9.]+)? ?")
-COPYRIGHT_START = re.compile(r"^(copyright|\(c\)|©)")
-RESTRICTION = re.compile(r"\b(use|used|commercial|non-commercial|permit|permitted|permission|prohibit\w*|restrict\w*|must|shall|may|not|only|except|conditions?|terms|grant\w*|licen[cs]\w*|warrant\w*|liab\w*)\b")
+# What a template's variable parts may hold besides their SPDX pattern (Codex review of d869d36: a
+# pattern alone let a restriction sit in a bullet, a holder's name or a line under the copyright).
+# A list bullet: "1.", "(a)", "iv)", "-".
+BULLET = re.compile(r"(\(?([0-9]{1,2}|[a-z]|[ivxl]{1,5})[.)]|[-*\u2022\u00b7])?")
+# A license's own title line ("The MIT License (MIT)", "BSD 3-Clause License").
+TITLE_LINE = re.compile(r"(the )?(mit|x11|isc|zlib|0bsd|bsd( zero[ -]clause| [23][ -]clause)?( new| simplified| revised)?|apache)"
+                        r"( licen[cs]e)?( \((mit|isc|iscl|0bsd|expat|zlib)\))?( version [0-9.]+)?:?")
+COPYRIGHT_LINE = re.compile(r"(portions )?(copyright|\(c\)|\u00a9)\b ?(\(c\)|\u00a9)?(?P<rest>.*)")
+RESERVED = re.compile(r"all rights reserved\.?")
+# A sentence break, except after a company or name abbreviation.
+SENTENCE_BREAK = re.compile(r"(?<!\binc)(?<!\bltd)(?<!\bllc)(?<!\bco)(?<!\bcorp)(?<!\bjr)(?<!\bsr)(?<!\bst)(?<!\b[a-z])[.;:!?] +(?=\S)")
+# Words that start a clause and never stand in a name.
+CLAUSE_WORD = re.compile(r"\b(who|whom|which|that|nor|not|no|may|must|shall|only|except|unless|without|if|but|you|your|use|used|sell|sold|resale|fee|fees|pay|paid|commercial|noncommercial|non-commercial|permit\w*|permission|prohibit\w*|forbid\w*|restrict\w*|condition\w*|terms|grant\w*|licen[cs]\w*|warrant\w*|liab\w*|redistribut\w*|modif\w*|distribut\w*)\b")
+CORPORATE_COMMA = re.compile(r", (inc|ltd|llc|co|corp|gmbh|s\.a|b\.v|l\.p|plc)\b\.?")
+NAME_WORDS = 10
 # Signatures that only qualify an allowed license (Apache-2.0 WITH LLVM-exception).
 EXCEPTIONS = {"LLVM-exception"}
 PLATFORMS = (("linux", "amd64"), ("linux", "arm64"), ("darwin", "amd64"), ("darwin", "arm64"))
@@ -102,7 +113,9 @@ def normalize(text: str) -> str:
     text = text.lower().replace("\u2019", "'").replace("\u2018", "'").replace("\u201c", '"').replace("\u201d", '"')
     text = re.sub("[\u2010-\u2015]", "-", text)
     text = re.sub(r"(?m)^[ \t]*(?://+|#+|\*+|>+)", " ", text)
-    return re.sub(r"\s+", " ", text).strip()
+    # Lines stay: a copyright part is checked line by line.
+    lines = (re.sub(r"\s+", " ", line).strip() for line in text.splitlines())
+    return "\n".join(line for line in lines if line)
 
 
 SPDX_TOKEN = re.compile(r"<<(beginOptional|endOptional)(?:;[^>]*)?>>|<<var;(.*?)>>", re.S)
@@ -168,7 +181,7 @@ def template_matches(nodes: list, normalized: str) -> bool:
                         text = span(start, end)
                         if len(text) > limit:
                             break
-                        if pattern.fullmatch(text) and (name != "copyright" or only_copyright(span(start - 1, end) if after_copyright else text)):
+                        if variable_holds(name, pattern, span(start - 1, end) if after_copyright else text):
                             reached.add(end)
                 positions = reached
         return positions
@@ -186,10 +199,50 @@ def templates() -> dict:
     return {spdx: nodes for spdx, nodes in _TEMPLATES.items() if spdx in ALLOWED}
 
 
-def only_copyright(span: str) -> bool:
-    """A template's copyright part holds a title and copyright lines, never terms."""
-    span = TITLE.sub("", span.strip(), count=1).strip()
-    return not span or bool(COPYRIGHT_START.match(span)) and not RESTRICTION.search(span)
+def a_name(text: str, words: int = NAME_WORDS) -> bool:
+    """A holder's name, a year list or an address: no sentence, no clause, at most a few words."""
+    text = text.strip(" .")
+    return (len(text.split()) <= words and not SENTENCE_BREAK.search(text) and not CLAUSE_WORD.search(text)
+            and "," not in CORPORATE_COMMA.sub("", text) or bool(re.fullmatch(r"[0-9 ,-]*", text)))
+
+
+def copyright_block(span: str) -> bool:
+    """A template's copyright part: a title line, then copyright lines, each a copyright marker,
+    years and names, and "All rights reserved"; nothing else, on any line."""
+    for line in span.split("\n"):
+        line = line.strip()
+        if not re.search(r"[a-z0-9]", line) or TITLE_LINE.fullmatch(line) or RESERVED.fullmatch(line):
+            continue
+        match = COPYRIGHT_LINE.fullmatch(line)
+        if not match:
+            return False
+        rest = RESERVED.sub("", match.group("rest")).strip(" .")
+        if not a_name(rest, words=24) and not all(a_name(part, words=12) for part in rest.split(",")):
+            return False
+    return True
+
+
+def variable_holds(name: str, pattern: re.Pattern, text: str) -> bool:
+    """Whether a template variable's span is its SPDX pattern and only the part it stands for."""
+    flat = text.replace("\n", " ")
+    # Whitespace at a variable's edge does not count: BSD's theme is "( of the theme)".
+    if not any(pattern.fullmatch(variant) for variant in (flat, " " + flat, flat + " ", " " + flat + " ")):
+        return False
+    if name == "bullet":
+        return bool(BULLET.fullmatch(flat))
+    if name == "copyright":
+        return copyright_block(text)
+    if re.search(r"(?<!\\)\.[+*]", pattern.pattern):
+        # A free part (a holder, an author, the organization of BSD's third clause, a contact): only
+        # the words its pattern leaves free must be a name.
+        count = iter(range(1000))
+        free = re.compile(re.sub(r"(?<!\\)\.([+*])", lambda m: f"(?P<free{next(count)}>.{m.group(1)}?)", pattern.pattern), re.I | re.S)
+        for variant in (flat, " " + flat, flat + " ", " " + flat + " "):
+            match = free.fullmatch(variant)
+            if match:
+                return all(a_name(part) for part in match.groupdict().values() if part)
+        return False
+    return True
 
 
 def allowed_license(text: str) -> str | None:
@@ -205,15 +258,20 @@ def license_ids(expression: str) -> set:
     return set(re.findall(r"[A-Za-z0-9.+-]+", expression)) - {"AND", "OR", "WITH"}
 
 
+def recorded_allowed(entry: dict) -> bool:
+    return not (license_ids(entry["license"]) - set(ALLOWED) - EXCEPTIONS) or bool(entry.get("approved"))
+
+
 def check_recorded(label: str, entry: dict) -> None:
-    refused = sorted(license_ids(entry["license"]) - set(ALLOWED) - EXCEPTIONS)
-    if refused and not entry.get("approved"):
+    if not recorded_allowed(entry):
         raise NoticeError(f"{label}: its recorded license {entry['license']} is not on the allowlist (scripts/cmux-next/check_app_crate_licenses.py ALLOWED); a person approves it with an \"approved\" note in daemon/remote/third-party/review.json")
 
 
-def recorded_texts(review: dict) -> set:
-    """Every text review.json records: a person or this check approved each."""
-    return {digest for entry in [review["go"], *review["modules"].values()] for digest in entry["files"].values()}
+def recorded_notices(review: dict) -> set:
+    """The NOTICE and PATENTS texts of recorded entries still allowed: a person or this check
+    approved each (Go's PATENTS). A license text is never approved this way, only by its template."""
+    return {digest for entry in [review["go"], *review["modules"].values()] if recorded_allowed(entry)
+            for name, digest in entry["files"].items() if NOTICE_NAME.match(name)}
 
 
 def classify(directory: Path, label: str, known: set = frozenset()) -> str:
@@ -229,7 +287,7 @@ def classify(directory: Path, label: str, known: set = frozenset()) -> str:
         if spdx:
             ids.add(spdx)
             continue
-        if digest in known:
+        if digest in known and NOTICE_NAME.match(name):
             continue
         refused = sorted(i for i in license_match.SIGNATURES if license_match.matches(i, text) and i not in ALLOWED and i not in EXCEPTIONS)
         if refused:
@@ -260,7 +318,7 @@ def review_entry(module: Module, review: dict) -> tuple[str | None, dict]:
         if review["modules"][candidate]["files"] == digests:
             check_recorded(key, review["modules"][candidate])
             return candidate, review["modules"][candidate]
-    return None, {"license": classify(module.directory, key, recorded_texts(review)), "files": digests}
+    return None, {"license": classify(module.directory, key, recorded_notices(review)), "files": digests}
 
 
 def go_entry(go_version: str, review: dict, go_root: Path | None) -> tuple[bool, dict, Path]:
@@ -280,7 +338,7 @@ def go_entry(go_version: str, review: dict, go_root: Path | None) -> tuple[bool,
     if digests == go["files"]:
         return same_minor, {**go, "minor": minor.group(0) if minor else go["minor"]}, TEXTS / "go"
     entry = {**go, "minor": minor.group(0) if minor else go_version,
-             "license": classify(go_root, f"Go {go_version}", recorded_texts(review)),
+             "license": classify(go_root, f"Go {go_version}", recorded_notices(review)),
              "files": digests, "source": f"LICENSE files of GOROOT ({go_version})"}
     return False, entry, go_root
 
@@ -356,16 +414,18 @@ def write_review_bundle(review_text: str, go_files: dict, go_texts: Path) -> Non
         for name in go_files:
             shutil.copyfile(go_texts / name, staged / name)
         os.rename(current, previous)
-        os.rename(staged, current)
         try:
+            os.rename(staged, current)
             write_atomically(REVIEW, review_text)
         except BaseException:
-            shutil.rmtree(current)
+            # Put the old texts back; if that fails too, they stay in `previous` for a person.
+            if current.exists():
+                shutil.rmtree(current)
             os.rename(previous, current)
             raise
+        shutil.rmtree(previous)
     finally:
         shutil.rmtree(staged, ignore_errors=True)
-        shutil.rmtree(previous, ignore_errors=True)
 
 
 def _go(daemon_root: Path, *args: str, env: dict | None = None) -> str:
