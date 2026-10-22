@@ -20,13 +20,15 @@ const SWALLOWED = ["pointerdown", "mousedown", "pointerup", "mouseup", "click"] 
 
 /**
  * A chip says its menu is open and the menu is on screen: the popup it names (`aria-controls`), or,
- * when it names none, a popup in the page. A chip left saying open with no menu showing must not
- * swallow every press in the composer (Leo, 2026-10-21: "WHY THE FUCK CANT I CLICK THESE BUTTONS").
+ * when it names none, a positioned popup (`Popover` and `Menu` portal theirs into a positioner; the
+ * slash and mention menus inline in the field are not a chip's). A chip left saying open with no
+ * menu showing must not swallow every press in the composer (Leo, 2026-10-21: "WHY THE FUCK CANT I
+ * CLICK THESE BUTTONS").
  */
 function menuOnScreen(doc: Document): boolean {
   for (const chip of doc.querySelectorAll(OPEN_CHIP)) {
     const controls = chip.getAttribute("aria-controls");
-    if (controls ? doc.getElementById(controls) : doc.querySelector(".ui-popup")) return true;
+    if (controls ? doc.getElementById(controls) : doc.querySelector(".ui-positioner .ui-popup")) return true;
   }
   return false;
 }
