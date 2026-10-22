@@ -39,7 +39,8 @@ BUDGETS_FILE = os.path.join(HERE, "perf-budgets.json")
 BASELINE_DIR = os.path.join(HERE, "perf-budgets-baseline")
 REGRESSION = 0.10
 
-BENCHES = ["new_surfaces", "panes", "tab_switch", "palette", "sidebar", "home", "acp", "idle"]
+BENCHES = ["new_surfaces", "panes", "tab_switch", "palette", "sidebar", "home", "acp", "idle", "anim"]
+PERF_BENCH = os.path.join(HERE, "..", "perf-bench")
 
 
 # ---------- pure helpers (tests/test_perf_budgets.py) ----------
@@ -236,7 +237,39 @@ def profile_splits(out):
     return result
 
 
+def animation_budgets():
+    """`animations` rows of scripts/perf-bench/budgets.json (budget.py animation_budgets), as
+    {row name: spec}; none when the file has no such key."""
+    try:
+        spec = importlib.util.spec_from_file_location("perf_bench_budget", os.path.join(PERF_BENCH, "budget.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        entries = mod.animation_budgets()
+    except (OSError, SystemExit, AttributeError):
+        return {}
+    return {f"anim.{e['anim']}.{e['metric']}": {"p95": e["limit"], "unit": "frames" if e["metric"] == "dropped" else "ms",
+                                                "floor": 1.0, "what": f"animation {e['anim']}: {e['metric']}",
+                                                "enforce": bool(e.get("enforce"))} for e in entries}
+
+
+def rows_anim(rep):
+    """anim-perf-terminal.py summary rows: frame p50/p95 per animation, and each metric its budgets name."""
+    out = {}
+    for s in (rep or {}).get("summary") or []:
+        name = s.get("anim")
+        if not name:
+            continue
+        out[f"anim.{name}.frame"] = (s.get("p50_ms"), s.get("p95_ms"))
+        for metric in ("dropped", "main_ms_max", "over_8_33", "main_ms_p95"):
+            if isinstance(s.get(metric), (int, float)):
+                out[f"anim.{name}.{metric}"] = (s[metric], s[metric])
+    return out
+
+
 def budget_for(name, budgets):
+    anim = budgets.get("_animations", {}).get(name)
+    if anim:
+        return anim
     for pattern, spec in budgets["rows"].items():
         if re.fullmatch(pattern, name):
             return spec
@@ -263,6 +296,7 @@ def main():
     opts, _ = ap.parse_known_args()
     os.makedirs(opts.out, exist_ok=True)
     budgets = json.load(open(BUDGETS_FILE))
+    budgets["_animations"] = animation_budgets()
     only = [b for b in opts.only.split(",") if b]
     py = sys.executable
     S = lambda f: os.path.join(HERE, f)  # noqa: E731
@@ -288,12 +322,17 @@ def main():
         "home": ([py, S("home-perf.py"), "--tag", opts.tag, "--out", o("home.json")], "home.json", rows_home),
         "acp": ([py, S("agent-engine-bench.py"), *common, "--modes", "own,chromium", "--chats", "2", "--flings", "1",
                  "--out", o("acp"), "--json", o("acp.json")], "acp.json", rows_acp),
+        "anim": ([py, S("anim-perf-terminal.py"), *common, "--rounds", "2", "--out", o("anim"), "--json", o("anim.json")],
+                 "anim.json", rows_anim),
         "idle": ([py, S("bench_idle.py"), *common, "--scenarios", "terminals,chromium-static", "--settle", "15",
                   "--measure", "30", "--no-fail", "--label", "budgets", "--out", o("idle")], None, rows_idle),
     }
     runs, values = {}, {}
     for name in only:
         argv, report, mapper = plan[name]
+        if not os.path.exists(argv[1]):  # a bench another lane adds (anim-perf) on a checkout without it
+            print(f"\n=== {name}: {os.path.basename(argv[1])} is not in this checkout; its rows stay n/a", flush=True)
+            continue
         runs[name] = run_bench(name, argv, opts.out, opts.bench_timeout)
         if report is None:  # bench_idle names its file after the sha and label
             found = sorted(f for f in os.listdir(o("idle")) if f.endswith("-idle-budgets.json")) if os.path.isdir(o("idle")) else []

@@ -70,6 +70,14 @@ class MappingTests(unittest.TestCase):
         self.assertEqual(pb.rows_panes(None), {})
         self.assertEqual(pb.rows_sidebar(None, 400)["sidebar.400.scroll.frame"], (None, None))
 
+    def test_animation_rows_take_their_budgets_from_the_perf_bench_file(self):
+        rows = pb.rows_anim({"summary": [{"anim": "tab-new", "p50_ms": 8.3, "p95_ms": 9.0, "dropped": 2, "main_ms_max": 12.5}]})
+        self.assertEqual(rows["anim.tab-new.frame"], (8.3, 9.0))
+        self.assertEqual(rows["anim.tab-new.dropped"], (2, 2))
+        budgets = {"rows": {}, "_animations": {"anim.tab-new.dropped": {"p95": 0, "unit": "frames"}}}
+        self.assertEqual(pb.budget_for("anim.tab-new.dropped", budgets)["p95"], 0)
+        self.assertEqual(pb.over_budget([{"name": "anim.tab-new.dropped", "p95": 2, "budget": 0}]), ["anim.tab-new.dropped"])
+
     def test_every_row_the_benches_make_has_a_budget(self):
         budgets = json.load(open(pb.BUDGETS_FILE))
         names = ["panes.split.4x2.frame", "sidebar.400.scroll.frame", "sidebar.400.scroll_while_ticking.frame",

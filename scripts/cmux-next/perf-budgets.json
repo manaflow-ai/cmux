@@ -1,6 +1,12 @@
 {
  "_doc": "cmux-next perf budgets (perf-budgets.py). A frame budget is one 120 Hz frame (8.33 ms) between presented frames during a motion; a latency budget (input to the committed frame that shows its result) is two 120 Hz frames (16.7 ms). CPU rows are percent of one core. Patterns are full-match regexes over row names; the first match wins. floor: the smallest p95 change the gate counts as a regression (noise).",
  "rows": {
+  "anim\\..*\\.frame": {
+   "p95": 8.33,
+   "unit": "ms",
+   "floor": 1.0,
+   "what": "app animation frame interval (anim-perf-terminal.py); its dropped/main_ms_max limits come from scripts/perf-bench/budgets.json animations"
+  },
   "workspace_switch\\..*\\.input_to_commit": {
    "p95": 16.7,
    "unit": "ms",
@@ -29,7 +35,7 @@
    "p95": 50.0,
    "unit": "ms/s",
    "floor": 3.0,
-   "what": "main-thread ms per second while 15 agents tick"
+   "what": "main-thread ms per second while 15 agents tick (15 busy sidebar spinners; a465's 1/20-spinner xbench rows are in scripts/perf-bench/budgets.json, nightly gate)"
   },
   "panes\\..*\\.frame": {
    "p95": 8.33,
@@ -113,7 +119,7 @@
    "p95": 10.0,
    "unit": "%",
    "floor": 1.0,
-   "what": "app CPU while agents tick in the sidebar"
+   "what": "app CPU while 15 agents tick (15 busy spinners)"
   },
   "idle\\..*\\.app_cpu_pct": {
    "p95": 0.5,
