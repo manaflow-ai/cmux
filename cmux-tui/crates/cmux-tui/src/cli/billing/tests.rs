@@ -1,4 +1,4 @@
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::*;
 
@@ -83,21 +83,15 @@ fn each_verb_sends_one_app_method_with_its_params() {
         open: OpenMode::Default,
     });
     assert_eq!(method, "billing.checkout");
-    assert_eq!(
-        serde_json::Value::Object(params),
-        json!({"plan": "team", "teamId": "t_9", "open": "default"})
-    );
+    assert_eq!(Value::Object(params), json!({"plan": "team", "teamId": "t_9", "open": "default"}));
     let (method, params) =
         request(&Verb::Checkout { plan: Plan::Pro, team: None, open: OpenMode::Auto });
     assert_eq!(method, "billing.checkout");
-    assert_eq!(serde_json::Value::Object(params), json!({"plan": "pro", "open": "auto"}));
+    assert_eq!(Value::Object(params), json!({"plan": "pro", "open": "auto"}));
     let (method, params) = request(&Verb::Status { team: None });
-    assert_eq!((method, serde_json::Value::Object(params)), ("billing.status", json!({})));
+    assert_eq!((method, Value::Object(params)), ("billing.status", json!({})));
     let (method, params) = request(&Verb::Portal { team: None, open: OpenMode::None });
-    assert_eq!(
-        (method, serde_json::Value::Object(params)),
-        ("billing.portal", json!({"open": "none"}))
-    );
+    assert_eq!((method, Value::Object(params)), ("billing.portal", json!({"open": "none"})));
 }
 
 #[test]

@@ -56,7 +56,8 @@ extension AppControl {
                    let encoded = team.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
                     path += "?teamId=" + encoded
                 }
-                return try await Self.webJSON { try await client.request("GET", path) }
+                let finalPath = path
+                return try await Self.webJSON { try await client.request("GET", finalPath) }
             }.withDeadline(network),
         ])
     }

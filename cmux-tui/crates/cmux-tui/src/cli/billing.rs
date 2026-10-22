@@ -310,7 +310,7 @@ impl Options {
             match name {
                 "plan" => options.plan = Some(value.trim().to_ascii_lowercase()),
                 "team" => {
-                    options.team = Some(value.trim().to_owned()).filter(|team| !team.is_empty())
+                    options.team = Some(value.trim().to_owned()).filter(|team| !team.is_empty());
                 }
                 _ => {
                     options.open = match value.trim() {
