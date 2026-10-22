@@ -196,7 +196,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let ownWorkspace = workspace?.workspace ?? daemon.store.workspace(containing: pane.handle)
         // The one title rule (`TabTitleResolver`), shared with the sidebar and the closed-tab toasts.
         var titles = TabTitleResolver(services: services, workspace: ownWorkspace?.handle)
-        if tab.agentSession != nil { titles.workspaceName = ownWorkspace?.displayName }
+        if tab.agentSession != nil { titles.workspaceName = AgentChatTabTitle.workspaceName(ownWorkspace) }
         // A new tab page is "New Tab", with the new-tab icon, until it
         // becomes a chat (then the chat's title and icon).
         let isNewTabPage = titles.isNewTabPage(tab)
