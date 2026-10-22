@@ -81,6 +81,27 @@ class StarvedDetectionTests(unittest.TestCase):
         found = starved(job(created=60), job(status="completed", created=8, started=8, runner=None))
         self.assertEqual([entry["label"] for entry in found], [SIDE])
 
+    # The jobs API can list a job before its `needs` finished, and names no `needs`
+    # (queue_janitor.lost_wait_start()), so a fleet job may be waiting on a sibling.
+    def test_a_job_waiting_behind_a_running_sibling_is_not_starved(self) -> None:
+        build = job(label="blacksmith-4vcpu-ubuntu-2404", status="in_progress", created=40, started=39, runner="bs-1",
+                    name="build")
+        self.assertEqual(starved(job(created=40), build), [])
+
+    def test_the_wait_counts_from_the_last_sibling_completion(self) -> None:
+        gate = job(label="blacksmith-4vcpu-ubuntu-2404", status="completed", created=40, started=39, runner="bs-1",
+                   name="build")
+        gate["completed_at"] = iso(6)
+        self.assertEqual(starved(job(created=40), gate), [])
+        gate["completed_at"] = iso(25)
+        found = starved(job(created=40), gate)
+        self.assertEqual([(entry["label"], entry["oldest_queued_minutes"]) for entry in found], [(SIDE, 25)])
+
+    def test_queued_dependents_of_a_stuck_fleet_job_do_not_hide_it(self) -> None:
+        dependent = job(label="blacksmith-4vcpu-ubuntu-2404", created=40, name="tests")
+        found = starved(job(created=40), dependent)
+        self.assertEqual([entry["label"] for entry in found], [SIDE])
+
 
 def issue(label: str, number: int) -> dict:
     return {"number": number, "title": starved_labels.issue_title(label), "state": "open"}
