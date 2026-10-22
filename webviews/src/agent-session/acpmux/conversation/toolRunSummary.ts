@@ -1,7 +1,7 @@
 // A run of tool calls between two pieces of text, summarized once it settles:
 // "Edited a file, read files, ran commands", opened to list the calls.
 import type { Translate } from "../i18n";
-import type { AcpmuxActivity } from "../model";
+import { pathKey, toolCanonical, type AcpmuxActivity } from "../model";
 import { editedPaths } from "../toolPaths";
 import { mcpCall } from "./mcpCalls";
 
@@ -86,15 +86,15 @@ export function toolRunSummary(t: Translate, items: readonly AcpmuxActivity[]): 
 
 /// The files a run's edits changed: one Codex change can edit several, so a call counts each
 /// file its diffs and locations name; one with no diff, each file its input names (a
-/// multi-file patch, toolPaths.ts); or one when it names none.
+/// multi-file patch, toolPaths.ts); or one when it names none. One file is one `pathKey`.
 function editedFiles(tools: readonly AcpmuxActivity[]): number {
   const paths = new Set<string>();
   let unnamed = 0;
   for (const { tool } of tools) {
     if (toolRunCategory(tool!.kind) !== "edited") continue;
     const named = tool!.diffs?.length
-      ? [...tool!.diffs, ...(tool!.locations ?? [])].map((file) => file.path)
-      : editedPaths(tool!);
+      ? [...tool!.diffs, ...(tool!.locations ?? [])].map(pathKey)
+      : editedPaths(tool!).map((path) => toolCanonical(tool!, path) ?? path);
     if (named.length === 0) unnamed += 1;
     for (const path of named) paths.add(path);
   }

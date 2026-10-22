@@ -113,7 +113,7 @@ import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
 import { parseProjectRepos } from "./projectRepos";
 import { HomeLists } from "./HomeLists";
-import { endsTurn, turnFiles, turnPathsOnly, turnRows, type TurnFile } from "./diff";
+import { endsTurn, lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk, trustedLabel } from "./TrustAsk";
@@ -4249,17 +4249,12 @@ function AcpmuxPane() {
       if (!opened) inPlace();
     }, inPlace);
   }, []);
-  // An output in the summary opens the changes of the last turn that wrote it, at that file.
+  // An output in the summary opens the changes of the last turn that wrote it, under any of its
+  // spellings, at that file.
   const openOutput = useCallback(
     (path: string) => {
-      const row = [...snapshot.rows]
-        .reverse()
-        .find(
-          (candidate) =>
-            candidate.kind === "activity" &&
-            candidate.items?.some((item) => item.tool?.diffs?.some((change) => change.path === path)),
-        );
-      if (row) openDiff(row.id, path);
+      const change = lastChange(snapshot.rows, path);
+      if (change) openDiff(change.rowId, change.path);
     },
     [snapshot.rows, openDiff],
   );
@@ -4539,7 +4534,7 @@ function AcpmuxPane() {
     ],
   );
   // Streaming text changes rows on every chunk; only the turn's tool calls change its files.
-  const diffActivity = useRef<{ key: string; files: TurnFile[]; pathsOnly: string[] }>(undefined);
+  const diffActivity = useRef<{ key: string; files: TurnFile[]; pathsOnly: PathRef[] }>(undefined);
   const diffTurnFiles = useMemo(() => {
     if (!diffView || !diffOpen) return undefined;
     const activity = turnRows(snapshot.rows, diffView.rowId).filter((row) => row.kind === "activity");
@@ -4601,7 +4596,7 @@ function AcpmuxPane() {
     [turnCheckpoint, turnKey],
   );
   // The header's Changes: the last turn that edited files, with its checkpoint's counts once loaded.
-  const lastEdit = useRef<{ key: string; rowId: string; files: TurnFile[]; pathsOnly: string[] }>(undefined);
+  const lastEdit = useRef<{ key: string; rowId: string; files: TurnFile[]; pathsOnly: PathRef[] }>(undefined);
   const lastEditTurn = useMemo(() => {
     const rows = snapshot.rows;
     let at = rows.length - 1;
