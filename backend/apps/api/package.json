@@ -21,7 +21,7 @@
     "@earendil-works/pi-durable": "1.0.0",
     "agents": "0.28.1",
     "croner": "10.0.1",
-    "drizzle-orm": "0.45.3",
+    "drizzle-orm": "0.45.4",
     "effect": "4.0.0-rc.117",
     "jose": "6.2.12",
     "mysql2": "3.23.1",
