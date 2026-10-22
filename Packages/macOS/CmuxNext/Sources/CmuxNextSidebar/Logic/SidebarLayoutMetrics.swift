@@ -180,7 +180,14 @@ nonisolated extension SidebarLayoutOptions {
         content.detailedStatus = detailedStatus
         content.machine = machines[ws.machineID].map(SidebarMachineMark.init)
         if let sessionTree { content.keycap = keycaps[ws.id] }
-        content.pullRequests = sessionTree?.pullRequests[ws.id] ?? pullRequests[ws.id]
+        // Leo 2026-10-21, "REMOVE PR INDICATORS BY DEFAULT": every pull request mark on a row (the
+        // hook's text and the read badge, tree or not) follows `sidebar.workspaceRow.pullRequest`,
+        // off by default. The hover card keeps the pull request.
+        if workspaceRow.resolved(for: ws.rowKind).shows(.pullRequest) {
+            content.pullRequests = sessionTree?.pullRequests[ws.id] ?? pullRequests[ws.id]
+        } else {
+            content.badge = nil
+        }
         if !showsTimestamps { (content.time, content.badgeTime) = (nil, nil) }
         // What the agent needs, for the row's accessibility label only: a row draws no status words
         // (Leo 2026-10-21), its badge's dot says it. Worded on the main actor by the row view.
@@ -199,8 +206,9 @@ nonisolated extension SidebarLayoutOptions {
             return content
         }
         if expanded && !minimal {
-            return WorkspaceRowContent(expanded: ws, now: now, machine: machine,
-                                       showsNotification: workspaceRow.resolved(for: ws.rowKind).shows(.notification))
+            let shown = workspaceRow.resolved(for: ws.rowKind)
+            return WorkspaceRowContent(expanded: ws, now: now, machine: machine, showsNotification: shown.shows(.notification),
+                                       showsPullRequest: shown.shows(.pullRequest))
         }
         guard minimal else { return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine) }
         var content = WorkspaceRowContent(ws, preferences: Self.minimalRow, now: now)
