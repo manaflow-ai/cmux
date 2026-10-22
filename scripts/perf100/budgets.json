@@ -1,0 +1,73 @@
+{
+  "schema": "perf100.budgets.v1",
+  "budgets": [
+    {
+      "id": "chatload-daemon-open-read-10k",
+      "lane": "chat-load",
+      "scenario": "chat-load",
+      "variant": "daemon-10000",
+      "host": "freestyle-8x16",
+      "metric": "open_read_mb",
+      "limit": 1.44,
+      "margin_pct": 100,
+      "note": "chat-load lane, Freestyle 8x16 run of webviews/scripts/agent-pane/chat-load/run.sh after PR 23166; check: perf100.py import chat-load RESULTS --out DIR --host-class freestyle-8x16, then perf100.py budget --results DIR --host-class freestyle-8x16"
+    },
+    {
+      "id": "chatload-daemon-open-wall-10k",
+      "lane": "chat-load",
+      "scenario": "chat-load",
+      "variant": "daemon-10000",
+      "host": "freestyle-8x16",
+      "metric": "open_wall_ms",
+      "limit": 3.7,
+      "margin_pct": 300,
+      "floor": 10,
+      "note": "chat-load lane, Freestyle 8x16 run of webviews/scripts/agent-pane/chat-load/run.sh after PR 23166; check: perf100.py import chat-load RESULTS --out DIR --host-class freestyle-8x16, then perf100.py budget --results DIR --host-class freestyle-8x16"
+    },
+    {
+      "id": "chatload-daemon-scroll-read-10k",
+      "lane": "chat-load",
+      "scenario": "chat-load",
+      "variant": "daemon-10000",
+      "host": "freestyle-8x16",
+      "metric": "scroll_read_mb",
+      "limit": 533,
+      "margin_pct": 50,
+      "note": "chat-load lane, Freestyle 8x16 run of webviews/scripts/agent-pane/chat-load/run.sh after PR 23166; check: perf100.py import chat-load RESULTS --out DIR --host-class freestyle-8x16, then perf100.py budget --results DIR --host-class freestyle-8x16"
+    },
+    {
+      "id": "chatload-mock-10k-first-paint-chromium",
+      "lane": "chat-load",
+      "scenario": "chat-load",
+      "variant": "mock-10000-chromium",
+      "host": "freestyle-8x16",
+      "metric": "first_paint_ms",
+      "limit": 12,
+      "margin_pct": 100,
+      "floor": 200,
+      "note": "chat-load lane, Freestyle 8x16 run of webviews/scripts/agent-pane/chat-load/run.sh after PR 23166; check: perf100.py import chat-load RESULTS --out DIR --host-class freestyle-8x16, then perf100.py budget --results DIR --host-class freestyle-8x16"
+    },
+    {
+      "id": "chatload-mock-10k-heap-chromium",
+      "lane": "chat-load",
+      "scenario": "chat-load",
+      "variant": "mock-10000-chromium",
+      "host": "freestyle-8x16",
+      "metric": "heap_mb",
+      "limit": 180,
+      "margin_pct": 50,
+      "note": "chat-load lane, Freestyle 8x16 run of webviews/scripts/agent-pane/chat-load/run.sh after PR 23166; check: perf100.py import chat-load RESULTS --out DIR --host-class freestyle-8x16, then perf100.py budget --results DIR --host-class freestyle-8x16"
+    },
+    {
+      "id": "chatload-real-1k-scroll-reaches-first",
+      "lane": "chat-load",
+      "scenario": "chat-load",
+      "variant": "real-1000-chromium",
+      "host": "freestyle-8x16",
+      "metric": "scroll_to_first_ms",
+      "limit": 30918,
+      "margin_pct": 100,
+      "note": "chat-load lane, Freestyle 8x16 run of webviews/scripts/agent-pane/chat-load/run.sh after PR 23166; check: perf100.py import chat-load RESULTS --out DIR --host-class freestyle-8x16, then perf100.py budget --results DIR --host-class freestyle-8x16"
+    }
+  ]
+}
