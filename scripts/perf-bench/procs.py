@@ -160,6 +160,7 @@ class Instance:
             time.sleep(seconds)  # bench: the measured window
         elapsed = time.monotonic() - began
         kinds: dict[str, dict] = {}
+        each: list[dict] = []
         totals = {"mw": 0.0, "cpu_pct": 0.0, "wakeups_per_s": 0.0}
         for pid, cmd in self.pids().items():
             last = counters(pid)
@@ -169,6 +170,9 @@ class Instance:
             values = {"mw": (last[0] - first[0]) / 1e6 / elapsed,
                       "cpu_pct": 100 * (last[1] - first[1]) / 1e9 / elapsed,
                       "wakeups_per_s": (last[2] - first[2]) / elapsed}
+            client = re.search(r"--renderer-client-id=(\d+)", cmd)
+            each.append({"pid": pid, "kind": kind_of(cmd), "client": int(client.group(1)) if client else None,
+                         "extension": "--extension-process" in cmd, **{k: round(v, 3) for k, v in values.items()}})
             entry = kinds.setdefault(kind_of(cmd), {"n": 0, "mw": 0.0, "cpu_pct": 0.0, "wakeups_per_s": 0.0})
             entry["n"] += 1
             for key, value in values.items():
@@ -178,6 +182,8 @@ class Instance:
         rounded["seconds"] = round(elapsed, 1)
         rounded["kinds"] = {k: {kk: round(vv, 3) for kk, vv in e.items()}
                             for k, e in sorted(kinds.items(), key=lambda kv: -kv[1]["mw"])}
+        # The costliest processes one by one: which renderer (client id) of several holds the cost.
+        rounded["top"] = sorted(each, key=lambda e: -e["mw"])[:8]
         return rounded
 
     def end(self, grace: float = 10):

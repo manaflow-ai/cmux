@@ -598,7 +598,7 @@ class Run:
         load = round(procs.load_average(), 2)
         got = browser.instance.window(seconds, during)
         for row, key in rows.items():
-            self.record(browser.name, round_no, row, got[key], load=load, kinds=got["kinds"], **extra)
+            self.record(browser.name, round_no, row, got[key], load=load, kinds=got["kinds"], top=got.get("top"), **extra)
         return got
 
     def memory(self, browser: Browser, round_no: int, row: str):
