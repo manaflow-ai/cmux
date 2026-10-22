@@ -22,6 +22,8 @@ import { type StringKey, type Translate, usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { pasteLines, pasteName } from "../conversation/promptCollapse";
 import { intakeFiles } from "./intakeFiles";
+import { FADE_BAND_PX } from "../MarkdownField";
+import { useScrollEdges } from "../summary/scrollEdges";
 
 const ATTACHMENT_LABELS = {
   attachments: "composer.attachments",
@@ -171,9 +173,17 @@ export function AttachmentStrip({
   onExpand?(id: string): void;
 }) {
   const t = useT();
+  // More chips than fit scroll sideways: the side with chips past it is marked, and the CSS fades it
+  // by the prompt's band (composerAttachments.css).
+  const edges = useScrollEdges("x");
   if (attachments.length === 0 && !error && !dropping) return null;
   return (
-    <fieldset className="acpmux-attachments" aria-label={t(ATTACHMENT_LABELS.attachments)}>
+    <fieldset
+      ref={edges}
+      className="acpmux-attachments"
+      aria-label={t(ATTACHMENT_LABELS.attachments)}
+      style={{ "--acpmux-md-fade-band": `${FADE_BAND_PX}px` } as React.CSSProperties}
+    >
       {attachments.map((attachment) => (
         <AttachmentChip
           key={attachment.id}

@@ -309,8 +309,8 @@ impl Hub {
                 turn_id: t.turn_id,
                 prompt_id: t.prompt_id,
                 turn_seq: t.turn_seq,
-                activity: t.activity,
-                plan_step: t.plan_step,
+                activity: t.doing.activity,
+                plan_step: t.doing.plan_step,
             }),
             queue: session
                 .queue()
@@ -427,6 +427,8 @@ impl Hub {
         json!({
             "version": VERSION,
             "build": BUILD,
+            // The protocol surfaces this build serves (`capabilities.rs`).
+            "capabilities": crate::capabilities::ids(),
             "pid": std::process::id(),
             // Its own executable, and whether it runs as `cmux-tui acp …`, so a
             // client (host enroll) tells which program runs it without scanning

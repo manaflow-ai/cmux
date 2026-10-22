@@ -14,7 +14,9 @@
 //!
 //! The rule reads the column's tabs only, never a title or a page name, so
 //! it holds for every client and every path (a resource op, a JSON-lines
-//! command, a layout undo).
+//! command, a layout undo). A batch close (`close-tabs`, `close-tab-group`,
+//! `layout.bulk`, `stash.create`) keeps the rule of the single close it
+//! stands for and refuses the whole set: nothing in it closes.
 
 use super::*;
 use crate::mux::dock_columns::PINNED_COLUMN_CODE;
@@ -31,6 +33,13 @@ pub(crate) struct PinnedColumn {
 /// Every pinned column of `state`, with its tabs.
 pub(crate) fn pinned_columns(state: &State) -> Vec<PinnedColumn> {
     pinned_column_views(state).map(|(column, _)| column).collect()
+}
+
+/// The pinned tab (first tab) of every pinned column of `state`. A close
+/// that picks its own tabs (a `layout.bulk` preset, a Workspace-form stash)
+/// leaves these out, as it leaves out pinned tabs.
+pub(crate) fn pinned_dock_tabs(state: &State) -> HashSet<SurfaceId> {
+    pinned_column_views(state).filter_map(|(column, _)| column.tabs.first().copied()).collect()
 }
 
 fn pinned_column_views(state: &State) -> impl Iterator<Item = (PinnedColumn, bool)> + '_ {

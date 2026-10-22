@@ -144,8 +144,14 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
       const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
       await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
       await page.locator(".cv-worked").first().waitFor();
+      // Before any output the turn's one live line at its bottom times it from the prompt
+      // ("Thinking 5s", Thinking.tsx), moved onto this computer's clock.
+      const time = page.locator(".cv-worked.is-below .cv-worked__time");
+      await time.waitFor();
+      const label = (await time.textContent()) ?? "";
+      const seconds = /^(\d+)s$/.exec(label)?.[1];
 
-      // The peer starts a tool call: the turn has work now, under "Working for".
+      // The peer starts a tool call: the turn has work now.
       socket!.send(
         JSON.stringify({
           jsonrpc: "2.0",
@@ -171,15 +177,10 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
           },
         }),
       );
-      // The call in flight ("Run make") is named once, on the turn's live line at the bottom
-      // (Thinking.tsx, the Codex-style turn), and the line over the turn reads its time
-      // (WorkingFor.tsx). The line already reads before the call comes in: wait for the call's name.
+      // The call in flight ("Run make") is named once, on the same live line (Thinking.tsx, the
+      // Codex-style turn). The line already reads before the call comes in: wait for the call's name.
       const row = page.locator(".cv-thinking", { hasText: "Run make" });
       await row.first().waitFor();
-      const working = page.locator(".cv-worked__label");
-      await working.waitFor();
-      const label = (await working.textContent()) ?? "";
-      const seconds = /^Working for (\d+)s$/.exec(label)?.[1];
       const named = await row.count();
       const strips = await page.locator(".acpmux-composer-strip").count();
       // A few seconds (page load included), never the peer's ten minutes of clock skew.
@@ -189,7 +190,7 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
         named,
         strips,
       }).toEqual({
-        label: expect.stringMatching(/^Working for \d+s$/),
+        label: expect.stringMatching(/^\d+s$/),
         recent: true,
         named: 1,
         strips: 0,

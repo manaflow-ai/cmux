@@ -653,8 +653,9 @@ class PrivacyTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(prefix="pr-media-privacy-test-")
         self.addCleanup(temporary.cleanup)
         self.scratch = temporary.name
+        # A CI step inside .github/actions/pr-media-publish (PR_MEDIA_PUBLISH_GATE).
         self.env = {"HOME": self.scratch, "GITHUB_ACTIONS": "true", "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]',
-                    "PR_MEDIA_AGENT_AUTHORS": "bot-a"}
+                    "PR_MEDIA_AGENT_AUTHORS": "bot-a", "PR_MEDIA_PUBLISH_GATE": "1"}
         self.authors = {7: "bot-a", 8: "teammate"}
         self.ocr_calls = []
         self.lookups = []
