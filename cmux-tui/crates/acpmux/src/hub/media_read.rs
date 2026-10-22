@@ -136,8 +136,9 @@ pub fn sniff(head: &[u8]) -> Option<&'static str> {
 }
 
 /// The root `path` is under and its components below the root (each a plain name): a relative
-/// path is under the first root (the chat's folder); an absolute one under the root one of its
-/// ancestors spells, the deepest first. Only the spelling of the root itself is resolved.
+/// path is under the first root (the chat's folder), an absolute one under the root it starts
+/// with, as spelled or resolved, the deepest first. Only the roots are resolved: nothing outside
+/// them is looked up, so a path in a protected folder raises no privacy prompt.
 fn locate(roots: &[PathBuf], path: &str) -> Result<(PathBuf, Vec<OsString>), RpcError> {
     let bad = || refused("media.path", "path must name a file with no `.` or `..` part");
     if path.is_empty() || path.len() > 4096 || path.contains('\0') {
@@ -155,19 +156,17 @@ fn locate(roots: &[PathBuf], path: &str) -> Result<(PathBuf, Vec<OsString>), Rpc
         let root = roots.first().ok_or_else(bad)?;
         return Ok((root.clone(), parts(p)?));
     }
-    if p.components().any(|c| matches!(c, Component::ParentDir | Component::CurDir)) {
-        return Err(bad());
-    }
-    let canonical: Vec<PathBuf> =
-        roots.iter().filter_map(|root| std::fs::canonicalize(root).ok()).collect();
-    for ancestor in p.ancestors().skip(1) {
-        let Ok(spelled) = std::fs::canonicalize(ancestor) else { continue };
-        if canonical.contains(&spelled) {
-            let rest = p.strip_prefix(ancestor).map_err(|_| bad())?;
-            return Ok((spelled, parts(rest)?));
-        }
-    }
-    Err(refused("media.outside", "the file is outside the chat's folder and its uploads"))
+    let mut spellings: Vec<PathBuf> = roots
+        .iter()
+        .flat_map(|root| [Some(root.clone()), std::fs::canonicalize(root).ok()])
+        .flatten()
+        .collect();
+    spellings.sort_by_key(|root| std::cmp::Reverse(root.components().count()));
+    let root = spellings.into_iter().find(|root| p.starts_with(root)).ok_or_else(|| {
+        refused("media.outside", "the file is outside the chat's folder and its uploads")
+    })?;
+    let rest = p.strip_prefix(&root).map_err(|_| bad())?;
+    Ok((root, parts(rest)?))
 }
 
 /// A part of `inside` (the file's path below its root) or `own` (its whole path) that is never
