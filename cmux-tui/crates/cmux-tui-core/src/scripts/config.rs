@@ -312,9 +312,9 @@ mod tests {
         for name in ["b.js", "init.js", "a.mjs", "c.ts", "notes.md"] {
             std::fs::write(dir.join(name), "").unwrap();
         }
-        let (files, diagnostics) = files(&dir);
+        let (found, diagnostics) = files(&dir);
         let names: Vec<_> =
-            files.iter().map(|f| f.file_name().unwrap().to_str().unwrap().to_string()).collect();
+            found.iter().map(|f| f.file_name().unwrap().to_str().unwrap().to_string()).collect();
         assert_eq!(names, ["init.js", "a.mjs", "b.js"]);
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0]["file"].as_str().unwrap().ends_with("c.ts"));
