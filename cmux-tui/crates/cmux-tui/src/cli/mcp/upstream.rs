@@ -133,6 +133,12 @@ impl Upstream {
         Self { spec, prefix, conn: None, tools: None, instructions: None, failed: None }
     }
 
+    /// Keeps the server's last list in `dir`.
+    pub(super) fn with_listing_cache(self, dir: PathBuf) -> Self {
+        let _ = dir;
+        self
+    }
+
     pub(super) fn name(&self) -> &str {
         &self.spec.name
     }

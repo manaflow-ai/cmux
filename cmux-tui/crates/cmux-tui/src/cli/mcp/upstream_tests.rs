@@ -6,7 +6,10 @@ use super::*;
 /// A stdio MCP server like acpmux's computer use, secret and offer servers:
 /// `look` answers text and a screenshot, `fail` answers an error.
 const UPSTREAM_SERVER: &str = r#"
-import json, sys
+import json, os, sys
+if os.environ.get("START_LOG"):
+    with open(os.environ["START_LOG"], "a") as log:
+        log.write("started\n")
 for line in sys.stdin:
     m = json.loads(line)
     if "id" not in m:
@@ -47,6 +50,60 @@ fn upstream_server(name: &str) -> upstream::Upstream {
             .into(),
     ));
     upstream::Upstream::new(specs.into_iter().next().unwrap())
+}
+
+/// A server whose starts are logged to `log`, its last list kept in `cache`.
+fn logged_server(name: &str, log: &std::path::Path, cache: &std::path::Path) -> upstream::Upstream {
+    let script = std::env::temp_dir()
+        .join(format!("cmux-mcp-upstream-{}", std::process::id()))
+        .join("server.py");
+    std::fs::create_dir_all(script.parent().unwrap()).unwrap();
+    std::fs::write(&script, UPSTREAM_SERVER).unwrap();
+    let specs = upstream::specs(Some(
+        json!([{"name": name, "command": "python3", "args": [script], "env": {"START_LOG": log}}])
+            .to_string()
+            .into(),
+    ));
+    upstream::Upstream::new(specs.into_iter().next().unwrap()).with_listing_cache(cache.to_owned())
+}
+
+/// The chat's other servers start on first use, not when a harness lists
+/// the tools (ask-a3c16b28b7: every chat kept its computer use, secret,
+/// offer, sub-session and forum servers running from launch). The first
+/// chat starts each server once to learn its tools; later chats list them
+/// from that and start a server only when a tool of its is called.
+#[test]
+fn listing_the_tools_starts_no_server_once_its_list_is_known() {
+    let dir = std::env::temp_dir().join(format!("cmux-mcp-lazy-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let (log, cache) = (dir.join("starts.log"), dir.join("cache"));
+    let starts = || std::fs::read_to_string(&log).unwrap_or_default().lines().count();
+
+    // The first chat: nothing known yet, so listing starts the server.
+    let mut first = code_mode_server(Fake::with_actions());
+    first.upstreams = vec![upstream::Proxied::new(logged_server("cmux-cua", &log, &cache))];
+    assert!(first.list().iter().any(|t| t["name"] == "cua_look"));
+    assert_eq!(starts(), 1);
+    drop(first);
+
+    // A later chat lists the same tools, with the server's rules, and
+    // starts nothing.
+    let mut later = code_mode_server(Fake::with_actions());
+    later.upstreams = vec![upstream::Proxied::new(logged_server("cmux-cua", &log, &cache))];
+    let all = later.list();
+    let look = all.iter().find(|t| t["name"] == "cua_look").expect("cua_look is listed");
+    assert!(look["description"].as_str().unwrap().contains("Ask before you click."), "{look}");
+    let index = call(&mut later, "cmux_docs", json!({}));
+    assert_eq!(index["structuredContent"]["servers"]["cmux-cua"], "Ask before you click.");
+    assert_eq!(starts(), 1, "listing started the server");
+
+    // Its first call starts it and gets the server's own answer.
+    let ran =
+        call(&mut later, "cmux_exec", json!({"script": "return await cmux.cua_look({x: 2});"}));
+    assert_eq!(ran["structuredContent"]["result"]["content"][0]["text"], "saw {\"x\": 2}", "{ran}");
+    assert_eq!(starts(), 2);
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
