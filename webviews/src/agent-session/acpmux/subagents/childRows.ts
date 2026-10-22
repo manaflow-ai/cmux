@@ -66,6 +66,9 @@ export function childRows(
     } else if (kind === "tool_call" || kind === "tool_call_update") {
       const callId = String(update.toolCallId ?? `tool-${event.seq}`);
       const known = tools.get(callId);
+      // An update to a call whose start this view never saw, with no title, names nothing but the
+      // call's raw id (Leo's subagent view opened on "toolu_01Rq…"): it draws no row.
+      if (kind === "tool_call_update" && !known && !update.title) continue;
       const rowId = known ?? activity ?? `${id}:activity-${event.seq}`;
       const existing = rows.get(rowId);
       const items = [...(existing?.items ?? [])];
