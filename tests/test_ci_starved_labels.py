@@ -98,10 +98,19 @@ class StarvedDetectionTests(unittest.TestCase):
         found = starved(job(created=40), gate)
         self.assertEqual([(entry["label"], entry["oldest_queued_minutes"]) for entry in found], [(SIDE, 25)])
 
-    def test_a_job_behind_a_queued_sibling_is_not_starved(self) -> None:
-        # The queued sibling may be its `needs` (a backed-up Blacksmith build), as queue_janitor._gated() reads it.
+    def test_a_job_behind_a_queued_sibling_on_an_idle_pool_is_not_starved(self) -> None:
+        # The queued sibling may be its `needs`, stuck itself (queue_janitor._gated()).
         build = job(label="blacksmith-4vcpu-ubuntu-2404", created=40, name="build")
         self.assertEqual(starved(job(created=40), build), [])
+
+    def test_a_queued_sibling_on_a_serving_pool_is_a_dependent_and_no_gate(self) -> None:
+        # Its pool started a job inside the window, so it waits on its `needs`: downstream of the fleet job.
+        tests = job(label="blacksmith-4vcpu-ubuntu-2404", created=40, name="cloud tests")
+        elsewhere = job(label="blacksmith-4vcpu-ubuntu-2404", status="in_progress", created=3, started=2,
+                        runner="bs-9", name="lint")
+        found = starved_labels.starved([{"id": 1}, {"id": 2}], {1: [job(created=40), tests], 2: [elsewhere]},
+                                       now=NOW)
+        self.assertEqual([(entry["label"], entry["oldest_queued_minutes"]) for entry in found], [(SIDE, 40)])
 
     def test_two_stuck_fleet_jobs_never_mask_each_other(self) -> None:
         found = starved(job(created=40), job(label=OTHER, created=40, name="other compile"))
@@ -218,6 +227,19 @@ class SyncIssuesTests(unittest.TestCase):
         starved_labels.sync_issues(github, [], iso(5), unserved=[])
         self.assertEqual(github.closed(), [15])
 
+
+class IncompleteInventoryTests(unittest.TestCase):
+    def test_an_incomplete_inventory_closes_nothing_as_recovered(self) -> None:
+        plan = starved_labels.plan_issues([], [issue(SIDE, 7)], incomplete=True)
+        self.assertEqual((plan.open, plan.update, plan.close), ([], [], []))
+
+    def test_an_incomplete_inventory_still_opens_and_updates(self) -> None:
+        entry = {"label": SIDE, "oldest_queued_minutes": 30, "queued": 1, "job_url": "u", "job": "j"}
+        plan = starved_labels.plan_issues([entry, dict(entry, label=OTHER)], [issue(OTHER, 8)], incomplete=True)
+        self.assertEqual([entry["label"] for entry in plan.open], [SIDE])
+        self.assertEqual([found["number"] for found, _ in plan.update], [8])
+
+
 class MainTests(unittest.TestCase):
     def run_main(self, snapshot: dict, env: dict) -> tuple[int, str, str]:
         with tempfile.TemporaryDirectory() as tmp:
@@ -246,6 +268,16 @@ class MainTests(unittest.TestCase):
                                        env={"GH_REPO": "manaflow-ai/cmux", "GH_TOKEN": "t"})
         self.assertEqual(code, 0)
         self.assertEqual(github.closed(), [])
+
+    def test_an_incomplete_snapshot_closes_nothing(self) -> None:
+        github = FakeGitHub([search_item(SIDE, 7)])
+        with mock.patch.object(starved_labels, "client", return_value=github):
+            code, out, _ = self.run_main({"generated_at": iso(0), "starved": [], "unserved": [],
+                                          "starved_incomplete": True},
+                                         env={"GH_REPO": "manaflow-ai/cmux", "GH_TOKEN": "t"})
+        self.assertEqual(code, 0)
+        self.assertEqual(github.closed(), [])
+        self.assertIn("::warning", out)
 
     def test_a_snapshot_without_the_starved_key_closes_nothing(self) -> None:
         code, out, _ = self.run_main({"pools": {}}, env={"GH_REPO": "manaflow-ai/cmux"})

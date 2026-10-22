@@ -1234,8 +1234,18 @@ class StarvedLabelSnapshotTests(unittest.TestCase):
     FLEET = "glaeda-side-light-xcode-26.6"
     NEXT = "feat-cmux-" + "next"
 
-    def snapshot(self, runs, jobs):
+    def snapshot(self, runs, jobs, *, fail_jobs=(), completed=None):
         fake = FakeGitHub({r["id"]: dict(r) for r in runs}, jobs)
+        fake.completed = dict(completed or {})
+        if fail_jobs:
+            listing = fake.jobs
+
+            def jobs_or_fail(run_id):
+                if run_id in fail_jobs:
+                    raise RuntimeError(f"GET /actions/runs/{run_id}/jobs failed (503)")
+                return listing(run_id)
+
+            fake.jobs = jobs_or_fail
         with tempfile.TemporaryDirectory() as temp:
             workflows = Path(temp) / "workflows"
             workflows.mkdir()
@@ -1268,6 +1278,39 @@ class StarvedLabelSnapshotTests(unittest.TestCase):
         self.assertEqual([entry["label"] for entry in snapshot["starved"]], [self.FLEET])
         self.assertEqual(snapshot["unserved"], [self.FLEET])
         self.assertTrue(self.listed(fake, pushed))
+
+    def test_a_dispatch_on_a_branch_follows_that_branch_copy(self):
+        run = make_run(event="workflow_dispatch", path=".github/workflows/cmux-next.yml", name="cmux-next",
+                       branch=self.NEXT)
+        snapshot, _ = self.snapshot([run], {run["id"]: [self.compile_job()]})
+        self.assertEqual([entry["label"] for entry in snapshot["starved"]], [self.FLEET])
+
+    def test_a_failed_listing_marks_the_result_incomplete(self):
+        run = make_run(path=".github/workflows/cmux-next.yml", name="cmux-next", branch="lane/x")
+        run["pull_requests"] = [{"number": 7, "base": {"ref": self.NEXT}}]
+        snapshot, _ = self.snapshot([run], {run["id"]: [self.compile_job()]}, fail_jobs={run["id"]})
+        self.assertEqual(snapshot["starved"], [])
+        self.assertTrue(snapshot["starved_incomplete"])
+
+    def test_a_complete_listing_is_not_marked_incomplete(self):
+        run = make_run(path=".github/workflows/cmux-next.yml", name="cmux-next", branch="lane/x")
+        run["pull_requests"] = [{"number": 7, "base": {"ref": self.NEXT}}]
+        snapshot, _ = self.snapshot([run], {run["id"]: [self.compile_job()]})
+        self.assertNotIn("starved_incomplete", snapshot)
+
+    def test_a_recent_start_in_a_completed_run_of_its_workflow_serves_the_label(self):
+        run = make_run(path=".github/workflows/cmux-next.yml", name="cmux-next", branch="lane/x")
+        run["pull_requests"] = [{"number": 7, "base": {"ref": self.NEXT}}]
+        done = make_run(path=".github/workflows/cmux-next.yml", name="cmux-next", branch="lane/y",
+                        status="completed", age=20)
+        done["conclusion"] = "success"
+        started = {"status": "completed", "conclusion": "success", "name": "cmux-next app compile (build fleet)",
+                   "labels": [self.FLEET], "created_at": iso(20), "started_at": iso(5), "completed_at": iso(1),
+                   "runner_name": "mini-3"}
+        snapshot, fake = self.snapshot([run], {run["id"]: [self.compile_job()], done["id"]: [started]},
+                                       completed={"cmux-next.yml": [done]})
+        self.assertEqual(snapshot["starved"], [])
+        self.assertEqual(snapshot["unserved"], [])
 
     def test_a_main_run_of_a_linux_only_workflow_is_still_not_listed(self):
         into_main = make_run(path=".github/workflows/cmux-next.yml", name="cmux-next", branch="lane/x")
