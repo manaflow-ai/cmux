@@ -63,3 +63,27 @@ pub(super) fn turn_usage(session: &Session, result: &Value) -> Map<String, Value
     }
     fields
 }
+
+/// Lives here, not in `store.rs`, with the rest of what a turn cost.
+impl TurnUsage {
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// Adds `turn` in, field by field; a field neither reported stays absent.
+    pub fn add(&mut self, turn: &TurnUsage) {
+        fn sum(a: Option<u64>, b: Option<u64>) -> Option<u64> {
+            a.zip(b).map(|(a, b)| a.saturating_add(b)).or(a).or(b)
+        }
+        self.cost_usd = self
+            .cost_usd
+            .zip(turn.cost_usd)
+            .map(|(a, b)| a + b)
+            .or(self.cost_usd)
+            .or(turn.cost_usd);
+        self.input_tokens = sum(self.input_tokens, turn.input_tokens);
+        self.output_tokens = sum(self.output_tokens, turn.output_tokens);
+        self.cache_read_tokens = sum(self.cache_read_tokens, turn.cache_read_tokens);
+        self.cache_write_tokens = sum(self.cache_write_tokens, turn.cache_write_tokens);
+    }
+}
