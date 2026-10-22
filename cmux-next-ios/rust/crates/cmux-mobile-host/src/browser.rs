@@ -384,6 +384,8 @@ const VIEW_TTL: Duration = Duration::from_secs(2);
 /// after which the guard sends the host to `about:blank`: a page that bounces to a refused address on
 /// load would otherwise loop.
 const MAX_TAKE_BACKS: u32 = 3;
+/// How long a page must stay before the take-back count starts again.
+const SETTLED: Duration = Duration::from_secs(1);
 
 /// What a viewer's tab may show, and which page it shows (the guard of
 /// the phone's `rb.navigate` and the host's `rb.page`).
@@ -397,6 +399,10 @@ struct PageGuard<'a> {
     /// A page the host committed that is not allowed (being taken back).
     blocked: Option<String>,
     take_backs: u32,
+    /// When the guard last forwarded a new page: the take-back count starts again
+    /// only once a page stayed a while ([`SETTLED`]), so a page that forwards
+    /// itself on to one that bounces still counts.
+    shown_at: Option<Instant>,
     view: Option<(Instant, crate::browser_policy::MacView)>,
 }
 
@@ -408,6 +414,7 @@ impl<'a> PageGuard<'a> {
             shown: None,
             blocked: None,
             take_backs: 0,
+            shown_at: None,
             view: None,
         }
     }
@@ -480,9 +487,12 @@ impl PageGuard<'_> {
         }
         match self.check(url).await {
             Ok(_) => {
-                // A new page the rules allow: the bounce count starts again (a page that
-                // keeps bouncing returns to the page already shown, which never resets it).
-                self.take_backs = 0;
+                // The page before this one stayed a while: the bounce count starts again
+                // (a redirecting page, or one bouncing back to the shown page, never does).
+                if self.shown_at.is_some_and(|at| at.elapsed() >= SETTLED) {
+                    self.take_backs = 0;
+                }
+                self.shown_at = Some(Instant::now());
                 self.shown = Some(url.to_owned());
                 PageVerdict::Forward
             }
@@ -1209,7 +1219,14 @@ mod tests {
             panic!("not taken back")
         };
         assert_eq!(rb_body(&to_host), serde_json::json!({"t": "rb.navigate", "url": "about:blank"}));
-        // Browsing on to a new allowed page starts the count again.
+        // A redirecting page (a new allowed page that did not stay) does not reset it.
+        assert!(matches!(guard.page("https://redirect.example/", true).await, PageVerdict::Forward));
+        let PageVerdict::TakeBack { to_host, .. } = guard.page("chrome://flags", true).await else {
+            panic!("not taken back")
+        };
+        assert_eq!(rb_body(&to_host), serde_json::json!({"t": "rb.navigate", "url": "about:blank"}));
+        // Browsing on from a page that stayed starts the count again.
+        guard.shown_at = guard.shown_at.map(|at| at - SETTLED);
         assert!(matches!(guard.page("https://example.org/", true).await, PageVerdict::Forward));
         let PageVerdict::TakeBack { to_host, .. } = guard.page("chrome://flags", true).await else {
             panic!("not taken back")

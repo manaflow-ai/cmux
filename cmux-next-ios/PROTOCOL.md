@@ -591,8 +591,9 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
     (a link, a redirect, script) that the rules refuse is not forwarded; hostd
     sends the host `rb.history back` (or `rb.navigate` to the last shown page
     when there is no history) and the phone gets `rb.navigate.refused`. After
-    three take-backs with no phone navigation between, hostd sends the host to
-    `about:blank` instead (a page that bounces on load). The frames painted
+    three take-backs with no phone navigation between (and no page that stayed
+    1 s), hostd sends the host to `about:blank` instead (a page that bounces on
+    load, or redirects on to one that does). The frames painted
     before the host goes back can still reach the phone.
   - An older hostd refuses every address but http, https and `about:blank`
     ("only http, https and about:blank load") and drops other `rb.navigate`
