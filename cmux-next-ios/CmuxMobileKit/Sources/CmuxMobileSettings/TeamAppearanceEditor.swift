@@ -7,9 +7,10 @@ import UIKit
 private let theme = CmuxMobileTheme.standard
 
 /// Team color and icon editor (SPEC 3.4): an opaque sheet with a glass X,
-/// centered "Team appearance", a 72 pt preview, the 13 color swatches
-/// (7 columns, never under the keyboard), the icon control and a docked
-/// "Done". The icon is Automatic (the team's first letter), Custom (one
+/// centered "Team appearance", a 72 pt preview, the 13 color swatches and
+/// Transparent (7 columns, never under the keyboard), the icon control and a
+/// docked "Done". Transparent (no background) is offered only with a custom
+/// icon; removing the icon falls back to the last color chosen. The icon is Automatic (the team's first letter), Custom (one
 /// character: the field opens on the emoji keyboard, and the globe key still
 /// reaches letters, digits and symbols) or None (color only). Changes apply
 /// through `onSave`.
@@ -124,7 +125,7 @@ public struct TeamAppearanceEditor: View {
         #if DEBUG
         .onChange(of: DemoDirector.shared.serial) {
             switch DemoDirector.shared.command {
-            case .editorColor(let hex): appearance.colorHex = hex
+            case .editorColor(let hex): appearance.choose(colorHex: hex)
             case .editorEmoji(let emoji): appearance.emoji = emoji
             case .editorDone:
                 onSave(appearance)
@@ -142,19 +143,19 @@ public struct TeamAppearanceEditor: View {
     private var preview: some View {
         let emoji = mode == .custom && customText.isEmpty ? "" : appearance.emoji
         let size: CGFloat = customFocused ? 48 : 72
-        return TeamAvatar(name: team.name, colorHex: appearance.colorHex, emoji: emoji, size: size)
+        return TeamAvatar(name: team.name, colorHex: appearance.colorHex, emoji: emoji, size: size, transparent: appearance.isTransparent)
             .clipShape(.rect(cornerRadius: size * 20 / 72, style: .continuous))
             .animation(theme.motion.snap.animation, value: appearance)
             .animation(theme.motion.smooth.animation, value: customFocused)
     }
 
-    /// 13 swatches in 7 columns of 44 pt (7 x 44 + 6 x 6 = 344 pt).
+    /// 13 swatches and Transparent in 7 columns of 44 pt (7 x 44 + 6 x 6 = 344 pt).
     private var colorGrid: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.fixed(44), spacing: 6), count: 7), spacing: 10) {
             ForEach(theme.colors.teamPalette) { color in
-                let selected = color.dark.caseInsensitiveCompare(appearance.colorHex) == .orderedSame
+                let selected = !appearance.isTransparent && color.dark.caseInsensitiveCompare(appearance.colorHex) == .orderedSame
                 Button {
-                    appearance.colorHex = color.dark
+                    appearance.choose(colorHex: color.dark)
                 } label: {
                     Circle()
                         .fill(color.token)
@@ -170,7 +171,41 @@ public struct TeamAppearanceEditor: View {
                 .accessibilityLabel(Text(color.name))
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
+            transparentSwatch
         }
+    }
+
+    /// No background: an outlined circle crossed by a slash. Dimmed and
+    /// disabled until the team has a custom icon.
+    private var transparentSwatch: some View {
+        let available = appearance.canBeTransparent
+        let selected = appearance.isTransparent
+        return Button {
+            appearance.isTransparent = true
+        } label: {
+            ZStack {
+                Circle().strokeBorder(theme.colors.label2, lineWidth: 1.5)
+                Rectangle()
+                    .fill(theme.colors.label2)
+                    .frame(width: 1.5, height: 30)
+                    .rotationEffect(.degrees(45))
+            }
+            .frame(width: 32, height: 32)
+            .clipShape(.circle)
+            .padding(3)
+            .overlay {
+                Circle().strokeBorder(theme.colors.label, lineWidth: 3).opacity(selected ? 1 : 0)
+            }
+            .frame(width: 44, height: 44)
+            .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .disabled(!available)
+        .opacity(available ? 1 : 0.35)
+        .accessibilityLabel(Text("Transparent"))
+        .accessibilityHint(available ? Text("Shows the icon with no background.") : Text("Choose a custom icon first."))
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityIdentifier("teamAppearance.transparent")
     }
 
     // MARK: Icon

@@ -805,16 +805,15 @@ public final class LiveCoordinator {
 
     private func loadPrefs(_ teamID: String) {
         Task { [weak self] in
-            guard let self, let prefs = try? await self.api.prefs(teamID: teamID),
-                  let color = prefs.color, color.hasPrefix("#") else { return }
-            self.store.setAppearance(TeamAppearance(colorHex: color, emoji: prefs.emoji), for: teamID)
+            guard let self, let appearance = try? await self.api.prefs(teamID: teamID).appearance else { return }
+            self.store.setAppearance(appearance, for: teamID)
         }
     }
 
-    /// Saves a team's color and emoji locally and with `PUT /prefs`.
+    /// Saves a team's color, emoji and background locally and with `PUT /prefs`.
     public func saveAppearance(_ appearance: TeamAppearance, teamID: String) async throws {
         store.setAppearance(appearance, for: teamID)
-        try await api.putPrefs(teamID: teamID, color: appearance.colorHex, emoji: appearance.emoji)
+        try await api.putPrefs(teamID: teamID, appearance: appearance)
     }
 
     public func invite(email: String, teamID: String) async throws {
