@@ -147,11 +147,13 @@ enum DebugWindowRecord {
                 guard window.isVisible else { return true }
             }
             let t0 = start0 ?? now
+            // A plain recording's clock runs from its first tick, so it ends even if no frame is captured.
+            if !sinceLaunch { start0 = t0 }
             guard now - t0 <= seconds else { finish(); return false }
             // The window's first link frame can report the frame taken at start.
             if let last = times.last, now - t0 <= last { return true }
             guard let image = window.compositedSnapshot(adding: overlayPanels()) else { return true }
-            // Time zero is the first frame captured, not the first tick that found the window.
+            // A launch recording's time zero is its first captured frame (its 30 s limit above ends it if none comes).
             start0 = t0
             let index = times.count
             times.append(now - t0)
