@@ -1,4 +1,5 @@
 public import CmuxNextSettings
+import CmuxNextActions
 import Foundation
 
 /// `file.open` (`cmux open <file>...`, cx-bmie): opens each file through the
@@ -10,6 +11,7 @@ import Foundation
 /// - `paths` (array of absolute paths) or `path` (one): the files, opened in
 ///   order. The CLI makes a relative path absolute against its own working
 ///   directory before it sends it.
+/// - `line`: optional string `42`, `42:7` or `42-50`, bounded to 10,000,000.
 /// - `where`: `tab` (default) or `editor` (the text editor app), as the action.
 /// - `workspace_id`, `terminal_id`: placement as `browser.open_split`: the
 ///   named workspace, else the caller's terminal pane, else the focused pane,
@@ -42,6 +44,7 @@ struct FileOpenRun {
         for (index, path) in request.paths.enumerated() {
             var args: [String: JSONValue] = ["path": .string(path)]
             if let place = request.place { args["where"] = .string(place) }
+            if let line = request.line { args["line"] = .string(line.argument) }
             var params: [String: JSONValue] = ["action": "file.open", "args": .object(args), "wait": true, "focus": .bool(request.focus)]
             if let paneID { params["target"] = .string("pane:" + paneID) }
             if let origin = request.origin { params["origin"] = .string(origin) }
@@ -61,10 +64,11 @@ struct FileOpenRun {
 
 /// The checked params of one `file.open`.
 struct FileOpenRequest: Sendable, Equatable {
-    static let parameters: Set<String> = ["paths", "path", "where", "workspace_id", "terminal_id", "focus",
+    static let parameters: Set<String> = ["paths", "path", "where", "line", "workspace_id", "terminal_id", "focus",
                                           "idempotency_key", "origin", "after"]
 
     var paths: [String]
+    var line: FileLineLocation?
     var place: String?
     var workspaceID: String?
     var terminalID: String?
@@ -92,6 +96,12 @@ struct FileOpenRequest: Sendable, Equatable {
         if let path = try Self.string(params, "path") { paths.append(path) }
         guard !paths.isEmpty else {
             throw ControlError.invalidParams(ControlStrings.format("control.error.missingParam", "%1$@ requires params.%2$@", method, "paths"))
+        }
+        if let value = params["line"], !value.isNull {
+            guard let argument = value.stringValue, let line = FileLineLocation(argument) else {
+                throw ControlError.invalidParams(ControlStrings.text("control.error.invalidLine", "Line must be a number from 1 to 10,000,000, optionally followed by :column or -endLine."))
+            }
+            self.line = line
         }
         self.paths = paths
         place = try Self.string(params, "where")

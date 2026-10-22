@@ -15,10 +15,21 @@ extension ChatColumnPlacement {
             screen.zoomedPane != nil && screen.panes.contains { $0 === controller.pane }
         }
         return resolve(from: controller.layoutPaneID, columns: columns, recent: content.recentPanes, zoomed: zoomed) { column in
-            guard column.root.panes.count == 1, let tabs = content.panes[column.root.panes[0]]?.pane.tabs,
-                  tabs.count == 1 else { return false }
-            return isChat(tabs[0], services: services)
+            guard column.root.panes.count == 1, let tabs = content.panes[column.root.panes[0]]?.pane.tabs else { return false }
+            return loneChat(in: tabs, isChat: { isChat($0, services: services) },
+                            isNewTabPage: { services.agentTabs.isNewTabPage($0.id) }) != nil
         }
+    }
+
+    /// The one chat to dock when every other tab is a New Tab page; nil for any other mix.
+    nonisolated static func loneChat<Tab>(in tabs: [Tab], isChat: (Tab) -> Bool, isNewTabPage: (Tab) -> Bool) -> Tab? {
+        var chat: Tab?
+        for tab in tabs {
+            if isNewTabPage(tab) { continue }
+            guard chat == nil, isChat(tab) else { return nil }
+            chat = tab
+        }
+        return chat
     }
 
     /// Whether `tab` is an agent chat. The New Tab page is an agent tab too, but not a chat.
@@ -31,8 +42,8 @@ extension ChatColumnPlacement {
     /// Where a person's new tab from `controller`'s pane opens: the pane
     /// to open it in (`controller` itself, or the strip pane, focused), or
     /// nil when it is already open. A lone chat moves into a new left dock
-    /// with the agent chat role, leaving `respawn` in its pane, in one daemon
-    /// commit, whether or not it shows its tab bar (cx-v4dmy: every chat shows
+    /// with the agent chat role, leaving `respawn` in its pane, then its New Tab pages
+    /// follow it, whether or not it shows its tab bar (cx-v4dmy: every chat shows
     /// it by default). Without `respawn` (a New Tab page, which is not a daemon
     /// tab) it stays in `controller`.
     @MainActor static func route(from controller: PaneController, respawn: SplitRespawn?,
@@ -48,22 +59,45 @@ extension ChatColumnPlacement {
             return strip
         case .dockChat:
             guard let respawn, controller.daemon.supports(DaemonCapabilities.shared.tabColumnRespawn),
-                  let chat = controller.pane.tabs.first else { return controller }
+                  let chat = loneChat(in: controller.pane.tabs, isChat: { isChat($0, services: services) },
+                                      isNewTabPage: { services.agentTabs.isNewTabPage($0.id) }) else { return controller }
             // The new tab left in the pane takes focus, not the docked chat. The chat stays where it
             // shows; only the pane with the new tab comes in, from the right (as AgentBesidePlacement).
-            let pane = controller.layoutPaneID
-            content.layoutModel.handOffContent(of: pane) { done in
-                TabMoves.toNewDockColumn(chat, anchor: controller.pane, edge: .left, role: .agentChat,
-                                         respawn: respawn, services: services) { [weak content, weak controller] moved in
-                    done(moved)
-                    if moved, let content { PaneHandlers.focus(pane, in: content) }
-                    // A hidden tab bar was the chat's choice: the tab left in the pane shows its tab bar again.
-                    if moved, let controller, services.paneTabBars.choice(for: controller.paneKey) == false {
-                        services.paneTabBars.set(nil, for: controller.paneKey)
-                        controller.apply(controller.snapshot())
+            let source = controller.pane, pane = controller.layoutPaneID
+            let originalSurfaces = Set(source.tabs.map(\.surface))
+            let intent = content.beginFocusIntent()
+            let pages = newTabPages(in: source.tabs) { services.agentTabs.isNewTabPage($0.id) }
+            let layout = content.layoutModel
+            services.registry.track(Task { @MainActor [weak content, weak controller] in
+                let moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+                    layout.handOffContent(of: pane) { handedOff in
+                        TabMoves.toNewDockColumn(chat, anchor: source, edge: .left, role: .agentChat,
+                                                 respawn: respawn, services: services) { moved in
+                            handedOff(moved)
+                            done.resume(returning: moved)
+                        }
                     }
                 }
-            }
+                guard moved else { return "move-tab-to-column failed (see the app log)" }
+                if let content {
+                    await moveNewTabPages(pages, with: chat, from: source, in: content, services: services,
+                                          generation: intent, whenDocked: { _ in
+                        // Land focus as soon as the dock is listed, before optional page moves: on the
+                        // respawned tab, else (not listed yet) on the pane it opens in.
+                        if let respawned = source.tabs.first(where: { !originalSurfaces.contains($0.surface) }) {
+                            content.expectFocus(on: respawned.surface, generation: intent)
+                        } else {
+                            PaneHandlers.focus(pane, in: content)
+                        }
+                    })
+                }
+                // A hidden tab bar was the chat's choice: the tab left in the pane shows its tab bar again.
+                if let controller, services.paneTabBars.choice(for: controller.paneKey) == false {
+                    services.paneTabBars.set(nil, for: controller.paneKey)
+                    controller.apply(controller.snapshot())
+                }
+                return nil
+            })
             return nil
         case .besideDock:
             openBesideDock(controller, respawn: respawn, services: services)

@@ -17,28 +17,52 @@ import { useMessageScope } from "./messageScope";
 import { FileDoc, Folder, GitHubMark, Globe, Lock } from "../conversation/icons";
 import { usePathInfo, useSiteInfo } from "./linkStore";
 import { isPrivateUrl, redactUrlText } from "./linkDisplay";
-import { isDeniedPath, pathName, textLinks } from "./paths";
+import { isDeniedPath, isNameOnlyPath, pathName, textLinks } from "./paths";
 import { LinkHoverCard } from "./LinkHoverCard";
 import { pullRequestRef } from "./PullRequestCard";
 import { useHoverCard } from "./useHoverCard";
+import { locationArgument, type FileLocation } from "../../../fileLocation";
 
 /// A path chip. `label` is the link's text, else the file name; `written` is the reply's own
 /// text, which a path that gets no chip draws as.
-export function PathChip({ path, label, written }: { path: string; label?: ReactNode; written?: string }) {
-  const scope = useMessageScope();
-  if (isDeniedPath(path)) return <span className="cv-chip-plain">{written ?? label ?? path}</span>;
-  // Another machine's file: never asked about or opened here (chips/messageScope.ts).
-  if (scope?.host !== undefined) return <ElsewhereChip path={path} host={scope.host} label={label} />;
-  return <HostPathChip path={path} label={label} written={written} />;
+type PathChipProps = {
+  path: string;
+  label?: ReactNode;
+  written?: string;
+  location?: FileLocation;
+  suffix?: string;
+  /// Written in a code span: a path that gets no chip stays code.
+  code?: boolean;
+  /// A bare file name: no chip until the host has found the file.
+  bare?: boolean;
+};
+
+/// What a path that gets no chip draws as: code for a code span, else the reply's text.
+function NoChip({ path, label, written, code }: PathChipProps) {
+  const text = written ?? label ?? path;
+  return code ? <code className="cv-code">{text}</code> : <span className="cv-chip-plain">{text}</span>;
 }
 
-function HostPathChip({ path, label, written }: { path: string; label?: ReactNode; written?: string }) {
-  const { info, policy } = usePathInfo(path);
+export function PathChip({ path, label, written, ...position }: PathChipProps) {
+  const scope = useMessageScope();
+  if (isDeniedPath(path)) return <NoChip path={path} label={label} written={written} code={position.code} />;
+  // Another machine's file: never asked about or opened here (chips/messageScope.ts).
+  if (scope?.host !== undefined) return <ElsewhereChip path={path} host={scope.host} label={label} />;
+  return <HostPathChip path={path} label={label} written={written} {...position} />;
+}
+
+function HostPathChip({ path, label, written, location, suffix, code, bare }: PathChipProps) {
+  // A name with no folder is a chip only once the host has found that file.
+  const nameOnly = bare || isNameOnlyPath(path);
+  const { info, policy } = usePathInfo(path, nameOnly);
   const plain =
     info?.place === "denied" ||
     info?.place === "missing" ||
-    (info?.place === "outside" && policy.outsideRoots === "text");
-  if (plain) return <span className="cv-chip-plain">{written ?? label ?? path}</span>;
+    (info?.place === "outside" && policy.outsideRoots === "text") ||
+    // A name with no folder is no chip until the host has answered (then it follows the same
+    // rules as any path: outside the folders it has a lock, or opens, by the policy).
+    (nameOnly && !info);
+  if (plain) return <NoChip path={path} label={label} written={written} code={code} />;
   const outside = info?.place === "outside";
   const folder = info?.folder ?? path.endsWith("/");
   return (
@@ -48,10 +72,19 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
       data-path={path}
       /* It drags out as the file itself (conversation/dragOut.ts). */
       draggable
-      onClick={() => void callChipHost("link.openPath", { path })}
+      data-line={!folder && location ? locationArgument(location) : undefined}
+      onClick={() =>
+        void callChipHost("link.openPath", {
+          path,
+          ...(!folder && location ? { line: locationArgument(location) } : {}),
+        })
+      }
     >
       {folder ? <Folder size={15} className="cv-chip__icon" /> : <FileDoc size={15} className="cv-chip__icon" />}
-      <span className="cv-chip__label">{label ?? pathName(path)}</span>
+      <span className="cv-chip__label">
+        {label ?? pathName(path)}
+        {folder ? "" : suffix}
+      </span>
       {outside && <Lock size={11} className="cv-chip__lock" />}
     </button>
   );
@@ -137,7 +170,8 @@ export function linkedText(text: string, key: string): ReactNode[] {
           key={`${key}-${index}`}
           path={link.path!}
           written={link.value}
-          label={link.line ? `${pathName(link.path!)}:${link.line}` : undefined}
+          location={link.location}
+          suffix={link.suffix}
         />
       ) : (
         <UrlChip key={`${key}-${index}`} href={link.value}>

@@ -373,7 +373,9 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 id: "file.open",
                 title: String(localized: "action.file.open", defaultValue: "Open File…", bundle: .module),
                 keywords: ["file", "editor", "preview", "path"], category: .pane, symbol: "doc",
-                surfaces: [.palette, .menu], arguments: [CatalogArgument.optionalPathString, CatalogArgument.whereChoice],
+                surfaces: [.palette, .menu], arguments: [CatalogArgument.optionalPathString, CatalogArgument.whereChoice,
+                    ActionArgument(name: "line", title: String(localized: "argument.fileLine", defaultValue: "Line", bundle: .module),
+                                   kind: .string, isRequired: false)],
                 targets: [.pane], cliName: "file open", mainMenu: .file
             ),
         ]

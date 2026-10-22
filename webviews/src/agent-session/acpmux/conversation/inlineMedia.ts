@@ -62,7 +62,7 @@ export function proseImages(text: string): ThumbItem[] {
   const out: ThumbItem[] = [];
   const seen = new Set<string>();
   for (const link of textLinks(prose)) {
-    if (link.line !== undefined) continue;
+    if (link.location !== undefined) continue;
     const src = link.kind === "url" ? (isImageUrl(link.value) ? link.value : undefined) : imagePathOf(link.path);
     if (!src || seen.has(src)) continue;
     seen.add(src);

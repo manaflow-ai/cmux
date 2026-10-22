@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxNextActions
 
 /// The page's requests for what a reply links to (decisions D4, D5, D6). Every value comes from
 /// untrusted reply text, so each method has fixed param keys (any other key is refused, like
@@ -7,7 +8,7 @@ public import Foundation
 ///
 /// - `link.inspect {paths, urls}`: where each path is (``AgentPaneReplyPaths``) and the favicon
 ///   and title cmux already has for each URL (no fetch). Passive: no gesture, no effect.
-/// - `link.openPath {path}`: open a path chip. Spends a user gesture.
+/// - `link.openPath {path, line?}`: open a path chip. Spends a user gesture.
 /// - `image.load {src}`: a reply image, a file inside the roots or an https URL (host fetch).
 ///   A web image spends a gesture unless `agentPane.images.remote` is `always`.
 /// - `media.load {src}`: a video or audio file inside the roots, as a URL the pane plays
@@ -31,7 +32,7 @@ public import Foundation
 ///   `https://github.com/<owner>/<repo>/pull/<n>` is taken (``pullRequestURL(_:)``). Passive.
 public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case inspect(paths: [String], urls: [String])
-    case openPath(String)
+    case openPath(String, line: FileLineLocation? = nil)
     case loadImage(String)
     case loadMedia(String)
     case listBrowsers
@@ -51,10 +52,10 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         "image.openInPane", "image.copy", "image.save", "image.quickLook", "image.drag", "file.drag", "pr.inspect",
     ]
 
-    /// Each method's exact param keys (all required; `link.inspect` takes either list).
+    /// Each method's admitted param keys (`line` is optional; `link.inspect` takes either list).
     static let knownParams: [String: Set<String>] = [
         "link.inspect": ["paths", "urls"],
-        "link.openPath": ["path"],
+        "link.openPath": ["path", "line"],
         "image.load": ["src"],
         "media.load": ["src"],
         "browser.list": [],
@@ -128,7 +129,12 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
             self = .inspect(paths: paths, urls: urls)
         case "link.openPath":
             guard let path = text("path", AgentPaneReplyPaths.maximumLength) else { return nil }
-            self = .openPath(path)
+            let line: FileLineLocation?
+            if let raw = params["line"] {
+                guard let argument = raw as? String, let parsed = FileLineLocation(argument) else { return nil }
+                line = parsed
+            } else { line = nil }
+            self = .openPath(path, line: line)
         case "image.load":
             guard let src = text("src", Self.maximumURL) else { return nil }
             self = .loadImage(src)

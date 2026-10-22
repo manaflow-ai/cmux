@@ -32,8 +32,8 @@ struct WorkspaceGroupConfigEditor {
             do {
                 if !exists { try await file.set(.object([:]), at: path) }
                 let source = try await file.source()
-                let place = JSONC.position(of: path, in: source).map { FilePosition(line: $0.line, column: $0.column) }
-                if !services.linkOpener.openFile(file.url, from: services.windows.active?.focusedPane, at: place) {
+                let place = JSONC.position(of: path, in: source).map { FileLineLocation(line: $0.line, column: $0.column) }
+                if !services.linkOpener.openFile(file.url, from: services.windows.active?.focusedPane, line: place) {
                     NSWorkspace.shared.openInBackground(file.url)
                 }
                 return nil

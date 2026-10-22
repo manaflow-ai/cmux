@@ -317,6 +317,7 @@ enum AgentHandlers {
     /// The file is checked first (`AgentPaneFileOpening`); a tab opens in the
     /// invocation's pane, else the focused one.
     private static func openFile(_ invocation: ActionInvocation, context: AppActionContext) throws {
+        let line = try FileOpenLineArgument(invocation["line"]).location
         let path = invocation["path"]?.stringValue ?? ""
         // No path (the File menu, a shortcut, `cmux file open`): the cmux picker (R89).
         guard !path.isEmpty else { return try ViewerHandlers.openFilePicker(invocation, context: context) }
@@ -334,7 +335,7 @@ enum AgentHandlers {
             if let session = invocation.callerAgentSession, let chat = context.services.agentTabs.tab(showing: session) {
                 context.services.chatQuoteOpeners.noteOpened(url, byAgentTab: chat)
             }
-            if let reason = context.services.viewers.openFile(url, in: pane, userChose: invocation.origin == .user) { throw ActionFailure(message: reason) }
+            if let reason = context.services.viewers.openFile(url, in: pane, userChose: invocation.origin == .user, line: line, focus: invocation.focusRequested) { throw ActionFailure(message: reason) }
             return
         }
         let opening: AgentPaneFileOpening

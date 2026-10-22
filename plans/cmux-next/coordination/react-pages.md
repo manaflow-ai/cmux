@@ -1,6 +1,7 @@
 # Lane: react-pages
 
 ## Active streams
+- 2026-10-21 file-line jump: `link.openPath` gains optional bounded numeric `line` spelling (`42`, `42:7`, `42-50`); `file.open` advertises the same argument to CLI/MCP. Editor config adds numeric `location`; `cmux.editor.reveal` delivers a location to an existing tab without reloading. Existing path, root, gesture and placement policy stays at its current owners. No settings or shortcuts added.
 - History and App Store as React pages with a Rust backend (React UIs lead, R62 UI-STACK). Design: plans/cmux-next/react-pages.md. Pages live in `webviews/src/pages/<page>/`; `webviews/src/pages/shared/pageClient.ts` is the only transport file (pane-protocol envelope over the `cmuxPage` WebKit bridge until the daemon router lands). Touches: webviews dev server (`/history/` route), CmuxNextHistory xcstrings (page strings source), `cmux-history` crate (H2), daemon `history.*` ops (H3, main window), app platform `cmux.apps.*` ops (theirs).
 
 ## Landed

@@ -33,8 +33,6 @@ export type PageCommandName =
   | "zoomOut"
   | "zoomReset"
   | "editorAction"
-  // A Find result opened in an editor tab that already shows its file (`text` "line:column").
-  | "reveal"
   // The markdown page's table column widths (pages/markdown/tables.ts).
   | "resetTableWidths"
   | "resetContextTableWidths"
