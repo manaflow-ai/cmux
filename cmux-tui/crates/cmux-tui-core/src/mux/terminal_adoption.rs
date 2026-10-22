@@ -869,7 +869,11 @@ impl Mux {
                 let mut turn = ticket.and_then(|ticket| {
                     mux.startup_adoption_gate.turn(ticket, || {
                         mux.shutting_down.load(Ordering::Acquire)
-                            || mux.terminal_adoptions_now.lock().unwrap().contains(&terminal_id)
+                            || mux
+                                .terminal_adoptions_now
+                                .lock()
+                                .unwrap_or_else(PoisonError::into_inner)
+                                .contains(&terminal_id)
                     })
                 });
                 // Test seam: a slow first attempt, held inside its turn (debug only).

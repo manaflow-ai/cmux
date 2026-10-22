@@ -16,8 +16,10 @@ use super::*;
 const TERMINALS: usize = 24;
 /// Gate slots (mux/startup_adoption_gate.rs STARTUP_ADOPTION_SLOTS).
 const SLOTS: usize = 8;
-const HOLD_MS: u64 = 600;
+const HOLD_MS: u64 = 1_000;
 
+/// Needs the debug-build seam that holds a first attempt.
+#[cfg(debug_assertions)]
 #[test]
 fn a_restart_adopts_the_visible_workspace_first_in_bounded_waves() {
     let mut harness = RecoveryHarness::start_unstarted("startup-adoption-order");

@@ -14,7 +14,8 @@
 //! fails gives its turn back at once and retries on its own schedule, so a
 //! slow or dead host never holds a slot past one attempt.
 
-use std::sync::{Condvar, Mutex, PoisonError};
+use std::collections::BTreeSet;
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 
 /// First adoption attempts that run at once after a start.
 pub(super) const STARTUP_ADOPTION_SLOTS: usize = 8;
@@ -24,6 +25,17 @@ struct GateState {
     next_ticket: u64,
     serving: u64,
     active: usize,
+    /// Tickets dropped before their turn (a thread that never started, an
+    /// adoption that ended first); `serving` steps over them.
+    abandoned: BTreeSet<u64>,
+}
+
+impl GateState {
+    fn skip_abandoned(&mut self) {
+        while self.abandoned.remove(&self.serving) {
+            self.serving += 1;
+        }
+    }
 }
 
 #[derive(Default)]
@@ -32,35 +44,55 @@ pub(crate) struct StartupAdoptionGate {
     changed: Condvar,
 }
 
-/// A place in line, taken when the adoption is scheduled.
-pub(crate) struct Ticket(u64);
+/// A place in line, taken when the adoption is scheduled. Dropping it before
+/// its turn gives the place up, so no later ticket waits on it.
+pub(crate) struct Ticket {
+    number: u64,
+    gate: Arc<StartupAdoptionGate>,
+    used: bool,
+}
+
+impl Drop for Ticket {
+    fn drop(&mut self) {
+        if self.used {
+            return;
+        }
+        let mut state = self.gate.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.serving == self.number {
+            state.serving += 1;
+        } else if self.number > state.serving {
+            state.abandoned.insert(self.number);
+        }
+        state.skip_abandoned();
+        self.gate.changed.notify_all();
+    }
+}
 
 /// A running first attempt; its drop frees the slot.
 pub(crate) struct Turn<'a>(&'a StartupAdoptionGate);
 
 impl StartupAdoptionGate {
-    pub(super) fn ticket(&self) -> Ticket {
+    pub(super) fn ticket(self: &Arc<Self>) -> Ticket {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        let ticket = state.next_ticket;
+        let number = state.next_ticket;
         state.next_ticket += 1;
-        Ticket(ticket)
+        Ticket { number, gate: self.clone(), used: false }
     }
 
     /// Waits for this ticket's turn and a free slot. `give_up` (shutdown)
     /// is checked whenever the gate changes; then no turn is taken.
-    pub(super) fn turn(&self, ticket: Ticket, give_up: impl Fn() -> bool) -> Option<Turn<'_>> {
+    pub(super) fn turn(&self, mut ticket: Ticket, give_up: impl Fn() -> bool) -> Option<Turn<'_>> {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
             if give_up() {
-                // Skip this ticket so later ones are not stuck behind it.
-                if state.serving == ticket.0 {
-                    state.serving += 1;
-                    self.changed.notify_all();
-                }
+                // The ticket's drop gives its place up.
+                drop(state);
                 return None;
             }
-            if state.serving == ticket.0 && state.active < STARTUP_ADOPTION_SLOTS {
+            if state.serving == ticket.number && state.active < STARTUP_ADOPTION_SLOTS {
+                ticket.used = true;
                 state.serving += 1;
+                state.skip_abandoned();
                 state.active += 1;
                 self.changed.notify_all();
                 return Some(Turn(self));

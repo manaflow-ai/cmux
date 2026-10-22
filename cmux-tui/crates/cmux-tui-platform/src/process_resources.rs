@@ -490,7 +490,7 @@ mod imp {
 /// started (`windows_processes`: in a terminal job, our user, our session).
 #[cfg(windows)]
 mod imp {
-    /// Reads only `pid` already (no process scan here).
+    /// The full snapshot `Sampler::new` takes (no per-pid read here yet).
     pub(super) fn sample_process(pid: u32) -> Option<super::ProcessSample> {
         Sampler::new().sample(pid)
     }
