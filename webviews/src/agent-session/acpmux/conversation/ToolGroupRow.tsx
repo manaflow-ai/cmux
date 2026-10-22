@@ -84,7 +84,7 @@ export function ToolGroupRow({
     return items.map((item, at) => ({ item, at, thought: item.tool ? -1 : thoughts++ })).slice(cut);
   }, [items, cut]);
   const entryRow = ({ item, thought }: (typeof shown)[number], call: (item: AcpmuxActivity) => ReactNode) =>
-    item.tool ? call(item) : <ThoughtRow key={`thought:${thought}`} id={thoughtId(thought)} item={item} />;
+    item.tool ? call(item) : <ThoughtRow key={thoughtId(thought)} id={thoughtId(thought)} item={item} />;
   const detailsId = useId();
   const tools = useMemo(() => groupCalls(items).map((item) => item.tool!), [items]);
   const files = useMemo(() => (kind === "edits" ? toolFiles(tools) : []), [kind, tools]);
