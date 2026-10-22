@@ -33,6 +33,7 @@ mod health_view;
 mod idle;
 mod launch_roots;
 mod launchers;
+pub mod lineage;
 mod live_models;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 mod hosts;
@@ -738,6 +739,7 @@ impl Hub {
             subagents: StdMutex::new(Default::default()),
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
+            start_calls: StdMutex::new(Default::default()),
             composers: StdMutex::new(Default::default()),
         })
     }

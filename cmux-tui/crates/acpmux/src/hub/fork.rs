@@ -228,6 +228,8 @@ impl Hub {
             // A fork is the person's new chat, never a sub-session of the parent's parent.
             subsession: None,
             subsession_limits: Default::default(),
+            // A fork is the person's branch of the chat, never a spawn (`lineage.rs`).
+            lineage: None,
         };
         let new = self.make_session(meta);
         if is_claude && cut.is_none() {

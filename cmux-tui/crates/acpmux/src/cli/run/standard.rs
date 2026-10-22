@@ -220,7 +220,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             Ok(())
         }
-        Command::Ls { status, pending, tag } => {
+        Command::Ls { status, pending, tag, tree } => {
             let client = connect(true).await?;
             let mut v = client.request(method::MUX_SESSIONS, json!({})).await?;
             if status.is_some() || pending || tag.is_some() {
@@ -257,20 +257,28 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     .collect();
                 v["sessions"] = Value::Array(keep);
             }
+            let sessions = v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
             if json_out {
+                if tree {
+                    v["sessions"] = Value::Array(crate::cli::session_tree::nested(&sessions));
+                }
                 print_json(&v);
                 return Ok(());
             }
-            let sessions = v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
             if sessions.is_empty() {
                 println!("no sessions (create one: acpmux new -m codex -n my-task)");
                 return Ok(());
             }
+            let rows: Vec<(usize, &Value)> = if tree {
+                crate::cli::session_tree::ordered(&sessions)
+            } else {
+                sessions.iter().map(|s| (0, s)).collect()
+            };
             println!(
                 "{:<24} {:<8} {:<13} {:>5} {:<6} LAST",
                 "NAME", "AGENT", "STATUS", "TURNS", "AGE"
             );
-            for s in sessions {
+            for (depth, s) in rows {
                 let g = |k: &str| s.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
                 let mut status = g("status");
                 if s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0 {
@@ -278,7 +286,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
                 println!(
                     "{:<24} {:<8} {:<13} {:>5} {:<6} {}",
-                    short(&g("name"), 24),
+                    crate::cli::session_tree::drawn_name(depth, &g("name"), 24),
                     short(&g("harness"), 8),
                     status,
                     s.get("turnCount").and_then(Value::as_u64).unwrap_or(0),

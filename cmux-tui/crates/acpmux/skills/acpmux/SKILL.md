@@ -100,7 +100,7 @@ acpmux send NAME --no-wait --no-steer "…"          # queue behind the running 
 acpmux send NAME --steer "…"                       # steer a send that waits for its reply (it queues by default)
 acpmux last NAME [-n 3]                            # last reply text
 acpmux history NAME                                # one line per turn: prompt, status, tools, tokens, wall time
-acpmux ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v]
+acpmux ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v] [--tree]
 acpmux session info NAME                           # model, mode, policy, pending permissions, usage
 acpmux session set NAME model=… | effort=… | mode=… | policy=…
 acpmux session fork NAME [--name NEW]              # new session sharing the history so far

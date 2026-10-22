@@ -383,7 +383,7 @@ impl Hub {
     /// it (`claim_name`) only when the link is set, so a refused answer
     /// takes no name.
     pub(super) fn offer_link(&self, parent: &Session, title: Option<&str>) -> SubsessionLink {
-        let depth = parent.meta().subsession.as_ref().map_or(0, |l| l.depth) + 1;
+        let depth = self.lineage_depth(&parent.meta()) + 1;
         let base = short_name_of(title, "task");
         SubsessionLink { started_by: parent.id.clone(), short_name: base, depth, offered: true }
     }
@@ -393,7 +393,8 @@ impl Hub {
         let mut children: Option<(u32, Source)> = None;
         let mut depth: Option<(u32, Source)> = None;
         let mut limits = m.subsession_limits.clone();
-        let mut parent = m.subsession.as_ref().map(|l| l.started_by.clone());
+        // Up the lineage (`lineage.rs`): a session `acpmux new` started inherits as a sub-session does.
+        let mut parent = self.lineage_of(m).map(|l| l.parent);
         let mut source = Source::Session;
         // Bounded: a link loop (a moved chat whose parent id came back) ends here.
         for _ in 0..=catalog().max_depth.max {
@@ -410,18 +411,9 @@ impl Hub {
                 break;
             }
             let Some(id) = parent.take() else { break };
-            let Some(up) = self
-                .sessions
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .get(&id)
-                .cloned()
-            else {
-                break;
-            };
-            let up = up.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(up) = self.session_meta_by_id(&id) else { break };
             limits = up.subsession_limits.clone();
-            parent = up.subsession.as_ref().map(|l| l.started_by.clone());
+            parent = self.lineage_of(&up).map(|l| l.parent);
             source = Source::Inherited;
         }
         let pick = |own: Option<(u32, Source)>, key: &str, max: u32, default: u32| {
@@ -528,7 +520,10 @@ impl Hub {
             return Err(RpcError::invalid_params("a closed session starts no sub-session"));
         }
         let limits = self.subsession_effective(&pm);
-        let depth = pm.subsession.as_ref().map_or(0, |l| l.depth) + 1;
+        // One depth for every way a session starts another (`lineage.rs`).
+        let lineage =
+            self.lineage_under(&pm, super::lineage::start_tool_call(parent, &req.prompt));
+        let depth = lineage.depth;
         if depth > limits.max_depth {
             return Err(refused(
                 "subsessions.depth_limit",
@@ -555,7 +550,7 @@ impl Hub {
                 ));
             }
         };
-        let (child, reply, worktree) = self.start_reserved(parent, &pm, depth, req).await?;
+        let (child, reply, worktree) = self.start_reserved(parent, &pm, lineage, req).await?;
         slot.settle(&child);
         // A stop_session close:true of an ancestor that ran while this start
         // was in flight did not see the child: close it now, not orphaned
@@ -592,9 +587,10 @@ impl Hub {
         self: &Arc<Self>,
         parent: &Arc<Session>,
         pm: &SessionMeta,
-        depth: u32,
+        lineage: crate::store::Lineage,
         req: StartRequest,
     ) -> Result<(Arc<Session>, Value, Option<KeptWorktree>), RpcError> {
+        let depth = lineage.depth;
         let base = short_name_of(req.name.as_deref(), &req.prompt);
         let short = self.subsessions.claim_name(&parent.id, &base);
         let name = self.unique_name(&format!("{}/{short}", pm.name));
@@ -635,6 +631,7 @@ impl Hub {
                 depth,
                 offered: false,
             }),
+            lineage: Some(lineage),
             ..Default::default()
         };
         let probe = self.new_session(request).await?;
@@ -850,7 +847,7 @@ impl Hub {
             "sessions": rows,
             "self": {
                 "sessionId": caller.id,
-                "depth": m.subsession.as_ref().map_or(0, |l| l.depth),
+                "depth": self.lineage_depth(&m),
                 "startedBy": m.subsession.as_ref().map(|l| &l.started_by),
                 "openChildren": self.subsessions.open_count(&caller.id),
                 "maxChildren": e.max_children,

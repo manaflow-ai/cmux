@@ -181,6 +181,10 @@ pub enum Command {
         /// Only sessions carrying this tag (key or key=value).
         #[arg(long)]
         tag: Option<String>,
+        /// Draw each session under the session whose agent started it (`parent`), any depth;
+        /// with --json, the same forest nested under each session's `lineageChildren`.
+        #[arg(long)]
+        tree: bool,
     },
     /// Open the TUI on a session, or on the session list.
     #[command(alias = "a")]
