@@ -133,6 +133,22 @@ struct HomeSplitKeysTests {
             })
             #expect(dock.tabs.first?.surface == page.surface, "Home's tab stays first")
             #expect(Self.panes(home).count == 1, "the tab joined the dock")
+            // The drag paths: the terminal drags out to a column right of Home, then back into Home.
+            let terminal = try #require(dock.tabs.first { $0.surface == created.surface })
+            var out: Bool?
+            TabMoves.toNewColumn(terminal, anchor: dock, services: services) { out = $0 }
+            try await PasswordManagerRouteTests.until({ Self.panes(home).count == 2 && !dock.tabs.contains { $0.surface == created.surface } },
+                                                       report: { "drag out: \(String(describing: out)), \(Self.panes(home).count) panes" })
+            let right = try #require(Self.panes(home).first { $0 !== dock })
+            let moved = try #require(right.tabs.first { $0.surface == created.surface })
+            let refused = Self.refusals(services) {
+                TabMoves.move(moved, to: dock, index: 1, services: services)
+            }
+            #expect(refused.isEmpty, "a terminal dragged into Home was refused: \(refused)")
+            try await PasswordManagerRouteTests.until({ dock.tabs.contains { $0.surface == created.surface } }, report: {
+                "drag in: Home's dock holds \(dock.tabs.map(\.surface))"
+            })
+            #expect(dock.tabs.first?.surface == page.surface, "Home's tab stays first")
         }
     }
 
