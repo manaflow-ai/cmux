@@ -63,7 +63,7 @@ import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { StyleSwitch } from "./newtab/StyleSwitch";
-import { shownPageWidgets } from "./newtab/pageWidgets";
+import { editedPageWidgets, editNewTabWidgets, shownPageWidgets } from "./newtab/pageWidgets";
 import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { isAgentHome, projectLabel, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
@@ -113,7 +113,7 @@ import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
 import { parseProjectRepos } from "./projectRepos";
 import { HomeLists } from "./HomeLists";
-import { endsTurn, turnFiles, turnPathsOnly, turnRows, type TurnFile } from "./diff";
+import { endsTurn, lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk, trustedLabel } from "./TrustAsk";
@@ -192,6 +192,7 @@ import { transcriptRepositories, type RepositoryCache } from "./conversation/tra
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { PromptActions, ReceivedActions } from "./conversation/MessageActions";
+import { AgentNamesContext, agentNames } from "./conversation/agentNames";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { foldToggleAt, holdFold, keepFold, type FoldAnchor } from "./conversation/foldAnchor";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
@@ -767,9 +768,8 @@ const MessageRow = memo(
     const t = useT();
     // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
-    // Another agent's message as one line at the left (its sender's chip and a preview); a task
-    // notification as one quiet line
-    // (conversation/incomingMessage.ts).
+    // Another agent's message as one line at the left (its sender's chip), its text as a card under
+    // it cut to six lines; a task notification as one quiet line (conversation/incomingMessage.ts).
     // Its images show with it, and its action row (age, Copy, Retry, Pin) at the line's end on hover;
     // a steer's read state does not: the message is the agent's to read.
     if (row.kind === "user" && row.incoming?.kind === "notice") return <IncomingNotice text={row.incoming.text} />;
@@ -1576,6 +1576,8 @@ const WITHDRAWN_HOLD_MS = 250;
 /// else the chat opens at its latest message.
 const OPEN_AT_PAGE_MS = 1500;
 const OPEN_AT_SEEK_MS = 8000;
+/// How soon the transcript asks again for an older page after an ask that brought nothing.
+const OLDER_RECHECK_MS = 500;
 /// Scrolls `scroller` so `range` sits a third of the way down it, when it is not already in view
 /// above the `inset` px at its foot that the bottom stack covers.
 function scrollRangeIn(scroller: HTMLElement, range: Range, inset = 0) {
@@ -3131,6 +3133,12 @@ export function VirtualTranscript({
   // A read that drew no row above the first (records that draw nothing) moves historyFrom: ask again.
   const olderLoadKey = `${sessionKey}\u0000${rows[0]?.id ?? ""}\u0000${historyFrom ?? ""}`;
   const olderLoadRequested = useRef<string | undefined>(undefined);
+  /// An older page asked for has not settled yet; and the check that follows one that brought nothing.
+  const olderAsking = useRef(false);
+  const olderRecheck = useRef<ReturnType<typeof setTimeout>>(undefined);
+  /// The latest ask: only its settling re-arms the check, so a late answer to an earlier one (a
+  /// chat switched away from) cannot cancel the recheck of the ask that followed it.
+  const olderAsk = useRef(0);
   // The check reads the scroller's live offset, and runs on every scroll event as well as after
   // each commit: a page that lands moves the view down (the anchoring above) and the reader's
   // scroll back to the top could land in the same frame, so the rendered offset never changed
@@ -3149,11 +3157,26 @@ export function VirtualTranscript({
       return;
     }
     if (olderLoadRequested.current === olderLoadKey) return;
-    olderLoadRequested.current = olderLoadKey;
-    onLoadOlder().catch(() => {
-      // Keep transient transport failures retryable without turning every render into a request.
-      if (olderLoadRequested.current === olderLoadKey) olderLoadRequested.current = undefined;
-    });
+    const asked = olderLoadKey;
+    olderLoadRequested.current = asked;
+    olderAsking.current = true;
+    const ask = ++olderAsk.current;
+    // A page that lands changes the key in the commit it brings, and the check after it asks for
+    // the next. An ask that brought nothing (a read that failed, or one the client dropped) leaves
+    // the key as it was: ask once more a moment later, as long as the view is still near the top.
+    // At the very top no scroll event comes to ask for it, and a check on every render would ask
+    // on every streamed chunk (Leo 2026-10-21: a 720-turn chat stopped paging for good).
+    const settled = () => {
+      if (ask !== olderAsk.current) return;
+      olderAsking.current = false;
+      clearTimeout(olderRecheck.current);
+      olderRecheck.current = setTimeout(() => {
+        if (olderLoadRequested.current !== asked) return;
+        olderLoadRequested.current = undefined;
+        checkOlderNow.current();
+      }, OLDER_RECHECK_MS);
+    };
+    onLoadOlder().then(settled, settled);
   };
   useLayoutEffect(() => {
     checkOlderNow.current = checkOlder;
@@ -3161,6 +3184,14 @@ export function VirtualTranscript({
   useEffect(() => {
     checkOlderNow.current();
   }, [canLoadOlder, height, onLoadOlder, olderLoadKey, renderScroll.top]);
+  useEffect(() => () => clearTimeout(olderRecheck.current), []);
+  // A wheel up with the view already at the top moves nothing, so no scroll event says the reader
+  // wants more: it asks itself, unless an ask is still out.
+  const onWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    if (event.deltaY >= 0 || event.currentTarget.scrollTop > 0 || olderAsking.current) return;
+    olderLoadRequested.current = undefined;
+    checkOlderNow.current();
+  };
   const pointAt = (target: EventTarget | null) => {
     const row = target instanceof Element ? target.closest<HTMLElement>(".acpmux-row") : null;
     const rowId = row?.dataset.rowId;
@@ -3184,6 +3215,7 @@ export function VirtualTranscript({
         role="feed"
         aria-label={t("transcript.label")}
         onScroll={onScroll}
+        onWheel={onWheel}
         // Soft edges (conversation.css): the top once scrolled from the start, the bottom while more
         // lies below. A followed reply has nothing below it, even while its growth outruns the offset.
         data-seeking={seeking || undefined}
@@ -4289,17 +4321,12 @@ function AcpmuxPane() {
       if (!opened) inPlace();
     }, inPlace);
   }, []);
-  // An output in the summary opens the changes of the last turn that wrote it, at that file.
+  // An output in the summary opens the changes of the last turn that wrote it, under any of its
+  // spellings, at that file.
   const openOutput = useCallback(
     (path: string) => {
-      const row = [...snapshot.rows]
-        .reverse()
-        .find(
-          (candidate) =>
-            candidate.kind === "activity" &&
-            candidate.items?.some((item) => item.tool?.diffs?.some((change) => change.path === path)),
-        );
-      if (row) openDiff(row.id, path);
+      const change = lastChange(snapshot.rows, path);
+      if (change) openDiff(change.rowId, change.path);
     },
     [snapshot.rows, openDiff],
   );
@@ -4579,7 +4606,7 @@ function AcpmuxPane() {
     ],
   );
   // Streaming text changes rows on every chunk; only the turn's tool calls change its files.
-  const diffActivity = useRef<{ key: string; files: TurnFile[]; pathsOnly: string[] }>(undefined);
+  const diffActivity = useRef<{ key: string; files: TurnFile[]; pathsOnly: PathRef[] }>(undefined);
   const diffTurnFiles = useMemo(() => {
     if (!diffView || !diffOpen) return undefined;
     const activity = turnRows(snapshot.rows, diffView.rowId).filter((row) => row.kind === "activity");
@@ -4641,7 +4668,7 @@ function AcpmuxPane() {
     [turnCheckpoint, turnKey],
   );
   // The header's Changes: the last turn that edited files, with its checkpoint's counts once loaded.
-  const lastEdit = useRef<{ key: string; rowId: string; files: TurnFile[]; pathsOnly: string[] }>(undefined);
+  const lastEdit = useRef<{ key: string; rowId: string; files: TurnFile[]; pathsOnly: PathRef[] }>(undefined);
   const lastEditTurn = useMemo(() => {
     const rows = snapshot.rows;
     let at = rows.length - 1;
@@ -4807,7 +4834,9 @@ function AcpmuxPane() {
     [snapshot.rows, snapshot.subagentViews],
   );
   const agentsKey = freshAgents
-    .map((agent) => [agent.id, agent.name, agent.state, agent.action ?? "", agent.endedAt ?? ""].join("\u0000"))
+    .map((agent) =>
+      [agent.id, agent.name, agent.state, agent.action ?? "", agent.endedAt ?? "", agent.agentId ?? ""].join("\u0000"),
+    )
     .join("\u0001");
   // eslint-disable-next-line react-hooks/exhaustive-deps -- a new list only when an agent changes
   const chatAgents = useMemo(() => freshAgents, [agentsKey]);
@@ -4817,6 +4846,8 @@ function AcpmuxPane() {
     canBackground && snapshot.isWorking && freshAgents.some((agent) => running(agent) && !agent.background);
   useBackgroundKey(!quick && (foreground.length > 0 || foregroundAgent), runInBackground);
   const chatTones = useMemo(() => (chatAgents.length > 0 ? agentTones(chatAgents) : undefined), [chatAgents]);
+  // A message to a subagent names it by its description, never its agentId (MessageCard.tsx).
+  const chatAgentNames = useMemo(() => agentNames(chatAgents), [chatAgents]);
   const freshWaiting = useMemo(
     () => (chatAgents.some(running) ? waitingSubagents(askedToolCalls, snapshot.subagentViews) : new Set<string>()),
     [chatAgents, askedToolCalls, snapshot.subagentViews],
@@ -7711,6 +7742,15 @@ function AcpmuxPane() {
               {...(newTab.widgets ? { widgets: true } : {})}
               pageWidgets={shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets)}
               {...(newTab.allChats === false ? { allChats: false } : {})}
+              onEditWidgets={(edit) =>
+                editNewTabWidgets(edit, {
+                  callNative,
+                  show: (done) =>
+                    setNewTab(
+                      (current) => current && { ...current, pageWidgets: editedPageWidgets(current.pageWidgets, done) },
+                    ),
+                })
+              }
               snapshot={newTabSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}
@@ -7957,9 +7997,11 @@ function AcpmuxPane() {
                   <EmptyState project={projectName(composerSnapshot.summary?.cwd)} picker={heroPicker} />
                 ) : (
                   <AgentTonesContext.Provider value={chatTones}>
-                    <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
-                      {transcript}
-                    </BackgroundTaskOutputContext.Provider>
+                    <AgentNamesContext.Provider value={chatAgentNames}>
+                      <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
+                        {transcript}
+                      </BackgroundTaskOutputContext.Provider>
+                    </AgentNamesContext.Provider>
                   </AgentTonesContext.Provider>
                 )}
                 {displayAnchor && (
