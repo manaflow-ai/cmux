@@ -62,20 +62,27 @@ def _text(data: bytes, label: str) -> str:
         raise NoticeError(f"{label} is not UTF-8") from None
 
 
-def _digests(directory: Path, names) -> dict:
+def license_digests(directory: Path) -> dict:
+    """The sha256 of every license file in a directory (a module, or GOROOT)."""
+    names = sorted(p.name for p in directory.iterdir() if p.is_file() and LICENSE_NAME.match(p.name))
     return {name: hashlib.sha256((directory / name).read_bytes()).hexdigest() for name in names}
 
 
 def _go_texts_match(go_root: Path | None, files: dict) -> bool:
     try:
-        return go_root is not None and _digests(go_root, files) == files
+        return go_root is not None and license_digests(go_root) == files
     except OSError:
         return False
 
 
-def license_digests(module: Module) -> dict:
-    names = sorted(p.name for p in module.directory.iterdir() if p.is_file() and LICENSE_NAME.match(p.name))
-    return _digests(module.directory, names)
+def write_atomically(path: Path, text: str) -> None:
+    """Replace a file only once its new text is fully written."""
+    temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    try:
+        temporary.write_text(text, encoding="utf-8")
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def review_key(module: Module, review: dict) -> str:
@@ -85,7 +92,7 @@ def review_key(module: Module, review: dict) -> str:
     if key in review["modules"]:
         return key
     same_path = [k for k in sorted(review["modules"]) if k.rsplit("@", 1)[0] == module.path]
-    digests = license_digests(module)
+    digests = license_digests(module.directory)
     for candidate in same_path:
         if review["modules"][candidate]["files"] == digests:
             return candidate
@@ -189,12 +196,13 @@ def main(argv: List[str]) -> int:
         modules = linked_modules(args.daemon_root)
         review = load_review()
         text = compose(modules, go_version, review, go_root=go_root)
-        if args.update_review:
-            REVIEW.write_text(dump_review(updated_review(modules, review)), encoding="utf-8")
+        updated = dump_review(updated_review(modules, review)) if args.update_review else None
     except NoticeError as error:
         print(f"remote_daemon_notices: error: {error}", file=sys.stderr)
         return 1
     args.out.write_text(text, encoding="utf-8")
+    if updated is not None:
+        write_atomically(REVIEW, updated)
     print(f"remote_daemon_notices: wrote {args.out} ({go_version})")
     return 0
 
