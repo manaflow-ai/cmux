@@ -6,7 +6,11 @@
 // a prompt sent while the reader is scrolled up lands at the bottom on the next painted frame; a
 // prompt sent while the chat still pages back to the reader's saved place opens it at the bottom
 // instead; and a reader who scrolled up is left where they scrolled while the reply grows. On base
-// every chunk glid in (180 ms each), and a send left a scrolled-up reader where they were.
+// every chunk glided in (180 ms each), and a send left a scrolled-up reader where they were.
+// A streamed reply is read as the frame paints it: at the frame's last resize, after the pane's own
+// observer has placed the rows. Its observer used to measure the reply, then render, and that
+// render committed the reply's next reveal step: the reply grew after it was measured, and the
+// frame painted its newest line 13-37 px past the view's foot (#23807 review).
 //
 // Real Chromium and WebKit from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -113,6 +117,45 @@ await requireBrowserLane("transcript-pinned-bottom.test.ts", async () => {
       own.__stopSamples();
       return own.__samples;
     });
+  /// From now until `resizes`, how far the view sits from its end as each frame that resized
+  /// anything paints: read at that frame's last ResizeObserver callback, which comes after the
+  /// pane's own (observers run in the order they were made) and right before the paint. A read
+  /// after the paint can come after a later task has grown the reply (a render the next frame's
+  /// observer places before it paints), a state no frame showed. Growth always resizes a row, so a
+  /// frame that resized nothing moved nothing.
+  const watchResizes = (page: Page) =>
+    page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const own = window as unknown as { __resizes: Map<number, number>; __stopResizes: () => void };
+      const resizes = new Map<number, number>();
+      own.__resizes = resizes;
+      let frame = 0;
+      const observer = new ResizeObserver(() => {
+        resizes.set(frame, Math.round(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop));
+      });
+      const observeAll = () => {
+        for (const row of scroller.querySelectorAll(".acpmux-row, .acpmux-thread")) observer.observe(row);
+      };
+      observeAll();
+      const added = new MutationObserver(observeAll);
+      added.observe(scroller, { childList: true, subtree: true });
+      // The frame count moves in each frame's callbacks, before its observers run.
+      const stop = window.cmuxAfterPaint(
+        () => {},
+        () => (frame += 1),
+      );
+      own.__stopResizes = () => {
+        stop();
+        added.disconnect();
+        observer.disconnect();
+      };
+    });
+  const resizes = (page: Page) =>
+    page.evaluate(() => {
+      const own = window as unknown as { __resizes: Map<number, number>; __stopResizes: () => void };
+      own.__stopResizes();
+      return [...own.__resizes.values()];
+    });
   /// How far the view rests from its end, once its frames have painted.
   const fromEnd = (page: Page) =>
     page.evaluate(() => {
@@ -140,6 +183,7 @@ await requireBrowserLane("transcript-pinned-bottom.test.ts", async () => {
 
       // A reply streamed a chunk per frame, with a tool row arriving under it part way.
       await sample(page);
+      await watchResizes(page);
       const prompt = row("live-user", "user", "Tell me about the lighthouse.");
       let text = "";
       for (let index = 0; index < 40; index += 1) {
@@ -150,8 +194,12 @@ await requireBrowserLane("transcript-pinned-bottom.test.ts", async () => {
       }
       await painted(page, 10);
       // Each chunk moves the view in the frame that draws it: nothing glides the new text up from
-      // under the view's foot, and the view rests at its end.
+      // under the view's foot, no frame paints the reply's newest line below it, and the view rests
+      // at its end.
       expect((await samples(page)).filter((frame) => frame.glides > 0)).toEqual([]);
+      const grown = await resizes(page);
+      expect(grown.length).toBeGreaterThan(20);
+      expect(grown.filter((distance) => distance > 1)).toEqual([]);
       expect(await fromEnd(page)).toBeLessThanOrEqual(1);
       await page.close();
     });

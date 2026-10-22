@@ -1992,17 +1992,30 @@ export function VirtualTranscript({
       typeof ResizeObserver === "undefined"
         ? undefined
         : new ResizeObserver((entries?: ResizeObserverEntry[]) => {
-            for (const entry of entries ?? []) {
-              const target = entry.target as HTMLElement;
-              const row = rowsRef.current[Number(target.getAttribute("aria-posinset")) - 1];
-              if (row && row.id === target.dataset.rowId)
-                reportDrawn(row.id, row.version, target.getBoundingClientRect().height);
-            }
+            const targets = (entries ?? []).map((entry) => entry.target as HTMLElement);
+            const measure = () => {
+              for (const target of targets) {
+                const row = rowsRef.current[Number(target.getAttribute("aria-posinset")) - 1];
+                if (row && row.id === target.dataset.rowId)
+                  reportDrawn(row.id, row.version, target.getBoundingClientRect().height);
+              }
+            };
+            measure();
             // A late size change (a font loading) must not paint a frame of overlap first. Sizes
             // that did not change render nothing: a synchronous render here for nothing was the
             // "ResizeObserver loop completed with undelivered notifications" while streaming.
-            if (!changesDrawn(drawnRef.current, pendingDrawn.current)) pendingDrawn.current = new Map();
-            else acpmuxPerf.timed("flush.drawn", () => flushSync(flushDrawn));
+            // That render can grow a row it measured: it also commits the streaming reply's next
+            // reveal step. The observer reports a target at the same depth once a frame, so the new
+            // size came a frame late, and that frame painted the reply's newest line past the view's
+            // foot (#23807). The rows are measured again after each render, until they hold.
+            for (let pass = 0; pass < 3; pass += 1) {
+              if (!changesDrawn(drawnRef.current, pendingDrawn.current)) {
+                pendingDrawn.current = new Map();
+                break;
+              }
+              acpmuxPerf.timed("flush.drawn", () => flushSync(flushDrawn));
+              measure();
+            }
           }),
     [reportDrawn, flushDrawn],
   );
@@ -2218,7 +2231,7 @@ export function VirtualTranscript({
   // row a moment later. Dropping it moved the view down a card's height, and the prompt moved it back
   // up. That holds for a stack over the view's foot (its room shrinks) and under it (the view grows).
   // The room goes once rows grow into it, the reader leaves the latest row, the rows rewrap, or after
-  // FLOOR_HOLD_MS (a prompt deleted from the queue never arrives), when the view glides down.
+  // FLOOR_HOLD_MS (a prompt deleted from the queue never arrives), when the view moves down with it.
   const floor = useRef({ height: 0, width, sessionId });
   const [, releaseFloor] = useReducer((count: number) => count + 1, 0);
   const floorTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);

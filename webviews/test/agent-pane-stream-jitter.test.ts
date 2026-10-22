@@ -632,7 +632,8 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       toolDone(`t-${turn}`);
       endTurn();
       // The last row rests on the stack's top again, a card's height lower, well before a second:
-      // the room held for the withdrawn prompt (250ms) goes within 600ms and its glide (180ms) ends.
+      // the room held for the withdrawn prompt (250ms) goes within 600ms. The 180ms on top was the
+      // growth glide's, which #23807 removed; it stays as slack for a loaded runner.
       expect({ after: after <= 600 + 180, atEnd: (await fromEnd(page)) <= 4 }).toEqual({ after: true, atEnd: true });
       await page.close();
     },
