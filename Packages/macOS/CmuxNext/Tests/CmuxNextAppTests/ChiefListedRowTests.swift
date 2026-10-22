@@ -147,4 +147,37 @@ struct ChiefListedRowTests {
         #expect(h.removed.isEmpty, "a release over the list removed the Chief")
         #expect(h.list.drag == nil)
     }
+
+    /// The older path (no sidebar document): the Chief sits in the top band, drawn by its own region, not the list.
+    /// Dragged past the sidebar's side and released there, it comes off as it does from the list (#23933 review).
+    @Test func aReleaseBesideTheSidebarRemovesTheChiefFromTheTopBand() throws {
+        let chief = LayoutItemID(Self.chief.id)
+        let model = SidebarModel(sections: [])
+        model.layout = SidebarLayoutDocument(sections: [LayoutSection(id: SidebarLayoutDocument.topSectionID, region: .top, look: .builtIn,
+                                                                      items: [LayoutItem(id: chief, ref: .builtIn(.chief))])])
+        let sidebar = SidebarView(model: model, design: DesignSettings.shared)
+        sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 360)
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 360), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(sidebar)
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        var removed: [String] = []
+        sidebar.removesOnDragOut = { $0 == Self.chief.id }
+        sidebar.onDragOutRemove = { removed.append($0) }
+        sidebar.renderNow()
+        sidebar.layoutSubtreeIfNeeded()
+
+        let region = sidebar.aboveRegion
+        let tile = try #require(region.itemView(chief), "the top band draws no Chief")
+        let start = NSPoint(x: tile.frame.midX, y: tile.frame.midY)
+        region.beginDrag(.item(chief), at: start)
+        try #require(region.reorder != nil, "the Chief's tile did not lift")
+        let beside = NSPoint(x: sidebar.convert(sidebar.bounds, to: nil).maxX + 60, y: region.convert(start, to: nil).y)
+        region.updateDrag(to: region.convert(beside, from: nil))
+        region.finishDrag()
+        #expect(removed == [Self.chief.id], "a release beside the sidebar kept the Chief in the top band")
+        #expect(region.reorder == nil)
+    }
 }
