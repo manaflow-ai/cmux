@@ -12,12 +12,12 @@ final class SectionHeaderRowView: SidebarRowView {
     /// "Update needed" after the status dot, for a machine whose cmux-tui
     /// is too old (the tooltip says why).
     private let badge = SidebarRowView.label(font: SidebarStyle.headerFont)
-    private var badgeText: String?
+    private(set) var badgeText: String?
     private let chevron = DecorativeImageView()
     let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 }, label: Strings.newWorkspace)
     /// The machine status dot's color, resolved in `updateLayer`.
-    private enum StatusTone { case success, attention, quiet, danger }
-    private var statusTone: StatusTone?
+    enum StatusTone { case success, attention, quiet, danger }
+    private(set) var statusTone: StatusTone?
     private var collapsed = false
     /// No workspaces: nothing to fold, so hover shows no chevron (cx-odqn).
     private var isEmpty = false
