@@ -112,18 +112,23 @@ async fn until_connected(a: &Hub) {
     tokio::time::timeout(Duration::from_secs(60), wait).await.expect("peer b never connected");
 }
 
-#[tokio::test]
-async fn a_peer_turn_longer_than_the_request_deadline_still_answers() {
-    // A 1 s request deadline and a 1 s ping, set before any peer exists. The fake agent's
-    // "mute" turn says nothing for 2 s, then answers.
-    // SAFETY: the only test in this binary, before any thread reads them.
-    unsafe {
+struct Pair {
+    a: Arc<Hub>,
+    home: std::path::PathBuf,
+}
+
+/// B serves a session `lane` over WebSocket; A mirrors B as peer `b`, connected.
+async fn pair(tag: &str) -> Pair {
+    // A 1 s request deadline and a 1 s ping, set before any peer exists.
+    static ENV: std::sync::Once = std::sync::Once::new();
+    // SAFETY: set once, before any peer of this binary reads them.
+    ENV.call_once(|| unsafe {
         std::env::set_var("ACPMUX_PEER_REQUEST_SECS", "1");
         std::env::set_var("ACPMUX_PEER_PING_SECS", "1");
-    }
+    });
     let _ = HERMETIC;
     let b = hub();
-    let home = std::env::temp_dir().join(format!("aplt-{}", std::process::id()));
+    let home = std::env::temp_dir().join(format!("aplt-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     let auth = PeerAuth::create(&home).unwrap();
     let peer_token = std::fs::read_to_string(acpmux::server::peer_auth::token_path(&home)).unwrap();
@@ -138,12 +143,30 @@ async fn a_peer_turn_longer_than_the_request_deadline_still_answers() {
     )
     .await
     .unwrap();
-
     let a = hub();
     let url = format!("ws://127.0.0.1:{port}");
     a.add_peer("b", &url, Some("tok".into()), Some(peer_token), true).await.unwrap();
     until_connected(&a).await;
+    Pair { a, home }
+}
 
+/// Waits (bounded) until A's link to `b` has `n` requests waiting for an answer.
+async fn until_pending(a: &Hub, n: usize) -> usize {
+    let peer = a.peer_by_name("b").expect("peer b");
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let now = peer.pending_requests().await;
+        if now == n || tokio::time::Instant::now() >= deadline {
+            return now;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+#[tokio::test]
+async fn a_peer_turn_longer_than_the_request_deadline_still_answers() {
+    let Pair { a, home } = pair("long").await;
+    // The fake agent's "mute" turn says nothing for 2 s, then answers.
     let mut ca = client(a.clone()).await;
     let prompt = json!({"sessionId": "b/lane", "prompt": [{"type": "text", "text": "mute"}]});
     let answered = ca.call(method::SESSION_PROMPT, prompt).await;
@@ -152,5 +175,19 @@ async fn a_peer_turn_longer_than_the_request_deadline_still_answers() {
         Ok(json!("end_turn")),
         "the peer's turn outlived the request deadline: {answered:?}"
     );
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[tokio::test]
+async fn a_forwarded_prompt_stops_waiting_when_its_client_goes() {
+    // The outbox gives an attempt up after 120 s and drops its connection; a CLI may exit.
+    // The forwarded prompt must not wait on the peer's turn for nobody.
+    let Pair { a, home } = pair("gone").await;
+    let ca = client(a.clone()).await;
+    let prompt = json!({"sessionId": "b/lane", "prompt": [{"type": "text", "text": "until-cancel"}]});
+    ca.tx.send(Message::request(99, method::SESSION_PROMPT, prompt).to_line()).await.unwrap();
+    assert_eq!(until_pending(&a, 1).await, 1, "the prompt waits on the peer");
+    drop(ca);
+    assert_eq!(until_pending(&a, 0).await, 0, "the prompt still waits after its client went");
     let _ = std::fs::remove_dir_all(&home);
 }

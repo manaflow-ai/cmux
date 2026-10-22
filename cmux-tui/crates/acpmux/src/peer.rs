@@ -308,6 +308,11 @@ impl Peer {
         self.attached.lock().unwrap().insert(session_id.to_owned())
     }
 
+    /// How many requests wait for the peer's answer now.
+    pub async fn pending_requests(&self) -> usize {
+        self.pending.lock().await.len()
+    }
+
     pub async fn request(&self, m: &str, params: Value) -> Result<Value, RpcError> {
         if !self.connected.load(Ordering::SeqCst) {
             return Err(self.unreachable_error());
