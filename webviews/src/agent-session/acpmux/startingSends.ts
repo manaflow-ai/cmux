@@ -12,6 +12,8 @@ type Item = StartingSend & { going: boolean };
 
 export class StartingSends {
   private items: Item[] = [];
+  /// Rows a refusal gave back to the composer.
+  private returned = new Set<string>();
   private tail: Promise<void> = Promise.resolve();
 
   /**
@@ -35,6 +37,11 @@ export class StartingSends {
   /** Whether `id` names one of these rows rather than a prompt in acpmux's queue. */
   owns(id: string): boolean {
     return this.items.some((item) => item.id === id);
+  }
+
+  /** Whether a refusal gave row `id` back to the composer. */
+  gaveBack(id: string): boolean {
+    return this.returned.has(id);
   }
 
   /** Adds a prompt; `go` sends it and settles once acpmux took it, or rejects when it was refused. */
@@ -77,6 +84,7 @@ export class StartingSends {
       // This prompt and every one behind it come back; the composer puts each before what it
       // holds, so the last goes back first and they read in the order they were sent.
       const back = this.items.splice(this.items.indexOf(item));
+      for (const each of back) this.returned.add(each.id);
       this.emit();
       for (const each of back.reverse()) this.giveBack(each.text, each.attachments, each === item ? error : undefined);
       return;

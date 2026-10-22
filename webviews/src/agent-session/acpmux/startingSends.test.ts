@@ -63,12 +63,15 @@ test("a refused prompt comes back with every prompt behind it, in the order they
   h.sends.add("second", [], h.go);
   h.sends.add("third", [], h.go);
   await h.settle();
+  const [first, second, third] = h.sends.rows;
   h.gates.get("first")!.refuse(new Error("trust.pending"));
   await h.settle();
   expect(h.sent).toEqual(["first"]);
   // Each comes back before what the composer holds, so the last goes back first.
   expect(h.given).toEqual(["third", "second", "first"]);
   expect(h.shown.at(-1)).toEqual([]);
+  // An unsaved edit of a row given back is not a second copy of it.
+  expect([first, second, third].every((row) => h.sends.gaveBack(row.id))).toBe(true);
   // A prompt sent after that goes at once.
   h.sends.add("again", [], h.go);
   await h.settle();
