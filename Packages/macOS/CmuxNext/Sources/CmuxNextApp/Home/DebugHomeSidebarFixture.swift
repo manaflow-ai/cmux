@@ -20,7 +20,8 @@ enum DebugHomeSidebarFixture {
                         "Omar Diaz", "Zoe Kim", "Sam Fox", "Ana Ruiz", "Leo Moss", "Ivy Hart"]
 
     static func handle(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
-        guard let page = services.windows.active?.topPages.views[.home] as? TopHomePageView else {
+        // The docked Home's list (a Home tab), else classic Home's top page.
+        guard let page = HomeDockTab.view(services)?.messages ?? services.windows.active?.topPages.views[.home] as? TopHomePageView else {
             return .object(["error": .string("no Home page in the active window")])
         }
         if params["count"] != nil || params["chiefs"] != nil || !["width", "select", "search", "unread"].contains(where: { params[$0] != nil }) {

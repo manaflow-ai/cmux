@@ -28,9 +28,9 @@ public final class ChiefPetSettingsRows: NSObject {
     /// wears it when its Chief has no avatar of its own.
     public var onMascot: (@MainActor () -> Void)?
     /// The participant id of the Chief whose popover these rows are in (nil: the default Chief); a
-    /// new one shows its character.
+    /// new one shows its character, and the rows follow that Chief's inputs from then on.
     public var chief: String? {
-        didSet { if chief != oldValue, let shown = Self.shown(settings(), picks: picks, chief: chief) { show(shown) } }
+        didSet { if chief != oldValue, host != nil { follow() } }
     }
 
     /// What the rows show: the two settings and whether each is managed.
@@ -66,18 +66,24 @@ public final class ChiefPetSettingsRows: NSObject {
         toggle.setAccessibilityLabel(enabledTitle)
         addRow(enabledTitle, toggle)
         addRow(ChiefPetMascot.pickerTitle, mascot)
-        // task-owner: lives as long as the rows (their Home view; deinit cancels it); event-driven (Observation)
+        follow()
+    }
+
+    /// Shows the settings and `chief`'s character now and on each change, until the next `follow`.
+    /// The default Chief's character is a setting and another's a pick, so what is observed depends
+    /// on the Chief (`chief` itself is not observable): a new Chief starts a new watch.
+    private func follow() {
+        watch?.cancel()
+        let chief = chief, settings = settings, picks = picks
+        // task-owner: lives until the rows' Chief changes or the rows go (their Home view; deinit cancels it); event-driven (Observation)
         watch = Task { [weak self] in
-            // The rows' Chief comes from `self` (weak): `chief`'s didSet shows a new one at once. Every
-            // change is shown (a trigger, not deduplicated against the last value emitted): that value
-            // may be another Chief's, and `show` compares with what it showed.
-            for await shown in ObservationStream({
-                ObservationTrigger(self.flatMap { Self.shown($0.settings(), picks: $0.picks, chief: $0.chief) })
-            }) {
-                guard let self else { return }
+            // Every change is shown (a trigger, never deduplicated): `show` compares with what it showed.
+            for await shown in ObservationStream({ ObservationTrigger(Self.shown(settings(), picks: picks, chief: chief)) }) {
+                guard let self, !Task.isCancelled else { return }
                 if let shown = shown.value { show(shown) }
             }
         }
+        if let shown = Self.shown(settings(), picks: picks, chief: chief) { show(shown) }
     }
 
     // As HomeHostView's: not an isolated deinit; the watch ends with the rows (their Home view).
