@@ -246,6 +246,21 @@ describe("a stopped subagent's line says why, and offers Restart", () => {
     }
   });
 
+  test("a subagent nothing named reads by its short id; its full ids are the tooltip, never the text", async () => {
+    const raw = "01a15779-206b-72b0-96af-bdbe4868e19c/toolu_01H9Jk66ek2xu2m2SaOS09M1";
+    const { root, done } = await draw(
+      lineOf([agent(raw, { name: "01H9Jk66", unnamed: true, state: "completed", endedAt: at(40), agentId: "a39e8" })]),
+    );
+    try {
+      const line = root.querySelector<HTMLButtonElement>(".cv-subagent-done")!;
+      expect(line.textContent).toBe("Subagent finished: 01H9Jk66 · 30s");
+      expect(line.textContent).not.toContain("toolu_");
+      expect(line.title).toBe(`${raw}\na39e8`);
+    } finally {
+      await done();
+    }
+  });
+
   test("without a restart (a disconnected chat) no line offers it", async () => {
     const { root, done } = await draw(
       lineOf([agent("Reviewer", { state: "cancelled", endedAt: at(40), prompt: "Review src/app.ts" })]),

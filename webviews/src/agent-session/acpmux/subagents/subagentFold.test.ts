@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { SUBAGENTS, SubagentFold, stopReasonOf, subagentStops } from "./subagentFold";
+import { translate } from "../i18n";
+import { SUBAGENTS, SubagentFold, shortSubagentId, stopReasonOf, subagentName, subagentStops } from "./subagentFold";
 
 // session/update records as acpmux sends them: a subagent's own updates carry its id in
 // `_meta.acpmux.subagent`, spawns and state changes in `_meta.acpmux.subagents`.
@@ -174,4 +175,51 @@ test("a Claude Agent call's result gives its subagent the agentId a SendMessage 
   const agents = fold.takeRows().flatMap((row) => row.subagents ?? []);
   expect(agents.map((agent) => agent.agentId)).toEqual(["a39e817af38ddf5e7"]);
   expect(agentNames(agents).get("a39e817af38ddf5e7")).toBe("Fix grid jump");
+});
+
+describe("a subagent's name in its rows", () => {
+  const RAW = "01a15779-206b-72b0-96af-bdbe4868e19c/toolu_01H9Jk66ek2xu2m2SaOS09M1";
+
+  test("one nothing named reads by a short id, never its raw id", () => {
+    const fold = new SubagentFold();
+    feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: RAW, parent: null }] });
+    const agent = fold.all()[0]!;
+    expect(agent).toMatchObject({ name: "01H9Jk66", unnamed: true });
+    expect(subagentName(agent, translate)).toBe("Subagent 01H9Jk66");
+    expect(shortSubagentId("plain")).toBe("plain");
+    expect(shortSubagentId("s/call_abcdefghijk")).toBe("abcdefgh");
+  });
+
+  test("a later name, or its Agent call's description, replaces the id-made one", () => {
+    const fold = new SubagentFold();
+    feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "s/t1", parent: null, toolCallId: "t1" }] });
+    feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "s/t2", parent: null }] });
+    // Claude's Agent call carries the description in its input.
+    feed(fold, {
+      sessionUpdate: "tool_call_update",
+      toolCallId: "t1",
+      rawInput: { description: "Fix sr2 privacy gateway", prompt: "…" },
+    });
+    feed(
+      fold,
+      { sessionUpdate: "subagent_state_update" },
+      { subagents: [{ id: "s/t2", name: "Audit", state: "completed" }] },
+    );
+    expect(fold.all().map((agent) => [agent.name, agent.unnamed])).toEqual([
+      ["Fix sr2 privacy gateway", undefined],
+      ["Audit", undefined],
+    ]);
+  });
+
+  test("a named one keeps its name: a nameless update or a task does not replace it", () => {
+    const fold = new SubagentFold();
+    feed(
+      fold,
+      { sessionUpdate: "subagent_spawned" },
+      { subagents: [{ id: "s/t3", parent: null, name: "Read docs", toolCallId: "t3" }] },
+    );
+    feed(fold, { sessionUpdate: "tool_call_update", toolCallId: "t3", rawInput: { description: "Other" } });
+    feed(fold, { sessionUpdate: "subagent_progress" }, { subagents: [{ id: "s/t3", task: "Another task" }] });
+    expect(fold.all()[0]!.name).toBe("Read docs");
+  });
 });

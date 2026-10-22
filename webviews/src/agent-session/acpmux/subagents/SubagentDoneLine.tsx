@@ -6,7 +6,8 @@
 // ("stopped by you", "interrupted by Send now"; subagentFold.ts `stopReasonOf`), nothing when it
 // does not. A click opens the subagent's view, its whole run. On hover, a subagent that did not
 // finish offers Restart, which asks the chat to run it again with its prompt (restart.ts), in the
-// hover row's buttons (conversation/MessageActions.tsx).
+// hover row's buttons (conversation/MessageActions.tsx). A subagent nothing named reads by a short
+// form of its id ("Subagent finished: 01H9Jk66"); its full ids are the line's tooltip, never its text.
 import { useContext } from "react";
 import { formatDuration } from "../conversation/turns";
 import { Retry } from "../conversation/icons";
@@ -32,6 +33,7 @@ export function SubagentDoneLine({ row }: { row: AcpmuxRow }) {
   const open = pane ?? nav;
   const agent = row.subagents?.[0];
   if (!agent) return null;
+  // "Subagent finished: …" says Subagent already: one nothing named shows its short id after it.
   const label = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name: agent.name });
   const reasonKey = agent.state === "cancelled" && agent.stopReason ? STOP_REASON_LABEL[agent.stopReason] : undefined;
   const time = formatDuration(elapsed(agent, agent.endedAt ?? row.at));
@@ -44,6 +46,8 @@ export function SubagentDoneLine({ row }: { row: AcpmuxRow }) {
         data-state={agent.state}
         {...(agent.stopReason && { "data-reason": agent.stopReason })}
         disabled={!open}
+        // tooltip-allow: the ids that name this subagent to the harness (its session and Agent call, Claude's agentId), shown nowhere else
+        title={[agent.id, ...(agent.agentId ? [agent.agentId] : [])].join("\n")}
         onClick={() => open?.(agent.id)}
       >
         <span className="cv-tool__icon">

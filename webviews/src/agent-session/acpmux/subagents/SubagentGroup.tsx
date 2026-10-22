@@ -9,7 +9,7 @@ import { AgentMark, agentBrand } from "../../shared/AgentMark";
 import { usePaneLanguage, useT, type PaneLanguage, type Translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { formatDuration } from "../conversation/turns";
-import type { Subagent } from "./subagentFold";
+import { subagentName, type Subagent } from "./subagentFold";
 import { AgentTonesContext } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
 import { waveProps } from "../../../ui/wave";
@@ -183,7 +183,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
       <Avatar agent={agent} dot />
       <span className="cv-subagent__text">
         <span className="cv-subagent__name">
-          {agent.name}
+          {subagentName(agent, t)}
           {agent.kind && agent.kind !== agent.name && <span className="cv-subagent__kind">{agent.kind}</span>}
         </span>
         <span className="cv-subagent__state">{state}</span>
@@ -202,7 +202,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
       className="cv-subagent"
       data-edge={row.status}
       data-agent-tone={tones?.get(agent.id)}
-      aria-label={t("subagents.open", { name: agent.name })}
+      aria-label={t("subagents.open", { name: subagentName(agent, t) })}
       onClick={() => open(agent.id)}
     >
       {content}
@@ -224,7 +224,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
 export function StopButton({ agent, stop }: { agent: Subagent; stop: (id: string) => Promise<unknown> }) {
   const t = useT();
   const [state, setState] = useState<"idle" | "stopping" | "failed">("idle");
-  const label = t(state === "failed" ? "subagents.stopFailed" : "subagents.stop", { name: agent.name });
+  const label = t(state === "failed" ? "subagents.stopFailed" : "subagents.stop", { name: subagentName(agent, t) });
   return (
     <button
       type="button"

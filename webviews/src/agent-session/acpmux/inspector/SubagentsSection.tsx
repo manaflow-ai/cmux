@@ -18,7 +18,7 @@ import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
 import { nestAgents } from "../subagents/AgentsPill";
 import { elapsed, running, useNow } from "../subagents/SubagentGroup";
-import type { Subagent } from "../subagents/subagentFold";
+import { subagentName, type Subagent } from "../subagents/subagentFold";
 import { subagentStatus, subagentStatusLabel, type SubagentStatus } from "../summary/SubagentStatusList";
 import { orderedSessions, sessionStatus, sessionStateLabel } from "./ChildSessionRows";
 
@@ -105,7 +105,7 @@ export function SubagentsSection({
     const status = subagentStatus(agent, waiting);
     return {
       key: `agent:${agent.id}`,
-      name: agent.name,
+      name: subagentName(agent, t),
       detail: live(status) ? (agent.action ?? agent.kind) : agent.kind,
       status,
       state: t(subagentStatusLabel(agent, waiting)),
