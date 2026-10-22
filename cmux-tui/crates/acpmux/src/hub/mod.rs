@@ -5,6 +5,7 @@
 //! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
 
 mod activity;
+pub(crate) mod admission;
 mod adoption;
 mod agent_pairs;
 pub use agent_pairs::PairGuard;
