@@ -716,11 +716,12 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
    rim. Under it, outside the pill, one quiet row: the project strip on the left, the agent's chips
    and the mic on the right, no Send disc (Return sends).
    Then "Chats" as a segmented tab with "All Chats >" across from it, and three tall cards in a
-   grid that show more of each chat's last reply. Wider than the other templates' 720px column. */
+   grid that show more of each chat's last reply. Its column is every template's, the chat's
+   (--cv-column, Leo 2026-10-21: no extra left and right padding), so its composer is as wide as the
+   chat composer in the same pane. */
 .nt-screen[data-template="cards"] {
   gap: 10px;
   padding-top: clamp(24px, 8vh, 96px);
-  padding-inline: max(var(--cv-edge, 18px), calc((100% - 880px) / 2));
 }
 .nt-screen[data-template="cards"][data-pill] .nt-box {
   border-radius: 999px;
