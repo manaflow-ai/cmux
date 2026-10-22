@@ -13,6 +13,7 @@ involved.
 
 from __future__ import annotations
 
+import os
 import shutil
 import socket
 import subprocess
@@ -49,6 +50,10 @@ def main() -> int:
         print("SKIP: zsh integration resource not found")
         return 0
     if shutil.which("zsh") is None:
+        # CI installs zsh for this test (cmux-next-shell-integration.yml): a skip there would pass unrun.
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            print("FAIL: zsh is not installed on this CI runner")
+            return 1
         print("SKIP: zsh is not installed")
         return 0
 
