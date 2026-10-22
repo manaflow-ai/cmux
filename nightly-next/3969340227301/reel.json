@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "3969340227301",
+  "notes": "notes/3969340227301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 22783,
+      "title": "cmux NEXT: a new window's sidebar shows only its own workspaces in the band",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23765,
+      "title": "cmux NEXT App Store: Discover lists every feature by category in a full-width glass grid",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23410,
+      "title": "Settings > Updates: its own category and the channels page state",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23761,
+      "title": "defaults guard: a SHIP review receipt on the head passes; a new setting that defaults off is free",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
