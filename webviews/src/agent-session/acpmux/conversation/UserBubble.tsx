@@ -213,6 +213,8 @@ const SentImage = memo(function SentImage({ image }: { image: PromptImage }) {
   return (
     <button
       type="button"
+      /* The image drags out as a file (conversation/dragOut.ts). */
+      draggable
       /* tooltip-allow: an image thumbnail shows no name */ title={label}
       aria-label={label || t("image.view")}
       onClick={() => openImage(src, label)}

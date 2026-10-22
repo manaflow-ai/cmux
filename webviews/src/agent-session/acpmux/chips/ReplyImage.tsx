@@ -109,6 +109,8 @@ export function OpenableImage({
       data-open-image
       /* The file a reply read the image from: the context menu's Show in Finder selects it. */
       data-image-path={path || undefined}
+      /* A button is not draggable by default: the image drags out as a file (conversation/dragOut.ts). */
+      draggable
       title={alt || t("image.view")}
       onClick={() => openImage(src, alt, path)}
     >

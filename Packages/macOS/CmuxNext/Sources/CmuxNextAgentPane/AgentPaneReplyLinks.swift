@@ -34,7 +34,7 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     /// Save Image As…: asks where to save the file under the name (the system save panel).
     public var saveFile: @MainActor (_ file: URL, _ name: String) -> Void = { AgentPaneImageCopies.askToSave($0, name: $1) }
     /// Quick Look on a file (the system's preview panel).
-    public lazy var quickLookFile: @MainActor (URL) -> Void = { [quickLook] in quickLook.show($0) }
+    public lazy var quickLookFile: @MainActor (URL) -> Void = { [quickLook = self.quickLook] in quickLook.show($0) }
     /// Whether the person still holds the pointer's button: a page drag (`image.drag`, `file.drag`)
     /// becomes the host's drag only then, so page script alone never starts one.
     public var mouseHeld: @MainActor () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
