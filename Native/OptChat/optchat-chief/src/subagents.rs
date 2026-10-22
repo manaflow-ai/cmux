@@ -287,10 +287,6 @@ pub const PER_AGENT: &str = "freestyle";
 /// `SIZES`): small 2 vCPU / 4 GiB, medium 4 / 8, large 8 / 16.
 pub const SIZES: [&str; 3] = ["small", "medium", "large"];
 
-/// How long a finished subagent's own VM is kept (paused) for a follow-up
-/// tell before it is deleted.
-pub const REAP_AFTER_DONE: std::time::Duration = std::time::Duration::from_secs(30 * 60);
-
 /// Subagent `id`'s own VM and acpmux peer.
 pub fn agent_peer(id: &str) -> String {
     format!("chief-sub-{id}")
@@ -398,8 +394,9 @@ impl CloudPlacement {
     pub fn task(&self, id: &str, asked: Option<&str>, task: &str) -> String {
         let repo = cloud_repo(asked).unwrap_or_else(|| "cmux".to_owned());
         format!(
-            "{}\n\n# Where you run\n\nYou run on the cloud VM `{peer}` (acpmux peer `{peer}`), not on the user's Mac. Paths in the view and the task that start with ~/fun or /Users are the Mac's: here the repo `{repo}` is a clone at ~/src/{repo}. Make your own worktree before you change anything: `git -C ~/src/{repo} fetch -q origin && git -C ~/src/{repo} worktree add {dir}/{id} origin/<branch>` and work in {dir}/{id}. Mac builds and tests go to the fleet (cmux-ci); this VM reaches the fleet controller and sr2 only. Your zoom and date tools are not here. If `git push` has no credential, commit and say the worktree path and sha in your report: the Chief lands it.\n\n{task}",
+            "{}\n\n# Where you run\n\nYou run on the cloud VM `{peer}` (acpmux peer `{peer}`), not on the user's Mac. Paths in the view and the task that start with ~/fun or /Users are the Mac's: here the repo `{repo}` is a clone at ~/src/{repo}. Make your own worktree before you change anything: `git -C ~/src/{repo} fetch -q origin && git -C ~/src/{repo} worktree add {dir}/{id} origin/<branch>` and work in {dir}/{id}. Mac builds and tests go to the fleet (cmux-ci); this VM reaches the fleet controller and sr2 only. Your zoom and date tools are not here. This VM has no GitHub credential, never a token; do not ask for one. To land, commit everything, then run `git -C {dir}/{id} config cmux.land <branch>` (the branch it goes to, e.g. feat-cmux-next): when your final report pauses this VM, the Chief host rebases those commits on the newest origin branch and pushes them plain through the Mac. Say the worktree path, sha and branch in your report.\n\n{fleet}\n\n{task}",
             self.instructions.trim_end(),
+            fleet = crate::fleet_wait::NOTE,
             peer = self.peer,
             dir = self.dir.display(),
         )
@@ -801,7 +798,14 @@ impl Spawner {
         let name = crate::workspaces::title(task);
         let group = crate::workspaces::topic_group(task);
         let key = key.unwrap_or_else(crate::workspaces::new_key);
-        match workspaces.open(&key, &session, &name, &group, &s.cwd) {
+        // The terminal beside the chat runs on this Mac: a peer session's
+        // folder is on the VM (/home/agent/work), and a PTY spawned in a
+        // folder missing here fails, so the subagent got no workspace (a511).
+        let term_cwd = match &peer {
+            Some(_) => &self.settings.cwd,
+            None => &s.cwd,
+        };
+        match workspaces.open(&key, &session, &name, &group, term_cwd) {
             Ok(key) => {
                 let place = workspaces.place();
                 // a313: the real ws_ id, so the CLI can list, move and pin it.
@@ -1585,6 +1589,14 @@ impl Orchestrator for Spawner {
             caller: caller.to_owned(),
             reply,
         })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
+    fn transcript(&self, n: u32, before: Option<u64>) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::Transcript { n, before, reply })?;
         answer
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())?

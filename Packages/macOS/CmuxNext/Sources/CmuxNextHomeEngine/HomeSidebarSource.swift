@@ -84,6 +84,8 @@ public final class HomeSidebarSource {
     #if DEBUG
     /// DEBUG: conversations listed besides the store's (`debug.home.sidebar_fixture`).
     @ObservationIgnored public var debugRows: [InboxRow] = []
+    /// DEBUG: team members listed besides the directory's (`debug.home.sidebar_fixture` `team`).
+    @ObservationIgnored public var debugTeam: [HomeContact] = []
     #endif
 
     public init(store: HomePinStore, inboxes: [HomeInboxSource] = [], account: @escaping @MainActor () -> String,
@@ -119,17 +121,26 @@ public final class HomeSidebarSource {
 
     public func model(now: Date = Date()) -> HomeSidebarModel { model(query: query, now: now) }
 
+    /// The people the list offers (plus DEBUG fixture teammates).
+    private func people() -> [HomeContact] {
+        #if DEBUG
+        return debugTeam.isEmpty ? contacts() : debugTeam + contacts()
+        #else
+        return contacts()
+        #endif
+    }
+
     private func model(query: String, now: Date) -> HomeSidebarModel {
         let listed = listed()
         let replies = inboxes.compactMap(\.reply)
         guard !replies.isEmpty else {
-            return HomeSidebarModel(rows: listed, pins: pins, me: me(), query: query, contacts: query.isEmpty ? [] : contacts(),
+            return HomeSidebarModel(rows: listed, pins: pins, me: me(), query: query, contacts: people(),
                                     unreadMarks: unreadMarks, chiefAvatars: chiefAvatars(), defaultChiefAvatar: defaultChiefAvatar(),
                                     chiefHarnesses: chiefHarnesses(), chiefRoster: chiefRoster(), now: now)
         }
         let owned = HomeInboxMapping.ordered(replies.map(\.rows))
         let list = HomeInboxMapping(owned: owned, listed: listed, pins: pins, unreadMarks: unreadMarks)
-        var model = HomeSidebarModel(ordered: list.rows, pinned: list.pinned, me: me(), query: query, contacts: query.isEmpty ? [] : contacts(),
+        var model = HomeSidebarModel(ordered: list.rows, pinned: list.pinned, me: me(), query: query, contacts: people(),
                                      unreadMarks: list.unreadMarks, chiefAvatars: chiefAvatars(), defaultChiefAvatar: defaultChiefAvatar(),
                                      chiefHarnesses: chiefHarnesses(), chiefRoster: chiefRoster(), now: now)
         model.cloudState = replies.compactMap(\.cloud).first { $0 != "not_asked" }

@@ -1763,6 +1763,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-weft"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "base64",
+ "cmux-wg",
+ "futures-util",
+ "getrandom 0.3.4",
+ "hex",
+ "ip_network",
+ "proptest",
+ "reqwest",
+ "ring",
+ "rusqlite",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "subtle",
+ "tokio",
+ "tokio-tungstenite",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
 name = "cmux-wg"
 version = "0.1.0"
 dependencies = [
