@@ -153,6 +153,12 @@
   overflow: hidden;
 }
 
+/* A click selects the row, so it shows the pointing hand; the shared rule cannot see a <tr>'s
+   handler (clickable-cursor-gallery.test.ts). */
+.keys-row {
+  cursor: pointer;
+}
+
 .keys-row td:first-child {
   border-radius: 6px 0 0 6px;
 }

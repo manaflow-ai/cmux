@@ -36,7 +36,6 @@ html[data-cmux-page="files"] body { overflow: hidden; }
   padding-inline-end: 8px;
   border-radius: 6px;
   white-space: nowrap;
-  cursor: default;
   user-select: none;
 }
 
