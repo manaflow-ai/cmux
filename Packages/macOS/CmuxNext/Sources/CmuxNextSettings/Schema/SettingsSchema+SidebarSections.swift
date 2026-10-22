@@ -63,6 +63,7 @@ nonisolated enum SidebarSectionSettingsSchema {
             SidebarSectionsSetting.sessionTreeDescriptor(group: sidebar),
         ] + SidebarSectionsSetting.sectionDescriptors(group: sidebar) + [
             SidebarSectionsSetting.minimalDescriptor(group: sidebar),
+            SidebarSectionsSetting.styleDescriptor(group: sidebar),
             SidebarSectionsSetting.densityDescriptor(group: sidebar),
             SidebarSectionsSetting.detailedStatusIconsDescriptor(group: sidebar),
             SidebarSectionsSetting.showTimestampsDescriptor(group: sidebar),
