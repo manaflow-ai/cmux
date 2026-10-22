@@ -525,7 +525,7 @@ impl Pacer {
         now: Instant,
     ) -> Result<Option<(Vec<u8>, Priority)>, Instant> {
         if let Some(packet) = self.other.pop_front() {
-            self.queued -= 1;
+            self.queued = self.queued.saturating_sub(1);
             return Ok(Some((packet, Priority::Interactive)));
         }
         if let Some(packet) = self.interactive.pop_front() {
@@ -622,7 +622,7 @@ impl Pacer {
         if let Some(segment) = segment(&packet) {
             connection.sent(&segment, packet.len(), now);
         }
-        self.queued -= 1;
+        self.queued = self.queued.saturating_sub(1);
         Some(packet)
     }
 }

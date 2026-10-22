@@ -261,8 +261,9 @@ impl MultipathControl {
     /// on every path.
     ///
     /// Path ids are 16 bits and the selector never takes one back, so the
-    /// next id the selector accepts is used. Once all 65536 were handed out
-    /// the carrier is dropped and the returned id names a removed path.
+    /// next id the selector accepts is used. After all 65536 ids are used,
+    /// `add_path` logs, drops the path (its carrier) and returns an id that
+    /// names no live path, so `remove_path` and `on_probe` on it fail.
     pub fn add_path(&self, kind: PathKind, carrier: impl Underlay) -> PathId {
         let (id, waker) = {
             let mut shared = lock(&self.shared);
