@@ -19,8 +19,10 @@
 //!   unasked inside Claude's own sandbox, and the process is never given
 //!   `--allow-dangerously-skip-permissions`. It runs in Normal or Plan only (`MODES`).
 //! - A profile argv that already shapes any of that is refused (`remote_sandbox::refused_arg`).
-//!   The program is looked up on the absolute folders of PATH and never inside the chat's folder,
-//!   and no argument of the profile's names a path there (an interpreter's script).
+//!   The program is one of Claude Code's own launchers (`LAUNCHERS`), never an interpreter that
+//!   would load a script, module or preload from the folder; it is looked up on the absolute
+//!   folders of PATH and never inside the chat's folder, and no argument of the profile's names
+//!   a path there. Env that makes an interpreter or shell load code starts blank (`BLANKED_ENV`).
 //! - git, which Claude Code runs in the folder, gets `core.fsmonitor=false` and
 //!   `core.hooksPath=/dev/null` through `GIT_CONFIG_COUNT` (other git config in the folder,
 //!   such as a filter driver, still applies: see the PR's risks).
@@ -96,10 +98,13 @@ pub(crate) fn supports(profile: &HarnessProfile) -> bool {
     profile.kind == HarnessKind::ClaudeStdio
 }
 
-/// Whether a restricted chat can start on `profile`: Claude Code whose argv shapes none of the
-/// restricted command line (`command_line` refuses those at spawn).
+/// Whether a restricted chat can start on `profile`: Claude Code through one of its launchers,
+/// whose argv shapes none of the restricted command line (`restricted_plan` refuses the rest at
+/// spawn).
 pub(crate) fn starts_restricted(profile: &HarnessProfile) -> bool {
-    supports(profile) && super::remote_sandbox::refused_arg(&profile.argv).is_none()
+    supports(profile)
+        && profile.argv.first().is_some_and(|p| launcher(p).is_ok())
+        && super::remote_sandbox::refused_arg(&profile.argv).is_none()
 }
 
 /// `mode` as a restricted chat runs it: an asking mode, else Claude Code's default.
@@ -161,6 +166,21 @@ pub(crate) fn add_git_config(env: &mut BTreeMap<String, String>, inherited: Opti
     env.insert("GIT_CONFIG_COUNT".to_owned(), (first + GIT_CONFIG.len()).to_string());
 }
 
+/// The programs a restricted chat starts, by file name: Claude Code itself and the launchers
+/// acpmux finds that run it (`config/discover.rs`: `sr claude proxy`, CodeRouter). Any other
+/// program may be an interpreter, which loads code its arguments find in the chat's folder
+/// before anything asks (`python3 -m`, `node --require`).
+const LAUNCHERS: &[&str] = &["claude", "sr", "coderouter", "cr"];
+
+/// Refuses a `program` whose file name is not one of `LAUNCHERS`.
+fn launcher(program: &str) -> Result<(), String> {
+    let name = Path::new(program).file_name().and_then(OsStr::to_str).unwrap_or(program);
+    if LAUNCHERS.contains(&name) {
+        return Ok(());
+    }
+    Err(format!("a restricted chat starts Claude Code ({}), not {name}", LAUNCHERS.join(", ")))
+}
+
 /// The program to exec: `program` when absolute, else the first match on PATH's absolute
 /// folders (a relative folder such as `.` would find one in the chat's folder). Never a
 /// program inside `cwd`, unless `cwd` holds the person's home.
@@ -191,9 +211,9 @@ fn frozen_program(program: &str, cwd: &Path) -> Result<String, String> {
 }
 
 /// Refuses an argument of the profile's own `args` (a flag's `=value` too) that names a path
-/// inside the chat's folder `cwd`: absolute, or relative and there, since Claude Code starts in
-/// it. `frozen_program` checks only the program, and an interpreter (`node`, `python3`) runs
-/// the script it is given before anything asks. Allowed when `cwd` holds the person's home.
+/// inside the chat's folder `cwd`: absolute, or relative with a `/` and there, since Claude Code
+/// starts in it. A bare word (`--model default`) is a value: only an interpreter looks one up
+/// in the folder, and `launcher` refuses those. Allowed when `cwd` holds the person's home.
 fn folder_args(args: &[String], cwd: &Path) -> Result<(), String> {
     let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
     if held_home(&cwd).is_some() {
@@ -205,7 +225,7 @@ fn folder_args(args: &[String], cwd: &Path) -> Result<(), String> {
         let inside = if path.is_absolute() {
             resolved(path).starts_with(&cwd)
         } else {
-            cwd.join(path).symlink_metadata().is_ok()
+            word.contains('/') && cwd.join(path).symlink_metadata().is_ok()
         };
         if inside {
             return Err(format!("{word} is inside the chat's folder"));
@@ -239,12 +259,25 @@ pub(crate) fn strip_lasting_allows(request: &mut Value) {
     }
 }
 
-/// Profile, login and daemon env that loads code into Claude Code's process: a restricted chat
-/// starts with it blank (a relative `--require` in `NODE_OPTIONS` would load the folder's; the
-/// loader runs a preloaded library's constructors before Claude Code starts;
-/// `CLAUDE_CODE_PLUGIN_DIRS` loads plugins and their hooks, as `--plugin-dir` does).
+/// Profile, login and daemon env that loads code into Claude Code's process or a launcher's
+/// interpreter or shell: a restricted chat starts with it blank (a relative `--require` in
+/// `NODE_OPTIONS` would load the folder's, as a PYTHONPATH of `.` imports its
+/// `sitecustomize.py`; the loader runs a preloaded library's constructors before Claude Code
+/// starts; `CLAUDE_CODE_PLUGIN_DIRS` loads plugins and their hooks, as `--plugin-dir` does).
 const BLANKED_ENV: &[&str] = &[
     "NODE_OPTIONS",
+    "NODE_PATH",
+    "PYTHONPATH",
+    "PYTHONHOME",
+    "PYTHONSTARTUP",
+    "PYTHONUSERBASE",
+    "RUBYLIB",
+    "RUBYOPT",
+    "PERL5LIB",
+    "PERL5OPT",
+    "PERLLIB",
+    "BASH_ENV",
+    "ENV",
     "DYLD_INSERT_LIBRARIES",
     "DYLD_LIBRARY_PATH",
     "DYLD_FRAMEWORK_PATH",
@@ -581,6 +614,7 @@ impl Hub {
         let refused = |why: String| self.refuse_start(session, why);
         self.refuse_unrestricted_start(session, &profile)?;
         let own = own_argv(&profile.argv, &meta.tools);
+        launcher(own.first().map_or("", String::as_str)).map_err(refused)?;
         folder_args(own.get(1..).unwrap_or_default(), &meta.cwd).map_err(refused)?;
         let mut plan = command_line(own, plan).map_err(refused)?;
         plan.program = frozen_program(&plan.program, &meta.cwd).map_err(refused)?;
@@ -702,6 +736,7 @@ mod tests {
         // refused before the chat moves to it.
         assert!(starts_restricted(&sr));
         assert!(!starts_restricted(&claude(&["claude", "--add-dir", "/"])));
+        assert!(!starts_restricted(&claude(&["node", "/opt/claude/cli.js"])));
     }
 
     #[test]
@@ -751,7 +786,9 @@ mod tests {
         let args = |a: &[&str]| a.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
         let script = chat.join("cli.js").to_string_lossy().into_owned();
         assert!(folder_args(&args(&[&script]), &chat).is_err());
-        assert!(folder_args(&args(&["cli.js"]), &chat).is_err());
+        assert!(folder_args(&args(&["./cli.js"]), &chat).is_err());
+        // A bare word is a value, even one the folder has a file for.
+        assert!(folder_args(&args(&["--model", "cli.js"]), &chat).is_ok());
         assert!(folder_args(&args(&[&format!("--require={script}")]), &chat).is_err());
         let missing = chat.join("later.js").to_string_lossy().into_owned();
         assert!(folder_args(&args(&[&missing]), &chat).is_err());
@@ -759,6 +796,25 @@ mod tests {
         assert!(folder_args(&ok, &chat).is_ok());
         assert!(folder_args(&args(&[&script]), &elsewhere).is_ok());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn only_claude_codes_launchers_start_restricted() {
+        for program in ["claude", "/Users/me/.local/bin/claude", "/opt/bin/sr", "coderouter"] {
+            assert!(launcher(program).is_ok(), "{program}");
+        }
+        for program in ["python3", "/usr/bin/node", "bun", "/bin/sh", "claude.py", ""] {
+            assert!(launcher(program).is_err(), "{program}");
+        }
+        // The Claude Code profiles acpmux finds start restricted.
+        let which = |bin: &str| Some(format!("/opt/bin/{bin}"));
+        let mut found = crate::config::discover_harnesses_from(None, &which);
+        crate::config::add_coderouter_route(&mut found, Some("work"), &which);
+        let claude = found.values().filter(|p| supports(p)).collect::<Vec<_>>();
+        assert!(claude.len() >= 3, "{claude:?}");
+        for profile in claude {
+            assert!(launcher(&profile.argv[0]).is_ok(), "{:?}", profile.argv);
+        }
     }
 
     #[cfg(unix)]
