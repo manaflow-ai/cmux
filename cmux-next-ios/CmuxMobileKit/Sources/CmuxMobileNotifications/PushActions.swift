@@ -12,6 +12,10 @@ public enum PushCategory: String, CaseIterable, Sendable {
     case terminal = "CMUX_MOBILE_TERMINAL"
     /// The phone's own "Couldn't reach <Mac>" notification.
     case retry = "CMUX_MOBILE_RETRY"
+    /// A sealed push before it opened, and any push that is not to be acted
+    /// on (an unsealed one from a Mac that seals, a stale one): no buttons
+    /// (PR B security review H1).
+    case sealed = "CMUX_MOBILE_SEALED"
 }
 
 /// One notification button (PROTOCOL.md "Phone actions").
@@ -133,7 +137,7 @@ public struct PushActions: Sendable {
         case .question, .questionForm: [action(.answer)]
         case .permission: [action(.allowOnce), action(.deny)]
         case .completed, .failed, .chief: [action(.reply)]
-        case .terminal: []
+        case .terminal, .sealed: []
         case .retry: [action(.retry)]
         }
     }

@@ -87,11 +87,20 @@ public struct PushTrust: Codable, Sendable, Equatable {
         public var identityKey: String
         /// The Mac's box key (X9.63 hex), proven by the identity key; nil from an older Mac.
         public var boxKey: String?
+        /// The identity key's signature over the box key (`cmux-mobile-mac-box-v1`),
+        /// checked again before each reply is sealed to it (PR B review L4).
+        public var boxSignature: String?
 
-        public init(identityKey: String, boxKey: String? = nil) {
+        public init(identityKey: String, boxKey: String? = nil, boxSignature: String? = nil) {
             self.identityKey = identityKey
             self.boxKey = boxKey
+            self.boxSignature = boxSignature
         }
+
+        /// This Mac seals its pushes to this phone (it proved a box key after
+        /// this phone gave it a push key): an unsealed push claiming to be from
+        /// it is not acted on (PR B security review H1).
+        public var sealsPushes: Bool { boxKey != nil }
     }
 
     /// The account the push key belongs to.
@@ -119,6 +128,9 @@ public final class PushKeys: @unchecked Sendable { // crash-allow: immutable aft
 
     public let store: any PushSecretStore
     private let enclave: Bool
+    /// Key creation and the trust record's read-modify-write, one at a time
+    /// (the app and the service extension each hold one `PushKeys`; PR B review 6).
+    private let lock = NSRecursiveLock()
 
     static let trustAccount = "trust"
 
@@ -144,19 +156,21 @@ public final class PushKeys: @unchecked Sendable { // crash-allow: immutable aft
 
     /// The push key's public half (X9.63), made the first time.
     public func publicKey(user: String) throws -> Data {
-        try key(user: user, create: true).publicKey
+        try lock.withLock { try key(user: user, create: true).publicKey }
     }
 
     /// Opens a box sealed to this account's push key.
     public func open(_ sealed: String, user: String, context: Data) throws -> Data {
-        let key = try key(user: user, create: false)
+        let key = try lock.withLock { try key(user: user, create: false) }
         return try PushSeal.open(sealed, recipient: key.publicKey, context: context) { try key.agree($0) }
     }
 
     /// Account deletion and "Remove This iPhone": the key and the trust go.
     public func reset(user: String) {
-        store.delete(Self.account(user))
-        if trust()?.user == user { store.delete(Self.trustAccount) }
+        lock.withLock {
+            store.delete(Self.account(user))
+            if trust()?.user == user { store.delete(Self.trustAccount) }
+        }
     }
 
     // MARK: Trust
@@ -168,17 +182,22 @@ public final class PushKeys: @unchecked Sendable { // crash-allow: immutable aft
 
     /// Records `mac`'s keys for `user`'s phone `phone` (a pairing passed). A
     /// record of another account is replaced.
-    public func trust(mac: String, identityKey: String, boxKey: String?, user: String, phone: String) {
-        var record = trust().flatMap { $0.user == user && $0.phone == phone ? $0 : nil } ?? PushTrust(user: user, phone: phone)
-        record.macs[mac.lowercased()] = PushTrust.Mac(identityKey: identityKey.lowercased(), boxKey: boxKey?.lowercased())
-        save(record)
+    public func trust(mac: String, identityKey: String, boxKey: String?, boxSignature: String? = nil, user: String, phone: String) {
+        lock.withLock {
+            var record = trust().flatMap { $0.user == user && $0.phone == phone ? $0 : nil } ?? PushTrust(user: user, phone: phone)
+            record.macs[mac.lowercased()] = PushTrust.Mac(identityKey: identityKey.lowercased(), boxKey: boxKey?.lowercased(),
+                                                          boxSignature: boxKey == nil ? nil : boxSignature?.lowercased())
+            save(record)
+        }
     }
 
     /// The person removed `mac`: its sealed pushes no longer open.
     public func forget(mac: String) {
-        guard var record = trust() else { return }
-        record.macs[mac.lowercased()] = nil
-        save(record)
+        lock.withLock {
+            guard var record = trust() else { return }
+            record.macs[mac.lowercased()] = nil
+            save(record)
+        }
     }
 
     private func save(_ record: PushTrust) {

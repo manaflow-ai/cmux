@@ -179,7 +179,7 @@ impl Mux {
         // Who holds the terminal now: a reply typed into it later must reach this same program.
         let poster = surface.and_then(|surface| self.surface(surface)).and_then(|surface| {
             let pid = surface.process_id()?;
-            Some(super::NotificationPoster {
+            Some(NotificationPoster {
                 pid: crate::platform::foreground_leader(pid)?,
                 executable: crate::platform::foreground_process_name(pid)?,
             })
@@ -187,7 +187,7 @@ impl Mux {
         self.notification_posts
             .lock()
             .unwrap()
-            .insert(public_id.clone(), super::NotificationPost { notification: id, poster });
+            .insert(public_id.clone(), NotificationPost { notification: id, poster });
         {
             const NOTIFICATION_LEDGER_CAPACITY: usize = 256;
             let mut ledger = self.notification_ledger.lock().unwrap();
@@ -257,7 +257,7 @@ impl Mux {
     pub fn notification_post(
         &self,
         notification: &NotificationPublicId,
-    ) -> Option<super::NotificationPost> {
+    ) -> Option<NotificationPost> {
         self.notification_posts.lock().unwrap().get(notification).cloned()
     }
 

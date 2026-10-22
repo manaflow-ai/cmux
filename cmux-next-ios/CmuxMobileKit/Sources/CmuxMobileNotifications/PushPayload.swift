@@ -113,6 +113,8 @@ public struct PushPayload: Codable, Sendable, Equatable {
     /// only in a sealed push, so a mailbox Allow can be signed offline.
     public var decisionNonce: String?
     public var personInstance: String?
+    /// When the Mac posted it (Unix seconds; sealed pushes): an old one replayed later gets no buttons.
+    public var postedAt: Int?
 
     public init(v: Int = 2, mac: String?, macName: String? = nil, kind: PushKind, eventId: String? = nil, agent: String? = nil,
                 place: String? = nil, workspace: String? = nil, workspaceId: String? = nil, tabId: String? = nil,
@@ -149,6 +151,7 @@ public struct PushPayload: Codable, Sendable, Equatable {
     enum CodingKeys: String, CodingKey {
         case v, mac, macName, kind, eventId, agent, place, workspace, workspaceId, tabId, sessionId, permissionId, conversationId
         case notificationId, title, body, options, questions, tail, state, previews, replyable, decisionNonce, personInstance
+        case postedAt
     }
 
     public init(from decoder: any Decoder) throws {
@@ -190,6 +193,7 @@ public struct PushPayload: Codable, Sendable, Equatable {
         replyable = (try? c.decodeIfPresent(Bool.self, forKey: .replyable)) ?? false
         decisionNonce = text(.decisionNonce)
         personInstance = text(.personInstance)
+        postedAt = try? c.decodeIfPresent(Int.self, forKey: .postedAt)
     }
 
     /// Reads `userInfo["cmuxMobile"]`; nil for any other notification.

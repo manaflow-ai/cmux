@@ -616,7 +616,7 @@ fn notification_workspace_scope_names_the_workspace_and_clears_only_it() {
 /// cmux on iPhone reaches only that program (cmux-next-ios `mailbox_apply.rs`).
 #[test]
 fn a_posted_notification_remembers_its_event_number_and_poster() {
-    let mux = Mux::new("notification-poster".into(), SurfaceOptions::default());
+    let mux = Mux::new("notification-poster", SurfaceOptions::default());
     let surface = mux.new_workspace(None, None).unwrap();
     let events = mux.subscribe();
     mux.post_notification_as(

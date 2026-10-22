@@ -136,8 +136,9 @@ public struct PushBanner: Equatable, Sendable {
             title = String(localized: "Chief")
             body = p.body ?? last ?? ""
         case .terminal:
-            title = p.title ?? String(localized: "Terminal")
-            body = p.body ?? ""
+            // A program chooses its own title: it never stands where an agent's banner would (review L6).
+            title = place.map { String(localized: "Terminal · \($0)") } ?? String(localized: "Terminal")
+            body = [p.title, p.body].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ": ")
         }
         self.init(title: title, subtitle: place.map { "\($0) · \(mac)" } ?? mac, body: body)
     }
