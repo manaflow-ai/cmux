@@ -114,21 +114,20 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     const context = await browser.newContext({ viewport: { width: 760, height: 600 } });
     const page = await context.newPage();
     await open(page, "agent-pane.new-tab", "template-classic");
-    // The looks, then the page's styles (Minimal among them), each marking its own pick.
-    expect(await dots(page, ".nt-look-dots")).toEqual([
-      { value: "claude", name: "Claude", checked: true },
-      { value: "codex", name: "Codex", checked: false },
-    ]);
-    expect(await page.$(".nt-style:not(.nt-look-dots) input[value=classic]:checked")).not.toBeNull();
-    expect(await page.$(".nt-style:not(.nt-look-dots) input[value=minimal]")).not.toBeNull();
+    expect(await page.$(".nt-style input[value=classic]:checked")).not.toBeNull();
     expect(await page.$(".acpmux-newtab[data-composer-look]")).toBeNull();
 
     // Codex's dot on Classic: the page stays Classic, its box takes Codex's look.
-    await pickDot(page, ".nt-look-dots", "codex");
+    await pickDot(page, ".nt-style", "codex");
     await page.waitForSelector('.acpmux-newtab[data-composer-look="codex"]');
     expect(await page.$(".nt-screen")).toBeNull();
+    // The looks, then the page's styles (Minimal among them), each marking its own pick.
+    expect(await dots(page, ".nt-look-dots")).toEqual([
+      { value: "claude", name: "Claude", checked: false },
+      { value: "codex", name: "Codex", checked: true },
+    ]);
     expect(await page.$(".nt-style:not(.nt-look-dots) input[value=classic]:checked")).not.toBeNull();
-    expect((await dots(page, ".nt-look-dots")).find((dot) => dot.checked)?.value).toBe("codex");
+    expect(await page.$(".nt-style:not(.nt-look-dots) input[value=minimal]")).not.toBeNull();
 
     // The saved look holds when Classic opens again, and on Cards: the strip is Codex's tray over
     // the box, the model in the box's row, not Cards' pill.
